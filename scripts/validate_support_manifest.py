@@ -35,6 +35,52 @@ APPROVED_PROFILES = {
     "preview": "available_without_v1_guarantee",
     "development_only": "local_or_test_use",
 }
+# Named claims that must bind to specific committed source, tests, and workflow
+# commands so that semantically stale prose cannot pass path-only validation.
+NAMED_CLAIM_BINDINGS: dict[str, dict[str, object]] = {
+    "observatory_run_report": {
+        "required_evidence": [
+            "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
+            "packages/phlo-observatory/src/phlo_observatory/src/routes/"
+            "runs.$projectId.$runId.attempts.$attempt.report.tsx",
+            "packages/phlo-api/tests/test_observatory_api.py",
+        ],
+        "forbidden_evidence": [],
+        "forbidden_reason_phrases": [
+            "does not expose an authoritative durable per-run report",
+        ],
+    },
+    "upgrade_restore": {
+        "required_evidence": [
+            "scripts/recovery_drill.py",
+            "tests/scripts/test_recovery_drill.py",
+            ".github/workflows/ci.yml",
+        ],
+        "forbidden_evidence": [],
+        "forbidden_reason_phrases": [
+            "Upgrade and recovery are documentation procedures",
+        ],
+        "workflow_commands": {
+            ".github/workflows/ci.yml": "scripts/recovery_drill.py",
+        },
+    },
+    "golden_path_ci": {
+        "required_evidence": [
+            "scripts/release_golden_path.py",
+            "tests/scripts/test_release_golden_path.py",
+            ".github/workflows/ci.yml",
+        ],
+        "forbidden_evidence": [
+            "scripts/run_golden_path.py",
+        ],
+        "forbidden_reason_phrases": [
+            "required CI does not invoke",
+        ],
+        "workflow_commands": {
+            ".github/workflows/ci.yml": "test_release_golden_path",
+        },
+    },
+}
 SERVICE_PRIMARY_OVERRIDES = {
     "phlo-postgres": {
         "postgres-exporter": "src/phlo_postgres/exporter_service.yaml",
@@ -323,6 +369,43 @@ def _registry_core_claims(repo_root: Path) -> tuple[set[str], set[str]]:
     return core_packages, core_services
 
 
+def _validate_named_claim_bindings(
+    capabilities: list[dict[str, Any]], *, repo_root: Path
+) -> list[str]:
+    """Bind named claims to committed source, tests, and workflow commands."""
+    errors: list[str] = []
+    by_name = {entry["name"]: entry for entry in capabilities}
+    for claim_name, binding in NAMED_CLAIM_BINDINGS.items():
+        entry = by_name.get(claim_name)
+        if entry is None:
+            errors.append(f"named claim {claim_name!r} is absent from capabilities")
+            continue
+        evidence = set(entry["evidence"])
+        for required in binding.get("required_evidence", []):
+            if required not in evidence:
+                errors.append(f"capability {claim_name!r}: evidence must include {required!r}")
+        for forbidden in binding.get("forbidden_evidence", []):
+            if forbidden in evidence:
+                errors.append(f"capability {claim_name!r}: evidence must not include {forbidden!r}")
+        reason = entry["reason"]
+        for phrase in binding.get("forbidden_reason_phrases", []):
+            if phrase in reason:
+                errors.append(
+                    f"capability {claim_name!r}: reason must not contain stale phrase {phrase!r}"
+                )
+        for workflow_path, command in binding.get("workflow_commands", {}).items():
+            workflow = repo_root / workflow_path
+            if not workflow.is_file():
+                errors.append(
+                    f"capability {claim_name!r}: workflow {workflow_path!r} does not exist"
+                )
+            elif command not in workflow.read_text(encoding="utf-8"):
+                errors.append(
+                    f"capability {claim_name!r}: workflow {workflow_path!r} does not invoke {command!r}"
+                )
+    return errors
+
+
 def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> list[str]:
     """Return all manifest and repository consistency errors."""
     schema_path = repo_root / "registry/support/schema/v1.json"
@@ -405,6 +488,8 @@ def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> li
                 evidence_entries=entry["evidence"],
                 repo_root=repo_root,
             )
+
+    errors.extend(_validate_named_claim_bindings(capability_entries, repo_root=repo_root))
 
     for runtime_name, runtime_entry in manifest["runtime"].items():
         _validate_evidence(

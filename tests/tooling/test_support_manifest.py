@@ -517,3 +517,171 @@ def test_runtime_supported_python_requires_ci_evidence() -> None:
     errors = validate_manifest(manifest)
 
     assert any("3.13" in error and "no CI matrix evidence" in error for error in errors)
+
+
+# ---------------------------------------------------------------------------
+# Named-claim reconciliation (issue #628)
+# ---------------------------------------------------------------------------
+
+_STALE_PHRASES = [
+    "does not expose an authoritative durable per-run report",
+    "durable per-run reports remain a planned",
+    "required CI does not invoke",
+    "Upgrade and recovery are documentation procedures",
+    "Automated upgrade and restore drills are deferred",
+    "scripts/run_golden_path.py",
+]
+
+
+def _capability(manifest: dict[str, object], name: str) -> dict[str, object]:
+    capabilities = manifest["capabilities"]
+    assert isinstance(capabilities, list)
+    entry = next(item for item in capabilities if item["name"] == name)
+    assert isinstance(entry, dict)
+    return entry
+
+
+def test_observatory_run_report_evidence_binds_to_committed_implementation() -> None:
+    """The run-report capability must cite the actual API, UI route, and test."""
+    manifest = _manifest()
+    capability = _capability(manifest, "observatory_run_report")
+    evidence = set(capability["evidence"])
+
+    assert "packages/phlo-api/src/phlo_api/observatory_api/run_report.py" in evidence
+    assert (
+        "packages/phlo-observatory/src/phlo_observatory/src/routes/"
+        "runs.$projectId.$runId.attempts.$attempt.report.tsx"
+    ) in evidence
+    assert "packages/phlo-api/tests/test_observatory_api.py" in evidence
+    for path in evidence:
+        assert (ROOT / path.split("#", 1)[0]).exists(), f"missing evidence: {path}"
+    assert "does not expose" not in capability["reason"]
+
+
+def test_observatory_package_reason_acknowledges_run_report() -> None:
+    """The phlo-observatory package entry must not claim run reports are absent."""
+    manifest = _manifest()
+    entry = _package(manifest, "phlo-observatory")
+    assert "does not expose" not in entry["reason"]
+
+
+def test_upgrade_restore_evidence_binds_to_recovery_drill_and_ci() -> None:
+    """The upgrade_restore capability must cite the drill script, its tests, and CI."""
+    manifest = _manifest()
+    capability = _capability(manifest, "upgrade_restore")
+    evidence = set(capability["evidence"])
+
+    assert "scripts/recovery_drill.py" in evidence
+    assert "tests/scripts/test_recovery_drill.py" in evidence
+    assert ".github/workflows/ci.yml" in evidence
+    for path in evidence:
+        assert (ROOT / path.split("#", 1)[0]).exists(), f"missing evidence: {path}"
+    ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "scripts/recovery_drill.py" in ci_text
+    assert "documentation procedures" not in capability["reason"]
+
+
+def test_golden_path_ci_evidence_binds_to_release_golden_path_and_ci() -> None:
+    """The golden_path_ci capability must cite release_golden_path.py and CI, not run_golden_path.py."""
+    manifest = _manifest()
+    capability = _capability(manifest, "golden_path_ci")
+    evidence = set(capability["evidence"])
+
+    assert "scripts/release_golden_path.py" in evidence
+    assert "tests/scripts/test_release_golden_path.py" in evidence
+    assert ".github/workflows/ci.yml" in evidence
+    assert "scripts/run_golden_path.py" not in evidence
+    for path in evidence:
+        assert (ROOT / path.split("#", 1)[0]).exists(), f"missing evidence: {path}"
+    ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "test_release_golden_path" in ci_text
+    assert "does not invoke" not in capability["reason"]
+
+
+def test_named_claim_validator_catches_stale_run_report_reason() -> None:
+    manifest = _manifest()
+    _capability(manifest, "observatory_run_report")["reason"] = (
+        "The Observatory surface does not expose an authoritative durable per-run report API."
+    )
+
+    errors = validate_manifest(manifest)
+
+    assert any("stale phrase" in error and "observatory_run_report" in error for error in errors)
+
+
+def test_named_claim_validator_catches_stale_upgrade_restore_reason() -> None:
+    manifest = _manifest()
+    _capability(manifest, "upgrade_restore")["reason"] = (
+        "Upgrade and recovery are documentation procedures until tested."
+    )
+
+    errors = validate_manifest(manifest)
+
+    assert any("stale phrase" in error and "upgrade_restore" in error for error in errors)
+
+
+def test_named_claim_validator_catches_stale_golden_path_reason() -> None:
+    manifest = _manifest()
+    _capability(manifest, "golden_path_ci")["reason"] = (
+        "The real golden-path script exists but required CI does not invoke it."
+    )
+
+    errors = validate_manifest(manifest)
+
+    assert any("stale phrase" in error and "golden_path_ci" in error for error in errors)
+
+
+def test_named_claim_validator_catches_missing_required_evidence() -> None:
+    manifest = _manifest()
+    _capability(manifest, "golden_path_ci")["evidence"] = [
+        "scripts/run_golden_path.py",
+        ".github/workflows/ci.yml",
+    ]
+
+    errors = validate_manifest(manifest)
+
+    assert any(
+        "evidence must include" in error and "release_golden_path.py" in error for error in errors
+    )
+    assert any(
+        "evidence must not include" in error and "run_golden_path.py" in error for error in errors
+    )
+
+
+def test_named_claim_validator_catches_workflow_command_regression(tmp_path: Path) -> None:
+    """If CI stops invoking the recovery drill, the validator must fail."""
+    manifest = _manifest()
+    capabilities = manifest["capabilities"]
+    workflows_dir = tmp_path / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    ci_text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    (workflows_dir / "ci.yml").write_text(
+        ci_text.replace("scripts/recovery_drill.py", "scripts/removed.py"),
+        encoding="utf-8",
+    )
+
+    errors = VALIDATOR._validate_named_claim_bindings(capabilities, repo_root=tmp_path)
+
+    assert any("does not invoke" in error and "recovery_drill.py" in error for error in errors)
+
+
+def test_no_stale_support_phrases_in_manifest_or_docs() -> None:
+    """The stale phrases identified in issue #628 must not regress."""
+    check_paths = [
+        ROOT / "registry" / "support" / "v1.json",
+        ROOT / "packages" / "phlo-observatory" / "README.md",
+    ]
+    for doc_file in (ROOT / "docs").rglob("*.md"):
+        check_paths.append(doc_file)
+    for path in check_paths:
+        text = path.read_text(encoding="utf-8")
+        for phrase in _STALE_PHRASES:
+            assert phrase not in text, f"stale phrase {phrase!r} found in {path.relative_to(ROOT)}"
+
+
+def test_production_ready_remains_false_and_no_gate_passed() -> None:
+    """Alpha maturity and fail-closed gates must be preserved."""
+    manifest = _manifest()
+    assert manifest["current_release"]["production_ready"] is False
+    assert manifest["current_release"]["maturity"] == "alpha"
+    assert not any(v == "passed" for v in manifest["gates"]["status"].values())

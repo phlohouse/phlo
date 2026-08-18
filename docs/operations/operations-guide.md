@@ -688,7 +688,7 @@ done
 
 ### Testing Recovery
 
-Automated upgrade and restore drills are deferred beyond v1; Phlo does not currently provide recovery scripts for those operations.
+A CI recovery drill exercises owned backup and restore using `scripts/recovery_drill.py`; live PostgreSQL migration evidence remains pending, so the upgrade_restore gate stays fail-closed.
 
 ## Release Management
 

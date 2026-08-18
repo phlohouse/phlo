@@ -162,7 +162,7 @@ see [Browser-Facing Surfaces in Regulated Mode](../setup/security.md#browser-fac
 
 ## Durable run-report support boundary
 
-The current Observatory surface is tested for UI and API visibility, but it does not expose an authoritative durable per-run report API or projection. The v1 support boundary therefore does not claim durable run reports as an implemented capability.
+The Observatory exposes an authenticated durable per-run report API and UI projection at alpha maturity. The v1 support boundary acknowledges this implemented capability while keeping release acceptance pending until the run_evidence gate passes.
 
 ## Next Steps
 

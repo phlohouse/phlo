@@ -4,7 +4,7 @@ Phlo Observatory UI for data platform visibility.
 
 ## Description
 
-Web-based UI for exploring the data lakehouse. View lineage, browse tables, run bounded read-only previews, and monitor pipeline health; durable per-run reports remain a planned v1 capability.
+Web-based UI for exploring the data lakehouse. View lineage, browse tables, run bounded read-only previews, and monitor pipeline health; an authenticated durable per-run report API and UI projection are implemented at alpha maturity.
 
 ## Installation
 

@@ -25,7 +25,7 @@ flowchart TB
 The v1 target stack is installed with `phlo[defaults]`; the base `phlo` package does not install every provider. Current maturity and release-gate status are recorded in [the support manifest](../../registry/support/v1.json):
 
 - **Dagster, PostgreSQL, MinIO, Nessie, and Trino** - the tested local service path
-- **phlo-api and Observatory** - the core product surface, with durable run reports still planned
+- **phlo-api and Observatory** - the core product surface, with an authenticated durable per-run report API and UI projection implemented at alpha maturity
 
 ### Package Services
 

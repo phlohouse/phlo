@@ -257,10 +257,12 @@
       "scope": "blessed_core",
       "target_status": "supported",
       "current_maturity": "alpha",
-      "reason": "The Observatory surface exists and is tested; it does not expose an authoritative durable per-run report API or projection.",
+      "reason": "The Observatory surface exists and is tested; it exposes an authenticated durable per-run report API and UI projection at alpha maturity.",
       "evidence": [
         "packages/phlo-observatory/pyproject.toml",
-        "packages/phlo-observatory/tests"
+        "packages/phlo-observatory/tests",
+        "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
+        "packages/phlo-observatory/src/phlo_observatory/src/routes/runs.$projectId.$runId.attempts.$attempt.report.tsx"
       ]
     },
     {
@@ -970,9 +972,11 @@
       "scope": "blessed_core",
       "target_status": "required",
       "current_maturity": "planned",
-      "reason": "The Observatory surface does not expose an authoritative durable per-run report API or projection.",
+      "reason": "The Observatory exposes an authenticated durable per-run report API and UI projection at alpha maturity; release acceptance remains pending until the run_evidence gate passes.",
       "evidence": [
-        "packages/phlo-api/src/phlo_api/observatory_api/observatory_models.py",
+        "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
+        "packages/phlo-observatory/src/phlo_observatory/src/routes/runs.$projectId.$runId.attempts.$attempt.report.tsx",
+        "packages/phlo-api/tests/test_observatory_api.py",
         "docs/packages/phlo-observatory.md#durable-run-report-support-boundary"
       ]
     },
@@ -1018,8 +1022,11 @@
       "scope": "blessed_core",
       "target_status": "required",
       "current_maturity": "planned",
-      "reason": "Upgrade and recovery are documentation procedures until migrations and restore drills are tested.",
+      "reason": "A CI recovery drill exercises owned backup and restore, but live PostgreSQL migration evidence remains pending.",
       "evidence": [
+        "scripts/recovery_drill.py",
+        "tests/scripts/test_recovery_drill.py",
+        ".github/workflows/ci.yml",
         "docs/operations/operations-guide.md"
       ]
     },
@@ -1028,9 +1035,10 @@
       "scope": "blessed_core",
       "target_status": "required",
       "current_maturity": "planned",
-      "reason": "The real golden-path script exists but required CI does not invoke it.",
+      "reason": "Required CI exercises the release golden-path contract, but installed provider-artifact coverage remains incomplete.",
       "evidence": [
-        "scripts/run_golden_path.py",
+        "scripts/release_golden_path.py",
+        "tests/scripts/test_release_golden_path.py",
         ".github/workflows/ci.yml"
       ]
     }
