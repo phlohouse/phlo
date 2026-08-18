@@ -881,11 +881,19 @@ def _all_checks_passed(instance: Any, run_id: str) -> bool:
     default_status=dg.DefaultSensorStatus.RUNNING,
 )
 def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
-    """Clean up pipeline branches older than the retention period.
+    """Delete stale WAP pipeline branches past the retention period.
 
-    Scans the versioned catalog for branches matching the pipeline- prefix and deletes those
-    whose associated runs have terminated (SUCCESS or FAILURE) and whose
-    creation time exceeds the retention window.
+    Scans the versioned catalog for branches matching the ``pipeline-run-``
+    prefix.  For each branch past the 24-hour retention threshold the suffix is
+    treated as a logical run ID: Dagster is queried by the ``phlo/run_id`` tag
+    and only runs whose ``phlo/wap_branch`` tag exactly equals the candidate
+    branch are considered.  The branch is deleted only when a single exact
+    match exists, it is terminal, and its project/attempt correlation resolves.
+
+    Branches are retained and an incomplete maintenance evidence gap is
+    recorded when the matched run is active, absent, ambiguous, or conflicts on
+    project/attempt metadata.  The logical run ID is the cleanup/report
+    identity; the physical Dagster run ID is used only for status.
 
     Args:
         context: Dagster sensor evaluation context.
@@ -914,52 +922,78 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
             continue
 
         logical_run_id = branch.name.removeprefix(OWNED_WAP_BRANCH_PREFIX)
-        report = _read_wap_report(logical_run_id)
-        if report and (
-            report.get("run_id") != logical_run_id
-            or report.get("branch") not in (None, branch.name)
-        ):
-            report = None
-        dagster_run_id = report.get("dagster_run_id") if report else None
-        dagster_run = None
-        run_status = None
-        get_run_by_id = getattr(context.instance, "get_run_by_id", None)
-        if callable(get_run_by_id) and dagster_run_id:
-            dagster_run = get_run_by_id(dagster_run_id)
-            if dagster_run is not None:
-                run_status = _normalized_dagster_status(dagster_run)
-        report_status = report.get("run_status") if report else None
-        if report_status in {"success", "failed", "error", "cancelled", "canceled", "skipped"}:
-            run_status = report_status
-        elif report and report.get("status") == "promoted":
-            run_status = "success"
-        elif report and report.get("status") == "launch_rejected":
-            run_status = "failed"
+
+        # Correlate the candidate branch to its Dagster run through the logical
+        # ``phlo/run_id`` tag, then require the exact ``phlo/wap_branch`` tag.
+        # The branch suffix is a logical run ID, never a physical Dagster ID.
+        candidate_runs = list(
+            context.instance.get_runs(filters=dg.RunsFilter(tags={WAP_RUN_ID_TAG: logical_run_id}))
+        )
+        exact_matches = [
+            run
+            for run in candidate_runs
+            if (getattr(run, "tags", {}) or {}).get(WAP_BRANCH_TAG) == branch.name
+        ]
+
+        # Absent: no run carries both the logical ID and the exact WAP branch.
+        if not exact_matches:
+            _record_uncorrelated_gap(
+                logical_run_id,
+                branch=branch.name,
+                missing=["run_status"],
+                reason="cleanup_no_exact_tagged_run",
+            )
+            continue
+
+        # Ambiguous or conflicting: more than one exact match.  Retain the
+        # branch whether the matches merely duplicate or actively disagree on
+        # project/attempt correlation.
+        if len(exact_matches) > 1:
+            project_ids = {
+                (getattr(run, "tags", {}) or {}).get("phlo/project_id") for run in exact_matches
+            }
+            attempts = {
+                (getattr(run, "tags", {}) or {}).get("phlo/attempt") for run in exact_matches
+            }
+            if len(project_ids) > 1 or len(attempts) > 1:
+                _record_uncorrelated_gap(
+                    logical_run_id,
+                    branch=branch.name,
+                    missing=["project_id", "attempt"],
+                    reason="cleanup_correlation_conflict",
+                )
+            else:
+                _record_uncorrelated_gap(
+                    logical_run_id,
+                    branch=branch.name,
+                    missing=["run_status"],
+                    reason="cleanup_ambiguous_tagged_runs",
+                )
+            continue
+
+        # Exactly one exact match: use its physical ID only for Dagster status.
+        selected_run = exact_matches[0]
+        run_status = _normalized_dagster_status(selected_run)
+
+        # Active: the matched run has not reached a terminal state.
         if run_status is None:
             _record_uncorrelated_gap(
                 logical_run_id,
                 branch=branch.name,
                 missing=["run_status"],
-                reason="cleanup_authoritative_status_missing",
+                reason="cleanup_run_active",
             )
             continue
 
-        tags = dict(getattr(dagster_run, "tags", {}) or {}) if dagster_run else {}
-        report_project = report.get("project_id") if report else None
-        tagged_project = tags.get("phlo/project_id")
-        if report_project and tagged_project and report_project != tagged_project:
-            _record_uncorrelated_gap(
-                logical_run_id,
-                branch=branch.name,
-                missing=["project_id"],
-                reason="cleanup_project_conflict",
-            )
-            continue
-        if report_project and not tagged_project:
-            tags["phlo/project_id"] = report_project
-        if "phlo/attempt" not in tags and report:
-            tags["phlo/attempt"] = str(report.get("attempt", ""))
-        cleanup_run = type("CleanupRun", (), {"run_id": logical_run_id, "tags": tags})()
+        # Fail closed when the matched run lacks project/attempt correlation.
+        cleanup_run = type(
+            "CleanupRun",
+            (),
+            {
+                "run_id": logical_run_id,
+                "tags": dict(getattr(selected_run, "tags", {}) or {}),
+            },
+        )()
         project_id = _project_id_for_run(cleanup_run)
         attempt = _attempt_for_run(cleanup_run)
         if not project_id or attempt is None:

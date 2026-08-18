@@ -744,11 +744,16 @@ def test_wap_cleanup_uses_authoritative_terminated_run_status(monkeypatch, tmp_p
     dagster_run = SimpleNamespace(
         run_id="run-cleanup",
         status=dg.DagsterRunStatus.SUCCESS,
-        tags={"phlo/project_id": "project-cleanup", "phlo/attempt": "2"},
+        tags={
+            "phlo/run_id": logical_run_id,
+            "phlo/wap_branch": branch_name,
+            "phlo/project_id": "project-cleanup",
+            "phlo/attempt": "2",
+        },
     )
     _write_launch_manifest(logical_run_id, dagster_run.run_id, branch_name)
     instance = MagicMock()
-    instance.get_run_by_id.return_value = dagster_run
+    instance.get_runs.return_value = [dagster_run]
     catalog = MagicMock()
     catalog.list_branches.return_value = [branch]
     catalog.delete_branch.return_value = True
@@ -767,6 +772,9 @@ def test_wap_cleanup_uses_authoritative_terminated_run_status(monkeypatch, tmp_p
 
     wap_branch_cleanup_sensor._raw_fn(context)
 
+    instance.get_runs.assert_called_once_with(
+        filters=dg.RunsFilter(tags={"phlo/run_id": logical_run_id})
+    )
     query_catalog_manager.drop_ref_query_catalog.assert_called_once_with(branch_name)
     catalog.delete_branch.assert_called_once_with(branch_name)
     assert observations[0]["run_status"] == "success"
@@ -782,7 +790,7 @@ def test_wap_cleanup_records_uncorrelated_gap_without_authoritative_status(monke
         hash="branch-hash",
     )
     instance = MagicMock()
-    instance.get_run_by_id.return_value = None
+    instance.get_runs.return_value = []
     catalog = MagicMock()
     catalog.list_branches.return_value = [branch]
     catalog.delete_branch.return_value = True
@@ -801,7 +809,252 @@ def test_wap_cleanup_records_uncorrelated_gap_without_authoritative_status(monke
     wap_branch_cleanup_sensor._raw_fn(context)
 
     assert gaps[0]["missing"] == ["run_status"]
-    assert gaps[0]["reason"] == "cleanup_authoritative_status_missing"
+    assert gaps[0]["reason"] == "cleanup_no_exact_tagged_run"
+
+
+# ---------------------------------------------------------------------------
+# Logical-run-tag correlation cleanup sensor tests (issue #625)
+# ---------------------------------------------------------------------------
+
+
+def _cleanup_branch(logical_run_id: str, *, hours_old: int = 25) -> SimpleNamespace:
+    return SimpleNamespace(
+        name=_wap_branch_name(logical_run_id),
+        created_at=datetime.now(timezone.utc) - timedelta(hours=hours_old),
+        hash="branch-hash",
+    )
+
+
+def _cleanup_run(
+    logical_run_id: str,
+    physical_run_id: str,
+    branch_name: str,
+    *,
+    status: object = dg.DagsterRunStatus.SUCCESS,
+    project_id: str = "project-cleanup",
+    attempt: str = "1",
+    extra_tags: dict[str, str] | None = None,
+) -> SimpleNamespace:
+    tags = {
+        "phlo/run_id": logical_run_id,
+        "phlo/wap_branch": branch_name,
+        "phlo/project_id": project_id,
+        "phlo/attempt": attempt,
+    }
+    if extra_tags:
+        tags.update(extra_tags)
+    return SimpleNamespace(run_id=physical_run_id, status=status, tags=tags)
+
+
+def _patch_cleanup_sensor(monkeypatch, catalog, query_catalog_manager, instance):
+    monkeypatch.setattr("phlo_dagster.wap_sensors._load_versioned_catalog", lambda: catalog)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors._load_ref_query_catalog_manager",
+        lambda: query_catalog_manager,
+    )
+    monkeypatch.setattr("phlo_dagster.wap_sensors._emit_wap_observation", lambda **_k: None)
+    return MagicMock(instance=instance)
+
+
+def test_wap_cleanup_deletes_branch_when_exact_tagged_run_is_terminal(monkeypatch, tmp_path):
+    """AC 1: distinct logical/physical IDs, terminal run → branch deleted."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    logical_run_id = "logical-1"
+    physical_run_id = "dagster-abc"
+    branch_name = _wap_branch_name(logical_run_id)
+    branch = _cleanup_branch(logical_run_id)
+    run = _cleanup_run(logical_run_id, physical_run_id, branch_name)
+    instance = MagicMock()
+    instance.get_runs.return_value = [run]
+    catalog = MagicMock()
+    catalog.list_branches.return_value = [branch]
+    catalog.delete_branch.return_value = True
+    query_catalog_manager = MagicMock()
+    context = _patch_cleanup_sensor(monkeypatch, catalog, query_catalog_manager, instance)
+
+    wap_branch_cleanup_sensor._raw_fn(context)
+
+    instance.get_runs.assert_called_once_with(
+        filters=dg.RunsFilter(tags={"phlo/run_id": logical_run_id})
+    )
+    query_catalog_manager.drop_ref_query_catalog.assert_called_once_with(branch_name)
+    catalog.delete_branch.assert_called_once_with(branch_name)
+
+
+def test_wap_cleanup_retains_branch_while_exact_tagged_run_is_active(monkeypatch, tmp_path):
+    """AC 2: the exact tagged run exists but is not terminal → retain + gap."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    logical_run_id = "logical-active"
+    physical_run_id = "dagster-running"
+    branch_name = _wap_branch_name(logical_run_id)
+    branch = _cleanup_branch(logical_run_id)
+    run = _cleanup_run(
+        logical_run_id,
+        physical_run_id,
+        branch_name,
+        status=dg.DagsterRunStatus.STARTED,
+    )
+    instance = MagicMock()
+    instance.get_runs.return_value = [run]
+    catalog = MagicMock()
+    catalog.list_branches.return_value = [branch]
+    query_catalog_manager = MagicMock()
+    gaps: list[dict[str, object]] = []
+    monkeypatch.setattr("phlo_dagster.wap_sensors._load_versioned_catalog", lambda: catalog)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors._load_ref_query_catalog_manager",
+        lambda: query_catalog_manager,
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors._record_uncorrelated_gap",
+        lambda *a, **kw: gaps.append(kw),
+    )
+    context = MagicMock(instance=instance)
+
+    wap_branch_cleanup_sensor._raw_fn(context)
+
+    query_catalog_manager.drop_ref_query_catalog.assert_not_called()
+    catalog.delete_branch.assert_not_called()
+    assert gaps[0]["reason"] == "cleanup_run_active"
+    assert gaps[0]["missing"] == ["run_status"]
+
+
+def test_wap_cleanup_retains_prefixed_branch_when_run_lacks_exact_wap_branch_tag(
+    monkeypatch, tmp_path
+):
+    """AC 3: a terminal run's physical ID matches the suffix but the WAP branch
+    tag does not match the candidate branch → no exact match → retain + gap."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    logical_run_id = "logical-mismatch"
+    branch = _cleanup_branch(logical_run_id)
+    # Run carries the logical ID tag but points at a *different* WAP branch.
+    run = SimpleNamespace(
+        run_id="dagster-physical",
+        status=dg.DagsterRunStatus.SUCCESS,
+        tags={
+            "phlo/run_id": logical_run_id,
+            "phlo/wap_branch": "pipeline-run-some-other-branch",
+            "phlo/project_id": "project-cleanup",
+            "phlo/attempt": "1",
+        },
+    )
+    instance = MagicMock()
+    instance.get_runs.return_value = [run]
+    catalog = MagicMock()
+    catalog.list_branches.return_value = [branch]
+    query_catalog_manager = MagicMock()
+    gaps: list[dict[str, object]] = []
+    monkeypatch.setattr("phlo_dagster.wap_sensors._load_versioned_catalog", lambda: catalog)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors._load_ref_query_catalog_manager",
+        lambda: query_catalog_manager,
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors._record_uncorrelated_gap",
+        lambda *a, **kw: gaps.append(kw),
+    )
+    context = MagicMock(instance=instance)
+
+    wap_branch_cleanup_sensor._raw_fn(context)
+
+    query_catalog_manager.drop_ref_query_catalog.assert_not_called()
+    catalog.delete_branch.assert_not_called()
+    assert gaps[0]["reason"] == "cleanup_no_exact_tagged_run"
+
+
+def test_wap_cleanup_retains_branch_when_matching_runs_disagree_on_correlation(
+    monkeypatch, tmp_path
+):
+    """AC 4: two exact-tagged runs disagree on project → retain + conflict gap."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    logical_run_id = "logical-conflict"
+    branch_name = _wap_branch_name(logical_run_id)
+    branch = _cleanup_branch(logical_run_id)
+    run_a = _cleanup_run(logical_run_id, "dagster-a", branch_name, project_id="project-a")
+    run_b = _cleanup_run(logical_run_id, "dagster-b", branch_name, project_id="project-b")
+    instance = MagicMock()
+    instance.get_runs.return_value = [run_a, run_b]
+    catalog = MagicMock()
+    catalog.list_branches.return_value = [branch]
+    query_catalog_manager = MagicMock()
+    gaps: list[dict[str, object]] = []
+    monkeypatch.setattr("phlo_dagster.wap_sensors._load_versioned_catalog", lambda: catalog)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors._load_ref_query_catalog_manager",
+        lambda: query_catalog_manager,
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors._record_uncorrelated_gap",
+        lambda *a, **kw: gaps.append(kw),
+    )
+    context = MagicMock(instance=instance)
+
+    wap_branch_cleanup_sensor._raw_fn(context)
+
+    query_catalog_manager.drop_ref_query_catalog.assert_not_called()
+    catalog.delete_branch.assert_not_called()
+    assert gaps[0]["reason"] == "cleanup_correlation_conflict"
+
+
+def test_wap_cleanup_deletes_query_catalog_before_branch(monkeypatch, tmp_path):
+    """AC 5: query-catalog cleanup completes before branch deletion."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    logical_run_id = "logical-order"
+    physical_run_id = "dagster-order"
+    branch_name = _wap_branch_name(logical_run_id)
+    branch = _cleanup_branch(logical_run_id)
+    run = _cleanup_run(logical_run_id, physical_run_id, branch_name)
+    instance = MagicMock()
+    instance.get_runs.return_value = [run]
+    catalog = MagicMock()
+    catalog.list_branches.return_value = [branch]
+    catalog.delete_branch.return_value = True
+    query_catalog_manager = MagicMock()
+    call_order: list[str] = []
+    query_catalog_manager.drop_ref_query_catalog.side_effect = lambda *_a, **_k: call_order.append(
+        "query_catalog"
+    )
+    catalog.delete_branch.side_effect = lambda *_a, **_k: call_order.append("branch")
+    context = _patch_cleanup_sensor(monkeypatch, catalog, query_catalog_manager, instance)
+
+    wap_branch_cleanup_sensor._raw_fn(context)
+
+    query_catalog_manager.drop_ref_query_catalog.assert_called_once_with(branch_name)
+    catalog.delete_branch.assert_called_once_with(branch_name)
+    assert call_order == ["query_catalog", "branch"]
+
+
+def test_wap_cleanup_retains_ambiguous_tagged_runs_and_emits_gap(monkeypatch, tmp_path):
+    """AC 6: multiple exact-tagged terminal runs that agree on correlation are
+    still ambiguous → retain + gap."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    logical_run_id = "logical-ambiguous"
+    branch_name = _wap_branch_name(logical_run_id)
+    branch = _cleanup_branch(logical_run_id)
+    run_a = _cleanup_run(logical_run_id, "dagster-a", branch_name)
+    run_b = _cleanup_run(logical_run_id, "dagster-b", branch_name)
+    instance = MagicMock()
+    instance.get_runs.return_value = [run_a, run_b]
+    catalog = MagicMock()
+    catalog.list_branches.return_value = [branch]
+    query_catalog_manager = MagicMock()
+    gaps: list[dict[str, object]] = []
+    monkeypatch.setattr("phlo_dagster.wap_sensors._load_versioned_catalog", lambda: catalog)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors._load_ref_query_catalog_manager",
+        lambda: query_catalog_manager,
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors._record_uncorrelated_gap",
+        lambda *a, **kw: gaps.append(kw),
+    )
+    context = MagicMock(instance=instance)
+
+    wap_branch_cleanup_sensor._raw_fn(context)
+
+    query_catalog_manager.drop_ref_query_catalog.assert_not_called()
+    catalog.delete_branch.assert_not_called()
+    assert gaps[0]["reason"] == "cleanup_ambiguous_tagged_runs"
 
 
 @pytest.mark.parametrize(
