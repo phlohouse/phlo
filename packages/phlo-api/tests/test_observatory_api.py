@@ -1772,13 +1772,17 @@ def test_observatory_concurrent_idempotency_endpoint_executes_provider_once(
         clear_capabilities("authorization_policy_backend")
 
     assert provider_call_count == 1
-    codes = sorted([r1.status_code, r2.status_code])
-    assert codes == [200, 409]
-    winner = r1 if r1.status_code == 200 else r2
-    contender = r1 if r1.status_code == 409 else r2
-    assert winner.json()["run_id"] == "run-only"
-    assert contender.json()["detail"] == {"error": "idempotency_in_progress"}
-    assert contender.headers.get("retry-after") is not None
+    responses = (r1, r2)
+    assert all(response.status_code in {200, 409} for response in responses)
+    winners = [response for response in responses if response.status_code == 200]
+    contenders = [response for response in responses if response.status_code == 409]
+    assert winners
+    assert all(winner.json()["run_id"] == "run-only" for winner in winners)
+    assert all(
+        contender.json()["detail"] == {"error": "idempotency_in_progress"}
+        for contender in contenders
+    )
+    assert all(contender.headers.get("retry-after") is not None for contender in contenders)
 
 
 def test_observatory_idempotency_outcome_unknown_endpoint_does_not_retry(

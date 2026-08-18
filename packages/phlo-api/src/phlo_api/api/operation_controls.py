@@ -413,6 +413,7 @@ def _idempotency_connection() -> sqlite3.Connection:
             key_hash TEXT NOT NULL,
             operation TEXT NOT NULL,
             target TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'completed',
             response_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             expires_at TEXT NOT NULL,
@@ -431,10 +432,17 @@ def _migrate_operations_schema(conn: sqlite3.Connection) -> None:
     held successful, replayable responses) are treated as ``completed`` so they
     remain replayable after the schema change.
     """
-    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(operations)").fetchall()}
-    if "state" not in columns:
-        conn.execute("ALTER TABLE operations ADD COLUMN state TEXT NOT NULL DEFAULT 'completed'")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(operations)").fetchall()}
+        if "state" not in columns:
+            conn.execute(
+                "ALTER TABLE operations ADD COLUMN state TEXT NOT NULL DEFAULT 'completed'"
+            )
         conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def _delete_expired(conn: sqlite3.Connection) -> None:

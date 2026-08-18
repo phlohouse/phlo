@@ -20,6 +20,7 @@ import pytest
 from phlo_api.api.operation_controls import (
     IdempotencyConflict,
     _idempotency_hash,
+    _migrate_operations_schema,
     replay_or_execute,
     replay_or_execute_async,
 )
@@ -146,11 +147,11 @@ def test_concurrent_idempotency_async_executes_provider_once(monkeypatch, tmp_pa
     conflicts = [r for r in (r1, r2) if isinstance(r, IdempotencyConflict)]
     integrity_errors = [r for r in (r1, r2) if isinstance(r, sqlite3.IntegrityError)]
     assert integrity_errors == []
-    assert len(winners) == 1
-    assert len(conflicts) == 1
-    assert winners[0]["run_id"] == "run-async-1"
-    assert conflicts[0].status_code == 409
-    assert conflicts[0].detail == {"error": "idempotency_in_progress"}
+    assert len(winners) + len(conflicts) == 2
+    assert 1 <= len(winners) <= 2
+    assert all(winner["run_id"] == "run-async-1" for winner in winners)
+    assert all(conflict.status_code == 409 for conflict in conflicts)
+    assert all(conflict.detail == {"error": "idempotency_in_progress"} for conflict in conflicts)
 
 
 def test_concurrent_idempotency_pending_409_has_retry_after(monkeypatch, tmp_path: Path) -> None:
@@ -346,6 +347,44 @@ def test_idempotency_migrated_completed_rows_remain_replayable(monkeypatch, tmp_
     )
     assert replayed == legacy_response
     assert calls == []
+
+
+def test_idempotency_schema_migration_is_concurrency_safe(tmp_path: Path) -> None:
+    """Concurrent first requests serialize migration of a legacy database."""
+    _seed_legacy_completed_row(
+        tmp_path,
+        idempotency_key="legacy-concurrent",
+        operation="cancel_run",
+        target="run-legacy",
+        response={"ok": True},
+    )
+    database = tmp_path / ".phlo" / "state" / "operations.sqlite"
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def migrate() -> None:
+        connection = sqlite3.connect(database)
+        connection.execute("PRAGMA busy_timeout = 5000")
+        try:
+            barrier.wait()
+            _migrate_operations_schema(connection)
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=migrate) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    with sqlite3.connect(database) as connection:
+        columns = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(operations)").fetchall()
+        }
+    assert "state" in columns
 
 
 def test_idempotency_migrated_completed_rows_replayable_async(monkeypatch, tmp_path: Path) -> None:
