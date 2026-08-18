@@ -2363,8 +2363,15 @@ def _query_relation_for_table(table: ObservatoryTable) -> str | None:
     return _relation_from_metadata(table) or _discovered_relation(table)
 
 
-def _select_sql_for_table(table: ObservatoryTable, *, limit: int, offset: int = 0) -> str | None:
-    relation = _query_relation_for_table(table)
+def _select_sql_for_table(
+    table: ObservatoryTable,
+    *,
+    limit: int,
+    offset: int = 0,
+    relation: str | None = None,
+) -> str | None:
+    if relation is None:
+        relation = _query_relation_for_table(table)
     if relation is None:
         return None
     sql = f"select * from {relation}"
@@ -2374,8 +2381,9 @@ def _select_sql_for_table(table: ObservatoryTable, *, limit: int, offset: int = 
     return sql
 
 
-def _count_sql_for_table(table: ObservatoryTable) -> str | None:
-    relation = _query_relation_for_table(table)
+def _count_sql_for_table(table: ObservatoryTable, *, relation: str | None = None) -> str | None:
+    if relation is None:
+        relation = _query_relation_for_table(table)
     if relation is None:
         return None
     return f"select count(*) as row_count from {relation}"
@@ -2385,7 +2393,10 @@ def _preview_from_query_engine(
     table: ObservatoryTable, limit: int, offset: int
 ) -> ObservatoryTablePreview | None:
     effective_limit = max(1, min(limit, 500))
-    sql = _select_sql_for_table(table, limit=effective_limit, offset=offset)
+    relation = _query_relation_for_table(table)
+    if relation is None:
+        return None
+    sql = _select_sql_for_table(table, limit=effective_limit, offset=offset, relation=relation)
     if sql is None:
         return None
 
@@ -2396,7 +2407,7 @@ def _preview_from_query_engine(
         return None
 
     row_count: int | None = None
-    count_sql = _count_sql_for_table(table)
+    count_sql = _count_sql_for_table(table, relation=relation)
     if count_sql is not None:
         count_result = _run_query_engine(
             count_sql, schema=table.schema_name or table.namespace, limit=1
