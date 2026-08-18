@@ -33,6 +33,9 @@ from phlo.compliance.signatures import (
     SignatureServiceConfig,
 )
 
+_TEST_KEY = b"test-evidence-hmac-key-0123456789"
+_WRONG_KEY = b"wrong-evidence-hmac-key-9876543210"
+
 
 class TestComplianceManifestIntegration:
     """Integration test: manifest captures compliance features."""
@@ -196,6 +199,7 @@ class TestEvidencePackIntegration:
                 {"signature_id": "sig-1", "meaning": "approved"},
             ],
             manifest_data={"version": "1.0.0"},
+            hmac_key=_TEST_KEY,
         )
 
         assert pack.manifest.file_count == 3
@@ -207,7 +211,7 @@ class TestEvidencePackIntegration:
 
             assert zip_path.exists()
 
-            verification = verify_evidence_pack(zip_path)
+            verification = verify_evidence_pack(zip_path, hmac_key=_TEST_KEY)
             assert verification["valid"] is True
             assert verification["record_count"] == 2
 
@@ -216,6 +220,7 @@ class TestEvidencePackIntegration:
         pack = create_evidence_pack(
             created_by="test@example.com",
             audit_records=[{"test": "data"}],
+            hmac_key=_TEST_KEY,
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -227,9 +232,97 @@ class TestEvidencePackIntegration:
             with zipfile.ZipFile(zip_path, "a") as zf:
                 zf.writestr("extra_file.txt", b"tampered content")
 
-            verification = verify_evidence_pack(zip_path)
+            verification = verify_evidence_pack(zip_path, hmac_key=_TEST_KEY)
             assert verification["valid"] is False
             assert "Unexpected files" in verification.get("error", "")
+
+    # ------------------------------------------------------------------
+    # Format v2: HMAC-SHA256 authenticated integrity
+    # ------------------------------------------------------------------
+
+    def test_evidence_pack_signature_roundtrip(self) -> None:
+        """A newly exported pack verifies with the same explicit key."""
+        pack = create_evidence_pack(
+            created_by="test@example.com",
+            audit_records=[{"event": "test"}],
+            signatures=[{"signer": "alice@example.com"}],
+            hmac_key=_TEST_KEY,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = Path(tmpdir) / "evidence.zip"
+            pack.write_zip(zip_path)
+
+            result = verify_evidence_pack(zip_path, hmac_key=_TEST_KEY)
+            assert result["valid"] is True
+            assert result["format_version"] == 2
+
+    def test_evidence_pack_signature_wrong_key(self) -> None:
+        """Verification fails with a different key."""
+        pack = create_evidence_pack(
+            created_by="test@example.com",
+            audit_records=[{"event": "test"}],
+            hmac_key=_TEST_KEY,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = Path(tmpdir) / "evidence.zip"
+            pack.write_zip(zip_path)
+
+            result = verify_evidence_pack(zip_path, hmac_key=_WRONG_KEY)
+            assert result["valid"] is False
+
+    def test_evidence_pack_signature_recomputed_checksums(self) -> None:
+        """Verification fails after attacker recomputes all checksums."""
+        import hashlib
+        import json
+        import zipfile
+
+        pack = create_evidence_pack(
+            created_by="test@example.com",
+            audit_records=[{"event": "original"}],
+            hmac_key=_TEST_KEY,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = Path(tmpdir) / "evidence.zip"
+            pack.write_zip(zip_path)
+
+            # Attacker rewrites evidence and recomputes checksums.json
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                manifest_bytes = zf.read("manifest.json")
+                sig_bytes = zf.read("signature.json")
+                files = {
+                    name: zf.read(name)
+                    for name in zf.namelist()
+                    if name not in ("manifest.json", "checksums.json", "signature.json")
+                }
+
+            files["audit_records.jsonl"] = json.dumps(
+                {"event": "fabricated"}, sort_keys=True
+            ).encode()
+
+            recomputed = json.dumps(
+                {
+                    "manifest_hash": hashlib.sha256(manifest_bytes).hexdigest(),
+                    "files": {
+                        name: hashlib.sha256(content).hexdigest() for name, content in files.items()
+                    },
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+
+            attacked = Path(tmpdir) / "attacked.zip"
+            with zipfile.ZipFile(attacked, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("manifest.json", manifest_bytes)
+                for name, content in files.items():
+                    zf.writestr(name, content)
+                zf.writestr("checksums.json", recomputed)
+                zf.writestr("signature.json", sig_bytes)
+
+            result = verify_evidence_pack(attacked, hmac_key=_TEST_KEY)
+            assert result["valid"] is False
 
 
 class TestFullComplianceWorkflow:
@@ -281,6 +374,7 @@ class TestFullComplianceWorkflow:
                 "phlo_version": manifest.phlo_version,
                 "environment": manifest.environment,
             },
+            hmac_key=_TEST_KEY,
         )
 
         assert evidence.manifest.compliance_domain == "regulated"
@@ -289,5 +383,5 @@ class TestFullComplianceWorkflow:
             zip_path = Path(tmpdir) / "evidence.zip"
             evidence.write_zip(zip_path)
 
-            verification = verify_evidence_pack(zip_path)
+            verification = verify_evidence_pack(zip_path, hmac_key=_TEST_KEY)
             assert verification["valid"] is True

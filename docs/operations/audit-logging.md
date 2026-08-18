@@ -90,6 +90,50 @@ Before sign-off, verify:
 - retention and access policy for audit records are written down
 - any required PostgreSQL or Nessie audit controls are called out explicitly as external dependencies
 
+## Evidence Pack Integrity Key
+
+Evidence packs exported with `phlo compliance export-evidence` are
+authenticated with HMAC-SHA256 over the canonical `checksums.json` bytes
+using key material held **outside** the archive.  This means an attacker
+who can modify the archive and recompute every internal checksum still
+cannot produce a pack that verifies as valid without the external key.
+
+### Key configuration
+
+| Variable | Purpose |
+|----------|---------|
+| `PHLO_EVIDENCE_HMAC_KEY` | Preferred key for evidence-pack authentication. |
+| `PHLO_AUDIT_HMAC_KEY` | Fallback, reusing the regulated audit-key contract. |
+
+The key may also be passed as an explicit library argument
+(`hmac_key=`) to `create_evidence_pack` and `verify_evidence_pack`.
+
+No development default is generated.  **Export and verification fail
+closed when no key material is available.**
+
+### Operator key contract
+
+- Generate a high-entropy key (≥ 32 bytes) and distribute it only to
+  systems that export or verify evidence packs.
+- The same key must be available at verification time.  A different key
+  produces a `Key identifier mismatch` error — the pack is not valid.
+- `signature.json` inside the archive stores a non-reversible key
+  identifier (first 16 hex chars of `SHA-256(key)`), the pack format
+  version, algorithm, checksum-envelope digest, and authentication
+  value.  **The key itself is never stored in the pack.**
+- Verification results and CLI output expose neither the key material
+  nor the expected authentication value.
+- Unsigned version-1 packs (no `signature.json`) are reported as
+  `unsigned`, never `valid`.  Historical packs exported before format
+  v2 will not pass verification and must be re-exported with a key.
+
+### What `valid` means
+
+`phlo compliance verify-evidence` reports `valid` only when the pack's
+canonical `checksums.json` bytes are authenticated by a valid v2
+HMAC-SHA256 signature using the configured key.  Internal checksum
+consistency alone is not sufficient.
+
 ## Related Pages
 
 - [Security](../setup/security.md)

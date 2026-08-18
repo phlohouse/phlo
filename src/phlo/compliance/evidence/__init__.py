@@ -1,6 +1,9 @@
 """Evidence pack creation and verification for compliance auditing."""
 
 from phlo.compliance.evidence.pack import (
+    EVIDENCE_PACK_ALGORITHM,
+    EVIDENCE_PACK_FORMAT_VERSION,
+    EvidenceKeyError,
     EvidenceManifest,
     EvidencePack,
     create_evidence_pack,
@@ -8,6 +11,9 @@ from phlo.compliance.evidence.pack import (
 )
 
 __all__ = [
+    "EVIDENCE_PACK_ALGORITHM",
+    "EVIDENCE_PACK_FORMAT_VERSION",
+    "EvidenceKeyError",
     "EvidenceManifest",
     "EvidencePack",
     "create_evidence_pack",

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from phlo.compliance.evidence import create_evidence_pack, verify_evidence_pack
+from phlo.compliance.evidence import EvidenceKeyError, create_evidence_pack, verify_evidence_pack
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -83,6 +83,10 @@ def export_evidence(
     Creates a tamper-evident ZIP archive containing audit records,
     signatures, and system manifest data for compliance submission.
 
+    The archive is authenticated with HMAC-SHA256 using key material
+    from the ``PHLO_EVIDENCE_HMAC_KEY`` or ``PHLO_AUDIT_HMAC_KEY``
+    environment variable.  Export fails when no key is available.
+
     Examples:
         phlo compliance export-evidence -o evidence.zip --created-by admin@example.com
         phlo compliance export-evidence -o evidence.zip --domain sox --audit-records audit.jsonl
@@ -152,6 +156,9 @@ def export_evidence(
         click.echo(f"  Records: {pack.manifest.record_count}")
         click.echo(f"  Files: {pack.manifest.file_count}")
 
+    except EvidenceKeyError as e:
+        click.echo(f"Evidence export failed: {e}", err=True)
+        sys.exit(1)
     except Exception as e:
         logger.exception("evidence_export_failed")
         click.echo(f"Evidence export failed: {e}", err=True)
@@ -166,7 +173,14 @@ def verify_evidence(zip_path: Path):
     """Verify the integrity of an evidence pack.
 
     Checks that the evidence pack has not been tampered with by
-    validating checksums and detecting unexpected files.
+    validating the HMAC-SHA256 signature over the canonical
+    ``checksums.json`` bytes using key material from the
+    ``PHLO_EVIDENCE_HMAC_KEY`` or ``PHLO_AUDIT_HMAC_KEY`` environment
+    variable.
+
+    ``valid`` means the pack's integrity is externally authenticated,
+    not merely internally checksum-consistent.  Unsigned version-1
+    packs and packs with missing key material fail verification.
 
     Examples:
         phlo compliance verify-evidence evidence.zip
@@ -182,9 +196,17 @@ def verify_evidence(zip_path: Path):
             click.echo(f"  Created: {result.get('created_at', 'unknown')}")
             click.echo(f"  Files: {result.get('file_count', 0)}")
             click.echo(f"  Records: {result.get('record_count', 0)}")
+            click.echo(f"  Format: v{result.get('format_version', '?')}")
+            click.echo(f"  Key ID: {result.get('key_id', 'unknown')}")
             sys.exit(0)
         else:
-            click.echo(f"Evidence pack verification failed: {result.get('error')}", err=True)
+            error = result.get("error")
+            fmt = result.get("format_version")
+            if fmt == 1:
+                click.echo(f"Evidence pack is unsigned (format version 1): {zip_path}", err=True)
+                click.echo(f"  {error}", err=True)
+            else:
+                click.echo(f"Evidence pack verification failed: {error}", err=True)
             sys.exit(1)
 
     except Exception as e:
