@@ -558,6 +558,40 @@ def _check_registered_surfaces(runtime: Any) -> ValidationResult:
     )
 
 
+def _check_settings_backend() -> ValidationResult:
+    """Validate that regulated mode uses durable settings storage.
+
+    Memory mode is never permitted in regulated deployments because writes
+    are not durable and disappear at process restart.
+    """
+    from phlo.plugins.observatory_settings import ObservatorySettingsStorageConfig
+
+    try:
+        config = ObservatorySettingsStorageConfig()
+    except Exception as exc:
+        return ValidationResult(
+            name="settings_backend_durable",
+            passed=False,
+            message=f"Settings backend configuration is invalid: {exc}",
+        )
+
+    backend = config.observatory_settings_backend
+    if backend == "memory":
+        return ValidationResult(
+            name="settings_backend_durable",
+            passed=False,
+            message=(
+                "Regulated mode requires durable settings storage; memory backend is not permitted"
+            ),
+        )
+
+    return ValidationResult(
+        name="settings_backend_durable",
+        passed=True,
+        message=f"Settings backend '{backend}' is durable",
+    )
+
+
 def run_regulated_validation(
     surface_actions: list[str] | None = None,
     surface_resource_types: list[str] | None = None,
@@ -614,6 +648,7 @@ def run_regulated_validation(
     )
     report.add_check(_check_backend_coverage())
     report.add_check(_check_internal_backend_boundary())
+    report.add_check(_check_settings_backend())
 
     report.add_check(_check_phlo_api_adapter(runtime))
 

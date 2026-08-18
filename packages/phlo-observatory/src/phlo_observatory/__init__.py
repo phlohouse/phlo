@@ -8,7 +8,7 @@ and service orchestration.
 Key Components:
     - ObservatoryExtensionPlugin: Base class for extending Observatory UI
     - ObservatorySettings: Configuration for the Observatory service
-    - SettingsService: Persistent storage for UI settings and preferences
+    - SettingsStore: Neutral storage contract for UI settings and preferences
     - ObservatoryServicePlugin: Service plugin for container orchestration
 
 Example:
@@ -38,7 +38,7 @@ from phlo.plugins.observatory import (
 from phlo.plugins.observatory_settings import (
     SettingsRecord,
     SettingsScope,
-    SettingsService,
+    SettingsStore,
     get_settings_service,
 )
 from phlo_observatory.plugin import ObservatoryServicePlugin
@@ -58,7 +58,7 @@ __all__ = [
     "ObservatorySettings",
     "SettingsRecord",
     "SettingsScope",
-    "SettingsService",
+    "SettingsStore",
     "discover_observatory_extensions",
     "get_observatory_extension",
     "get_settings",

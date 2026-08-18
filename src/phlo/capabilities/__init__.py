@@ -177,6 +177,7 @@ from phlo.capabilities.specs import (
     SchemaChange,
     SchemaMigrationPlan,
     SchemaMigrationSpec,
+    SettingsStoreSpec,
     TableStoreSpec,
     WorkflowAuthoringSpec,
 )
@@ -285,6 +286,7 @@ __all__ = [
     "SchemaMigrationPlan",
     "SchemaMigrationSpec",
     "SchemaMigrator",
+    "SettingsStoreSpec",
     "TableStoreSpec",
     "TableStore",
     "TableStateObservation",

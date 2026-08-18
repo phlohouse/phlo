@@ -278,3 +278,32 @@ def test_regulated_validation_reads_services_from_configured_project_root(monkey
 
     assert _configured_service_names() == ["openmetadata"]
     assert observed == [project_root.resolve()]
+
+
+# ---------------------------------------------------------------------------
+# Observatory settings backend — regulated validation (issue #626)
+# ---------------------------------------------------------------------------
+
+
+def test_regulated_validation_rejects_memory_settings_backend(monkeypatch) -> None:
+    """Regulated mode must reject the memory settings backend."""
+    monkeypatch.setenv("PHLO_REGULATED", "true")
+    monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "memory")
+
+    report = run_regulated_validation(surface_actions=[], surface_resource_types=[])
+
+    check = next(item for item in report.checks if item.name == "settings_backend_durable")
+    assert check.passed is False
+    assert "memory backend is not permitted" in check.message
+
+
+def test_regulated_validation_accepts_postgres_settings_backend(monkeypatch) -> None:
+    """Regulated mode must accept the durable postgres settings backend."""
+    monkeypatch.setenv("PHLO_REGULATED", "true")
+    monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "postgres")
+
+    report = run_regulated_validation(surface_actions=[], surface_resource_types=[])
+
+    check = next(item for item in report.checks if item.name == "settings_backend_durable")
+    assert check.passed is True
+    assert "durable" in check.message.lower()

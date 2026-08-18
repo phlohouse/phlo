@@ -311,3 +311,91 @@ async def test_loki_internal_helpers_ignore_request_override_parameter() -> None
         loki.reject_request_loki_url(_SSRF_LOKI_OVERRIDE)
     assert exc.value.status_code == 422
     assert exc.value.detail["error"] == "loki_url_override_not_allowed"
+
+
+# ---------------------------------------------------------------------------
+# Observatory settings storage unavailable → 503 (issue #626)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_observatory_settings_get_returns_503_when_storage_unavailable(monkeypatch) -> None:
+    """GET /api/observatory/settings must return 503 when durable storage is unavailable."""
+    from phlo.plugins.observatory_settings import StorageUnavailableError
+
+    def _unavailable() -> None:
+        raise StorageUnavailableError("Settings storage is unavailable")
+
+    monkeypatch.setattr(settings, "get_settings_service", _unavailable)
+    monkeypatch.setattr(settings, "check_admin_read", lambda *_args: None)
+    request = SimpleNamespace()
+
+    with pytest.raises(HTTPException) as exc:
+        await settings.get_observatory_settings(request)
+    assert exc.value.status_code == 503
+    assert "unavailable" in exc.value.detail.lower()
+
+
+@pytest.mark.anyio
+async def test_observatory_settings_put_returns_503_when_storage_unavailable(monkeypatch) -> None:
+    """PUT /api/observatory/settings must return 503 when durable storage is unavailable."""
+    from phlo.plugins.observatory_settings import StorageUnavailableError
+
+    def _unavailable() -> None:
+        raise StorageUnavailableError("Settings storage is unavailable")
+
+    monkeypatch.setattr(settings, "get_settings_service", _unavailable)
+    monkeypatch.setattr(settings, "check_admin_manage", lambda *_args: None)
+    payload = settings.ObservatorySettingsPayload(settings={"version": 1})
+    request = SimpleNamespace()
+
+    with pytest.raises(HTTPException) as exc:
+        await settings.put_observatory_settings(request, payload)
+    assert exc.value.status_code == 503
+    assert "unavailable" in exc.value.detail.lower()
+
+
+@pytest.mark.anyio
+async def test_extension_settings_get_returns_503_when_storage_unavailable(monkeypatch) -> None:
+    """GET extension settings must return 503 when durable storage is unavailable."""
+    from phlo.plugins.observatory_settings import StorageUnavailableError
+
+    def _unavailable() -> None:
+        raise StorageUnavailableError("Settings storage is unavailable")
+
+    monkeypatch.setattr(extension_settings, "get_settings_service", _unavailable)
+    monkeypatch.setattr(extension_settings, "get_observatory_extension", lambda _name: None)
+    # The extension lookup will return None → 404 before storage is called,
+    # so mock a valid extension to reach the storage call.
+    manifest_settings = SimpleNamespace(scope="extension", settings_schema=None, defaults=None)
+    extension = SimpleNamespace(get_manifest=lambda: SimpleNamespace(settings=manifest_settings))
+    monkeypatch.setattr(extension_settings, "get_observatory_extension", lambda _name: extension)
+
+    with pytest.raises(HTTPException) as exc:
+        await extension_settings.get_extension_settings("demo")
+    assert exc.value.status_code == 503
+    assert "unavailable" in exc.value.detail.lower()
+
+
+@pytest.mark.anyio
+async def test_extension_settings_put_returns_503_when_storage_unavailable(monkeypatch) -> None:
+    """PUT extension settings must return 503 when durable storage is unavailable."""
+    from phlo.plugins.observatory_settings import StorageUnavailableError
+
+    def _unavailable() -> None:
+        raise StorageUnavailableError("Settings storage is unavailable")
+
+    monkeypatch.setattr(extension_settings, "get_settings_service", _unavailable)
+    manifest_settings = SimpleNamespace(
+        scope="extension",
+        settings_schema={"type": "object"},
+        defaults=None,
+    )
+    extension = SimpleNamespace(get_manifest=lambda: SimpleNamespace(settings=manifest_settings))
+    monkeypatch.setattr(extension_settings, "get_observatory_extension", lambda _name: extension)
+    payload = extension_settings.ExtensionSettingsPayload(settings={"theme": "dark"})
+
+    with pytest.raises(HTTPException) as exc:
+        await extension_settings.put_extension_settings("demo", payload)
+    assert exc.value.status_code == 503
+    assert "unavailable" in exc.value.detail.lower()

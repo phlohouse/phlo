@@ -178,7 +178,6 @@ if TYPE_CHECKING:
     from phlo.plugins.observatory_settings import (
         SettingsRecord,
         SettingsScope,
-        SettingsService,
         get_settings_service,
     )
     from phlo.plugins.semantic import SemanticLayerProvider, SemanticModel
@@ -210,7 +209,6 @@ _LAZY_MODULE_EXPORTS = {
     "get_observatory_extension": "phlo.plugins.observatory",
     "SettingsScope": "phlo.plugins.observatory_settings",
     "SettingsRecord": "phlo.plugins.observatory_settings",
-    "SettingsService": "phlo.plugins.observatory_settings",
     "get_settings_service": "phlo.plugins.observatory_settings",
     "SemanticLayerProvider": "phlo.plugins.semantic",
     "SemanticModel": "phlo.plugins.semantic",
@@ -274,7 +272,6 @@ __all__ = [
     "get_observatory_extension",
     "SettingsScope",
     "SettingsRecord",
-    "SettingsService",
     "get_settings_service",
     "SemanticLayerProvider",
     "SemanticModel",

@@ -233,6 +233,8 @@ def test_plugins_module_reexports_observatory_settings_contracts() -> None:
     assert "get_settings_service" in plugins.__all__
     assert plugins.SettingsScope is SettingsScope
     assert plugins.get_settings_service is get_settings_service
+    # Core must not re-export the concrete SettingsService — it lives in phlo-postgres.
+    assert "SettingsService" not in plugins.__all__
 
 
 def test_plugins_module_imports_without_psycopg2(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -255,31 +257,8 @@ def test_plugins_module_imports_without_psycopg2(monkeypatch: pytest.MonkeyPatch
 
     plugins = importlib.import_module("phlo.plugins")
 
-    assert "SettingsService" in plugins.__all__
-    assert plugins.SettingsService.__name__ == "SettingsService"
-
-
-def test_settings_service_raises_clear_error_without_psycopg2(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Postgres-backed observatory settings should fail lazily with a clear dependency error."""
-
-    def _block_psycopg2(
-        name: str,
-        globals: dict[str, object] | None = None,
-        locals: dict[str, object] | None = None,
-        fromlist: tuple[str, ...] = (),
-        level: int = 0,
-    ) -> object:
-        if name == "psycopg2":
-            raise ModuleNotFoundError("No module named 'psycopg2'")
-        return builtin_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr("builtins.__import__", _block_psycopg2)
-
-    from phlo.plugins.observatory_settings import SettingsScope, SettingsService
-
-    service = SettingsService("postgresql://example/phlo")
-
-    with pytest.raises(ModuleNotFoundError, match="psycopg2 is required"):
-        service.get(SettingsScope.GLOBAL, "observatory")
+    # Core contracts are importable without psycopg2.
+    assert "SettingsScope" in plugins.__all__
+    assert "get_settings_service" in plugins.__all__
+    # The concrete SettingsService (which uses psycopg2) must not be in core.
+    assert "SettingsService" not in plugins.__all__

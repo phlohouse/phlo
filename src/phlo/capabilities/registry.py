@@ -33,6 +33,7 @@ from phlo.capabilities.specs import (
     ResourceSpec,
     SchemaMigrationSpec,
     SecretBackendSpec,
+    SettingsStoreSpec,
     TableStoreSpec,
     UiContributionSpec,
     WorkflowAuthoringSpec,
@@ -198,6 +199,12 @@ CAPABILITY_FAMILIES: dict[str, CapabilityFamilyDefinition[Any, Any]] = {
         name="ui_contribution",
         spec_type=UiContributionSpec,
         key=lambda spec: spec.name,
+    ),
+    "settings_store": CapabilityFamilyDefinition(
+        name="settings_store",
+        spec_type=SettingsStoreSpec,
+        key=lambda spec: spec.name,
+        provider_method="get_settings_stores",
     ),
 }
 

@@ -16,11 +16,12 @@ Example:
 
 from __future__ import annotations
 
-from phlo.capabilities import PublishTargetSpec, ResourceSpec
+from phlo.capabilities import PublishTargetSpec, ResourceSpec, SettingsStoreSpec
 from phlo.plugins import PluginMetadata, ResourceProviderPlugin, service_plugin_class
 
 from phlo_postgres.publish_target import PostgresPublishTarget
 from phlo_postgres.resource import PostgresResource
+from phlo_postgres.settings_store import get_settings_stores
 
 
 PostgresServicePlugin = service_plugin_class(
@@ -128,3 +129,13 @@ class PostgresResourceProvider(ResourceProviderPlugin):
                 metadata={"target_system": "postgres", "role": "serving"},
             )
         ]
+
+    def get_settings_stores(self) -> list[SettingsStoreSpec]:
+        """Return settings store capability specs for durable Observatory settings.
+
+        Returns:
+            list[SettingsStoreSpec]: Capability spec wrapping a
+            :class:`~phlo_postgres.settings_store.PostgresSettingsStore`
+            that persists Observatory settings to PostgreSQL.
+        """
+        return get_settings_stores()

@@ -368,6 +368,16 @@ class RegulatedSurfaceSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class SettingsStoreSpec:
+    """Settings store capability for durable Observatory settings storage."""
+
+    name: str
+    provider: Any
+    metadata: dict[str, Any] = field(default_factory=dict)
+    support: CapabilitySupport = field(default_factory=CapabilitySupport)
+
+
+@dataclass(frozen=True, slots=True)
 class UiContributionSpec:
     """UI contribution declared by a capability provider."""
 

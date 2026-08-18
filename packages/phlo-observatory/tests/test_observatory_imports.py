@@ -14,6 +14,25 @@ def test_observatory_importable():
     assert phlo_observatory is not None
 
 
+def test_observatory_reexports_neutral_settings_contract() -> None:
+    """The public package surface exposes the neutral settings contract."""
+    import phlo_observatory
+    from phlo.plugins.observatory_settings import SettingsStore
+
+    assert phlo_observatory.SettingsStore is SettingsStore
+    assert "SettingsStore" in phlo_observatory.__all__
+    assert "SettingsService" not in phlo_observatory.__all__
+
+
+def test_settings_service_module_reexports_neutral_settings_contract() -> None:
+    """The compatibility module remains importable without concrete storage."""
+    from phlo.plugins.observatory_settings import SettingsStore
+    from phlo_observatory import settings_service
+
+    assert settings_service.SettingsStore is SettingsStore
+    assert "SettingsService" not in settings_service.__all__
+
+
 def test_observatory_plugin_module_importable():
     """Test that the service plugin module is importable."""
     plugin_module = importlib.import_module("phlo_observatory.plugin")
