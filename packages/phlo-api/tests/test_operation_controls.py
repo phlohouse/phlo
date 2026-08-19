@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import multiprocessing
+import os
 import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
@@ -19,11 +21,41 @@ import pytest
 
 from phlo_api.api.operation_controls import (
     IdempotencyConflict,
+    MutationSucceededAuditFailed,
     _idempotency_hash,
     _migrate_operations_schema,
+    audit_operation,
     replay_or_execute,
     replay_or_execute_async,
 )
+
+
+def _process_audit_writer(project_path: str, barrier: Any, index: int) -> None:
+    """Write one distinct record after all independent processes are ready."""
+    os.environ["PHLO_PROJECT_PATH"] = project_path
+    barrier.wait()
+    audit_operation(
+        operation="process_write",
+        target=str(index),
+        dry_run=False,
+        auth={"subject": "test", "scopes": []},
+        result={"index": index},
+    )
+
+
+def _audit_records(audit_dir: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for path in sorted(audit_dir.glob("operations.jsonl*")):
+        if path.name == "operations.lock":
+            continue
+        records.extend(json.loads(line) for line in path.read_text(encoding="utf-8").splitlines())
+    return records
+
+
+def _assert_rotated_audit_is_complete(audit_dir: Path, expected_targets: set[str]) -> None:
+    records = _audit_records(audit_dir)
+    assert {record["target"] for record in records} == expected_targets
+    assert len(records) == len(expected_targets)
 
 
 def _seed_legacy_completed_row(
@@ -415,3 +447,127 @@ def test_idempotency_migrated_completed_rows_replayable_async(monkeypatch, tmp_p
     )
     assert replayed == legacy_response
     assert calls == []
+
+
+def test_audit_rotation_preserves_barrier_synchronised_thread_writes(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Locked threshold check, rotation, and append retain every thread's JSONL record."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_API_AUDIT_MAX_BYTES", "250")
+    monkeypatch.setenv("PHLO_API_AUDIT_MAX_FILES", "20")
+    audit_operation(
+        operation="seed",
+        target="seed",
+        dry_run=False,
+        auth={"subject": "test", "scopes": []},
+        result={"padding": "x" * 500},
+    )
+    barrier = threading.Barrier(8)
+
+    def write(index: int) -> None:
+        barrier.wait()
+        audit_operation(
+            operation="thread_write",
+            target=str(index),
+            dry_run=False,
+            auth={"subject": "test", "scopes": []},
+            result={"index": index},
+        )
+
+    threads = [threading.Thread(target=write, args=(index,)) for index in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    _assert_rotated_audit_is_complete(
+        tmp_path / ".phlo" / "audit", {"seed", *(str(index) for index in range(8))}
+    )
+
+
+def test_audit_rotation_preserves_barrier_synchronised_process_writes(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The owned lock also serializes independent process writers across rotation."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_API_AUDIT_MAX_BYTES", "250")
+    monkeypatch.setenv("PHLO_API_AUDIT_MAX_FILES", "20")
+    audit_operation(
+        operation="seed",
+        target="seed",
+        dry_run=False,
+        auth={"subject": "test", "scopes": []},
+        result={"padding": "x" * 500},
+    )
+    context = multiprocessing.get_context("fork")
+    barrier = context.Barrier(4)
+    processes = [
+        context.Process(target=_process_audit_writer, args=(str(tmp_path), barrier, index))
+        for index in range(4)
+    ]
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join(timeout=10)
+        assert process.exitcode == 0
+
+    _assert_rotated_audit_is_complete(
+        tmp_path / ".phlo" / "audit", {"seed", *(str(index) for index in range(4))}
+    )
+
+
+def test_audit_rotation_remains_valid_after_restart(monkeypatch, tmp_path: Path) -> None:
+    """A fresh writer can append valid JSONL after a durable rotation."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_API_AUDIT_MAX_BYTES", "1")
+    audit_operation(
+        operation="before_restart",
+        target="before",
+        dry_run=False,
+        auth={"subject": "test", "scopes": []},
+    )
+    audit_operation(
+        operation="after_restart",
+        target="after",
+        dry_run=False,
+        auth={"subject": "test", "scopes": []},
+    )
+    _assert_rotated_audit_is_complete(tmp_path / ".phlo" / "audit", {"before", "after"})
+
+
+def test_post_provider_audit_partial_outcome_is_unknown_and_never_replays(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A failed audit after success returns the partial outcome and freezes the identity."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    calls: list[str] = []
+
+    def execute() -> dict[str, Any]:
+        calls.append("provider")
+        return {"run_id": "run-1"}
+
+    def fail_audit(_result: dict[str, Any]) -> None:
+        raise OSError("disk unavailable")
+
+    with pytest.raises(MutationSucceededAuditFailed) as failure:
+        replay_or_execute(
+            idempotency_key="audit-failure-key",
+            operation="materialize_asset",
+            target="silver/orders",
+            execute=execute,
+            audit=fail_audit,
+        )
+    assert failure.value.detail == {
+        "error": "mutation_succeeded_audit_failed",
+        "mutation": {"operation": "materialize_asset", "target": "silver/orders"},
+    }
+    with pytest.raises(IdempotencyConflict) as retry:
+        replay_or_execute(
+            idempotency_key="audit-failure-key",
+            operation="materialize_asset",
+            target="silver/orders",
+            execute=execute,
+        )
+    assert retry.value.detail == {"error": "idempotency_outcome_unknown"}
+    assert calls == ["provider"]

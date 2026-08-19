@@ -4471,14 +4471,14 @@ async def post_observatory_run_retry(
         operation="retry_failed_run",
         target=run_id,
         execute=execute,
-    )
-    audit_operation(
-        operation="retry_failed_run",
-        target=run_id,
-        dry_run=request.dry_run,
-        auth=auth,
-        payload=request.model_dump(mode="json"),
-        result=payload,
+        audit=lambda result: audit_operation(
+            operation="retry_failed_run",
+            target=run_id,
+            dry_run=request.dry_run,
+            auth=auth,
+            payload=request.model_dump(mode="json"),
+            result=result,
+        ),
     )
     return payload
 
@@ -4501,14 +4501,14 @@ async def post_observatory_run_cancel(
         operation="cancel_run",
         target=run_id,
         execute=execute,
-    )
-    audit_operation(
-        operation="cancel_run",
-        target=run_id,
-        dry_run=False,
-        auth=auth,
-        payload=request.model_dump(mode="json"),
-        result=payload,
+        audit=lambda result: audit_operation(
+            operation="cancel_run",
+            target=run_id,
+            dry_run=False,
+            auth=auth,
+            payload=request.model_dump(mode="json"),
+            result=result,
+        ),
     )
     return payload
 
@@ -4709,14 +4709,14 @@ async def post_observatory_asset_materialize(
         operation="materialize_asset",
         target=asset_id,
         execute=execute,
-    )
-    audit_operation(
-        operation="materialize_asset",
-        target=asset_id,
-        dry_run=request.dry_run,
-        auth=auth,
-        payload=request.model_dump(mode="json"),
-        result=payload,
+        audit=lambda result: audit_operation(
+            operation="materialize_asset",
+            target=asset_id,
+            dry_run=request.dry_run,
+            auth=auth,
+            payload=request.model_dump(mode="json"),
+            result=result,
+        ),
     )
     return payload
 
@@ -4739,14 +4739,14 @@ async def post_observatory_asset_backfill(
         operation="backfill_asset",
         target=asset_id,
         execute=execute,
-    )
-    audit_operation(
-        operation="backfill_asset",
-        target=asset_id,
-        dry_run=request.dry_run,
-        auth=auth,
-        payload=request.model_dump(mode="json"),
-        result=payload,
+        audit=lambda result: audit_operation(
+            operation="backfill_asset",
+            target=asset_id,
+            dry_run=request.dry_run,
+            auth=auth,
+            payload=request.model_dump(mode="json"),
+            result=result,
+        ),
     )
     return payload
 

@@ -13,7 +13,12 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from phlo_api.api.operation_controls import audit_operation, enforce_rate_limit, require_scope
+from phlo_api.api.operation_controls import (
+    audit_operation,
+    enforce_rate_limit,
+    replay_or_execute,
+    require_scope,
+)
 from phlo_api.pagination import paginate_items
 
 from phlo.cli.commands.doctor import _run_diagnostics_quietly, render_json
@@ -135,15 +140,20 @@ def create_workflow(request: CreateWorkflowRequest, http_request: Request) -> di
         "next_steps": result.next_steps,
         "metadata": result.metadata,
     }
-    audit_operation(
+    return replay_or_execute(
+        idempotency_key=None,
         operation="create_workflow",
         target=f"{request.domain}/{request.table}",
-        dry_run=False,
-        auth=auth,
-        payload=request.model_dump(mode="json"),
-        result=payload,
+        execute=lambda: payload,
+        audit=lambda response: audit_operation(
+            operation="create_workflow",
+            target=f"{request.domain}/{request.table}",
+            dry_run=False,
+            auth=auth,
+            payload=request.model_dump(mode="json"),
+            result=response,
+        ),
     )
-    return payload
 
 
 @router.post("/workflows/validate")

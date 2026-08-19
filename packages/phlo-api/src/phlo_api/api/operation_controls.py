@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import time
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -30,6 +33,20 @@ _STATE_PENDING = "pending"
 _STATE_COMPLETED = "completed"
 _STATE_UNKNOWN = "unknown"
 _RATE_LIMITS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+logger = logging.getLogger(__name__)
+
+
+class MutationSucceededAuditFailed(HTTPException):
+    """Stable outcome when a provider mutation committed but its audit did not."""
+
+    def __init__(self, *, operation: str, target: str) -> None:
+        super().__init__(
+            status_code=500,
+            detail={
+                "error": "mutation_succeeded_audit_failed",
+                "mutation": {"operation": operation, "target": target},
+            },
+        )
 
 
 class IdempotencyConflict(HTTPException):
@@ -101,11 +118,10 @@ def audit_operation(
     payload: dict[str, Any] | None = None,
     result: dict[str, Any] | None = None,
 ) -> None:
-    """Append an API-side mutation audit record."""
+    """Append an API-side mutation audit record through the shared file writer."""
     audit_dir = project_root() / ".phlo" / "audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
     audit_path = audit_dir / "operations.jsonl"
-    _rotate_audit_log(audit_path)
     record = {
         "timestamp": datetime.now(UTC).isoformat(),
         "surface": "phlo-api",
@@ -117,8 +133,30 @@ def audit_operation(
         "payload": payload or {},
         "result": result or {},
     }
-    with audit_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    _append_audit_record(audit_path, record)
+
+
+@contextmanager
+def _audit_write_lock(audit_dir: Path):
+    """Acquire the project-owned cross-process lock for the audit writer."""
+    lock_path = audit_dir / "operations.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _append_audit_record(path: Path, record: dict[str, Any]) -> None:
+    """Rotate if needed and durably append exactly one JSONL record while locked."""
+    with _audit_write_lock(path.parent):
+        _rotate_audit_log(path)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
 
 
 def _rotate_audit_log(path: Path) -> None:
@@ -134,6 +172,11 @@ def _rotate_audit_log(path: Path) -> None:
         if candidate.exists():
             candidate.replace(path.with_name(f"{path.name}.{index + 1}"))
     path.replace(path.with_name(f"{path.name}.1"))
+    directory_descriptor = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory_descriptor)
+    finally:
+        os.close(directory_descriptor)
 
 
 def replay_or_execute(
@@ -142,6 +185,7 @@ def replay_or_execute(
     operation: str,
     target: str,
     execute: Callable[[], dict[str, Any]],
+    audit: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Return a previous idempotent response or execute and persist the new response.
 
@@ -151,7 +195,14 @@ def replay_or_execute(
     stable ``409`` (in-progress / unknown-outcome) without invoking the provider.
     """
     if not idempotency_key:
-        return execute()
+        response = execute()
+        if audit is not None:
+            try:
+                audit(response)
+            except BaseException as exc:
+                _emit_audit_failure_signal(operation=operation, target=target, exc=exc)
+                raise MutationSucceededAuditFailed(operation=operation, target=target) from exc
+        return response
 
     key_hash = _idempotency_hash(idempotency_key)
     claim = _claim_idempotency_key(key_hash=key_hash, operation=operation, target=target)
@@ -171,6 +222,13 @@ def replay_or_execute(
     except BaseException:
         _mark_idempotency_unknown(key_hash=key_hash, operation=operation, target=target)
         raise
+    if audit is not None:
+        try:
+            audit(response)
+        except BaseException as exc:
+            _mark_idempotency_unknown(key_hash=key_hash, operation=operation, target=target)
+            _emit_audit_failure_signal(operation=operation, target=target, exc=exc)
+            raise MutationSucceededAuditFailed(operation=operation, target=target) from exc
     _complete_idempotency_claim(
         key_hash=key_hash, operation=operation, target=target, response=response
     )
@@ -183,6 +241,7 @@ async def replay_or_execute_async(
     operation: str,
     target: str,
     execute: Callable[[], Awaitable[dict[str, Any]]],
+    audit: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Async variant of replay_or_execute.
 
@@ -191,7 +250,14 @@ async def replay_or_execute_async(
     the loop.
     """
     if not idempotency_key:
-        return await execute()
+        response = await execute()
+        if audit is not None:
+            try:
+                await asyncio.to_thread(audit, response)
+            except BaseException as exc:
+                _emit_audit_failure_signal(operation=operation, target=target, exc=exc)
+                raise MutationSucceededAuditFailed(operation=operation, target=target) from exc
+        return response
 
     key_hash = _idempotency_hash(idempotency_key)
     claim = await asyncio.to_thread(
@@ -217,6 +283,15 @@ async def replay_or_execute_async(
             _mark_idempotency_unknown, key_hash=key_hash, operation=operation, target=target
         )
         raise
+    if audit is not None:
+        try:
+            await asyncio.to_thread(audit, response)
+        except BaseException as exc:
+            await asyncio.to_thread(
+                _mark_idempotency_unknown, key_hash=key_hash, operation=operation, target=target
+            )
+            _emit_audit_failure_signal(operation=operation, target=target, exc=exc)
+            raise MutationSucceededAuditFailed(operation=operation, target=target) from exc
     await asyncio.to_thread(
         _complete_idempotency_claim,
         key_hash=key_hash,
@@ -225,6 +300,16 @@ async def replay_or_execute_async(
         response=response,
     )
     return response
+
+
+def _emit_audit_failure_signal(*, operation: str, target: str, exc: BaseException) -> None:
+    """Emit an actionable signal without logging mutation payloads or credentials."""
+    logger.critical(
+        "mutation_succeeded_audit_failed operation=%s target=%s error_type=%s",
+        operation,
+        target,
+        type(exc).__name__,
+    )
 
 
 @dataclass(slots=True)
