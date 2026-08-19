@@ -5,46 +5,12 @@ DEFAULT_SERVICES ?= postgres minio pgweb dagster-webserver dagster-daemon supers
 DEFAULT_LOG_SERVICES ?= dagster-webserver dagster-daemon
 OBSERVATORY_DIR ?= packages/phlo-observatory/src/phlo_observatory
 NPM_OBSERVATORY := npm --prefix $(OBSERVATORY_DIR)
-TY_CHECK_SCOPE ?= src/phlo \
-	packages/phlo-alerting/src \
-	packages/phlo-alloy/src \
-	packages/phlo-api/src \
-	packages/phlo-clickhouse/src \
-	packages/phlo-clickstack/src \
-	packages/phlo-core-plugins/src \
-	packages/phlo-dagster/src \
-	packages/phlo-dbt/src \
-	packages/phlo-delta/src \
-	packages/phlo-dlt/src \
-	packages/phlo-grafana/src \
-	packages/phlo-hasura/src \
-	packages/phlo-iceberg/src \
-	packages/phlo-lineage/src \
-	packages/phlo-loki/src \
-	packages/phlo-mcp/src \
-	packages/phlo-minio/src \
-	packages/phlo-nessie/src \
-	packages/phlo-oauth2-proxy/src \
-	packages/phlo-observatory-example/src \
-	packages/phlo-observatory/src \
-	packages/phlo-openmetadata/src \
-	packages/phlo-otel/src \
-	packages/phlo-pandera/src \
-	packages/phlo-pgweb/src \
-	packages/phlo-postgres/src \
-	packages/phlo-postgrest/src \
-	packages/phlo-prometheus/src \
-	packages/phlo-rustfs/src \
-	packages/phlo-sling/src \
-	packages/phlo-superset/src \
-	packages/phlo-testing/src \
-	packages/phlo-traefik/src \
-	packages/phlo-trino/src
+TY_CHECK_SCOPE := src/phlo $(wildcard packages/*/src)
 CHECK_CMD := scripts/run-parallel \
 	"support manifest" "python3 scripts/validate_support_manifest.py" \
 	"py lint" "uv run --locked ruff check ." \
 	"py format" "uv run --locked ruff format --check ." \
-	"py typecheck" "uv run --locked ty check $(TY_CHECK_SCOPE)" \
+	"py typecheck" "uv run --locked ty check --error-on-warning $(TY_CHECK_SCOPE)" \
 	"py test" "uv run --locked pytest -m 'not integration'" \
 	"ts lint" "$(NPM_OBSERVATORY) run lint" \
 	"ts format" "$(NPM_OBSERVATORY) run format -- --check ." \
@@ -337,7 +303,7 @@ format-python:
 	uv run --locked ruff format --check .
 
 typecheck-python:
-	uv run --locked ty check $(TY_CHECK_SCOPE)
+	uv run --locked ty check --error-on-warning $(TY_CHECK_SCOPE)
 
 dependency-refresh:
 	python3 scripts/dependency_refresh_plan.py --lane $(LANE)
