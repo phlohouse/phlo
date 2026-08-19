@@ -114,9 +114,14 @@ touch /tmp/phlo-dagster-ready
 # Drop privileges after the one-time bootstrap. Linux development stacks retain
 # their host-owned project files; other stacks use the image's phlo account.
 runtime_user="phlo"
+runtime_home="/var/lib/phlo-runtime"
 if [ -n "${PHLO_RUNTIME_UID:-}" ] && [ -n "${PHLO_RUNTIME_GID:-}" ]; then
     runtime_user="${PHLO_RUNTIME_UID}:${PHLO_RUNTIME_GID}"
 fi
 # Numeric runtime users do not have a passwd entry, so `su-exec` resets HOME to
-# the root filesystem. Set it after the privilege drop for Dagster telemetry.
-exec su-exec "$runtime_user" env HOME=/tmp "$@"
+# the root filesystem. Prepare an identity-owned home before the privilege drop
+# rather than sharing /tmp with root bootstrap or container exec processes.
+mkdir -p "$runtime_home"
+chown "$runtime_user" "$runtime_home"
+chmod 700 "$runtime_home"
+exec su-exec "$runtime_user" env HOME="$runtime_home" "$@"

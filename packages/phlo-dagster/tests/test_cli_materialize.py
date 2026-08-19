@@ -12,8 +12,10 @@ from phlo_dagster.cli_materialize import materialize, wait_for_dagster_runtime
 class FakePodmanBackend:
     name = "podman"
 
-    def container_exec_cmd(self, *, container_name, command, env=None, workdir=None):
+    def container_exec_cmd(self, *, container_name, command, env=None, workdir=None, user=None):
         cmd = ["podman", "exec"]
+        if user:
+            cmd.extend(["--user", user])
         for key, value in (env or {}).items():
             cmd.extend(["-e", f"{key}={value}"])
         if workdir:

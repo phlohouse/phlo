@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from importlib import resources
 from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
 
 
 def test_dagster_runtime_image_installs_prerelease_phlo_with_postgres_driver() -> None:
@@ -77,10 +81,75 @@ def test_dagster_runtime_entrypoint_installs_mounted_project() -> None:
     assert 'if [ "$(id -u)" -ne 0 ]; then' in entrypoint
     assert 'runtime_user="phlo"' in entrypoint
     assert "touch /tmp/phlo-dagster-ready" in entrypoint
-    assert 'exec su-exec "$runtime_user" env HOME=/tmp "$@"' in entrypoint
+    assert 'runtime_home="/var/lib/phlo-runtime"' in entrypoint
+    assert 'mkdir -p "$runtime_home"' in entrypoint
+    assert 'chown "$runtime_user" "$runtime_home"' in entrypoint
+    assert 'exec su-exec "$runtime_user" env HOME="$runtime_home" "$@"' in entrypoint
     assert entrypoint.index("uv pip install --system -e /app") < entrypoint.index(
-        'exec su-exec "$runtime_user" env HOME=/tmp "$@"'
+        'exec su-exec "$runtime_user" env HOME="$runtime_home" "$@"'
     )
+
+
+def test_dagster_runtime_entrypoint_gives_an_unmapped_uid_an_isolated_writable_home(
+    tmp_path: Path,
+) -> None:
+    """Root bootstrap must not leave runtime telemetry or logs owned by root."""
+    if shutil.which("docker") is None:
+        pytest.skip("Docker is required for the runtime ownership contract")
+
+    docker_info = subprocess.run(["docker", "info"], capture_output=True, text=True)
+    if docker_info.returncode:
+        pytest.skip("Docker daemon is unavailable for the runtime ownership contract")
+
+    entrypoint = resources.files("phlo_dagster").joinpath("entrypoint.sh")
+    (tmp_path / "entrypoint.sh").write_text(entrypoint.read_text())
+    (tmp_path / "Dockerfile").write_text(
+        "\n".join(
+            [
+                "FROM python:3.12-alpine",
+                "RUN apk add --no-cache bash su-exec",
+                "RUN mkdir -p /opt/dagster",
+                "COPY entrypoint.sh /usr/local/bin/phlo-dagster-entrypoint.sh",
+                "RUN chmod +x /usr/local/bin/phlo-dagster-entrypoint.sh",
+                'ENTRYPOINT ["/usr/local/bin/phlo-dagster-entrypoint.sh"]',
+            ]
+        )
+    )
+    image_tag = f"phlo-dagster-runtime-contract-{tmp_path.name}"
+    build = subprocess.run(
+        ["docker", "build", "--quiet", "--tag", image_tag, str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+    assert build.returncode == 0, build.stderr
+
+    try:
+        runtime = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-e",
+                "PHLO_RUNTIME_UID=12345",
+                "-e",
+                "PHLO_RUNTIME_GID=23456",
+                image_tag,
+                "sh",
+                "-ec",
+                'test "$(id -u)" = 12345; '
+                'test "$HOME" = /var/lib/phlo-runtime; '
+                'mkdir -p "$HOME/.dagster"; '
+                'touch "$HOME/.dagster/telemetry"; '
+                "test -f /tmp/phlo-dagster-ready; "
+                "printf runtime-log >> /tmp/phlo-20260819.log; "
+                "test -w /tmp/phlo-20260819.log",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert runtime.returncode == 0, runtime.stderr
+    finally:
+        subprocess.run(["docker", "image", "rm", "--force", image_tag], capture_output=True)
 
 
 def test_dagster_image_starts_as_root_for_bootstrap() -> None:

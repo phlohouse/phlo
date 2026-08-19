@@ -79,12 +79,15 @@ def test_docker_backend_container_exec_cmd_builds_docker_exec() -> None:
         container_name="demo-dagster-1",
         env={"PHLO_PROJECT_PATH": "/app"},
         workdir="/app",
+        user="1001:1001",
         command=["dagster", "asset", "materialize"],
     )
 
     assert cmd == [
         "docker",
         "exec",
+        "--user",
+        "1001:1001",
         "-e",
         "PHLO_PROJECT_PATH=/app",
         "-w",
@@ -116,12 +119,15 @@ def test_podman_backend_container_exec_cmd_builds_podman_exec() -> None:
         container_name="demo_dagster_1",
         env={"PHLO_PROJECT_PATH": "/app"},
         workdir="/app",
+        user="1001:1001",
         command=["dagster", "asset", "materialize"],
     )
 
     assert cmd == [
         "podman",
         "exec",
+        "--user",
+        "1001:1001",
         "-e",
         "PHLO_PROJECT_PATH=/app",
         "-w",

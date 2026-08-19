@@ -224,6 +224,7 @@ def materialize(
 
         cmd = backend.container_exec_cmd(
             container_name=container_name,
+            user=f"{os.getuid()}:{os.getgid()}" if host_platform == "Linux" else None,
             env={
                 "PHLO_HOST_PLATFORM": host_platform,
                 "PHLO_PROJECT_PATH": "/app",

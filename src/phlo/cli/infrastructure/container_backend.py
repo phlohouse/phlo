@@ -45,6 +45,7 @@ class ContainerBackend(Protocol):
         command: list[str],
         env: dict[str, str] | None = None,
         workdir: str | None = None,
+        user: str | None = None,
     ) -> list[str]:
         """Return command tokens for executing a process inside a running container."""
 
@@ -212,8 +213,11 @@ class DockerBackend:
         command: list[str],
         env: dict[str, str] | None = None,
         workdir: str | None = None,
+        user: str | None = None,
     ) -> list[str]:
         cmd = ["docker", "exec"]
+        if user:
+            cmd.extend(["--user", user])
         for key, value in (env or {}).items():
             cmd.extend(["-e", f"{key}={value}"])
         if workdir:
@@ -318,8 +322,11 @@ class PodmanBackend:
         command: list[str],
         env: dict[str, str] | None = None,
         workdir: str | None = None,
+        user: str | None = None,
     ) -> list[str]:
         cmd = ["podman", "exec"]
+        if user:
+            cmd.extend(["--user", user])
         for key, value in (env or {}).items():
             cmd.extend(["-e", f"{key}={value}"])
         if workdir:
