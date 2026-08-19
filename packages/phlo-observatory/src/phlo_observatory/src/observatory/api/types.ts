@@ -429,6 +429,12 @@ type ObservatoryRunStatus =
   | 'cancelled'
   | 'unknown'
 
+export interface ObservatoryRunReportIdentity {
+  project_id: string
+  run_id: string
+  attempt: number
+}
+
 export interface ObservatoryRun {
   id: string
   name: string
@@ -440,6 +446,7 @@ export interface ObservatoryRun {
   checks: Array<ObservatoryResourceRef>
   logs: Array<ObservatoryResourceRef>
   metadata: ObservatoryMetadata
+  report_identity?: ObservatoryRunReportIdentity | null
 }
 
 export interface ObservatoryReportGap {

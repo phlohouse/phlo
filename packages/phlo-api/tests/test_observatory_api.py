@@ -23,6 +23,7 @@ from security_test_support import _regulated_api_boundary, authenticated_client 
 from phlo.run_evidence import PipelineRun, RunEvent, RunStage, SQLiteRunEvidenceStore
 from phlo_api.observatory_api import observatory
 from phlo_api.observatory_api import observatory_services
+from phlo_api.observatory_api import observatory_runs as observatory_runs_module
 from phlo_api.observatory_api.observatory import (
     _execute_action,
     _load_capabilities,
@@ -247,6 +248,89 @@ def test_unregulated_run_report_keeps_anonymous_open_but_enforces_supplied_scope
     assert allowed.status_code == 200
     assert denied.status_code == 403
     assert denied.json() == {"error": "forbidden", "reason": "run_report_scope_mismatch"}
+
+
+def test_runs_list_carries_report_identity_only_for_complete_durable_evidence(
+    monkeypatch, tmp_path
+) -> None:
+    database = tmp_path / "run-evidence.sqlite"
+    store = SQLiteRunEvidenceStore(database)
+    store.append_pipeline_run(
+        PipelineRun(
+            project_id="finance",
+            run_id="daily-orders",
+            attempt=2,
+            pipeline_name="Daily orders refresh",
+            status="success",
+        )
+    )
+    monkeypatch.setenv("PHLO_RUN_EVIDENCE_SQLITE_PATH", str(database))
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    observatory._clear_read_model_cache()
+
+    items = authenticated_client("admin").get("/api/observatory/runs").json()["items"]
+
+    durable = next(run for run in items if run["id"] == "finance/daily-orders")
+    assert durable["report_identity"] == {
+        "project_id": "finance",
+        "run_id": "daily-orders",
+        "attempt": 2,
+    }
+    assert durable["metadata"]["source"] == "durable_run_evidence"
+
+    report = authenticated_client("admin").get(
+        "/api/observatory/projects/finance/runs/daily-orders/attempts/2/report"
+    )
+    assert report.status_code == 200
+    assert report.json()["project_id"] == "finance"
+    assert report.json()["run_id"] == "daily-orders"
+    assert report.json()["attempt"] == 2
+
+
+def test_manifest_and_recovered_runs_never_carry_report_identity(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    state_dir = tmp_path / ".phlo" / "observatory"
+    state_dir.mkdir(parents=True)
+    (state_dir / "lakehouse_manifest.json").write_text(
+        json.dumps(
+            {
+                "runs": [
+                    {
+                        "id": "legacy-run-1",
+                        "name": "Legacy manifest run",
+                        "status": "succeeded",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    observatory._clear_read_model_cache()
+
+    items = authenticated_client("admin").get("/api/observatory/runs").json()["items"]
+    manifest_run = next(run for run in items if run["id"] == "legacy-run-1")
+    assert "report_identity" not in manifest_run
+    assert manifest_run["metadata"]["evidence_source"] == "lakehouse_manifest"
+
+
+def test_durable_run_without_complete_identity_omits_report_identity(monkeypatch, tmp_path) -> None:
+    database = tmp_path / "run-evidence.sqlite"
+    SQLiteRunEvidenceStore(database).append_pipeline_run(
+        PipelineRun(project_id="finance", run_id="daily-orders", attempt=2)
+    )
+    monkeypatch.setenv("PHLO_RUN_EVIDENCE_SQLITE_PATH", str(database))
+    monkeypatch.setattr(observatory_runs_module, "_durable_report_identity", lambda row: None)
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    observatory._clear_read_model_cache()
+
+    items = authenticated_client("admin").get("/api/observatory/runs").json()["items"]
+    assert items == []
+    assert all("report_identity" not in run for run in items)
 
 
 class _FakeOrchestratorOperations:
@@ -1911,6 +1995,7 @@ def test_observatory_manifest_records_enrich_lakehouse_surfaces(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_RUN_EVIDENCE_SQLITE_PATH", str(tmp_path / "empty.sqlite"))
     monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
     state_dir = tmp_path / ".phlo" / "observatory"
     state_dir.mkdir(parents=True)

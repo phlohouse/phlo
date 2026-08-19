@@ -282,6 +282,19 @@ class ObservatoryOperationDetail(BaseModel):
     actions: list[ObservatoryAction] = Field(default_factory=list)
 
 
+class ObservatoryRunReportIdentity(BaseModel):
+    """Canonical durable run-report identity, populated only from complete evidence.
+
+    The three values are the exact identity accepted by the authenticated
+    run-report endpoint. They are never inferred from display names, generic
+    run IDs, selected projects, operation IDs, or legacy/recovered rows.
+    """
+
+    project_id: str
+    run_id: str
+    attempt: int = Field(..., ge=1)
+
+
 class ObservatoryRun(BaseModel):
     """Provider-neutral orchestrator run summary."""
 
@@ -295,6 +308,7 @@ class ObservatoryRun(BaseModel):
     checks: list[ObservatoryResourceRef] = Field(default_factory=list)
     logs: list[ObservatoryResourceRef] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    report_identity: ObservatoryRunReportIdentity | None = None
 
 
 class ObservatoryAsset(BaseModel):

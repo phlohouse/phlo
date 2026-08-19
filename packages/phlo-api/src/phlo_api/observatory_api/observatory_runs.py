@@ -8,9 +8,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from phlo_api.observatory_api.observatory_models import (
+    ObservatoryRun,
+    ObservatoryRunReportIdentity,
     RunStatus,
     ObservatoryResourceRef,
-    ObservatoryRun,
 )
 
 _DAGSTER_STATUS_MAP: dict[str, RunStatus] = {
@@ -19,6 +20,21 @@ _DAGSTER_STATUS_MAP: dict[str, RunStatus] = {
     "STARTED": "running",
     "QUEUED": "queued",
     "CANCELED": "cancelled",
+}
+
+_DURABLE_STATUS_MAP: dict[str, RunStatus] = {
+    "success": "succeeded",
+    "succeeded": "succeeded",
+    "failed": "failed",
+    "failure": "failed",
+    "error": "failed",
+    "running": "running",
+    "started": "running",
+    "queued": "queued",
+    "canceling": "running",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+    "skipped": "cancelled",
 }
 
 
@@ -30,6 +46,86 @@ def load_runs() -> list[ObservatoryRun]:
         return []
 
     return [_normalize_legacy_dagster_run(run) for run in legacy_runs]
+
+
+def load_durable_runs() -> list[ObservatoryRun]:
+    """Load runs from complete canonical durable run evidence.
+
+    Only rows sourced from the durable run-evidence store carry a
+    ``report_identity``. Legacy Dagster rows, manifest rows, and recovered
+    operation rows never receive one.
+    """
+    try:
+        from phlo.run_evidence.store import default_run_evidence_store
+
+        rows = default_run_evidence_store().list_runs()
+    except Exception:
+        return []
+
+    runs: list[ObservatoryRun] = []
+    for row in rows:
+        identity = _durable_report_identity(row)
+        if identity is None:
+            continue
+        runs.append(_durable_run_from_row(row, identity))
+    return runs
+
+
+def _durable_report_identity(row: Mapping[str, Any]) -> ObservatoryRunReportIdentity | None:
+    project_id = row.get("project_id")
+    run_id = row.get("run_id")
+    attempt = row.get("attempt")
+    if not isinstance(project_id, str) or not project_id.strip():
+        return None
+    if not isinstance(run_id, str) or not run_id.strip():
+        return None
+    if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
+        return None
+    return ObservatoryRunReportIdentity(
+        project_id=project_id,
+        run_id=run_id,
+        attempt=attempt,
+    )
+
+
+def _durable_run_from_row(
+    row: Mapping[str, Any], identity: ObservatoryRunReportIdentity
+) -> ObservatoryRun:
+    started_at = _canonical_timestamp(row.get("started_at"))
+    completed_at = _canonical_timestamp(row.get("finished_at"))
+    pipeline_name = row.get("pipeline_name")
+    name = (
+        str(pipeline_name)
+        if isinstance(pipeline_name, str) and pipeline_name
+        else (f"{identity.project_id}/{identity.run_id}")
+    )
+    return ObservatoryRun(
+        id=f"{identity.project_id}/{identity.run_id}",
+        name=name,
+        status=_durable_status(row.get("status")),
+        started_at=started_at,
+        completed_at=completed_at,
+        duration_seconds=_duration_seconds(started_at, completed_at),
+        metadata={"source": "durable_run_evidence"},
+        report_identity=identity,
+    )
+
+
+def _durable_status(status: Any) -> RunStatus:
+    if status is None:
+        return "unknown"
+    return _DURABLE_STATUS_MAP.get(str(status).strip().lower(), "unknown")
+
+
+def _canonical_timestamp(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat()
+    parsed = _parse_timestamp(str(value))
+    return parsed.astimezone(UTC).isoformat() if parsed else str(value)
 
 
 async def _load_legacy_dagster_runs() -> list[dict[str, Any]]:

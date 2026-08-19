@@ -13,6 +13,7 @@ import type {
   ObservatoryMetadata,
   ObservatoryOperation,
   ObservatoryRun,
+  ObservatoryRunReportIdentity,
 } from '@/observatory/api/types'
 import {
   getObservatoryOperationRecords,
@@ -255,8 +256,56 @@ function SelectedRun({ run }: { run: ObservatoryRun }) {
           </Link>
         </div>
       )}
+      <RunReportLink run={run} />
     </>
   )
+}
+
+export function RunReportLink({ run }: { run: ObservatoryRun }) {
+  const identity = runReportIdentity(run)
+  if (!identity) return null
+  return (
+    <div className="phlo-observatory-detail-list">
+      <Link
+        className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+        to="/runs/$projectId/$runId/attempts/$attempt/report"
+        params={{
+          projectId: identity.project_id,
+          runId: identity.run_id,
+          attempt: String(identity.attempt),
+        }}
+      >
+        <span>Open run report</span>
+        <small>
+          {identity.project_id}/{identity.run_id} · attempt {identity.attempt}
+        </small>
+      </Link>
+    </div>
+  )
+}
+
+export function runReportIdentity(
+  run: ObservatoryRun,
+): ObservatoryRunReportIdentity | null {
+  const identity = run.report_identity
+  if (!identity) return null
+  const { project_id, run_id, attempt } = identity
+  if (
+    typeof project_id !== 'string' ||
+    !project_id.trim() ||
+    typeof run_id !== 'string' ||
+    !run_id.trim()
+  ) {
+    return null
+  }
+  if (
+    typeof attempt !== 'number' ||
+    !Number.isSafeInteger(attempt) ||
+    attempt < 1
+  ) {
+    return null
+  }
+  return { project_id, run_id, attempt }
 }
 
 function RunProviderEmpty({

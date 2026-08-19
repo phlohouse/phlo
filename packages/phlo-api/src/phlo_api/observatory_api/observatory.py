@@ -122,7 +122,7 @@ from phlo_api.observatory_api.observatory_operation_journal import (
     sort_operations,
 )
 from phlo_api.observatory_api.orchestrator_operations import resolve_orchestrator_operations
-from phlo_api.observatory_api.observatory_runs import load_runs
+from phlo_api.observatory_api.observatory_runs import load_durable_runs, load_runs
 from phlo_api.observatory_api.observatory_saved_queries import (
     dedupe_saved_queries as _dedupe_saved_queries_impl,
     load_saved_queries as _load_saved_queries_impl,
@@ -1989,8 +1989,9 @@ def _filter_operations(
 def _load_runs() -> list[ObservatoryRun]:
     manifest_runs = list(_manifest_records("runs", ObservatoryRun))
     provider_runs = load_runs()
+    durable_runs = load_durable_runs()
     return sorted(
-        _merge_by_id([*manifest_runs, *provider_runs]),
+        _merge_by_id([*manifest_runs, *provider_runs, *durable_runs]),
         key=lambda item: item.completed_at or item.started_at or item.id,
         reverse=True,
     )

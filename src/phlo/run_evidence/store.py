@@ -704,6 +704,16 @@ class _SqlRunEvidenceStore:
                 for row in cursor.fetchall()
             ]
 
+    def list_runs(self) -> list[dict[str, Any]]:
+        """Return every durable pipeline run, newest activity first."""
+        with self._read_transaction() as (_, cursor):
+            cursor.execute(
+                f"SELECT * FROM {self._table('pipeline_run')} "
+                f"ORDER BY COALESCE(finished_at, started_at) DESC, "
+                f"project_id, run_id",
+            )
+            return [self._row_dict(cursor, row, table="pipeline_run") for row in cursor.fetchall()]
+
     def read_run_attempt(
         self, project_id: str, run_id: str, attempt: int
     ) -> dict[str, list[dict[str, Any]] | dict[str, Any] | None]:

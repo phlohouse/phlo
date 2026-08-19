@@ -2433,3 +2433,37 @@ def test_observation_boundary_logs_invalid_correlation_and_identity(
     for call in logger.error.call_args_list:
         assert call.kwargs["project_id"] == "project"
         assert call.kwargs["run_id"] == "run"
+
+
+def test_list_runs_returns_durable_runs_newest_first(tmp_path: Path) -> None:
+    store = SQLiteRunEvidenceStore(tmp_path / "runs.sqlite")
+    store.append_pipeline_run(
+        PipelineRun(
+            project_id="finance",
+            run_id="daily-orders",
+            attempt=2,
+            status="success",
+            started_at=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+            finished_at=datetime(2026, 8, 1, 12, 5, tzinfo=UTC),
+        )
+    )
+    store.append_pipeline_run(
+        PipelineRun(
+            project_id="finance",
+            run_id="hourly-orders",
+            attempt=1,
+            status="running",
+            started_at=datetime(2026, 8, 19, 9, 0, tzinfo=UTC),
+        )
+    )
+
+    rows = store.list_runs()
+
+    assert [row["run_id"] for row in rows] == ["hourly-orders", "daily-orders"]
+    finance = next(row for row in rows if row["run_id"] == "daily-orders")
+    assert finance["project_id"] == "finance"
+    assert finance["attempt"] == 2
+
+
+def test_list_runs_empty_when_no_evidence(tmp_path: Path) -> None:
+    assert SQLiteRunEvidenceStore(tmp_path / "empty.sqlite").list_runs() == []
