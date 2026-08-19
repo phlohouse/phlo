@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
-import json
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
 from phlo_api.observatory_api.observatory_metadata import safe_metadata
+from phlo_api.observatory_api.observatory_durable_state import (
+    load_collection,
+    mutate_collection,
+)
 from phlo_api.observatory_api.observatory_models import (
     HealthState,
     OperationStatus,
@@ -30,34 +33,18 @@ def operation_journal_path(project_root: Path) -> Path:
 
 
 def load_operation_journal(project_root: Path) -> list[ObservatoryOperation]:
-    path = operation_journal_path(project_root)
-    if not path.exists():
-        return []
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-
-    items = payload.get("items") if isinstance(payload, Mapping) else None
-    if not isinstance(items, list):
-        return []
-
-    operations: list[ObservatoryOperation] = []
-    for item in items:
-        if not isinstance(item, Mapping):
-            continue
-        try:
-            operations.append(ObservatoryOperation.model_validate(item))
-        except Exception:
-            continue
-    return sort_operations(operations)
+    return _validate_operations(
+        load_collection(project_root, "operation_journal", operation_journal_path(project_root))
+    )
 
 
 def write_operation_journal(project_root: Path, operations: Iterable[ObservatoryOperation]) -> None:
     records = sort_operations(list(operations))[:MAX_OPERATION_RECORDS]
-    operation_journal_path(project_root).write_text(
-        json.dumps({"items": [operation.model_dump() for operation in records]}, indent=2),
-        encoding="utf-8",
+    mutate_collection(
+        project_root,
+        "operation_journal",
+        operation_journal_path(project_root),
+        lambda _items: [operation.model_dump(mode="json") for operation in records],
     )
 
 
@@ -94,8 +81,27 @@ def append_operation(
             "metadata": metadata,
         }
     )
-    write_operation_journal(project_root, [recorded, *load_operation_journal(project_root)])
+    mutate_collection(
+        project_root,
+        "operation_journal",
+        operation_journal_path(project_root),
+        lambda items: [
+            item.model_dump(mode="json")
+            for item in sort_operations([recorded, *_validate_operations(items)])[
+                :MAX_OPERATION_RECORDS
+            ]
+        ],
+    )
     return recorded
+
+
+def _validate_operations(items: list[dict[str, object]]) -> list[ObservatoryOperation]:
+    try:
+        return sort_operations([ObservatoryOperation.model_validate(item) for item in items])
+    except Exception as exc:
+        from phlo.plugins.observatory_settings import StorageCorruptionError
+
+        raise StorageCorruptionError("Observatory durable state is unavailable") from exc
 
 
 def record_action_result(

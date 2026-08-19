@@ -8,8 +8,10 @@ never imports a provider package and contains no database driver or SQL code.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from threading import RLock
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from jsonschema import ValidationError, validate
@@ -27,6 +29,10 @@ class StorageUnavailableError(RuntimeError):
     The API boundary maps this to HTTP 503.  The message never contains
     a DSN, password, or other credential.
     """
+
+
+class StorageCorruptionError(StorageUnavailableError):
+    """Sanitised error raised when durable Observatory state is malformed."""
 
 
 class ObservatorySettingsStorageConfig(BaseConfig):
@@ -85,6 +91,15 @@ class SettingsStore(Protocol):
         schema: dict[str, Any] | None = None,
     ) -> SettingsRecord: ...
 
+    def mutate(
+        self,
+        scope: SettingsScope,
+        namespace: str,
+        mutation: Callable[[dict[str, Any] | None], dict[str, Any]],
+    ) -> SettingsRecord:
+        """Atomically replace one JSON record using its latest stored value."""
+        ...
+
 
 class InMemorySettingsService:
     """In-memory settings service for explicit development/test configuration.
@@ -96,6 +111,7 @@ class InMemorySettingsService:
 
     def __init__(self) -> None:
         self._store: dict[tuple[SettingsScope, str], SettingsRecord] = {}
+        self._lock = RLock()
 
     def get(self, scope: SettingsScope, namespace: str) -> SettingsRecord | None:
         return self._store.get((scope, namespace))
@@ -112,14 +128,30 @@ class InMemorySettingsService:
                 validate(instance=settings, schema=schema)
             except ValidationError as exc:
                 raise ValueError(str(exc)) from exc
-        record = SettingsRecord(
-            scope=scope,
-            namespace=namespace,
-            settings=settings,
-            updated_at=None,
-        )
-        self._store[(scope, namespace)] = record
-        return record
+        with self._lock:
+            record = SettingsRecord(
+                scope=scope,
+                namespace=namespace,
+                settings=settings,
+                updated_at=None,
+            )
+            self._store[(scope, namespace)] = record
+            return record
+
+    def mutate(
+        self,
+        scope: SettingsScope,
+        namespace: str,
+        mutation: Callable[[dict[str, Any] | None], dict[str, Any]],
+    ) -> SettingsRecord:
+        with self._lock:
+            current = self._store.get((scope, namespace))
+            settings = mutation(current.settings if current else None)
+            record = SettingsRecord(
+                scope=scope, namespace=namespace, settings=settings, updated_at=None
+            )
+            self._store[(scope, namespace)] = record
+            return record
 
 
 # Module-level singleton for memory mode so that writes persist across

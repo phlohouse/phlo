@@ -3021,6 +3021,10 @@ def test_observatory_saved_queries_contract_persists_provider_neutral_payload(
     monkeypatch, tmp_path
 ) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "memory")
+    from phlo.plugins.observatory_settings import _reset_memory_service
+
+    _reset_memory_service()
     client = authenticated_client("admin")
 
     create_response = client.post(

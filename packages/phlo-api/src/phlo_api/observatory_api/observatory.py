@@ -4396,11 +4396,16 @@ def get_observatory_operations(
     limit: int | None = Query(default=None, ge=1, le=200),
 ) -> ObservatoryOperationList:
     """List provider-neutral Observatory operations."""
-    result = _cached_read_model(
-        "operations",
-        _RUNTIME_READ_MODEL_TTL_SECONDS,
-        lambda: ObservatoryOperationList(items=_load_operations()),
-    )
+    try:
+        result = _cached_read_model(
+            "operations",
+            _RUNTIME_READ_MODEL_TTL_SECONDS,
+            lambda: ObservatoryOperationList(items=_load_operations()),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503, detail="Observatory durable state is unavailable"
+        ) from exc
     return ObservatoryOperationList(
         items=_filter_operations(
             result.items,
@@ -4789,13 +4794,23 @@ def get_observatory_table_preview(
 @router.get("/saved-queries", response_model=ObservatorySavedQueryList)
 def get_observatory_saved_queries() -> ObservatorySavedQueryList:
     """List saved Observatory queries."""
-    return ObservatorySavedQueryList(items=_load_saved_queries())
+    try:
+        return ObservatorySavedQueryList(items=_load_saved_queries())
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503, detail="Observatory durable state is unavailable"
+        ) from exc
 
 
 @router.post("/saved-queries", response_model=ObservatorySavedQuery)
 def post_observatory_saved_query(request: ObservatorySavedQueryRequest) -> ObservatorySavedQuery:
     """Persist a saved Observatory query."""
-    return _save_query(request)
+    try:
+        return _save_query(request)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503, detail="Observatory durable state is unavailable"
+        ) from exc
 
 
 @router.get("/stage-diff", response_model=ObservatoryStageDiff)

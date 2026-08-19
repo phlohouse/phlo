@@ -9,6 +9,7 @@ can resolve it without importing this package directly.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from jsonschema import ValidationError, validate
@@ -127,6 +128,59 @@ class PostgresSettingsStore:
                     )
         except Exception as exc:
             if isinstance(exc, (StorageUnavailableError, ValueError)):
+                raise
+            logger.warning("observatory_settings_storage_unavailable", scope=scope.value)
+            raise StorageUnavailableError("Settings storage is unavailable") from exc
+
+    def mutate(
+        self,
+        scope: SettingsScope,
+        namespace: str,
+        mutation: Callable[[dict[str, Any] | None], dict[str, Any]],
+    ) -> SettingsRecord:
+        """Apply ``mutation`` while holding the row lock for one settings record."""
+        psycopg2 = _get_psycopg2()
+        try:
+            with psycopg2.connect(self._db_url) as conn:
+                self._ensure_table(conn)
+                with conn.cursor() as cursor:
+                    # A row lock alone cannot lock an absent record. The advisory
+                    # transaction lock also serialises first-write migration and
+                    # mutation across independent API processes.
+                    cursor.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                        (f"{scope.value}:{namespace}",),
+                    )
+                    cursor.execute(
+                        """
+                        SELECT settings FROM phlo_settings
+                        WHERE scope = %s AND namespace = %s
+                        FOR UPDATE
+                        """,
+                        (scope.value, namespace),
+                    )
+                    row = cursor.fetchone()
+                    settings = mutation(row[0] if row else None)
+                    cursor.execute(
+                        """
+                        INSERT INTO phlo_settings (scope, namespace, settings, updated_at)
+                        VALUES (%s, %s, %s, NOW())
+                        ON CONFLICT (scope, namespace)
+                        DO UPDATE SET settings = EXCLUDED.settings, updated_at = NOW()
+                        RETURNING settings, updated_at
+                        """,
+                        (scope.value, namespace, psycopg2.extras.Json(settings)),
+                    )
+                    stored_settings, updated_at = cursor.fetchone()
+                    conn.commit()
+                    return SettingsRecord(
+                        scope=scope,
+                        namespace=namespace,
+                        settings=stored_settings,
+                        updated_at=updated_at.isoformat() if updated_at else None,
+                    )
+        except Exception as exc:
+            if isinstance(exc, StorageUnavailableError):
                 raise
             logger.warning("observatory_settings_storage_unavailable", scope=scope.value)
             raise StorageUnavailableError("Settings storage is unavailable") from exc

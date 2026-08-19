@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import UTC, datetime
-import json
 from pathlib import Path
 import re
 from uuid import uuid4
@@ -12,6 +10,10 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from phlo_api.observatory_api.observatory_metadata import safe_metadata
+from phlo_api.observatory_api.observatory_durable_state import (
+    load_collection,
+    mutate_collection,
+)
 from phlo_api.observatory_api.observatory_models import (
     ObservatorySavedQuery,
     ObservatorySavedQueryRequest,
@@ -30,24 +32,9 @@ def saved_queries_path(project_root: Path) -> Path:
 
 
 def load_saved_queries(project_root: Path) -> list[ObservatorySavedQuery]:
-    path = saved_queries_path(project_root)
-    if not path.exists():
-        return []
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    items = payload.get("items") if isinstance(payload, Mapping) else None
-    if not isinstance(items, list):
-        return []
-    queries: list[ObservatorySavedQuery] = []
-    for item in items:
-        if isinstance(item, Mapping):
-            try:
-                queries.append(ObservatorySavedQuery.model_validate(item))
-            except Exception:
-                continue
-    return dedupe_saved_queries(queries)
+    return _validate_queries(
+        load_collection(project_root, "saved_queries", saved_queries_path(project_root))
+    )
 
 
 def dedupe_saved_queries(queries: list[ObservatorySavedQuery]) -> list[ObservatorySavedQuery]:
@@ -63,9 +50,11 @@ def dedupe_saved_queries(queries: list[ObservatorySavedQuery]) -> list[Observato
 
 
 def write_saved_queries(project_root: Path, queries: list[ObservatorySavedQuery]) -> None:
-    saved_queries_path(project_root).write_text(
-        json.dumps({"items": [query.model_dump() for query in queries]}, indent=2),
-        encoding="utf-8",
+    mutate_collection(
+        project_root,
+        "saved_queries",
+        saved_queries_path(project_root),
+        lambda _items: [query.model_dump(mode="json") for query in queries],
     )
 
 
@@ -86,9 +75,25 @@ def save_query(project_root: Path, request: ObservatorySavedQueryRequest) -> Obs
         updated_at=now,
         metadata=safe_metadata(request.metadata),
     )
-    queries = dedupe_saved_queries([query, *load_saved_queries(project_root)])
-    write_saved_queries(project_root, queries[:100])
+    mutate_collection(
+        project_root,
+        "saved_queries",
+        saved_queries_path(project_root),
+        lambda items: [
+            item.model_dump(mode="json")
+            for item in dedupe_saved_queries([query, *_validate_queries(items)])[:100]
+        ],
+    )
     return query
+
+
+def _validate_queries(items: list[dict[str, object]]) -> list[ObservatorySavedQuery]:
+    try:
+        return dedupe_saved_queries([ObservatorySavedQuery.model_validate(item) for item in items])
+    except Exception as exc:
+        from phlo.plugins.observatory_settings import StorageCorruptionError
+
+        raise StorageCorruptionError("Observatory durable state is unavailable") from exc
 
 
 def validate_saved_query_sql(sql: str) -> str | None:

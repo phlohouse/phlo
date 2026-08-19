@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Barrier, Thread
+
+import pytest
 
 from phlo_api.observatory_api.observatory_models import (
     ObservatoryAction,
@@ -8,6 +11,7 @@ from phlo_api.observatory_api.observatory_models import (
     ObservatoryHealth,
     ObservatoryOperation,
     ObservatoryResourceRef,
+    ObservatorySavedQueryRequest,
 )
 from phlo_api.observatory_api.observatory_operation_journal import (
     append_operation,
@@ -16,6 +20,114 @@ from phlo_api.observatory_api.observatory_operation_journal import (
     operation_from_action_result,
     record_action_result,
 )
+from phlo_api.observatory_api.observatory_saved_queries import (
+    load_saved_queries,
+    save_query,
+    saved_queries_path,
+)
+from phlo_api.observatory_api.observatory_durable_state import state_namespace
+from phlo.plugins.observatory_settings import (
+    SettingsScope,
+    StorageCorruptionError,
+    get_settings_service,
+)
+
+
+@pytest.fixture(autouse=True)
+def use_memory_settings_store(monkeypatch) -> None:
+    monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "memory")
+    from phlo.plugins.observatory_settings import _reset_memory_service
+
+    _reset_memory_service()
+
+
+def test_forced_concurrent_writes_preserve_saved_queries_and_journal_records(
+    tmp_path: Path,
+) -> None:
+    barrier = Barrier(4)
+    failures: list[BaseException] = []
+
+    def save(name: str) -> None:
+        try:
+            barrier.wait()
+            save_query(
+                tmp_path,
+                ObservatorySavedQueryRequest(name=name, sql="select * from raw.orders limit 1"),
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            failures.append(exc)
+
+    def append(record_id: str) -> None:
+        try:
+            barrier.wait()
+            append_operation(
+                tmp_path,
+                _operation(record_id),
+                record_id=record_id,
+                recorded_at="2026-05-16T12:00:00+00:00",
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            failures.append(exc)
+
+    threads = [
+        Thread(target=save, args=("one",)),
+        Thread(target=save, args=("two",)),
+        Thread(target=append, args=("op-one",)),
+        Thread(target=append, args=("op-two",)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert failures == []
+    assert {query.name for query in load_saved_queries(tmp_path)} == {"one", "two"}
+    assert {operation.id for operation in load_operation_journal(tmp_path)} == {"op-one", "op-two"}
+
+
+def test_migrates_valid_legacy_json_once_without_cross_project_state(tmp_path: Path) -> None:
+    legacy_path = saved_queries_path(tmp_path)
+    legacy_bytes = b'{\n  "items": [{"id":"legacy","name":"Legacy","sql":"select * from raw.orders limit 1","branch":null,"created_at":"2026-01-01T00:00:00+00:00","updated_at":"2026-01-01T00:00:00+00:00","metadata":{}}]\n}\n'
+    legacy_path.write_bytes(legacy_bytes)
+
+    migrated = load_saved_queries(tmp_path)
+    other_project = tmp_path / "other"
+
+    assert [query.id for query in migrated] == ["legacy"]
+    assert legacy_path.read_bytes() == legacy_bytes
+    assert load_saved_queries(other_project) == []
+    service = get_settings_service()
+    assert service.get(SettingsScope.GLOBAL, state_namespace(tmp_path, "saved_queries")) is not None
+    assert (
+        service.get(SettingsScope.GLOBAL, state_namespace(other_project, "saved_queries"))
+        is not None
+    )
+
+
+def test_malformed_legacy_json_is_preserved_and_never_replaced(tmp_path: Path) -> None:
+    path = saved_queries_path(tmp_path)
+    original = b"{ definitely not json"
+    path.write_bytes(original)
+
+    with pytest.raises(StorageCorruptionError, match="durable state is unavailable"):
+        load_saved_queries(tmp_path)
+    with pytest.raises(StorageCorruptionError, match="durable state is unavailable"):
+        save_query(
+            tmp_path,
+            ObservatorySavedQueryRequest(name="new", sql="select * from raw.orders limit 1"),
+        )
+
+    assert path.read_bytes() == original
+
+
+def _operation(record_id: str) -> ObservatoryOperation:
+    return ObservatoryOperation(
+        id=record_id,
+        name=record_id,
+        kind="test",
+        status="succeeded",
+        health=ObservatoryHealth(state="ok"),
+    )
 
 
 def test_append_operation_persists_newest_record_first(tmp_path: Path) -> None:
