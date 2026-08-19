@@ -220,6 +220,37 @@ class SchemaExtractor(Protocol):
 
 
 @runtime_checkable
+class WorkflowValidator(Protocol):
+    """Provider-neutral validation for generated workflow and schema files."""
+
+    def validate_workflow_file(self, path: Path) -> None:
+        """Validate one workflow file."""
+        ...
+
+    def validate_schema_file(self, path: Path) -> None:
+        """Validate one schema file."""
+        ...
+
+
+@runtime_checkable
+class SchemaDiscoveryProvider(SchemaExtractor, Protocol):
+    """Discover native schemas and convert them to normalized schemas."""
+
+    def discover_schemas(self) -> dict[str, Any]:
+        """Return native schemas keyed by class name."""
+        ...
+
+
+@runtime_checkable
+class NamespaceResolver(Protocol):
+    """Resolve an unqualified table name to a provider-default namespace."""
+
+    def resolve_namespace(self, table_name: str) -> str:
+        """Return a fully-qualified table name."""
+        ...
+
+
+@runtime_checkable
 class WorkflowAuthoringProvider(Protocol):
     """Protocol for providers that can create workflow files in a project."""
 

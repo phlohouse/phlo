@@ -8,6 +8,8 @@ from pathlib import Path
 
 import click
 
+from phlo.capabilities import WorkflowValidator, resolve_capability
+from phlo.capabilities.discovery import discover_capabilities
 from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
 from phlo.workflow_authoring import WorkflowCreateResult, create_workflow_with_provider
@@ -47,36 +49,29 @@ def _asset_key_from_workflow_path(workflow_path: Path) -> str:
 
 
 def _validate_workflow_file(path: str) -> None:
-    """Validate a workflow file using the existing Pandera validator."""
-    try:
-        from phlo_pandera.cli_validate import validate_workflow_file
-    except ModuleNotFoundError as exc:
-        if exc.name != "phlo_pandera":
-            raise
-        raise user_error(
-            "workflow validation support is not installed",
-            details=["Install the Pandera workflow plugin."],
-            run='uv pip install "phlo-pandera"',
-        ) from exc
+    """Validate a workflow file through the resolved validation capability."""
+    validator = _resolve_workflow_validator()
+    validator.validate_workflow_file(Path(path))
 
-    validate_workflow_file(Path(path), require_workflow=True)
+
+def _resolve_workflow_validator() -> WorkflowValidator:
+    """Resolve the installed workflow validation capability."""
+    discover_capabilities()
+    resolution = resolve_capability("workflow_validation")
+    if resolution is None:
+        raise user_error(
+            "workflow_validation capability is unavailable",
+            details=["Install a provider that supplies workflow validation."],
+            run='uv pip install "phlo-pandera"',
+        )
+    return resolution.provider
 
 
 def _validate_schema_file(path: str) -> None:
-    """Validate a schema file using the existing schema validator."""
+    """Validate a schema file through the resolved validation capability."""
+    validator = _resolve_workflow_validator()
     try:
-        from phlo_pandera.cli_schema_utils import validate_schema_file
-    except ModuleNotFoundError as exc:
-        if exc.name != "phlo_pandera":
-            raise
-        raise user_error(
-            "schema validation support is not installed",
-            details=["Install the Pandera workflow plugin."],
-            run='uv pip install "phlo-pandera"',
-        ) from exc
-
-    try:
-        validate_schema_file(Path(path))
+        validator.validate_schema_file(Path(path))
     except click.ClickException:
         raise
     except Exception as exc:

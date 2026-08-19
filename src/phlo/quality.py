@@ -140,7 +140,7 @@ def _provider_api_module(provider: QualityProviderPlugin) -> Any | None:
 
 
 def _load_quality_provider() -> QualityProviderPlugin | None:
-    """Load quality provider via plugin discovery, with fallback to direct import."""
+    """Load quality provider exports through plugin discovery."""
     global phlo_quality
     global get_quality_checks
     global clear_quality_checks
@@ -213,97 +213,6 @@ def _load_quality_provider() -> QualityProviderPlugin | None:
             return provider
     except Exception as e:
         logger.warning("quality_provider_discovery_failed", exc_info=True, error=str(e))
-
-    try:
-        from phlo_pandera import (  # noqa: F401
-            PANDERA_CONTRACT_CHECK_NAME as _PANDERA_CONTRACT_CHECK_NAME,
-        )
-        from phlo_pandera import (
-            AggregateConsistencyCheck as _AggregateConsistencyCheck,
-        )
-        from phlo_pandera import (
-            AggregateSpec as _AggregateSpec,
-        )
-        from phlo_pandera import (
-            ChecksumReconciliationCheck as _ChecksumReconciliationCheck,
-        )
-        from phlo_pandera import (
-            CountCheck as _CountCheck,
-        )
-        from phlo_pandera import (
-            CustomSQLCheck as _CustomSQLCheck,
-        )
-        from phlo_pandera import (
-            FreshnessCheck as _FreshnessCheck,
-        )
-        from phlo_pandera import (
-            KeyParityCheck as _KeyParityCheck,
-        )
-        from phlo_pandera import (
-            MultiAggregateConsistencyCheck as _MultiAggregateConsistencyCheck,
-        )
-        from phlo_pandera import (
-            NullCheck as _NullCheck,
-        )
-        from phlo_pandera import (
-            PatternCheck as _PatternCheck,
-        )
-        from phlo_pandera import (
-            QualityCheck as _QualityCheck,
-        )
-        from phlo_pandera import (
-            QualityCheckContract as _QualityCheckContract,
-        )
-        from phlo_pandera import (
-            RangeCheck as _RangeCheck,
-        )
-        from phlo_pandera import (
-            ReconciliationCheck as _ReconciliationCheck,
-        )
-        from phlo_pandera import (
-            SchemaCheck as _SchemaCheck,
-        )
-        from phlo_pandera import (
-            UniqueCheck as _UniqueCheck,
-        )
-        from phlo_pandera import (
-            clear_quality_checks as _clear_quality_checks,
-        )
-        from phlo_pandera import (
-            dbt_check_name as _dbt_check_name,
-        )
-        from phlo_pandera import (
-            get_quality_checks as _get_quality_checks,
-        )
-        from phlo_pandera import (
-            phlo_pandera as _phlo_pandera,
-        )
-
-        phlo_quality = _phlo_pandera
-        get_quality_checks = _get_quality_checks
-        clear_quality_checks = _clear_quality_checks
-        QualityCheck = _QualityCheck
-        NullCheck = _NullCheck
-        RangeCheck = _RangeCheck
-        FreshnessCheck = _FreshnessCheck
-        UniqueCheck = _UniqueCheck
-        CountCheck = _CountCheck
-        SchemaCheck = _SchemaCheck
-        CustomSQLCheck = _CustomSQLCheck
-        PatternCheck = _PatternCheck
-        ReconciliationCheck = _ReconciliationCheck
-        AggregateConsistencyCheck = _AggregateConsistencyCheck
-        AggregateSpec = _AggregateSpec
-        KeyParityCheck = _KeyParityCheck
-        MultiAggregateConsistencyCheck = _MultiAggregateConsistencyCheck
-        ChecksumReconciliationCheck = _ChecksumReconciliationCheck
-        PANDERA_CONTRACT_CHECK_NAME = _PANDERA_CONTRACT_CHECK_NAME
-        QualityCheckContract = _QualityCheckContract
-        dbt_check_name = _dbt_check_name
-
-        return None
-    except ModuleNotFoundError:
-        pass
 
     raise ModuleNotFoundError(
         "phlo.quality requires a quality provider. Install phlo[defaults] or phlo-pandera."

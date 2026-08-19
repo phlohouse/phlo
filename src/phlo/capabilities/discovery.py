@@ -38,6 +38,7 @@ def discover_capabilities() -> None:
     register_default_observability_providers()
     discover_plugins(plugin_type="asset_provider", auto_register=True)
     discover_plugins(plugin_type="resource_provider", auto_register=True)
+    discover_plugins(plugin_type="quality_provider", auto_register=True)
     discover_plugins(plugin_type="ingestion_provider", auto_register=True)
     discover_plugins(plugin_type="orchestrator", auto_register=True)
 
@@ -48,6 +49,7 @@ def discover_capabilities() -> None:
         for plugin_type in (
             "asset_provider",
             "resource_provider",
+            "quality_provider",
             "ingestion_provider",
             "orchestrator",
         )
@@ -57,6 +59,7 @@ def discover_capabilities() -> None:
         "capability_discovery_completed",
         asset_provider_count=provider_counts["asset_provider"],
         resource_provider_count=provider_counts["resource_provider"],
+        quality_provider_count=provider_counts["quality_provider"],
         ingestion_provider_count=provider_counts["ingestion_provider"],
         orchestrator_provider_count=provider_counts["orchestrator"],
     )

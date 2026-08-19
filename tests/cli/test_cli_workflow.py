@@ -1,6 +1,5 @@
 """Tests for workflow CLI commands."""
 
-import builtins
 import json
 from pathlib import Path
 
@@ -462,22 +461,20 @@ def test_workflow_check_missing_pandera_dependency_is_actionable(tmp_path, monke
     workflow_file.parent.mkdir(parents=True)
     workflow_file.write_text("import phlo\n")
     monkeypatch.chdir(tmp_path)
-    real_import = builtins.__import__
+    monkeypatch.setattr("phlo.cli.commands.workflow.discover_capabilities", lambda: None)
+    from phlo.capabilities import clear_capabilities
 
-    def fake_import(name, *args, **kwargs):
-        if name.startswith("phlo_pandera"):
-            raise ModuleNotFoundError("No module named 'phlo_pandera'", name="phlo_pandera")
-        return real_import(name, *args, **kwargs)
+    clear_capabilities("workflow_validation")
+    try:
+        result = CliRunner().invoke(cli, ["workflow", "check", str(workflow_file)])
 
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-
-    result = CliRunner().invoke(cli, ["workflow", "check", str(workflow_file)])
-
-    assert result.exit_code == 1
-    assert "workflow validation support is not installed" in result.output
-    assert "Install the Pandera workflow plugin." in result.output
-    assert 'Run: uv pip install "phlo-pandera"' in result.output
-    assert "Traceback" not in result.output
+        assert result.exit_code == 1
+        assert "workflow_validation capability is unavailable" in result.output
+        assert "Install a provider that supplies workflow validation." in result.output
+        assert 'Run: uv pip install "phlo-pandera"' in result.output
+        assert "Traceback" not in result.output
+    finally:
+        clear_capabilities("workflow_validation")
 
 
 def test_workflow_check_rejects_files_without_ingestion_workflow(tmp_path, monkeypatch) -> None:

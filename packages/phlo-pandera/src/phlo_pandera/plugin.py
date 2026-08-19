@@ -47,9 +47,16 @@ See Also:
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
+import inspect
+import os
+from pathlib import Path
 from typing import Any, Callable
 
 from phlo.capabilities import (
+    SchemaDiscoverySpec,
+    WorkflowValidationSpec,
     WorkflowContributionMode,
     WorkflowWizardContribution,
     WorkflowWizardField,
@@ -268,6 +275,14 @@ class PanderaQualityProvider(QualityProviderPlugin):
 
         return PanderaSchemaExtractor
 
+    def get_workflow_validators(self) -> list[WorkflowValidationSpec]:
+        """Expose Pandera validation through the neutral CLI capability."""
+        return [WorkflowValidationSpec(name="pandera", provider=PanderaWorkflowValidator())]
+
+    def get_schema_discovery_providers(self) -> list[SchemaDiscoverySpec]:
+        """Expose Pandera schema discovery through the neutral CLI capability."""
+        return [SchemaDiscoverySpec(name="pandera", provider=PanderaSchemaDiscoveryProvider())]
+
     def get_schema_base_import(self) -> tuple[str, str]:
         """Return the Phlo schema base class used by generated project schemas."""
         return ("phlo_pandera.schemas", "PhloSchema")
@@ -397,3 +412,70 @@ from phlo_pandera.schemas import PhloSchema
             else:
                 raise ValueError(f"Unsupported neutral quality rule: {rule.kind}")
         return checks
+
+
+class PanderaWorkflowValidator:
+    """Validate workflow and schema files with Pandera's existing CLI helpers."""
+
+    def validate_workflow_file(self, path: Path) -> None:
+        from phlo_pandera.cli_validate import validate_workflow_file
+
+        validate_workflow_file(path, require_workflow=True)
+
+    def validate_schema_file(self, path: Path) -> None:
+        from phlo_pandera.cli_schema_utils import validate_schema_file
+
+        validate_schema_file(path)
+
+
+class PanderaSchemaDiscoveryProvider:
+    """Discover and normalize Pandera schemas for schema migration commands."""
+
+    def extract(self, native_schema: Any) -> Any:
+        from phlo_pandera.schema_extractor import PanderaSchemaExtractor
+
+        return PanderaSchemaExtractor().extract(native_schema)
+
+    def discover_schemas(self) -> dict[str, Any]:
+        from phlo_pandera.cli_schema_utils import discover_pandera_schemas
+
+        schemas = discover_pandera_schemas()
+        for name, schema in self._discover_schemas_from_files().items():
+            schemas.setdefault(name, schema)
+        return schemas
+
+    @staticmethod
+    def _discover_schemas_from_files() -> dict[str, type[Any]]:
+        from pandera.pandas import DataFrameModel
+
+        env_paths = os.getenv("PHLO_SCHEMA_SEARCH_PATHS")
+        if env_paths:
+            search_paths = [Path(path.strip()) for path in env_paths.split(",") if path.strip()]
+        else:
+            project_root = os.getenv("PHLO_PROJECT_PATH")
+            root = Path(project_root) if project_root else Path()
+            search_paths = [root / "examples", root / "workflows"]
+
+        discovered: dict[str, type[Any]] = {}
+        for root in search_paths:
+            if not root.exists():
+                continue
+            for schema_file in root.glob("**/schemas/*.py"):
+                if schema_file.name.startswith("_"):
+                    continue
+                module_name = (
+                    "phlo_schema_fallback_"
+                    f"{hashlib.sha256(str(schema_file.resolve()).encode()).hexdigest()[:16]}"
+                )
+                spec = importlib.util.spec_from_file_location(module_name, schema_file)
+                if spec is None or spec.loader is None:
+                    continue
+                module = importlib.util.module_from_spec(spec)
+                try:
+                    spec.loader.exec_module(module)
+                except Exception:
+                    continue
+                for name, obj in inspect.getmembers(module, inspect.isclass):
+                    if issubclass(obj, DataFrameModel) and obj is not DataFrameModel:
+                        discovered[name] = obj
+        return discovered

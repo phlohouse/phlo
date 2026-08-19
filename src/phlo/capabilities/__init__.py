@@ -97,6 +97,7 @@ from phlo.capabilities.interfaces import (
     MaintenanceReadModel,
     MaintenanceRetentionStore,
     MaintenanceTableStore,
+    NamespaceResolver,
     ObjectInventoryStore,
     OrchestratorOperationsProvider,
     Principal,
@@ -104,6 +105,7 @@ from phlo.capabilities.interfaces import (
     RefQueryCatalogManager,
     RequestContext,
     ResourceRef,
+    SchemaDiscoveryProvider,
     SchemaExtractor,
     SchemaMigrator,
     TableStateObservation,
@@ -112,6 +114,7 @@ from phlo.capabilities.interfaces import (
     TraceSpan,
     TraceSpanFilter,
     WorkflowAuthoringProvider,
+    WorkflowValidator,
 )
 from phlo.capabilities.inventory import InventoryObject, ObjectInventory
 from phlo.capabilities.maintenance import (
@@ -162,6 +165,7 @@ from phlo.capabilities.specs import (
     MaintenanceReadModelSpec,
     MaterializeResult,
     MetadataCatalogSpec,
+    NamespaceResolverSpec,
     NormalizedSchema,
     ObjectStoreSpec,
     ObservabilityBackendSpec,
@@ -175,11 +179,13 @@ from phlo.capabilities.specs import (
     RunResult,
     RunSpec,
     SchemaChange,
+    SchemaDiscoverySpec,
     SchemaMigrationPlan,
     SchemaMigrationSpec,
     SettingsStoreSpec,
     TableStoreSpec,
     WorkflowAuthoringSpec,
+    WorkflowValidationSpec,
 )
 from phlo.capabilities.support import CapabilitySupport, coerce_capability_support
 from phlo.capabilities.telemetry import TelemetryRecorder, get_telemetry_path, iter_telemetry_events
@@ -249,6 +255,8 @@ __all__ = [
     "SAFE_MIN_RETENTION_HOURS",
     "MaterializeResult",
     "MetadataCatalogSpec",
+    "NamespaceResolver",
+    "NamespaceResolverSpec",
     "NormalizedSchema",
     "ObjectStoreSpec",
     "ObservabilityBackendSpec",
@@ -274,6 +282,8 @@ __all__ = [
     "WorkflowApplyAction",
     "WorkflowAuthoringProvider",
     "WorkflowAuthoringSpec",
+    "WorkflowValidationSpec",
+    "WorkflowValidator",
     "WorkflowContributionMode",
     "WorkflowFilePreview",
     "WorkflowProposal",
@@ -282,6 +292,8 @@ __all__ = [
     "WorkflowWizardContribution",
     "WorkflowWizardField",
     "SchemaChange",
+    "SchemaDiscoveryProvider",
+    "SchemaDiscoverySpec",
     "SchemaExtractor",
     "SchemaMigrationPlan",
     "SchemaMigrationSpec",

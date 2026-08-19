@@ -6,11 +6,7 @@ between quality provider schemas and storage tables.
 
 from __future__ import annotations
 
-import hashlib
-import importlib.util
-import inspect
 import json
-import os
 import sys
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -30,6 +26,7 @@ from phlo.capabilities import (
     list_capabilities,
     resolve_capability,
 )
+from phlo.capabilities.discovery import discover_capabilities
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.commands import schema_migrate_contracts
 from phlo.logging import get_logger
@@ -99,29 +96,18 @@ def _resolve_migrator() -> Any:
 
 
 def _resolve_extractor() -> Any:
-    """Resolve a SchemaExtractor by attempting known quality providers."""
-    try:
-        from phlo_pandera.schema_extractor import PanderaSchemaExtractor
-
-        return PanderaSchemaExtractor()
-    except ImportError:
-        return None
+    """Resolve the installed schema discovery capability."""
+    discover_capabilities()
+    resolution = resolve_capability("schema_discovery")
+    return resolution.provider if resolution is not None else None
 
 
 def _discover_schema_for_table(table_name: str) -> Any:
-    """Discover the quality provider schema associated with a table name.
-
-    Searches discovered Pandera schemas for a class whose metadata or naming
-    convention matches the table.
-    """
-    schemas: dict[str, Any] = {}
-    try:
-        from phlo_pandera.cli_schema_utils import discover_pandera_schemas
-
-        schemas = discover_pandera_schemas()
-    except ImportError:
-        # Continue with file-based fallback discovery.
-        pass
+    """Discover the native schema associated with a table through a capability."""
+    provider = _resolve_extractor()
+    if provider is None:
+        return None
+    schemas = provider.discover_schemas()
 
     short_name = table_name.split(".")[-1] if "." in table_name else table_name
 
@@ -131,54 +117,7 @@ def _discover_schema_for_table(table_name: str) -> Any:
         if cls_lower == table_lower or table_lower in cls_lower:
             return schema_cls
 
-    fallback_schemas = _discover_pandera_schemas_from_files()
-    for name, schema_cls in fallback_schemas.items():
-        cls_lower = name.lower().replace("_", "")
-        table_lower = short_name.lower().replace("_", "")
-        if cls_lower == table_lower or table_lower in cls_lower:
-            return schema_cls
     return None
-
-
-def _discover_pandera_schemas_from_files() -> dict[str, type[Any]]:
-    """Fallback schema discovery that loads files directly to avoid import-path collisions."""
-    try:
-        from pandera.pandas import DataFrameModel
-    except ImportError:
-        return {}
-
-    env_paths = os.getenv("PHLO_SCHEMA_SEARCH_PATHS")
-    if env_paths:
-        search_paths = [Path(path.strip()) for path in env_paths.split(",") if path.strip()]
-    else:
-        project_root = os.getenv("PHLO_PROJECT_PATH")
-        if project_root:
-            root = Path(project_root)
-            search_paths = [root / "examples", root / "workflows"]
-        else:
-            search_paths = [Path("examples"), Path("workflows")]
-
-    discovered: dict[str, type[Any]] = {}
-    for root in search_paths:
-        if not root.exists():
-            continue
-        for schema_file in root.glob("**/schemas/*.py"):
-            if schema_file.name.startswith("_"):
-                continue
-            module_name = f"phlo_schema_fallback_{hashlib.sha256(str(schema_file.resolve()).encode()).hexdigest()[:16]}"
-            spec = importlib.util.spec_from_file_location(module_name, schema_file)
-            if spec is None or spec.loader is None:
-                continue
-            module = importlib.util.module_from_spec(spec)
-            try:
-                spec.loader.exec_module(module)
-            except Exception:
-                continue
-
-            for name, obj in inspect.getmembers(module, inspect.isclass):
-                if issubclass(obj, DataFrameModel) and obj is not DataFrameModel:
-                    discovered[name] = obj
-    return discovered
 
 
 def _resolve_desired_schema(table_name: str, schema_class: str | None) -> tuple[Any, Any, Any]:
@@ -186,13 +125,14 @@ def _resolve_desired_schema(table_name: str, schema_class: str | None) -> tuple[
     migrator = _resolve_migrator()
     extractor = _resolve_extractor()
 
+    if extractor is None:
+        console.print("[red]schema_discovery capability is unavailable.[/red]")
+        console.print("Install a provider that supplies schema discovery.")
+        sys.exit(1)
+
     native_schema = _find_native_schema(table_name, schema_class)
     if native_schema is None:
         console.print(f"[red]No quality schema found for table: {table_name}[/red]")
-        sys.exit(1)
-
-    if extractor is None:
-        console.print("[red]No schema extractor available. Install phlo-pandera.[/red]")
         sys.exit(1)
 
     desired = extractor.extract(native_schema)
@@ -422,15 +362,10 @@ def refresh_contracts_for_selection(
     for table in sorted(candidate_tables):
         table_candidates = [table]
         if "." not in table:
-            try:
-                from phlo_dlt.settings import get_settings
-
-                namespace = get_settings().dlt_default_namespace
-                table_candidates.insert(0, f"{namespace}.{table}")
-            except SystemExit:
-                raise
-            except Exception:
-                pass
+            namespace_resolver = _resolve_namespace_resolver()
+            if namespace_resolver is None:
+                raise click.ClickException("namespace_resolver capability is unavailable.")
+            table_candidates.insert(0, namespace_resolver.resolve_namespace(table))
 
         for candidate in table_candidates:
             try:
@@ -890,18 +825,11 @@ def _build_scaffold_payload_from_contract(
 
 def _find_native_schema(table_name: str, schema_class: str | None) -> Any:
     """Find the native quality schema for a table."""
+    provider = _resolve_extractor()
+    if provider is None:
+        return None
+    candidates = provider.discover_schemas()
     if schema_class:
-        candidates: dict[str, Any] = {}
-        try:
-            from phlo_pandera.cli_schema_utils import discover_pandera_schemas
-
-            candidates.update(discover_pandera_schemas())
-        except ImportError:
-            pass
-        # Keep primary discovery authoritative; fallback only fills missing names.
-        for name, schema in _discover_pandera_schemas_from_files().items():
-            candidates.setdefault(name, schema)
-
         if schema_class in candidates:
             return candidates[schema_class]
 
@@ -914,6 +842,13 @@ def _find_native_schema(table_name: str, schema_class: str | None) -> Any:
         return None
 
     return _discover_schema_for_table(table_name)
+
+
+def _resolve_namespace_resolver() -> Any:
+    """Resolve the installed namespace resolution capability."""
+    discover_capabilities()
+    resolution = resolve_capability("namespace_resolver")
+    return resolution.provider if resolution is not None else None
 
 
 def _render_plan(plan: Any) -> None:

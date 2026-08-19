@@ -307,6 +307,36 @@ class SchemaMigrationSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkflowValidationSpec:
+    """Workflow and schema validation capability (registered provider)."""
+
+    name: str
+    provider: Any
+    metadata: dict[str, Any] = field(default_factory=dict)
+    support: CapabilitySupport = field(default_factory=CapabilitySupport)
+
+
+@dataclass(frozen=True, slots=True)
+class SchemaDiscoverySpec:
+    """Schema discovery and normalization capability (registered provider)."""
+
+    name: str
+    provider: Any
+    metadata: dict[str, Any] = field(default_factory=dict)
+    support: CapabilitySupport = field(default_factory=CapabilitySupport)
+
+
+@dataclass(frozen=True, slots=True)
+class NamespaceResolverSpec:
+    """Default namespace resolution capability (registered provider)."""
+
+    name: str
+    provider: Any
+    metadata: dict[str, Any] = field(default_factory=dict)
+    support: CapabilitySupport = field(default_factory=CapabilitySupport)
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowAuthoringSpec:
     """Workflow authoring capability (registered provider)."""
 

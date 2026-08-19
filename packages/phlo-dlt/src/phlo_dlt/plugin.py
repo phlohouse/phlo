@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from phlo.capabilities import (
+    NamespaceResolverSpec,
     WorkflowContributionMode,
     WorkflowWizardContribution,
     WorkflowWizardField,
@@ -278,6 +279,10 @@ class DLTIngestionProvider(IngestionProviderPlugin):
             )
         ]
 
+    def get_namespace_resolvers(self) -> list[NamespaceResolverSpec]:
+        """Expose DLT's default namespace through the neutral CLI capability."""
+        return [NamespaceResolverSpec(name="dlt", provider=DltNamespaceResolver())]
+
 
 class DltWorkflowAuthoringProvider:
     """Create DLT-backed ingestion workflow files."""
@@ -329,6 +334,15 @@ class DltWorkflowAuthoringProvider:
             "files": files,
             "next_steps": _ingestion_next_steps(files, table=table),
         }
+
+
+class DltNamespaceResolver:
+    """Resolve DLT table names against its configured default namespace."""
+
+    def resolve_namespace(self, table_name: str) -> str:
+        from phlo_dlt.settings import get_settings
+
+        return f"{get_settings().dlt_default_namespace}.{table_name}"
 
 
 @contextmanager

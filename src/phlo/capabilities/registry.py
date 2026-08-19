@@ -23,6 +23,7 @@ from phlo.capabilities.specs import (
     MaintenanceExecutorSpec,
     MaintenanceReadModelSpec,
     MetadataCatalogSpec,
+    NamespaceResolverSpec,
     ObjectStoreSpec,
     ObservabilityBackendSpec,
     OrchestratorOperationsSpec,
@@ -31,12 +32,14 @@ from phlo.capabilities.specs import (
     QueryEngineSpec,
     RegulatedSurfaceSpec,
     ResourceSpec,
+    SchemaDiscoverySpec,
     SchemaMigrationSpec,
     SecretBackendSpec,
     SettingsStoreSpec,
     TableStoreSpec,
     UiContributionSpec,
     WorkflowAuthoringSpec,
+    WorkflowValidationSpec,
 )
 
 CAPABILITY_FAMILIES: dict[str, CapabilityFamilyDefinition[Any, Any]] = {
@@ -165,6 +168,24 @@ CAPABILITY_FAMILIES: dict[str, CapabilityFamilyDefinition[Any, Any]] = {
         spec_type=SchemaMigrationSpec,
         key=lambda spec: spec.name,
         provider_method="get_schema_migrators",
+    ),
+    "workflow_validation": CapabilityFamilyDefinition(
+        name="workflow_validation",
+        spec_type=WorkflowValidationSpec,
+        key=lambda spec: spec.name,
+        provider_method="get_workflow_validators",
+    ),
+    "schema_discovery": CapabilityFamilyDefinition(
+        name="schema_discovery",
+        spec_type=SchemaDiscoverySpec,
+        key=lambda spec: spec.name,
+        provider_method="get_schema_discovery_providers",
+    ),
+    "namespace_resolver": CapabilityFamilyDefinition(
+        name="namespace_resolver",
+        spec_type=NamespaceResolverSpec,
+        key=lambda spec: spec.name,
+        provider_method="get_namespace_resolvers",
     ),
     "workflow_authoring": CapabilityFamilyDefinition(
         name="workflow_authoring",

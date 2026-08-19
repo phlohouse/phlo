@@ -2,8 +2,6 @@
 
 import json
 import os
-import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -739,23 +737,17 @@ def test_schema_migrate_scaffold_yaml_recent_continues_after_error(monkeypatch) 
         assert Path(".phlo/migrations/warehouse__customers.yaml").exists()
 
 
-def test_find_native_schema_prefers_primary_discovery(monkeypatch) -> None:
-    """Primary schema discovery wins when fallback has the same class name."""
+def test_find_native_schema_uses_schema_discovery_capability(monkeypatch) -> None:
+    """Schema lookup depends on the neutral schema discovery capability."""
 
     class PrimarySchema:
         pass
 
-    class FallbackSchema:
-        pass
+    class FakeDiscovery:
+        def discover_schemas(self) -> dict[str, type[PrimarySchema]]:
+            return {"RawContractDemo": PrimarySchema}
 
-    cli_schema_utils = types.ModuleType("phlo_pandera.cli_schema_utils")
-    cli_schema_utils.discover_pandera_schemas = lambda: {"RawContractDemo": PrimarySchema}
-    monkeypatch.setitem(sys.modules, "phlo_pandera.cli_schema_utils", cli_schema_utils)
-    monkeypatch.setattr(
-        schema_migrate_commands,
-        "_discover_pandera_schemas_from_files",
-        lambda: {"RawContractDemo": FallbackSchema},
-    )
+    monkeypatch.setattr(schema_migrate_commands, "_resolve_extractor", lambda: FakeDiscovery())
 
     resolved = schema_migrate_commands._find_native_schema(
         table_name="raw.contract_demo",
@@ -764,25 +756,17 @@ def test_find_native_schema_prefers_primary_discovery(monkeypatch) -> None:
     assert resolved is PrimarySchema
 
 
-def test_discover_schema_for_table_uses_fallback_without_phlo_quality(monkeypatch) -> None:
-    """Falls back to file discovery when phlo_quality discovery import is unavailable."""
+def test_discover_schema_for_table_uses_schema_discovery_capability(monkeypatch) -> None:
+    """Table lookup depends on the neutral schema discovery capability."""
 
     class RawContractDemo:
         pass
 
-    real_import = __import__
+    class FakeDiscovery:
+        def discover_schemas(self) -> dict[str, type[RawContractDemo]]:
+            return {"RawContractDemo": RawContractDemo}
 
-    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):  # type: ignore[no-untyped-def]
-        if name == "phlo_pandera.cli_schema_utils":
-            raise ImportError("phlo_pandera unavailable")
-        return real_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr("builtins.__import__", fake_import)
-    monkeypatch.setattr(
-        schema_migrate_commands,
-        "_discover_pandera_schemas_from_files",
-        lambda: {"RawContractDemo": RawContractDemo},
-    )
+    monkeypatch.setattr(schema_migrate_commands, "_resolve_extractor", lambda: FakeDiscovery())
 
     resolved = schema_migrate_commands._discover_schema_for_table("raw.contract_demo")
     assert resolved is RawContractDemo
