@@ -227,7 +227,7 @@ describe('Observatory workflow deep links', () => {
     const source = routeSource('publishing.tsx')
     const datasetSource = routeSource('datasets.$datasetId.tsx')
 
-    expect(source).toContain('profile.publishing.missing_evidence')
+    expect(source).toContain('profile.missing_evidence')
     expect(source).toContain('missingEvidence')
     expect(source).toContain('Needs evidence')
     expect(source).toContain('missing evidence')

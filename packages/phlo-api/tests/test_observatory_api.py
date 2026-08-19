@@ -535,6 +535,48 @@ def test_observatory_datasets_endpoint_returns_profile_summaries(
     assert payload["items"][0]["candidate"] is False
 
 
+def test_observatory_publishing_readiness_loads_shared_sources_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observatory._clear_read_model_cache()
+    calls: list[str] = []
+
+    def assets() -> list[ObservatoryAsset]:
+        calls.append("assets")
+        return [
+            ObservatoryAsset(
+                id=f"gold.{name}",
+                name=name,
+                metadata={"owner": "analytics", "classification": "internal"},
+            )
+            for name in ("orders", "customers", "payments")
+        ]
+
+    monkeypatch.setattr(observatory, "_load_assets", assets)
+    monkeypatch.setattr(
+        observatory,
+        "_load_tables_without_catalog",
+        lambda: calls.append("tables") or [],
+    )
+    monkeypatch.setattr(
+        observatory,
+        "_load_quality",
+        lambda: calls.append("quality") or [],
+    )
+
+    response = authenticated_client("admin").get("/api/observatory/datasets/publishing-readiness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["dataset_id"] for item in payload["items"]] == [
+        "gold.customers",
+        "gold.orders",
+        "gold.payments",
+    ]
+    assert all(item["publishing"]["state"] == "unknown" for item in payload["items"])
+    assert calls == ["assets", "tables", "quality"]
+
+
 def test_observatory_datasets_endpoint_uses_project_read_model_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

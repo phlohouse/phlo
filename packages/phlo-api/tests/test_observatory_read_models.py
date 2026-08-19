@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from phlo_api.observatory_api.observatory_cache import ReadModelCache
 from phlo_api.observatory_api.observatory_models import (
     ObservatoryAsset,
@@ -41,6 +43,63 @@ def test_read_model_cache_clear_removes_values() -> None:
     value = cache.cached("services", 30, lambda: ["trino"])
 
     assert value == ["trino"]
+
+
+def test_read_model_cache_allows_different_key_loaders_to_overlap() -> None:
+    cache = ReadModelCache(project_key=lambda: "demo")
+    both_loaders_started = threading.Barrier(3)
+    release_loaders = threading.Event()
+    results: list[str] = []
+
+    def loader(value: str) -> str:
+        both_loaders_started.wait(timeout=1)
+        assert release_loaders.wait(timeout=1)
+        return value
+
+    threads = [
+        threading.Thread(
+            target=lambda value=value: results.append(
+                cache.cached(value, 30, lambda: loader(value))
+            )
+        )
+        for value in ("assets", "tables")
+    ]
+    for thread in threads:
+        thread.start()
+    both_loaders_started.wait(timeout=1)
+    release_loaders.set()
+    for thread in threads:
+        thread.join(timeout=1)
+
+    assert sorted(results) == ["assets", "tables"]
+
+
+def test_read_model_cache_shares_same_key_loader_result() -> None:
+    cache = ReadModelCache(project_key=lambda: "demo")
+    loader_started = threading.Event()
+    release_loader = threading.Event()
+    calls: list[str] = []
+    results: list[object] = []
+
+    def loader() -> object:
+        calls.append("called")
+        loader_started.set()
+        assert release_loader.wait(timeout=1)
+        return {"value": "shared"}
+
+    threads = [
+        threading.Thread(target=lambda: results.append(cache.cached("assets", 30, loader)))
+        for _ in range(2)
+    ]
+    threads[0].start()
+    assert loader_started.wait(timeout=1)
+    threads[1].start()
+    release_loader.set()
+    for thread in threads:
+        thread.join(timeout=1)
+
+    assert calls == ["called"]
+    assert results[0] is results[1]
 
 
 def test_read_model_cache_reuses_sqlite_value(tmp_path) -> None:

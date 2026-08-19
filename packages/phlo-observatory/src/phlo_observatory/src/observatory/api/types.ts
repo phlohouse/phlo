@@ -153,6 +153,11 @@ export interface ObservatoryDataset {
   metadata: ObservatoryMetadata
 }
 
+export interface ObservatoryPublishingReadinessItem {
+  dataset_id: string
+  publishing: ObservatoryPublishingReadiness
+}
+
 export type ObservatoryControlStatus =
   | 'pass'
   | 'fail'

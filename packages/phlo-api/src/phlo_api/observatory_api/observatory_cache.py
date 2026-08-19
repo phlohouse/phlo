@@ -23,34 +23,48 @@ class ReadModelCache:
     db_path: Callable[[], Path] | None = None
     _values: dict[tuple[str, str], tuple[float, Any]] = field(default_factory=dict)
     _lock: threading.RLock = field(default_factory=threading.RLock)
+    _in_flight: dict[tuple[str, str], threading.Event] = field(default_factory=dict)
+    _generation: int = 0
 
     def cached(self, name: str, ttl_seconds: float, loader: Callable[[], Any]) -> Any:
         project = self.project_key()
         key = (project, name)
-        now = time.monotonic()
         epoch_now = time.time()
 
-        with self._lock:
-            cached = self._values.get(key)
-            if cached is not None:
-                expires_at, value = cached
-                if expires_at > now:
-                    return value
+        while True:
+            with self._lock:
+                cached = self._values.get(key)
+                if cached is not None and cached[0] > time.monotonic():
+                    return cached[1]
+                in_flight = self._in_flight.get(key)
+                if in_flight is None:
+                    in_flight = threading.Event()
+                    self._in_flight[key] = in_flight
+                    generation = self._generation
+                    break
+            in_flight.wait()
 
+        try:
             stored = self._load_stored(project, name, epoch_now)
             if stored is not None:
                 expires_at, value = stored
-                self._values[key] = (now + max(0, expires_at - epoch_now), value)
-                return value
-
-            value = loader()
-            expires_at = time.time() + ttl_seconds
-            self._values[key] = (time.monotonic() + ttl_seconds, value)
-            self._store(project, name, expires_at, value)
+            else:
+                value = loader()
+                expires_at = time.time() + ttl_seconds
+            with self._lock:
+                if generation == self._generation:
+                    self._values[key] = (time.monotonic() + max(0, expires_at - time.time()), value)
+                    if stored is None:
+                        self._store(project, name, expires_at, value)
             return value
+        finally:
+            with self._lock:
+                self._in_flight.pop(key, None)
+                in_flight.set()
 
     def clear(self) -> None:
         with self._lock:
+            self._generation += 1
             self._values.clear()
             path = self._db_path()
             if path is None or not path.exists():

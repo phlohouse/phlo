@@ -519,6 +519,20 @@ class ObservatoryDatasetProfile(BaseModel):
     sections: dict[str, bool] = Field(default_factory=dict)
 
 
+class ObservatoryPublishingReadinessItem(BaseModel):
+    """Publishing readiness for one Dataset, keyed for list consumers."""
+
+    dataset_id: str
+    publishing: ObservatoryPublishingReadiness
+
+
+class ObservatoryPublishingReadinessList(BaseModel):
+    """Bounded provider-neutral publishing readiness response."""
+
+    items: list[ObservatoryPublishingReadinessItem] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
 class ObservatoryAssetGraphNode(BaseModel):
     """Provider-neutral asset graph node."""
 

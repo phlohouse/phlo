@@ -21,6 +21,7 @@ import type {
   ObservatoryOperationDetail,
   ObservatoryOverview,
   ObservatoryPackageInstallResult,
+  ObservatoryPublishingReadinessItem,
   ObservatoryQualityCheck,
   ObservatoryQualityDetail,
   ObservatoryQueryResult,
@@ -499,6 +500,19 @@ export function getObservatoryAssetRecords() {
 
 export function getObservatoryDatasetRecords() {
   return getRawCollection<ObservatoryDataset>('datasets')
+}
+
+export async function getObservatoryPublishingReadinessDirect(): Promise<
+  ObservatoryResourceResult<Array<ObservatoryPublishingReadinessItem>>
+> {
+  try {
+    const data = await browserApiGet<{
+      items: Array<ObservatoryPublishingReadinessItem>
+    }>(`${Observatory_API_PREFIX}/datasets/publishing-readiness`)
+    return { data: data.items, error: null }
+  } catch (error) {
+    return apiUnavailable<Array<ObservatoryPublishingReadinessItem>>(error)
+  }
 }
 
 export async function getObservatoryDatasetWorkflowConfigDirect(): Promise<

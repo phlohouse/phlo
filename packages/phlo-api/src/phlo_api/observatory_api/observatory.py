@@ -61,6 +61,8 @@ from phlo_api.observatory_api.observatory_models import (
     ObservatoryDatasetPipeline,
     ObservatoryDatasetProfile,
     ObservatoryDatasetUsage,
+    ObservatoryPublishingReadinessItem,
+    ObservatoryPublishingReadinessList,
     ObservatoryDependencyActivity,
     ObservatoryExtension,
     ObservatoryExtensionDetail,
@@ -1219,6 +1221,14 @@ def _load_datasets() -> list[ObservatoryDataset]:
     tables = _load_tables_without_catalog()
     quality = _load_quality()
     assets = _load_assets()
+    return _datasets_from_sources(assets, tables, quality)
+
+
+def _datasets_from_sources(
+    assets: Sequence[ObservatoryAsset],
+    tables: Sequence[ObservatoryTable],
+    quality: Sequence[ObservatoryQualityCheck],
+) -> list[ObservatoryDataset]:
     datasets = [_dataset_from_asset(asset, tables=tables, quality=quality) for asset in assets]
     datasets.extend(
         _candidate_dataset_from_table(table)
@@ -1227,6 +1237,33 @@ def _load_datasets() -> list[ObservatoryDataset]:
         and _workflow_candidate_overlay(table.id).get("state") != "rejected"
     )
     return sorted(_merge_by_id(datasets), key=lambda item: item.name.lower())
+
+
+def _load_publishing_readiness() -> ObservatoryPublishingReadinessList:
+    """Build publishing readiness from one shared set of source collections."""
+    assets = _load_assets()
+    tables = _load_tables_without_catalog()
+    quality = _load_quality()
+    items: list[ObservatoryPublishingReadinessItem] = []
+    for dataset in _datasets_from_sources(assets, tables, quality):
+        if dataset.candidate:
+            continue
+        dataset_quality = [
+            check
+            for check in quality
+            if any(ref.id == check.asset_id for ref in dataset.source_refs)
+        ]
+        items.append(
+            ObservatoryPublishingReadinessItem(
+                dataset_id=dataset.id,
+                publishing=_publishing_readiness(
+                    dataset,
+                    _governance_controls_for_dataset(dataset, dataset_quality),
+                    dataset_quality,
+                ),
+            )
+        )
+    return ObservatoryPublishingReadinessList(items=items)
 
 
 def _load_dataset_profile(dataset_id: str) -> ObservatoryDatasetProfile:
@@ -4555,6 +4592,20 @@ def get_observatory_datasets(limit: int = 100, cursor: str | None = None) -> Obs
     )
     page, next_cursor = paginate_items(result.items, limit=limit, cursor=cursor)
     return ObservatoryDatasetList(items=page, next_cursor=next_cursor)
+
+
+@router.get("/datasets/publishing-readiness", response_model=ObservatoryPublishingReadinessList)
+def get_observatory_publishing_readiness(
+    limit: int = 100, cursor: str | None = None
+) -> ObservatoryPublishingReadinessList:
+    """List bounded publishing readiness for promoted Datasets."""
+    result = _cached_read_model(
+        "publishing-readiness",
+        _EXPENSIVE_READ_MODEL_TTL_SECONDS,
+        _load_publishing_readiness,
+    )
+    page, next_cursor = paginate_items(result.items, limit=limit, cursor=cursor)
+    return ObservatoryPublishingReadinessList(items=page, next_cursor=next_cursor)
 
 
 @router.get("/datasets/{dataset_id:path}", response_model=ObservatoryDatasetProfile)

@@ -117,6 +117,39 @@ describe('observatory dataset resources', () => {
     )
   })
 
+  it('fetches publishing readiness in one bounded browser request', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      json: () =>
+        Promise.resolve({
+          items: [
+            { dataset_id: 'gold.orders', publishing: { state: 'unknown' } },
+          ],
+        }),
+      ok: true,
+    })
+    vi.stubGlobal('document', { querySelector: () => null })
+    vi.stubGlobal('window', {
+      __PHLO_API_BROWSER_URL__: 'https://api.example.test',
+      clearTimeout,
+      setTimeout,
+    })
+    vi.stubGlobal('fetch', fetch)
+
+    const { getObservatoryPublishingReadinessDirect } =
+      await import('./resources')
+    const result = await getObservatoryPublishingReadinessDirect()
+
+    expect(result).toMatchObject({
+      data: [expect.objectContaining({ dataset_id: 'gold.orders' })],
+      error: null,
+    })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.example.test/api/observatory/datasets/publishing-readiness',
+      expect.any(Object),
+    )
+  })
+
   it('forwards the signed-in operator bearer credential to the run report API', async () => {
     apiGet.mockResolvedValue({
       schema_version: 1,

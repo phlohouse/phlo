@@ -4,13 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type {
   ObservatoryDataset,
-  ObservatoryDatasetProfile,
   ObservatoryHealthState,
+  ObservatoryPublishingReadiness,
   ObservatoryResourceResult,
 } from '@/observatory/api/types'
 import {
-  getObservatoryDatasetProfileDirect,
   getObservatoryDatasetRecords,
+  getObservatoryPublishingReadinessDirect,
   runObservatoryActionDirect,
 } from '@/observatory/api/resources'
 import { ActionButton } from '@/observatory/components/ActionButton'
@@ -28,7 +28,7 @@ export const Route = createFileRoute('/publishing')({
 export function Publishing() {
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   const [profileResults, setProfileResults] = useState<
-    Record<string, ObservatoryResourceResult<ObservatoryDatasetProfile>>
+    Record<string, ObservatoryResourceResult<ObservatoryPublishingReadiness>>
   >({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const result = useLiveResource(
@@ -73,22 +73,17 @@ export function Publishing() {
 
   useEffect(() => {
     let cancelled = false
-    const missing = promoted.filter((dataset) => !profileResults[dataset.id])
-    if (missing.length === 0) return
-    void Promise.all(
-      missing.map(
-        async (dataset) =>
-          [
-            dataset.id,
-            await getObservatoryDatasetProfileDirect({ datasetId: dataset.id }),
-          ] as const,
-      ),
-    ).then((entries) => {
+    if (promoted.length === 0 || Object.keys(profileResults).length > 0) return
+    void getObservatoryPublishingReadinessDirect().then((bulkResult) => {
       if (cancelled) return
-      setProfileResults((current) => ({
-        ...current,
-        ...Object.fromEntries(entries),
-      }))
+      setProfileResults(
+        Object.fromEntries(
+          (bulkResult.data ?? []).map((item) => [
+            item.dataset_id,
+            { data: item.publishing, error: bulkResult.error },
+          ]),
+        ),
+      )
     })
     return () => {
       cancelled = true
@@ -229,7 +224,10 @@ function PublicationSummary({
 }: {
   datasets: Array<ObservatoryDataset>
   drafts: number
-  profiles: Record<string, ObservatoryResourceResult<ObservatoryDatasetProfile>>
+  profiles: Record<
+    string,
+    ObservatoryResourceResult<ObservatoryPublishingReadiness>
+  >
   promoted: number
   published: number
 }) {
@@ -238,7 +236,9 @@ function PublicationSummary({
   )
   const loadedProfiles = Object.values(profiles)
     .map((result) => result.data)
-    .filter((profile): profile is ObservatoryDatasetProfile => Boolean(profile))
+    .filter((profile): profile is ObservatoryPublishingReadiness =>
+      Boolean(profile),
+    )
   const blocked = readinessList.filter(
     (readiness) => readiness.blockers.length > 0,
   ).length
@@ -249,7 +249,7 @@ function PublicationSummary({
     (readiness) => readiness.warnings.length > 0,
   ).length
   const actionReady = loadedProfiles.filter((profile) =>
-    profile.publishing.actions.some((action) => action.enabled),
+    profile.actions.some((action) => action.enabled),
   ).length
   return (
     <div className="phlo-observatory-publication-summary">
@@ -314,7 +314,7 @@ function PublishingRow({
   onAction: (actionId: string) => void
   onSelect: (datasetId: string) => void
   dataset: ObservatoryDataset
-  profile: ObservatoryDatasetProfile | null
+  profile: ObservatoryPublishingReadiness | null
   selected: boolean
 }) {
   const publication = publicationReadiness(dataset, profile)
@@ -322,12 +322,10 @@ function PublishingRow({
   const nextAction = publicationNextAction(dataset, publication)
   const issueCount = publicationIssueCount(publication)
   const primaryIssue = publicationPrimaryIssue(publication)
-  const publishAction = profile?.publishing.actions.find(
+  const publishAction = profile?.actions.find(
     (action) => action.id === 'publish',
   )
-  const retireAction = profile?.publishing.actions.find(
-    (action) => action.id === 'retire',
-  )
+  const retireAction = profile?.actions.find((action) => action.id === 'retire')
 
   return (
     <div
@@ -422,14 +420,14 @@ type PublicationReadiness = {
 
 function publicationReadiness(
   dataset: ObservatoryDataset,
-  profile: ObservatoryDatasetProfile | null,
+  profile: ObservatoryPublishingReadiness | null,
 ): PublicationReadiness {
   if (profile) {
     return {
-      blockers: profile.publishing.blockers,
-      missingEvidence: profile.publishing.missing_evidence,
-      state: profile.publishing.state,
-      warnings: profile.publishing.warnings,
+      blockers: profile.blockers,
+      missingEvidence: profile.missing_evidence,
+      state: profile.state,
+      warnings: profile.warnings,
     }
   }
   const blockers: Array<string> = []
@@ -515,7 +513,7 @@ function PublishingInspector({
   drafts: number
   isLoading: boolean
   onAction: (actionId: string) => void
-  profile: ObservatoryDatasetProfile | null
+  profile: ObservatoryPublishingReadiness | null
   promoted: number
   published: number
   selected: ObservatoryDataset | null
@@ -542,22 +540,13 @@ function PublishingInspector({
       </aside>
     )
   }
-  const publishing = profile?.publishing
+  const publishing = profile
   const readiness = publicationReadiness(selected, profile)
   const nextAction = publishing
     ? (publishing.actions.find((action) => action.enabled)?.label ??
       publishing.actions[0]?.reason ??
       publicationNextAction(selected, readiness))
     : publicationNextAction(selected, readiness)
-  const failingQuality =
-    profile?.quality.filter(
-      (check) => check.blocking && check.status !== 'passing',
-    ) ?? []
-  const failedControls =
-    profile?.governance.filter((control) => control.status === 'fail') ?? []
-  const failedOperations =
-    profile?.operations.filter((operation) => operation.status === 'failed') ??
-    []
   return (
     <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
       <div className="phlo-observatory-inspector-label">Policy</div>
@@ -616,41 +605,6 @@ function PublishingInspector({
             <small>missing evidence</small>
           </div>
         ))}
-        {failingQuality.map((check) => (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            data-state="error"
-            key={check.id}
-            search={{ checkId: check.id }}
-            to="/quality"
-          >
-            <span>{check.name}</span>
-            <small>{check.status} · quality</small>
-          </Link>
-        ))}
-        {failedControls.length > 0 && (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            data-state="error"
-            search={{ datasetId: selected.id }}
-            to="/governance"
-          >
-            <span>{failedControls.length} failed governance controls</span>
-            <small>owner, classification, controls</small>
-          </Link>
-        )}
-        {failedOperations.map((operation) => (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            data-state="error"
-            key={operation.id}
-            search={{ operationId: operation.id }}
-            to="/operations"
-          >
-            <span>{operation.name}</span>
-            <small>failed operation</small>
-          </Link>
-        ))}
         {readiness.warnings.map((warning) => (
           <div
             className="phlo-observatory-mini-row"
@@ -663,10 +617,7 @@ function PublishingInspector({
         ))}
         {readiness.blockers.length === 0 &&
           readiness.missingEvidence.length === 0 &&
-          readiness.warnings.length === 0 &&
-          failingQuality.length === 0 &&
-          failedControls.length === 0 &&
-          failedOperations.length === 0 && (
+          readiness.warnings.length === 0 && (
             <div className="phlo-observatory-mini-row" data-state="ok">
               <span>No release issues</span>
               <small>ready for publication action</small>
