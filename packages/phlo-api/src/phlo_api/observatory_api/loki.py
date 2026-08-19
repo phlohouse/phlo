@@ -30,8 +30,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import multiprocessing
 import re
 from datetime import datetime, timedelta
+from multiprocessing.connection import Connection
+from time import monotonic
 from typing import Any, Literal
 
 import httpx
@@ -49,6 +52,8 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["loki"])
 
 DEFAULT_LOKI_URL = "http://loki:3100"
+MAX_REGEX_PATTERN_LENGTH = 512
+REGEX_EVALUATION_TIMEOUT_SECONDS = 0.1
 
 LogLevel = Literal["debug", "info", "warn", "error"]
 
@@ -56,6 +61,68 @@ _LOKI_URL_OVERRIDE_ERROR = {
     "error": "loki_url_override_not_allowed",
     "message": "Caller-supplied loki_url is not allowed; use the operator-configured Loki endpoint.",
 }
+_INVALID_REGEX_ERROR = {"error": "invalid_regex"}
+_REGEX_EVALUATION_TIMEOUT_ERROR = {"error": "regex_evaluation_timeout"}
+
+
+class _InvalidRegexError(Exception):
+    """Raised when a message-filter regex is invalid."""
+
+
+class _RegexEvaluationTimeoutError(Exception):
+    """Raised when message-filter regex evaluation exceeds its budget."""
+
+
+def _regex_filter_worker(
+    result_connection: Connection, pattern_text: str, messages: list[str]
+) -> None:
+    """Evaluate a regex filter in an isolated process.
+
+    The parent enforces the deadline and terminates this process if Python's
+    backtracking engine takes too long. Only matching indexes cross the process
+    boundary so worker failures can never include log contents in an error.
+    """
+    try:
+        pattern = re.compile(pattern_text)
+    except re.error:
+        result_connection.send(("invalid", []))
+    else:
+        result_connection.send(
+            (
+                "matches",
+                [index for index, message in enumerate(messages) if pattern.search(message)],
+            )
+        )
+    finally:
+        result_connection.close()
+
+
+def _filter_entries_with_regex(entries: list[LogEntry], pattern_text: str) -> list[LogEntry]:
+    """Filter entries with a hard total evaluation deadline outside the API process."""
+    receive_connection, send_connection = multiprocessing.Pipe(duplex=False)
+    process = multiprocessing.get_context("fork").Process(
+        target=_regex_filter_worker,
+        args=(send_connection, pattern_text, [entry.message for entry in entries]),
+    )
+    deadline = monotonic() + REGEX_EVALUATION_TIMEOUT_SECONDS
+    try:
+        process.start()
+        send_connection.close()
+        remaining = deadline - monotonic()
+        if remaining <= 0 or not receive_connection.poll(remaining):
+            raise _RegexEvaluationTimeoutError
+        status, matching_indexes = receive_connection.recv()
+    except EOFError as exc:
+        raise _InvalidRegexError from exc
+    finally:
+        receive_connection.close()
+        if process.is_alive():
+            process.terminate()
+        process.join()
+
+    if status == "invalid":
+        raise _InvalidRegexError
+    return [entries[index] for index in matching_indexes]
 
 
 def resolve_loki_url() -> str:
@@ -390,6 +457,9 @@ async def fetch_run_log_entries(
         LogQueryResult with paginated entries, or an error dictionary.
 
     """
+    if regex is not None and len(regex) > MAX_REGEX_PATTERN_LENGTH:
+        raise HTTPException(status_code=400, detail=_INVALID_REGEX_ERROR)
+
     end = datetime.fromisoformat(until.replace("Z", "+00:00")) if until else datetime.now()
     start = (
         datetime.fromisoformat(since.replace("Z", "+00:00")) if since else end - timedelta(hours=24)
@@ -410,8 +480,12 @@ async def fetch_run_log_entries(
     if query:
         entries = [entry for entry in entries if query.lower() in entry.message.lower()]
     if regex:
-        pattern = re.compile(regex)
-        entries = [entry for entry in entries if pattern.search(entry.message)]
+        try:
+            entries = await asyncio.to_thread(_filter_entries_with_regex, entries, regex)
+        except _InvalidRegexError as exc:
+            raise HTTPException(status_code=400, detail=_INVALID_REGEX_ERROR) from exc
+        except _RegexEvaluationTimeoutError as exc:
+            raise HTTPException(status_code=422, detail=_REGEX_EVALUATION_TIMEOUT_ERROR) from exc
     page, next_cursor = paginate_items(entries, limit=limit, cursor=cursor)
     return LogQueryResult(
         entries=page,
