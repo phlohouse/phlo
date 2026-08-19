@@ -2516,6 +2516,160 @@ def test_observatory_logs_include_project_phlo_logs(monkeypatch, tmp_path: Path)
     assert payload["items"][0]["level"] == "warning"
 
 
+def test_project_log_tail_reads_only_bounded_suffix_of_100_mib_history(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    log_dir = tmp_path / ".phlo" / "logs"
+    log_dir.mkdir(parents=True)
+    log_path = log_dir / "history.log"
+    historical_chunk = b'{"message":"historical"}\n' * 2048
+    with log_path.open("wb") as handle:
+        while handle.tell() < 100 * 1024 * 1024:
+            handle.write(historical_chunk)
+        for index in range(100):
+            handle.write(
+                (
+                    json.dumps(
+                        {
+                            "timestamp": f"2026-05-17T10:00:{index:02d}Z",
+                            "message": f"tail-{index}",
+                        }
+                    )
+                    + "\n"
+                ).encode()
+            )
+
+    original_open = Path.open
+    bytes_read = 0
+
+    class CountingReader:
+        def __init__(self, handle) -> None:
+            self._handle = handle
+
+        def __enter__(self):
+            self._handle.__enter__()
+            return self
+
+        def __exit__(self, *args) -> None:
+            self._handle.__exit__(*args)
+
+        def read(self, *args, **kwargs):
+            nonlocal bytes_read
+            data = self._handle.read(*args, **kwargs)
+            bytes_read += len(data)
+            return data
+
+        def __getattr__(self, name):
+            return getattr(self._handle, name)
+
+    def counting_open(path: Path, *args, **kwargs):
+        handle = original_open(path, *args, **kwargs)
+        return CountingReader(handle) if path == log_path and args[0] == "rb" else handle
+
+    monkeypatch.setattr(Path, "open", counting_open)
+
+    events = observatory._load_project_log_events(tmp_path)
+
+    assert [event.message for event in events] == [f"tail-{index}" for index in range(99, -1, -1)]
+    assert bytes_read <= observatory.LOG_TAIL_CHUNK_BYTES
+    assert len(events) == observatory.FILE_LOG_EVENT_LIMIT
+
+
+def test_project_log_tail_merges_newest_events_and_preserves_small_file_ids(tmp_path: Path) -> None:
+    log_dir = tmp_path / ".phlo" / "logs"
+    log_dir.mkdir(parents=True)
+    (log_dir / "a.log").write_text(
+        "\n".join(
+            json.dumps({"timestamp": timestamp, "message": message})
+            for timestamp, message in (
+                ("2026-05-17T10:00:00Z", "a-old"),
+                ("2026-05-17T10:03:00Z", "a-new"),
+            )
+        )
+        + "\n"
+    )
+    (log_dir / "b.log").write_text(
+        "\n".join(
+            json.dumps({"timestamp": timestamp, "message": message})
+            for timestamp, message in (
+                ("2026-05-17T10:01:00Z", "b-old"),
+                ("2026-05-17T10:02:00Z", "b-new"),
+            )
+        )
+        + "\n"
+    )
+
+    events = observatory._load_project_log_events(tmp_path)
+
+    assert [event.message for event in events] == ["a-new", "b-new", "b-old", "a-old"]
+    assert [event.id for event in events] == [
+        "phlo:a.log:2",
+        "phlo:b.log:2",
+        "phlo:b.log:1",
+        "phlo:a.log:1",
+    ]
+
+
+def test_project_log_tail_keeps_small_malformed_lines(tmp_path: Path) -> None:
+    log_dir = tmp_path / ".phlo" / "logs"
+    log_dir.mkdir(parents=True)
+    (log_dir / "malformed.log").write_text("not-json\n42\n\n")
+
+    events = observatory._load_project_log_events(tmp_path)
+
+    assert [(event.message, event.level, event.id) for event in events] == [
+        ("not-json", "info", "phlo:malformed.log:1")
+    ]
+
+
+def test_project_log_tail_marks_oversized_malformed_line(tmp_path: Path) -> None:
+    log_dir = tmp_path / ".phlo" / "logs"
+    log_dir.mkdir(parents=True)
+    log_path = log_dir / "oversized.log"
+    log_path.write_bytes(
+        b"before\n" + b"x" * (observatory.MAX_LOG_EVENT_BYTES + 1) + b"\n" + b"after\n"
+    )
+
+    events = observatory._load_project_log_events(tmp_path)
+
+    assert [event.message for event in events if event.message != "before"][-1].endswith(
+        observatory.TRUNCATED_LOG_EVENT_MARKER
+    )
+    assert "before" in [event.message for event in events]
+    assert "after" in [event.message for event in events]
+    oversized_event = next(
+        event for event in events if event.message.endswith(observatory.TRUNCATED_LOG_EVENT_MARKER)
+    )
+    assert (
+        len(oversized_event.message)
+        <= len(observatory.TRUNCATED_LOG_EVENT_MARKER) + observatory.MAX_LOG_EVENT_BYTES
+    )
+
+
+def test_observatory_log_telemetry_keeps_only_the_latest_50_events(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from phlo.capabilities import telemetry
+
+    monkeypatch.setattr(observatory, "_project_root", lambda: tmp_path)
+    monkeypatch.setattr(observatory, "_manifest_records", lambda *_args: [])
+    monkeypatch.setattr(observatory, "_load_project_log_events", lambda _root: [])
+    monkeypatch.setattr(
+        telemetry,
+        "iter_telemetry_events",
+        lambda _path: (
+            {"id": str(index), "timestamp": str(index), "name": f"telemetry-{index}"}
+            for index in range(75)
+        ),
+    )
+
+    events = observatory._load_logs()
+
+    assert [event.message for event in events] == [
+        f"telemetry-{index}" for index in range(74, 24, -1)
+    ]
+
+
 def test_observatory_overview_health_describes_unavailable_runtime_state() -> None:
     health = _overview_health_from_services(_fallback_services())
 

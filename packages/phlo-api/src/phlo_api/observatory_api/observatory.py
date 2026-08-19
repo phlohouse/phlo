@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections import Counter, deque
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
+import heapq
 import importlib
 import importlib.util
 import json
@@ -2042,7 +2043,7 @@ def _load_logs() -> list[ObservatoryLogEvent]:
 
     try:
         telemetry_path = project_root / ".phlo" / "telemetry" / "events.jsonl"
-        raw_events = list(iter_telemetry_events(telemetry_path))[-50:]
+        raw_events = deque(iter_telemetry_events(telemetry_path), maxlen=50)
     except Exception:
         return [_dataset_log_event(event) for event in events]
 
@@ -2063,43 +2064,130 @@ def _load_logs() -> list[ObservatoryLogEvent]:
     return [_dataset_log_event(event) for event in events[:100]]
 
 
+FILE_LOG_EVENT_LIMIT = 100
+LOG_TAIL_CHUNK_BYTES = 64 * 1024
+MAX_LOG_EVENT_BYTES = 64 * 1024
+TRUNCATED_LOG_EVENT_MARKER = " [truncated]"
+
+
+class _ReverseTimestamp:
+    """Invert lexical ISO timestamp ordering for ``heapq``."""
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def __lt__(self, other: _ReverseTimestamp) -> bool:
+        return self.value > other.value
+
+
+def _iter_reverse_log_lines(log_path: Path) -> Iterable[tuple[str, str]]:
+    """Yield a regular log file's final lines without materializing its history."""
+    try:
+        file_size = log_path.stat().st_size
+    except OSError:
+        return
+
+    try:
+        with log_path.open("rb") as handle:
+            if file_size <= LOG_TAIL_CHUNK_BYTES:
+                lines = handle.read().splitlines()
+                for line_number, line in reversed(list(enumerate(lines, start=1))):
+                    yield str(line_number), line.decode("utf-8", errors="replace")
+                return
+
+            position = file_size
+            pending = b""
+            pending_truncated = False
+            while position:
+                chunk_size = min(LOG_TAIL_CHUNK_BYTES, position)
+                position -= chunk_size
+                handle.seek(position)
+                chunk = handle.read(chunk_size)
+                parts = (chunk + pending).split(b"\n")
+                pending = parts[0]
+                completed_truncated_line = pending_truncated and len(parts) > 1
+                pending_truncated = False
+                if len(pending) > MAX_LOG_EVENT_BYTES:
+                    pending = pending[-MAX_LOG_EVENT_BYTES:]
+                    pending_truncated = True
+
+                offsets: list[int] = []
+                line_offset = position
+                for part in parts:
+                    offsets.append(line_offset)
+                    line_offset += len(part) + 1
+                for index in range(len(parts) - 1, 0, -1):
+                    part = parts[index]
+                    if not part:
+                        continue
+                    text = part[-MAX_LOG_EVENT_BYTES:].decode("utf-8", errors="replace")
+                    if len(part) > MAX_LOG_EVENT_BYTES or (completed_truncated_line and index == 1):
+                        text += TRUNCATED_LOG_EVENT_MARKER
+                    yield f"byte-{offsets[index]}", text
+
+            if pending:
+                text = pending.decode("utf-8", errors="replace")
+                if pending_truncated:
+                    text += TRUNCATED_LOG_EVENT_MARKER
+                yield "byte-0", text
+    except OSError:
+        return
+
+
+def _log_event_from_line(
+    log_path: Path, line_identifier: str, line: str
+) -> ObservatoryLogEvent | None:
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        if not line.strip():
+            return None
+        payload = {"message": line.strip(), "level": "info"}
+    if not isinstance(payload, Mapping):
+        return None
+    message = _coerce_str(
+        payload.get("message") or payload.get("event") or payload.get("logger"),
+        "log event",
+    )
+    return ObservatoryLogEvent(
+        id=f"phlo:{log_path.name}:{line_identifier}",
+        timestamp=_coerce_str(payload.get("timestamp"), "") or None,
+        level=_coerce_str(payload.get("level"), "info").lower(),
+        message=message,
+        source=_coerce_str(payload.get("logger") or payload.get("service"), "") or "phlo",
+        metadata=_safe_metadata(payload),
+    )
+
+
+def _iter_project_log_events(log_path: Path) -> Iterator[ObservatoryLogEvent]:
+    for line_identifier, line in _iter_reverse_log_lines(log_path):
+        event = _log_event_from_line(log_path, line_identifier, line)
+        if event is not None:
+            yield event
+
+
 def _load_project_log_events(project_root: Path) -> list[ObservatoryLogEvent]:
     """Load structured Phlo project logs from `.phlo/logs/*.log`."""
     logs_dir = project_root / ".phlo" / "logs"
     if not logs_dir.exists():
         return []
 
+    iterators = [
+        _iter_project_log_events(log_path)
+        for log_path in sorted(logs_dir.glob("*.log"), reverse=True)
+    ]
+    heap: list[tuple[_ReverseTimestamp, int, ObservatoryLogEvent]] = []
+    for index, iterator in enumerate(iterators):
+        if event := next(iterator, None):
+            heapq.heappush(heap, (_ReverseTimestamp(event.timestamp or ""), index, event))
+
     events: list[ObservatoryLogEvent] = []
-    for log_path in sorted(logs_dir.glob("*.log"), reverse=True):
-        try:
-            lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        for line_number, line in enumerate(lines[-100:], start=max(len(lines) - 99, 1)):
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                if not line.strip():
-                    continue
-                payload = {"message": line.strip(), "level": "info"}
-            if not isinstance(payload, Mapping):
-                continue
-            message = _coerce_str(
-                payload.get("message") or payload.get("event") or payload.get("logger"),
-                "log event",
-            )
-            events.append(
-                ObservatoryLogEvent(
-                    id=f"phlo:{log_path.name}:{line_number}",
-                    timestamp=_coerce_str(payload.get("timestamp"), "") or None,
-                    level=_coerce_str(payload.get("level"), "info").lower(),
-                    message=message,
-                    source=_coerce_str(payload.get("logger") or payload.get("service"), "")
-                    or "phlo",
-                    metadata=_safe_metadata(payload),
-                )
-            )
-    return sorted(events, key=lambda event: event.timestamp or "", reverse=True)[:50]
+    while heap and len(events) < FILE_LOG_EVENT_LIMIT:
+        _, index, event = heapq.heappop(heap)
+        events.append(event)
+        if next_event := next(iterators[index], None):
+            heapq.heappush(heap, (_ReverseTimestamp(next_event.timestamp or ""), index, next_event))
+    return events
 
 
 def _asset_related_logs(
