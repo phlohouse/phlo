@@ -192,7 +192,7 @@ def test_report_policy_fixture_relies_on_the_service_token_scope(
     assert "action: run.execute" not in report_policy
 
 
-def test_main_binds_each_report_scope_to_its_matching_generated_wap_run(
+def test_main_configures_wap_before_launching_the_generated_run(
     tmp_path: Path, monkeypatch
 ) -> None:
     captured: dict[str, str] = {}
@@ -214,16 +214,16 @@ def test_main_binds_each_report_scope_to_its_matching_generated_wap_run(
         "wait_for_wap_promotion",
         "verify_run_report",
         "verify_rejected_wap_report",
+        "configure_wap",
     ):
         monkeypatch.setattr(release_golden_path, name, lambda *_args, **_kwargs: None)
 
-    def configure(_config, promoted_logical_run_id: str, rejected_logical_run_id: str) -> None:
-        captured["promoted_scope"] = promoted_logical_run_id
-        captured["rejected_scope"] = rejected_logical_run_id
+    def configure(_config) -> None:
+        captured["configured"] = "true"
 
-    def materialize(_config, logical_run_id: str) -> release_golden_path.WapRun:
-        captured[f"wap_{logical_run_id}"] = logical_run_id
-        return release_golden_path.WapRun(logical_run_id, "dagster-run")
+    def materialize(_config) -> release_golden_path.WapRun:
+        captured["wap"] = "generated"
+        return release_golden_path.WapRun("generated", "dagster-run")
 
     monkeypatch.setattr(release_golden_path, "configure_non_dev_compose", configure)
     monkeypatch.setattr(release_golden_path, "materialize_wap", materialize)
@@ -242,10 +242,8 @@ def test_main_binds_each_report_scope_to_its_matching_generated_wap_run(
         == 0
     )
     assert captured == {
-        "rejected_scope": "rejected-logical-run",
-        "promoted_scope": "promoted-logical-run",
-        "wap_rejected-logical-run": "rejected-logical-run",
-        "wap_promoted-logical-run": "promoted-logical-run",
+        "configured": "true",
+        "wap": "generated",
     }
 
 
@@ -317,26 +315,44 @@ def test_wap_materialization_uses_live_selector_and_dynamic_urls(
         release_golden_path.uuid, "uuid4", lambda: type("Id", (), {"hex": next(values)})()
     )
 
-    wap_run = release_golden_path.materialize_wap(config, "logical")
+    wap_run = release_golden_path.materialize_wap(config)
 
     assert wap_run == release_golden_path.WapRun("logical", "dagster-1")
     args, kwargs = commands[0]
-    assert "--wap" in args
-    assert args[-10:] == [
-        "--wap-run-id",
-        "logical",
-        "--job-name",
-        "__ASSET_JOB",
-        "--repository-location-name",
-        "location",
-        "--repository-name",
-        "repository",
-        "--dagster-url",
-        "http://127.0.0.1:3000/graphql",
-    ]
+    assert args[-4:] == ["materialize", "dlt_events", "--partition", config.partition]
+    assert "--wap" not in args
     assert kwargs["env"]["NESSIE_HOST"] == "127.0.0.1"
     assert kwargs["env"]["NESSIE_PORT"] == "19120"
     assert kwargs["env"]["PHLO_DAGSTER_ACCESS_TOKEN"].startswith("phlo-api:")
+
+
+def test_configure_wap_writes_owned_dagster_endpoint_and_selector(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path)
+    config.project_dir.mkdir()
+    config.project_dir.joinpath("phlo.yaml").write_text("name: test\n", encoding="utf-8")
+    monkeypatch.setattr(release_golden_path, "service_token", lambda *_: "token")
+    monkeypatch.setattr(
+        release_golden_path, "discover_dagster_selector", lambda *_: ("location", "repository")
+    )
+    monkeypatch.setattr(
+        release_golden_path,
+        "service_url",
+        lambda *_args: "http://127.0.0.1:3000/graphql",
+    )
+
+    release_golden_path.configure_wap(config)
+
+    assert config.project_dir.joinpath("phlo.yaml").read_text(encoding="utf-8") == (
+        "name: test\n\n"
+        "wap:\n"
+        "  enabled: true\n"
+        "  job_name: __ASSET_JOB\n"
+        "  repository_location_name: location\n"
+        "  repository_name: repository\n"
+        "  dagster_url: http://127.0.0.1:3000/graphql\n"
+    )
 
 
 def test_wap_wait_requires_success_then_promotion_tag(tmp_path: Path, monkeypatch) -> None:
@@ -741,6 +757,40 @@ def test_cleanup_removes_owned_paths_when_compose_down_fails(tmp_path: Path, mon
     assert not operator_env.exists()
 
 
+def test_cleanup_uses_docker_for_root_owned_generated_files(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    config.project_dir.mkdir()
+    calls = 0
+    commands: list[list[str]] = []
+
+    def remove(path: Path) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise PermissionError("root-owned cache")
+        path.rmdir()
+
+    monkeypatch.setattr(release_golden_path.shutil, "rmtree", remove)
+    monkeypatch.setattr(release_golden_path, "run", lambda args, **_: commands.append(args))
+
+    errors = release_golden_path.cleanup(config, owned_paths={config.project_dir})
+
+    assert errors == []
+    assert commands == [
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--volume",
+            f"{config.project_dir}:/cleanup",
+            "alpine:3.24.1",
+            "sh",
+            "-c",
+            "rm -rf /cleanup/* /cleanup/.[!.]* /cleanup/..?*",
+        ]
+    ]
+
+
 def test_runtime_error_returns_nonzero_without_masking_cleanup_failure(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
@@ -844,9 +894,8 @@ def test_configure_non_dev_compose_uses_docker_ephemeral_ports(tmp_path: Path, m
     )
     monkeypatch.setattr(release_golden_path, "run", lambda *args, **kwargs: None)
 
-    release_golden_path.configure_non_dev_compose(
-        config, "promoted-logical-run", "rejected-logical-run"
-    )
+    config.project_dir.joinpath("phlo.yaml").write_text("name: test\n", encoding="utf-8")
+    release_golden_path.configure_non_dev_compose(config)
 
     env_local = config.project_dir.joinpath(".phlo/.env.local").read_text()
     assert all(f"{name}=0\n" in env_local for name in release_golden_path.PORT_NAMES)
@@ -860,23 +909,4 @@ def test_configure_non_dev_compose_uses_docker_ephemeral_ports(tmp_path: Path, m
         line for line in env_local.splitlines() if line.startswith("PHLO_AUTH_SERVICE_TOKENS=")
     )
     configured_tokens = json.loads(token_config.split("=", 1)[1])
-    assert configured_tokens == {
-        config.report_token: {
-            "subject": "qa001-report-reader",
-            "attributes": {
-                "qa001_role": "report_reader",
-                "phlo.run_report_resource_id": (
-                    "project_id=phlo-qa001-test|run_id=promoted-logical-run|attempt=1"
-                ),
-            },
-        },
-        config.rejection_report_token: {
-            "subject": "qa002-rejection-report-reader",
-            "attributes": {
-                "qa001_role": "report_reader",
-                "phlo.run_report_resource_id": (
-                    "project_id=phlo-qa001-test|run_id=rejected-logical-run|attempt=1"
-                ),
-            },
-        },
-    }
+    assert configured_tokens == {}

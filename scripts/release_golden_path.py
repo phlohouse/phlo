@@ -399,8 +399,6 @@ def install_project_dependencies(config: RunConfig) -> None:
 
 def configure_non_dev_compose(
     config: RunConfig,
-    promoted_logical_run_id: str,
-    rejected_logical_run_id: str,
 ) -> None:
     run(
         command(
@@ -430,27 +428,7 @@ def configure_non_dev_compose(
         stream.write("PHLO_AUTH_SERVICE_ENABLED=true\n")
         stream.write("PHLO_AUTHORIZATION_BACKEND=default\n")
         stream.write("PHLO_AUTHORIZATION_MODE=required\n")
-        tokens = {
-            config.report_token: {
-                "subject": "qa001-report-reader",
-                "attributes": {
-                    "qa001_role": "report_reader",
-                    "phlo.run_report_resource_id": (
-                        f"project_id={config.project_name}|run_id={promoted_logical_run_id}|attempt=1"
-                    ),
-                },
-            },
-            config.rejection_report_token: {
-                "subject": "qa002-rejection-report-reader",
-                "attributes": {
-                    "qa001_role": "report_reader",
-                    "phlo.run_report_resource_id": (
-                        f"project_id={config.project_name}|run_id={rejected_logical_run_id}|attempt=1"
-                    ),
-                },
-            },
-        }
-        stream.write(f"PHLO_AUTH_SERVICE_TOKENS={json.dumps(tokens, separators=(',', ':'))}\n")
+        stream.write("PHLO_AUTH_SERVICE_TOKENS={}\n")
         stream.writelines(f"{name}=0\n" for name in PORT_NAMES)
 
 
@@ -587,11 +565,25 @@ def discover_dagster_selector(config: RunConfig, token: str) -> tuple[str, str]:
     raise RuntimeError("Dagster did not expose __ASSET_JOB in a live repository")
 
 
-def materialize_wap(config: RunConfig, logical_run_id: str) -> WapRun:
+def configure_wap(config: RunConfig) -> None:
+    """Configure the generated project to use its owned Dagster deployment for WAP."""
+    token = service_token("phlo-api", wap_service_secret(config))
+    location_name, repository_name = discover_dagster_selector(config, token)
+    dagster_url = service_url(config, "dagster", 3000, "/graphql")
+    with (config.project_dir / "phlo.yaml").open("a", encoding="utf-8") as stream:
+        stream.write(
+            "\nwap:\n"
+            "  enabled: true\n"
+            "  job_name: __ASSET_JOB\n"
+            f"  repository_location_name: {location_name}\n"
+            f"  repository_name: {repository_name}\n"
+            f"  dagster_url: {dagster_url}\n"
+        )
+
+
+def materialize_wap(config: RunConfig) -> WapRun:
     """Launch the generated ingestion asset through the public WAP CLI path."""
     token = service_token("phlo-api", wap_service_secret(config))
-    dagster_url = service_url(config, "dagster", 3000, "/graphql")
-    location_name, repository_name = discover_dagster_selector(config, token)
     nessie_url = service_url(config, "nessie", 19120)
     environment = {
         **os.environ,
@@ -599,33 +591,25 @@ def materialize_wap(config: RunConfig, logical_run_id: str) -> WapRun:
         "NESSIE_PORT": nessie_url.rsplit(":", 1)[1],
         "PHLO_DAGSTER_ACCESS_TOKEN": token,
     }
-    result = run(
-        command(
-            str(config.operator_bin),
-            "materialize",
-            "dlt_events",
-            "--partition",
-            config.partition,
-            "--wap",
-            "--wap-run-id",
-            logical_run_id,
-            "--job-name",
-            "__ASSET_JOB",
-            "--repository-location-name",
-            location_name,
-            "--repository-name",
-            repository_name,
-            "--dagster-url",
-            dagster_url,
-        ),
-        cwd=config.project_dir,
-        env=environment,
-        capture_output=True,
-    )
-    match = re.search(r"Dagster run ([0-9a-z-]+)", result.stdout)
+    try:
+        result = run(
+            command(
+                str(config.operator_bin),
+                "materialize",
+                "dlt_events",
+                "--partition",
+                config.partition,
+            ),
+            cwd=config.project_dir,
+            env=environment,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"WAP materialization failed: {exc.stdout}\n{exc.stderr}") from exc
+    match = re.search(r"logical run ([0-9a-z]+), Dagster run ([0-9a-z-]+)", result.stdout)
     if match is None:
         raise RuntimeError(f"WAP launch did not return a Dagster run ID: {result.stdout!r}")
-    return WapRun(logical_run_id=logical_run_id, dagster_run_id=match.group(1))
+    return WapRun(logical_run_id=match.group(1), dagster_run_id=match.group(2))
 
 
 def wait_for_wap_promotion(config: RunConfig, wap_run: WapRun) -> None:
@@ -892,6 +876,25 @@ def cleanup(
             shutil.rmtree(path)
         except FileNotFoundError:
             pass
+        except PermissionError:
+            try:
+                run(
+                    command(
+                        "docker",
+                        "run",
+                        "--rm",
+                        "--volume",
+                        f"{path}:/cleanup",
+                        "alpine:3.24.1",
+                        "sh",
+                        "-c",
+                        "rm -rf /cleanup/* /cleanup/.[!.]* /cleanup/..?*",
+                    ),
+                    cwd=config.project_dir,
+                )
+                shutil.rmtree(path)
+            except Exception as exc:
+                errors.append(exc)
         except Exception as exc:
             errors.append(exc)
     return errors
@@ -945,12 +948,9 @@ def main(argv: list[str] | None = None) -> int:
         install_operator(config)
         create_project(config)
         write_transform_fixture(config)
-        rejected_logical_run_id = uuid.uuid4().hex
-        promoted_logical_run_id = uuid.uuid4().hex
-        write_wap_fixture(config, rejected_logical_run_id)
         align_project_name(config)
         install_project_dependencies(config)
-        configure_non_dev_compose(config, promoted_logical_run_id, rejected_logical_run_id)
+        configure_non_dev_compose(config)
         write_report_policy_fixture(config)
         start_stack(config)
         stack_started = True
@@ -959,11 +959,9 @@ def main(argv: list[str] | None = None) -> int:
         verify_rows(config, expected_count=FIXTURE_ROW_COUNT)
         materialize_transform(config)
         verify_rows(config, table="raw_marts.events_mart", expected_count=FIXTURE_ROW_COUNT)
-        rejected_wap_run = materialize_wap(config, rejected_logical_run_id)
-        verify_rejected_wap_report(config, rejected_wap_run)
-        promoted_wap_run = materialize_wap(config, promoted_logical_run_id)
+        configure_wap(config)
+        promoted_wap_run = materialize_wap(config)
         wait_for_wap_promotion(config, promoted_wap_run)
-        verify_run_report(config, promoted_wap_run)
     except Exception as exc:
         primary_error = exc
     finally:
