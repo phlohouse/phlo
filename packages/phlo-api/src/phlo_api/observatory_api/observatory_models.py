@@ -171,22 +171,6 @@ class ObservatoryActionResult(BaseModel):
     operation: "ObservatoryOperation | None" = None
 
 
-class ObservatoryPackageInstallRequest(BaseModel):
-    """Request to install a Phlo package from the trusted registry."""
-
-    package_name: str
-
-
-class ObservatoryPackageInstallResult(BaseModel):
-    """Result of a Python package install requested by Observatory."""
-
-    package_name: str
-    package_spec: str
-    status: Literal["succeeded", "failed", "skipped"]
-    message: str
-    services: list[str] = Field(default_factory=list)
-
-
 class ObservatoryServicePort(BaseModel):
     """Provider-neutral service port exposure."""
 
