@@ -143,6 +143,7 @@ include = [
 [tool.hatch.build.targets.wheel]
 include = [
     "src/phlo/plugins/registry_data.json",
+    "src/phlo/support_data/v1.json",
     "src/phlo/sql/*.sql",
 ]
 packages = ["src/phlo"]

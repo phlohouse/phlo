@@ -20,6 +20,7 @@ import phlo.cli._warning_filters  # noqa: F401
 from phlo.cli._init_discovery_guard import is_init_command_invocation
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.commands.doctor import doctor_cmd
+from phlo.cli.commands.support import support_group
 from phlo.cli.output import json_envelope
 from phlo.cli.templates import TemplateRenderContext, get_template
 from phlo.cli.templates import list_templates as get_project_templates
@@ -43,9 +44,10 @@ def _is_doctor_invocation(argv: list[str]) -> bool:
 
 
 _DOCTOR_INVOCATION = _is_doctor_invocation(sys.argv)
+_SUPPORT_INVOCATION = len(sys.argv) > 1 and sys.argv[1] == "support"
 _INIT_INVOCATION = is_init_command_invocation(sys.argv)
 
-if not _DOCTOR_INVOCATION:
+if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
     from phlo.cli.commands.audit import audit_group
     from phlo.cli.commands.authz import authz_group
     from phlo.cli.commands.compliance import compliance_group
@@ -85,8 +87,9 @@ def cli(quiet: bool, no_color: bool) -> None:
 
 
 cli.add_command(doctor_cmd)
+cli.add_command(support_group)
 
-if not _DOCTOR_INVOCATION:
+if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
     cli.add_command(audit_group)
     cli.add_command(logs_cmd)
     cli.add_command(services_group)
@@ -127,9 +130,9 @@ def _load_cli_plugin_commands() -> None:
     logger.debug("cli_plugin_discovery_completed", command_count=added_count)
 
 
-if not _DOCTOR_INVOCATION:
+if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
     _register_service_commands()
-if not _DOCTOR_INVOCATION and not _INIT_INVOCATION:
+if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION or _INIT_INVOCATION):
     _load_cli_plugin_commands()
 
 

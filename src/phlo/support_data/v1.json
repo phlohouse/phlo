@@ -1,0 +1,1726 @@
+{
+  "$schema": "https://registry.phlohouse.com/schema/support/v1.json",
+  "manifest_schema": "phlo.support.v1",
+  "schema_version": "1.0",
+  "release_line": "1.x",
+  "artifact_pinning": "not_yet_published",
+  "current_release": {
+    "version": "0.12.1",
+    "maturity": "alpha",
+    "production_ready": false
+  },
+  "release_set": {
+    "packages": [
+      {"name": "phlo", "version": "0.12.1"},
+      {"name": "phlo-api", "version": "0.7.0"},
+      {"name": "phlo-core-plugins", "version": "0.3.0"},
+      {"name": "phlo-dagster", "version": "0.6.0"},
+      {"name": "phlo-dbt", "version": "0.6.1"},
+      {"name": "phlo-dlt", "version": "0.7.0"},
+      {"name": "phlo-iceberg", "version": "0.6.0"},
+      {"name": "phlo-minio", "version": "0.4.0"},
+      {"name": "phlo-nessie", "version": "0.5.0"},
+      {"name": "phlo-observatory", "version": "0.7.0"},
+      {"name": "phlo-pandera", "version": "0.6.0"},
+      {"name": "phlo-postgres", "version": "0.4.0"},
+      {"name": "phlo-trino", "version": "0.5.0"}
+    ],
+    "services": [
+      {"name": "dagster", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.6.0"},
+      {"name": "dagster-daemon", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.6.0"},
+      {"name": "postgres", "image_reference": "postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"},
+      {"name": "postgres-volume-setup", "image_reference": "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"},
+      {"name": "minio", "image_reference": "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"},
+      {"name": "minio-setup", "image_reference": "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727"},
+      {"name": "nessie", "image_reference": "ghcr.io/projectnessie/nessie:0.108.3@sha256:219709df809fcfac7abe0491b2070c8d56178ed29828fb30968a4365b62bcc8a"},
+      {"name": "trino", "image_reference": "trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534"},
+      {"name": "phlo-api", "image_reference": "ghcr.io/phlohouse/phlo-api:0.7.0"},
+      {"name": "observatory", "image_reference": "ghcr.io/phlohouse/phlo-observatory:0.7.0"}
+    ],
+    "schemas": {
+      "configuration": {
+        "version": "1",
+        "source": "src/phlo/config/settings.py"
+      },
+      "database": {
+        "version": "4",
+        "source": "src/phlo/run_evidence/models.py"
+      }
+    }
+  },
+  "profiles": {
+    "blessed_core": {
+      "status": "scope-frozen",
+      "components": [
+        "package:phlo",
+        "package:phlo-api",
+        "package:phlo-core-plugins",
+        "package:phlo-dagster",
+        "package:phlo-dbt",
+        "package:phlo-dlt",
+        "package:phlo-iceberg",
+        "package:phlo-minio",
+        "package:phlo-nessie",
+        "package:phlo-observatory",
+        "package:phlo-pandera",
+        "package:phlo-postgres",
+        "package:phlo-trino",
+        "service:dagster",
+        "service:dagster-daemon",
+        "service:postgres",
+        "service:postgres-volume-setup",
+        "service:minio",
+        "service:minio-setup",
+        "service:nessie",
+        "service:trino",
+        "service:phlo-api",
+        "service:observatory",
+        "capability:iceberg_tables",
+        "capability:nessie_branch_write_audit_publish",
+        "capability:dlt_ingestion",
+        "capability:dbt_transformations",
+        "capability:pandera_quality",
+        "capability:observatory_run_report",
+        "capability:mandatory_authorization",
+        "capability:secure_production_deployment",
+        "capability:maintenance_operations",
+        "capability:upgrade_restore",
+        "capability:golden_path_ci"
+      ],
+      "reason": "This is the v1 target scope; target support is separate from current alpha maturity and release-gate readiness."
+    },
+    "supported_optional": {
+      "status": "target_capabilities_only",
+      "components": [
+        "package:phlo-alerting",
+        "package:phlo-hasura",
+        "package:phlo-lineage",
+        "package:phlo-oauth2-proxy",
+        "package:phlo-otel",
+        "package:phlo-postgrest",
+        "package:phlo-sling",
+        "package:phlo-traefik",
+        "service:hasura",
+        "service:postgrest",
+        "service:oauth2-proxy",
+        "service:traefik"
+      ],
+      "reason": "These optional packages have current code and focused tests, but identity, ingress, or production gates still apply."
+    },
+    "preview": {
+      "status": "available_without_v1_guarantee",
+      "components": [
+        "package:phlo-alloy",
+        "package:phlo-clickhouse",
+        "package:phlo-clickstack",
+        "package:phlo-delta",
+        "package:phlo-grafana",
+        "package:phlo-loki",
+        "package:phlo-mcp",
+        "package:phlo-openmetadata",
+        "package:phlo-prometheus",
+        "package:phlo-rustfs",
+        "package:phlo-superset",
+        "service:postgres-exporter",
+        "service:alloy",
+        "service:grafana",
+        "service:loki",
+        "service:prometheus",
+        "service:clickhouse",
+        "service:clickhouse-setup",
+        "service:rustfs",
+        "service:rustfs-setup",
+        "service:rustfs-volume-setup",
+        "service:openmetadata",
+        "service:openmetadata-setup",
+        "service:openmetadata-mysql",
+        "service:openmetadata-elasticsearch",
+        "service:superset",
+        "service:clickstack"
+      ],
+      "reason": "These alternatives are outside the tested v1 support boundary."
+    },
+    "development_only": {
+      "status": "local_or_test_use",
+      "components": [
+        "package:phlo-observatory-example",
+        "package:phlo-pgweb",
+        "package:phlo-testing",
+        "service:pgweb"
+      ],
+      "reason": "These surfaces support local development or testing and do not establish a production deployment guarantee."
+    }
+  },
+  "packages": [
+    {
+      "name": "phlo",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "pyproject.toml",
+        "tests/cli",
+        "tests/runtime"
+      ]
+    },
+    {
+      "name": "phlo-api",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "API and Observatory integration are implemented and tested, but mandatory authorization remains a release gate.",
+      "evidence": [
+        "packages/phlo-api/pyproject.toml",
+        "packages/phlo-api/tests"
+      ]
+    },
+    {
+      "name": "phlo-core-plugins",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-core-plugins/pyproject.toml",
+        "packages/phlo-core-plugins/tests"
+      ]
+    },
+    {
+      "name": "phlo-dagster",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-dagster/pyproject.toml",
+        "packages/phlo-dagster/tests"
+      ]
+    },
+    {
+      "name": "phlo-dbt",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-dbt/pyproject.toml",
+        "packages/phlo-dbt/tests"
+      ]
+    },
+    {
+      "name": "phlo-dlt",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "dlt ingestion is part of the current core path and has focused tests; run-evidence correlation is not included in this manifest version.",
+      "evidence": [
+        "packages/phlo-dlt/pyproject.toml",
+        "packages/phlo-dlt/tests"
+      ]
+    },
+    {
+      "name": "phlo-iceberg",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-iceberg/pyproject.toml",
+        "packages/phlo-iceberg/tests"
+      ]
+    },
+    {
+      "name": "phlo-minio",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-minio/pyproject.toml",
+        "packages/phlo-minio/tests"
+      ]
+    },
+    {
+      "name": "phlo-nessie",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-nessie/pyproject.toml",
+        "packages/phlo-nessie/tests"
+      ]
+    },
+    {
+      "name": "phlo-observatory",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "The Observatory surface exists and is tested; it exposes an authenticated durable per-run report API and UI projection at alpha maturity.",
+      "evidence": [
+        "packages/phlo-observatory/pyproject.toml",
+        "packages/phlo-observatory/tests",
+        "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
+        "packages/phlo-observatory/src/phlo_observatory/src/routes/runs.$projectId.$runId.attempts.$attempt.report.tsx"
+      ]
+    },
+    {
+      "name": "phlo-pandera",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-pandera/pyproject.toml",
+        "packages/phlo-pandera/tests"
+      ]
+    },
+    {
+      "name": "phlo-postgres",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-postgres/pyproject.toml",
+        "packages/phlo-postgres/tests"
+      ]
+    },
+    {
+      "name": "phlo-trino",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-trino/pyproject.toml",
+        "packages/phlo-trino/tests"
+      ]
+    },
+    {
+      "name": "phlo-alerting",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-alerting/pyproject.toml",
+        "packages/phlo-alerting/tests"
+      ]
+    },
+    {
+      "name": "phlo-hasura",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-hasura/pyproject.toml",
+        "packages/phlo-hasura/tests"
+      ]
+    },
+    {
+      "name": "phlo-lineage",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-lineage/pyproject.toml",
+        "packages/phlo-lineage/tests"
+      ]
+    },
+    {
+      "name": "phlo-oauth2-proxy",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-oauth2-proxy/pyproject.toml",
+        "packages/phlo-oauth2-proxy/tests"
+      ]
+    },
+    {
+      "name": "phlo-otel",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-otel/pyproject.toml",
+        "packages/phlo-otel/tests"
+      ]
+    },
+    {
+      "name": "phlo-postgrest",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-postgrest/pyproject.toml",
+        "packages/phlo-postgrest/tests"
+      ]
+    },
+    {
+      "name": "phlo-sling",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-sling/pyproject.toml",
+        "packages/phlo-sling/tests"
+      ]
+    },
+    {
+      "name": "phlo-traefik",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
+      "evidence": [
+        "packages/phlo-traefik/pyproject.toml",
+        "packages/phlo-traefik/tests"
+      ]
+    },
+    {
+      "name": "phlo-alloy",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Repository package exists, but it is outside the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-alloy/pyproject.toml",
+        "packages/phlo-alloy/tests"
+      ]
+    },
+    {
+      "name": "phlo-clickhouse",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Repository package exists, but it is outside the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-clickhouse/pyproject.toml",
+        "packages/phlo-clickhouse/tests"
+      ]
+    },
+    {
+      "name": "phlo-clickstack",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Repository package exists, but it is outside the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-clickstack/pyproject.toml",
+        "packages/phlo-clickstack/tests"
+      ]
+    },
+    {
+      "name": "phlo-delta",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Repository package exists, but it is outside the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-delta/pyproject.toml",
+        "packages/phlo-delta/tests"
+      ]
+    },
+    {
+      "name": "phlo-grafana",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Repository package exists, but it is outside the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-grafana/pyproject.toml",
+        "packages/phlo-grafana/tests"
+      ]
+    },
+    {
+      "name": "phlo-loki",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Repository package exists, but it is outside the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-loki/pyproject.toml",
+        "packages/phlo-loki/tests"
+      ]
+    },
+    {
+      "name": "phlo-mcp",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Repository package exists, but it is outside the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-mcp/pyproject.toml",
+        "packages/phlo-mcp/tests"
+      ]
+    },
+    {
+      "name": "phlo-openmetadata",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Repository package exists, but it is outside the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-openmetadata/pyproject.toml",
+        "packages/phlo-openmetadata/tests"
+      ]
+    },
+    {
+      "name": "phlo-prometheus",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Repository package exists, but it is outside the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-prometheus/pyproject.toml",
+        "packages/phlo-prometheus/tests"
+      ]
+    },
+    {
+      "name": "phlo-rustfs",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Repository package exists, but it is outside the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-rustfs/pyproject.toml",
+        "packages/phlo-rustfs/tests"
+      ]
+    },
+    {
+      "name": "phlo-superset",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Repository package exists, but it is outside the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-superset/pyproject.toml",
+        "packages/phlo-superset/tests"
+      ]
+    },
+    {
+      "name": "phlo-observatory-example",
+      "scope": "outside_v1",
+      "target_status": "development_only",
+      "current_maturity": "development_only",
+      "reason": "Development or test utility; it is not a deployed v1 runtime guarantee.",
+      "evidence": [
+        "packages/phlo-observatory-example/README.md",
+        "packages/phlo-observatory-example/tests"
+      ]
+    },
+    {
+      "name": "phlo-pgweb",
+      "scope": "outside_v1",
+      "target_status": "development_only",
+      "current_maturity": "development_only",
+      "reason": "Development or test utility; it is not a deployed v1 runtime guarantee.",
+      "evidence": [
+        "packages/phlo-pgweb/pyproject.toml",
+        "packages/phlo-pgweb/tests"
+      ]
+    },
+    {
+      "name": "phlo-testing",
+      "scope": "outside_v1",
+      "target_status": "development_only",
+      "current_maturity": "development_only",
+      "reason": "Development or test utility; it is not a deployed v1 runtime guarantee.",
+      "evidence": [
+        "packages/phlo-testing/pyproject.toml",
+        "packages/phlo-testing/tests"
+      ]
+    }
+  ],
+  "services": [
+    {
+      "name": "dagster",
+      "package": "phlo-dagster",
+      "source": "packages/phlo-dagster/src/phlo_dagster/service.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-dagster/src/phlo_dagster/service.yaml"
+      ]
+    },
+    {
+      "name": "dagster-daemon",
+      "package": "phlo-dagster",
+      "source": "packages/phlo-dagster/src/phlo_dagster/dagster-daemon.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-dagster/src/phlo_dagster/dagster-daemon.yaml"
+      ]
+    },
+    {
+      "name": "postgres",
+      "package": "phlo-postgres",
+      "source": "packages/phlo-postgres/src/phlo_postgres/service.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-postgres/src/phlo_postgres/service.yaml"
+      ]
+    },
+    {
+      "name": "postgres-volume-setup",
+      "package": "phlo-postgres",
+      "source": "packages/phlo-postgres/src/phlo_postgres/volume_setup.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-postgres/src/phlo_postgres/volume_setup.yaml"
+      ]
+    },
+    {
+      "name": "minio",
+      "package": "phlo-minio",
+      "source": "packages/phlo-minio/src/phlo_minio/service.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-minio/src/phlo_minio/service.yaml"
+      ]
+    },
+    {
+      "name": "minio-setup",
+      "package": "phlo-minio",
+      "source": "packages/phlo-minio/src/phlo_minio/minio-setup.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-minio/src/phlo_minio/minio-setup.yaml"
+      ]
+    },
+    {
+      "name": "nessie",
+      "package": "phlo-nessie",
+      "source": "packages/phlo-nessie/src/phlo_nessie/service.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-nessie/src/phlo_nessie/service.yaml"
+      ]
+    },
+    {
+      "name": "trino",
+      "package": "phlo-trino",
+      "source": "packages/phlo-trino/src/phlo_trino/service.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-trino/src/phlo_trino/service.yaml"
+      ]
+    },
+    {
+      "name": "phlo-api",
+      "package": "phlo-api",
+      "source": "packages/phlo-api/src/phlo_api/service.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-api/src/phlo_api/service.yaml"
+      ]
+    },
+    {
+      "name": "observatory",
+      "package": "phlo-observatory",
+      "source": "packages/phlo-observatory/src/phlo_observatory/service.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-observatory/src/phlo_observatory/service.yaml"
+      ]
+    },
+    {
+      "name": "postgres-exporter",
+      "package": "phlo-postgres",
+      "source": "packages/phlo-postgres/src/phlo_postgres/exporter_service.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-postgres/src/phlo_postgres/exporter_service.yaml"
+      ]
+    },
+    {
+      "name": "alloy",
+      "package": "phlo-alloy",
+      "source": "packages/phlo-alloy/src/phlo_alloy/service.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-alloy/src/phlo_alloy/service.yaml"
+      ]
+    },
+    {
+      "name": "grafana",
+      "package": "phlo-grafana",
+      "source": "packages/phlo-grafana/src/phlo_grafana/service.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-grafana/src/phlo_grafana/service.yaml"
+      ]
+    },
+    {
+      "name": "loki",
+      "package": "phlo-loki",
+      "source": "packages/phlo-loki/src/phlo_loki/service.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-loki/src/phlo_loki/service.yaml"
+      ]
+    },
+    {
+      "name": "prometheus",
+      "package": "phlo-prometheus",
+      "source": "packages/phlo-prometheus/src/phlo_prometheus/service.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-prometheus/src/phlo_prometheus/service.yaml"
+      ]
+    },
+    {
+      "name": "clickhouse",
+      "package": "phlo-clickhouse",
+      "source": "packages/phlo-clickhouse/src/phlo_clickhouse/service.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-clickhouse/src/phlo_clickhouse/service.yaml"
+      ]
+    },
+    {
+      "name": "clickhouse-setup",
+      "package": "phlo-clickhouse",
+      "source": "packages/phlo-clickhouse/src/phlo_clickhouse/clickhouse-setup.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-clickhouse/src/phlo_clickhouse/clickhouse-setup.yaml"
+      ]
+    },
+    {
+      "name": "rustfs",
+      "package": "phlo-rustfs",
+      "source": "packages/phlo-rustfs/src/phlo_rustfs/service.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-rustfs/src/phlo_rustfs/service.yaml"
+      ]
+    },
+    {
+      "name": "rustfs-setup",
+      "package": "phlo-rustfs",
+      "source": "packages/phlo-rustfs/src/phlo_rustfs/rustfs-setup.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-rustfs/src/phlo_rustfs/rustfs-setup.yaml"
+      ]
+    },
+    {
+      "name": "rustfs-volume-setup",
+      "package": "phlo-rustfs",
+      "source": "packages/phlo-rustfs/src/phlo_rustfs/rustfs-volume-setup.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-rustfs/src/phlo_rustfs/rustfs-volume-setup.yaml"
+      ]
+    },
+    {
+      "name": "openmetadata",
+      "package": "phlo-openmetadata",
+      "source": "packages/phlo-openmetadata/src/phlo_openmetadata/service.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-openmetadata/src/phlo_openmetadata/service.yaml"
+      ]
+    },
+    {
+      "name": "openmetadata-setup",
+      "package": "phlo-openmetadata",
+      "source": "packages/phlo-openmetadata/src/phlo_openmetadata/openmetadata-setup.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-openmetadata/src/phlo_openmetadata/openmetadata-setup.yaml"
+      ]
+    },
+    {
+      "name": "openmetadata-mysql",
+      "package": "phlo-openmetadata",
+      "source": "packages/phlo-openmetadata/src/phlo_openmetadata/openmetadata-mysql-setup.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-openmetadata/src/phlo_openmetadata/openmetadata-mysql-setup.yaml"
+      ]
+    },
+    {
+      "name": "openmetadata-elasticsearch",
+      "package": "phlo-openmetadata",
+      "source": "packages/phlo-openmetadata/src/phlo_openmetadata/openmetadata-elasticsearch-setup.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-openmetadata/src/phlo_openmetadata/openmetadata-elasticsearch-setup.yaml"
+      ]
+    },
+    {
+      "name": "pgweb",
+      "package": "phlo-pgweb",
+      "source": "packages/phlo-pgweb/src/phlo_pgweb/service.yaml",
+      "scope": "outside_v1",
+      "target_status": "development_only",
+      "current_maturity": "development_only",
+      "reason": "Local development utility, not a production support guarantee.",
+      "evidence": [
+        "packages/phlo-pgweb/src/phlo_pgweb/service.yaml"
+      ]
+    },
+    {
+      "name": "superset",
+      "package": "phlo-superset",
+      "source": "packages/phlo-superset/src/phlo_superset/service.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-superset/src/phlo_superset/service.yaml"
+      ]
+    },
+    {
+      "name": "hasura",
+      "package": "phlo-hasura",
+      "source": "packages/phlo-hasura/src/phlo_hasura/service.yaml",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-hasura/src/phlo_hasura/service.yaml"
+      ]
+    },
+    {
+      "name": "postgrest",
+      "package": "phlo-postgrest",
+      "source": "packages/phlo-postgrest/src/phlo_postgrest/service.yaml",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-postgrest/src/phlo_postgrest/service.yaml"
+      ]
+    },
+    {
+      "name": "oauth2-proxy",
+      "package": "phlo-oauth2-proxy",
+      "source": "packages/phlo-oauth2-proxy/src/phlo_oauth2_proxy/service.yaml",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-oauth2-proxy/src/phlo_oauth2_proxy/service.yaml"
+      ]
+    },
+    {
+      "name": "traefik",
+      "package": "phlo-traefik",
+      "source": "packages/phlo-traefik/src/phlo_traefik/service.yaml",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-traefik/src/phlo_traefik/service.yaml"
+      ]
+    },
+    {
+      "name": "clickstack",
+      "package": "phlo-clickstack",
+      "source": "packages/phlo-clickstack/src/phlo_clickstack/service.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-clickstack/src/phlo_clickstack/service.yaml"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "name": "iceberg_tables",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Iceberg table operations are implemented and tested.",
+      "evidence": [
+        "packages/phlo-iceberg/tests"
+      ]
+    },
+    {
+      "name": "nessie_branch_write_audit_publish",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Nessie WAP operations are implemented and covered by focused tests.",
+      "evidence": [
+        "packages/phlo-nessie/tests",
+        "packages/phlo-dagster/tests"
+      ]
+    },
+    {
+      "name": "dlt_ingestion",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "dlt ingestion is implemented and covered by focused tests; run-evidence correlation is not included in this manifest version.",
+      "evidence": [
+        "packages/phlo-dlt/tests"
+      ]
+    },
+    {
+      "name": "dbt_transformations",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "dbt transformation execution is implemented and covered by focused tests.",
+      "evidence": [
+        "packages/phlo-dbt/tests"
+      ]
+    },
+    {
+      "name": "pandera_quality",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Pandera quality checks are implemented and covered by focused tests.",
+      "evidence": [
+        "packages/phlo-pandera/tests"
+      ]
+    },
+    {
+      "name": "observatory_run_report",
+      "scope": "blessed_core",
+      "target_status": "required",
+      "current_maturity": "planned",
+      "reason": "The Observatory exposes an authenticated durable per-run report API and UI projection at alpha maturity; release acceptance remains pending until the run_evidence gate passes.",
+      "evidence": [
+        "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
+        "packages/phlo-observatory/src/phlo_observatory/src/routes/runs.$projectId.$runId.attempts.$attempt.report.tsx",
+        "packages/phlo-api/tests/test_observatory_api.py",
+        "docs/packages/phlo-observatory.md#durable-run-report-support-boundary"
+      ]
+    },
+    {
+      "name": "mandatory_authorization",
+      "scope": "blessed_core",
+      "target_status": "required",
+      "current_maturity": "blocked",
+      "reason": "Authorization enforcement remains mixed between guarded and optional paths; mandatory route classification is required before v1 release.",
+      "evidence": [
+        "packages/phlo-api/src/phlo_api/api/authorization.py",
+        "docs/reference/auth-and-access.md"
+      ]
+    },
+    {
+      "name": "secure_production_deployment",
+      "scope": "blessed_core",
+      "target_status": "required",
+      "current_maturity": "blocked",
+      "reason": "Current generated services include development credentials, public ports, or disabled authentication; the secure production profile is not implemented.",
+      "evidence": [
+        "docs/setup/security.md",
+        "packages/phlo-postgres/src/phlo_postgres/service.yaml",
+        "packages/phlo-minio/src/phlo_minio/service.yaml"
+      ]
+    },
+    {
+      "name": "maintenance_operations",
+      "scope": "blessed_core",
+      "target_status": "required",
+      "current_maturity": "planned",
+      "reason": "Compaction is implemented and proven through the Iceberg and ref-aware Trino contracts; the broader required maintenance surface remains incomplete.",
+      "evidence": [
+        "packages/phlo-iceberg/src/phlo_iceberg/resource.py",
+        "packages/phlo-iceberg/tests/test_compaction_contract.py",
+        "packages/phlo-trino/src/phlo_trino/resource.py",
+        "packages/phlo-trino/tests/test_resource_maintenance.py",
+        "docs/operations/operations-guide.md"
+      ]
+    },
+    {
+      "name": "upgrade_restore",
+      "scope": "blessed_core",
+      "target_status": "required",
+      "current_maturity": "planned",
+      "reason": "A CI recovery drill exercises owned backup and restore, but live PostgreSQL migration evidence remains pending.",
+      "evidence": [
+        "scripts/recovery_drill.py",
+        "tests/scripts/test_recovery_drill.py",
+        ".github/workflows/ci.yml",
+        "docs/operations/operations-guide.md"
+      ]
+    },
+    {
+      "name": "golden_path_ci",
+      "scope": "blessed_core",
+      "target_status": "required",
+      "current_maturity": "planned",
+      "reason": "Required CI exercises the release golden-path contract, but installed provider-artifact coverage remains incomplete.",
+      "evidence": [
+        "scripts/release_golden_path.py",
+        "tests/scripts/test_release_golden_path.py",
+        ".github/workflows/ci.yml"
+      ]
+    }
+  ],
+  "gates": {
+    "required": [
+      "security",
+      "run_evidence",
+      "maintenance",
+      "upgrade_restore",
+      "golden_path"
+    ],
+    "status": {
+      "security": "blocked",
+      "run_evidence": "planned",
+      "maintenance": "planned",
+      "upgrade_restore": "planned",
+      "golden_path": "planned"
+    },
+    "components": [
+      {
+        "name": "package:phlo",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "package:phlo-api",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "package:phlo-core-plugins",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path"
+        ]
+      },
+      {
+        "name": "package:phlo-dagster",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "package:phlo-dbt",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence"
+        ]
+      },
+      {
+        "name": "package:phlo-dlt",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence"
+        ]
+      },
+      {
+        "name": "package:phlo-iceberg",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "package:phlo-minio",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "package:phlo-nessie",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "package:phlo-observatory",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence"
+        ]
+      },
+      {
+        "name": "package:phlo-pandera",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence"
+        ]
+      },
+      {
+        "name": "package:phlo-postgres",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "package:phlo-trino",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:dagster",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:dagster-daemon",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:postgres",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:postgres-volume-setup",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:minio",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:minio-setup",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:nessie",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:trino",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:phlo-api",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:observatory",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "capability:iceberg_tables",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "run_evidence",
+          "maintenance",
+          "upgrade_restore",
+          "golden_path"
+        ],
+        "blocked_by": [
+          "security",
+          "run_evidence",
+          "maintenance",
+          "upgrade_restore",
+          "golden_path"
+        ]
+      },
+      {
+        "name": "capability:nessie_branch_write_audit_publish",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "run_evidence",
+          "maintenance",
+          "upgrade_restore",
+          "golden_path"
+        ],
+        "blocked_by": [
+          "security",
+          "run_evidence",
+          "maintenance",
+          "upgrade_restore",
+          "golden_path"
+        ]
+      },
+      {
+        "name": "capability:dlt_ingestion",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "run_evidence",
+          "upgrade_restore",
+          "golden_path"
+        ],
+        "blocked_by": [
+          "security",
+          "run_evidence",
+          "upgrade_restore",
+          "golden_path"
+        ]
+      },
+      {
+        "name": "capability:dbt_transformations",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "run_evidence",
+          "upgrade_restore",
+          "golden_path"
+        ],
+        "blocked_by": [
+          "security",
+          "run_evidence",
+          "upgrade_restore",
+          "golden_path"
+        ]
+      },
+      {
+        "name": "capability:pandera_quality",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "run_evidence",
+          "upgrade_restore",
+          "golden_path"
+        ],
+        "blocked_by": [
+          "security",
+          "run_evidence",
+          "upgrade_restore",
+          "golden_path"
+        ]
+      },
+      {
+        "name": "capability:observatory_run_report",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "run_evidence",
+          "golden_path"
+        ],
+        "blocked_by": [
+          "security",
+          "run_evidence",
+          "golden_path"
+        ]
+      },
+      {
+        "name": "capability:mandatory_authorization",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "golden_path"
+        ],
+        "blocked_by": [
+          "security",
+          "golden_path"
+        ]
+      },
+      {
+        "name": "capability:secure_production_deployment",
+        "status": "blocked",
+        "applicable_gates": [
+          "security"
+        ],
+        "blocked_by": [
+          "security"
+        ]
+      },
+      {
+        "name": "capability:maintenance_operations",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "maintenance",
+          "upgrade_restore",
+          "golden_path"
+        ],
+        "blocked_by": [
+          "security",
+          "maintenance",
+          "upgrade_restore",
+          "golden_path"
+        ]
+      },
+      {
+        "name": "capability:upgrade_restore",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path"
+        ]
+      },
+      {
+        "name": "capability:golden_path_ci",
+        "status": "blocked",
+        "applicable_gates": [
+          "golden_path"
+        ],
+        "blocked_by": [
+          "golden_path"
+        ]
+      }
+    ]
+  },
+  "runtime": {
+    "python": {
+      "minimum": "3.11",
+      "supported": [
+        "3.11",
+        "3.12"
+      ],
+      "unverified": [
+        "3.13",
+        "3.14+"
+      ],
+      "reason": "Only 3.11 and 3.12 execute in the CI matrix.",
+      "evidence": [
+        "pyproject.toml",
+        ".github/workflows/ci.yml"
+      ],
+      "advertised_unverified": []
+    },
+    "os": {
+      "supported": [
+        "Linux"
+      ],
+      "tested": [
+        "ubuntu-latest"
+      ],
+      "unverified": [
+        "native macOS",
+        "native Windows",
+        "other Linux distributions",
+        "non-x86 Linux architectures"
+      ],
+      "reason": "Required CI runs on ubuntu-latest; platform tests and documentation do not establish native OS compatibility.",
+      "evidence": [
+        ".github/workflows/ci.yml",
+        "docs/getting-started/installation.md",
+        "tests/runtime/test_definitions.py"
+      ]
+    },
+    "containers": {
+      "supported": [
+        "Docker Compose v2 on the CI-tested Linux path"
+      ],
+      "unverified": [
+        "Podman execution",
+        "native macOS/Windows container paths",
+        "non-x86 image architectures"
+      ],
+      "reason": "Docker and Podman are documented, but the backend tests mock subprocesses and CI has no Podman lane.",
+      "evidence": [
+        "docs/getting-started/installation.md",
+        "tests/runtime/test_container_backend.py",
+        ".github/workflows/ci.yml"
+      ]
+    }
+  },
+  "production": {
+    "status": "blocked",
+    "requirements": [
+      "Reject default, empty, or shared production credentials.",
+      "Require TLS and an OIDC/JWT authentication path.",
+      "Keep PostgreSQL, MinIO, Nessie, Trino, and Dagster off public host interfaces.",
+      "Use separate least-privilege identities for API, orchestration, query, catalog, and maintenance workloads.",
+      "Enable backend-native authorization and audit facilities and fail readiness on policy drift.",
+      "Render secret files with mode 0600 and retain durable audit evidence for privileged mutations."
+    ],
+    "development_defaults": [
+      "Generated credentials and convenient host ports are for a trusted local development machine only.",
+      "Current service images and tags are implementation metadata, not release artifact guarantees."
+    ],
+    "reason": "Authorization bypasses and unsafe generated service defaults block the v1 production profile.",
+    "release_cut_note": "production.status is required_before_release because release BOM resolution, supply-chain checks, and final release-cut evidence are outside this support boundary.",
+    "evidence": [
+      "docs/setup/security.md",
+      "docs/reference/auth-and-access.md"
+    ]
+  },
+  "exclusions": [
+    {
+      "name": "multi-tenancy",
+      "status": "excluded",
+      "reason": "v1 is one project and one tenant per deployment.",
+      "evidence": [
+        "docs/reference/configuration-reference.md#tenant-scope"
+      ]
+    },
+    {
+      "name": "Kubernetes-native operation",
+      "status": "excluded",
+      "reason": "Kubernetes is outside the tested v1 support boundary.",
+      "evidence": [
+        "README.md#deployment-support-boundary"
+      ]
+    },
+    {
+      "name": "high availability and multi-region operation",
+      "status": "excluded",
+      "reason": "These deployment guarantees are outside the single-project v1 contract.",
+      "evidence": [
+        "docs/operations/release-management.md#release-artifact-support-boundary"
+      ]
+    },
+    {
+      "name": "exact release images and digests",
+      "status": "excluded",
+      "reason": "Exact artifact resolution is a release-cut responsibility rather than a support-classification guarantee.",
+      "evidence": [
+        "docs/operations/release-management.md#release-artifact-support-boundary"
+      ]
+    }
+  ]
+}
