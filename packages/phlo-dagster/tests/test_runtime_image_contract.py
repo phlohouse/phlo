@@ -76,9 +76,10 @@ def test_dagster_runtime_entrypoint_installs_mounted_project() -> None:
     assert "uv pip install --system -e /app" in entrypoint
     assert 'if [ "$(id -u)" -ne 0 ]; then' in entrypoint
     assert 'runtime_user="phlo"' in entrypoint
-    assert 'exec su-exec "$runtime_user" "$@"' in entrypoint
+    assert "touch /tmp/phlo-dagster-ready" in entrypoint
+    assert 'exec su-exec "$runtime_user" env HOME=/tmp "$@"' in entrypoint
     assert entrypoint.index("uv pip install --system -e /app") < entrypoint.index(
-        'exec su-exec "$runtime_user" "$@"'
+        'exec su-exec "$runtime_user" env HOME=/tmp "$@"'
     )
 
 

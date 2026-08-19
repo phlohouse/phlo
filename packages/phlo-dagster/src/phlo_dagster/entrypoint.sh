@@ -107,10 +107,16 @@ if [ -n "$PHLO_PROJECT_PATH" ] && [ -d "$PHLO_PROJECT_PATH" ]; then
     cd "$PHLO_PROJECT_PATH"
 fi
 
+# Signal that the bootstrap work is complete before the container drops
+# privileges and starts Dagster. The host CLI waits for this marker.
+touch /tmp/phlo-dagster-ready
+
 # Drop privileges after the one-time bootstrap. Linux development stacks retain
 # their host-owned project files; other stacks use the image's phlo account.
 runtime_user="phlo"
 if [ -n "${PHLO_RUNTIME_UID:-}" ] && [ -n "${PHLO_RUNTIME_GID:-}" ]; then
     runtime_user="${PHLO_RUNTIME_UID}:${PHLO_RUNTIME_GID}"
 fi
-exec su-exec "$runtime_user" "$@"
+# Numeric runtime users do not have a passwd entry, so `su-exec` resets HOME to
+# the root filesystem. Set it after the privilege drop for Dagster telemetry.
+exec su-exec "$runtime_user" env HOME=/tmp "$@"
