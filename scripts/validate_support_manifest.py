@@ -93,6 +93,36 @@ class ValidationError(ValueError):
     """Raised when the support boundary is internally inconsistent."""
 
 
+def provider_core_requirement(repo_root: Path) -> str:
+    """Return the workspace-wide core compatibility epoch for provider packages."""
+    with (repo_root / "pyproject.toml").open("rb") as handle:
+        version = tomllib.load(handle)["project"]["version"]
+    match = re.fullmatch(r"(\d+)\.(\d+)\.\d+", version)
+    if not match:
+        raise ValidationError(f"phlo version {version!r} must use a major.minor.patch release")
+    major, minor = (int(part) for part in match.groups())
+    return f"phlo>={version},<{major}.{minor + 1}"
+
+
+def provider_core_compatibility_errors(repo_root: Path) -> list[str]:
+    """Ensure every workspace provider declares the current core compatibility epoch."""
+    expected = provider_core_requirement(repo_root)
+    errors: list[str] = []
+    for path in sorted((repo_root / "packages").glob("*/pyproject.toml")):
+        with path.open("rb") as handle:
+            project = tomllib.load(handle)["project"]
+        requirements = [
+            requirement
+            for requirement in project.get("dependencies", [])
+            if re.match(r"^phlo(?:\[[^]]+\])?(?:[<>=!~ ]|$)", requirement, re.IGNORECASE)
+        ]
+        if requirements != [expected]:
+            errors.append(
+                f"provider {project['name']!r} must declare {expected!r}; found {requirements!r}"
+            )
+    return errors
+
+
 def _type_matches(value: object, expected: str) -> bool:
     return {
         "object": isinstance(value, dict),
@@ -528,6 +558,7 @@ def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> li
         f"package {name!r} is in the support manifest but absent from the workspace"
         for name in sorted(set(manifest_packages) - actual_packages)
     )
+    errors.extend(provider_core_compatibility_errors(repo_root))
 
     service_inventory = (
         _service_inventory() if repo_root == ROOT else _service_inventory_at(repo_root)

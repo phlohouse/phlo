@@ -7,7 +7,7 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.1.0",
+    "phlo>=0.12.1,<0.13",
     "phlo-api>=0.1.0",
     "httpx>=0.28.1",
     "mcp[cli]>=1.28.1",

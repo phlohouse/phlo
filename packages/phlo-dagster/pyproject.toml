@@ -7,7 +7,7 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.1.0",
+    "phlo>=0.12.1,<0.13",
     "dagster>=1.13,<1.14",
     "dagster-graphql>=1.13,<1.14",
     "dagster-webserver>=1.13,<1.14",

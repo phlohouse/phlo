@@ -7,7 +7,7 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.1.0",
+    "phlo>=0.12.1,<0.13",
     "psycopg2-binary>=2.9.11",
 ]
 description = "Postgres service plugin for Phlo"

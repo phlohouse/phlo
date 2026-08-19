@@ -7,8 +7,8 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.1.0",
-    "pandera>=0.26.1",
+    "phlo>=0.12.1,<0.13",
+    "pandera[pandas]>=0.26.1",
     "deltalake>=0.25.0",
     "pyarrow>=14.0.0",
 ]

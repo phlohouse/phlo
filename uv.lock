@@ -2967,6 +2967,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/37/17/4c89d26ba4f6fb7fc5d3c7f3558aaf4b1e4d843b855e01300a86876987cf/pandera-0.30.1-py3-none-any.whl", hash = "sha256:910656a8c1e10a9759b57dd58ac9dd16298e64baaaae476f1c2c40ee326fb263", size = 303587, upload-time = "2026-03-18T00:58:56.993Z" },
 ]
 
+[package.optional-dependencies]
+pandas = [
+    { name = "numpy" },
+    { name = "pandas" },
+]
+
 [[package]]
 name = "parsedatetime"
 version = "2.6"
@@ -3545,7 +3551,7 @@ version = "0.5.0"
 source = { editable = "packages/phlo-delta" }
 dependencies = [
     { name = "deltalake" },
-    { name = "pandera" },
+    { name = "pandera", extra = ["pandas"] },
     { name = "phlo" },
     { name = "pyarrow" },
 ]
@@ -3562,7 +3568,7 @@ minio = [
 [package.metadata]
 requires-dist = [
     { name = "deltalake", specifier = ">=0.25.0" },
-    { name = "pandera", specifier = ">=0.26.1" },
+    { name = "pandera", extras = ["pandas"], specifier = ">=0.26.1" },
     { name = "phlo", editable = "." },
     { name = "phlo-minio", marker = "extra == 'minio'", editable = "packages/phlo-minio" },
     { name = "pyarrow", specifier = ">=14.0.0" },
@@ -3662,7 +3668,7 @@ name = "phlo-iceberg"
 version = "0.6.0"
 source = { editable = "packages/phlo-iceberg" }
 dependencies = [
-    { name = "pandera" },
+    { name = "pandera", extra = ["pandas"] },
     { name = "phlo" },
     { name = "pyarrow" },
     { name = "pyiceberg", extra = ["s3fs"] },
@@ -3682,7 +3688,7 @@ nessie = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pandera", specifier = ">=0.26.1" },
+    { name = "pandera", extras = ["pandas"], specifier = ">=0.26.1" },
     { name = "phlo", editable = "." },
     { name = "phlo-minio", marker = "extra == 'minio'", editable = "packages/phlo-minio" },
     { name = "phlo-nessie", marker = "extra == 'nessie'", editable = "packages/phlo-nessie" },

@@ -6,7 +6,7 @@ requires = [
 ]
 
 [project]
-dependencies = ["phlo>=0.1.0"]
+dependencies = ["phlo>=0.12.1,<0.13"]
 description = "Traefik service plugin for Phlo"
 name = "phlo-traefik"
 requires-python = ">=3.11"
