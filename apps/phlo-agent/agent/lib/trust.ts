@@ -10,3 +10,16 @@ export function isScheduleAppAuth(auth: SessionAuthContext | null): boolean {
     && auth.principalId === 'eve:app'
     && auth.principalType === 'runtime'
 }
+
+export function isGitHubIssueTriageAuth(
+  auth: SessionAuthContext | null,
+  issueNumber?: number,
+): boolean {
+  return auth !== null
+    && issueNumber !== undefined
+    && auth.authenticator === 'github-webhook'
+    && auth.principalType === 'user'
+    && auth.attributes.repository === 'phlohouse/phlo'
+    && auth.attributes.conversation_kind === 'issue'
+    && auth.attributes.issue_number === String(issueNumber)
+}

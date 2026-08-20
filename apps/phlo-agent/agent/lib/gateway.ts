@@ -12,7 +12,6 @@ export function gatewayOptions(kind?: string) {
       gateway: {
         caching: 'auto' as const,
         sort: isBatch(kind) ? 'cost' as const : 'ttft' as const,
-        zeroDataRetention: true,
         tags: [
           `phlo-agent:env:${environment()}`,
           `phlo-agent:surface:${kind ?? 'unknown'}`,

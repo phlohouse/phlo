@@ -1,7 +1,12 @@
 import githubExtension from '@github-tools/eve-extension'
 import type { ApprovalContext, ApprovalStatus } from 'eve/tools'
 import { GITHUB_CONNECTOR } from '../lib/github/credentials'
-import { autonomousWritesEnabled, isScheduleAppAuth } from '../lib/trust'
+import { issueTriageLabelsAllowed } from '../lib/github/triage'
+import {
+  autonomousWritesEnabled,
+  isGitHubIssueTriageAuth,
+  isScheduleAppAuth,
+} from '../lib/trust'
 
 function requireUserApproval(): ApprovalStatus {
   return 'user-approval'
@@ -28,6 +33,28 @@ function scheduledWrite(ctx: ApprovalContext): ApprovalStatus {
   return 'not-applicable'
 }
 
+function issueTriageWrite(ctx: ApprovalContext): ApprovalStatus {
+  if (isScheduleAppAuth(ctx.session.auth.current)) return scheduledWrite(ctx)
+  if (!autonomousWritesEnabled()) {
+    return {
+      type: 'denied',
+      reason: 'Autonomous writes are disabled. Set PHLO_AGENT_AUTONOMOUS_WRITES=1 to enable them.',
+    }
+  }
+  if (!targetsPhlo(ctx.toolInput)) {
+    return { type: 'denied', reason: 'Issue triage writes are restricted to phlohouse/phlo.' }
+  }
+  const input = ctx.toolInput as { issueNumber?: unknown; labels?: unknown } | undefined
+  const issueNumber = typeof input?.issueNumber === 'number' ? input.issueNumber : undefined
+  if (
+    !isGitHubIssueTriageAuth(ctx.session.auth.current, issueNumber)
+    || !issueTriageLabelsAllowed(input?.labels)
+  ) {
+    return requireUserApproval()
+  }
+  return 'not-applicable'
+}
+
 export default githubExtension({
   connector: GITHUB_CONNECTOR,
   context: { owner: 'phlohouse', repo: 'phlo' },
@@ -41,6 +68,8 @@ export default githubExtension({
     'searchIssues',
     'listIssues',
     'getIssueContext',
+    'listLabels',
+    'addLabels',
     'createIssue',
     'listPullRequests',
     'getPullRequestContext',
@@ -51,6 +80,7 @@ export default githubExtension({
     'getCiFailureContext',
   ],
   requireApproval: {
+    addLabels: issueTriageWrite,
     createIssue: scheduledWrite,
     createPullRequest: (ctx: ApprovalContext): ApprovalStatus => {
       const input = ctx.toolInput as { draft?: unknown } | undefined

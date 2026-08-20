@@ -6,8 +6,9 @@ inspired by [Evi](https://github.com/hugorcd/evlog/tree/main/apps/evi).
 The initial setup includes:
 
 - DeepSeek V4 Flash for text and Qwen 3.7 Flash for turns containing images
-- Vercel AI Gateway routing with caching, zero-data-retention, and usage tags
+- Vercel AI Gateway routing with caching and usage tags
 - a GitHub channel and GitHub tools scoped to `phlohouse/phlo`
+- grounded classification and enrichment for newly opened GitHub issues
 - Agent Browser and the `before-and-after` CLI for visual verification
 - an isolated Vercel Sandbox containing a shallow Phlo checkout
 - approval-gated GitHub writes through the GitHub Tools extension
@@ -45,6 +46,15 @@ Autonomous writes are disabled by default. Scheduled audits still run, but they
 cannot create issues, push branches, or open pull requests until
 `PHLO_AGENT_AUTONOMOUS_WRITES=1` is set in the deployed Vercel environment.
 
+## Automatic issue triage
+
+Newly opened issues are checked against current source, documentation, issues,
+and pull requests. The agent applies a small set of existing repository labels
+and posts one concise comment with genuinely useful evidence or a focused
+question. It does not close, assign, rewrite, or implement issues during
+automatic triage. Issue bodies are treated as untrusted evidence rather than
+agent instructions.
+
 ## Post-merge rollout
 
 1. Update a local Phlo checkout and install the agent with Node.js 24:
@@ -75,7 +85,8 @@ cannot create issues, push branches, or open pull requests until
 
    Grant repository contents, issues, and pull request write access. Keep the
    connector name `github/phlo-agent`. If the selected GitHub App slug differs
-   from `phlo-agent`, set `PHLO_AGENT_GITHUB_BOT` to that slug.
+   from `phlo-agent`, set `PHLO_AGENT_GITHUB_BOT` to that slug. Subscribe the
+   connector to `issues`, `issue_comment`, and `pull_request_review_comment`.
 
 4. Set `PHLO_AGENT_AUTONOMOUS_WRITES=0` in the Vercel production environment,
    then deploy:
@@ -179,5 +190,5 @@ DeepSeek V4 Flash model page in the Vercel dashboard before setting a budget.
 
 ## Deferred capabilities
 
-Automatic first-response triage on every new community issue, Linear reporting,
-long-term memory, telemetry, automatic merging, and releases are not enabled.
+Linear reporting, long-term memory, telemetry, automatic merging, and releases
+are not enabled.
