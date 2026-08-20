@@ -27,6 +27,7 @@ from phlo_api.api.operation_controls import (
     audit_operation,
     replay_or_execute,
     replay_or_execute_async,
+    resolve_idempotency_claim,
 )
 
 
@@ -40,6 +41,20 @@ def _process_audit_writer(project_path: str, barrier: Any, index: int) -> None:
         dry_run=False,
         auth={"subject": "test", "scopes": []},
         result={"index": index},
+    )
+
+
+def _process_idempotency_resolution(project_path: str, barrier: Any) -> None:
+    """Resolve the same durable claim from an independent process."""
+    os.environ["PHLO_PROJECT_PATH"] = project_path
+    barrier.wait()
+    resolve_idempotency_claim(
+        idempotency_key="process-resolution",
+        operation="cancel_run",
+        target="run-process",
+        resolution="safe_to_retry",
+        resolved_by="operator@example.test",
+        evidence={"provider_lookup": "request was not applied"},
     )
 
 
@@ -284,6 +299,162 @@ def test_idempotency_outcome_unknown_after_provider_exception_sync(
     assert info.value.status_code == 409
     assert info.value.detail == {"error": "idempotency_outcome_unknown"}
     assert calls == ["boom"]
+
+
+def test_unresolved_claim_survives_expiry_until_safe_to_retry(monkeypatch, tmp_path: Path) -> None:
+    """Expiry never re-invokes a provider until durable reconciliation permits it."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    calls: list[str] = []
+
+    def boom() -> dict[str, Any]:
+        calls.append("boom")
+        raise RuntimeError("provider status unknown")
+
+    with pytest.raises(RuntimeError):
+        replay_or_execute(
+            idempotency_key="expired-unknown",
+            operation="retry_failed_run",
+            target="run-expired",
+            execute=boom,
+        )
+
+    database = tmp_path / ".phlo" / "state" / "operations.sqlite"
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE operations SET expires_at = ?", ("2000-01-01T00:00:00+00:00",))
+
+    with pytest.raises(IdempotencyConflict, match="idempotency_outcome_unknown"):
+        replay_or_execute(
+            idempotency_key="expired-unknown",
+            operation="retry_failed_run",
+            target="run-expired",
+            execute=lambda: {"should": "not run"},
+        )
+    assert calls == ["boom"]
+
+    resolve_idempotency_claim(
+        idempotency_key="expired-unknown",
+        operation="retry_failed_run",
+        target="run-expired",
+        resolution="safe_to_retry",
+        resolved_by="operator@example.test",
+        evidence={"provider_lookup": "mutation was not applied"},
+    )
+    resolve_idempotency_claim(
+        idempotency_key="expired-unknown",
+        operation="retry_failed_run",
+        target="run-expired",
+        resolution="safe_to_retry",
+        resolved_by="operator@example.test",
+        evidence={"provider_lookup": "mutation was not applied"},
+    )
+    assert replay_or_execute(
+        idempotency_key="expired-unknown",
+        operation="retry_failed_run",
+        target="run-expired",
+        execute=lambda: {"ok": True},
+    ) == {"ok": True}
+
+    with sqlite3.connect(database) as connection:
+        resolution = connection.execute(
+            "SELECT resolution, resolved_by, evidence_json FROM idempotency_resolutions"
+        ).fetchone()
+    assert resolution == (
+        "safe_to_retry",
+        "operator@example.test",
+        '{"provider_lookup": "mutation was not applied"}',
+    )
+
+
+def test_completed_claim_expires_and_can_execute_again(monkeypatch, tmp_path: Path) -> None:
+    """Successful replay records retain their configured expiry behavior."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    calls: list[int] = []
+
+    def execute() -> dict[str, Any]:
+        calls.append(1)
+        return {"call": len(calls)}
+
+    replay_or_execute(
+        idempotency_key="expired-completed",
+        operation="retry_failed_run",
+        target="run-completed",
+        execute=execute,
+    )
+    with sqlite3.connect(tmp_path / ".phlo" / "state" / "operations.sqlite") as connection:
+        connection.execute("UPDATE operations SET expires_at = ?", ("2000-01-01T00:00:00+00:00",))
+
+    assert replay_or_execute(
+        idempotency_key="expired-completed",
+        operation="retry_failed_run",
+        target="run-completed",
+        execute=execute,
+    ) == {"call": 2}
+    assert calls == [1, 1]
+
+
+def test_failed_resolution_remains_non_reinvokable(monkeypatch, tmp_path: Path) -> None:
+    """A reconciliation result of failed remains a terminal provider outcome."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    with pytest.raises(RuntimeError):
+        replay_or_execute(
+            idempotency_key="failed-resolution",
+            operation="cancel_run",
+            target="run-failed",
+            execute=lambda: (_ for _ in ()).throw(RuntimeError("provider unavailable")),
+        )
+
+    resolve_idempotency_claim(
+        idempotency_key="failed-resolution",
+        operation="cancel_run",
+        target="run-failed",
+        resolution="failed",
+        resolved_by="operator@example.test",
+        evidence={"provider_lookup": "request was rejected"},
+    )
+
+    with pytest.raises(IdempotencyConflict, match="idempotency_outcome_failed"):
+        replay_or_execute(
+            idempotency_key="failed-resolution",
+            operation="cancel_run",
+            target="run-failed",
+            execute=lambda: {"should": "not run"},
+        )
+
+
+def test_resolution_is_idempotent_across_processes(monkeypatch, tmp_path: Path) -> None:
+    """Concurrent reconcilers record one resolution and permit one new claim."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    with pytest.raises(RuntimeError):
+        replay_or_execute(
+            idempotency_key="process-resolution",
+            operation="cancel_run",
+            target="run-process",
+            execute=lambda: (_ for _ in ()).throw(RuntimeError("provider unavailable")),
+        )
+
+    context = multiprocessing.get_context("fork")
+    barrier = context.Barrier(2)
+    processes = [
+        context.Process(target=_process_idempotency_resolution, args=(str(tmp_path), barrier))
+        for _ in range(2)
+    ]
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join(timeout=10)
+        assert process.exitcode == 0
+
+    calls: list[str] = []
+    assert replay_or_execute(
+        idempotency_key="process-resolution",
+        operation="cancel_run",
+        target="run-process",
+        execute=lambda: calls.append("ran") or {"ok": True},
+    ) == {"ok": True}
+    assert calls == ["ran"]
+
+    with sqlite3.connect(tmp_path / ".phlo" / "state" / "operations.sqlite") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM idempotency_resolutions").fetchone() == (1,)
 
 
 def test_idempotency_outcome_unknown_after_provider_exception_async(

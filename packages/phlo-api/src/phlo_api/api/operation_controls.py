@@ -32,6 +32,8 @@ _IDEMPOTENCY_RETRY_AFTER_SECONDS = 2
 _STATE_PENDING = "pending"
 _STATE_COMPLETED = "completed"
 _STATE_UNKNOWN = "unknown"
+_STATE_FAILED = "failed"
+_STATE_SAFE_TO_RETRY = "safe_to_retry"
 _RATE_LIMITS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 logger = logging.getLogger(__name__)
 
@@ -216,6 +218,8 @@ def replay_or_execute(
         )
     elif claim.state == _STATE_UNKNOWN:
         raise IdempotencyConflict({"error": "idempotency_outcome_unknown"})
+    else:
+        raise IdempotencyConflict({"error": "idempotency_outcome_failed"})
 
     try:
         response = execute()
@@ -273,6 +277,8 @@ async def replay_or_execute_async(
         )
     elif claim.state == _STATE_UNKNOWN:
         raise IdempotencyConflict({"error": "idempotency_outcome_unknown"})
+    else:
+        raise IdempotencyConflict({"error": "idempotency_outcome_failed"})
 
     try:
         response = await execute()
@@ -321,6 +327,111 @@ class _IdempotencyClaim:
     response_json: str
 
 
+def resolve_idempotency_claim(
+    *,
+    idempotency_key: str,
+    operation: str,
+    target: str,
+    resolution: str,
+    resolved_by: str,
+    evidence: dict[str, Any],
+    response: dict[str, Any] | None = None,
+) -> None:
+    """Durably resolve an unresolved provider mutation from provider evidence.
+
+    Resolution is provider-neutral: callers supply the provider evidence and
+    choose whether it proves success, failure, or that another invocation is
+    safe. Every resolution is retained in the local audit table with its actor
+    and evidence; only ``safe_to_retry`` permits another provider invocation.
+    """
+    if resolution not in {"succeeded", _STATE_FAILED, _STATE_SAFE_TO_RETRY}:
+        raise ValueError("resolution must be succeeded, failed, or safe_to_retry")
+    if resolution == "succeeded" and response is None:
+        raise ValueError("a succeeded resolution requires a response")
+    state = _STATE_COMPLETED if resolution == "succeeded" else resolution
+
+    key_hash = _idempotency_hash(idempotency_key)
+    conn = _idempotency_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            """
+            SELECT state FROM operations
+            WHERE project = ? AND key_hash = ? AND operation = ? AND target = ?
+            """,
+            (str(project_root()), key_hash, operation, target),
+        ).fetchone()
+        if row is None or str(row[0]) not in {_STATE_PENDING, _STATE_UNKNOWN}:
+            resolved_state = _STATE_COMPLETED if resolution == "succeeded" else resolution
+            existing_resolution = conn.execute(
+                """
+                SELECT resolution, resolved_by, evidence_json FROM idempotency_resolutions
+                WHERE project = ? AND key_hash = ? AND operation = ? AND target = ?
+                ORDER BY rowid DESC LIMIT 1
+                """,
+                (str(project_root()), key_hash, operation, target),
+            ).fetchone()
+            if (
+                row is not None
+                and existing_resolution is not None
+                and str(row[0]) == resolved_state
+                and str(existing_resolution[0]) == resolution
+                and str(existing_resolution[1]) == resolved_by
+                and str(existing_resolution[2]) == json.dumps(evidence, sort_keys=True)
+            ):
+                conn.commit()
+                return
+            conn.rollback()
+            raise ValueError("only pending or unknown idempotency claims can be resolved")
+
+        now = datetime.now(UTC)
+        expires_at = (
+            now + timedelta(hours=_DEFAULT_IDEMPOTENCY_RETENTION_HOURS)
+            if state == _STATE_COMPLETED
+            else datetime.max.replace(tzinfo=UTC)
+        )
+        conn.execute(
+            """
+            UPDATE operations
+            SET state = ?, response_json = ?, expires_at = ?
+            WHERE project = ? AND key_hash = ? AND operation = ? AND target = ?
+            """,
+            (
+                state,
+                json.dumps(response, sort_keys=True) if response is not None else "",
+                expires_at.isoformat(),
+                str(project_root()),
+                key_hash,
+                operation,
+                target,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO idempotency_resolutions(
+                project, key_hash, operation, target, resolution, resolved_by, evidence_json, resolved_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(project_root()),
+                key_hash,
+                operation,
+                target,
+                resolution,
+                resolved_by,
+                json.dumps(evidence, sort_keys=True),
+                now.isoformat(),
+            ),
+        )
+        conn.commit()
+    except BaseException:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def _claim_idempotency_key(*, key_hash: str, operation: str, target: str) -> _IdempotencyClaim:
     """Atomically claim an idempotency identity or report an existing claim's state.
 
@@ -358,6 +469,28 @@ def _claim_idempotency_key(*, key_hash: str, operation: str, target: str) -> _Id
             return _IdempotencyClaim(claimed=True, state=_STATE_PENDING, response_json="")
         except sqlite3.IntegrityError:
             conn.rollback()
+            conn.execute("BEGIN IMMEDIATE")
+            claimed = conn.execute(
+                """
+                UPDATE operations
+                SET state = ?, response_json = ?, created_at = ?, expires_at = ?
+                WHERE project = ? AND key_hash = ? AND operation = ? AND target = ? AND state = ?
+                """,
+                (
+                    _STATE_PENDING,
+                    "",
+                    now.isoformat(),
+                    expires_at.isoformat(),
+                    str(project_root()),
+                    key_hash,
+                    operation,
+                    target,
+                    _STATE_SAFE_TO_RETRY,
+                ),
+            ).rowcount
+            if claimed:
+                conn.commit()
+                return _IdempotencyClaim(claimed=True, state=_STATE_PENDING, response_json="")
             row = conn.execute(
                 """
                 SELECT state, response_json FROM operations
@@ -365,6 +498,7 @@ def _claim_idempotency_key(*, key_hash: str, operation: str, target: str) -> _Id
                 """,
                 (str(project_root()), key_hash, operation, target),
             ).fetchone()
+            conn.commit()
             if row is None:
                 # Expired and deleted between the INSERT and the read; retry once.
                 conn.execute("BEGIN IMMEDIATE")
@@ -506,6 +640,20 @@ def _idempotency_connection() -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS idempotency_resolutions(
+            project TEXT NOT NULL,
+            key_hash TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            target TEXT NOT NULL,
+            resolution TEXT NOT NULL,
+            resolved_by TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            resolved_at TEXT NOT NULL
+        )
+        """
+    )
     _migrate_operations_schema(conn)
     return conn
 
@@ -531,7 +679,10 @@ def _migrate_operations_schema(conn: sqlite3.Connection) -> None:
 
 
 def _delete_expired(conn: sqlite3.Connection) -> None:
-    conn.execute("DELETE FROM operations WHERE expires_at < ?", (datetime.now(UTC).isoformat(),))
+    conn.execute(
+        "DELETE FROM operations WHERE state = ? AND expires_at < ?",
+        (_STATE_COMPLETED, datetime.now(UTC).isoformat()),
+    )
     conn.commit()
 
 
