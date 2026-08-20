@@ -1,0 +1,4 @@
+import { connectGitHubCredentials } from '@vercel/connect/eve'
+
+export const GITHUB_CONNECTOR = 'github/phlo-agent'
+export const githubCredentials = connectGitHubCredentials(GITHUB_CONNECTOR)

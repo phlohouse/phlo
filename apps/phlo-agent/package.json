@@ -1,0 +1,27 @@
+{
+  "name": "phlo-agent",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "eve build",
+    "dev": "eve dev",
+    "start": "eve start",
+    "test": "node --experimental-strip-types --test $(find agent -type f -name '*.test.ts' -print | sort)",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@agent-browser/eve": "0.34.0",
+    "@github-tools/eve-extension": "0.3.2",
+    "@vercel/connect": "0.8.0",
+    "ai": "7.0.70",
+    "eve": "0.40.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "typescript": "7.0.2"
+  }
+}

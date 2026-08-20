@@ -611,6 +611,36 @@ jobs:
       - name: Run tests
         run: npm test
 
+  phlo-agent:
+    name: agent / eve
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/phlo-agent
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: apps/phlo-agent/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build agent
+        run: npm run build
+
   ci-status:
     name: ci / status
     runs-on: ubuntu-latest
@@ -625,6 +655,7 @@ jobs:
       - windows-release-contract
       - python-package-tests
       - frontend
+      - phlo-agent
     steps:
       - name: Summarize CI lane results
         shell: bash
@@ -638,6 +669,7 @@ jobs:
           WINDOWS_RELEASE_CONTRACT: ${{ needs.windows-release-contract.result }}
           PYTHON_PACKAGE_TESTS: ${{ needs.python-package-tests.result }}
           FRONTEND: ${{ needs.frontend.result }}
+          PHLO_AGENT: ${{ needs.phlo-agent.result }}
         run: |
           set -euo pipefail
 
@@ -655,6 +687,7 @@ jobs:
             echo "| windows / release golden path contract | ${WINDOWS_RELEASE_CONTRACT} |"
             echo "| python / package tests | ${PYTHON_PACKAGE_TESTS} |"
             echo "| frontend / observatory | ${FRONTEND} |"
+            echo "| agent / eve | ${PHLO_AGENT} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           for result in \
@@ -666,7 +699,8 @@ jobs:
             "${RECOVERY_CONTINUITY_DRILL}" \
             "${WINDOWS_RELEASE_CONTRACT}" \
             "${PYTHON_PACKAGE_TESTS}" \
-            "${FRONTEND}"; do
+            "${FRONTEND}" \
+            "${PHLO_AGENT}"; do
             if [ "${result}" != "success" ]; then
               exit 1
             fi

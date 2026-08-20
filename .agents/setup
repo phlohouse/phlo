@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 observatory_dir="$repo_root/packages/phlo-observatory/src/phlo_observatory"
+agent_dir="$repo_root/apps/phlo-agent"
 
 run_step() {
   local label="$1"
@@ -93,5 +94,6 @@ run_step "Install Python 3.11" uv python install 3.11
 run_step "Sync Python workspace" uv sync --python 3.11 --dev --locked
 run_step "Install Node.js 24" install_node
 run_step "Sync Observatory dependencies" npm ci --prefix "$observatory_dir"
+run_step "Sync Phlo agent dependencies" npm ci --prefix "$agent_dir"
 
 echo "Orb setup complete."
