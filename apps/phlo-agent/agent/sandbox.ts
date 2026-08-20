@@ -7,11 +7,18 @@ import { vercel } from 'eve/sandbox/vercel'
 
 const BEFORE_AFTER_VERSION = '0.0.4'
 const REPOSITORY = 'https://github.com/phlohouse/phlo.git'
+// Bump when the sandbox bootstrap changes in a way that requires a fresh template.
+const SANDBOX_TEMPLATE_VERSION = '1'
 
 export default defineSandbox({
-  backend: vercel(),
+  backend: vercel({
+    keepLastSnapshots: {
+      count: 1,
+      deleteEvicted: true,
+    },
+  }),
   revalidationKey: () =>
-    `phlo-${process.env.VERCEL_GIT_COMMIT_SHA ?? 'local'}:before-and-after-${BEFORE_AFTER_VERSION}:${agentBrowserRevalidationKey()}`,
+    `phlo:${SANDBOX_TEMPLATE_VERSION}:before-and-after-${BEFORE_AFTER_VERSION}:${agentBrowserRevalidationKey()}`,
   async bootstrap({ use }) {
     const sandbox = await use()
     await sandbox.run({

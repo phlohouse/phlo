@@ -96,12 +96,17 @@ jobs:
           name: docs-site-out
           path: docs-site/out
 
-      - name: Preserve cairn reports
+      - name: Disable Vercel deployment for the docs branch
         run: |
-          git fetch origin gh-pages --depth=1 || true
-          git checkout origin/gh-pages -- cairn previews 2>/dev/null || true
-          cp -r cairn docs-site/out/cairn 2>/dev/null || true
-          cp -r previews docs-site/out/previews 2>/dev/null || true
+          mkdir -p docs-site/out/apps/phlo-agent
+          cat > docs-site/out/apps/phlo-agent/vercel.json <<'EOF'
+          {
+            "$schema": "https://openapi.vercel.sh/vercel.json",
+            "git": {
+              "deploymentEnabled": false
+            }
+          }
+          EOF
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@e9c66a37f080288a11235e32cbe2dc5fb3a679cc # v4

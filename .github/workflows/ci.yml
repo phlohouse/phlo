@@ -62,20 +62,20 @@ jobs:
         id: installed_provider_artifacts
         shell: bash
         run: |
-          mkdir -p cairn-artifacts
+          mkdir -p provider-artifacts
           python3 scripts/verify_installed_provider_artifacts.py \
             --include-docker-builds \
             --include-docker-health \
             --docker-shard-index ${{ matrix.docker-shard }} \
             --docker-shard-count 4 \
-            --output cairn-artifacts/installed-provider-artifacts.json
+            --output provider-artifacts/installed-provider-artifacts.json
 
       - name: Upload installed provider artifact evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: installed-provider-artifacts-${{ matrix.docker-shard }}
-          path: cairn-artifacts/installed-provider-artifacts.json
+          path: provider-artifacts/installed-provider-artifacts.json
           if-no-files-found: warn
 
   python-quality:
@@ -98,62 +98,10 @@ jobs:
         run: uv sync --dev --locked
 
       - name: Lint with ruff
-        id: ruff_lint
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p cairn-artifacts
-
-          set +e
-          uv run --locked ruff check . --output-format json --output-file cairn-artifacts/ruff-results.json
-          ruff_exit=$?
-          set -e
-
-          if [ ! -f cairn-artifacts/ruff-results.json ]; then
-            echo "[]" > cairn-artifacts/ruff-results.json
-          fi
-
-          echo "ruff_exit=${ruff_exit}" >> "$GITHUB_OUTPUT"
-          if [ "${ruff_exit}" -ne 0 ]; then
-            exit "${ruff_exit}"
-          fi
+        run: uv run --locked ruff check .
 
       - name: Check Python formatting
-        id: ruff_format
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p cairn-artifacts
-
-          set +e
-          uv run --locked ruff format --check .
-          format_exit=$?
-          set -e
-
-          if [ "${format_exit}" -eq 0 ]; then
-            status="pass"
-          else
-            status="fail"
-          fi
-
-          cat > cairn-artifacts/ruff-format-summary.json <<EOF
-          {
-            "summary": {"status": "${status}", "duration_seconds": 0},
-            "results": [
-              {
-                "id": "ruff-format",
-                "status": "${status}",
-                "duration_seconds": 0,
-                "message": "ruff format --check exit ${format_exit}"
-              }
-            ]
-          }
-          EOF
-
-          echo "format_exit=${format_exit}" >> "$GITHUB_OUTPUT"
-          if [ "${format_exit}" -ne 0 ]; then
-            exit "${format_exit}"
-          fi
+        run: uv run --locked ruff format --check .
 
       - name: Type check with ty
         run: make typecheck-python
@@ -166,14 +114,6 @@ jobs:
           else
             echo "Skipping sqlfluff: no workflows/transforms/dbt directory."
           fi
-
-      - name: Upload Cairn lint artifacts
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: cairn-lint
-          path: cairn-artifacts/
-          if-no-files-found: warn
 
   python-core-tests:
     name: python / core tests (${{ matrix.python-version }})
@@ -200,68 +140,11 @@ jobs:
 
       - name: Run core regression suite
         id: core_regression
-        shell: bash
-        run: |
-          set +e
-          make test-core-regression
-          regression_exit=$?
-          set -e
-
-          echo "regression_exit=${regression_exit}" >> "$GITHUB_OUTPUT"
+        run: make test-core-regression
 
       - name: Run core tests
-        if: always()
         id: core_tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p cairn-artifacts
-          junit_path="cairn-artifacts/pytest-${{ matrix.python-version }}.xml"
-
-          set +e
-          uv run --locked pytest tests -m "not integration and not core_regression" --tb=short --cov=phlo --cov-report=term-missing --junitxml "${junit_path}"
-          pytest_exit=$?
-          set -e
-
-          if [ ! -f "${junit_path}" ]; then
-            printf '%s\n' \
-              '<testsuite name="pytest" tests="0" failures="0" errors="1" skipped="0">' \
-              '  <testcase classname="cairn" name="pytest-missing-output">' \
-              '    <error message="pytest did not produce junit xml output"/>' \
-              '  </testcase>' \
-              '</testsuite>' > "${junit_path}"
-          fi
-
-          echo "pytest_exit=${pytest_exit}" >> "$GITHUB_OUTPUT"
-          exit 0
-
-      - name: Upload Cairn core test artifacts
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: cairn-test-core-${{ matrix.python-version }}
-          path: cairn-artifacts/pytest-${{ matrix.python-version }}.xml
-          if-no-files-found: warn
-
-      - name: Fail core test job on regression or test failures
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          regression_exit="${{ steps.core_regression.outputs.regression_exit || '0' }}"
-          pytest_exit="${{ steps.core_tests.outputs.pytest_exit || '0' }}"
-
-          if [ "${regression_exit}" -ne 0 ]; then
-            echo "Core regression suite failed with exit ${regression_exit}" >&2
-          fi
-
-          if [ "${pytest_exit}" -ne 0 ]; then
-            echo "Core pytest suite failed with exit ${pytest_exit}" >&2
-          fi
-
-          if [ "${regression_exit}" -ne 0 ] || [ "${pytest_exit}" -ne 0 ]; then
-            exit 1
-          fi
+        run: uv run --locked pytest tests -m "not integration and not core_regression" --tb=short --cov=phlo --cov-report=term-missing
 
   postgres-concurrency-gates:
     name: python / postgres concurrency gates
@@ -389,52 +272,20 @@ jobs:
         run: uv sync --dev --locked
 
       - name: Run quickstart smoke test
-        id: quickstart_smoke
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p cairn-artifacts
-          junit_path="cairn-artifacts/quickstart-smoke.xml"
-          smoke_artifacts="$PWD/cairn-artifacts/quickstart-smoke"
-
-          set +e
-          PHLO_QUICKSTART_SMOKE_ARTIFACT_DIR="${smoke_artifacts}" \
-            uv run --locked pytest tests/cli/test_quickstart_smoke.py --tb=short --junitxml "${junit_path}"
-          smoke_exit=$?
-          set -e
-
-          if [ ! -f "${junit_path}" ]; then
-            printf '%s\n' \
-              '<testsuite name="quickstart-smoke" tests="0" failures="0" errors="1" skipped="0">' \
-              '  <testcase classname="cairn" name="quickstart-smoke-missing-output">' \
-              '    <error message="quickstart smoke did not produce junit xml output"/>' \
-              '  </testcase>' \
-              '</testsuite>' > "${junit_path}"
-          fi
-
-          echo "smoke_exit=${smoke_exit}" >> "$GITHUB_OUTPUT"
-          exit 0
+          mkdir -p quickstart-artifacts
+          PHLO_QUICKSTART_SMOKE_ARTIFACT_DIR="$PWD/quickstart-artifacts" \
+            uv run --locked pytest tests/cli/test_quickstart_smoke.py --tb=short
 
       - name: Upload quickstart smoke artifacts
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: cairn-quickstart-smoke
-          path: cairn-artifacts/
+          name: quickstart-smoke
+          path: quickstart-artifacts/
           if-no-files-found: warn
-
-      - name: Fail quickstart smoke job on test failure
-        if: always()
-        env:
-          SMOKE_EXIT: ${{ steps.quickstart_smoke.outputs.smoke_exit || '0' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          smoke_exit="${SMOKE_EXIT:-0}"
-          if [ "${smoke_exit}" -ne 0 ]; then
-            echo "Quickstart smoke test failed with exit ${smoke_exit}" >&2
-            exit 1
-          fi
 
   recovery-continuity-drill:
     name: python / recovery continuity drill
@@ -454,8 +305,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p cairn-artifacts
-          uv run --locked python scripts/recovery_drill.py | tee cairn-artifacts/recovery-drill.json
+          mkdir -p recovery-artifacts
+          uv run --locked python scripts/recovery_drill.py | tee recovery-artifacts/recovery-drill.json
 
       - name: Summarize recovery evidence
         if: always()
@@ -465,7 +316,7 @@ jobs:
           import json
           from pathlib import Path
 
-          report = Path("cairn-artifacts/recovery-drill.json")
+          report = Path("recovery-artifacts/recovery-drill.json")
           print("### Recovery continuity drill")
           if not report.is_file():
               print("The drill produced no report; inspect the job log.")
@@ -483,7 +334,7 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: recovery-continuity-drill
-          path: cairn-artifacts/recovery-drill.json
+          path: recovery-artifacts/recovery-drill.json
           if-no-files-found: warn
 
   windows-release-contract:
@@ -705,37 +556,3 @@ jobs:
               exit 1
             fi
           done
-
-  cairn:
-    name: cairn / report
-    runs-on: ubuntu-latest
-    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
-    concurrency:
-      group: gh-pages-writers
-      cancel-in-progress: false
-    needs:
-      - python-quality
-      - python-core-tests
-      - quickstart-smoke
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-
-      - name: Download Cairn artifacts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          pattern: cairn-*
-          merge-multiple: true
-          path: cairn-artifacts
-
-      - name: Publish Cairn report
-        uses: iamgp/cairn@cb2ff6b034452455b6de44887d71f0b93e1eade1 # v0.5.1
-        with:
-          collect-config: .github/cairn.toml
-          pages-subdir: ${{ github.event_name == 'pull_request' && format('previews/pr-{0}/cairn', github.event.pull_request.number) || 'cairn' }}
-          deploy-pages: "false"
