@@ -2,6 +2,11 @@ name: Security
 
 on:
   workflow_dispatch:
+  merge_group:
+  pull_request:
+  push:
+    branches: [main, beta]
+    tags: ["v*"]
   schedule:
     - cron: "0 1 * * *"
 
@@ -21,6 +26,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+          enable-cache: false
+
       - name: Audit workflow security with zizmor
         run: make zizmor
 
@@ -36,6 +47,7 @@ jobs:
         uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
+          enable-cache: false
 
       - name: Audit Python dependencies
         shell: bash
@@ -56,8 +68,7 @@ jobs:
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
         with:
           node-version: "24"
-          cache: "npm"
-          cache-dependency-path: packages/phlo-observatory/src/phlo_observatory/package-lock.json
+          package-manager-cache: false
 
       - name: Install dependencies
         run: npm ci
@@ -77,6 +88,7 @@ jobs:
         uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
+          enable-cache: false
 
       - name: Install pymdx
         run: uv tool install "pymdx==0.1.4"
@@ -86,3 +98,28 @@ jobs:
 
       - name: Build docs site
         run: pymdx build docs-site
+
+  security-status:
+    name: security / status
+    if: always()
+    needs:
+      - workflow-hardening
+      - python-dependencies
+      - observatory-dependencies
+      - docs-dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every security check to succeed
+        env:
+          WORKFLOW_HARDENING: ${{ needs.workflow-hardening.result }}
+          PYTHON_DEPENDENCIES: ${{ needs.python-dependencies.result }}
+          OBSERVATORY_DEPENDENCIES: ${{ needs.observatory-dependencies.result }}
+          DOCS_DEPENDENCIES: ${{ needs.docs-dependencies.result }}
+        run: |
+          set -euo pipefail
+          for result in "$WORKFLOW_HARDENING" "$PYTHON_DEPENDENCIES" "$OBSERVATORY_DEPENDENCIES" "$DOCS_DEPENDENCIES"; do
+            if [ "$result" != "success" ]; then
+              echo "::error::Required security check finished with result: $result"
+              exit 1
+            fi
+          done
