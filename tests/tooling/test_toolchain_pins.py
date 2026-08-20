@@ -1,11 +1,14 @@
 """Contracts for the repository's pinned validation toolchain."""
 
 import re
+import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
 EXPECTED_UV_VERSION = "0.12.1"
+EXPECTED_RELX_VERSION = "v1.4.0"
+EXPECTED_RELX_REVISION = "a223ae18bee5d41335c20803bd397248fa15f05d"
 
 
 def _workflow_texts() -> list[str]:
@@ -24,6 +27,54 @@ def test_every_setup_uv_step_uses_the_repository_pin() -> None:
                 for block_line in setup_block
             ), f"setup-uv step is not pinned to {EXPECTED_UV_VERSION}: {line}"
             assert not any('version: "latest"' in block_line for block_line in setup_block)
+
+
+def test_release_workflow_uses_the_immutable_releasex_pin() -> None:
+    release = (WORKFLOW_ROOT / "release.yml").read_text(encoding="utf-8")
+
+    assert release.count(f"uses: iamgp/ReleaseX@{EXPECTED_RELX_REVISION}") == 2
+    assert release.count(f"version: {EXPECTED_RELX_VERSION}") == 2
+    assert "iamgp/ReleaseX@v" not in release
+
+
+def test_releasex_prepares_derived_workspace_versions_transactionally() -> None:
+    with (REPO_ROOT / "relx.toml").open("rb") as handle:
+        config = tomllib.load(handle)
+
+    dependencies = config["workspace"]["dependencies"]
+    assert dependencies["enabled"] is True
+    assert dependencies["rules"] == [
+        {
+            "dependency": "phlo",
+            "dependents": ["packages/*"],
+            "when": "dependency_selected",
+            "range": ">={version},<{next_minor}",
+        }
+    ]
+
+    replacements = config["release"]["replacements"]
+    assert len(replacements) == 7
+
+    package_versions = {}
+    manifests = [REPO_ROOT / "pyproject.toml", *REPO_ROOT.glob("packages/*/pyproject.toml")]
+    for manifest in manifests:
+        with manifest.open("rb") as handle:
+            project = tomllib.load(handle)["project"]
+        package_versions[project["name"]] = project["version"]
+
+    for replacement in replacements:
+        for package in replacement["packages"]:
+            search = replacement["search"].format(
+                name=package,
+                current_version=package_versions[package],
+            )
+            for relative_path in replacement["files"]:
+                content = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+                assert content.count(search) == replacement["expected_matches"], (
+                    package,
+                    relative_path,
+                    search,
+                )
 
 
 def test_makefile_project_commands_require_the_lockfile() -> None:

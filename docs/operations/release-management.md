@@ -9,7 +9,11 @@ Phlo releases are driven by ReleaseX and GitHub Actions:
 - `.github/workflows/publish.yml` is a manual recovery workflow for PyPI publishing.
 - `.github/workflows/build-core-services.yml` builds release images for `phlo-api` and Observatory when a GitHub Release is published.
 
-The release workflow pins ReleaseX `v1.3.0`.
+The release workflow pins ReleaseX `v1.4.0`. ReleaseX prepares release PRs in an
+isolated workspace: it updates package versions, synchronizes each provider's
+bounded `phlo` compatibility range, updates checked support-manifest and
+first-party image version references, refreshes `uv.lock`, and only then updates
+the release branch.
 
 ## Release Channels
 
@@ -37,7 +41,13 @@ Start from a clean checkout of the branch you intend to release.
 git status --short
 relx validate
 relx status --channel
+relx release plan --json
+relx release prepare --check
 ```
+
+`relx release prepare --check` performs the complete local release-PR preparation
+without pushing a branch, opening a PR, tagging, publishing, or creating a release.
+Run it before reviewing changes to release configuration.
 
 ### Dependency Refresh Lane
 

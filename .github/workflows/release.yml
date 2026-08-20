@@ -43,10 +43,10 @@ jobs:
           version: "0.12.1"
           enable-cache: false
 
-      - uses: iamgp/ReleaseX@0f77cbd306b3e726e3a44d8546ae01548af40829
+      - uses: iamgp/ReleaseX@a223ae18bee5d41335c20803bd397248fa15f05d
         with:
           command: release pr
-          version: v1.3.0
+          version: v1.4.0
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
@@ -69,10 +69,10 @@ jobs:
           version: "0.12.1"
           enable-cache: false
 
-      - uses: iamgp/ReleaseX@0f77cbd306b3e726e3a44d8546ae01548af40829
+      - uses: iamgp/ReleaseX@a223ae18bee5d41335c20803bd397248fa15f05d
         with:
           command: release tag
-          version: v1.3.0
+          version: v1.4.0
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
