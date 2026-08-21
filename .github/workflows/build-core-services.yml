@@ -101,6 +101,7 @@ jobs:
             --profile '*' \
             -f "$project/.phlo/docker-compose.yml" \
             --project-directory "$project/.phlo" \
+            --env-file "$project/.phlo/.env.local" \
             config --format json > "$RUNNER_TEMP/generated-compose.json"
           matrix_args=()
           if [[ -n "$PUBLISH_SERVICES" ]]; then
