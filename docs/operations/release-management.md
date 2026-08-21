@@ -6,6 +6,8 @@ Phlo releases are driven by ReleaseX and GitHub Actions:
 
 - `relx.toml` defines the release channels, versioning rules, and prerelease workspace behavior.
 - `.github/workflows/release.yml` opens release PRs, tags merged release PRs, and publishes tagged artifacts to PyPI.
+- [Release candidate protection](release-candidate-protection.md) defines the exact-SHA
+  evidence gate required before a candidate can merge or be tagged.
 - `.github/workflows/publish.yml` is a manual recovery workflow for PyPI publishing.
 - `.github/workflows/build-core-services.yml` builds release images for `phlo-api` and Observatory when a GitHub Release is published.
 

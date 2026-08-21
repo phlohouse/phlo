@@ -3,13 +3,10 @@ name: CI
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, beta]
   pull_request:
-    branches: [main]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [main, beta]
+  workflow_call:
 
 permissions:
   contents: read
@@ -498,6 +495,7 @@ jobs:
     if: always()
     needs:
       - ci-config
+      - installed-provider-artifacts
       - python-quality
       - python-core-tests
       - quickstart-smoke
@@ -512,6 +510,7 @@ jobs:
         shell: bash
         env:
           CI_CONFIG: ${{ needs.ci-config.result }}
+          INSTALLED_PROVIDER_ARTIFACTS: ${{ needs.installed-provider-artifacts.result }}
           PYTHON_QUALITY: ${{ needs.python-quality.result }}
           PYTHON_CORE_TESTS: ${{ needs.python-core-tests.result }}
           QUICKSTART_SMOKE: ${{ needs.quickstart-smoke.result }}
@@ -530,6 +529,7 @@ jobs:
             echo "| Lane | Result |"
             echo "|---|---|"
             echo "| ci / config | ${CI_CONFIG} |"
+            echo "| python / installed provider artifacts | ${INSTALLED_PROVIDER_ARTIFACTS} |"
             echo "| python / quality | ${PYTHON_QUALITY} |"
             echo "| python / core tests | ${PYTHON_CORE_TESTS} |"
             echo "| python / quickstart smoke | ${QUICKSTART_SMOKE} |"
@@ -543,6 +543,7 @@ jobs:
 
           for result in \
             "${CI_CONFIG}" \
+            "${INSTALLED_PROVIDER_ARTIFACTS}" \
             "${PYTHON_QUALITY}" \
             "${PYTHON_CORE_TESTS}" \
             "${QUICKSTART_SMOKE}" \

@@ -1,0 +1,84 @@
+name: Release Candidate
+
+on:
+  workflow_dispatch:
+  merge_group:
+  pull_request:
+    branches: [main, beta]
+  push:
+    branches: [main, beta]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: release candidate / CI evidence
+    uses: ./.github/workflows/ci.yml
+
+  integration:
+    name: release candidate / integration evidence
+    uses: ./.github/workflows/integration.yml
+    secrets:
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
+      SUPERSET_ADMIN_PASSWORD: ${{ secrets.SUPERSET_ADMIN_PASSWORD }}
+
+  security:
+    name: release candidate / security evidence
+    uses: ./.github/workflows/security.yml
+
+  nightly:
+    name: release candidate / release evidence
+    uses: ./.github/workflows/nightly.yml
+    secrets:
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
+      SUPERSET_ADMIN_PASSWORD: ${{ secrets.SUPERSET_ADMIN_PASSWORD }}
+
+  status:
+    name: release candidate / status
+    if: always()
+    needs: [ci, integration, security, nightly]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record candidate evidence
+        env:
+          CI: ${{ needs.ci.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+          SECURITY: ${{ needs.security.result }}
+          RELEASE: ${{ needs.nightly.result }}
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cat > release-candidate-evidence.json <<EOF
+          {"sha":"${CANDIDATE_SHA}","ci":"${CI}","integration":"${INTEGRATION}","security":"${SECURITY}","release":"${RELEASE}"}
+          EOF
+          cat release-candidate-evidence.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload candidate evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: release-candidate-evidence-${{ github.sha }}
+          path: release-candidate-evidence.json
+          if-no-files-found: error
+
+      - name: Require complete evidence for this candidate
+        env:
+          CI: ${{ needs.ci.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+          SECURITY: ${{ needs.security.result }}
+          RELEASE: ${{ needs.nightly.result }}
+        run: |
+          set -euo pipefail
+          for result in "$CI" "$INTEGRATION" "$SECURITY" "$RELEASE"; do
+            if [ "$result" != "success" ]; then
+              echo "::error::Release candidate evidence is incomplete or failed: $result"
+              exit 1
+            fi
+          done

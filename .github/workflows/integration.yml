@@ -3,13 +3,17 @@ name: Integration Lane
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, beta]
   pull_request:
-    branches: [main]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [main, beta]
+  workflow_call:
+    secrets:
+      POSTGRES_PASSWORD:
+        required: true
+      MINIO_ROOT_PASSWORD:
+        required: true
+      SUPERSET_ADMIN_PASSWORD:
+        required: true
 
 permissions:
   contents: read

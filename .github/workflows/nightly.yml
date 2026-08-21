@@ -13,10 +13,6 @@ on:
   schedule:
     - cron: "0 3 * * *"
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
@@ -64,3 +60,24 @@ jobs:
 
       - name: Run release artifact golden path
         run: python3 scripts/release_golden_path.py
+
+  nightly-status:
+    name: nightly / status
+    if: always()
+    needs:
+      - full-integration
+      - release-golden-path
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every nightly check to succeed
+        env:
+          FULL_INTEGRATION: ${{ needs.full-integration.result }}
+          RELEASE_GOLDEN_PATH: ${{ needs.release-golden-path.result }}
+        run: |
+          set -euo pipefail
+          for result in "$FULL_INTEGRATION" "$RELEASE_GOLDEN_PATH"; do
+            if [ "$result" != "success" ]; then
+              echo "::error::Required nightly check finished with result: $result"
+              exit 1
+            fi
+          done

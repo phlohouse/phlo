@@ -1,0 +1,41 @@
+{
+  "name": "Release candidate evidence",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/main", "refs/heads/beta"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {"type": "deletion"},
+    {"type": "non_fast_forward"},
+    {
+      "type": "pull_request",
+      "parameters": {
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": true,
+        "required_approving_review_count": 1,
+        "required_review_thread_resolution": true
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          {"context": "release candidate / status"}
+        ]
+      }
+    }
+  ],
+  "bypass_actors": [
+    {
+      "actor_id": "REPLACE_WITH_RELEASE_EMERGENCY_TEAM_ID",
+      "actor_type": "Team",
+      "bypass_mode": "always"
+    }
+  ]
+}

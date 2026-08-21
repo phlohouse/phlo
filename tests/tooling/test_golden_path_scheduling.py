@@ -8,11 +8,23 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
 
 
-def test_release_golden_path_runs_only_in_nightly() -> None:
+def test_release_golden_path_is_required_candidate_evidence() -> None:
     ci = yaml.safe_load((WORKFLOW_ROOT / "ci.yml").read_text(encoding="utf-8"))
     nightly = yaml.safe_load((WORKFLOW_ROOT / "nightly.yml").read_text(encoding="utf-8"))
+    candidate = yaml.safe_load(
+        (WORKFLOW_ROOT / "release-candidate.yml").read_text(encoding="utf-8")
+    )
 
     assert "release-golden-path" not in ci["jobs"]
+    assert candidate["jobs"]["nightly"] == {
+        "name": "release candidate / release evidence",
+        "uses": "./.github/workflows/nightly.yml",
+        "secrets": {
+            "POSTGRES_PASSWORD": "${{ secrets.POSTGRES_PASSWORD }}",
+            "MINIO_ROOT_PASSWORD": "${{ secrets.MINIO_ROOT_PASSWORD }}",
+            "SUPERSET_ADMIN_PASSWORD": "${{ secrets.SUPERSET_ADMIN_PASSWORD }}",
+        },
+    }
     assert ci["jobs"]["windows-release-contract"]["name"] == (
         "windows / release golden path contract"
     )
@@ -36,6 +48,10 @@ def test_release_golden_path_runs_only_in_nightly() -> None:
             },
         ],
     }
+    assert nightly["jobs"]["nightly-status"]["needs"] == [
+        "full-integration",
+        "release-golden-path",
+    ]
 
 
 def test_nightly_release_golden_path_keeps_dispatch_and_schedule() -> None:

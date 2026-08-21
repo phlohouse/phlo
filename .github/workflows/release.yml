@@ -57,7 +57,41 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      checks: read
     steps:
+      - name: Require successful release-candidate evidence for this SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 3600))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            conclusion="$(gh api \
+              --paginate \
+              "/repos/${REPOSITORY}/commits/${CANDIDATE_SHA}/check-runs?per_page=100" \
+              --jq '.check_runs[] | select(.name == "release candidate / status") | .conclusion' \
+              | tail -n 1)"
+            case "$conclusion" in
+              success)
+                echo "Release-candidate evidence is successful for ${CANDIDATE_SHA}."
+                exit 0
+                ;;
+              failure|cancelled|skipped|timed_out|action_required)
+                echo "::error::Release-candidate evidence for ${CANDIDATE_SHA} concluded: ${conclusion}"
+                exit 1
+                ;;
+              *)
+                echo "Waiting for release-candidate evidence for ${CANDIDATE_SHA} (currently: ${conclusion:-missing})"
+                sleep 30
+                ;;
+            esac
+          done
+          echo "::error::Timed out waiting for release-candidate evidence for ${CANDIDATE_SHA}"
+          exit 1
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
@@ -85,6 +119,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+      checks: read
     steps:
       - name: Resolve publish ref
         id: publish-ref
@@ -120,6 +155,24 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
+
+      - name: Require successful release-candidate evidence for tag target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_sha="$(git rev-parse HEAD)"
+          conclusion="$(gh api \
+            --paginate \
+            "/repos/${REPOSITORY}/commits/${candidate_sha}/check-runs?per_page=100" \
+            --jq '.check_runs[] | select(.name == "release candidate / status") | .conclusion' \
+            | tail -n 1)"
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::Tag target ${candidate_sha} has no successful release-candidate evidence (got: ${conclusion:-missing})"
+            exit 1
+          fi
 
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
