@@ -34,7 +34,6 @@ def test_release_workflow_uses_the_immutable_releasex_pin() -> None:
 
     assert release.count(f"uses: iamgp/ReleaseX@{EXPECTED_RELX_REVISION}") == 2
     assert release.count(f"version: {EXPECTED_RELX_VERSION}") == 2
-    assert release.count("next-version: 0.14.0") == 2
     assert "iamgp/ReleaseX@v" not in release
 
 

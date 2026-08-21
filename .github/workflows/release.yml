@@ -43,12 +43,10 @@ jobs:
           version: "0.12.1"
           enable-cache: false
 
-      # Temporary recovery override: remove after the coherent v0.14.0 release is complete.
       - uses: iamgp/ReleaseX@5dc88dc73d728dd1560444baadf66d6115c1bec2
         with:
           command: release pr
           version: v1.5.0
-          next-version: 0.14.0
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
@@ -150,7 +148,6 @@ jobs:
         with:
           command: release tag
           version: v1.5.0
-          next-version: 0.14.0
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
