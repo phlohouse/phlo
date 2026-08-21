@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -114,8 +115,18 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         serialized = json.dumps(payload, indent=2, sort_keys=True)
-        path.write_text(serialized, encoding="utf-8")
         raw = serialized.encode("utf-8")
+        # A promotion report is also the local retry record.  Replacing it
+        # atomically prevents a crash from turning a valid prior record into
+        # a partially-written JSON document that the next sensor cannot use.
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False
+        ) as temporary:
+            temporary.write(raw)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+            temporary_path = Path(temporary.name)
+        os.replace(temporary_path, path)
         snapshot_path = _report_snapshot_path(logical_run_id, hashlib.sha256(raw).hexdigest())
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         if not snapshot_path.exists():

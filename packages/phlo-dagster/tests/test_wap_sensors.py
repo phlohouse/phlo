@@ -382,6 +382,7 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(monkeypatch
         (tmp_path / ".phlo" / "wap-reports" / f"{logical_run_id}.json").read_text()
     )
     assert manifest["status"] == "promoted"
+    instance.add_run_tags.assert_called_once_with(dagster_run_id, {"phlo/wap_promoted": "true"})
     assert not (tmp_path / ".phlo" / "wap-reports" / f"{dagster_run_id}.json").exists()
     quality_rows = store.list_quality_results("project-promote", logical_run_id, attempt=1)
     quality_id = next(row["quality_result_id"] for row in quality_rows)
@@ -510,6 +511,7 @@ def test_wap_cleanup_keeps_branch_when_query_catalog_cleanup_fails(monkeypatch, 
         "phlo_dagster.wap_sensors._quality_evidence",
         lambda *_args, **_kwargs: ("quality-passed", {}),
     )
+    monkeypatch.setattr("phlo_dagster.wap_sensors._reconcile_promoted_wap_run", lambda *_args: True)
     monkeypatch.setattr("phlo_dagster.wap_sensors._emit_wap_observation", lambda **_kwargs: None)
     context = MagicMock(instance=instance, cursor=None)
 

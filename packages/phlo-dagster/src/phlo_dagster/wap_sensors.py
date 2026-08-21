@@ -454,17 +454,18 @@ def _verify_wap_launch_manifest(run: Any, branch_name: str) -> tuple[str, dict[s
     return logical_run_id, manifest
 
 
-def _reconcile_promoted_wap_run(run: Any, instance: Any) -> None:
+def _reconcile_promoted_wap_run(run: Any, instance: Any) -> bool:
     """Persist Dagster's authoritative history under the WAP logical identity."""
     dagster_run_id = getattr(run, "run_id", None)
     project_id = _project_id_for_run(run)
     if not dagster_run_id or not project_id:
-        return
+        return False
     try:
         RunReconciler(
             default_run_evidence_store(),
             DagsterRunEvidenceSource(instance, project_id=project_id),
         ).reconcile(project_id, dagster_run_id, WAP_EVIDENCE_PROFILE)
+        return True
     except Exception:
         logger.warning(
             "wap_promoted_run_reconciliation_failed",
@@ -472,6 +473,7 @@ def _reconcile_promoted_wap_run(run: Any, instance: Any) -> None:
             logical_run_id=_logical_run_id(run),
             exc_info=True,
         )
+        return False
 
 
 def _emit_wap_observation(
@@ -727,12 +729,41 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
             blocked += 1
             continue
 
+        logical_run_id = _logical_run_id(run)
+        prior_report = _read_wap_report(logical_run_id)
         source_hash = _branch_hash(catalog, branch_name)
         target_hash_before = _branch_hash(catalog, "main")
-        merged = catalog.merge_branch(source=branch_name, target="main")
+        already_merged = prior_report is not None and prior_report.get("merge_state") == "merged"
+        merge_started = prior_report is not None and prior_report.get("merge_state") == "merge_started"
+        if already_merged:
+            source_hash = prior_report.get("source_hash") or source_hash
+            target_hash_before = prior_report.get("target_hash_before") or target_hash_before
+            merged = True
+        elif merge_started and prior_report.get("target_hash_before") != target_hash_before:
+            # The catalog changed after our durable intent.  Treat that as the
+            # missing receipt and resume the idempotent post-merge work; doing
+            # so avoids repeating an external merge after a process crash.
+            source_hash = prior_report.get("source_hash") or source_hash
+            target_hash_before = prior_report.get("target_hash_before") or target_hash_before
+            merged = True
+        else:
+            # Persist intent before crossing the catalog boundary.  This is a
+            # retry record, not a terminal promotion marker.
+            if not write_wap_report(
+                logical_run_id,
+                status="promotion_pending",
+                merge_state="merge_started",
+                branch=branch_name,
+                source_hash=source_hash,
+                target_branch="main",
+                target_hash_before=target_hash_before,
+            ):
+                logger.warning("wap_promotion_outbox_write_failed", run_id=run.run_id)
+                continue
+            merged = catalog.merge_branch(source=branch_name, target="main")
         if not merged:
             write_wap_report(
-                _logical_run_id(run),
+                logical_run_id,
                 status="promotion_failed",
                 branch=branch_name,
                 source_hash=source_hash,
@@ -770,22 +801,78 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
             continue
 
         target_hash_after = _branch_hash(catalog, "main")
-        source_deleted = _cleanup_owned_wap_branch(
-            catalog,
-            branch_name,
-            query_catalog_manager,
-        )
-        instance.add_run_tags(run.run_id, {"phlo/wap_promoted": "true"})
-        write_wap_report(
-            _logical_run_id(run),
+        # This acknowledged transition is what makes a subsequent sensor
+        # evaluation replay evidence/cleanup rather than invoke merge again.
+        if not already_merged and not write_wap_report(
+            logical_run_id,
+            status="promotion_pending",
+            merge_state="merged",
+            branch=branch_name,
+            source_hash=source_hash,
+            target_branch="main",
+            target_hash_before=target_hash_before,
+            target_hash_after=target_hash_after,
+        ):
+            logger.warning("wap_promotion_merge_receipt_write_failed", run_id=run.run_id)
+            continue
+        source_deleted = bool(prior_report and prior_report.get("source_deleted"))
+        if already_merged and not source_deleted:
+            # A deleted ref is an idempotent cleanup success.  In particular,
+            # do not turn a crash after cleanup into an endless retry because
+            # providers correctly reject deletion of an absent branch.
+            source_deleted = _branch_hash(catalog, branch_name) is None
+        if not source_deleted:
+            source_deleted = _cleanup_owned_wap_branch(
+                catalog,
+                branch_name,
+                query_catalog_manager,
+            )
+        if not source_deleted:
+            write_wap_report(
+                logical_run_id,
+                status="promotion_pending",
+                merge_state="merged",
+                branch=branch_name,
+                source_hash=source_hash,
+                target_branch="main",
+                target_hash_before=target_hash_before,
+                target_hash_after=target_hash_after,
+                source_deleted=False,
+            )
+            logger.warning("wap_promotion_cleanup_pending", run_id=run.run_id, branch_name=branch_name)
+            continue
+        # Checkpoint cleanup independently of the terminal report.  A retry
+        # after reconciliation or tag failure must not try to delete it again.
+        if not write_wap_report(
+            logical_run_id,
+            status="promotion_pending",
+            merge_state="merged",
+            branch=branch_name,
+            source_hash=source_hash,
+            target_branch="main",
+            target_hash_before=target_hash_before,
+            target_hash_after=target_hash_after,
+            source_deleted=True,
+        ):
+            logger.warning("wap_promotion_cleanup_receipt_write_failed", run_id=run.run_id)
+            continue
+        if not _reconcile_promoted_wap_run(run, instance):
+            logger.warning("wap_promotion_reconciliation_pending", run_id=run.run_id)
+            continue
+        if not write_wap_report(
+            logical_run_id,
             status="promoted",
+            merge_state="merged",
             branch=branch_name,
             source_hash=source_hash,
             target_branch="main",
             target_hash_before=target_hash_before,
             target_hash_after=target_hash_after,
             source_deleted=source_deleted,
-        )
+        ):
+            logger.warning("wap_promotion_terminal_evidence_write_failed", run_id=run.run_id)
+            continue
+        instance.add_run_tags(run.run_id, {"phlo/wap_promoted": "true"})
         quality_decision_id, quality_metadata = _quality_evidence(
             run.run_id,
             instance,
@@ -819,7 +906,6 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
             merge_outcome="deleted" if source_deleted else "failed",
             metadata={"target_ref": "main"},
         )
-        _reconcile_promoted_wap_run(run, instance)
         promoted += 1
         logger.info(
             "wap_branch_promoted",
