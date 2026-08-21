@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import tomllib
 from pathlib import Path
 
 from phlo.capabilities import (
@@ -17,8 +18,14 @@ from phlo.cli.commands import schema_migrate, workflow
 
 def test_core_does_not_import_provider_packages() -> None:
     """Core depends on capability contracts, not provider packages."""
-    core_dir = Path(__file__).parents[2] / "src" / "phlo"
-    forbidden = {"phlo_pandera", "phlo_dlt"}
+    repository_root = Path(__file__).parents[2]
+    core_dir = repository_root / "src" / "phlo"
+    forbidden = {
+        package_dir.name
+        for package_dir in (repository_root / "packages").glob("*/src/phlo_*")
+        if tomllib.loads((package_dir.parents[1] / "pyproject.toml").read_text())["project"]["name"]
+        != "phlo"
+    }
 
     for path in core_dir.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

@@ -52,7 +52,6 @@ if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
     from phlo.cli.commands.authz import authz_group
     from phlo.cli.commands.compliance import compliance_group
     from phlo.cli.commands.governance import governance_group
-    from phlo.cli.commands.mcp import mcp_group
     from phlo.cli.commands.metrics import metrics_group
     from phlo.cli.commands.migrate import migrate_group
     from phlo.cli.commands.plugin import plugin_group
@@ -94,7 +93,6 @@ if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
     cli.add_command(logs_cmd)
     cli.add_command(services_group)
     cli.add_command(workflow_group)
-    cli.add_command(mcp_group)
     cli.add_command(plugin_group)
     cli.add_command(schema_migrate_group)
     cli.add_command(migrate_group)

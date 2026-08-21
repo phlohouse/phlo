@@ -1,4 +1,4 @@
-"""MCP server management commands."""
+"""MCP server management CLI plugin."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any
 import click
 
 from phlo.cli.output import json_envelope
+from phlo.plugins.base import cli_command_plugin_class
 
 
 @click.group(name="mcp")
@@ -179,4 +180,12 @@ def _client_config_target(client: str) -> Path:
     }[client]
 
 
-__all__ = ["mcp_group"]
+McpCliPlugin = cli_command_plugin_class(
+    "McpCliPlugin",
+    name="mcp",
+    version="0.4.0",
+    description="MCP server management commands",
+    commands=[mcp_group],
+)
+
+__all__ = ["McpCliPlugin"]

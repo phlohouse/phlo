@@ -39,6 +39,9 @@ text = "MCP server for Phlo observability and lakehouse operations."
 [project.scripts]
 phlo-mcp = "phlo_mcp.cli:main"
 
+[project.entry-points."phlo.plugins.cli"]
+mcp = "phlo_mcp.cli_plugin:McpCliPlugin"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

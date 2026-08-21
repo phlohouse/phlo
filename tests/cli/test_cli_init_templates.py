@@ -13,7 +13,8 @@ from click.testing import CliRunner
 
 from phlo.cli._init_discovery_guard import is_init_command_invocation
 from phlo.cli.main import cli
-from phlo.cli.templates.registry import get_template, list_templates
+from phlo.cli.templates.models import TemplateMetadata
+from phlo.cli.templates.registry import TemplateDiscoveryError, get_template, list_templates
 
 
 def test_registry_contains_existing_templates() -> None:
@@ -26,6 +27,34 @@ def test_registry_contains_existing_templates() -> None:
 def test_get_template_rejects_unknown_template() -> None:
     with pytest.raises(KeyError, match="unknown-template"):
         get_template("unknown-template")
+
+
+def test_template_discovery_works_without_optional_providers(monkeypatch) -> None:
+    monkeypatch.setattr("phlo.cli.templates.registry.entry_points_for_group", lambda _: ())
+
+    assert [template.metadata.name for template in list_templates()] == ["minimal"]
+
+
+def test_template_discovery_rejects_conflicting_provider_templates(monkeypatch) -> None:
+    class DuplicateMinimalTemplate:
+        metadata = TemplateMetadata(name="minimal", description="duplicate")
+
+        def render(self, context) -> None:
+            del context
+
+    class FakeEntryPoint:
+        name = "fake-provider"
+
+        @staticmethod
+        def load():
+            return lambda: (DuplicateMinimalTemplate(),)
+
+    monkeypatch.setattr(
+        "phlo.cli.templates.registry.entry_points_for_group", lambda _: (FakeEntryPoint(),)
+    )
+
+    with pytest.raises(TemplateDiscoveryError, match="multiple providers"):
+        list_templates()
 
 
 def test_minimal_template_generates_project(tmp_path) -> None:

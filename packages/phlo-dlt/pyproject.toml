@@ -32,6 +32,9 @@ dlt = "phlo_dlt.cli_plugin:DltCliPlugin"
 [project.entry-points."phlo.plugins.ingestion_providers"]
 dlt = "phlo_dlt.plugin:DLTIngestionProvider"
 
+[project.entry-points."phlo.project_templates"]
+dlt = "phlo_dlt.templates:templates"
+
 [project.license]
 text = "MIT"
 

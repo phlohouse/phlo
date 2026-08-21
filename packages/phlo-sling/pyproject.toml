@@ -29,6 +29,9 @@ sling = "phlo_sling.cli_plugin:SlingCliPlugin"
 [project.entry-points."phlo.plugins.ingestion_providers"]
 sling = "phlo_sling.plugin:SlingIngestionProvider"
 
+[project.entry-points."phlo.project_templates"]
+sling = "phlo_sling.templates:templates"
+
 [project.license]
 text = "MIT"
 

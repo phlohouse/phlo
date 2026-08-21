@@ -30,6 +30,9 @@ dbt = "phlo_dbt.cli_plugin:DbtCliPlugin"
 [project.entry-points."phlo.plugins.transformation_providers"]
 dbt = "phlo_dbt.plugin:DbtTransformationProvider"
 
+[project.entry-points."phlo.project_templates"]
+dbt = "phlo_dbt.templates:templates"
+
 [project.license]
 text = "MIT"
 
