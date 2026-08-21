@@ -20,7 +20,7 @@ from typing import Any, cast
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Body, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query, Request
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import AliasChoices, BaseModel, Field, ValidationError
@@ -156,6 +156,7 @@ from phlo_api.api.operation_controls import (
     require_scope,
 )
 from phlo_api.pagination import paginate_items
+from phlo_api.run_evidence import RunEvidenceStore, get_run_evidence_store
 from types import ModuleType
 
 fcntl: ModuleType | None
@@ -1993,14 +1994,21 @@ def _filter_operations(
     return filtered
 
 
-def _load_runs() -> list[ObservatoryRun]:
-    manifest_runs = list(_manifest_records("runs", ObservatoryRun))
-    provider_runs = load_runs()
-    durable_runs = load_durable_runs()
-    return sorted(
-        _merge_by_id([*manifest_runs, *provider_runs, *durable_runs]),
-        key=lambda item: item.completed_at or item.started_at or item.id,
-        reverse=True,
+def _load_runs(
+    store: RunEvidenceStore, *, limit: int, cursor: str | None
+) -> tuple[list[ObservatoryRun], str | None]:
+    """Load bounded source pages before merging the run read model."""
+    source_limit = max(1, min(limit, 500))
+    manifest_runs = list(_manifest_records("runs", ObservatoryRun))[:source_limit]
+    provider_runs = load_runs()[:source_limit]
+    durable_runs, next_cursor = load_durable_runs(store, limit=source_limit, cursor=cursor)
+    return (
+        sorted(
+            _merge_by_id([*manifest_runs, *provider_runs, *durable_runs]),
+            key=lambda item: item.completed_at or item.started_at or item.id,
+            reverse=True,
+        )[:source_limit],
+        next_cursor,
     )
 
 
@@ -4238,19 +4246,17 @@ def get_observatory_operation_detail(operation_id: str) -> ObservatoryOperationD
 
 @router.get("/runs", response_model=ObservatoryRunList, response_model_exclude_none=True)
 def get_observatory_runs(
-    limit: int = 100, cursor: str | None = None, q: str | None = None
+    limit: int = 100,
+    cursor: str | None = None,
+    q: str | None = None,
+    store: RunEvidenceStore = Depends(get_run_evidence_store),
 ) -> ObservatoryRunList:
     """List provider-neutral orchestrator runs."""
-    result = _cached_read_model(
-        "runs",
-        _FAST_READ_MODEL_TTL_SECONDS,
-        lambda: ObservatoryRunList(items=_load_runs()),
-    )
-    items = result.items
+    safe_limit = max(1, min(limit, 500))
+    items, next_cursor = _load_runs(store, limit=safe_limit + 1, cursor=cursor)
     if q:
         items = [item for item in items if q.lower() in item.model_dump_json().lower()]
-    page, next_cursor = paginate_items(items, limit=limit, cursor=cursor)
-    return ObservatoryRunList(items=page, next_cursor=next_cursor)
+    return ObservatoryRunList(items=items[:safe_limit], next_cursor=next_cursor)
 
 
 @router.get("/runs/{run_id:path}/status")

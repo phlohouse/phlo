@@ -1382,10 +1382,14 @@ def test_sqlite_migration_is_versioned_and_idempotent() -> None:
     with store._transaction() as (_, cursor):
         cursor.execute("SELECT version, checksum FROM run_evidence_schema_version ORDER BY version")
         applied_migrations = cursor.fetchall()
-        assert [row[0] for row in applied_migrations] == [1, 2, 3, RUN_EVIDENCE_SCHEMA_VERSION]
+        assert [row[0] for row in applied_migrations] == list(
+            range(1, RUN_EVIDENCE_SCHEMA_VERSION + 1)
+        )
         assert all(row[1] for row in applied_migrations)
         cursor.execute("SELECT version FROM run_evidence_schema_version")
-        assert [row[0] for row in cursor.fetchall()] == [1, 2, 3, RUN_EVIDENCE_SCHEMA_VERSION]
+        assert [row[0] for row in cursor.fetchall()] == list(
+            range(1, RUN_EVIDENCE_SCHEMA_VERSION + 1)
+        )
         for table in (
             "run_event",
             "run_resource",
@@ -2026,7 +2030,7 @@ def test_sqlite_v1_store_upgrades_additive_instrumentation_columns(tmp_path) -> 
     assert "attempt" in lineage_columns
     assert "attempt" in quality_columns
     assert "attempt" in artifact_columns
-    assert versions == [1, 2, 3, RUN_EVIDENCE_SCHEMA_VERSION]
+    assert versions == list(range(1, RUN_EVIDENCE_SCHEMA_VERSION + 1))
 
 
 def test_v2_field_order_and_additive_checksums_are_compatibility_safe() -> None:
@@ -2108,7 +2112,9 @@ def test_true_v2_to_v4_upgrade_is_idempotent_and_marks_legacy_identity_incomplet
 
     with store._transaction() as (_, cursor):
         cursor.execute("SELECT version FROM run_evidence_schema_version ORDER BY version")
-        assert [row[0] for row in cursor.fetchall()] == [1, 2, 3, 4]
+        assert [row[0] for row in cursor.fetchall()] == list(
+            range(1, RUN_EVIDENCE_SCHEMA_VERSION + 1)
+        )
     assert _fixture_checksums(store) == before_checksums
 
     assert store.append_event(fixture["event"]) is False
@@ -2495,3 +2501,35 @@ def test_list_runs_returns_durable_runs_newest_first(tmp_path: Path) -> None:
 
 def test_list_runs_empty_when_no_evidence(tmp_path: Path) -> None:
     assert SQLiteRunEvidenceStore(tmp_path / "empty.sqlite").list_runs() == []
+
+
+def test_list_runs_page_is_stable_across_equal_activity_inserts_and_deletes(tmp_path: Path) -> None:
+    store = SQLiteRunEvidenceStore(tmp_path / "runs.sqlite")
+    activity = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+    for run_id in ("a", "b", "c"):
+        store.append_pipeline_run(
+            PipelineRun(project_id="project", run_id=run_id, started_at=activity)
+        )
+
+    first_page, cursor = store.list_runs_page(limit=2)
+    assert [row["run_id"] for row in first_page] == ["a", "b"]
+    assert cursor is not None
+
+    store.append_pipeline_run(PipelineRun(project_id="project", run_id="aa", started_at=activity))
+    with store._transaction() as (_, sql_cursor):
+        sql_cursor.execute(
+            "DELETE FROM pipeline_run WHERE project_id = ? AND run_id = ?", ("project", "a")
+        )
+
+    second_page, next_cursor = store.list_runs_page(limit=2, cursor=cursor)
+    assert [row["run_id"] for row in second_page] == ["c"]
+    assert next_cursor is None
+
+    with store._read_transaction() as (_, sql_cursor):
+        sql_cursor.execute(
+            "EXPLAIN QUERY PLAN SELECT * FROM pipeline_run "
+            "ORDER BY COALESCE(finished_at, started_at, created_at) DESC, project_id, run_id LIMIT 2"
+        )
+        assert "idx_pipeline_run_activity_keyset" in " ".join(
+            str(cell) for row in sql_cursor for cell in row
+        )

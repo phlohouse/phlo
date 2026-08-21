@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 
 from phlo.run_evidence.report import RunReport, RunReportNotFound, build_run_report
-from phlo.run_evidence.store import default_run_evidence_store
+from phlo_api.run_evidence import RunEvidenceStore, get_run_evidence_store
 
 router = APIRouter(tags=["observatory"])
 
@@ -18,9 +18,10 @@ def get_observatory_run_report(
     project_id: str,
     run_id: str,
     attempt: int = Path(..., ge=1),
+    store: RunEvidenceStore = Depends(get_run_evidence_store),
 ) -> RunReport:
     """Return the durable evidence projection for one exact run attempt."""
     try:
-        return build_run_report(default_run_evidence_store(), project_id, run_id, attempt)
+        return build_run_report(store, project_id, run_id, attempt)
     except RunReportNotFound as exc:
         raise HTTPException(status_code=404, detail={"error": "run_not_found"}) from exc

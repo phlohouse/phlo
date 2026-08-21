@@ -48,19 +48,16 @@ def load_runs() -> list[ObservatoryRun]:
     return [_normalize_legacy_dagster_run(run) for run in legacy_runs]
 
 
-def load_durable_runs() -> list[ObservatoryRun]:
+def load_durable_runs(
+    store: Any, *, limit: int, cursor: str | None
+) -> tuple[list[ObservatoryRun], str | None]:
     """Load runs from complete canonical durable run evidence.
 
     Only rows sourced from the durable run-evidence store carry a
     ``report_identity``. Legacy Dagster rows, manifest rows, and recovered
     operation rows never receive one.
     """
-    try:
-        from phlo.run_evidence.store import default_run_evidence_store
-
-        rows = default_run_evidence_store().list_runs()
-    except Exception:
-        return []
+    rows, next_cursor = store.list_runs_page(limit=limit, cursor=cursor)
 
     runs: list[ObservatoryRun] = []
     for row in rows:
@@ -68,7 +65,7 @@ def load_durable_runs() -> list[ObservatoryRun]:
         if identity is None:
             continue
         runs.append(_durable_run_from_row(row, identity))
-    return runs
+    return runs, next_cursor
 
 
 def _durable_report_identity(row: Mapping[str, Any]) -> ObservatoryRunReportIdentity | None:

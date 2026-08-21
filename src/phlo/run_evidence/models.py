@@ -9,7 +9,7 @@ from typing import Any, TypedDict
 
 from phlo.capabilities.interfaces import ResourceRef
 
-RUN_EVIDENCE_SCHEMA_VERSION = 4
+RUN_EVIDENCE_SCHEMA_VERSION = 5
 
 
 def _now() -> datetime:

@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import threading
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, replace
@@ -45,11 +46,30 @@ _RUN_EVIDENCE_MIGRATIONS = (
     (2, "003_reconcile_run_evidence.sql", "003_reconcile_run_evidence_sqlite.sql"),
     (3, "004_run_evidence_instrumentation.sql", "004_run_evidence_instrumentation_sqlite.sql"),
     (4, "005_run_evidence_resource_identity.sql", "005_run_evidence_resource_identity_sqlite.sql"),
+    (5, "006_run_evidence_run_list_index.sql", "006_run_evidence_run_list_index_sqlite.sql"),
 )
 
 
 def _migration_checksum(sql: str) -> str:
     return hashlib.sha256(sql.encode("utf-8")).hexdigest()
+
+
+def _encode_run_cursor(activity: str, project_id: str, run_id: str) -> str:
+    payload = json.dumps(
+        {"activity": activity, "project_id": project_id, "run_id": run_id}, separators=(",", ":")
+    ).encode("utf-8")
+    return urlsafe_b64encode(payload).decode("ascii")
+
+
+def _decode_run_cursor(cursor: str | None) -> tuple[str, str, str] | None:
+    if not cursor:
+        return None
+    try:
+        payload = json.loads(urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    values = (payload.get("activity"), payload.get("project_id"), payload.get("run_id"))
+    return values if all(isinstance(value, str) and value for value in values) else None
 
 
 _REPORT_ORDER_BY = {
@@ -259,6 +279,13 @@ class _SqlRunEvidenceStore:
 
     def _initialize_schema(self) -> None:
         raise NotImplementedError
+
+    def initialize(self) -> None:
+        """Run migrations before the store starts serving requests."""
+        self._ensure_schema()
+
+    def close(self) -> None:
+        """Release store-owned resources."""
 
     def append_pipeline_run(self, run: PipelineRun) -> None:
         with self._transaction() as (_, cursor):
@@ -727,6 +754,46 @@ class _SqlRunEvidenceStore:
                 f"project_id, run_id",
             )
             return [self._row_dict(cursor, row, table="pipeline_run") for row in cursor.fetchall()]
+
+    def list_runs_page(
+        self, *, limit: int, cursor: str | None = None
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Return one stable, bounded page of durable runs.
+
+        The cursor captures the final row's activity timestamp and immutable run
+        identity, avoiding offset drift when rows are inserted or deleted.
+        """
+        limit = max(1, min(limit, 500))
+        position = _decode_run_cursor(cursor)
+        activity = "COALESCE(finished_at, started_at, created_at)"
+        where = ""
+        parameters: list[Any] = []
+        if position is not None:
+            where = (
+                f"WHERE ({activity} < {self.placeholder} OR "
+                f"({activity} = {self.placeholder} AND (project_id > {self.placeholder} OR "
+                f"(project_id = {self.placeholder} AND run_id > {self.placeholder}))))"
+            )
+            parameters.extend((position[0], position[0], position[1], position[1], position[2]))
+        parameters.append(limit + 1)
+        with self._read_transaction() as (_, sql_cursor):
+            sql_cursor.execute(
+                f"SELECT *, {activity} AS _activity FROM {self._table('pipeline_run')} {where} "
+                f"ORDER BY {activity} DESC, project_id ASC, run_id ASC LIMIT {self.placeholder}",
+                tuple(parameters),
+            )
+            rows = [
+                self._row_dict(sql_cursor, row, table="pipeline_run")
+                for row in sql_cursor.fetchall()
+            ]
+        has_next = len(rows) > limit
+        page = rows[:limit]
+        if not has_next or not page:
+            return page, None
+        last = page[-1]
+        return page, _encode_run_cursor(
+            str(last["_activity"]), str(last["project_id"]), str(last["run_id"])
+        )
 
     def read_run_attempt(
         self, project_id: str, run_id: str, attempt: int
@@ -1640,6 +1707,9 @@ class SQLiteRunEvidenceStore(_SqlRunEvidenceStore):
     def _close_connection(self, connection: sqlite3.Connection) -> None:
         del connection
 
+    def close(self) -> None:
+        self._connection.close()
+
     def _initialize_schema(self) -> None:
         sql_root = Path(__file__).parent.parent / "sql"
         migrations = [
@@ -1721,17 +1791,35 @@ class PostgresRunEvidenceStore(_SqlRunEvidenceStore):
         super().__init__()
         self.dsn = dsn
         self._connection_factory = connection_factory
+        self._pool: Any | None = None
 
     def _connect(self) -> Any:
         if self._connection_factory is not None:
             return self._connection_factory()
+        if self._pool is not None:
+            return self._pool.getconn()
         try:
-            import psycopg2
+            from psycopg2.pool import ThreadedConnectionPool
         except ImportError as exc:
             raise RuntimeError(
                 "PostgresRunEvidenceStore requires the runtime extra: install phlo[runtime]."
             ) from exc
-        return psycopg2.connect(self.dsn)
+        max_connections = int(os.environ.get("PHLO_RUN_EVIDENCE_POOL_MAX", "10"))
+        self._pool = ThreadedConnectionPool(1, max(1, max_connections), self.dsn)
+        return self._pool.getconn()
+
+    def _close_connection(self, connection: Any) -> None:
+        if self._connection_factory is not None:
+            connection.close()
+        elif self._pool is not None:
+            self._pool.putconn(connection)
+        else:
+            connection.close()
+
+    def close(self) -> None:
+        if self._pool is not None:
+            self._pool.closeall()
+            self._pool = None
 
     def _initialize_schema(self) -> None:
         sql_root = Path(__file__).parent.parent / "sql"
@@ -1796,7 +1884,7 @@ class PostgresRunEvidenceStore(_SqlRunEvidenceStore):
             connection.rollback()
             raise
         finally:
-            connection.close()
+            self._close_connection(connection)
 
 
 def default_run_evidence_store() -> SQLiteRunEvidenceStore | PostgresRunEvidenceStore:

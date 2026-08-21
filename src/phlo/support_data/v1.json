@@ -43,7 +43,7 @@
         "source": "src/phlo/config/settings.py"
       },
       "database": {
-        "version": "4",
+        "version": "5",
         "source": "src/phlo/run_evidence/models.py"
       }
     }

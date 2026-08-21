@@ -22,7 +22,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -39,10 +39,27 @@ from phlo.security.validation import require_regulated_validation
 
 logger = get_logger(__name__, service="phlo-api")
 
+
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    """Own the durable evidence resource for the API process lifetime."""
+    from phlo.run_evidence.store import default_run_evidence_store
+
+    store = default_run_evidence_store()
+    store.initialize()
+    application.state.run_evidence_store = store
+    try:
+        yield
+    finally:
+        store.close()
+        del application.state.run_evidence_store
+
+
 app = FastAPI(
     title="Phlo API",
     description="Backend API for Phlo Observatory",
     version="0.1.0",
+    lifespan=_lifespan,
 )
 
 # Allow CORS for Observatory
