@@ -64,4 +64,4 @@ __all__ = [
     "get_settings",
     "get_settings_service",
 ]
-__version__ = "0.7.0"
+__version__ = "0.14.0"

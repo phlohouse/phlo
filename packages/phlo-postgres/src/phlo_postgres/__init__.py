@@ -29,4 +29,4 @@ __all__ = [
     "PostgresSettingsStore",
     "get_settings",
 ]
-__version__ = "0.4.0"
+__version__ = "0.14.0"

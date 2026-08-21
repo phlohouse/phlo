@@ -7,7 +7,7 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.12.1,<0.13",
+    "phlo>=0.14.0,<0.15",
     "phlo-api>=0.1.0",
     "httpx>=0.28.1",
     "mcp[cli]>=1.28.1",
@@ -17,11 +17,14 @@ dependencies = [
 description = "MCP server for Phlo observability and lakehouse operations"
 name = "phlo-mcp"
 requires-python = ">=3.11"
-version = "0.4.0"
+version = "0.14.0"
 
 [[project.authors]]
 email = "team@phlo.dev"
 name = "Phlo Team"
+
+[project.entry-points."phlo.plugins.cli"]
+mcp = "phlo_mcp.cli_plugin:McpCliPlugin"
 
 [project.license]
 text = "MIT"
@@ -38,9 +41,6 @@ text = "MCP server for Phlo observability and lakehouse operations."
 
 [project.scripts]
 phlo-mcp = "phlo_mcp.cli:main"
-
-[project.entry-points."phlo.plugins.cli"]
-mcp = "phlo_mcp.cli_plugin:McpCliPlugin"
 
 [tool.ruff]
 line-length = 100

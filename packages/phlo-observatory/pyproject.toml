@@ -6,11 +6,11 @@ requires = [
 ]
 
 [project]
-dependencies = ["phlo>=0.12.1,<0.13"]
+dependencies = ["phlo>=0.14.0,<0.15"]
 description = "Phlo Observatory - Data platform UI (bundled with phlo core)"
 name = "phlo-observatory"
 requires-python = ">=3.11"
-version = "0.7.0"
+version = "0.14.0"
 
 [[project.authors]]
 email = "team@phlo.dev"

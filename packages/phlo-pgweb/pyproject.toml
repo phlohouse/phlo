@@ -6,13 +6,11 @@ requires = [
 ]
 
 [project]
-dependencies = [
-    "phlo>=0.12.1,<0.13",
-]
+dependencies = ["phlo>=0.14.0,<0.15"]
 description = "pgweb service plugin for Phlo"
 name = "phlo-pgweb"
 requires-python = ">=3.11"
-version = "0.2.3"
+version = "0.14.0"
 
 [[project.authors]]
 email = "team@phlo.dev"

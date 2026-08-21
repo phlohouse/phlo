@@ -66,4 +66,4 @@ __all__ = [
     "authorize_daemon_run",
     "create_daemon_principal",
 ]
-__version__ = "0.6.0"
+__version__ = "0.14.0"
