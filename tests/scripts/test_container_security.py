@@ -23,6 +23,31 @@ sys.modules["container_security"] = container_security
 _spec.loader.exec_module(container_security)
 
 
+def _published_images_by_service() -> dict[str, str]:
+    support_manifest = json.loads(
+        (REPO_ROOT / "registry/support/v1.json").read_text(encoding="utf-8")
+    )
+    release_images = {
+        entry["name"]: entry["image_reference"]
+        for entry in support_manifest["release_set"]["services"]
+    }
+    return {
+        service: release_images[service]
+        for service in ("phlo-api", "dagster", "dagster-daemon", "observatory")
+    }
+
+
+def _rescan_records() -> list[dict[str, object]]:
+    return [
+        {
+            "image": entry["image"],
+            "digest": f"sha256:{letter * 64}",
+            "services": entry["services"],
+        }
+        for letter, entry in zip("abc", container_security.published_fleet(REPO_ROOT), strict=True)
+    ]
+
+
 def _waiver(**overrides: object) -> dict[str, object]:
     waiver: dict[str, object] = {
         "id": "CW-001",
@@ -78,13 +103,14 @@ def test_policy_allows_only_waived_unfixed_blocking_findings() -> None:
 
 def test_affected_images_ignores_docs_and_selects_changed_service() -> None:
     assert container_security.affected_images(["docs/index.md"], REPO_ROOT) == {"include": []}
+    images = _published_images_by_service()
     targets = container_security.affected_images(
         ["packages/phlo-api/src/phlo_api/Dockerfile"], REPO_ROOT
     )["include"]
     assert targets == [
         {
             "service": "phlo-api",
-            "image": "ghcr.io/phlohouse/phlo-api:0.7.0",
+            "image": images["phlo-api"],
             "package": "packages/phlo-api",
             "context": "packages/phlo-api",
             "dockerfile": "src/phlo_api/Dockerfile",
@@ -93,10 +119,11 @@ def test_affected_images_ignores_docs_and_selects_changed_service() -> None:
 
 
 def test_affected_images_selects_exact_unique_fleet_for_all_and_broad_changes() -> None:
+    images = _published_images_by_service()
     expected = {
-        ("phlo-api", "ghcr.io/phlohouse/phlo-api:0.7.0"),
-        ("dagster", "ghcr.io/phlohouse/phlo-dagster:0.6.0"),
-        ("observatory", "ghcr.io/phlohouse/phlo-observatory:0.7.0"),
+        ("phlo-api", images["phlo-api"]),
+        ("dagster", images["dagster"]),
+        ("observatory", images["observatory"]),
     }
     all_targets = container_security.affected_images(["pyproject.toml"], REPO_ROOT)["include"]
     security_targets = container_security.affected_images(
@@ -108,40 +135,25 @@ def test_affected_images_selects_exact_unique_fleet_for_all_and_broad_changes() 
 
 
 def test_published_fleet_is_derived_from_source_with_required_shared_mapping() -> None:
+    images = _published_images_by_service()
     assert container_security.published_fleet(REPO_ROOT) == [
         {
-            "image": "ghcr.io/phlohouse/phlo-api:0.7.0",
+            "image": images["phlo-api"],
             "services": ["phlo-api"],
         },
         {
-            "image": "ghcr.io/phlohouse/phlo-dagster:0.6.0",
+            "image": images["dagster"],
             "services": ["dagster", "dagster-daemon"],
         },
         {
-            "image": "ghcr.io/phlohouse/phlo-observatory:0.7.0",
+            "image": images["observatory"],
             "services": ["observatory"],
         },
     ]
 
 
 def test_rescan_manifest_assembly_sorts_and_validates_complete_fleet() -> None:
-    records = [
-        {
-            "image": "ghcr.io/phlohouse/phlo-observatory:0.7.0",
-            "digest": "sha256:" + "c" * 64,
-            "services": ["observatory"],
-        },
-        {
-            "image": "ghcr.io/phlohouse/phlo-api:0.7.0",
-            "digest": "sha256:" + "a" * 64,
-            "services": ["phlo-api"],
-        },
-        {
-            "image": "ghcr.io/phlohouse/phlo-dagster:0.6.0",
-            "digest": "sha256:" + "b" * 64,
-            "services": ["dagster-daemon", "dagster"],
-        },
-    ]
+    records = list(reversed(_rescan_records()))
 
     manifest = container_security.assemble_rescan_manifest(records, REPO_ROOT)
 
@@ -150,23 +162,7 @@ def test_rescan_manifest_assembly_sorts_and_validates_complete_fleet() -> None:
 
 
 def test_rescan_manifest_rejects_incomplete_duplicate_unexpected_and_malformed_records() -> None:
-    valid = [
-        {
-            "image": "ghcr.io/phlohouse/phlo-api:0.7.0",
-            "digest": "sha256:" + "a" * 64,
-            "services": ["phlo-api"],
-        },
-        {
-            "image": "ghcr.io/phlohouse/phlo-dagster:0.6.0",
-            "digest": "sha256:" + "b" * 64,
-            "services": ["dagster", "dagster-daemon"],
-        },
-        {
-            "image": "ghcr.io/phlohouse/phlo-observatory:0.7.0",
-            "digest": "sha256:" + "c" * 64,
-            "services": ["observatory"],
-        },
-    ]
+    valid = _rescan_records()
     invalid_cases = {
         "missing": valid[:-1],
         "duplicate": [*valid, valid[0]],

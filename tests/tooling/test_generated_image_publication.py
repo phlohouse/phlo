@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 import sys
 from pathlib import Path
@@ -38,11 +39,15 @@ def test_every_generated_build_uses_a_versioned_ghcr_image() -> None:
         build_definitions.append((service_file, _published_image(image)))
 
     assert build_definitions
-    assert {image for _, image in build_definitions} == {
-        "ghcr.io/phlohouse/phlo-api:0.7.0",
-        "ghcr.io/phlohouse/phlo-dagster:0.6.0",
-        "ghcr.io/phlohouse/phlo-observatory:0.7.0",
+    support_manifest = json.loads(
+        (REPO_ROOT / "registry/support/v1.json").read_text(encoding="utf-8")
+    )
+    release_images = {
+        entry["image_reference"]
+        for entry in support_manifest["release_set"]["services"]
+        if entry["name"] in {"phlo-api", "dagster", "observatory"}
     }
+    assert {image for _, image in build_definitions} == release_images
     for service_file, image in build_definitions:
         assert image.startswith("ghcr.io/phlohouse/phlo-"), service_file
         assert ":" in image.rsplit("/", 1)[-1], service_file
