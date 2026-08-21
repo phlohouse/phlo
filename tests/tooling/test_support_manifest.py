@@ -11,6 +11,7 @@ import pytest
 
 ROOT = Path(__file__).parents[2]
 MANIFEST_PATH = ROOT / "registry/support/v1.json"
+PACKAGED_MANIFEST_PATH = ROOT / "src/phlo/support_data/v1.json"
 FIXTURE_DIR = ROOT / "tests/fixtures/support_manifest"
 VALIDATOR_PATH = ROOT / "scripts/validate_support_manifest.py"
 SPEC = importlib.util.spec_from_file_location("support_manifest_validator", VALIDATOR_PATH)
@@ -44,6 +45,10 @@ def _linked_repo(tmp_path: Path) -> Path:
 
 def test_checked_in_manifest_matches_schema_and_repository_inventory() -> None:
     assert validate_manifest(_manifest()) == []
+
+
+def test_packaged_manifest_exactly_matches_the_registry_manifest() -> None:
+    assert PACKAGED_MANIFEST_PATH.read_bytes() == MANIFEST_PATH.read_bytes()
 
 
 def test_release_set_package_versions_and_service_images_are_derived_from_metadata() -> None:

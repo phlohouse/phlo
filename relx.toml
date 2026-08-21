@@ -16,14 +16,14 @@ path = "pyproject.toml"
 key = "project.version"
 
 [[release.replacements]]
-files = ["registry/support/v1.json"]
+files = ["registry/support/v1.json", "src/phlo/support_data/v1.json"]
 packages = ["phlo"]
 search = "\"version\": \"{current_version}\",\n    \"maturity\": \"alpha\""
 replace = "\"version\": \"{next_version}\",\n    \"maturity\": \"alpha\""
 expected_matches = 1
 
 [[release.replacements]]
-files = ["registry/support/v1.json"]
+files = ["registry/support/v1.json", "src/phlo/support_data/v1.json"]
 packages = [
     "phlo",
     "phlo-api",
@@ -44,14 +44,14 @@ replace = "\"name\": \"{name}\", \"version\": \"{next_version}\""
 expected_matches = 1
 
 [[release.replacements]]
-files = ["registry/support/v1.json"]
+files = ["registry/support/v1.json", "src/phlo/support_data/v1.json"]
 packages = ["phlo-api", "phlo-observatory"]
 search = "\"image_reference\": \"ghcr.io/phlohouse/{name}:{current_version}\""
 replace = "\"image_reference\": \"ghcr.io/phlohouse/{name}:{next_version}\""
 expected_matches = 1
 
 [[release.replacements]]
-files = ["registry/support/v1.json"]
+files = ["registry/support/v1.json", "src/phlo/support_data/v1.json"]
 packages = ["phlo-dagster"]
 search = "\"image_reference\": \"ghcr.io/phlohouse/{name}:{current_version}\""
 replace = "\"image_reference\": \"ghcr.io/phlohouse/{name}:{next_version}\""
