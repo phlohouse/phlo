@@ -585,6 +585,8 @@ class ObservatoryTablePreview(BaseModel):
     limit: int = 50
     offset: int = 0
     has_more: bool = False
+    state: str = "ready"
+    message: str | None = None
 
 
 class ObservatoryQueryRequest(BaseModel):

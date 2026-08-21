@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections import Counter, deque
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -1051,33 +1050,8 @@ def _load_tables_without_catalog() -> list[ObservatoryTable]:
 
 
 def _catalog_tables() -> set[tuple[str, str]] | None:
-    """Return queryable table identifiers from the active query catalog, when available."""
-    try:
-        from phlo_api.observatory_api.trino import resolve_default_catalog
-    except Exception:
-        return None
-
-    try:
-        catalog = resolve_default_catalog()
-    except Exception:
-        return None
-
-    tables: set[tuple[str, str]] = set()
-    table_result = _run_query_engine(
-        "select table_schema, table_name "
-        f"from {catalog}.information_schema.tables "
-        "where table_schema <> 'information_schema'",
-        limit=1000,
-    )
-    if table_result is None:
-        return None
-
-    for row in table_result["rows"]:
-        schema = row.get("table_schema") or row.get("TABLE_SCHEMA")
-        table_name = row.get("table_name") or row.get("TABLE_NAME")
-        if isinstance(schema, str) and isinstance(table_name, str) and table_name:
-            tables.add((schema, table_name))
-    return tables
+    """Avoid catalog-wide discovery; read-model relations carry their own identity."""
+    return None
 
 
 def _load_quality() -> list[ObservatoryQualityCheck]:
@@ -2395,93 +2369,30 @@ def _table_rows(
     return rows
 
 
-def _run_query_engine(
-    sql: str, *, schema: str | None = None, limit: int = 500
-) -> Mapping[str, Any] | None:
-    try:
-        from phlo_api.observatory_api.trino import QueryExecutionError, execute_trino_query
-    except Exception:
-        return None
-
-    async def _execute() -> Any:
-        return await execute_trino_query(sql, schema=schema, timeout_ms=30000)
-
-    try:
-        result = asyncio.run(_execute())
-    except Exception:
-        return None
-
-    if isinstance(result, QueryExecutionError) or not isinstance(result, Mapping):
-        return None
-    rows = result.get("rows")
-    columns = result.get("columns")
-    if not isinstance(rows, list) or not isinstance(columns, list):
-        return None
-    clean_rows = [row for row in rows[:limit] if isinstance(row, Mapping)]
-    return {
-        "columns": [str(column) for column in columns],
-        "rows": [dict(row) for row in clean_rows],
-        "column_types": result.get("column_types")
-        if isinstance(result.get("column_types"), list)
-        else [],
-    }
-
-
 def _relation_from_metadata(table: ObservatoryTable) -> str | None:
     relation = table.metadata.get("relation")
     if isinstance(relation, str) and relation.strip():
-        return relation.strip()
+        parts = [part.strip().strip('"') for part in relation.split(".")]
+        if len(parts) == 3 and all(parts):
+            from phlo_api.observatory_api.trino_sql import qualify_table_name
+
+            return qualify_table_name(*parts)
 
     catalog = table.metadata.get("catalog") or table.metadata.get("database")
     schema = table.metadata.get("schema") or table.schema_name or table.namespace
     name = table.metadata.get("table_name") or table.metadata.get("table") or table.name
     if all(isinstance(value, str) and value.strip() for value in (catalog, schema, name)):
-        return ".".join(
-            f'"{str(value).strip().strip(chr(34))}"' for value in (catalog, schema, name)
+        from phlo_api.observatory_api.trino_sql import qualify_table_name
+
+        return qualify_table_name(
+            *(str(value).strip().strip('"') for value in (catalog, schema, name))
         )
-    return None
-
-
-def _discovered_relation(table: ObservatoryTable) -> str | None:
-    try:
-        from phlo_api.observatory_api.trino import resolve_default_catalog
-    except Exception:
-        return None
-
-    try:
-        catalog = resolve_default_catalog()
-    except Exception:
-        return None
-
-    schema_result = _run_query_engine(f"SHOW SCHEMAS FROM {catalog}", limit=200)
-    if schema_result is None:
-        return None
-
-    names = {
-        str(value)
-        for value in (
-            table.name,
-            table.metadata.get("table"),
-            table.metadata.get("table_name"),
-        )
-        if value
-    }
-    for row in schema_result["rows"]:
-        schema = row.get("Schema") or row.get("schema")
-        if not isinstance(schema, str) or schema == "information_schema":
-            continue
-        table_result = _run_query_engine(f'SHOW TABLES FROM "{catalog}"."{schema}"', limit=500)
-        if table_result is None:
-            continue
-        for table_row in table_result["rows"]:
-            table_name = table_row.get("Table") or table_row.get("table")
-            if isinstance(table_name, str) and table_name in names:
-                return f'"{catalog}"."{schema}"."{table_name}"'
     return None
 
 
 def _query_relation_for_table(table: ObservatoryTable) -> str | None:
-    return _relation_from_metadata(table) or _discovered_relation(table)
+    """Return the explicit relation identity; previews never scan a catalog to infer it."""
+    return _relation_from_metadata(table)
 
 
 def _select_sql_for_table(
@@ -2502,60 +2413,40 @@ def _select_sql_for_table(
     return sql
 
 
-def _count_sql_for_table(table: ObservatoryTable, *, relation: str | None = None) -> str | None:
-    if relation is None:
-        relation = _query_relation_for_table(table)
-    if relation is None:
-        return None
-    return f"select count(*) as row_count from {relation}"
-
-
 def _preview_from_query_engine(
-    table: ObservatoryTable, limit: int, offset: int
+    table: ObservatoryTable, limit: int, offset: int, *, relation: str | None = None
 ) -> ObservatoryTablePreview | None:
+    """Fetch one page through the selected neutral query-engine capability."""
     effective_limit = max(1, min(limit, 500))
-    relation = _query_relation_for_table(table)
+    relation = relation or _query_relation_for_table(table)
     if relation is None:
         return None
-    sql = _select_sql_for_table(table, limit=effective_limit, offset=offset, relation=relation)
-    if sql is None:
-        return None
+    from phlo.capabilities import QueryPreviewResult, resolve_capability
+    from phlo.capabilities.discovery import discover_capabilities
 
-    result = _run_query_engine(
-        sql, schema=table.schema_name or table.namespace, limit=effective_limit
-    )
-    if result is None:
+    discover_capabilities()
+    resolution = resolve_capability("query_engine")
+    if resolution is None or not hasattr(resolution.provider, "preview"):
         return None
-
-    row_count: int | None = None
-    count_sql = _count_sql_for_table(table, relation=relation)
-    if count_sql is not None:
-        count_result = _run_query_engine(
-            count_sql, schema=table.schema_name or table.namespace, limit=1
+    try:
+        result = resolution.provider.preview(
+            relation,
+            limit=effective_limit,
+            offset=max(0, offset),
+            schema=table.schema_name or table.namespace,
         )
-        if count_result and count_result["rows"]:
-            raw_count = count_result["rows"][0].get("row_count")
-            if isinstance(raw_count, int):
-                row_count = raw_count
-
-    columns = [str(column) for column in result["columns"]]
-    raw_column_types = result.get("column_types")
-    column_types: list[str] = (
-        [
-            str(column_type) if column_type is not None else "unknown"
-            for column_type in raw_column_types[: len(columns)]
-        ]
-        if isinstance(raw_column_types, list)
-        else []
-    )
+    except Exception:
+        return None
+    if not isinstance(result, QueryPreviewResult):
+        return None
+    columns = [str(column) for column in result.columns]
+    column_types = [str(column_type) for column_type in result.column_types[: len(columns)]]
     if len(column_types) < len(columns):
         column_types.extend(["unknown"] * (len(columns) - len(column_types)))
-    rows = [dict(row) for row in result["rows"]]
+    rows = [dict(row) for row in result.rows]
     metadata = dict(table.metadata)
     metadata["catalog_present"] = True
     metadata["catalog_state"] = "queryable"
-    if row_count is not None:
-        metadata["records"] = row_count
     if table.metadata != metadata:
         table = table.model_copy(update={"metadata": metadata})
 
@@ -2564,10 +2455,10 @@ def _preview_from_query_engine(
         columns=columns,
         column_types=column_types,
         rows=rows,
-        row_count=row_count,
+        row_count=None,
         limit=effective_limit,
         offset=offset,
-        has_more=row_count is not None and offset + len(rows) < row_count,
+        has_more=result.has_more,
     )
 
 
@@ -2938,9 +2829,14 @@ def _load_table_preview(table_id: str, limit: int, offset: int) -> ObservatoryTa
     if table is None:
         raise _not_found("table", table_id)
 
-    query_preview = _preview_from_query_engine(table, limit=limit, offset=max(0, offset))
+    relation = _query_relation_for_table(table)
+    query_preview = _preview_from_query_engine(
+        table, limit=limit, offset=max(0, offset), relation=relation
+    )
     if query_preview is not None:
         return query_preview
+
+    relation_missing = relation is None
 
     row_count_raw = table.metadata.get("records")
     preview_rows = table.metadata.get("preview_rows")
@@ -2970,6 +2866,12 @@ def _load_table_preview(table_id: str, limit: int, offset: int) -> ObservatoryTa
             max(0, offset) + len(rows)
             < (available_preview_count if available_preview_count is not None else row_count or 0)
         ),
+        state="relation_missing" if relation_missing else "unavailable",
+        message=(
+            "This table has no unambiguous query relation. Add catalog, schema, and table metadata."
+            if relation_missing
+            else "The configured query engine could not return a preview."
+        ),
     )
 
 
@@ -2988,22 +2890,7 @@ def _run_read_query(request: ObservatoryQueryRequest) -> ObservatoryQueryResult:
     if table is None:
         raise _not_found("table", table_id)
 
-    sql = _select_sql_for_table(table, limit=limit, offset=max(0, request.offset))
-    if sql is not None:
-        trino_result = _try_run_query_engine(
-            sql,
-            branch=table.schema_name or table.namespace or request.branch,
-            limit=limit,
-            offset=max(0, request.offset),
-        )
-        if trino_result is not None:
-            warnings = list(trino_result.warnings)
-            if requested_limit > limit:
-                warnings.append("Limit capped at 500 rows.")
-            return trino_result.model_copy(update={"warnings": warnings})
-
     preview = _load_table_preview(table_id, limit=limit, offset=max(0, request.offset))
-    effective_sql = f"select * from {preview.table.name} limit {limit}"
     warnings = []
     if requested_limit > limit:
         warnings.append("Limit capped at 500 rows.")
@@ -3011,7 +2898,7 @@ def _run_read_query(request: ObservatoryQueryRequest) -> ObservatoryQueryResult:
         columns=preview.columns,
         rows=preview.rows,
         row_count=preview.row_count,
-        effective_sql=effective_sql,
+        effective_sql=request.sql,
         limit=limit,
         offset=preview.offset,
         warnings=warnings,
@@ -3074,47 +2961,6 @@ async def _contributing_rows_page(
         columns=result.columns,
         column_types=result.column_types,
         rows=result.rows,
-    )
-
-
-def _try_run_query_engine(
-    sql: str,
-    *,
-    branch: str | None,
-    limit: int,
-    offset: int,
-) -> ObservatoryQueryResult | None:
-    try:
-        from phlo_api.observatory_api.trino import QueryExecutionError, execute_trino_query
-    except Exception:
-        return None
-
-    async def _execute() -> Any:
-        return await execute_trino_query(sql, schema=branch, timeout_ms=12000)
-
-    try:
-        result = asyncio.run(_execute())
-    except Exception:
-        return None
-
-    if isinstance(result, QueryExecutionError):
-        return None
-    if not isinstance(result, Mapping):
-        return None
-
-    rows = result.get("rows")
-    columns = result.get("columns")
-    if not isinstance(rows, list) or not isinstance(columns, list):
-        return None
-    clean_rows = [row for row in rows if isinstance(row, Mapping)]
-    return ObservatoryQueryResult(
-        columns=[str(column) for column in columns],
-        rows=[dict(row) for row in clean_rows[:limit]],
-        row_count=len(clean_rows),
-        effective_sql=_coerce_str(result.get("effective_query"), sql),
-        limit=limit,
-        offset=offset,
-        warnings=[],
     )
 
 

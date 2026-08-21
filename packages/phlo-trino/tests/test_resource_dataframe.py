@@ -228,3 +228,19 @@ def test_read_dataframe_applies_optional_schema_types() -> None:
 
     assert result["id"].dtype.name in ("Int64", "int64")
     assert result["name"].dtype.name == "string"
+
+
+def test_preview_uses_limit_plus_one_and_normalizes_rows() -> None:
+    cursor = FakeCursor(
+        description=[("id", "bigint"), ("name", "varchar")],
+        rows=[(1, "one"), (2, "two"), (3, "three")],
+    )
+    connection = FakeConnection(cursor)
+    resource = TrinoResource(host="test", port=8080)
+
+    with patch.object(resource, "get_connection", return_value=connection):
+        result = resource.preview('"iceberg"."raw"."events"', limit=2, offset=4, schema="raw")
+
+    assert cursor.executed == ('SELECT * FROM "iceberg"."raw"."events" OFFSET 4 LIMIT 3', [])
+    assert result.rows == [{"id": 1, "name": "one"}, {"id": 2, "name": "two"}]
+    assert result.has_more is True

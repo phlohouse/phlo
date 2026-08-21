@@ -328,6 +328,22 @@ class QueryEngine(Protocol):
         """Execute SQL and return provider-native results."""
         ...
 
+    def preview(
+        self, relation: str, *, limit: int, offset: int = 0, schema: str | None = None
+    ) -> QueryPreviewResult:
+        """Return one bounded, normalized page for a fully-qualified relation."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class QueryPreviewResult:
+    """Provider-neutral result of one bounded relation preview."""
+
+    columns: list[str]
+    column_types: list[str]
+    rows: list[dict[str, Any]]
+    has_more: bool
+
 
 @runtime_checkable
 class RefQueryCatalogManager(Protocol):

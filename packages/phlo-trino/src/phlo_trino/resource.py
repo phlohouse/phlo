@@ -39,6 +39,7 @@ from phlo.capabilities import (
     MaintenanceExecutionError,
     MaintenanceExecutionPhase,
     MaintenancePreconditionError,
+    QueryPreviewResult,
     RuntimeContext,
     resolve_runtime_ref,
 )
@@ -332,6 +333,31 @@ class TrinoResource:
             if cursor.description is None:
                 return []
             return cursor.fetchall()
+
+    def preview(
+        self, relation: str, *, limit: int, offset: int = 0, schema: str | None = None
+    ) -> QueryPreviewResult:
+        """Return one bounded page, fetching one additional row to detect continuation."""
+        page_size = max(1, min(limit, 500))
+        statement = f"SELECT * FROM {relation}"
+        if offset > 0:
+            statement = f"{statement} OFFSET {offset}"
+        statement = f"{statement} LIMIT {page_size + 1}"
+        with self.cursor(schema=schema) as cursor:
+            cursor.execute(statement, [])
+            description = cursor.description or []
+            columns = [str(column[0]) for column in description]
+            column_types = [
+                str(column[1]) if len(column) > 1 else "unknown" for column in description
+            ]
+            raw_rows = cursor.fetchall()
+        rows = [dict(zip(columns, row, strict=False)) for row in raw_rows[:page_size]]
+        return QueryPreviewResult(
+            columns=columns,
+            column_types=column_types,
+            rows=rows,
+            has_more=len(raw_rows) > page_size,
+        )
 
     def compact_table(
         self,

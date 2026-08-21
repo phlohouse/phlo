@@ -3006,6 +3006,8 @@ def test_observatory_table_preview_endpoint_returns_provider_neutral_payload(mon
         "limit",
         "offset",
         "has_more",
+        "state",
+        "message",
     }
     assert payload["table"]["id"] == table.id
     assert payload["rows"] == [
@@ -3017,6 +3019,8 @@ def test_observatory_table_preview_endpoint_returns_provider_neutral_payload(mon
     ]
     assert payload["row_count"] == 12
     assert payload["has_more"] is True
+    assert payload["state"] == "relation_missing"
+    assert "unambiguous query relation" in payload["message"]
     assert len(payload["column_types"]) == len(payload["columns"])
     _assert_no_provider_url_settings(payload)
 
@@ -3069,18 +3073,17 @@ def test_observatory_query_endpoint_rejects_unknown_tables(monkeypatch) -> None:
 
 
 def test_observatory_query_engine_preserves_known_table_request_offset(monkeypatch) -> None:
-    async def fake_execute_trino_query(sql, *, schema=None, timeout_ms=None):
-        return {
-            "columns": ["order_id"],
-            "rows": [{"order_id": 3}],
-            "effective_query": sql,
-        }
-
     table = ObservatoryTable(id="orders", name="orders", namespace="raw", schema_name="silver")
     monkeypatch.setattr("phlo_api.observatory_api.observatory._load_tables", lambda: [table])
     monkeypatch.setattr(
-        "phlo_api.observatory_api.trino.execute_trino_query",
-        fake_execute_trino_query,
+        "phlo_api.observatory_api.observatory._preview_from_query_engine",
+        lambda table, limit, offset, **_: ObservatoryTablePreview(
+            table=table,
+            columns=["order_id"],
+            rows=[{"order_id": 3}],
+            limit=limit,
+            offset=offset,
+        ),
     )
 
     result = _run_read_query(
@@ -3780,229 +3783,43 @@ def test_observatory_all_endpoints_do_not_leak_provider_url_setting_names() -> N
         _assert_no_provider_url_settings(response.json())
 
 
-# ---------------------------------------------------------------------------
-# Issue #641: Resolve table relations once per preview
-# ---------------------------------------------------------------------------
+def test_preview_uses_one_bounded_neutral_query_without_a_count(monkeypatch) -> None:
+    """A preview delegates one bounded request to the configured QueryEngine."""
+    from phlo.capabilities import QueryPreviewResult
 
+    calls: list[tuple[str, int, int, str | None]] = []
 
-def test_preview_resolves_relation_once_and_reuses_for_data_and_count(monkeypatch) -> None:
-    """A single preview must discover the relation exactly once and use it for both
-    the data and count SQL builders."""
+    class FakeQueryEngine:
+        def preview(self, relation, *, limit, offset=0, schema=None):
+            calls.append((relation, limit, offset, schema))
+            return QueryPreviewResult(
+                columns=["order_id"],
+                column_types=["varchar"],
+                rows=[{"order_id": "o-1"}],
+                has_more=True,
+            )
+
+    monkeypatch.setattr("phlo.capabilities.discovery.discover_capabilities", lambda: None)
+    monkeypatch.setattr(
+        "phlo.capabilities.resolve_capability",
+        lambda *_: SimpleNamespace(provider=FakeQueryEngine()),
+    )
     table = ObservatoryTable(
         id="raw.orders",
         name="orders",
         namespace="raw",
-        metadata={},
+        metadata={"catalog": "hive", "schema": "raw", "table": "orders"},
     )
 
-    relation_calls = 0
-
-    def _fake_query_relation_for_table(t: ObservatoryTable) -> str | None:
-        nonlocal relation_calls
-        relation_calls += 1
-        return '"hive"."raw"."orders"'
-
-    captured_sql: list[str] = []
-
-    def _fake_run_query_engine(
-        sql: str, *, schema: str | None = None, limit: int = 500
-    ) -> dict[str, Any] | None:
-        captured_sql.append(sql)
-        if "count(*)" in sql:
-            return {
-                "columns": ["row_count"],
-                "rows": [{"row_count": 42}],
-                "column_types": ["integer"],
-            }
-        return {
-            "columns": ["order_id"],
-            "rows": [{"order_id": "o-1"}],
-            "column_types": ["varchar"],
-        }
-
-    monkeypatch.setattr(observatory, "_query_relation_for_table", _fake_query_relation_for_table)
-    monkeypatch.setattr(observatory, "_run_query_engine", _fake_run_query_engine)
-
-    preview = observatory._preview_from_query_engine(table, limit=10, offset=0)
-
-    assert relation_calls == 1, "relation discovery must happen exactly once"
-    assert preview is not None
-    assert preview.row_count == 42
-    assert len(preview.rows) == 1
-    # Both queries must reference the identical validated relation.
-    assert len(captured_sql) == 2
-    assert '"hive"."raw"."orders"' in captured_sql[0]
-    assert '"hive"."raw"."orders"' in captured_sql[1]
-
-
-def test_preview_relation_missing_table_returns_none_without_double_discovery(
-    monkeypatch,
-) -> None:
-    """When the relation cannot be resolved the preview returns None and discovery
-    is still invoked only once (not twice as before the fix)."""
-    table = ObservatoryTable(
-        id="raw.missing",
-        name="missing",
-        namespace="raw",
-        metadata={},
-    )
-
-    relation_calls = 0
-
-    def _fake_query_relation_for_table(t: ObservatoryTable) -> str | None:
-        nonlocal relation_calls
-        relation_calls += 1
-        return None
-
-    monkeypatch.setattr(observatory, "_query_relation_for_table", _fake_query_relation_for_table)
-
-    preview = observatory._preview_from_query_engine(table, limit=10, offset=0)
-
-    assert preview is None
-    assert relation_calls == 1, "discovery must not be retried for the count query"
-
-
-def test_preview_relation_preserves_quoted_identifiers(monkeypatch) -> None:
-    """Quoted identifier quoting in the validated relation must be preserved in both
-    the data and count SQL."""
-    table = ObservatoryTable(
-        id="raw.special",
-        name="Special Table",
-        namespace="raw",
-        metadata={},
-    )
-
-    quoted_relation = '"hive"."raw"."Special Table"'
-
-    def _fake_query_relation_for_table(t: ObservatoryTable) -> str | None:
-        return quoted_relation
-
-    captured_sql: list[str] = []
-
-    def _fake_run_query_engine(
-        sql: str, *, schema: str | None = None, limit: int = 500
-    ) -> dict[str, Any] | None:
-        captured_sql.append(sql)
-        if "count(*)" in sql:
-            return {
-                "columns": ["row_count"],
-                "rows": [{"row_count": 5}],
-                "column_types": ["integer"],
-            }
-        return {
-            "columns": ["col"],
-            "rows": [{"col": "v"}],
-            "column_types": ["varchar"],
-        }
-
-    monkeypatch.setattr(observatory, "_query_relation_for_table", _fake_query_relation_for_table)
-    monkeypatch.setattr(observatory, "_run_query_engine", _fake_run_query_engine)
-
-    preview = observatory._preview_from_query_engine(table, limit=10, offset=0)
-
-    assert preview is not None
-    assert quoted_relation in captured_sql[0]
-    assert quoted_relation in captured_sql[1]
-
-
-def test_preview_relation_count_failure_preserves_data(monkeypatch) -> None:
-    """When the count query fails the preview must still return data with
-    row_count=None, preserving the existing count failure semantics."""
-    table = ObservatoryTable(
-        id="raw.orders",
-        name="orders",
-        namespace="raw",
-        metadata={},
-    )
-
-    def _fake_query_relation_for_table(t: ObservatoryTable) -> str | None:
-        return '"hive"."raw"."orders"'
-
-    call_count = 0
-
-    def _fake_run_query_engine(
-        sql: str, *, schema: str | None = None, limit: int = 500
-    ) -> dict[str, Any] | None:
-        nonlocal call_count
-        call_count += 1
-        if "count(*)" in sql:
-            return None  # count query fails
-        return {
-            "columns": ["order_id"],
-            "rows": [{"order_id": "o-1"}, {"order_id": "o-2"}],
-            "column_types": ["varchar"],
-        }
-
-    monkeypatch.setattr(observatory, "_query_relation_for_table", _fake_query_relation_for_table)
-    monkeypatch.setattr(observatory, "_run_query_engine", _fake_run_query_engine)
-
-    preview = observatory._preview_from_query_engine(table, limit=10, offset=0)
+    preview = observatory._preview_from_query_engine(table, limit=10, offset=20)
 
     assert preview is not None
     assert preview.row_count is None
-    assert len(preview.rows) == 2
-    # The count query was still attempted (with the same relation).
-    assert call_count == 2
+    assert preview.has_more is True
+    assert calls == [('"hive"."raw"."orders"', 10, 20, "raw")]
 
 
-def test_preview_relation_multi_schema_discovery_resolves_correctly(monkeypatch) -> None:
-    """Multi-schema discovery traverses schemas returned by SHOW SCHEMAS and resolves
-    the first matching table, retaining current behavior."""
-    table = ObservatoryTable(
-        id="gold.metrics",
-        name="metrics",
-        namespace="gold",
-        metadata={},
-    )
+def test_preview_with_missing_relation_does_not_discover_catalog() -> None:
+    table = ObservatoryTable(id="orders", name="orders", metadata={})
 
-    def _fake_resolve_default_catalog() -> str:
-        return "hive"
-
-    def _fake_run_query_engine(
-        sql: str, *, schema: str | None = None, limit: int = 500
-    ) -> dict[str, Any] | None:
-        if "SHOW SCHEMAS" in sql:
-            return {
-                "columns": ["Schema"],
-                "rows": [
-                    {"Schema": "raw"},
-                    {"Schema": "information_schema"},
-                    {"Schema": "gold"},
-                ],
-                "column_types": ["varchar"],
-            }
-        if "SHOW TABLES" in sql:
-            if '"raw"' in sql:
-                return {
-                    "columns": ["Table"],
-                    "rows": [{"Table": "orders"}],
-                    "column_types": ["varchar"],
-                }
-            if '"gold"' in sql:
-                return {
-                    "columns": ["Table"],
-                    "rows": [{"Table": "metrics"}],
-                    "column_types": ["varchar"],
-                }
-            return None
-        if "count(*)" in sql:
-            return {
-                "columns": ["row_count"],
-                "rows": [{"row_count": 99}],
-                "column_types": ["integer"],
-            }
-        return {
-            "columns": ["metric_id"],
-            "rows": [{"metric_id": "m-1"}],
-            "column_types": ["varchar"],
-        }
-
-    monkeypatch.setattr(
-        "phlo_api.observatory_api.trino.resolve_default_catalog",
-        _fake_resolve_default_catalog,
-    )
-    monkeypatch.setattr(observatory, "_run_query_engine", _fake_run_query_engine)
-
-    discovered = observatory._discovered_relation(table)
-
-    assert discovered == '"hive"."gold"."metrics"'
+    assert observatory._query_relation_for_table(table) is None
