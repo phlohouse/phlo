@@ -84,24 +84,11 @@ def _make_sqlite_v2_store(path: Path) -> SQLiteRunEvidenceStore:
     """Create a real 002+003 SQLite store without applying 004."""
     store = SQLiteRunEvidenceStore(path)
     sql_root = Path(__file__).parents[2] / "src" / "phlo" / "sql"
-    sql = (sql_root / "002_create_run_evidence.sql").read_text(encoding="utf-8")
-    for old, new in {
-        "CREATE SCHEMA IF NOT EXISTS phlo;": "",
-        "phlo.": "",
-        "BIGSERIAL": "INTEGER",
-        "TIMESTAMPTZ": "TEXT",
-        "JSONB": "TEXT",
-        "DOUBLE PRECISION": "REAL",
-        "BOOLEAN": "INTEGER",
-        "DEFAULT NOW()": "DEFAULT CURRENT_TIMESTAMP",
-        "DEFAULT '{}'::jsonb": "DEFAULT '{}'",
-        "DEFAULT '[]'::jsonb": "DEFAULT '[]'",
-        "INSERT INTO run_evidence_schema_version(version) VALUES (1)\nON CONFLICT (version) DO NOTHING;": "INSERT OR IGNORE INTO run_evidence_schema_version(version) VALUES (1);",
-    }.items():
-        sql = sql.replace(old, new)
-    sql = "\n".join(line for line in sql.splitlines() if not line.strip().startswith("COMMENT ON"))
-    store._connection.executescript(sql)
-    store._migrate_sqlite_reconciliation_schema()
+    for name in (
+        "002_create_run_evidence_sqlite.sql",
+        "003_reconcile_run_evidence_sqlite.sql",
+    ):
+        store._connection.executescript((sql_root / name).read_text(encoding="utf-8"))
     store._connection.commit()
     store._initialized = True
     return store
@@ -1393,6 +1380,10 @@ def test_sqlite_migration_is_versioned_and_idempotent() -> None:
     store._initialize_schema()
     store._initialize_schema()
     with store._transaction() as (_, cursor):
+        cursor.execute("SELECT version, checksum FROM run_evidence_schema_version ORDER BY version")
+        applied_migrations = cursor.fetchall()
+        assert [row[0] for row in applied_migrations] == [1, 2, 3, RUN_EVIDENCE_SCHEMA_VERSION]
+        assert all(row[1] for row in applied_migrations)
         cursor.execute("SELECT version FROM run_evidence_schema_version")
         assert [row[0] for row in cursor.fetchall()] == [1, 2, 3, RUN_EVIDENCE_SCHEMA_VERSION]
         for table in (
@@ -1404,6 +1395,57 @@ def test_sqlite_migration_is_versioned_and_idempotent() -> None:
         ):
             cursor.execute(f"SELECT attempt FROM {table}")
             assert cursor.description[0][0] == "attempt"
+
+
+def test_sqlite_migration_fails_closed_for_unknown_or_non_contiguous_versions(tmp_path) -> None:
+    database = tmp_path / "unsupported-version.db"
+    connection = sqlite3.connect(database)
+    connection.execute("CREATE TABLE run_evidence_schema_version (version INTEGER PRIMARY KEY)")
+    connection.execute("INSERT INTO run_evidence_schema_version(version) VALUES (99)")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(RuntimeError, match="unsupported run-evidence schema version 99"):
+        SQLiteRunEvidenceStore(database)._initialize_schema()
+
+    connection = sqlite3.connect(database)
+    connection.execute("DELETE FROM run_evidence_schema_version")
+    connection.executemany(
+        "INSERT INTO run_evidence_schema_version(version) VALUES (?)", [(1,), (3,)]
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(RuntimeError, match="non-contiguous migration versions"):
+        SQLiteRunEvidenceStore(database)._initialize_schema()
+
+
+def test_postgres_migration_fails_closed_for_non_contiguous_versions() -> None:
+    connection = MagicMock()
+    cursor = connection.cursor.return_value.__enter__.return_value
+    cursor.fetchone.return_value = ("phlo.run_evidence_schema_version",)
+    cursor.fetchall.return_value = [(1, None), (3, None)]
+    store = PostgresRunEvidenceStore("unused", connection_factory=lambda: connection)
+
+    with pytest.raises(RuntimeError, match="non-contiguous migration versions"):
+        store._initialize_schema()
+
+    connection.rollback.assert_called_once_with()
+    connection.commit.assert_not_called()
+    connection.close.assert_called_once_with()
+
+
+def test_sqlite_migration_fails_closed_for_checksum_drift(tmp_path) -> None:
+    database = tmp_path / "checksum-drift.db"
+    store = SQLiteRunEvidenceStore(database)
+    store._initialize_schema()
+    store._connection.execute(
+        "UPDATE run_evidence_schema_version SET checksum = 'unexpected' WHERE version = 1"
+    )
+    store._connection.commit()
+
+    with pytest.raises(RuntimeError, match="migration checksum drift at version 1"):
+        SQLiteRunEvidenceStore(database)._initialize_schema()
 
 
 def test_core_sink_records_all_correlated_lifecycle_families() -> None:
@@ -1947,22 +1989,8 @@ def test_attempt_scoped_child_evidence_and_reports_are_isolated() -> None:
 def test_sqlite_v1_store_upgrades_additive_instrumentation_columns(tmp_path) -> None:
     database = tmp_path / "run-evidence.db"
     connection = sqlite3.connect(database)
-    foundation = Path(__file__).parents[2] / "src/phlo/sql/002_create_run_evidence.sql"
+    foundation = Path(__file__).parents[2] / "src/phlo/sql/002_create_run_evidence_sqlite.sql"
     foundation_sql = foundation.read_text(encoding="utf-8")
-    for old, new in {
-        "CREATE SCHEMA IF NOT EXISTS phlo;": "",
-        "phlo.": "",
-        "BIGSERIAL": "INTEGER",
-        "TIMESTAMPTZ": "TEXT",
-        "JSONB": "TEXT",
-        "DOUBLE PRECISION": "REAL",
-        "BOOLEAN": "INTEGER",
-        "DEFAULT NOW()": "DEFAULT CURRENT_TIMESTAMP",
-        "DEFAULT '{}'::jsonb": "DEFAULT '{}'",
-        "DEFAULT '[]'::jsonb": "DEFAULT '[]'",
-        "INSERT INTO run_evidence_schema_version(version) VALUES (1)\nON CONFLICT (version) DO NOTHING;": "INSERT OR IGNORE INTO run_evidence_schema_version(version) VALUES (1);",
-    }.items():
-        foundation_sql = foundation_sql.replace(old, new)
     connection.executescript(foundation_sql)
     connection.commit()
     connection.close()

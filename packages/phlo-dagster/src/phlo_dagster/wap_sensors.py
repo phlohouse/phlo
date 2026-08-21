@@ -734,12 +734,18 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
         source_hash = _branch_hash(catalog, branch_name)
         target_hash_before = _branch_hash(catalog, "main")
         already_merged = prior_report is not None and prior_report.get("merge_state") == "merged"
-        merge_started = prior_report is not None and prior_report.get("merge_state") == "merge_started"
-        if already_merged:
+        merge_started = (
+            prior_report is not None and prior_report.get("merge_state") == "merge_started"
+        )
+        if already_merged and prior_report is not None:
             source_hash = prior_report.get("source_hash") or source_hash
             target_hash_before = prior_report.get("target_hash_before") or target_hash_before
             merged = True
-        elif merge_started and prior_report.get("target_hash_before") != target_hash_before:
+        elif (
+            merge_started
+            and prior_report is not None
+            and prior_report.get("target_hash_before") != target_hash_before
+        ):
             # The catalog changed after our durable intent.  Treat that as the
             # missing receipt and resume the idempotent post-merge work; doing
             # so avoids repeating an external merge after a process crash.
@@ -839,7 +845,9 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
                 target_hash_after=target_hash_after,
                 source_deleted=False,
             )
-            logger.warning("wap_promotion_cleanup_pending", run_id=run.run_id, branch_name=branch_name)
+            logger.warning(
+                "wap_promotion_cleanup_pending", run_id=run.run_id, branch_name=branch_name
+            )
             continue
         # Checkpoint cleanup independently of the terminal report.  A retry
         # after reconciliation or tag failure must not try to delete it again.
