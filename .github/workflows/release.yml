@@ -43,10 +43,12 @@ jobs:
           version: "0.12.1"
           enable-cache: false
 
-      - uses: iamgp/ReleaseX@a223ae18bee5d41335c20803bd397248fa15f05d
+      # Temporary recovery override: remove after the coherent v0.14.0 release is complete.
+      - uses: iamgp/ReleaseX@5dc88dc73d728dd1560444baadf66d6115c1bec2
         with:
           command: release pr
-          version: v1.4.0
+          version: v1.5.0
+          next-version: 0.14.0
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
@@ -54,6 +56,9 @@ jobs:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/beta') && startsWith(github.event.head_commit.message, 'chore(release):')
     runs-on: ubuntu-latest
     environment: release
+    concurrency:
+      group: release-tag-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
@@ -72,7 +77,7 @@ jobs:
             conclusion="$(gh api \
               --paginate \
               "/repos/${REPOSITORY}/commits/${CANDIDATE_SHA}/check-runs?per_page=100" \
-              --jq '.check_runs[] | select(.name == "release candidate / status") | .conclusion' \
+              --jq '.check_runs[] | select(.name == "release candidate / status" and .app.slug == "github-actions") | .conclusion' \
               | tail -n 1)"
             case "$conclusion" in
               success)
@@ -98,17 +103,70 @@ jobs:
           persist-credentials: true
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
+      - name: Prove the ReleaseX candidate and proposed tag identity
+        id: release-identity
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root_version="$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as handle:
+              print(tomllib.load(handle)["project"]["version"])
+          PY
+          )"
+          tag="v${root_version}"
+          python scripts/release_identity.py source --tag "$tag"
+          expected_head="relx/release/monorepo/${RELEASE_BRANCH}-release-set"
+          prs="$(gh api --paginate "/repos/${REPOSITORY}/commits/${CANDIDATE_SHA}/pulls?per_page=100")"
+          matching="$(jq --arg sha "$CANDIDATE_SHA" --arg base "$RELEASE_BRANCH" --arg head "$expected_head" --arg title "chore(release): phlo ${root_version}" '
+            [ .[] | select(
+              .state == "closed" and .merged_at != null and .merge_commit_sha == $sha and
+              .base.ref == $base and .base.repo.full_name == .head.repo.full_name and
+              .head.ref == $head and (.title | startswith($title)) and
+              ([.labels[].name] | index("autorelease: pending"))
+            ) ] | length
+          ' <<<"$prs")"
+          if [ "$matching" != 1 ]; then
+            echo "::error::${CANDIDATE_SHA} is not exactly one merged ReleaseX release PR for ${RELEASE_BRANCH}"
+            exit 1
+          fi
+          if gh api "/repos/${REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            echo "::error::Ref refs/tags/${tag} already exists; refusing to create or reuse it during tag creation"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
           enable-cache: false
 
-      - uses: iamgp/ReleaseX@a223ae18bee5d41335c20803bd397248fa15f05d
+      - uses: iamgp/ReleaseX@5dc88dc73d728dd1560444baadf66d6115c1bec2
         with:
           command: release tag
-          version: v1.4.0
+          version: v1.5.0
+          next-version: 0.14.0
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Verify created tag and GitHub Release target the candidate
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ steps.release-identity.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force origin
+          target="$(git rev-parse "${TAG}^{commit}")"
+          test "$target" = "$CANDIDATE_SHA"
+          gh api "/repos/${REPOSITORY}/releases/tags/${TAG}" >/dev/null
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -148,6 +206,7 @@ jobs:
           esac
 
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "tag=${ref#refs/tags/}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -167,7 +226,7 @@ jobs:
           conclusion="$(gh api \
             --paginate \
             "/repos/${REPOSITORY}/commits/${candidate_sha}/check-runs?per_page=100" \
-            --jq '.check_runs[] | select(.name == "release candidate / status") | .conclusion' \
+            --jq '.check_runs[] | select(.name == "release candidate / status" and .app.slug == "github-actions") | .conclusion' \
             | tail -n 1)"
           if [ "$conclusion" != "success" ]; then
             echo "::error::Tag target ${candidate_sha} has no successful release-candidate evidence (got: ${conclusion:-missing})"
@@ -184,6 +243,8 @@ jobs:
 
       - name: Build packages
         run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
           repo_root="$PWD"
           rm -rf dist
           uv build --out-dir "$repo_root/dist"
@@ -193,65 +254,27 @@ jobs:
             uv build --directory "$pkg" --out-dir "$package_dist"
           done
 
-      - name: Remove already-published artifacts
+      - name: Validate the complete built artifact manifest
+        env:
+          TAG: ${{ steps.publish-ref.outputs.tag }}
         run: |
-          python <<'PY'
-          from __future__ import annotations
-
-          import re
-          import urllib.error
-          import urllib.request
-          from pathlib import Path
-
-          def canonical_name(name: str) -> str:
-              return re.sub(r"[-_.]+", "-", name).lower()
-
-          def project_name(filename: str) -> str:
-              if filename.endswith(".whl"):
-                  return filename.split("-", 2)[0]
-              for suffix in (".tar.gz", ".zip"):
-                  if filename.endswith(suffix):
-                      return filename[: -len(suffix)].rsplit("-", 1)[0]
-              raise ValueError(f"Unsupported artifact filename: {filename}")
-
-          artifacts = sorted(
-              [
-                  *Path("dist").glob("*"),
-                  *Path("packages").glob("*/dist/*"),
-              ]
+          mapfile -d '' artifacts < <(
+            find dist packages -type f \( -name '*.whl' -o -name '*.tar.gz' \) -print0
           )
-          cache: dict[str, str] = {}
-          for artifact in artifacts:
-              if not artifact.is_file() or not artifact.name.endswith((".whl", ".tar.gz", ".zip")):
-                  continue
-              package = canonical_name(project_name(artifact.name))
-              if package not in cache:
-                  try:
-                      with urllib.request.urlopen(
-                          f"https://pypi.org/simple/{package}/", timeout=30
-                      ) as response:
-                          cache[package] = response.read().decode("utf-8", "replace")
-                  except urllib.error.HTTPError as exc:
-                      if exc.code == 404:
-                          cache[package] = ""
-                      else:
-                          raise
-              if artifact.name in cache[package]:
-                  artifact.unlink()
-                  print(f"Skipping existing PyPI artifact: {artifact}")
-              else:
-                  print(f"Will publish: {artifact}")
-          PY
+          args=()
+          for artifact in "${artifacts[@]}"; do args+=(--artifact "$artifact"); done
+          python scripts/release_identity.py artifacts --tag "$TAG" "${args[@]}" --output release-manifest.json
 
-      - name: Publish packages
+      - name: Publish missing coherent artifacts
         env:
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
-          mapfile -d '' artifacts < <(
-            find dist packages -type f \( -path 'dist/*' -o -path 'packages/*/dist/*' \) \( -name '*.whl' -o -name '*.tar.gz' \) -print0
-          )
+          python scripts/release_identity.py publish-plan --manifest release-manifest.json --output publish-plan.json
+          mapfile -t artifacts < <(jq -r '.upload[].path' publish-plan.json)
           if [ "${#artifacts[@]}" -eq 0 ]; then
-            echo "No unpublished artifacts to publish."
-            exit 0
+            echo "All expected artifacts are already published with matching hashes."
+          else
+            uv publish "${artifacts[@]}" --token "$PYPI_API_TOKEN"
           fi
-          uv publish "${artifacts[@]}" --token "$PYPI_API_TOKEN"
+          python scripts/release_identity.py publish-plan --manifest release-manifest.json --output publish-plan.json
+          test "$(jq '.upload | length' publish-plan.json)" = 0

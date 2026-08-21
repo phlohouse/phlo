@@ -66,11 +66,34 @@ def test_release_tag_requires_successful_aggregate_for_its_exact_sha() -> None:
 
     assert "CANDIDATE_SHA: ${{ github.sha }}" in release
     assert "check-runs?per_page=100" in release
-    assert 'select(.name == "release candidate / status")' in release
+    assert (
+        'select(.name == "release candidate / status" and .app.slug == "github-actions")' in release
+    )
     assert "failure|cancelled|skipped|timed_out|action_required" in release
     assert "checks: read" in release
     assert 'candidate_sha="$(git rev-parse HEAD)"' in release
     assert "Require successful release-candidate evidence for tag target" in release
+    assert "Prove the ReleaseX candidate and proposed tag identity" in release
+    assert "relx/release/monorepo/${RELEASE_BRANCH}-release-set" in release
+    assert "refs/tags/${tag} already exists" in release
+    assert "Verify created tag and GitHub Release target the candidate" in release
+
+
+def test_release_publish_validates_the_complete_artifact_manifest() -> None:
+    release = (WORKFLOW_ROOT / "release.yml").read_text()
+
+    assert "Validate the complete built artifact manifest" in release
+    assert "scripts/release_identity.py artifacts" in release
+    assert "scripts/release_identity.py publish-plan" in release
+    assert "All expected artifacts are already published with matching hashes." in release
+    assert "Remove already-published artifacts" not in release
+
+
+def test_manual_artifact_workflow_cannot_bypass_release_identity_checks() -> None:
+    workflow = (WORKFLOW_ROOT / "publish.yml").read_text()
+
+    assert "uv publish" not in workflow
+    assert "name: Build Package Artifacts" in workflow
 
 
 def test_versioned_ruleset_requires_review_and_candidate_status() -> None:

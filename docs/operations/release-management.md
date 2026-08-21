@@ -8,10 +8,10 @@ Phlo releases are driven by ReleaseX and GitHub Actions:
 - `.github/workflows/release.yml` opens release PRs, tags merged release PRs, and publishes tagged artifacts to PyPI.
 - [Release candidate protection](release-candidate-protection.md) defines the exact-SHA
   evidence gate required before a candidate can merge or be tagged.
-- `.github/workflows/publish.yml` is a manual recovery workflow for PyPI publishing.
+- `.github/workflows/publish.yml` builds artifacts for inspection; it cannot publish.
 - `.github/workflows/build-core-services.yml` builds release images for `phlo-api` and Observatory when a GitHub Release is published.
 
-The release workflow pins ReleaseX `v1.4.0`. ReleaseX prepares release PRs in an
+The release workflow pins ReleaseX `v1.5.0`. ReleaseX prepares release PRs in an
 isolated workspace: it updates package versions, synchronizes each provider's
 bounded `phlo` compatibility range, updates checked support-manifest and
 first-party image version references, refreshes `uv.lock`, and only then updates
@@ -111,14 +111,23 @@ relx status --channel
 
 Use this flow for a normal release from `main`.
 
+The current workflow has a temporary `next-version: 0.14.0` recovery override.
+It intentionally produces the next coherent release as `v0.14.0`; remove the
+override from both ReleaseX steps in `.github/workflows/release.yml` in a
+`chore:` follow-up after that release has tagged and published. ReleaseX returns
+to conventional-commit versioning when the input is absent.
+
 1. Merge product, fix, and release-worthy PRs into `main`.
 2. Let the `Release` workflow run on the push to `main`.
 3. Review the ReleaseX PR named like `chore(release): phlo <version> + <n> packages`.
 4. Confirm the release PR only changes expected version files, `uv.lock`, and `CHANGELOG.md`.
 5. Wait for CI on the release PR to pass.
 6. Merge the release PR.
-7. Confirm the `Release` workflow creates the tag and GitHub Release.
-8. Confirm the publish job uploads or skips the expected PyPI artifacts.
+7. Confirm the `Release` workflow proves the merged ReleaseX PR, source/support
+   manifest, exact candidate SHA, and unused version tag before it creates the tag.
+8. Confirm the publish job emits a complete artifact manifest and uploads only its
+   missing entries. A no-op is valid only when every manifest entry already exists
+   on PyPI with its expected hash.
 9. Confirm the core service image workflow finishes if the release includes image changes.
 
 Useful checks:
@@ -147,7 +156,8 @@ git push origin beta
 4. Confirm the version set uses beta versions, for example `phlo 0.10.0b1`.
 5. Confirm the root extras point at selected beta package versions.
 6. Merge the beta release PR.
-7. Confirm the beta tag is created and the publish job uploads or skips expected artifacts.
+7. Confirm the beta tag is created and the publish job validates and publishes the
+   complete expected artifact manifest.
 8. Validate installation with explicit prerelease pins from the release PR body or from the package list.
 
 Prefer exact beta pins over broad prerelease resolution:
@@ -192,10 +202,8 @@ The finalize flow selects packages currently on prerelease versions and converts
 
 Use manual publish only when the normal tag publish did not complete.
 
-There are two recovery paths:
-
-- Run the `Release` workflow manually with the failed tag in `workflow_dispatch`.
-- Run `Publish to PyPI` manually for a dry run, an explicit package list, or a targeted recovery.
+Use the `Release` workflow manually with the failed tag in `workflow_dispatch`.
+It is the only PyPI publication path and validates the complete identity manifest.
 
 For the `Release` workflow, provide the version tag, with or without `v`:
 
@@ -203,36 +211,25 @@ For the `Release` workflow, provide the version tag, with or without `v`:
 v0.10.0
 ```
 
-The publish job checks PyPI and removes artifacts that already exist before it calls `uv publish`, so rerunning after a partial publish is expected to be safe.
+The publish job compares the complete built manifest with PyPI. A retry uploads
+only missing artifacts, then rechecks PyPI. It succeeds only after every expected
+filename and SHA-256 is present; an empty upload set is not success by itself.
+Builds set `SOURCE_DATE_EPOCH` from the tagged commit so retry artifacts have a
+stable identity.
 
-For targeted publishing, use the `packages` input in `Publish to PyPI`:
-
-```text
-phlo, phlo-dagster, phlo-dlt
-```
-
-Run a dry run first when recovering a partial publish.
+The separate `Build Package Artifacts` workflow is inspection-only. Do not use a
+targeted package build to recover a release: a release retry must prove the full
+release-set artifact manifest.
 
 ## Tag Recovery
 
 If ReleaseX updates the release PR but does not create the tag after merge:
 
-1. Confirm the release commit is on `main` or `beta`.
-2. Confirm the version files and changelog already contain the intended release version.
-3. Create an annotated tag on the release commit.
-
-```bash
-git fetch origin
-git checkout main
-git pull --ff-only
-git tag -a v0.10.0 -m "v0.10.0"
-git push origin v0.10.0
-```
-
-4. Watch the `Release` workflow publish job.
-5. If publish does not run or only partially completes, use manual publish recovery.
-
-Use the `beta` branch and beta tag when recovering a beta release.
+Do not manually create, move, or reuse a public tag. The release workflow rejects
+an existing tag before ReleaseX can create it, and verifies the created annotated
+tag and GitHub Release resolve to the exact candidate SHA. Escalate a missing or
+colliding tag to a maintainer and record the disposition before cutting a new
+release identity.
 
 ## Image Release Checks
 

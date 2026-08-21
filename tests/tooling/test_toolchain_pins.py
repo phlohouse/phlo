@@ -7,8 +7,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
 EXPECTED_UV_VERSION = "0.12.1"
-EXPECTED_RELX_VERSION = "v1.4.0"
-EXPECTED_RELX_REVISION = "a223ae18bee5d41335c20803bd397248fa15f05d"
+EXPECTED_RELX_VERSION = "v1.5.0"
+EXPECTED_RELX_REVISION = "5dc88dc73d728dd1560444baadf66d6115c1bec2"
 
 
 def _workflow_texts() -> list[str]:
@@ -34,6 +34,7 @@ def test_release_workflow_uses_the_immutable_releasex_pin() -> None:
 
     assert release.count(f"uses: iamgp/ReleaseX@{EXPECTED_RELX_REVISION}") == 2
     assert release.count(f"version: {EXPECTED_RELX_VERSION}") == 2
+    assert release.count("next-version: 0.14.0") == 2
     assert "iamgp/ReleaseX@v" not in release
 
 

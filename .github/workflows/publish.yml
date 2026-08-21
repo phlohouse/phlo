@@ -1,18 +1,10 @@
-name: Publish to PyPI
+name: Build Package Artifacts
 
 on:
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: "Build packages but skip publishing to PyPI"
-        required: false
-        default: "false"
-      publish_all:
-        description: "Publish all workspace packages (ignore change detection)"
-        required: false
-        default: "false"
       packages:
-        description: "Comma-separated package names to publish (overrides publish_all)"
+        description: "Optional comma-separated package names to build"
         required: false
         default: ""
 
@@ -20,15 +12,10 @@ permissions:
   contents: read
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
-    environment: pypi
-    concurrency:
-      group: pypi-publish-${{ github.repository }}
-      cancel-in-progress: false
     permissions:
       contents: read
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -82,67 +69,10 @@ jobs:
           echo "Built artifacts:"
           ls -lh dist/
 
-      - name: Publish to PyPI
-        if: inputs.dry_run != 'true'
-        run: |
-          python <<'PY'
-          from __future__ import annotations
-
-          import re
-          import urllib.error
-          import urllib.request
-          from pathlib import Path
-
-          def canonical_name(name: str) -> str:
-              return re.sub(r"[-_.]+", "-", name).lower()
-
-          def project_name(filename: str) -> str:
-              if filename.endswith(".whl"):
-                  return filename.split("-", 2)[0]
-              for suffix in (".tar.gz", ".zip"):
-                  if filename.endswith(suffix):
-                      return filename[: -len(suffix)].rsplit("-", 1)[0]
-              raise ValueError(f"Unsupported artifact filename: {filename}")
-
-          cache: dict[str, str] = {}
-          for artifact in sorted(Path("dist").glob("*")):
-              if not artifact.is_file() or not artifact.name.endswith((".whl", ".tar.gz", ".zip")):
-                  continue
-              package = canonical_name(project_name(artifact.name))
-              if package not in cache:
-                  try:
-                      with urllib.request.urlopen(
-                          f"https://pypi.org/simple/{package}/", timeout=30
-                      ) as response:
-                          cache[package] = response.read().decode("utf-8", "replace")
-                  except urllib.error.HTTPError as exc:
-                      if exc.code == 404:
-                          cache[package] = ""
-                      else:
-                          raise
-              if artifact.name in cache[package]:
-                  artifact.unlink()
-                  print(f"Skipping existing PyPI artifact: {artifact}")
-              else:
-                  print(f"Will publish: {artifact}")
-          PY
-
-          mapfile -d '' artifacts < <(
-            find dist \( -name '*.whl' -o -name '*.tar.gz' \) -print0
-          )
-          if [ "${#artifacts[@]}" -eq 0 ]; then
-            echo "No unpublished artifacts to publish."
-            exit 0
-          fi
-          uv publish "${artifacts[@]}" --token "$PYPI_API_TOKEN"
-        env:
-          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-
-      - name: Dry run summary
-        if: inputs.dry_run == 'true'
+      - name: Build summary
         run: |
           {
-            echo "## Dry run — built packages (not published)"
+            echo "## Built packages (not published)"
             echo '```'
             ls -1 dist/
             echo '```'
