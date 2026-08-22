@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import posixpath
 import tarfile
+import tempfile
 import tomllib
 import urllib.error
 import urllib.request
@@ -37,6 +39,7 @@ class Artifact:
     kind: str
     path: str
     sha256: str
+    content_sha256: str | None = None
 
 
 def _project(path: Path, root: Path) -> Project:
@@ -178,6 +181,7 @@ def artifacts_for(root: Path, artifact_paths: list[Path]) -> list[Artifact]:
                 kind=kind,
                 path=str(path),
                 sha256=_sha256(path),
+                content_sha256=_sdist_content_sha256(path) if kind == "sdist" else None,
             )
         )
     expected_kinds = {
@@ -199,7 +203,34 @@ def _sha256(path: Path) -> str:
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
-def _pypi_files(project: str, version: str) -> dict[str, tuple[str, bool]]:
+def _sdist_content_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with tarfile.open(path, "r:*") as archive:
+        members = sorted(archive.getmembers(), key=lambda member: member.name)
+        names: set[str] = set()
+        for member in members:
+            name = posixpath.normpath(member.name)
+            if name in {".", ".."} or name.startswith(("../", "/")):
+                raise ReleaseIdentityError(f"{path} has unsafe sdist member {member.name!r}")
+            if name in names:
+                raise ReleaseIdentityError(f"{path} has duplicate sdist member {name!r}")
+            names.add(name)
+            if member.isdir():
+                continue
+            if not member.isfile():
+                raise ReleaseIdentityError(f"{path} has non-regular sdist member {name!r}")
+            handle = archive.extractfile(member)
+            assert handle is not None
+            payload = handle.read()
+            encoded = name.encode()
+            digest.update(len(encoded).to_bytes(8, "big"))
+            digest.update(encoded)
+            digest.update(len(payload).to_bytes(8, "big"))
+            digest.update(payload)
+    return digest.hexdigest()
+
+
+def _pypi_files(project: str, version: str) -> dict[str, tuple[str, bool, str]]:
     try:
         with urllib.request.urlopen(
             f"https://pypi.org/pypi/{project}/{version}/json", timeout=30
@@ -214,13 +245,26 @@ def _pypi_files(project: str, version: str) -> dict[str, tuple[str, bool]]:
             f"could not retrieve PyPI metadata for {project} {version}: {exc.reason}"
         ) from exc
     return {
-        entry["filename"]: (entry["digests"]["sha256"], bool(entry["yanked"]))
+        entry["filename"]: (entry["digests"]["sha256"], bool(entry["yanked"]), entry["url"])
         for entry in payload["urls"]
     }
 
 
+def _remote_sdist_content_sha256(url: str, expected_hash: str) -> str:
+    with urllib.request.urlopen(url, timeout=60) as response:
+        payload = response.read()
+    if hashlib.sha256(payload).hexdigest() != expected_hash:
+        raise ReleaseIdentityError(
+            f"PyPI sdist download from {url} does not match its advertised SHA-256"
+        )
+    with tempfile.NamedTemporaryFile(suffix=".tar.gz") as temporary:
+        temporary.write(payload)
+        temporary.flush()
+        return _sdist_content_sha256(Path(temporary.name))
+
+
 def publish_plan(artifacts: list[Artifact]) -> tuple[list[Artifact], list[str]]:
-    remote: dict[tuple[str, str], dict[str, tuple[str, bool]]] = {}
+    remote: dict[tuple[str, str], dict[str, tuple[str, bool, str]]] = {}
     upload: list[Artifact] = []
     conflicts: list[str] = []
     for artifact in artifacts:
@@ -232,9 +276,13 @@ def publish_plan(artifacts: list[Artifact]) -> tuple[list[Artifact], list[str]]:
         if published is None:
             upload.append(artifact)
             continue
-        actual_hash, yanked = published
+        actual_hash, yanked, url = published
         if yanked:
             conflicts.append(f"{artifact.project} {artifact.filename} is yanked on PyPI")
+        elif artifact.kind == "sdist" and artifact.content_sha256 == _remote_sdist_content_sha256(
+            url, actual_hash
+        ):
+            continue
         elif actual_hash != artifact.sha256:
             conflicts.append(f"{artifact.project} {artifact.filename} has a different PyPI SHA-256")
     for (project, version), files in remote.items():

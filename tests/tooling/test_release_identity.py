@@ -129,8 +129,8 @@ def test_publish_plan_rejects_conflicting_or_unexpected_remote_artifacts(
         release_identity,
         "_pypi_files",
         lambda _project, _version: {
-            artifact.filename: ("different", False),
-            "extra-1.2.3.tar.gz": ("hash", False),
+            artifact.filename: ("different", False, "https://example.test/wheel"),
+            "extra-1.2.3.tar.gz": ("hash", False, "https://example.test/extra"),
         },
     )
 
