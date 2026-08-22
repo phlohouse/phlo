@@ -443,26 +443,47 @@ def _verify_wap_launch_manifest(run: Any, branch_name: str) -> tuple[str, dict[s
     manifest = _read_wap_report(logical_run_id)
     checksum = manifest.get("launch_manifest_checksum") if manifest else None
     binding = read_wap_launch_manifest(logical_run_id, str(checksum)) if checksum else None
+    if not manifest or not binding:
+        return None
+    has_launch_source_hash = "launch_source_hash" in manifest
+    has_launch_target_hash_before = "launch_target_hash_before" in manifest
+    if not has_launch_source_hash and not has_launch_target_hash_before:
+        # Reports written before launch hashes had their own fields used the
+        # mutable lifecycle hashes.  Recover those facts from the verified,
+        # content-addressed binding once so retries do not reinterpret a
+        # later branch head as launch state.
+        launch_source_hash = binding.get("source_hash")
+        launch_target_hash_before = binding.get("target_hash_before")
+        if not write_wap_report(
+            logical_run_id,
+            launch_source_hash=launch_source_hash,
+            launch_target_hash_before=launch_target_hash_before,
+        ):
+            return None
+        manifest = _read_wap_report(logical_run_id)
+        if not manifest:
+            return None
+    elif not has_launch_source_hash or not has_launch_target_hash_before:
+        return None
+    else:
+        launch_source_hash = manifest["launch_source_hash"]
+        launch_target_hash_before = manifest["launch_target_hash_before"]
     if (
-        not manifest
-        or not binding
-        or (
-            manifest.get("run_id") != logical_run_id
-            or manifest.get("branch") != branch_name
-            or manifest.get("dagster_run_id") != dagster_run_id
-            or manifest.get("launch_tags") != expected_tags
-            or binding
-            != {
-                "schema_version": "phlo.wap_launch_manifest.v1",
-                "logical_run_id": logical_run_id,
-                "dagster_run_id": dagster_run_id,
-                "branch": branch_name,
-                "tags": expected_tags,
-                "source_hash": manifest.get("source_hash"),
-                "target_branch": "main",
-                "target_hash_before": manifest.get("target_hash_before"),
-            }
-        )
+        manifest.get("run_id") != logical_run_id
+        or manifest.get("branch") != branch_name
+        or manifest.get("dagster_run_id") != dagster_run_id
+        or manifest.get("launch_tags") != expected_tags
+        or binding
+        != {
+            "schema_version": "phlo.wap_launch_manifest.v1",
+            "logical_run_id": logical_run_id,
+            "dagster_run_id": dagster_run_id,
+            "branch": branch_name,
+            "tags": expected_tags,
+            "source_hash": launch_source_hash,
+            "target_branch": "main",
+            "target_hash_before": launch_target_hash_before,
+        }
     ):
         return None
     return logical_run_id, manifest

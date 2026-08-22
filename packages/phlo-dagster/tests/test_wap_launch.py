@@ -75,6 +75,8 @@ def test_prepare_wap_launch_creates_deterministic_branch_tags_and_manifest(
     assert report["status"] == "branch_created"
     assert report["branch"] == "pipeline-run-request-42"
     assert report["launch_tags"] == launch.tags
+    assert report["launch_source_hash"] == "branch-hash"
+    assert report["launch_target_hash_before"] == "main-hash"
 
     launch.record_launch_result(status="launch_ambiguous", error="response lost")
     updated = json.loads(

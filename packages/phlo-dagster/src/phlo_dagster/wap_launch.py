@@ -197,6 +197,10 @@ class WapLaunch:
             "status": status,
             "branch": self.branch,
             "launch_tags": self.tags,
+            # These are immutable launch facts.  Promotion's source_hash and
+            # target_hash_before instead describe the current merge attempt.
+            "launch_source_hash": self.source_hash,
+            "launch_target_hash_before": self.target_hash_before,
             "source_hash": self.source_hash,
             "target_branch": "main",
             "target_hash_before": self.target_hash_before,
