@@ -110,6 +110,41 @@ def test_resolve_dbt_runtime_config_prefers_wap_branch_catalog() -> None:
     assert config.catalog == "iceberg_pipeline-run-run-1"
 
 
+def test_resolve_dbt_runtime_config_provisions_wap_catalog_on_query_engine(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class QueryEngine:
+        def __init__(self) -> None:
+            self.provisioned_refs: list[str] = []
+
+        def provision_ref_query_catalog(self, ref: str) -> str:
+            self.provisioned_refs.append(ref)
+            return f"provisioned_{ref}"
+
+        def drop_ref_query_catalog(self, ref: str) -> None:
+            return None
+
+    query_engine = QueryEngine()
+    runtime = SimpleNamespace(
+        run_id="run-1",
+        partition_key=None,
+        tags={"phlo/wap_branch": "pipeline-run-isolated"},
+        resources={},
+    )
+    monkeypatch.setattr(
+        runtime_config,
+        "resolve_capability",
+        lambda capability_type, *, runtime: SimpleNamespace(provider=query_engine),
+    )
+
+    profile_path = ensure_dbt_profile(tmp_path / "profiles", runtime=runtime)
+    payload = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+
+    assert payload["phlo"]["outputs"]["dev"]["catalog"] == "provisioned_pipeline-run-isolated"
+    assert query_engine.provisioned_refs == ["pipeline-run-isolated"]
+
+
 def test_resolve_dbt_runtime_config_ignores_blank_wap_branch() -> None:
     runtime = SimpleNamespace(
         run_id="run-1",

@@ -24,7 +24,9 @@ from typing import Any
 
 from phlo.capabilities import (
     CapabilitySupport,
+    RefQueryCatalogManager,
     RuntimeContext,
+    resolve_capability,
     resolve_runtime_ref,
     routing_from_context,
 )
@@ -34,6 +36,7 @@ import yaml
 DEFAULT_DBT_TARGET = "dev"
 DBT_QUERY_ENGINE_SUPPORT = CapabilitySupport(supports_refs=True)
 DEFAULT_DBT_PROFILE_NAME = "phlo"
+OWNED_WAP_REF_PREFIX = "pipeline-run-"
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +192,12 @@ def resolve_dbt_runtime_config(
     ref = resolve_runtime_ref(runtime, support=DBT_QUERY_ENGINE_SUPPORT, default_ref="main")
     if ref and ref != "main":
         catalog = f"{catalog}_{ref}"
+        if ref.startswith(OWNED_WAP_REF_PREFIX):
+            query_engine = resolve_capability("query_engine", runtime=runtime)
+            if query_engine is not None and isinstance(
+                query_engine.provider, RefQueryCatalogManager
+            ):
+                catalog = query_engine.provider.provision_ref_query_catalog(ref)
 
     return DbtRuntimeConfig(
         profile_name=resolve_dbt_profile_name(settings.dbt_project_path),
