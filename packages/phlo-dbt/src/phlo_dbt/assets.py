@@ -21,6 +21,7 @@ from typing import Any
 
 from phlo.capabilities import (
     AssetSpec,
+    CheckResult,
     MaterializeResult,
     PartitionSpec,
     RunSpec,
@@ -31,6 +32,7 @@ from phlo.logging import get_logger
 from phlo_dbt.runtime_config import ensure_dbt_profile, resolve_dbt_target_name
 from phlo_dbt.settings import get_settings
 
+from phlo_dbt.asset_checks import dbt_asset_check_specs, extract_dbt_asset_checks
 from phlo_dbt.transformer import DbtTransformer, ensure_dbt_manifest
 from phlo_dbt.translator import DbtSpecTranslator
 
@@ -87,7 +89,9 @@ def _run_dbt_model(
     project_dir: Path,
     profiles_dir: Path,
     runtime: RuntimeContext,
-) -> list[MaterializeResult]:
+    manifest: Mapping[str, Any],
+    translator: DbtSpecTranslator,
+) -> list[MaterializeResult | CheckResult]:
     """Execute a single dbt model and map result to materialization output.
 
     Args:
@@ -97,7 +101,7 @@ def _run_dbt_model(
         runtime: Asset runtime context.
 
     Returns:
-        Materialization results for the model run.
+        Materialization and test-check results for the model run.
 
     """
     target = resolve_dbt_target_name(runtime)
@@ -116,7 +120,14 @@ def _run_dbt_model(
         parameters={"select": [model_name]},
     )
 
+    checks = _read_dbt_asset_checks(
+        project_dir=project_dir,
+        manifest=manifest,
+        translator=translator,
+        partition_key=partition_key,
+    )
     return [
+        *checks,
         MaterializeResult(
             status=result.status,
             metadata={
@@ -125,8 +136,33 @@ def _run_dbt_model(
                 "dbt_status": result.status,
                 "dbt_metadata": result.metadata,
             },
-        )
+        ),
     ]
+
+
+def _read_dbt_asset_checks(
+    *,
+    project_dir: Path,
+    manifest: Mapping[str, Any],
+    translator: DbtSpecTranslator,
+    partition_key: str | None,
+) -> list[CheckResult]:
+    """Read dbt test outcomes produced by the current asset build."""
+    run_results_path = project_dir / "target" / "run_results.json"
+    try:
+        run_results = json.loads(run_results_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        logger.warning("dbt_asset_check_results_unavailable", path=str(run_results_path))
+        return []
+    if not isinstance(run_results, Mapping):
+        logger.warning("dbt_asset_check_results_invalid", path=str(run_results_path))
+        return []
+    return extract_dbt_asset_checks(
+        run_results,
+        manifest,
+        translator=translator,
+        partition_key=partition_key,
+    )
 
 
 def build_dbt_asset_specs() -> list[AssetSpec]:
@@ -209,6 +245,7 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
         asset_keys[str(unique_id)] = str(asset_key)
 
     specs: list[AssetSpec] = []
+    check_specs = dbt_asset_check_specs(manifest, translator=translator)
     for unique_id, props in nodes.items():
         if not isinstance(props, Mapping):
             continue
@@ -226,7 +263,11 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
         metadata = translator.get_metadata(props)
         tags = {"tool": "dbt"}
 
-        def _runner(runtime: RuntimeContext, model=model_name) -> list[MaterializeResult]:
+        checks = [check for check in check_specs if check.asset_key == asset_key]
+
+        def _runner(
+            runtime: RuntimeContext, model=model_name
+        ) -> list[MaterializeResult | CheckResult]:
             """Execute one dbt-backed asset run.
 
             Args:
@@ -242,6 +283,8 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
                 project_dir=dbt_project_path,
                 profiles_dir=dbt_profiles_path,
                 runtime=runtime,
+                manifest=manifest,
+                translator=translator,
             )
 
         specs.append(
@@ -254,6 +297,7 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
                 metadata=metadata,
                 partitions=PartitionSpec(kind="daily"),
                 deps=deps,
+                checks=checks,
                 run=RunSpec(fn=_runner),
             )
         )

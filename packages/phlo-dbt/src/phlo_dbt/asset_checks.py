@@ -24,7 +24,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from phlo.capabilities import CheckResult
+from phlo.capabilities import AssetCheckSpec, CheckResult
 from phlo.logging import get_logger
 from phlo_dbt.translator import DbtSpecTranslator
 
@@ -102,9 +102,11 @@ def _sanitize_name(value: str) -> str:
     return cleaned or "unknown"
 
 
-def _dbt_check_name(test_type: str, target: str) -> str:
-    """Build canonical check name for a dbt test."""
-    return f"dbt__{_sanitize_name(test_type)}__{_sanitize_name(target)}"
+def _dbt_check_name(test_type: str, target: str, identity: str) -> str:
+    """Build a stable, target-scoped Dagster check name for a dbt test."""
+    return "__".join(
+        ("dbt", _sanitize_name(test_type), _sanitize_name(target), _sanitize_name(identity))
+    )
 
 
 def _severity_for_dbt_test(*, test_type: str | None, tags: Iterable[str] | None) -> str:
@@ -170,7 +172,6 @@ def extract_dbt_asset_checks(
         >>> print(f"Tests: {passed} passed, {failed} failed")
 
     """
-    nodes = manifest.get("nodes") or {}
     checks: list[CheckResult] = []
     result_entries = run_results.get("results", []) or []
     logger.info(
@@ -187,34 +188,14 @@ def extract_dbt_asset_checks(
         status = (result.get("status") or "").strip().lower()
         passed = status in {"pass", "skipped", "skip"}
 
-        depends_on = result.get("depends_on") or {}
-        depends_nodes = depends_on.get("nodes") or []
-        target_unique_id = _first_str(depends_nodes, prefix="model.")
-        if target_unique_id is None:
-            target_unique_id = _first_str(depends_nodes)
-        if target_unique_id is None:
+        test_props = _manifest_nodes(manifest).get(unique_id, {})
+        if not isinstance(test_props, Mapping):
             continue
-
-        target_props = nodes.get(target_unique_id)
-        if not isinstance(target_props, Mapping):
-            continue
-
-        try:
-            asset_key_str = translator.get_asset_key(target_props)
-        except Exception:
-            logger.exception(
-                "dbt_asset_checks_target_translate_failed",
-                test_unique_id=unique_id,
-                target_unique_id=target_unique_id,
-            )
-            continue
-
-        test_props = nodes.get(unique_id, {})
-        test_type = _dbt_test_type(test_props, fallback_unique_id=unique_id)
-        target_name = str(
-            target_props.get("name") or target_props.get("alias") or target_unique_id.split(".")[-1]
+        resolved = _resolve_dbt_test(
+            manifest, unique_id, test_props, translator, dependency_fallback=result
         )
-        check_name = _dbt_check_name(test_type, target_name)
+        if resolved is None:
+            continue
 
         tags = _dbt_tags(test_props)
         failures = _int_or_none(result.get("failures"))
@@ -224,7 +205,7 @@ def extract_dbt_asset_checks(
         if passed:
             severity = None
         elif status == "fail":
-            severity_label = _severity_for_dbt_test(test_type=test_type, tags=tags)
+            severity_label = _severity_for_dbt_test(test_type=resolved.test_type, tags=tags)
             severity = severity_label or "error"
         else:
             severity = "error"
@@ -246,9 +227,9 @@ def extract_dbt_asset_checks(
             **contract.to_metadata(),
             "status": status or "unknown",
             "test_unique_id": unique_id,
-            "test_type": test_type,
-            "target_unique_id": target_unique_id,
-            "target_name": target_name,
+            "test_type": resolved.test_type,
+            "target_unique_id": resolved.target_unique_id,
+            "target_name": resolved.target_name,
         }
         if tags:
             metadata["tags"] = sorted(tags)
@@ -257,8 +238,8 @@ def extract_dbt_asset_checks(
 
         checks.append(
             CheckResult(
-                asset_key=asset_key_str,
-                check_name=check_name,
+                asset_key=resolved.asset_key,
+                check_name=resolved.check_name,
                 passed=passed,
                 severity=severity,
                 metadata=metadata,
@@ -271,6 +252,141 @@ def extract_dbt_asset_checks(
         partition_key=partition_key,
     )
     return checks
+
+
+def dbt_asset_check_specs(
+    manifest: Mapping[str, Any], *, translator: DbtSpecTranslator
+) -> list[AssetCheckSpec]:
+    """Build Dagster-declarable check specs for dbt tests in a manifest.
+
+    The dbt asset runner emits the corresponding ``CheckResult`` values after
+    each build.  Declaring these specs during discovery lets orchestrators
+    accept those runtime results as native asset-check events.
+
+    Args:
+        manifest: Parsed dbt manifest payload.
+        translator: Translator used to resolve target asset keys from dbt nodes.
+
+    Returns:
+        Check specifications for dbt tests with resolvable target assets.
+
+    """
+    nodes = _manifest_nodes(manifest)
+    if not isinstance(nodes, Mapping):
+        return []
+
+    specs: list[AssetCheckSpec] = []
+    seen: set[tuple[str, str]] = set()
+    for unique_id, test_props in nodes.items():
+        if not isinstance(unique_id, str) or not unique_id.startswith("test."):
+            continue
+        if not isinstance(test_props, Mapping):
+            continue
+
+        resolved = _resolve_dbt_test(manifest, unique_id, test_props, translator)
+        if resolved is None:
+            continue
+        identity = (resolved.asset_key, resolved.check_name)
+        if identity in seen:
+            logger.warning(
+                "dbt_asset_check_spec_duplicate",
+                test_unique_id=unique_id,
+                asset_key=resolved.asset_key,
+                check_name=resolved.check_name,
+            )
+            continue
+        seen.add(identity)
+        severity = _severity_for_dbt_test(test_type=resolved.test_type, tags=_dbt_tags(test_props))
+        specs.append(
+            AssetCheckSpec(
+                name=resolved.check_name,
+                asset_key=resolved.asset_key,
+                blocking=severity == "error",
+                severity=severity,
+            )
+        )
+
+    return specs
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedDbtTest:
+    """Shared target and identity contract for a manifest dbt test."""
+
+    asset_key: str
+    check_name: str
+    target_name: str
+    target_unique_id: str
+    test_type: str
+
+
+def _manifest_nodes(manifest: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Return the manifest node mapping when it has the expected shape."""
+    nodes = manifest.get("nodes") or {}
+    return nodes if isinstance(nodes, Mapping) else {}
+
+
+def _resolve_dbt_test(
+    manifest: Mapping[str, Any],
+    test_unique_id: str,
+    test_props: Mapping[str, Any],
+    translator: DbtSpecTranslator,
+    *,
+    dependency_fallback: Mapping[str, Any] | None = None,
+) -> _ResolvedDbtTest | None:
+    """Resolve one dbt test's owning asset and stable Dagster identity.
+
+    dbt's ``attached_node`` identifies the model under test for relationship
+    checks, where ``depends_on.nodes`` also contains the referenced model.
+    Older manifests without ``attached_node`` retain the dependency fallback.
+    Runtime extraction can additionally use the result's dependencies when an
+    older manifest omits them from its test node.
+    """
+    nodes = _manifest_nodes(manifest)
+    attached_node = test_props.get("attached_node")
+    target_unique_id = attached_node if isinstance(attached_node, str) else None
+    if target_unique_id not in nodes:
+        depends_on = test_props.get("depends_on") or {}
+        if not isinstance(depends_on, Mapping) and dependency_fallback is not None:
+            depends_on = dependency_fallback.get("depends_on") or {}
+        elif not depends_on and dependency_fallback is not None:
+            depends_on = dependency_fallback.get("depends_on") or {}
+        depends_nodes = depends_on.get("nodes") if isinstance(depends_on, Mapping) else []
+        target_unique_id = (
+            _first_str(depends_nodes, prefix="model.")
+            if isinstance(depends_nodes, Iterable)
+            else None
+        ) or (_first_str(depends_nodes) if isinstance(depends_nodes, Iterable) else None)
+    if target_unique_id is None:
+        return None
+    target_props = nodes.get(target_unique_id)
+    if not isinstance(target_props, Mapping):
+        return None
+    try:
+        asset_key = translator.get_asset_key(target_props)
+    except Exception:
+        logger.exception(
+            "dbt_asset_check_target_translate_failed",
+            test_unique_id=test_unique_id,
+            target_unique_id=target_unique_id,
+        )
+        return None
+
+    test_type = _dbt_test_type(test_props, fallback_unique_id=test_unique_id)
+    target_name = str(
+        target_props.get("name") or target_props.get("alias") or target_unique_id.split(".")[-1]
+    )
+    node_name = test_props.get("name")
+    identity = (
+        node_name.strip() if isinstance(node_name, str) and node_name.strip() else test_unique_id
+    )
+    return _ResolvedDbtTest(
+        asset_key=asset_key,
+        check_name=_dbt_check_name(test_type, target_name, identity),
+        target_name=target_name,
+        target_unique_id=target_unique_id,
+        test_type=test_type,
+    )
 
 
 def _first_str(values: Iterable[object], prefix: str | None = None) -> str | None:
