@@ -22,6 +22,7 @@ RUN apk upgrade --no-cache \
         cargo=1.96.1-r0 \
         curl=8.21.0-r0 \
         gcc=15.2.0-r5 \
+        g++=15.2.0-r5 \
         git=2.54.0-r0 \
         musl-dev=1.2.6-r2 \
         rust=1.96.1-r0 \

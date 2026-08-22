@@ -28,6 +28,7 @@ def test_dagster_runtime_image_installs_prerelease_phlo_with_postgres_driver() -
     )
     assert "cargo=1.96.1-r0" in dockerfile
     assert "rust=1.96.1-r0" in dockerfile
+    assert "g++=15.2.0-r5" in dockerfile
     assert "su-exec=0.3-r0" in dockerfile
 
 
