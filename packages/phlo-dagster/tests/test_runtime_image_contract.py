@@ -26,6 +26,7 @@ def test_dagster_runtime_image_installs_prerelease_phlo_with_postgres_driver() -
     assert (
         '"$PHLO_DAGSTER_REQUIREMENT" "PyJWT[crypto]>=2.13.0" "cryptography>=48.0.1"' in dockerfile
     )
+    assert 'pip install --no-cache-dir "uv==0.12.5"' in dockerfile
     assert "cargo=1.96.1-r0" in dockerfile
     assert "rust=1.96.1-r0" in dockerfile
     assert "g++=15.2.0-r5" in dockerfile
@@ -78,7 +79,9 @@ def test_dagster_runtime_entrypoint_installs_mounted_project() -> None:
     assert "if [ -f /app/pyproject.toml ]; then" in entrypoint
     assert 'name.startswith("phlo-")' in entrypoint
     assert 'local_path="/opt/phlo-dev/packages/$package"' in entrypoint
-    assert "uv pip install --system -e /app" in entrypoint
+    assert "(cd /app && uv pip install --system -e .)" in entrypoint
+    assert "uv pip install --system -e /app" not in entrypoint
+    assert "--no-sources -e /app" not in entrypoint
     assert 'if [ "$(id -u)" -ne 0 ]; then' in entrypoint
     assert 'runtime_user="phlo"' in entrypoint
     assert "touch /tmp/phlo-dagster-ready" in entrypoint
@@ -86,9 +89,22 @@ def test_dagster_runtime_entrypoint_installs_mounted_project() -> None:
     assert 'mkdir -p "$runtime_home"' in entrypoint
     assert 'chown "$runtime_user" "$runtime_home"' in entrypoint
     assert 'exec su-exec "$runtime_user" env HOME="$runtime_home" "$@"' in entrypoint
-    assert entrypoint.index("uv pip install --system -e /app") < entrypoint.index(
+    assert entrypoint.index("(cd /app && uv pip install --system -e .)") < entrypoint.index(
         'exec su-exec "$runtime_user" env HOME="$runtime_home" "$@"'
     )
+
+
+def test_runtime_images_pin_current_uv_and_document_git_capability_override() -> None:
+    """Runtime resolution preserves consumer sources with the current uv behavior."""
+    dagster_dockerfile = resources.files("phlo_dagster").joinpath("Dockerfile").read_text()
+    api_dockerfile = (
+        Path(__file__).resolve().parents[2] / "phlo-api" / "src" / "phlo_api" / "Dockerfile"
+    ).read_text()
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+
+    assert 'pip install --no-cache-dir "uv==0.12.5"' in dagster_dockerfile
+    assert '"uv==0.12.5"' in api_dockerfile
+    assert 'override-dependencies = ["phlo[defaults]==0.14.0"]' in readme
 
 
 def test_dagster_runtime_entrypoint_gives_an_unmapped_uid_an_isolated_writable_home(

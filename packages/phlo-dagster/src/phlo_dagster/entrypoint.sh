@@ -72,7 +72,9 @@ PY
             uv pip install --system -e "$local_path"
         fi
     done <<< "$project_local_packages"
-    uv pip install --system -e /app
+    # uv reads the mounted project's [tool.uv] configuration from its working
+    # directory, not from the absolute editable target.
+    (cd /app && uv pip install --system -e .)
     echo "Mounted Phlo project installed"
 fi
 

@@ -62,6 +62,22 @@ phlo services init --dev --phlo-source /path/to/phlo
 phlo services start --service dagster
 ```
 
+### Git Capability Dependencies
+
+The runtime installs the mounted project's dependencies with the project's own
+uv configuration, including `[tool.uv.sources]`. When using an unreleased Phlo
+capability from this monorepo alongside a released `phlo[defaults]`, pin the
+released base package as an override so uv does not inherit workspace sources
+from the Git checkout:
+
+```toml
+[tool.uv]
+override-dependencies = ["phlo[defaults]==0.14.0"]
+```
+
+This is required until the capability is released with the matching Phlo
+version. It is not needed for released capability packages.
+
 ## Endpoints
 
 - **Web UI**: `http://localhost:10006`

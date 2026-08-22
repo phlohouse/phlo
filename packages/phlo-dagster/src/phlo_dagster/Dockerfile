@@ -27,7 +27,7 @@ RUN apk upgrade --no-cache \
         musl-dev=1.2.6-r2 \
         rust=1.96.1-r0 \
         su-exec=0.3-r0 \
-    && pip install --no-cache-dir "uv==0.8.13"
+    && pip install --no-cache-dir "uv==0.12.5"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
