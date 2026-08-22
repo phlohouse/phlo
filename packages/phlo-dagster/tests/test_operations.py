@@ -7,7 +7,13 @@ import asyncio
 import httpx
 import pytest
 
-from phlo_dagster.operations import launch_materialize, launch_retry, list_partitions, terminate
+from phlo_dagster.operations import (
+    get_run_status,
+    launch_materialize,
+    launch_retry,
+    list_partitions,
+    terminate,
+)
 
 
 def test_launch_materialize_posts_asset_selection(monkeypatch) -> None:
@@ -49,6 +55,32 @@ def test_launch_materialize_posts_asset_selection(monkeypatch) -> None:
     assert selector["assetSelection"] == [{"path": ["silver", "orders"]}]
     assert "repositoryLocationName" not in selector
     assert "repositoryName" not in selector
+
+
+def test_get_run_status_reads_dagster_run(monkeypatch) -> None:
+    async def fake_post(self, url, json=None, headers=None):  # noqa: ANN001, ANN202, ARG001
+        assert "RunStatus" in json["query"]
+        assert json["variables"] == {"runId": "run-1"}
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "data": {
+                    "runOrError": {
+                        "__typename": "Run",
+                        "runId": "run-1",
+                        "status": "SUCCESS",
+                    }
+                }
+            },
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    assert (
+        asyncio.run(get_run_status(dagster_url="http://dagster.test/graphql", run_id="run-1"))
+        == "SUCCESS"
+    )
 
 
 def test_launch_materialize_exposes_graphql_errors_from_http_500(monkeypatch) -> None:

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from datetime import datetime
 from unittest.mock import ANY, patch
 
+import click
 from click.testing import CliRunner
 
 from phlo_dagster.cli_backfill import (
@@ -69,9 +70,14 @@ def test_wap_backfill_creates_branch_before_each_partition(monkeypatch):
 
     async def launch(**kwargs):
         launched.append(kwargs)
-        return SimpleNamespace(accepted=True, message="ok")
+        return SimpleNamespace(accepted=True, message="ok", run_id=kwargs["partition_key"])
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    promoted: list[str] = []
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill._wait_for_wap_lifecycle",
+        lambda **kwargs: promoted.append(kwargs["logical_run_id"]),
+    )
     _run_wap_backfill(
         "dlt_events",
         ["2024-01-01", "2024-01-02"],
@@ -85,6 +91,272 @@ def test_wap_backfill_creates_branch_before_each_partition(monkeypatch):
     assert all(
         call["tags"] == {"phlo/wap_branch": "branch", "phlo/ref": "branch"} for call in launched
     )
+    assert len(promoted) == 2
+
+
+def test_wap_backfill_waits_for_promotion_before_next_branch(monkeypatch, tmp_path):
+    """A later branch starts from the target hash promoted by the prior partition."""
+    from phlo_dagster.cli_backfill import _run_wap_backfill
+
+    main_hash = "main-0"
+    created_from: list[str] = []
+    launched: list[str] = []
+
+    def prepare(**kwargs):
+        nonlocal main_hash
+        created_from.append(main_hash)
+        return SimpleNamespace(
+            branch=f"pipeline-run-{kwargs['logical_run_id']}",
+            tags={},
+            record_launch_result=lambda **_kwargs: True,
+        )
+
+    async def launch(**kwargs):
+        launched.append(kwargs["partition_key"])
+        return SimpleNamespace(accepted=True, message="ok", run_id=kwargs["partition_key"])
+
+    def wait(**_kwargs):
+        nonlocal main_hash
+        main_hash = f"main-{len(launched)}"
+
+    monkeypatch.setattr("phlo_dagster.cli_backfill.prepare_wap_launch", prepare)
+    monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    monkeypatch.setattr("phlo_dagster.cli_backfill._wait_for_wap_lifecycle", wait)
+    monkeypatch.setattr("phlo_dagster.cli_backfill.BACKFILL_STATE_FILE", tmp_path / "state.json")
+
+    _run_wap_backfill(
+        "dlt_events",
+        ["2024-01-01", "2024-01-02"],
+        dagster_url="http://dagster",
+        job_name="__ASSET_JOB",
+        repository_location_name=None,
+        repository_name=None,
+        access_token=None,
+        requested_parallel=2,
+    )
+
+    assert launched == ["2024-01-01", "2024-01-02"]
+    assert created_from == ["main-0", "main-1"]
+
+
+def test_wap_backfill_persists_failed_partition_for_resume(monkeypatch, tmp_path):
+    from phlo_dagster.cli_backfill import WapLifecycleTerminalError, _run_wap_backfill
+
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.prepare_wap_launch",
+        lambda **_kwargs: SimpleNamespace(
+            branch="branch", tags={}, record_launch_result=lambda **_kwargs: True
+        ),
+    )
+
+    async def launch(**kwargs):
+        return SimpleNamespace(accepted=True, message="ok", run_id=kwargs["partition_key"])
+
+    monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill._wait_for_wap_lifecycle",
+        lambda **kwargs: (
+            None
+            if kwargs["dagster_run_id"] == "2024-01-01"
+            else (_ for _ in ()).throw(WapLifecycleTerminalError("promotion_failed"))
+        ),
+    )
+    state_file = tmp_path / ".phlo" / "backfill_state.json"
+    monkeypatch.setattr("phlo_dagster.cli_backfill.BACKFILL_STATE_FILE", state_file)
+
+    try:
+        _run_wap_backfill(
+            "dlt_events",
+            ["2024-01-01", "2024-01-02"],
+            dagster_url="http://dagster",
+            job_name="__ASSET_JOB",
+            repository_location_name=None,
+            repository_name=None,
+            access_token=None,
+        )
+    except click.ClickException as exc:
+        assert "promotion_failed" in str(exc)
+    else:
+        raise AssertionError("expected WAP promotion failure")
+
+    state = json.loads(state_file.read_text())
+    assert state["asset_name"] == "dlt_events"
+    assert state["remaining_partitions"] == ["2024-01-02"]
+    assert state["completed_partitions"] == ["2024-01-01"]
+    assert state["in_flight_wap"] == {}
+    assert state["last_updated"] == ANY
+
+
+def test_wap_lifecycle_rejects_failed_dagster_run(monkeypatch):
+    from phlo_dagster.cli_backfill import _wait_for_wap_lifecycle
+
+    async def failed_run(**_kwargs):
+        return "FAILURE"
+
+    monkeypatch.setattr("phlo_dagster.cli_backfill.get_run_status", failed_run)
+
+    try:
+        _wait_for_wap_lifecycle(
+            logical_run_id="logical-1",
+            dagster_run_id="dagster-1",
+            dagster_url="http://dagster",
+            access_token=None,
+        )
+    except click.ClickException as exc:
+        assert "Dagster run failed" in str(exc)
+    else:
+        raise AssertionError("expected failed Dagster run")
+
+
+def test_wap_lifecycle_rejects_failed_promotion(monkeypatch):
+    from phlo_dagster.cli_backfill import _wait_for_wap_lifecycle
+
+    async def successful_run(**_kwargs):
+        return "SUCCESS"
+
+    monkeypatch.setattr("phlo_dagster.cli_backfill.get_run_status", successful_run)
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.read_wap_report",
+        lambda _logical_run_id: {
+            "status": "promotion_failed",
+            "failure_reason": "merge_branch_returned_false",
+        },
+    )
+
+    try:
+        _wait_for_wap_lifecycle(
+            logical_run_id="logical-1",
+            dagster_run_id="dagster-1",
+            dagster_url="http://dagster",
+            access_token=None,
+        )
+    except click.ClickException as exc:
+        assert "merge_branch_returned_false" in str(exc)
+    else:
+        raise AssertionError("expected failed WAP promotion")
+
+
+def test_wap_lifecycle_accepts_promoted_report(monkeypatch):
+    from phlo_dagster.cli_backfill import _wait_for_wap_lifecycle
+
+    async def successful_run(**_kwargs):
+        return "SUCCESS"
+
+    monkeypatch.setattr("phlo_dagster.cli_backfill.get_run_status", successful_run)
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.read_wap_report", lambda _logical_run_id: {"status": "promoted"}
+    )
+
+    _wait_for_wap_lifecycle(
+        logical_run_id="logical-1",
+        dagster_run_id="dagster-1",
+        dagster_url="http://dagster",
+        access_token=None,
+    )
+
+
+def test_wap_lifecycle_retries_transient_poll_failure(monkeypatch):
+    from phlo_dagster.cli_backfill import _wait_for_wap_lifecycle
+
+    calls = 0
+
+    async def eventually_successful_run(**_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("temporary transport failure")
+        return "SUCCESS"
+
+    monkeypatch.setattr("phlo_dagster.cli_backfill.get_run_status", eventually_successful_run)
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.read_wap_report", lambda _logical_run_id: {"status": "promoted"}
+    )
+    monkeypatch.setattr("phlo_dagster.cli_backfill.time.sleep", lambda _seconds: None)
+
+    _wait_for_wap_lifecycle(
+        logical_run_id="logical-1",
+        dagster_run_id="dagster-1",
+        dagster_url="http://dagster",
+        access_token=None,
+    )
+
+    assert calls == 2
+
+
+def test_wap_lifecycle_times_out_without_promotion(monkeypatch):
+    from phlo_dagster.cli_backfill import _wait_for_wap_lifecycle
+
+    monkeypatch.setenv("PHLO_WAP_BACKFILL_TIMEOUT_SECONDS", "0")
+
+    try:
+        _wait_for_wap_lifecycle(
+            logical_run_id="logical-1",
+            dagster_run_id="dagster-1",
+            dagster_url="http://dagster",
+            access_token=None,
+        )
+    except click.ClickException as exc:
+        assert "Timed out" in str(exc)
+    else:
+        raise AssertionError("expected WAP lifecycle timeout")
+
+
+def test_wap_timeout_resume_reconciles_existing_run_without_relaunch(monkeypatch, tmp_path):
+    from phlo_dagster.cli_backfill import _run_wap_backfill
+
+    launches: list[str] = []
+    prepared: list[str] = []
+
+    def prepare(**kwargs):
+        prepared.append(kwargs["logical_run_id"])
+        return SimpleNamespace(
+            branch="branch", tags={}, record_launch_result=lambda **_kwargs: True
+        )
+
+    async def launch(**kwargs):
+        launches.append(kwargs["partition_key"])
+        return SimpleNamespace(accepted=True, message="ok", run_id="dagster-1")
+
+    monkeypatch.setattr("phlo_dagster.cli_backfill.prepare_wap_launch", prepare)
+    monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    state_file = tmp_path / ".phlo" / "backfill_state.json"
+    monkeypatch.setattr("phlo_dagster.cli_backfill.BACKFILL_STATE_FILE", state_file)
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill._wait_for_wap_lifecycle",
+        lambda **_kwargs: (_ for _ in ()).throw(click.ClickException("Timed out")),
+    )
+
+    try:
+        _run_wap_backfill(
+            "dlt_events",
+            ["2024-01-01"],
+            dagster_url="http://dagster",
+            job_name="__ASSET_JOB",
+            repository_location_name=None,
+            repository_name=None,
+            access_token=None,
+        )
+    except click.ClickException:
+        pass
+    else:
+        raise AssertionError("expected timeout")
+
+    state = json.loads(state_file.read_text())
+    monkeypatch.setattr("phlo_dagster.cli_backfill._wait_for_wap_lifecycle", lambda **_kwargs: None)
+    _run_wap_backfill(
+        "dlt_events",
+        state["remaining_partitions"],
+        dagster_url="http://dagster",
+        job_name="__ASSET_JOB",
+        repository_location_name=None,
+        repository_name=None,
+        access_token=None,
+        completed_partitions=state["completed_partitions"],
+        in_flight_wap=state["in_flight_wap"],
+    )
+
+    assert launches == ["2024-01-01"]
+    assert len(prepared) == 1
 
 
 def test_enabled_project_wap_backfill_uses_graphql_without_cli_flags(monkeypatch) -> None:

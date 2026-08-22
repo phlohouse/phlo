@@ -104,7 +104,7 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
     path = _report_path(logical_run_id)
     try:
         payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         payload = {}
     now = datetime.now(timezone.utc).isoformat()
     payload.update(updates)
@@ -141,6 +141,15 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
         )
         return False
     return True
+
+
+def read_wap_report(logical_run_id: str) -> dict[str, Any] | None:
+    """Read the latest durable WAP lifecycle record for a logical run."""
+    try:
+        payload = json.loads(_report_path(logical_run_id).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 @dataclass(frozen=True)

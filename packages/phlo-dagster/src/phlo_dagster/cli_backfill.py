@@ -40,6 +40,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -62,9 +63,9 @@ from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
 from phlo_dagster.cli_materialize import wait_for_dagster_runtime
 from phlo_dagster.containers import find_dagster_container
-from phlo_dagster.operations import launch_materialize
+from phlo_dagster.operations import get_run_status, launch_materialize
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
-from phlo_dagster.wap_launch import prepare_wap_launch
+from phlo_dagster.wap_launch import prepare_wap_launch, read_wap_report
 
 console = Console()
 logger = get_logger(__name__)
@@ -92,7 +93,7 @@ BACKFILL_STATE_FILE = Path(".phlo/backfill_state.json")
     "--parallel",
     type=int,
     default=1,
-    help="Number of concurrent partitions to process (default: 1)",
+    help="Number of concurrent partitions to process (default: 1; WAP runs serialize through promotion)",
 )
 @click.option(
     "--resume",
@@ -178,6 +179,7 @@ def backfill(
             asset_name = state.get("asset_name")
             partition_dates = state.get("remaining_partitions", [])
             completed_partitions = state.get("completed_partitions", [])
+            in_flight_wap = state.get("in_flight_wap", {})
         except Exception as e:
             logger.error(
                 "dagster_backfill_resume_state_read_failed",
@@ -210,6 +212,7 @@ def backfill(
             sys.exit(1)
 
         completed_partitions = []
+        in_flight_wap = {}
 
     # Validate asset name
     if not asset_name:
@@ -280,6 +283,9 @@ def backfill(
             repository_location_name=wap_config.repository_location_name,
             repository_name=wap_config.repository_name,
             access_token=access_token,
+            completed_partitions=completed_partitions,
+            requested_parallel=parallel,
+            in_flight_wap=in_flight_wap,
         )
         return
 
@@ -303,41 +309,177 @@ def _run_wap_backfill(
     repository_location_name: str | None,
     repository_name: str | None,
     access_token: str | None,
+    completed_partitions: list[str] | None = None,
+    requested_parallel: int = 1,
+    in_flight_wap: dict[str, dict[str, str]] | None = None,
 ) -> None:
-    """Create a WAP branch before submitting each partitioned asset run."""
-    for partition_date in partition_dates:
-        logical_run_id = f"backfill-{uuid.uuid4().hex}"
-        launch = prepare_wap_launch(logical_run_id=logical_run_id)
+    """Run each WAP partition through promotion before creating the next branch.
+
+    A WAP branch is based on ``main`` and can only be promoted against that
+    snapshot. Consequently, partitions targeting one branch cannot safely
+    overlap, even when the caller requested multiple workers.
+    """
+    completed_partitions = completed_partitions or []
+    remaining = [date for date in partition_dates if date not in completed_partitions]
+    successful: list[str] = []
+    in_flight_wap = dict(in_flight_wap or {})
+    if requested_parallel > 1:
+        console.print(
+            "[yellow]WAP backfills serialize partitions through promotion; "
+            "--parallel is limited to 1 for this target.[/yellow]"
+        )
+    for partition_date in remaining:
         try:
-            result = asyncio.run(
-                launch_materialize(
-                    dagster_url=dagster_url,
-                    asset_key_path=asset_name,
-                    job_name=job_name,
-                    repository_location_name=repository_location_name,
-                    repository_name=repository_name,
-                    access_token=access_token,
-                    partition_key=partition_date,
-                    idempotency_key=logical_run_id,
-                    tags=launch.tags,
+            lifecycle = in_flight_wap.get(partition_date)
+            if lifecycle:
+                logical_run_id = lifecycle["logical_run_id"]
+                dagster_run_id = lifecycle["dagster_run_id"]
+                console.print(
+                    f"Reconciling WAP backfill {partition_date} from logical run {logical_run_id}"
                 )
+            else:
+                logical_run_id = f"backfill-{uuid.uuid4().hex}"
+                launch = prepare_wap_launch(logical_run_id=logical_run_id)
+                try:
+                    result = asyncio.run(
+                        launch_materialize(
+                            dagster_url=dagster_url,
+                            asset_key_path=asset_name,
+                            job_name=job_name,
+                            repository_location_name=repository_location_name,
+                            repository_name=repository_name,
+                            access_token=access_token,
+                            partition_key=partition_date,
+                            idempotency_key=logical_run_id,
+                            tags=launch.tags,
+                        )
+                    )
+                except Exception as exc:
+                    launch.record_launch_result(status="launch_ambiguous", error=str(exc))
+                    raise click.ClickException(
+                        f"WAP launch outcome is ambiguous for {partition_date}: {exc}"
+                    ) from exc
+                if not result.accepted:
+                    launch.record_launch_result(status="launch_rejected", error=result.message)
+                    raise click.ClickException(result.message)
+                if not launch.record_launch_result(
+                    status="launched", dagster_run_id=getattr(result, "run_id", None)
+                ):
+                    raise click.ClickException(
+                        "Dagster accepted the WAP run, but its immutable launch manifest could not be stored. "
+                        "The branch was retained."
+                    )
+                dagster_run_id = getattr(result, "run_id", None)
+                if not dagster_run_id:
+                    raise click.ClickException(
+                        "Dagster accepted the WAP run without returning a run ID."
+                    )
+                in_flight_wap[partition_date] = {
+                    "logical_run_id": logical_run_id,
+                    "dagster_run_id": dagster_run_id,
+                }
+                _save_backfill_state(
+                    asset_name,
+                    [
+                        date
+                        for date in partition_dates
+                        if date not in completed_partitions + successful
+                    ],
+                    completed_partitions + successful,
+                    in_flight_wap=in_flight_wap,
+                    emit_log=False,
+                )
+            console.print(
+                f"Waiting for WAP backfill {partition_date} (logical run {logical_run_id})"
             )
+            _wait_for_wap_lifecycle(
+                logical_run_id=logical_run_id,
+                dagster_run_id=dagster_run_id,
+                dagster_url=dagster_url,
+                access_token=access_token,
+            )
+        except WapLifecycleTerminalError:
+            in_flight_wap.pop(partition_date, None)
+            _save_backfill_state(
+                asset_name,
+                [date for date in partition_dates if date not in completed_partitions + successful],
+                completed_partitions + successful,
+                in_flight_wap=in_flight_wap,
+                emit_log=True,
+            )
+            raise
+        except Exception:
+            _save_backfill_state(
+                asset_name,
+                [date for date in partition_dates if date not in completed_partitions + successful],
+                completed_partitions + successful,
+                in_flight_wap=in_flight_wap,
+                emit_log=True,
+            )
+            raise
+        successful.append(partition_date)
+        in_flight_wap.pop(partition_date, None)
+        _save_backfill_state(
+            asset_name,
+            [date for date in partition_dates if date not in completed_partitions + successful],
+            completed_partitions + successful,
+            in_flight_wap=in_flight_wap,
+            emit_log=False,
+        )
+    _remove_backfill_state()
+    console.print("\n[green]✓ WAP backfill complete and promoted![/green]")
+
+
+class WapLifecycleTerminalError(click.ClickException):
+    """A run or promotion reached a terminal failure state."""
+
+
+def _wait_for_wap_lifecycle(
+    *, logical_run_id: str, dagster_run_id: str, dagster_url: str, access_token: str | None
+) -> None:
+    """Wait for both Dagster completion and the WAP promotion receipt."""
+    timeout_seconds = float(os.environ.get("PHLO_WAP_BACKFILL_TIMEOUT_SECONDS", "3600"))
+    poll_seconds = float(os.environ.get("PHLO_WAP_BACKFILL_POLL_SECONDS", "2"))
+    deadline = time.monotonic() + timeout_seconds
+    max_poll_failures = 5
+    poll_failures = 0
+    terminal_run_failures = {"FAILURE", "CANCELED", "CANCELING", "ABORTED"}
+    terminal_promotion_failures = {"promotion_failed", "promotion_blocked", "launch_ambiguous"}
+    while time.monotonic() < deadline:
+        try:
+            status = asyncio.run(
+                get_run_status(
+                    dagster_url=dagster_url, run_id=dagster_run_id, access_token=access_token
+                )
+            ).upper()
+            report = read_wap_report(logical_run_id)
         except Exception as exc:
-            launch.record_launch_result(status="launch_ambiguous", error=str(exc))
-            raise click.ClickException(
-                f"WAP launch outcome is ambiguous for {partition_date}: {exc}"
-            ) from exc
-        if not result.accepted:
-            launch.record_launch_result(status="launch_rejected", error=result.message)
-            raise click.ClickException(result.message)
-        if not launch.record_launch_result(
-            status="launched", dagster_run_id=getattr(result, "run_id", None)
-        ):
-            raise click.ClickException(
-                "Dagster accepted the WAP run, but its immutable launch manifest could not be stored. "
-                "The branch was retained."
+            poll_failures += 1
+            if poll_failures >= max_poll_failures:
+                raise click.ClickException(
+                    f"WAP lifecycle polling failed {poll_failures} times for logical run "
+                    f"{logical_run_id}: {exc}"
+                ) from exc
+            time.sleep(min(poll_seconds * (2**poll_failures), 30))
+            continue
+        poll_failures = 0
+        if status in terminal_run_failures:
+            raise WapLifecycleTerminalError(
+                f"WAP backfill Dagster run failed for logical run {logical_run_id}: {status}"
             )
-        console.print(f"Launched WAP backfill for {partition_date} on {launch.branch}")
+        report_status = report.get("status") if report else None
+        if report_status == "promoted":
+            return
+        if report_status in terminal_promotion_failures:
+            reason = report.get("failure_reason", report_status) if report else report_status
+            raise WapLifecycleTerminalError(
+                f"WAP promotion failed for logical run {logical_run_id}: {reason}"
+            )
+        time.sleep(poll_seconds)
+    raise click.ClickException(
+        f"Timed out waiting for WAP lifecycle of logical run {logical_run_id}; "
+        "run phlo backfill --resume to retry the partition."
+    )
 
 
 def _generate_partition_dates(start_date: str, end_date: str) -> list[str]:
@@ -762,6 +904,7 @@ def _save_backfill_state(
     asset_name: str,
     remaining_partitions: list[str],
     completed_partitions: list[str],
+    in_flight_wap: dict[str, dict[str, str]] | None = None,
     emit_log: bool = False,
 ) -> None:
     """
@@ -771,6 +914,7 @@ def _save_backfill_state(
         asset_name: Asset name
         remaining_partitions: Partitions still to process
         completed_partitions: Completed partitions
+        in_flight_wap: Accepted WAP runs that must be reconciled before resume.
 
     """
     state_dir = BACKFILL_STATE_FILE.parent
@@ -780,6 +924,7 @@ def _save_backfill_state(
         "asset_name": asset_name,
         "remaining_partitions": remaining_partitions,
         "completed_partitions": completed_partitions,
+        "in_flight_wap": in_flight_wap or {},
         "last_updated": datetime.now(timezone.utc).isoformat(),
     }
 

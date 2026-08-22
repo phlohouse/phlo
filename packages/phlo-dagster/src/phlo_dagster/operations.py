@@ -35,6 +35,17 @@ query ExistingMaterializationRun($filter: RunsFilter!) {
 }
 """
 
+RUN_STATUS_QUERY = """
+query RunStatus($runId: ID!) {
+    runOrError(runId: $runId) {
+        __typename
+        ... on Run { runId status }
+        ... on RunNotFoundError { message }
+        ... on PythonError { message }
+    }
+}
+"""
+
 LAUNCH_PIPELINE_REEXECUTION_MUTATION = """
 mutation LaunchPipelineReexecution($executionParams: ExecutionParams, $reexecutionParams: ReexecutionParams) {
     launchPipelineReexecution(executionParams: $executionParams, reexecutionParams: $reexecutionParams) {
@@ -225,6 +236,20 @@ async def launch_retry(
         payload=result.get("data", {}).get("launchPipelineReexecution", {}),
         fallback_run_id=run_id,
     )
+
+
+async def get_run_status(*, dagster_url: str, run_id: str, access_token: str | None = None) -> str:
+    """Return the current Dagster status for a launched run."""
+    result = await _graphql(
+        dagster_url,
+        RUN_STATUS_QUERY,
+        {"runId": run_id},
+        access_token=access_token,
+    )
+    payload = result.get("data", {}).get("runOrError", {})
+    if payload.get("__typename") != "Run":
+        raise RuntimeError(_error_message(payload))
+    return str(payload.get("status") or "UNKNOWN")
 
 
 async def terminate(
