@@ -51,6 +51,26 @@ def test_launch_materialize_posts_asset_selection(monkeypatch) -> None:
     assert "repositoryName" not in selector
 
 
+def test_launch_materialize_exposes_graphql_errors_from_http_500(monkeypatch) -> None:
+    async def fake_post(self, url, json=None, headers=None):  # noqa: ANN001, ANN202, ARG001
+        return httpx.Response(
+            500,
+            request=httpx.Request("POST", url),
+            json={"errors": [{"message": "repositoryName is required"}]},
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    with pytest.raises(RuntimeError, match="repositoryName is required"):
+        asyncio.run(
+            launch_materialize(
+                dagster_url="http://dagster.test/graphql",
+                asset_key_path="silver/orders",
+                job_name="orders_job",
+            )
+        )
+
+
 def test_launch_materialize_uses_the_explicit_user_access_token(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

@@ -74,12 +74,12 @@ class WapConfig(BaseModel):
         description="Dagster asset job used for WAP launches.",
     )
     repository_location_name: str | None = Field(
-        default=None,
-        description="Optional Dagster code-location selector for WAP launches.",
+        default="phlo_dagster.framework.definitions",
+        description="Dagster code-location selector for generated WAP launches.",
     )
     repository_name: str | None = Field(
-        default=None,
-        description="Optional Dagster repository selector for WAP launches.",
+        default="__repository__",
+        description="Dagster repository selector for generated WAP launches.",
     )
     dagster_url: str | None = Field(
         default=None,

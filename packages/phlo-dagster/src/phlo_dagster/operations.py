@@ -342,10 +342,10 @@ async def _graphql(
         response = await client.post(
             url, json={"query": query, "variables": variables}, headers=headers
         )
-        response.raise_for_status()
         payload = response.json()
     if payload.get("errors"):
         raise RuntimeError(payload["errors"][0].get("message", "GraphQL error"))
+    response.raise_for_status()
     return payload
 
 

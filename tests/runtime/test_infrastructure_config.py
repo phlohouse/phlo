@@ -344,6 +344,16 @@ wap:
     assert config.requires_access_token is True
 
 
+def test_load_wap_config_uses_generated_stack_selectors_by_default(tmp_path: Path) -> None:
+    """Generated WAP stacks need selectors even when phlo.yaml only enables WAP."""
+    (tmp_path / "phlo.yaml").write_text("wap:\n  enabled: true\n", encoding="utf-8")
+
+    config = load_wap_config(tmp_path)
+
+    assert config.repository_location_name == "phlo_dagster.framework.definitions"
+    assert config.repository_name == "__repository__"
+
+
 def test_load_wap_config_fails_closed_for_typos_and_insecure_remote_endpoints(
     tmp_path: Path,
 ) -> None:
