@@ -32,7 +32,11 @@ from phlo.logging import get_logger
 from phlo_dbt.runtime_config import ensure_dbt_profile, resolve_dbt_target_name
 from phlo_dbt.settings import get_settings
 
-from phlo_dbt.asset_checks import dbt_asset_check_specs, extract_dbt_asset_checks
+from phlo_dbt.asset_checks import (
+    dbt_asset_check_specs,
+    dbt_asset_check_names,
+    extract_dbt_asset_checks,
+)
 from phlo_dbt.transformer import DbtTransformer, ensure_dbt_manifest
 from phlo_dbt.translator import DbtSpecTranslator
 
@@ -86,6 +90,7 @@ def _asset_deps(unique_id: str, nodes: Mapping[str, Any], asset_keys: dict[str, 
 def _run_dbt_model(
     *,
     model_name: str,
+    asset_key: str,
     project_dir: Path,
     profiles_dir: Path,
     runtime: RuntimeContext,
@@ -106,6 +111,7 @@ def _run_dbt_model(
     """
     target = resolve_dbt_target_name(runtime)
     partition_key = runtime.partition_key
+    test_names = dbt_asset_check_names(manifest, asset_key=asset_key, translator=translator)
 
     transformer = DbtTransformer(
         context=runtime,
@@ -117,11 +123,15 @@ def _run_dbt_model(
 
     result = transformer.run_transform(
         partition_key=partition_key,
-        parameters={"select": [model_name]},
+        parameters={
+            "select": [model_name, *test_names],
+            "indirect_selection": "empty",
+        },
     )
 
     checks = _read_dbt_asset_checks(
-        project_dir=project_dir,
+        asset_key=asset_key,
+        run_results=transformer.build_run_results,
         manifest=manifest,
         translator=translator,
         partition_key=partition_key,
@@ -142,27 +152,26 @@ def _run_dbt_model(
 
 def _read_dbt_asset_checks(
     *,
-    project_dir: Path,
+    asset_key: str,
+    run_results: Mapping[str, Any] | None,
     manifest: Mapping[str, Any],
     translator: DbtSpecTranslator,
     partition_key: str | None,
 ) -> list[CheckResult]:
-    """Read dbt test outcomes produced by the current asset build."""
-    run_results_path = project_dir / "target" / "run_results.json"
-    try:
-        run_results = json.loads(run_results_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        logger.warning("dbt_asset_check_results_unavailable", path=str(run_results_path))
+    """Read dbt test outcomes captured from the current asset build."""
+    if run_results is None:
+        logger.warning("dbt_asset_check_results_unavailable")
         return []
-    if not isinstance(run_results, Mapping):
-        logger.warning("dbt_asset_check_results_invalid", path=str(run_results_path))
-        return []
-    return extract_dbt_asset_checks(
-        run_results,
-        manifest,
-        translator=translator,
-        partition_key=partition_key,
-    )
+    return [
+        check
+        for check in extract_dbt_asset_checks(
+            run_results,
+            manifest,
+            translator=translator,
+            partition_key=partition_key,
+        )
+        if check.asset_key == asset_key
+    ]
 
 
 def build_dbt_asset_specs() -> list[AssetSpec]:
@@ -266,7 +275,7 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
         checks = [check for check in check_specs if check.asset_key == asset_key]
 
         def _runner(
-            runtime: RuntimeContext, model=model_name
+            runtime: RuntimeContext, model=model_name, key=asset_key
         ) -> list[MaterializeResult | CheckResult]:
             """Execute one dbt-backed asset run.
 
@@ -280,6 +289,7 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
             """
             return _run_dbt_model(
                 model_name=model,
+                asset_key=key,
                 project_dir=dbt_project_path,
                 profiles_dir=dbt_profiles_path,
                 runtime=runtime,

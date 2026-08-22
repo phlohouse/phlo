@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from phlo_dbt.asset_checks import dbt_asset_check_specs, extract_dbt_asset_checks
+from phlo_dbt.asset_checks import (
+    dbt_asset_check_names,
+    dbt_asset_check_specs,
+    extract_dbt_asset_checks,
+)
 from phlo_dbt.translator import DbtSpecTranslator
 
 
@@ -64,3 +68,11 @@ def test_dbt_test_specs_and_results_share_unique_attached_node_identity() -> Non
     assert {(result.asset_key, result.check_name) for result in results} == {
         ("sales_facts", name) for name in expected_names
     }
+    assert dbt_asset_check_names(manifest, asset_key="sales_facts", translator=translator) == [
+        "not_null_sales_facts_line_id",
+        "not_null_sales_facts_net_amount",
+        "relationships_sales_facts_product_id",
+    ]
+    assert (
+        dbt_asset_check_names(manifest, asset_key="product_dimension", translator=translator) == []
+    )

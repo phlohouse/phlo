@@ -3,6 +3,7 @@
 These tests do not require a dbt manifest or running services.
 """
 
+import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -323,6 +324,93 @@ def test_run_transform_counts_models_and_tests_from_run_results(tmp_path: Path) 
     assert result.models_failed == 1
     assert result.tests_passed == 2
     assert result.tests_failed == 1
+
+
+def test_run_transform_preserves_build_results_before_docs_overwrites_them(tmp_path: Path) -> None:
+    """The build artifact remains available after dbt docs generate overwrites its file."""
+    transformer = DbtTransformer(
+        context=None,
+        logger=get_logger("test_dbt_transformer_build_results_before_docs"),
+        project_dir=tmp_path,
+        profiles_dir=tmp_path,
+    )
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    build_results = {
+        "args": {"which": "build"},
+        "results": [
+            {"unique_id": "model.phlo.product_dimension", "status": "success"},
+            {"unique_id": "test.phlo.not_null_product_dimension_sku", "status": "pass"},
+        ],
+    }
+    docs_results = {
+        "args": {"which": "generate"},
+        "results": [{"unique_id": "test.phlo.inventory_balances", "status": "pass"}],
+    }
+    run_calls: list[list[str]] = []
+
+    def fake_run_command(args: list[str], env: dict[str, str] | None = None):
+        run_calls.append(args)
+        if args[:1] == ["build"]:
+            (target_dir / "run_results.json").write_text(
+                json.dumps(build_results), encoding="utf-8"
+            )
+        else:
+            assert args[:2] == ["docs", "generate"]
+            (target_dir / "run_results.json").write_text(json.dumps(docs_results), encoding="utf-8")
+        return subprocess.CompletedProcess(
+            args=["dbt"] + args,
+            returncode=0,
+            stdout="PASS=2 WARN=0 ERROR=0 SKIP=0 TOTAL=2",
+            stderr="",
+        )
+
+    transformer._run_command = fake_run_command  # type: ignore[method-assign]
+
+    result = transformer.run_transform(parameters={"indirect_selection": "cautious"})
+
+    assert result.tests_passed == 1
+    assert transformer.build_run_results == build_results
+    assert json.loads((target_dir / "run_results.json").read_text(encoding="utf-8")) == docs_results
+    assert ["--indirect-selection", "cautious"] == run_calls[0][-2:]
+
+
+def test_run_transform_keeps_failed_build_results(tmp_path: Path) -> None:
+    """A failing dbt build still exposes its test evidence to the asset runner."""
+    transformer = DbtTransformer(
+        context=None,
+        logger=get_logger("test_dbt_transformer_failed_build_results"),
+        project_dir=tmp_path,
+        profiles_dir=tmp_path,
+    )
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    failed_results = {
+        "results": [
+            {
+                "unique_id": "test.phlo.not_null_product_dimension_sku",
+                "status": "fail",
+                "failures": 1,
+            }
+        ]
+    }
+
+    def fake_run_command(args: list[str], env: dict[str, str] | None = None):
+        assert args[:1] == ["build"]
+        (target_dir / "run_results.json").write_text(json.dumps(failed_results), encoding="utf-8")
+        return subprocess.CompletedProcess(
+            args=["dbt"] + args,
+            returncode=1,
+            stdout="PASS=0 WARN=0 ERROR=1 SKIP=0 TOTAL=1",
+            stderr="test failed",
+        )
+
+    transformer._run_command = fake_run_command  # type: ignore[method-assign]
+
+    result = transformer.run_transform(parameters={"generate_docs": False})
+
+    assert result.status == "failure"
+    assert transformer.build_run_results == failed_results
 
 
 def test_run_transform_emits_runtime_correlation(

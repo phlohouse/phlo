@@ -26,7 +26,7 @@ def test_dbt_asset_runner_emits_dagster_check_events(
     transform_status: str,
     expected_run_success: bool,
 ) -> None:
-    """Public adapter definitions emit each dbt result as an owned check event."""
+    """A multi-model provider emits only checks owned by the selected asset."""
     project_path = tmp_path / "dbt"
     profiles_path = project_path / "profiles"
     target_path = project_path / "target"
@@ -34,10 +34,16 @@ def test_dbt_asset_runner_emits_dagster_check_events(
     (project_path / "dbt_project.yml").write_text("name: test\nversion: '1.0'\n", encoding="utf-8")
     manifest = {
         "nodes": {
-            "model.phlo.sales_facts": {"name": "sales_facts", "resource_type": "model"},
             "model.phlo.product_dimension": {
                 "name": "product_dimension",
                 "resource_type": "model",
+            },
+            "model.phlo.sales_facts": {"name": "sales_facts", "resource_type": "model"},
+            "test.phlo.not_null_product_dimension_sku": {
+                "name": "not_null_product_dimension_sku",
+                "resource_type": "test",
+                "test_metadata": {"name": "not_null"},
+                "depends_on": {"nodes": ["model.phlo.product_dimension"]},
             },
             "test.phlo.not_null_sales_facts_line_id": {
                 "name": "not_null_sales_facts_line_id",
@@ -68,8 +74,7 @@ def test_dbt_asset_runner_emits_dagster_check_events(
                 "results": [
                     {"unique_id": unique_id, "status": test_status, "failures": 3}
                     for unique_id in (
-                        "test.phlo.not_null_sales_facts_line_id",
-                        "test.phlo.not_null_sales_facts_net_amount",
+                        "test.phlo.not_null_product_dimension_sku",
                         "test.phlo.relationships_sales_facts_product_id",
                     )
                 ]
@@ -90,19 +95,40 @@ def test_dbt_asset_runner_emits_dagster_check_events(
 
     class FakeTransformer:
         def __init__(self, **_kwargs) -> None:
-            pass
+            self.build_run_results = None
 
-        def run_transform(self, **_kwargs) -> TransformationResult:
+        def run_transform(self, **kwargs) -> TransformationResult:
+            assert kwargs["parameters"] == {
+                "select": ["product_dimension", "not_null_product_dimension_sku"],
+                "indirect_selection": "empty",
+            }
+            self.build_run_results = json.loads(
+                (target_path / "run_results.json").read_text(encoding="utf-8")
+            )
+            (target_path / "run_results.json").write_text(
+                json.dumps(
+                    {
+                        "args": {"which": "generate"},
+                        "results": [
+                            {
+                                "unique_id": "test.phlo.not_null_product_dimension_sku",
+                                "status": "pass",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
             return TransformationResult(
                 status=transform_status,
                 models_built=1 if transform_status == "success" else 0,
                 models_failed=0 if transform_status == "success" else 1,
-                tests_passed=3 if test_status == "pass" else 0,
-                tests_failed=3 if test_status == "fail" else 0,
+                tests_passed=1 if test_status == "pass" else 0,
+                tests_failed=1 if test_status == "fail" else 0,
             )
 
     monkeypatch.setattr("phlo_dbt.assets.DbtTransformer", FakeTransformer)
-    spec = next(spec for spec in build_dbt_asset_specs() if spec.key == "sales_facts")
+    spec = next(spec for spec in build_dbt_asset_specs() if spec.key == "product_dimension")
     definitions = DagsterOrchestratorAdapter().build_definitions(
         assets=[spec], checks=[], resources=[]
     )
@@ -116,9 +142,14 @@ def test_dbt_asset_runner_emits_dagster_check_events(
         for event in result.all_events
         if event.event_type == dg.DagsterEventType.ASSET_CHECK_EVALUATION
     ]
-    assert len(evaluations) == 3
-    assert all(evaluation.asset_key == dg.AssetKey("sales_facts") for evaluation in evaluations)
+    assert len(evaluations) == 1
+    assert all(
+        evaluation.asset_key == dg.AssetKey("product_dimension") for evaluation in evaluations
+    )
     assert all(evaluation.passed is (test_status == "pass") for evaluation in evaluations)
     assert all(
         evaluation.metadata["partition_key"].value == "2025-01-01" for evaluation in evaluations
     )
+    assert json.loads((target_path / "run_results.json").read_text(encoding="utf-8"))["args"] == {
+        "which": "generate"
+    }

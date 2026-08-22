@@ -309,6 +309,33 @@ def dbt_asset_check_specs(
     return specs
 
 
+def dbt_asset_check_names(
+    manifest: Mapping[str, Any], *, asset_key: str, translator: DbtSpecTranslator
+) -> list[str]:
+    """Return dbt-selectable test names owned by a dbt asset.
+
+    Ownership uses the same ``attached_node``-first resolution as declared
+    asset checks, so relationship tests belong to their attached model rather
+    than every model listed in ``depends_on.nodes``.
+    """
+    test_names: list[str] = []
+    for unique_id, test_props in _manifest_nodes(manifest).items():
+        if not isinstance(unique_id, str) or not unique_id.startswith("test."):
+            continue
+        if not isinstance(test_props, Mapping):
+            continue
+        resolved = _resolve_dbt_test(manifest, unique_id, test_props, translator)
+        name = test_props.get("name")
+        if (
+            resolved is not None
+            and resolved.asset_key == asset_key
+            and isinstance(name, str)
+            and name
+        ):
+            test_names.append(name)
+    return test_names
+
+
 @dataclass(frozen=True, slots=True)
 class _ResolvedDbtTest:
     """Shared target and identity contract for a manifest dbt test."""

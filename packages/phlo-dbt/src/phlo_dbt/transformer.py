@@ -137,23 +137,13 @@ def _parse_run_results_counts(payload: Mapping[str, Any]) -> dict[str, int] | No
     return counts
 
 
-def _read_run_results_counts(path: Path) -> dict[str, int] | None:
-    """Read dbt run results counts from disk.
-
-    Args:
-        path: Path to ``run_results.json``.
-
-    Returns:
-        Parsed count mapping when available; otherwise ``None``.
-
-    """
+def _read_run_results(path: Path) -> Mapping[str, Any] | None:
+    """Read a dbt run-results artifact when it contains a JSON object."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    if not isinstance(payload, Mapping):
-        return None
-    return _parse_run_results_counts(payload)
+    return payload if isinstance(payload, Mapping) else None
 
 
 def _latest_project_mtime(dbt_project_path: Path) -> float:
@@ -354,6 +344,7 @@ class DbtTransformer(BaseTransformer):
         self.profiles_dir = profiles_dir
         self.target = target
         self.dbt_executable = dbt_executable
+        self.build_run_results: Mapping[str, Any] | None = None
 
     @staticmethod
     def _sanitize_command_args_for_logging(args: list[str]) -> list[str]:
@@ -443,8 +434,10 @@ class DbtTransformer(BaseTransformer):
 
         """
         parameters = parameters or {}
+        self.build_run_results = None
         select_args = parameters.get("select", [])
         exclude_args = parameters.get("exclude", [])
+        indirect_selection = parameters.get("indirect_selection")
         skip_build = parameters.get("skip_build", False)
         ensure_dbt_profile(self.profiles_dir, runtime=self.context, target=self.target)
 
@@ -464,6 +457,9 @@ class DbtTransformer(BaseTransformer):
         if exclude_args:
             build_args.append("--exclude")
             build_args.extend(exclude_args)
+
+        if indirect_selection:
+            build_args.extend(["--indirect-selection", str(indirect_selection)])
 
         if partition_key:
             build_args.extend(["--vars", f'{{"partition_date_str": "{partition_key}"}}'])
@@ -531,6 +527,9 @@ class DbtTransformer(BaseTransformer):
             if not skip_build:
                 result = self._run_command(build_args)
                 result_stdout = result.stdout
+                self.build_run_results = _read_run_results(
+                    self.project_dir / "target" / "run_results.json"
+                )
 
                 if result.returncode != 0:
                     raise RuntimeError(
@@ -588,9 +587,12 @@ class DbtTransformer(BaseTransformer):
             }
             if not skip_build:
                 counts_source = "run_results"
-                counts = _read_run_results_counts(
-                    self.project_dir / "target" / "run_results.json"
-                ) or {
+                counts = (
+                    _parse_run_results_counts(self.build_run_results)
+                    if self.build_run_results
+                    else None
+                )
+                counts = counts or {
                     "models_built": -1,
                     "models_failed": -1,
                     "tests_passed": -1,
