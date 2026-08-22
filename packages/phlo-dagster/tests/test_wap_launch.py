@@ -5,7 +5,14 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from phlo_dagster.wap_launch import WAP_BRANCH_TAG, WAP_REF_TAG, WAP_RUN_ID_TAG, prepare_wap_launch
+from phlo_dagster.wap_launch import (
+    WAP_ATTEMPT_TAG,
+    WAP_BRANCH_TAG,
+    WAP_PROJECT_ID_TAG,
+    WAP_REF_TAG,
+    WAP_RUN_ID_TAG,
+    prepare_wap_launch,
+)
 
 
 class _Catalog:
@@ -39,6 +46,10 @@ def test_prepare_wap_launch_creates_deterministic_branch_tags_and_manifest(
     catalog = _Catalog()
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setattr(
+        "phlo_dagster.wap_launch.get_settings",
+        lambda: SimpleNamespace(phlo_project="warehouse"),
+    )
+    monkeypatch.setattr(
         "phlo_dagster.wap_launch.resolve_capability",
         lambda _: SimpleNamespace(
             provider=catalog,
@@ -54,6 +65,8 @@ def test_prepare_wap_launch_creates_deterministic_branch_tags_and_manifest(
         WAP_RUN_ID_TAG: "request-42",
         WAP_BRANCH_TAG: "pipeline-run-request-42",
         WAP_REF_TAG: "pipeline-run-request-42",
+        WAP_PROJECT_ID_TAG: "warehouse",
+        WAP_ATTEMPT_TAG: "1",
     }
     assert catalog.created == [("pipeline-run-request-42", "main")]
     report = json.loads(
@@ -74,6 +87,10 @@ def test_prepare_wap_launch_creates_deterministic_branch_tags_and_manifest(
 def test_prepare_wap_launch_refuses_to_reuse_an_existing_branch(monkeypatch) -> None:
     catalog = _Catalog({"main": "main-hash", "pipeline-run-request-42": "old-hash"})
     monkeypatch.setattr(
+        "phlo_dagster.wap_launch.get_settings",
+        lambda: SimpleNamespace(phlo_project="warehouse"),
+    )
+    monkeypatch.setattr(
         "phlo_dagster.wap_launch.resolve_capability",
         lambda _: SimpleNamespace(
             provider=catalog,
@@ -88,3 +105,19 @@ def test_prepare_wap_launch_refuses_to_reuse_an_existing_branch(monkeypatch) -> 
 
     assert catalog.created == []
     assert catalog.deleted == []
+
+
+def test_prepare_wap_launch_requires_project_before_creating_a_branch(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "phlo_dagster.wap_launch.get_settings",
+        lambda: SimpleNamespace(phlo_project=None),
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.wap_launch.resolve_capability",
+        lambda _: (_ for _ in ()).throw(AssertionError("must not resolve the catalog")),
+    )
+
+    import pytest
+
+    with pytest.raises(Exception, match="requires PHLO_PROJECT"):
+        prepare_wap_launch(logical_run_id="request-42")

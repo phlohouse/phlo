@@ -141,7 +141,12 @@ def test_wap_materialize_tags_survive_retry(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
-    tags = {"phlo/run_id": "request-42", "phlo/wap_branch": "pipeline-run-request-42"}
+    tags = {
+        "phlo/run_id": "request-42",
+        "phlo/wap_branch": "pipeline-run-request-42",
+        "phlo/project_id": "warehouse",
+        "phlo/attempt": "1",
+    }
 
     asyncio.run(
         launch_materialize(
@@ -166,6 +171,8 @@ def test_wap_materialize_tags_survive_retry(monkeypatch) -> None:
     launch_tag_map = {tag["key"]: tag["value"] for tag in launch_tags}
     assert launch_tag_map["phlo/wap_branch"] == "pipeline-run-request-42"
     assert launch_tag_map["phlo/idempotency_key"] == "request-42"
+    assert launch_tag_map["phlo/project_id"] == "warehouse"
+    assert launch_tag_map["phlo/attempt"] == "1"
     assert retry["useParentRunTags"] is True
     assert {tag["key"]: tag["value"] for tag in retry["extraTags"]}["phlo/run_id"] == "request-42"
 

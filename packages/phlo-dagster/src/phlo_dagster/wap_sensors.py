@@ -68,7 +68,9 @@ from phlo.run_evidence import (
 )
 from phlo_dagster.run_evidence import DagsterRunEvidenceSource
 from phlo_dagster.wap_launch import (
+    WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
+    WAP_PROJECT_ID_TAG,
     WAP_REF_TAG,
     WAP_RUN_ID_TAG,
     _report_path,
@@ -415,10 +417,22 @@ def _verify_wap_launch_manifest(run: Any, branch_name: str) -> tuple[str, dict[s
     logical_run_id = _logical_run_id(run)
     dagster_run_id = str(getattr(run, "run_id", "") or "")
     tags = getattr(run, "tags", {}) or {}
+    project = _project_identity_for_run(run)
+    attempt, attempt_error = attempt_from_tags(tags)
+    if (
+        not project.project_id
+        or attempt is None
+        or attempt_error
+        or tags.get(WAP_PROJECT_ID_TAG) != project.project_id
+        or tags.get(WAP_ATTEMPT_TAG) != str(attempt)
+    ):
+        return None
     expected_tags = {
         WAP_RUN_ID_TAG: logical_run_id,
         WAP_BRANCH_TAG: branch_name,
         WAP_REF_TAG: branch_name,
+        WAP_PROJECT_ID_TAG: project.project_id,
+        WAP_ATTEMPT_TAG: str(attempt),
     }
     if (
         not logical_run_id

@@ -15,6 +15,7 @@ from phlo_dagster.wap_sensors import (
     _cleanup_owned_wap_branch,
     _quality_evidence,
     _project_identity_for_run,
+    _verify_wap_launch_manifest,
     _wap_branch_name,
     wap_auto_promotion_sensor,
     wap_branch_cleanup_sensor,
@@ -31,11 +32,20 @@ from phlo.run_evidence.hooks import CoreRunEvidenceHookProvider
 # ---------------------------------------------------------------------------
 
 
-def _write_launch_manifest(logical_run_id: str, dagster_run_id: str, branch: str) -> None:
+def _write_launch_manifest(
+    logical_run_id: str,
+    dagster_run_id: str,
+    branch: str,
+    *,
+    project_id: str = "project",
+    attempt: int = 1,
+) -> None:
     tags = {
         "phlo/run_id": logical_run_id,
         "phlo/wap_branch": branch,
         "phlo/ref": branch,
+        "phlo/project_id": project_id,
+        "phlo/attempt": str(attempt),
     }
     checksum = _write_immutable_launch_manifest(
         logical_run_id=logical_run_id,
@@ -58,6 +68,39 @@ def _write_launch_manifest(logical_run_id: str, dagster_run_id: str, branch: str
 
 def test_wap_branch_name():
     assert _wap_branch_name("abc123") == "pipeline-run-abc123"
+
+
+def test_wap_launch_manifest_requires_immutable_project_and_attempt_tags(monkeypatch, tmp_path):
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    logical_run_id = "logical-correlation"
+    dagster_run_id = "run-correlation"
+    branch = _wap_branch_name(logical_run_id)
+    _write_launch_manifest(
+        logical_run_id,
+        dagster_run_id,
+        branch,
+        project_id="warehouse",
+        attempt=2,
+    )
+    run = SimpleNamespace(
+        run_id=dagster_run_id,
+        tags={
+            "phlo/run_id": logical_run_id,
+            "phlo/wap_branch": branch,
+            "phlo/ref": branch,
+            "phlo/project_id": "warehouse",
+            "phlo/attempt": "2",
+        },
+    )
+
+    assert _verify_wap_launch_manifest(run, branch) is not None
+
+    run.tags["phlo/project_id"] = "other-project"
+    assert _verify_wap_launch_manifest(run, branch) is None
+
+    run.tags["phlo/project_id"] = "warehouse"
+    run.tags.pop("phlo/attempt")
+    assert _verify_wap_launch_manifest(run, branch) is None
 
 
 def test_wap_sensors_default_to_running() -> None:
@@ -326,7 +369,7 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(monkeypatch
     dagster_run_id = "run-promote"
     logical_run_id = "logical-promote"
     branch = _wap_branch_name(logical_run_id)
-    _write_launch_manifest(logical_run_id, dagster_run_id, branch)
+    _write_launch_manifest(logical_run_id, dagster_run_id, branch, project_id="project-promote")
 
     check_record = SimpleNamespace(
         storage_id=42,
@@ -408,7 +451,7 @@ def test_wap_quality_rejection_retains_owned_query_catalog_and_branch(monkeypatc
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     run_id = "run-rejected"
     branch = _wap_branch_name(run_id)
-    _write_launch_manifest(run_id, run_id, branch)
+    _write_launch_manifest(run_id, run_id, branch, project_id="project-rejected")
     run = SimpleNamespace(
         run_id=run_id,
         tags={
@@ -479,7 +522,7 @@ def test_wap_cleanup_keeps_branch_when_query_catalog_cleanup_fails(monkeypatch, 
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     run_id = "run-catalog-failure"
     branch = _wap_branch_name(run_id)
-    _write_launch_manifest(run_id, run_id, branch)
+    _write_launch_manifest(run_id, run_id, branch, project_id="project-catalog-failure")
     run = SimpleNamespace(
         run_id=run_id,
         tags={
@@ -661,7 +704,7 @@ def test_wap_merge_failure_preserves_successful_dagster_run_status(monkeypatch, 
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     run_id = "run-merge-failure"
     branch = _wap_branch_name(run_id)
-    _write_launch_manifest(run_id, run_id, branch)
+    _write_launch_manifest(run_id, run_id, branch, project_id="project-merge-failure")
     run = SimpleNamespace(
         run_id=run_id,
         tags={

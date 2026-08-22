@@ -11,14 +11,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from phlo._correlation import resolve_project_identity
 from phlo.capabilities.interfaces import VersionedCatalog
 from phlo.capabilities.resolver import resolve_capability
+from phlo.config import get_settings
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 
 WAP_BRANCH_TAG = "phlo/wap_branch"
 WAP_REF_TAG = "phlo/ref"
 WAP_RUN_ID_TAG = "phlo/run_id"
+WAP_PROJECT_ID_TAG = "phlo/project_id"
+WAP_ATTEMPT_TAG = "phlo/attempt"
 WAP_BRANCH_PREFIX = "pipeline-run-"
 logger = get_logger(__name__)
 
@@ -149,6 +153,8 @@ class WapLaunch:
     created_branch: bool
     source_hash: str | None
     target_hash_before: str | None
+    project_id: str
+    attempt: int
 
     @property
     def tags(self) -> dict[str, str]:
@@ -157,6 +163,8 @@ class WapLaunch:
             WAP_RUN_ID_TAG: self.logical_run_id,
             WAP_BRANCH_TAG: self.branch,
             WAP_REF_TAG: self.branch,
+            WAP_PROJECT_ID_TAG: self.project_id,
+            WAP_ATTEMPT_TAG: str(self.attempt),
         }
 
     def cleanup_if_created(self) -> None:
@@ -205,6 +213,13 @@ class WapLaunch:
 
 def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
     """Create a WAP branch and tags before asking Dagster to start work."""
+    project = resolve_project_identity(configured_project=get_settings().phlo_project)
+    if not project.project_id:
+        raise PhloConfigError(
+            message="WAP materialization requires PHLO_PROJECT for run correlation.",
+            suggestions=["Set PHLO_PROJECT before retrying the WAP materialization."],
+        )
+    attempt = 1
     resolution = resolve_capability("catalog")
     if resolution is None or not (
         resolution.support.supports_refs and resolution.support.supports_promote
@@ -243,6 +258,8 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
         created_branch=True,
         source_hash=source_hash,
         target_hash_before=target_hash_before,
+        project_id=project.project_id,
+        attempt=attempt,
     )
     if not launch.record_launch_result(status="branch_created"):
         raise PhloConfigError(
