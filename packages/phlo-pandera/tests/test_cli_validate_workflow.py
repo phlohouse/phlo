@@ -72,8 +72,11 @@ def events(partition_date: str) -> None:
 
 
 def test_validate_workflow_recognizes_preferred_phlo_ingestion_decorator() -> None:
-    """Recognizes @phlo.ingestion while keeping @phlo_ingestion supported."""
+    """Recognizes public and legacy ingestion decorator spellings."""
     source = """
+@phlo.ingest.dlt(table_name="events")
+def dlt_facade(): pass
+
 @phlo.ingestion(table_name="events")
 def preferred(): pass
 
@@ -86,6 +89,44 @@ def legacy(): pass
     ]
 
     assert all(_is_phlo_ingestion_decorator(decorator) for decorator in decorators)
+
+
+def test_validate_workflow_recognizes_phlo_ingest_dlt_facade(tmp_path) -> None:
+    """Finds workflows decorated with the public @phlo.ingest.dlt facade."""
+    workflow_file = tmp_path / "dlt_workflow.py"
+    workflow_file.write_text(
+        """
+class Ingest:
+    @staticmethod
+    def dlt(**kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
+
+class Phlo:
+    ingest = Ingest()
+
+
+phlo = Phlo()
+
+
+@phlo.ingest.dlt(
+    table_name="events",
+    unique_key="id",
+    group="demo",
+    cron="0 */1 * * *",
+)
+def events(partition_date: str) -> None:
+    return None
+"""
+    )
+
+    result = CliRunner().invoke(validate_workflow, [str(workflow_file)])
+
+    assert result.exit_code == 0
+    assert "Found 1 workflow" in result.output
 
 
 class TestValidateCronField:

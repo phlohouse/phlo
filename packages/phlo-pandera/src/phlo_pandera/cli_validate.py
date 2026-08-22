@@ -458,8 +458,14 @@ def _is_phlo_ingestion_decorator(decorator: ast.expr) -> bool:
     if isinstance(target, ast.Name):
         return target.id == "phlo_ingestion"
     if isinstance(target, ast.Attribute):
-        return _dotted_name(target) in {"phlo.ingestion", "phlo.ingestion.phlo_ingestion"} or (
-            target.attr == "phlo_ingestion"
+        return (
+            _dotted_name(target)
+            in {
+                "phlo.ingest.dlt",
+                "phlo.ingestion",
+                "phlo.ingestion.phlo_ingestion",
+            }
+            or target.attr == "phlo_ingestion"
         )
     return False
 
@@ -479,7 +485,11 @@ def _dotted_name(node: ast.expr) -> str | None:
 def _line_has_ingestion_decorator(line: str) -> bool:
     """Return whether a source line starts a supported ingestion decorator."""
     stripped = line.strip()
-    return stripped.startswith("@phlo.ingestion") or stripped.startswith("@phlo_ingestion")
+    return (
+        stripped.startswith("@phlo.ingest.dlt")
+        or stripped.startswith("@phlo.ingestion")
+        or stripped.startswith("@phlo_ingestion")
+    )
 
 
 def _extract_decorator_params(func: Any) -> dict:
