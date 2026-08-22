@@ -446,6 +446,59 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(monkeypatch
     )
 
 
+@pytest.mark.parametrize(
+    ("dagster_status", "report_status", "failure_reason"),
+    [
+        (dg.DagsterRunStatus.FAILURE, "failed", "dagster_run_failed"),
+        (dg.DagsterRunStatus.CANCELED, "cancelled", "dagster_run_cancelled"),
+    ],
+)
+def test_wap_terminal_run_is_reported_and_not_promoted(
+    monkeypatch,
+    tmp_path,
+    dagster_status,
+    report_status,
+    failure_reason,
+):
+    """Failed and cancelled runs retain audit refs until cleanup retention expires."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    logical_run_id = "logical-failed"
+    dagster_run_id = "run-failed"
+    branch = _wap_branch_name(logical_run_id)
+    _write_launch_manifest(logical_run_id, dagster_run_id, branch)
+    run = SimpleNamespace(
+        run_id=dagster_run_id,
+        status=dagster_status,
+        tags={
+            "phlo/run_id": logical_run_id,
+            "phlo/wap_branch": branch,
+            "phlo/ref": branch,
+            "phlo/project_id": "project",
+            "phlo/attempt": "1",
+        },
+    )
+    instance = MagicMock()
+    instance.get_runs.return_value = [run]
+    catalog = MagicMock()
+    query_catalog_manager = MagicMock()
+    monkeypatch.setattr("phlo_dagster.wap_sensors._load_versioned_catalog", lambda: catalog)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors._load_ref_query_catalog_manager",
+        lambda: query_catalog_manager,
+    )
+    context = MagicMock(instance=instance, cursor=None)
+
+    wap_auto_promotion_sensor._raw_fn(context)
+
+    report = json.loads((tmp_path / ".phlo" / "wap-reports" / f"{logical_run_id}.json").read_text())
+    assert report["status"] == report_status
+    assert report["failure_reason"] == failure_reason
+    assert report["dagster_run_id"] == dagster_run_id
+    catalog.merge_branch.assert_not_called()
+    query_catalog_manager.drop_ref_query_catalog.assert_not_called()
+    catalog.delete_branch.assert_not_called()
+
+
 def test_wap_quality_rejection_retains_owned_query_catalog_and_branch(monkeypatch, tmp_path):
     """A rejected quality decision retains the WAP ref for audit."""
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))

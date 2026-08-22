@@ -1919,12 +1919,14 @@ def _load_wap_report_operations() -> list[ObservatoryOperation]:
         run_id = _coerce_str(payload.get("run_id"), path.stem)
         branch = _coerce_str(payload.get("branch"), "unknown")
         status = _coerce_str(payload.get("status"), "unknown")
-        succeeded = status == "promoted"
-        failed = status.endswith("_failed")
+        succeeded = status in {"promoted", "cleanup_complete"}
+        failed = status in {"failed", "cancelled", "promotion_blocked"} or status.endswith(
+            "_failed"
+        )
         operations.append(
             ObservatoryOperation(
                 id=f"wap:{run_id}",
-                name="WAP publish" if succeeded else "WAP lifecycle",
+                name="WAP publish" if status == "promoted" else "WAP lifecycle",
                 kind="wap",
                 status="succeeded" if succeeded else "failed" if failed else "running",
                 health=ObservatoryHealth(

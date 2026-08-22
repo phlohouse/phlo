@@ -574,8 +574,11 @@ def _emit_wap_observation(
 def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
     """Merge pipeline branches whose runs succeeded with all checks passing.
 
-    Scans for SUCCESS runs tagged with a WAP branch. For each, verifies that
-    no asset checks failed, then merges the branch to main and cleans up.
+    Scans terminal runs tagged with a WAP branch. Failed and cancelled runs
+    are terminalized in their durable reports but retain their branches and
+    optional query catalogs for audit until the cleanup sensor's retention
+    policy applies. For successful runs, verifies that no asset checks failed,
+    then merges the branch to main and cleans up.
 
     Args:
         context: Dagster sensor evaluation context.
@@ -603,10 +606,14 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
         (cursor_ts - timedelta(minutes=5)) if cursor_ts else (evaluation_time - timedelta(hours=1))
     )
 
-    success_runs = list(
+    terminal_runs = list(
         instance.get_runs(
             filters=dg.RunsFilter(
-                statuses=[dg.DagsterRunStatus.SUCCESS],
+                statuses=[
+                    dg.DagsterRunStatus.SUCCESS,
+                    dg.DagsterRunStatus.FAILURE,
+                    dg.DagsterRunStatus.CANCELED,
+                ],
                 updated_after=cutoff,
             )
         )
@@ -615,7 +622,7 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
     promoted = 0
     blocked = 0
 
-    for run in success_runs:
+    for run in terminal_runs:
         run_tags = run.tags or {}
         branch_name = run_tags.get(WAP_TAG_KEY)
         if not branch_name:
@@ -648,6 +655,29 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
                 branch_name=branch_name,
             )
             blocked += 1
+            continue
+
+        run_status = _normalized_dagster_status(run)
+        if run_status in {"failed", "cancelled"}:
+            # Failed WAP runs are audit artifacts, like quality-rejected
+            # runs. The cleanup sensor owns their eventual removal after its
+            # retention period; promotion must never clean them up eagerly.
+            if not write_wap_report(
+                _logical_run_id(run),
+                status=run_status,
+                branch=branch_name,
+                dagster_run_id=run.run_id,
+                failure_reason=f"dagster_run_{run_status}",
+            ):
+                logger.warning("wap_terminal_run_report_write_failed", run_id=run.run_id)
+                continue
+            blocked += 1
+            logger.info(
+                "wap_promotion_skipped_terminal_failed_run_branch_retained",
+                run_id=run.run_id,
+                branch_name=branch_name,
+                run_status=run_status,
+            )
             continue
 
         if not _all_checks_passed(instance, run.run_id):
@@ -940,7 +970,7 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
             "wap_auto_promotion_sensor_completed",
             promoted=promoted,
             blocked=blocked,
-            scanned_runs=len(success_runs),
+            scanned_runs=len(terminal_runs),
         )
 
     context.update_cursor(evaluation_time.isoformat())

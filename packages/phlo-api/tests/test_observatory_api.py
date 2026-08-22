@@ -3436,6 +3436,45 @@ def test_observatory_operations_include_wap_reports(monkeypatch, tmp_path: Path)
     assert wap["metadata"]["target_hash_after"] == "after"
 
 
+@pytest.mark.parametrize(
+    ("report_status", "operation_status", "health_state"),
+    [
+        ("failed", "failed", "error"),
+        ("cancelled", "failed", "error"),
+        ("promotion_blocked", "failed", "error"),
+        ("cleanup_complete", "succeeded", "ok"),
+    ],
+)
+def test_observatory_operations_classify_terminal_wap_reports(
+    monkeypatch,
+    tmp_path: Path,
+    report_status: str,
+    operation_status: str,
+    health_state: str,
+) -> None:
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    reports_dir = tmp_path / ".phlo" / "wap-reports"
+    reports_dir.mkdir(parents=True)
+    (reports_dir / "run-terminal.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run-terminal",
+                "status": report_status,
+                "branch": "pipeline-run-terminal",
+                "updated_at": "2026-06-17T10:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    observatory._clear_read_model_cache()
+
+    payload = authenticated_client("admin").get("/api/observatory/operations").json()
+
+    wap = next(item for item in payload["items"] if item["id"] == "wap:run-terminal")
+    assert wap["status"] == operation_status
+    assert wap["health"]["state"] == health_state
+
+
 def test_observatory_branch_detail_uses_wap_report_tables_when_catalog_tables_missing(
     monkeypatch, tmp_path: Path
 ) -> None:
