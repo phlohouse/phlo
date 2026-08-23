@@ -1,11 +1,14 @@
-FROM python:3.12-alpine AS phlo-build-context
+# Debian (glibc) is required, not Alpine (musl): ingestion providers such as
+# phlo-sling execute external binaries that upstream publishes glibc-only. The
+# Sling CLI fails under musl even with gcompat (fcntl64 relocation missing).
+FROM python:3.12-slim AS phlo-build-context
 
 WORKDIR /opt/phlo-build-context
 
 COPY . .
 RUN mkdir -p /opt/phlo-build-context/wheelhouse
 
-FROM python:3.12-alpine
+FROM python:3.12-slim
 
 WORKDIR /opt/dagster
 
@@ -14,19 +17,18 @@ ARG PHLO_DBT_VERSION=""
 ARG PHLO_DAGSTER_VERSION=""
 ARG PHLO_WHEELHOUSE=""
 
-# Install system dependencies and uv
-RUN apk upgrade --no-cache \
-    && apk add --no-cache \
-        bash=5.3.9-r1 \
-        ca-certificates=20260611-r0 \
-        cargo=1.96.1-r0 \
-        curl=8.21.0-r0 \
-        gcc=15.2.0-r5 \
-        g++=15.2.0-r5 \
-        git=2.54.0-r0 \
-        musl-dev=1.2.6-r2 \
-        rust=1.96.1-r0 \
-        su-exec=0.3-r0 \
+# Install system dependencies and uv.
+# gosu performs the entrypoint privilege drop.
+# No C/C++/Rust toolchain: every pinned Python dependency ships manylinux
+# wheels on glibc, so source builds are not expected in this image.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        bash=5.2.37-2+b9 \
+        ca-certificates=20250419 \
+        curl=8.14.1-2+deb13u4 \
+        git=1:2.47.3-0+deb13u1 \
+        gosu=1.17-3+b4 \
+    && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir "uv==0.12.5"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -71,8 +73,8 @@ RUN rm -rf /root/.cache/uv /root/.cache/puccinialin /root/.cargo/registry
 # Keep entrypoint outside /opt/dagster so dev volume mounts never hide it.
 COPY dagster/entrypoint.sh /usr/local/bin/phlo-dagster-entrypoint.sh
 RUN chmod +x /usr/local/bin/phlo-dagster-entrypoint.sh \
-    && addgroup -S phlo \
-    && adduser -S -G phlo -h /opt/dagster -H phlo \
+    && groupadd --system phlo \
+    && useradd --system --gid phlo --no-create-home --home-dir /opt/dagster phlo \
     && chown -R phlo:phlo /opt/dagster
 
 # Copy workspace configuration

@@ -11,7 +11,7 @@ import pytest
 def test_dagster_runtime_image_installs_prerelease_phlo_with_postgres_driver() -> None:
     dockerfile = resources.files("phlo_dagster").joinpath("Dockerfile").read_text()
 
-    assert dockerfile.startswith("FROM python:3.12-alpine")
+    assert "FROM python:3.12-slim" in dockerfile
     assert (
         'uv pip install --system --no-deps --prerelease explicit "phlo==$PHLO_VERSION"'
         in dockerfile
@@ -27,10 +27,22 @@ def test_dagster_runtime_image_installs_prerelease_phlo_with_postgres_driver() -
         '"$PHLO_DAGSTER_REQUIREMENT" "PyJWT[crypto]>=2.13.0" "cryptography>=48.0.1"' in dockerfile
     )
     assert 'pip install --no-cache-dir "uv==0.12.5"' in dockerfile
-    assert "cargo=1.96.1-r0" in dockerfile
-    assert "rust=1.96.1-r0" in dockerfile
-    assert "g++=15.2.0-r5" in dockerfile
-    assert "su-exec=0.3-r0" in dockerfile
+    assert ("apt-get install --yes --no-install-recommends \\\n") in dockerfile
+    assert "gosu=1.17-3+b4" in dockerfile
+    assert "bash=5.2.37-2+b9" in dockerfile
+
+
+def test_dagster_runtime_image_is_glibc_based_for_external_binaries() -> None:
+    """Ingestion providers execute glibc-linked external binaries (Sling).
+
+    Sling publishes no musl build and its binary fails under gcompat, so an
+    Alpine base silently breaks every phlo.ingest.sling asset at runtime.
+    """
+    dockerfile = resources.files("phlo_dagster").joinpath("Dockerfile").read_text()
+
+    assert "FROM python:3.12-slim" in dockerfile
+    assert "apk" not in dockerfile
+    assert "su-exec" not in dockerfile
 
 
 def test_dagster_runtime_image_pins_dbt_when_the_provider_version_is_populated() -> None:
@@ -88,9 +100,9 @@ def test_dagster_runtime_entrypoint_installs_mounted_project() -> None:
     assert 'runtime_home="/var/lib/phlo-runtime"' in entrypoint
     assert 'mkdir -p "$runtime_home"' in entrypoint
     assert 'chown "$runtime_user" "$runtime_home"' in entrypoint
-    assert 'exec su-exec "$runtime_user" env HOME="$runtime_home" "$@"' in entrypoint
+    assert 'exec gosu "$runtime_user" env HOME="$runtime_home" "$@"' in entrypoint
     assert entrypoint.index("(cd /app && uv pip install --system -e .)") < entrypoint.index(
-        'exec su-exec "$runtime_user" env HOME="$runtime_home" "$@"'
+        'exec gosu "$runtime_user" env HOME="$runtime_home" "$@"'
     )
 
 
@@ -123,8 +135,8 @@ def test_dagster_runtime_entrypoint_gives_an_unmapped_uid_an_isolated_writable_h
     (tmp_path / "Dockerfile").write_text(
         "\n".join(
             [
-                "FROM python:3.12-alpine",
-                "RUN apk add --no-cache bash su-exec",
+                "FROM python:3.12-slim",
+                "RUN apt-get update && apt-get install --yes --no-install-recommends bash gosu",
                 "RUN mkdir -p /opt/dagster",
                 "COPY entrypoint.sh /usr/local/bin/phlo-dagster-entrypoint.sh",
                 "RUN chmod +x /usr/local/bin/phlo-dagster-entrypoint.sh",

@@ -844,7 +844,7 @@ def test_dagster_build_receives_a_local_wheelhouse_arg() -> None:
     assert "PHLO_WHEELHOUSE: ${PHLO_WHEELHOUSE:-}" in service
     assert "PHLO_WHEELHOUSE: ${PHLO_WHEELHOUSE:-}" in daemon
     assert 'ARG PHLO_WHEELHOUSE=""' in dockerfile
-    assert "FROM python:3.12-alpine AS phlo-build-context" in dockerfile
+    assert "FROM python:3.12-slim AS phlo-build-context" in dockerfile
     assert "COPY . ." in dockerfile
     assert "RUN mkdir -p /opt/phlo-build-context/wheelhouse" in dockerfile
     assert (
