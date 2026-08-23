@@ -10,6 +10,9 @@ This module provides a unified interface for discovering:
 
 Remote registry package discovery lives in phlo.plugins.registry_client
 (e.g., list_registry_plugins) and is not re-exported here.
+
+Package facade for plugin discovery: re-exports the registry, loading, and query helpers under
+one phlo.plugins.discovery namespace for the rest of the system.
 """
 
 from __future__ import annotations

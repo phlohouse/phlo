@@ -1,3 +1,7 @@
+/**
+ * Tests resolveObservatoryExtensions degrading to no extensions when phlo-api
+ * extension discovery is unavailable.
+ */
 import { describe, expect, it } from 'vitest'
 
 import { resolveObservatoryExtensions } from '@/observatory/api/extensions'

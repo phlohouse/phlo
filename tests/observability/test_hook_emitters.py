@@ -1,4 +1,10 @@
-"""Tests for hook emitters."""
+"""Tests for hook emitters.
+
+Every event emitter must merge correlation from its explicit context
+with the log-bound context, with context-supplied values winning, and
+must preserve a non-default integer attempt rather than letting a bound
+default overwrite it. Covers all emitter kinds uniformly.
+"""
 
 from __future__ import annotations
 

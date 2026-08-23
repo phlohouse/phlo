@@ -1,3 +1,6 @@
+"""Unit tests for CapabilityFamily and CapabilityRegistry: snapshot
+isolation of listings, register/lookup, and spec resolution."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

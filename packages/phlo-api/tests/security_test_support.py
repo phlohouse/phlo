@@ -113,6 +113,9 @@ class _AuthenticatedTestClient(TestClient):
         previous_backend = registry.list("authorization_policy_backend")
         previous_provider_name = os.environ.get("PHLO_AUTHENTICATION_PROVIDER")
         previous_backend_name = os.environ.get("PHLO_AUTHORIZATION_BACKEND")
+        # Install the test providers for this request only, then restore the
+        # previous registrations and env names. Swapping per request keeps tests
+        # that exercise real providers isolated from these overrides.
         register_capability(
             "authentication_provider",
             AuthenticationProviderSpec(

@@ -1,3 +1,9 @@
+"""Tests nested dbt project discovery.
+
+A dbt_project.yml below workflows/<source>/transforms/dbt must be found both
+by direct search and by get_dbt_project_dir when DBT_PROJECT_DIR is unset.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

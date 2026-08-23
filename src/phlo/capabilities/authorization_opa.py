@@ -8,6 +8,9 @@ Usage:
     1. Start OPA: docker run -p 8181:8181 openpolicyagent/opa run --server
     2. Configure PHLO_OPA_URL=http://localhost:8181 in .phlo/.env
     3. Register this provider via plugin or direct registration
+
+    OPA-backed authorization policy backend built on phlo.capabilities.interfaces and support.
+    Currently imported only by tests/security/test_authorization_opa.py.
 """
 
 from __future__ import annotations
@@ -225,14 +228,10 @@ def create_opa_provider(
     opa_url: str | None = None,
     opa_policy_package: str = "phlo.authz",
 ) -> tuple[OPAAuthorizationPolicyBackend, CapabilitySupport]:
-    """Factory function to create an OPA provider with support metadata.
+    """Create an OPA provider with support metadata.
 
-    Args:
-        opa_url: URL of the OPA server. Defaults to http://localhost:8181
-        opa_policy_package: OPA policy package path. Defaults to phlo.authz
-
-    Returns:
-        Tuple of (provider, support_metadata)
+    ``opa_url`` defaults to http://localhost:8181 and ``opa_policy_package`` to
+    phlo.authz. Returns a ``(provider, support_metadata)`` tuple.
     """
     provider = OPAAuthorizationPolicyBackend(
         opa_url=opa_url,

@@ -1,4 +1,8 @@
-"""Contract tests for MCP typed tool schemas."""
+"""Contract tests for MCP typed tool schemas.
+
+Every registered tool must carry input and output schemas, the tools resource
+must expose required scopes, and API errors must preserve their detail and hint.
+"""
 
 from __future__ import annotations
 

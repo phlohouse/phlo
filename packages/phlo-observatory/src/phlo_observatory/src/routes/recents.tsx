@@ -1,3 +1,7 @@
+/**
+ * /recents route. Lists recently opened resources from browser-local
+ * activity history and refreshes on the localActivity event.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Clock3, ExternalLink } from 'lucide-react'
 import { useEffect, useState } from 'react'

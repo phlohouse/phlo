@@ -105,22 +105,21 @@ def _truncate_utf8_bytes(text: str, max_bytes: int) -> tuple[str, bool, int]:
 def get_compiled_sql_from_resource_props(
     dbt_resource_props: Mapping[str, Any], *, max_bytes: int
 ) -> tuple[str, bool, int, str]:
-    """Resolve compiled SQL from dbt resource properties.
+    """Resolve compiled SQL for a dbt resource, capped at max_bytes UTF-8 bytes.
 
-    Args:
-        dbt_resource_props: dbt manifest resource dictionary.
-        max_bytes: Maximum number of UTF-8 bytes to keep in SQL text.
-
-    Returns:
-        A tuple of compiled SQL text, truncation flag, original byte length,
-        and SQL source indicator.
-
+    Reads the compiled file referenced by compiled_path (rejecting paths
+    outside the dbt project directory), falling back to the manifest's
+    compiled_code, raw_code, or raw_sql. Returns the SQL text, whether it was
+    truncated, the original byte length, and the source used ("compiled_file",
+    "manifest", or "none").
     """
     compiled_sql = ""
     source = "none"
 
     compiled_path = dbt_resource_props.get("compiled_path")
     if compiled_path:
+        # compiled_path comes from the manifest, so confine reads to the dbt
+        # project directory; anything escaping it is treated as traversal.
         dbt_project_path = get_settings().dbt_project_path
         compiled_file = (dbt_project_path / str(compiled_path)).resolve()
         if not str(compiled_file).startswith(str(dbt_project_path.resolve()) + os.sep):
@@ -207,14 +206,11 @@ class DbtSpecTranslator:
     """
 
     def get_asset_key(self, dbt_resource_props: Mapping[str, Any]) -> str:
-        """Build the asset key for a dbt resource.
+        """Build the canonical asset key from dbt manifest properties.
 
-        Args:
-            dbt_resource_props: dbt manifest resource dictionary.
-
-        Returns:
-            Canonical asset key string.
-
+        Sources yield "{source_name}.{name}", or "dlt_{name}" when the source
+        is dagster_assets or starts with raw_; an explicit asset_key override
+        in meta wins. Other resources use their own name.
         """
         resource_type = dbt_resource_props.get("resource_type")
         is_source = resource_type == "source" or (
@@ -236,14 +232,11 @@ class DbtSpecTranslator:
         return str(dbt_resource_props["name"])
 
     def get_description(self, dbt_resource_props: Mapping[str, Any]) -> str:
-        """Build the asset description from dbt metadata.
+        """Build the asset description from the model's dbt description text.
 
-        Args:
-            dbt_resource_props: dbt manifest resource dictionary.
-
-        Returns:
-            Description text for the translated asset.
-
+        Prefixes the model name and, when
+        PHLO_DBT_INCLUDE_COMPILED_SQL_IN_DESCRIPTION is enabled, appends the
+        compiled SQL (truncated per PHLO_DBT_COMPILED_SQL_MAX_BYTES).
         """
         model_name = str(dbt_resource_props.get("name", ""))
         docstring = str(dbt_resource_props.get("description") or "")
@@ -263,14 +256,10 @@ class DbtSpecTranslator:
         return "\n\n".join(parts)
 
     def get_group_name(self, dbt_resource_props: Mapping[str, Any]) -> str:
-        """Infer the group name for a dbt resource.
+        """Infer the group from meta.group, path or FQN layer segments, or name prefixes.
 
-        Args:
-            dbt_resource_props: dbt manifest resource dictionary.
-
-        Returns:
-            Group name used for asset organization.
-
+        Falls back through stg_ ("silver"), dim_/fct_ ("gold"), and mrt_
+        ("marts") prefixes before defaulting to "transform".
         """
         meta = dbt_resource_props.get("meta", {})
         if isinstance(meta, dict) and "group" in meta:
@@ -294,14 +283,12 @@ class DbtSpecTranslator:
         return "transform"
 
     def get_metadata(self, dbt_resource_props: Mapping[str, Any]) -> dict[str, Any]:
-        """Build asset metadata from dbt manifest fields.
+        """Build asset metadata covering relations, columns, and compiled SQL.
 
-        Args:
-            dbt_resource_props: dbt manifest resource dictionary.
-
-        Returns:
-            Metadata dictionary for the translated asset.
-
+        Maps alias, schema, database, relation name, and materialization onto
+        standard metadata keys, includes the column schema when present, and
+        attaches compiled SQL with truncation details subject to
+        PHLO_DBT_COMPILED_SQL_MAX_BYTES.
         """
         metadata: dict[str, Any] = {}
         name = str(dbt_resource_props.get("name") or "")
@@ -359,13 +346,5 @@ class DbtSpecTranslator:
         return metadata
 
     def get_kinds(self, dbt_resource_props: Mapping[str, Any]) -> set[str]:
-        """Return asset kinds for the dbt resource.
-
-        Args:
-            dbt_resource_props: dbt manifest resource dictionary.
-
-        Returns:
-            Set of kind labels.
-
-        """
+        """Label every dbt resource with kinds {"dbt", "table"}."""
         return {"dbt", "table"}

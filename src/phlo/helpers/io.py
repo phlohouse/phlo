@@ -1,4 +1,9 @@
-"""Read and write convenience helpers for workflow authors."""
+"""Read and write convenience helpers for workflow authors.
+
+Every query path resolves the active query engine capability and funnels SQL
+through read-only validation plus optional LIMIT enforcement before
+execution, so helper-generated reads can never mutate data.
+"""
 
 from __future__ import annotations
 
@@ -108,6 +113,8 @@ def read_table(
             columns=columns,
             limit=limit,
         )
+    # A partition scope forces the SQL path: the native read_table fast path
+    # cannot apply the rendered partition predicate.
     selected = ", ".join(quote_identifier(column) for column in columns) if columns else "*"
     rendered_table = table_name.render() if isinstance(table_name, LogicalRelation) else table_name
     sql = f"SELECT {selected} FROM {rendered_table}"

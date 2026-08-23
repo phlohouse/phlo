@@ -1,4 +1,10 @@
-"""Unit tests for the release source and artifact identity boundary."""
+"""Unit tests for the release source and artifact identity boundary.
+
+Source validation requires the git tag to match the root version, the support
+BOM and its packaged copy to agree, and wheel/sdist metadata plus embedded
+support data to match; publish plans reject conflicting or unexpected remote
+artifacts.
+"""
 
 from __future__ import annotations
 

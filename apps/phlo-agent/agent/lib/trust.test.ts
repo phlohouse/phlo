@@ -1,3 +1,4 @@
+/** Tests for trust checks: the autonomous-writes flag and issue-triage auth scoping. */
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { SessionAuthContext } from 'eve/context'

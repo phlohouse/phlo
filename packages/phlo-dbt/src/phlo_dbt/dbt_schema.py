@@ -138,22 +138,12 @@ def dbt_model_to_pandera(
     class_name: str | None = None,
 ) -> type[PhloSchema]:
     """Generate a PhloSchema class from a dbt model YAML file.
-
-    Args:
-        yaml_path: Path to the dbt model YAML file
-        model_name: Name of the model in the YAML (e.g., "fct_orders")
-        class_name: Optional class name (defaults to PascalCase of model_name)
-
-    Returns:
-        A dynamically created PhloSchema subclass
-
     Example:
         Schema = dbt_model_to_pandera(
             "workflows/transforms/dbt/models/silver/fct_orders.yml",
             "fct_orders"
         )
         validated_df = Schema.validate(df)
-
     """
     yaml_path = Path(yaml_path)
     configured_column_count: int | None = None

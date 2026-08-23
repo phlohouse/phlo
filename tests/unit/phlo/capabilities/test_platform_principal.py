@@ -1,4 +1,9 @@
-"""Tests for platform principal type support."""
+"""Tests for platform principal type support.
+
+Verifies that principal_type='platform' (service daemons) flows through
+AuthPrincipal, canonicalization, the regulated identity bridge, and
+enforcement with the correct audit actor_type.
+"""
 
 from __future__ import annotations
 

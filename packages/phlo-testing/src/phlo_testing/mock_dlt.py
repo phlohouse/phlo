@@ -26,11 +26,6 @@ class MockDLTResource:
     Mimics the interface of a DLT resource but returns fixed data
     instead of fetching from an API.
 
-    Attributes:
-        name: Name of the resource.
-        data: List of records to yield.
-        _index: Current iteration index (internal use).
-
     Example:
         >>> resource = MockDLTResource(name="users", data=[{"id": 1}])
         >>> for record in resource:
@@ -44,25 +39,12 @@ class MockDLTResource:
     _index: int = 0
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
-        """Iterate over resource data.
-
-        Yields:
-            Dictionary representing each record.
-
-        """
+        """Restart iteration from the first record and return self as the iterator."""
         self._index = 0
         return self
 
     def __next__(self) -> dict[str, Any]:
-        """Get next record.
-
-        Returns:
-            Next record dictionary.
-
-        Raises:
-            StopIteration: When all records have been yielded.
-
-        """
+        """Return the next record or raise StopIteration when records are exhausted."""
         if self._index >= len(self.data):
             raise StopIteration
         record = self.data[self._index]
@@ -71,12 +53,7 @@ class MockDLTResource:
 
     @property
     def resources(self) -> dict[str, Any]:
-        """Get resource metadata.
-
-        Returns:
-            Dictionary with resource metadata including schema info.
-
-        """
+        """Return this resource's metadata, including its inferred column schema."""
         return {
             self.name: {
                 "name": self.name,
@@ -86,12 +63,7 @@ class MockDLTResource:
         }
 
     def _infer_schema(self) -> dict[str, str]:
-        """Infer schema from data.
-
-        Returns:
-            Dictionary mapping column names to inferred types.
-
-        """
+        """Map first-record keys to inferred warehouse column types."""
         if not self.data:
             return {}
 
@@ -122,11 +94,6 @@ class MockDLTSource:
     Mimics the interface of a DLT source but returns fixed data
     instead of fetching from an API. Supports multiple resources.
 
-    Attributes:
-        resources: Dictionary mapping resource names to data lists.
-        _current_resource: Currently selected resource (internal use).
-        _current_index: Current iteration index (internal use).
-
     Example:
         >>> source = MockDLTSource()
         >>> source.add_resource("users", [{"id": 1}])
@@ -140,55 +107,25 @@ class MockDLTSource:
     _current_index: int = 0
 
     def add_resource(self, name: str, data: list[dict[str, Any]]) -> MockDLTResource:
-        """Add a resource to the source.
-
-        Args:
-            name: Resource name.
-            data: List of records.
-
-        Returns:
-            MockDLTResource instance.
-
-        """
+        """Register a named resource's records and return its mock resource."""
         self.resources[name] = data
         return MockDLTResource(name=name, data=data)
 
     def get_resource(self, name: str) -> MockDLTResource:
-        """Get a resource by name.
-
-        Args:
-            name: Resource name.
-
-        Returns:
-            MockDLTResource instance.
-
-        Raises:
-            ValueError: If resource doesn't exist.
-
-        """
+        """Return the named resource; raise ValueError when it does not exist."""
         if name not in self.resources:
             raise ValueError(f"Resource {name} not found")
 
         return MockDLTResource(name=name, data=self.resources[name])
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
-        """Iterate over all resources.
-
-        Yields:
-            Dictionary representing each record from all resources.
-
-        """
+        """Yield every record from every resource in insertion order."""
         for resource_name, data in self.resources.items():
             for record in data:
                 yield record
 
     def for_each(self, func: Any) -> None:
-        """Apply a function to each record.
-
-        Args:
-            func: Function to apply (for dlt compatibility).
-
-        """
+        """Call func once per record across all resources (dlt compatibility)."""
         for record in self:
             func(record)
 
@@ -201,13 +138,6 @@ def mock_dlt_source(
 
     Drop-in replacement for `dlt.resource()` that returns predefined data
     without making API calls.
-
-    Args:
-        data: List of records to return.
-        resource_name: Name of the resource.
-
-    Returns:
-        MockDLTResource instance.
 
     Example:
         >>> data = [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
@@ -226,11 +156,7 @@ def mock_dlt_source_multi(
 ) -> MockDLTSource:
     """Create a mock DLT source with multiple resources.
 
-    Args:
-        resources: Dict mapping resource names to data lists.
-
-    Returns:
-        MockDLTSource instance.
+    `resources` maps each resource name to its record list.
 
     Example:
         >>> source = mock_dlt_source_multi({
@@ -263,14 +189,8 @@ def mock_dlt_source_with_error(
 
     Useful for testing error handling in ingestion pipelines.
 
-    Args:
-        data: List of records to return before error.
-        resource_name: Name of the resource.
-        error_after: Number of records before error (None = no error).
-        error_message: Error message to raise.
-
-    Returns:
-        MockDLTResource instance that raises error at specified point.
+    Yield `error_after` records, then raise MockDLTError carrying
+    `error_message`; pass None for `error_after` to never raise.
 
     Example:
         >>> source = mock_dlt_source_with_error(
@@ -286,15 +206,7 @@ def mock_dlt_source_with_error(
         """Resource that raises an error after N records."""
 
         def __next__(self) -> dict[str, Any]:
-            """Return the next record or raise a configured mock error.
-
-            Returns:
-                The next record from the underlying mock resource.
-
-            Raises:
-                MockDLTError: If the configured error threshold is reached.
-
-            """
+            """Return the next record or raise MockDLTError past the configured threshold."""
             if error_after is not None and self._index >= error_after:
                 raise MockDLTError(error_message)
             return super().__next__()
@@ -308,12 +220,6 @@ def mock_dlt_pipeline(
     """Create a mock DLT pipeline with multiple resources.
 
     Convenience function for creating a complete mock pipeline.
-
-    Args:
-        data: Dict mapping table names to records.
-
-    Returns:
-        MockDLTSource instance.
 
     Example:
         >>> pipeline = mock_dlt_pipeline({
@@ -331,12 +237,6 @@ def create_mock_dlt_dataframe(
     """Convert mock DLT resource to pandas DataFrame.
 
     Helper for testing data transformations.
-
-    Args:
-        resource: MockDLTResource instance.
-
-    Returns:
-        DataFrame with resource data.
 
     Example:
         >>> source = mock_dlt_source([{"id": 1}, {"id": 2}])

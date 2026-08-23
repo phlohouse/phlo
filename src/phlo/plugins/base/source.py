@@ -113,18 +113,9 @@ class SourceConnectorPlugin(Plugin, ABC):
     def fetch_data(self, config: dict[str, Any]) -> Iterator[dict[str, Any]]:
         """Fetch data from the source.
 
-        This method should yield dictionaries representing individual records.
-        It will be called by Phlo's ingestion framework to load data.
-
-        Args:
-            config: Configuration for this fetch operation, including:
-                - Connection parameters
-                - Query/filter parameters
-                - Pagination settings
-                - Authentication credentials
-
-        Yields:
-            Dict representing a single record
+        Yield one dict per record; called by Phlo's ingestion framework to
+        load data. ``config`` carries connection parameters, query/filter
+        settings, pagination, and credentials.
 
         Example:
             ```python
@@ -146,17 +137,9 @@ class SourceConnectorPlugin(Plugin, ABC):
     def get_schema(self, config: dict[str, Any]) -> dict[str, str] | None:
         """Get the schema of data returned by this connector.
 
-        This method is optional but recommended. It helps with:
-        - Type inference
-        - Data validation
-        - Documentation
-
-        Args:
-            config: Configuration for the source
-
-        Returns:
-            Dictionary mapping column names to types (e.g., {"id": "string", "count": "int"})
-            or None if schema is dynamic/unknown
+        Optional but recommended: the returned column-name-to-type mapping
+        aids type inference and validation. Return None when the schema is
+        dynamic or unknown.
 
         Example:
             ```python
@@ -175,14 +158,8 @@ class SourceConnectorPlugin(Plugin, ABC):
     def test_connection(self, config: dict[str, Any]) -> bool:
         """Test if the source is reachable with given configuration.
 
-        This method is optional but recommended for debugging.
-
-        Args:
-            config: Configuration to test
-
-        Returns:
-            True if connection successful, False otherwise
-
+        Optional but recommended for debugging; returns True when the
+        source is reachable with ``config``.
         """
         try:
             iterator = iter(self.fetch_data(config))

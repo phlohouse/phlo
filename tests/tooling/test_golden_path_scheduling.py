@@ -1,4 +1,10 @@
-"""Workflow contracts for the scheduled release golden path."""
+"""Workflow contracts for the scheduled release golden path.
+
+Parses the checked-in GitHub workflows and locks their structure: the
+nightly run owns the release-golden-path job (scheduled and dispatchable),
+the release-candidate workflow delegates to it, and CI carries only the
+Windows contract job.
+"""
 
 from pathlib import Path
 

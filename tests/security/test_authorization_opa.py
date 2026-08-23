@@ -1,4 +1,11 @@
-"""Tests for OPA authorization policy backend."""
+"""Tests for OPA authorization policy backend.
+
+All OPA responses are stubbed at the HTTP layer. Under test: the
+principal/action/resource/context input envelope, bool and dict policy
+results mapping to explained allow/deny decisions, connection errors
+and timeouts failing closed, resource filtering by decision, and the
+health check / provider factory plumbing.
+"""
 
 from __future__ import annotations
 

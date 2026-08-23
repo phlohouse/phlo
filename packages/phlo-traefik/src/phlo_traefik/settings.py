@@ -11,6 +11,8 @@ Example:
     >>> print(TRAEFIK_HTTP_PORT_DEFAULT)
     80
 
+Leaf constants module: no repository module imports it directly, so callers take
+these defaults unless overridden by PHLO_TRAEFIK_* environment variables.
 """
 
 from __future__ import annotations

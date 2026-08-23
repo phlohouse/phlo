@@ -1,4 +1,9 @@
-"""S3 pagination evidence for orphan-maintenance inventory."""
+"""S3 pagination evidence for orphan-maintenance inventory.
+
+Proves that inventory_owned_s3_prefix exhausts every continuation page with a
+stable digest, fails closed on missing or repeated continuations and on
+traversals mutated mid-scan, and rejects objects outside the owned prefix.
+"""
 
 from __future__ import annotations
 

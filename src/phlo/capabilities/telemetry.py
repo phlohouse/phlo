@@ -1,4 +1,12 @@
-"""Core telemetry recording helpers."""
+"""Core telemetry recording helpers.
+
+TelemetryRecorder appends TelemetryEvent payloads as JSONL, rotating
+the file by size (timestamped rename) rather than truncating history.
+Events are redacted before serialization; a failed record is logged and
+re-raised so callers cannot silently lose events. iter_telemetry_events
+skips malformed lines instead of failing the whole scan.
+Imported by phlo core (capabilities package, hooks telemetry) and the phlo-api observatory API.
+"""
 
 from __future__ import annotations
 

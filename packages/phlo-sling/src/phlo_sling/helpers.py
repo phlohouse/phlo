@@ -1,4 +1,11 @@
-"""Ergonomic helpers for Sling-backed lakehouse ingestion."""
+"""Ergonomic helpers for Sling-backed lakehouse ingestion.
+
+build_replication_plan turns stream names or small mappings into
+SlingReplication definitions; connection summaries deliberately
+over-redact, treating any key containing a secret fragment (including
+"primary_key") as a secret and dropping its value. Partition windows
+are rendered as quoted SQL predicates into a WHERE fragment.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +21,8 @@ from phlo_sling.registry import SlingReplication
 
 
 SECRET_KEY_PARTS = ("password", "secret", "token", "key")
+# Substring matching deliberately over-redacts: any key containing these
+# fragments (including e.g. "primary_key") is treated as a secret.
 
 
 def _coerce_replication_mode(
@@ -190,6 +199,8 @@ def _quote_sql_value(value: str) -> str:
 
 
 def _parse_connection_json(value: str) -> Mapping[str, Any] | None:
+    # Sling connection env vars are JSON objects with a "type" field; anything
+    # else in the environment is not a connection definition.
     try:
         parsed = json.loads(value)
     except ValueError:

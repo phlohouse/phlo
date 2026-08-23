@@ -1,28 +1,12 @@
 """Hook event system for Phlo plugins.
 
-The hook system provides an event-driven architecture for plugin communication.
-Plugins can emit events during various lifecycle stages (ingestion, transformation,
-quality checks, etc.) and other plugins can register handlers to react to these
-events.
+Plugins emit events during lifecycle stages (ingestion, transformation, quality
+checks) and other plugins register handlers on the shared hook bus to react to them.
+Supported event types cover ingestion start/end, transform start/end, quality check
+results, service start/stop, and schema/data migrations.
 
-This module uses lazy loading to prevent circular imports during plugin discovery.
-All exports are resolved on first access via ``__getattr__`` to avoid loading
-submodules at import time.
-
-Key Components:
-    - :class:`~phlo.hooks.bus.HookBus`: Central event dispatcher
-    - :class:`~phlo.hooks.events.HookEvent`: Base event payload
-    - :class:`~phlo.hooks.emitters.IngestionEventEmitter`: Ingestion lifecycle events
-    - :class:`~phlo.hooks.emitters.TransformEventEmitter`: Transform lifecycle events
-    - :class:`~phlo.hooks.emitters.QualityResultEventEmitter`: Quality check events
-
-Event Types:
-    The system supports multiple event types for different lifecycle stages:
-    - ``ingestion.start``, ``ingestion.end``: Ingestion operations
-    - ``transform.start``, ``transform.end``: dbt transformations
-    - ``quality.result``: Data quality check results
-    - ``service.start``, ``service.stop``: Service lifecycle
-    - ``schema_migration.applied``, ``data_migration.completed``: Migrations
+Exports are resolved lazily via ``__getattr__`` to avoid circular imports during
+plugin discovery.
 
 Example:
     ```python
@@ -44,11 +28,6 @@ Example:
     # ... perform ingestion ...
     emitter.emit_end(status="success")
     ```
-
-Note:
-    This module intentionally avoids importing submodules at import time to prevent
-    cycles during plugin discovery. Exports are resolved lazily via ``__getattr__``.
-
 """
 
 from __future__ import annotations
@@ -174,15 +153,7 @@ if TYPE_CHECKING:
 def __getattr__(name: str):  # noqa: ANN001
     """Lazily resolve exports from hook submodules.
 
-    Args:
-        name: Export name requested from this module.
-
-    Returns:
-        Exported attribute resolved from bus, emitters, or events modules.
-
-    Raises:
-        AttributeError: If name is not an exported hook symbol.
-
+    Raises: AttributeError when the name is not an exported hook symbol.
     """
     if name in _BUS_EXPORTS:
         _bus = import_module("phlo.hooks.bus")

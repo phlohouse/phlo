@@ -1,3 +1,8 @@
+/**
+ * Dataset profile route for /datasets/$datasetId. Fetches the profile
+ * directly, bypassing the shared cache; refresh and actions invalidate
+ * related cached resources.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   Activity,

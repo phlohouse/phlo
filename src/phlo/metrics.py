@@ -1,4 +1,12 @@
-"""Metrics collection models and helpers."""
+"""Metrics collection models and helpers.
+
+MetricsCollector gathers run/asset/summary metrics from the
+observability backends (Prometheus, Postgres, Iceberg, query engine)
+behind a TTL cache keyed per backend response; psycopg2 is imported
+lazily so Postgres paths raise MetricsDependencyError only when used.
+Backend failures surface as MetricsCollectorError subclasses rather than
+crashing callers.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +29,12 @@ logger = get_logger(__name__)
 
 
 class _TTLCache(dict[str, Any]):
+    """Dict with per-key TTL and maxsize eviction for backend responses.
+
+    Expiry uses time.monotonic(), so wall-clock adjustments never extend or
+    shorten entry lifetimes. There is no internal locking.
+    """
+
     def __init__(self, *, maxsize: int, ttl: float) -> None:
         super().__init__()
         self._maxsize = maxsize
@@ -101,6 +115,7 @@ class MetricsBackendSettings(BaseConfig):
     )
 
     def model_post_init(self, __context: Any) -> None:
+        """Resolve Postgres and Nessie hosts/ports after validation, in place."""
         host, port = resolve_host(
             self.postgres_host, self.postgres_port, port_env_var="POSTGRES_PORT"
         )
@@ -194,6 +209,9 @@ class MetricsCollector:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
+        # Backends are independent: a backend that fails logs a warning and
+        # leaves its fields zeroed rather than failing the call. The partially
+        # filled result is cached like a complete one.
         metrics = SummaryMetrics()
 
         try:
@@ -408,6 +426,7 @@ class MetricsCollector:
             raise MetricsDependencyError("Postgres unavailable for asset run lookup") from exc
 
         try:
+            # Escape LIKE wildcards so asset names containing % or _ match literally.
             escaped_asset_name = (
                 asset_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             )
@@ -485,6 +504,7 @@ class MetricsCollector:
             raise MetricsDependencyError("Postgres unavailable for asset table lookup") from exc
 
         try:
+            # Escape LIKE wildcards so asset names containing % or _ match literally.
             escaped_asset_name = (
                 asset_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             )

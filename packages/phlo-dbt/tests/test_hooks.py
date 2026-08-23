@@ -1,3 +1,10 @@
+"""Tests phlo-dbt CLI hooks.
+
+Pins the Dagster container lookup contract (legacy names, daemon exclusion)
+and that compile_dbt runs against the discovered nested project path with an
+ensured profile.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

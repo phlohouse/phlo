@@ -51,24 +51,15 @@ class SignatureService:
     ) -> None:
         """Initialize the signature service.
 
-        Args:
-            config: Optional configuration. Uses defaults if not provided.
-            audit_emitter: Optional audit emitter for signature events.
+        Falls back to default configuration when config is omitted; the
+        step-up challenge comes from config or defaults to session confirm.
         """
         self._config = config or SignatureServiceConfig()
         self._audit_emitter = audit_emitter
         self._step_up = self._config.step_up_challenge or SessionConfirmChallenge()
 
     def require_signature(self, action: str, resource_type: str) -> bool:
-        """Check if an action requires a signature.
-
-        Args:
-            action: The canonical action being performed.
-            resource_type: The type of resource being accessed.
-
-        Returns:
-            True if the action requires a signature, False otherwise.
-        """
+        """Return True when the canonical action requires a signature."""
         return action in self._config.critical_actions
 
     def sign(
@@ -78,18 +69,9 @@ class SignatureService:
     ) -> SignatureRecord:
         """Create an electronic signature for a record.
 
-        Validates the signer, performs step-up authentication, and records
-        the signature as an audit event.
-
-        Args:
-            request: The signature request.
-            session: The current authenticated session.
-
-        Returns:
-            The completed SignatureRecord.
-
-        Raises:
-            ValueError: If the signer does not match the session principal.
+        Validates the signer against the session principal (ValueError on
+        mismatch), performs step-up authentication (PermissionError on
+        failure), and records the signature as an audit event.
         """
         if request.signer_subject != session.principal.subject:
             raise ValueError(
@@ -123,12 +105,7 @@ class SignatureService:
         record: SignatureRecord,
         session: AuthenticatedSession,
     ) -> None:
-        """Emit a signature audit event.
-
-        Args:
-            record: The signature record.
-            session: The current authenticated session.
-        """
+        """Emit a signature audit event."""
         if self._audit_emitter is None:
             return
 
@@ -161,13 +138,9 @@ class SignatureService:
         record_id: str,
         record_version: str,
     ) -> bool:
-        """Verify that a record has been signed and the version matches.
+        """Placeholder verifier: returns True without checking anything.
 
-        Args:
-            record_id: The record identifier.
-            record_version: The expected record version hash.
-
-        Returns:
-            True if the record was signed with a matching version.
+        Signature records are not persisted or consulted yet, so this cannot
+        confirm that a record was signed or that its version matches.
         """
         return True

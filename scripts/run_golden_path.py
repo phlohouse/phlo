@@ -1,19 +1,9 @@
 #!/usr/bin/env python3
-"""
-Golden Path E2E Workflow Script
+"""Run the complete Phlo golden path workflow end-to-end with live output.
 
-Run the complete Phlo workflow end-to-end with live output.
-This is the script version of test_golden_path_e2e.py for easier debugging.
-
-Usage:
-    python scripts/run_golden_path.py [--mode dev|pypi] [--keep-running]
-
-Optional service testing:
-    --test-api          Test Hasura GraphQL and PostgREST APIs
-    --test-observability Test Prometheus, Loki, Alloy, Grafana stack
-    --test-superset     Test Superset BI dashboards
-    --test-openmetadata Test OpenMetadata catalog (requires 6GB+ RAM)
-    --test-all          Test all optional services
+Script version of the golden path E2E test for easier debugging. Pass
+--test-api, --test-observability, --test-superset, --test-openmetadata,
+or --test-all to exercise optional services.
 """
 
 from __future__ import annotations
@@ -50,14 +40,7 @@ def log(msg: str, color: str = "") -> None:
 
 
 def force_remove_directory(path: Path) -> bool:
-    """Force remove a directory, handling Docker-created files with different permissions.
-
-    Args:
-        path: Directory to remove
-
-    Returns:
-        True if successful, False otherwise
-    """
+    """Force remove a directory even when Docker-created files resist deletion."""
     if not path.exists():
         return True
 
@@ -304,18 +287,22 @@ def log_step(step: str) -> None:
 
 
 def log_success(msg: str) -> None:
+    """Log a success message."""
     log(f"[OK] {msg}", GREEN)
 
 
 def log_error(msg: str) -> None:
+    """Log an error message."""
     log(f"[FAIL] {msg}", RED)
 
 
 def log_warning(msg: str) -> None:
+    """Log a warning message."""
     log(f"[WARN]  {msg}", YELLOW)
 
 
 def log_info(msg: str) -> None:
+    """Log an informational message."""
     log(f"[INFO]  {msg}", BLUE)
 
 
@@ -383,12 +370,7 @@ def run_phlo(
     stream_output: bool = True,
     python_exe: str | Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a phlo CLI command.
-
-    Args:
-        python_exe: Python executable to use. Defaults to sys.executable.
-                   Pass project venv python after setup.
-    """
+    """Run a phlo CLI command, preferring the project venv python when given."""
     exe = str(python_exe) if python_exe else sys.executable
     return run_command(
         [exe, "-m", "phlo.cli.main", *args],
@@ -709,6 +691,7 @@ def write_file(path: Path, content: str) -> None:
 
 
 def main() -> int:
+    """Run the full golden path workflow and return its exit code."""
     parser = argparse.ArgumentParser(
         description="Run Golden Path E2E Workflow",
         formatter_class=argparse.RawDescriptionHelpFormatter,

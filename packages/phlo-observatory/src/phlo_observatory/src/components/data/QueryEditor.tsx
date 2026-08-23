@@ -1,3 +1,8 @@
+/**
+ * SQL editor for Trino data preview. Runs against the selected branch and
+ * hands results to the parent via onResults; with autoRun it re-executes
+ * whenever defaultQuery changes.
+ */
 import { ChevronDown, Loader2, Play, Trash2 } from 'lucide-react'
 import { useEffect, useReducer, useRef, useState } from 'react'
 

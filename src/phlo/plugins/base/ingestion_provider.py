@@ -1,4 +1,11 @@
-"""Ingestion provider plugin classes."""
+"""Ingestion provider plugin classes.
+
+IngestionProviderPlugin is the abstract contract for packages that
+supply ingestion primitives. Implementations must expose plugin
+metadata, an ingestion decorator factory (get_decorator), and an
+asset-retriever callable; imports of concrete backends are deferred to
+method call time so the base class stays import-light.
+"""
 
 from __future__ import annotations
 
@@ -50,9 +57,6 @@ class IngestionProviderPlugin(Plugin, ABC):
     def get_decorator(self) -> Callable:
         """Return the ingestion decorator function.
 
-        Returns:
-            The @phlo_ingestion decorator or equivalent.
-
         Example:
             ```python
             def get_decorator(self) -> Callable:
@@ -65,9 +69,6 @@ class IngestionProviderPlugin(Plugin, ABC):
     @abstractmethod
     def get_asset_retriever(self) -> Callable[[], list[Any]]:
         """Return a function to retrieve registered ingestion assets.
-
-        Returns:
-            Function that returns a list of registered ingestion assets.
 
         Example:
             ```python

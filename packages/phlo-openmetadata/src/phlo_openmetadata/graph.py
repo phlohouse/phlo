@@ -20,19 +20,15 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Asset:
-    """Represents one asset in the OpenMetadata lineage graph.
+    """One asset in the OpenMetadata lineage graph.
 
-    Attributes:
-        name: Unique identifier for the asset.
-        asset_type: Type of asset (e.g., 'ingestion', 'transform', 'publish').
-        status: Current status of the asset.
-        description: Optional description of the asset.
+    Each asset carries a unique name, a type such as 'ingestion', 'transform',
+    or 'publish', a status, and an optional description.
 
     Example:
         >>> asset = Asset(name="bronze.orders", asset_type="ingestion")
         >>> asset.name
         'bronze.orders'
-
     """
 
     name: str
@@ -45,18 +41,13 @@ class Asset:
 class OpenMetadataLineageGraph:
     """Simple directed graph for OpenMetadata lineage extraction.
 
-        Maintains assets and directed edges between them. Supports querying
-    downstream dependencies and exporting to multiple formats.
-
-    Attributes:
-            assets: Dictionary mapping asset name to Asset object.
-            edges: Dictionary mapping source asset to list of target assets.
+    Maintains assets and directed edges between them, supports querying
+    downstream dependencies, and exports to JSON, DOT, and Mermaid formats.
 
     Example:
-            >>> graph = OpenMetadataLineageGraph()
-            >>> graph.add_edge("bronze.orders", "silver.orders_cleaned")
-            >>> downstream = graph.get_downstream("bronze.orders")
-
+        >>> graph = OpenMetadataLineageGraph()
+        >>> graph.add_edge("bronze.orders", "silver.orders_cleaned")
+        >>> downstream = graph.get_downstream("bronze.orders")
     """
 
     assets: dict[str, Asset] = field(default_factory=dict)
@@ -65,14 +56,7 @@ class OpenMetadataLineageGraph:
     def add_asset(self, name: str, asset_type: str = "unknown", status: str = "unknown") -> None:
         """Add an asset node when it does not already exist.
 
-        Args:
-            name: Unique asset identifier.
-            asset_type: Type classification for the asset.
-            status: Current status of the asset.
-
-        Returns:
-            None
-
+        Existing assets with the same name are left unchanged.
         """
         if name not in self.assets:
             self.assets[name] = Asset(name=name, asset_type=asset_type, status=status)
@@ -80,15 +64,7 @@ class OpenMetadataLineageGraph:
     def add_edge(self, source: str, target: str) -> None:
         """Add a directed edge between two assets.
 
-        Creates asset nodes if they don't exist. Prevents duplicate edges.
-
-        Args:
-            source: Source asset name (upstream).
-            target: Target asset name (downstream).
-
-        Returns:
-            None
-
+        Creates missing endpoint nodes and ignores duplicate edges.
         """
         self.add_asset(source)
         self.add_asset(target)
@@ -98,15 +74,8 @@ class OpenMetadataLineageGraph:
     def get_downstream(self, asset_name: str, depth: int | None = None) -> set[str]:
         """Return all downstream assets reachable from one asset.
 
-        Performs BFS traversal to find all downstream dependencies.
-
-        Args:
-            asset_name: Starting asset name.
-            depth: Maximum traversal depth (None for unlimited).
-
-        Returns:
-            set[str]: Set of downstream asset names.
-
+        Walks outgoing edges breadth-first; `depth` caps how many hops to
+        follow (`None` follows the full graph).
         """
         downstream: set[str] = set()
         visited: set[str] = set()
@@ -126,12 +95,7 @@ class OpenMetadataLineageGraph:
         return downstream
 
     def to_json(self) -> str:
-        """Export the graph as JSON.
-
-        Returns:
-            str: JSON string with assets and edges.
-
-        """
+        """Export the graph as a JSON string with assets and edges."""
         return json.dumps(
             {
                 "assets": {
@@ -148,12 +112,7 @@ class OpenMetadataLineageGraph:
         )
 
     def to_dot(self) -> str:
-        """Export the graph as Graphviz DOT.
-
-        Returns:
-            str: DOT format string for Graphviz rendering.
-
-        """
+        """Export the graph as a Graphviz DOT string for rendering."""
         lines = ["digraph {", '  rankdir="LR";']
         for asset_name, asset in self.assets.items():
             color = {
@@ -173,12 +132,7 @@ class OpenMetadataLineageGraph:
         return "\n".join(lines)
 
     def to_mermaid(self) -> str:
-        """Export the graph as Mermaid.
-
-        Returns:
-            str: Mermaid diagram syntax string.
-
-        """
+        """Export the graph as a Mermaid flowchart definition string."""
         lines = ["graph TD"]
         for asset_name in self.assets:
             lines.append(f'  {self._safe_id(asset_name)}["{asset_name}"]')
@@ -189,13 +143,5 @@ class OpenMetadataLineageGraph:
 
     @staticmethod
     def _safe_id(name: str) -> str:
-        """Convert an asset name into a Mermaid-safe identifier.
-
-        Args:
-            name: Original asset name.
-
-        Returns:
-            str: Sanitized identifier for Mermaid syntax.
-
-        """
+        """Convert an asset name into a Mermaid-safe identifier."""
         return name.replace("-", "_").replace(".", "_")

@@ -1,3 +1,6 @@
+"""Verify the quality-stage contribution phlo-pandera registers with the
+workflow wizard."""
+
 from phlo.capabilities import WorkflowContributionMode
 from phlo_pandera.plugin import get_workflow_wizard_contributions
 

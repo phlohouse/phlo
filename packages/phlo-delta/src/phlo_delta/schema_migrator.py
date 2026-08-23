@@ -55,15 +55,6 @@ DELTA_SCHEMA_POLICY = SchemaPlanningPolicy(
 def _arrow_type_to_dtype(arrow_type: pa.DataType) -> str:
     """Map a PyArrow type instance to a canonical dtype string.
 
-    Converts PyArrow data types to string representations used in
-    schema migration operations.
-
-    Args:
-        arrow_type: PyArrow data type instance.
-
-    Returns:
-        str: Canonical dtype string (e.g., "string", "int64", "timestamptz").
-
     Example:
         dtype = _arrow_type_to_dtype(pa.int64())
         # Returns: "int64"
@@ -97,17 +88,7 @@ _DTYPE_TO_ARROW: dict[str, pa.DataType] = {
 def _dtype_to_arrow_type(dtype: str) -> pa.DataType:
     """Map a canonical dtype string back to a PyArrow type.
 
-    Converts string dtype representations to PyArrow data types for
-    schema construction.
-
-    Args:
-        dtype: Canonical dtype string.
-
-    Returns:
-        pa.DataType: Corresponding PyArrow data type.
-
-    Raises:
-        ValueError: If the dtype string is not supported.
+    Raises ValueError when the dtype is not supported.
 
     Example:
         arrow_type = _dtype_to_arrow_type("int64")
@@ -124,13 +105,9 @@ def _dtype_to_arrow_type(dtype: str) -> pa.DataType:
 class DeltaSchemaMigrator:
     """SchemaMigrator backed by Delta Lake tables.
 
-    This class implements the SchemaMigrator protocol for Delta Lake,
-    providing schema comparison, migration planning, and change application.
-    It supports various schema change types including field addition, removal,
-    renaming, type changes, and nullability adjustments.
-
-    Attributes:
-        None: This dataclass has no fields, only methods.
+    Implements schema comparison, migration planning, and change application,
+    supporting field addition, removal, renaming, type changes, and
+    nullability adjustments.
 
     Example:
         migrator = DeltaSchemaMigrator()
@@ -143,20 +120,8 @@ class DeltaSchemaMigrator:
     def supported_changes(self) -> set[str]:
         """Return the set of change types supported natively by Delta Lake.
 
-        Delta Lake supports various schema evolution operations including
-        field addition, removal, renaming, type widening/narrowing, and
-        nullability changes.
-
-        Returns:
-            set[str]: Set of supported change type strings:
-                - "add": Add new columns
-                - "drop": Remove existing columns
-                - "rename": Rename columns
-                - "widen_type": Expand type (e.g., int32 -> int64)
-                - "narrow_type": Restrict type (e.g., int64 -> int32)
-                - "nullability_relaxed": Allow nulls where not allowed before
-                - "nullability_tightened": Require non-null where nulls were allowed
-
+        Covers add, drop, rename, widen/narrow type, and both nullability
+        directions.
         """
         return {
             "add",
@@ -171,16 +136,9 @@ class DeltaSchemaMigrator:
     def classify_change(self, change_type: str, **details: Any) -> str:
         """Classify a change with Delta-specific overrides.
 
-        Delta supports rename (safe) and drop (warning, recoverable via
-        time travel). All other change types fall through to the default
-        classifier.
-
-        Args:
-            change_type: Type of schema change being classified.
-            **details: Additional details about the change for classification.
-
-        Returns:
-            str: Classification result ("safe", "warning", or "breaking").
+        Rename is safe and drop is warning (recoverable via time travel);
+        everything else falls through to the default classifier and returns
+        "safe", "warning", or "breaking".
 
         Example:
             cls = migrator.classify_change("rename")
@@ -198,19 +156,8 @@ class DeltaSchemaMigrator:
     ) -> SchemaMigrationPlan:
         """Compare *desired* schema against current Delta table schema.
 
-        Analyzes differences between the desired schema and the existing
-        table schema, generating a migration plan with all detected changes.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-            desired: Target NormalizedSchema to compare against.
-
-        Returns:
-            SchemaMigrationPlan: Plan describing every detected change,
-                including classifications and recommendations.
-
-        Raises:
-            Exception: If the table cannot be accessed or read.
+        Returns a plan describing every detected change with classifications
+        and recommendations. Raises if the table cannot be accessed or read.
 
         Example:
             from phlo.capabilities.specs import NormalizedSchema, NormalizedField
@@ -262,21 +209,9 @@ class DeltaSchemaMigrator:
     def apply_plan(self, *, plan: SchemaMigrationPlan, approved: bool = False) -> dict[str, Any]:
         """Execute a migration plan against a Delta table.
 
-        Applies all changes in the migration plan to the target table.
-        Breaking changes require explicit approval.
-
-        Args:
-            plan: SchemaMigrationPlan containing changes to apply.
-            approved: Whether breaking changes have been explicitly approved.
-
-        Returns:
-            dict[str, Any]: Migration results including status, applied count,
-                and list of applied changes.
-
-        Raises:
-            ValueError: If the plan contains breaking changes and
-                ``approved`` is not ``True``.
-            Exception: If any schema change operation fails.
+        Breaking changes require explicit approval via ``approved``; raises
+        ValueError otherwise and propagates any schema operation failure.
+        Returns status, applied count, and the applied changes.
 
         Example:
             plan = migrator.diff_schema(table_name="raw.events", desired=schema)
@@ -355,6 +290,11 @@ class DeltaSchemaMigrator:
 
         from deltalake import write_deltalake
 
+        # The schema change is committed by writing an empty table with
+        # mode="overwrite", schema_mode="overwrite": Delta records the new
+        # schema as the latest table version. Note that an overwrite commit
+        # replaces the table contents, so existing rows are not carried through
+        # this call.
         write_deltalake(
             table_uri,
             empty,
@@ -362,7 +302,6 @@ class DeltaSchemaMigrator:
             schema_mode="overwrite",
             storage_options=opts,
         )
-
         logger.info(
             "delta_schema_migration_applied",
             table_name=plan.table_name,
@@ -389,15 +328,7 @@ class DeltaSchemaMigrator:
     def get_schema_history(self, *, table_name: str, limit: int = 10) -> list[dict[str, Any]]:
         """Return version-level history for *table_name*.
 
-        Retrieves the schema change history by listing table versions.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-            limit: Maximum number of historical versions to retrieve (default: 10).
-
-        Returns:
-            list[dict[str, Any]]: List of version history dictionaries,
-                each containing version, timestamp, operation, and parameters.
+        Each entry carries version, timestamp, operation, and parameters.
 
         Example:
             history = migrator.get_schema_history(table_name="raw.events", limit=5)

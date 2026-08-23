@@ -1,4 +1,10 @@
-"""Observability and alerting helpers for workflow code."""
+"""Observability and alerting helpers for workflow code.
+
+All emission is best-effort: metrics and alerts go through resolved
+capabilities and are silently skipped when no backend or sink exists.
+run_timer always emits a duration metric, including on failure, and
+re-raises the original exception.
+"""
 
 from __future__ import annotations
 

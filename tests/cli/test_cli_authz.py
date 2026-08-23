@@ -1,4 +1,8 @@
-"""Tests for authz CLI commands."""
+"""Tests for RBAC authz CLI commands.
+
+Drives validate, plan, and sync against faked loaders and controllers to cover
+success, failure, deny-rule rejection, and dry-run behavior.
+"""
 
 from __future__ import annotations
 

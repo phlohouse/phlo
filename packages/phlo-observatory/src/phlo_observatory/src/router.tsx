@@ -1,3 +1,7 @@
+/**
+ * Router factory built from the generated TanStack route tree, with scroll
+ * restoration enabled and the preload cache disabled.
+ */
 import { createRouter } from '@tanstack/react-router'
 
 // Import the generated route tree

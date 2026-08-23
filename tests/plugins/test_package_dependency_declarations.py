@@ -1,3 +1,6 @@
+"""Repo-level consistency tests: every phlo_* module imported by a
+package must be declared in that package's pyproject.toml."""
+
 from __future__ import annotations
 
 import re

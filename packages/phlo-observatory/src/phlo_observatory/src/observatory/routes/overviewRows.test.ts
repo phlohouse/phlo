@@ -1,3 +1,7 @@
+/**
+ * Tests overview-row builders: attention items, event story assembly, and
+ * blocking quality-issue classification.
+ */
 import { describe, expect, it } from 'vitest'
 
 import {

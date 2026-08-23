@@ -1,3 +1,7 @@
+/**
+ * /observability route. Observability providers joined with service health;
+ * the selection is persisted through ?providerId.
+ */
 import { createFileRoute } from '@tanstack/react-router'
 import { Activity, Bell, Database, Radio } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'

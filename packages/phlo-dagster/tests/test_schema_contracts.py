@@ -1,4 +1,9 @@
-"""Tests for schema-contract refresh integration hooks."""
+"""Tests for schema-contract refresh integration hooks.
+
+Covers the env-gated behaviour of maybe_refresh_contracts: the refresh runs
+forced, with the configured selection, only when PHLO_AUTO_REFRESH_CONTRACTS
+is enabled, and no refresh events are emitted otherwise.
+"""
 
 from __future__ import annotations
 

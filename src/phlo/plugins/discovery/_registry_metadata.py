@@ -1,4 +1,9 @@
-"""Metadata serialization helpers for registry plugins."""
+"""Metadata serialization helpers for registry plugins.
+
+plugin_metadata_to_dict() flattens a Plugin's PluginMetadata into the plain
+dict shape served by the plugin registry and CLI listings.
+Imported by the phlo.plugins.discovery registry to serialize plugin metadata for listings.
+"""
 
 from __future__ import annotations
 

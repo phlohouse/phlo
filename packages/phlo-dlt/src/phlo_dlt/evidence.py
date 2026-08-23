@@ -1,4 +1,9 @@
-"""dlt-side normalization of observed source, staged, and Iceberg metadata."""
+"""dlt-side normalization of observed source, staged, and Iceberg metadata.
+
+Derives credential-free source identities (secrets stripped before hashing),
+inventories staged files without reading row values, and reports only
+explicitly observed dlt metrics so evidence never contains guessed values.
+"""
 
 from __future__ import annotations
 

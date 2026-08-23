@@ -1,4 +1,9 @@
-"""Shared helper primitives for the public lakehouse helper layer."""
+"""Shared primitives for the public lakehouse helper layer.
+
+Provides sensitive-key redaction, strict mapping validation, best-effort
+integer coercion, and the compact OperationSummary result payload reused by
+the other helper modules.
+"""
 
 from __future__ import annotations
 

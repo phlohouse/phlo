@@ -17,6 +17,9 @@ Example:
     >>> sink = get_lineage_sink("phlo-lineage")
     >>> sink.record_asset_edges([("bronze.orders", "silver.stg_orders")])
 
+
+    Lineage resource provider, loaded via the phlo.plugins.resources entry point at startup.
+    Exposes the phlo_lineage lineage sink to phlo through phlo.capabilities.
 """
 
 from __future__ import annotations
@@ -34,16 +37,6 @@ class LineageResourceProvider(ResourceProviderPlugin):
     def metadata(self) -> PluginMetadata:
         """Return plugin metadata for capability discovery.
 
-        Returns:
-            PluginMetadata with name, version, description, and tags for
-            the lineage capability provider.
-
-        Attributes Returned:
-            - name: "lineage"
-            - version: "0.1.0"
-            - description: "Lineage sink capability provider"
-            - tags: ["lineage"]
-
         Example:
             >>> provider = LineageResourceProvider()
             >>> meta = provider.metadata
@@ -51,7 +44,6 @@ class LineageResourceProvider(ResourceProviderPlugin):
             'lineage'
             >>> print(meta.tags)
             ['lineage']
-
         """
         return PluginMetadata(
             name="lineage",
@@ -61,42 +53,14 @@ class LineageResourceProvider(ResourceProviderPlugin):
         )
 
     def get_resources(self) -> list:
-        """Return list of raw resources exposed by this provider.
-
-        This provider does not expose any raw resources directly. All lineage
-        functionality is accessed through the lineage_sinks capability interface.
-
-        Returns:
-            Empty list. Raw resources are not exposed in this slice.
-
-        See Also:
-            get_lineage_sinks() for the capability interface.
-
-        """
+        """Return no raw resources; lineage functionality is exposed only
+        through the lineage_sinks capability interface."""
         return []
 
     def get_lineage_sinks(self) -> list[LineageSinkSpec]:
-        """Expose the phlo-lineage sink as a capability.
-
-        Returns the lineage sink specification that allows other Phlo components
-        to record and query data lineage through a standardized interface.
-
-        Returns:
-            List containing a single LineageSinkSpec with:
-                - name: "phlo-lineage" (identifier for capability lookup)
-                - provider: PhloLineageSink instance (the actual sink implementation)
-
-        Capability Usage:
-            Components can access this sink via:
-            >>> from phlo.capabilities import get_lineage_sink
-            >>> sink = get_lineage_sink("phlo-lineage")
-            >>> sink.record_row_lineage(row_id="...", table_name="bronze.orders")
-
-        See Also:
-            PhloLineageSink for the full API documentation.
-            phlo.capabilities module for capability discovery patterns.
-
-        """
+        """Expose the phlo-lineage sink as a LineageSinkSpec named
+        "phlo-lineage", letting other components record and query data
+        lineage through a standardized interface."""
         return [
             LineageSinkSpec(
                 name="phlo-lineage",

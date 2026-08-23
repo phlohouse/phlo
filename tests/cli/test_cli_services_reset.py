@@ -1,3 +1,9 @@
+"""Tests for `phlo services reset` preflight behavior.
+
+Ensures reset refuses to run before services are initialized and goes through
+the compose project preflight.
+"""
+
 from __future__ import annotations
 
 from subprocess import CompletedProcess
@@ -54,5 +60,7 @@ def test_services_reset_uses_compose_project_preflight(monkeypatch, tmp_path) ->
 
     assert result.exit_code == 0, result.output
     assert calls
+    # Reset must take data volumes with the project: the -v flag is the
+    # destructive half of the contract.
     assert calls[0][:2] == ["podman", "compose"]
     assert calls[0][-2:] == ["down", "-v"]

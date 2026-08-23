@@ -50,22 +50,6 @@ class Asset:
     An asset is any data object that participates in the pipeline - source tables,
     staging models, fact tables, dimension tables, published datasets, etc.
 
-    Attributes:
-        name: Fully qualified asset identifier (e.g., "bronze.orders",
-            "silver.stg_orders", "gold.fct_orders").
-        asset_type: Classification of the asset's role in the pipeline:
-            - "ingestion": Raw data loaded from sources
-            - "transform": Intermediate models created by dbt
-            - "publish": Final curated datasets for consumption
-            - "unknown": Type not specified
-        status: Current materialization status:
-            - "success": Successfully built and fresh
-            - "warning": Built with warnings or stale
-            - "failure": Failed or missing
-            - "unknown": Status not determined
-        description: Optional human-readable description of the asset's
-            purpose and contents.
-
     Example:
         >>> asset = Asset(
         ...     name="silver.stg_orders",
@@ -73,7 +57,6 @@ class Asset:
         ...     status="success",
         ...     description="Cleaned and deduplicated orders",
         ... )
-
     """
 
     name: str
@@ -93,10 +76,6 @@ class LineageGraph:
     Edge direction follows data flow: an edge from A to B means data flows
     from A (source) to B (target), or B depends on A.
 
-    Attributes:
-        assets: Map of asset name -> Asset object containing metadata.
-        edges: Adjacency list mapping source -> list of targets.
-
     Example:
         >>> graph = LineageGraph()
         >>> graph.add_edge("bronze.orders", "silver.stg_orders")
@@ -113,7 +92,6 @@ class LineageGraph:
     Thread Safety:
         LineageGraph instances are not thread-safe. In concurrent environments,
         external synchronization is required for mutation operations.
-
     """
 
     assets: dict[str, Asset] = field(default_factory=dict)
@@ -125,16 +103,10 @@ class LineageGraph:
         Idempotent operation - if the asset already exists, no changes are made.
         This allows edges to be added without pre-creating nodes.
 
-        Args:
-            name: Unique asset identifier (fully qualified table/model name).
-            asset_type: Classification (ingestion, transform, publish, unknown).
-            status: Current materialization status (success, warning, failure, unknown).
-
         Example:
             >>> graph = LineageGraph()
             >>> graph.add_asset("bronze.orders", "ingestion", "success")
             >>> assert "bronze.orders" in graph.assets
-
         """
         if name not in self.assets:
             self.assets[name] = Asset(name=name, asset_type=asset_type, status=status)
@@ -145,20 +117,10 @@ class LineageGraph:
         Creates implicit asset nodes for both source and target if they don't
         exist. Duplicate edges (same source-target pair) are ignored.
 
-        Args:
-            source: Upstream asset name (data origin).
-            target: Downstream asset name (data destination).
-
-        Direction Convention:
-            Data flows source -> target. Target depends on source.
-            Example: add_edge("bronze.orders", "silver.stg_orders") means
-            stg_orders is derived from orders.
-
         Example:
             >>> graph = LineageGraph()
             >>> graph.add_edge("bronze.orders", "silver.stg_orders")
             >>> assert "silver.stg_orders" in graph.edges["bronze.orders"]
-
         """
         self.add_asset(source)
         self.add_asset(target)
@@ -170,18 +132,6 @@ class LineageGraph:
 
         Performs a breadth-first search from the starting asset to find all
         assets that feed data into it, directly or indirectly.
-
-        Args:
-            asset_name: Starting asset for upstream traversal.
-            depth: Maximum traversal depth. None means unlimited (default).
-                Depth 1 returns only direct parents.
-
-        Returns:
-            Set of asset names that are upstream of the starting asset.
-
-        Algorithm:
-            BFS traversal following edges in reverse direction (find all sources
-            that have the current node as a target).
 
         Example:
             >>> graph = LineageGraph()
@@ -195,7 +145,6 @@ class LineageGraph:
             >>> # Direct only
             >>> direct = graph.get_upstream("gold.fct_orders", depth=1)
             >>> print(direct)  # {'silver.stg_orders'}
-
         """
         upstream = set()
         visited = set()
@@ -209,7 +158,9 @@ class LineageGraph:
 
             visited.add(current)
 
-            # Find all assets that point to current
+            # Edges are stored forward-only, so finding parents requires a full
+            # scan of every edge list. Acceptable because graphs are small;
+            # get_downstream uses the direct adjacency lookup instead.
             for source, targets in self.edges.items():
                 if current in targets:
                     upstream.add(source)
@@ -225,18 +176,6 @@ class LineageGraph:
         Performs a breadth-first search from the starting asset to find all
         assets that depend on it, directly or indirectly.
 
-        Args:
-            asset_name: Starting asset for downstream traversal.
-            depth: Maximum traversal depth. None means unlimited (default).
-                Depth 1 returns only direct children.
-
-        Returns:
-            Set of asset names that are downstream of the starting asset.
-
-        Algorithm:
-            BFS traversal following edges in forward direction (find all targets
-            of the current node).
-
         Example:
             >>> graph = LineageGraph()
             >>> graph.add_edge("bronze.orders", "silver.stg_orders")
@@ -249,7 +188,6 @@ class LineageGraph:
             >>> # Direct only
             >>> direct = graph.get_downstream("bronze.orders", depth=1)
             >>> print(direct)  # {'silver.stg_orders'}
-
         """
         downstream = set()
         visited = set()
@@ -278,17 +216,6 @@ class LineageGraph:
         Calculates metrics about how many and what types of assets would be
         affected by a failure or schema change in the specified asset.
 
-        Args:
-            asset_name: Asset to analyze for impact.
-
-        Returns:
-            Dictionary containing impact analysis:
-                - direct_count: Number of directly dependent assets (depth=1).
-                - indirect_count: Number of transitively dependent assets.
-                - publishing_affected: Boolean indicating if any "publish"
-                  type assets would be affected.
-                - affected_assets: Complete list of downstream asset names.
-
         Example:
             >>> graph = LineageGraph()
             >>> graph.add_edge("bronze.orders", "silver.stg_orders")
@@ -304,7 +231,6 @@ class LineageGraph:
             - Pre-deployment impact assessment
             - Data incident scope evaluation
             - Change management approval workflows
-
         """
         downstream = self.get_downstream(asset_name)
 
@@ -331,17 +257,6 @@ class LineageGraph:
         Creates a visual tree diagram showing upstream dependencies and/or
         downstream dependents of the specified asset.
 
-        Args:
-            asset_name: Root asset to display at the top of the tree.
-            direction: Scope of lineage to include:
-                - "upstream": Show only dependencies (parents above)
-                - "downstream": Show only dependents (children below)
-                - "both": Show both directions (default)
-            depth: Maximum depth to display. None means unlimited.
-
-        Returns:
-            Multi-line string containing ASCII tree visualization.
-
         Example:
             >>> graph = LineageGraph()
             >>> graph.add_edge("bronze.orders", "silver.stg_orders")
@@ -356,7 +271,6 @@ class LineageGraph:
             - │   shows branch continuation
             - [upstream] and [downstream] label sections
             - Status icons: ✓ (success) or ✗ (failure/warning)
-
         """
         lines = []
         lines.append(asset_name)
@@ -401,9 +315,6 @@ class LineageGraph:
         DOT is the native format for Graphviz, a widely-used graph visualization
         tool. The output can be rendered to PNG, SVG, PDF, and other formats.
 
-        Returns:
-            DOT format string suitable for writing to a .dot file.
-
         Example:
             >>> dot = graph.to_dot()
             >>> with open("lineage.dot", "w") as f:
@@ -425,7 +336,6 @@ class LineageGraph:
 
         See Also:
             https://graphviz.org/documentation/ for Graphviz documentation.
-
         """
         lines = ["digraph {", '  rankdir="LR";']
 
@@ -465,9 +375,6 @@ class LineageGraph:
         Mermaid is a markdown-native diagram syntax supported by GitHub,
         GitLab, Notion, and many other documentation platforms.
 
-        Returns:
-            Mermaid format string suitable for embedding in markdown.
-
         Example:
             >>> mermaid = graph.to_mermaid()
             >>> print("```mermaid")
@@ -485,7 +392,6 @@ class LineageGraph:
 
         See Also:
             https://mermaid.js.org/ for Mermaid syntax documentation.
-
         """
         lines = ["graph TD"]
 
@@ -513,30 +419,12 @@ class LineageGraph:
         Produces a machine-readable representation suitable for programmatic
         consumption, API responses, or caching.
 
-        Returns:
-            JSON format string with indentation for readability.
-
-        Schema:
-            {
-                "assets": {
-                    "asset_name": {
-                        "type": "ingestion|transform|publish|unknown",
-                        "status": "success|warning|failure|unknown",
-                        "description": "..."
-                    }
-                },
-                "edges": {
-                    "source_asset": ["target_asset1", "target_asset2"]
-                }
-            }
-
         Example:
             >>> json_str = graph.to_json()
             >>> import json
             >>> data = json.loads(json_str)
             >>> print(data["assets"]["bronze.orders"]["type"])
             'ingestion'
-
         """
         data = {
             "assets": {
@@ -558,12 +446,6 @@ class LineageGraph:
         Mermaid identifiers cannot contain hyphens or dots. This method
         replaces them with underscores for compatibility.
 
-        Args:
-            name: Original asset name (may contain hyphens, dots).
-
-        Returns:
-            Sanitized identifier safe for Mermaid syntax.
-
         Example:
             >>> LineageGraph._safe_id("bronze.stg-orders")
             'bronze_stg_orders'
@@ -572,7 +454,6 @@ class LineageGraph:
 
         Note:
             This is an internal helper method used by to_mermaid().
-
         """
         return name.replace("-", "_").replace(".", "_")
 
@@ -587,10 +468,6 @@ def get_lineage_graph() -> LineageGraph:
     This function provides a lazily-initialized global graph instance that
     loads from the persistent LineageStore on first access. Subsequent calls
     return the cached instance.
-
-    Returns:
-        LineageGraph instance populated from the database if available,
-        or an empty graph if no database is configured.
 
     Example:
         >>> from phlo_lineage import get_lineage_graph
@@ -611,7 +488,6 @@ def get_lineage_graph() -> LineageGraph:
 
     See Also:
         _build_lineage_from_store() for the loading implementation.
-
     """
     global _lineage_graph
     if _lineage_graph is None:
@@ -625,29 +501,6 @@ def _build_lineage_from_store() -> LineageGraph:
     This internal function reconstructs the in-memory graph representation
     by querying the phlo.asset_lineage_nodes and phlo.asset_lineage_edges
     tables.
-
-    Returns:
-        Populated LineageGraph if database is accessible, empty graph otherwise.
-
-    Loading Process:
-        1. Create empty LineageGraph
-        2. Resolve database connection URL
-        3. Load all asset nodes with metadata
-        4. Load all edges and reconstruct adjacency list
-        5. Handle exceptions gracefully with logging
-
-    Error Handling:
-        If the database is unavailable or queries fail, returns an empty
-        graph and logs a warning. This ensures the application can start
-        even without lineage database connectivity.
-
-    Note:
-        This is an internal implementation function. Use get_lineage_graph()
-        for public access to the graph.
-
-    See Also:
-        get_lineage_graph() for the public accessor.
-
     """
     graph = LineageGraph()
     connection_string = resolve_lineage_db_url_with_postgres_fallback()

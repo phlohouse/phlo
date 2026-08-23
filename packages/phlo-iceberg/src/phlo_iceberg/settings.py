@@ -31,6 +31,8 @@ Example:
         export PHLO_ICEBERG_S3_ACCESS_KEY=mykey
         export PHLO_ICEBERG_S3_SECRET_KEY=mysecret
 
+Package configuration boundary, building on phlo.config.base, phlo.config.cache,
+and phlo.config.network; consumed through get_settings() rather than imported widely.
 """
 
 from __future__ import annotations
@@ -46,30 +48,16 @@ from phlo_iceberg.compatibility import validate_pyiceberg_rest_catalog_config
 
 
 class IcebergSettings(BaseConfig):
-    """Iceberg catalog and storage configuration.
-
-    Defines all configuration parameters for connecting to Iceberg via
+    """Iceberg catalog and storage configuration for connecting via the
     Nessie REST catalog and S3-compatible storage (MinIO).
 
-    Attributes:
-        iceberg_warehouse_path: S3 path for the Iceberg warehouse.
-            Default: ``s3://lake/warehouse``.
-        iceberg_staging_path: S3 path for staging Parquet files.
-            Default: ``s3://lake/stage``.
-        iceberg_default_namespace: Default namespace for new tables.
-            Default: ``raw``.
-        iceberg_default_ref: Default Nessie branch/tag reference.
-            Default: ``main``.
-        iceberg_s3_endpoint: S3-compatible endpoint URL (MinIO).
-            Default: ``http://minio:10001``.
-        iceberg_s3_access_key: S3 access key for storage operations.
-            Default: ``minio``.
-        iceberg_s3_secret_key: S3 secret key for storage operations.
-            Default: ``minio123``.
-        iceberg_s3_region: AWS-style region for S3 operations.
-            Default: ``us-east-1``.
-        iceberg_catalog_uri: Nessie REST catalog endpoint base URI.
-            Default: ``http://nessie:19120/iceberg``.
+    Defaults: warehouse path ``s3://lake/warehouse``, staging path
+    ``s3://lake/stage``, default namespace ``raw``, default ref ``main``,
+    S3 endpoint ``http://minio:10001`` with access key ``minio`` / secret key
+    ``minio123`` in region ``us-east-1``, and catalog URI
+    ``http://nessie:19120/iceberg``. Each value can be overridden through
+    environment variables (``PHLO_ICEBERG_*`` aliases, plus standard AWS
+    variables for S3 credentials and region).
 
     Example:
         Configure via environment::
@@ -152,16 +140,10 @@ class IcebergSettings(BaseConfig):
     )
 
     def get_iceberg_warehouse_for_branch(self, branch: str = "main") -> str:
-        """Get the warehouse path for a specific branch.
+        """Return the warehouse path for a Nessie branch.
 
-        Currently returns the same warehouse path for all branches.
-        Future versions may support branch-specific warehouse locations.
-
-        Args:
-            branch: Nessie branch name.
-
-        Returns:
-            str: Warehouse path for the requested branch.
+        All branches currently share the same warehouse path; future versions may
+        support branch-specific locations.
 
         Example:
             Get warehouse path::
@@ -174,25 +156,15 @@ class IcebergSettings(BaseConfig):
         return self.iceberg_warehouse_path
 
     def get_pyiceberg_catalog_config(self, ref: str = "main") -> dict:
-        """Build PyIceberg REST catalog configuration dictionary.
+        """Build PyIceberg REST catalog configuration suitable for passing to
+        ``pyiceberg.catalog.load_catalog()``.
 
-        Constructs a configuration dict suitable for passing to
-        ``pyiceberg.catalog.load_catalog()``. Resolves service URLs
-        dynamically based on environment configuration.
-
-        Args:
-            ref: Nessie reference (branch or tag) to target.
-
-        Returns:
-            dict: PyIceberg catalog configuration with keys:
-                - ``type``: Always "rest"
-                - ``uri``: Full catalog URI including ref path
-                - ``warehouse``: Nessie warehouse identifier
-                - ``s3.endpoint``: S3 endpoint URL
-                - ``s3.access-key-id``: S3 access key
-                - ``s3.secret-access-key``: S3 secret key
-                - ``s3.path-style-access``: Always "true" (MinIO compatibility)
-                - ``s3.region``: S3 region
+        Resolves service URLs dynamically based on environment configuration and
+        returns a dict with keys ``type`` (always "rest"), ``uri`` (full catalog URI
+        including the ``ref`` path), ``warehouse`` (the Nessie warehouse identifier),
+        ``s3.endpoint``, ``s3.access-key-id``, ``s3.secret-access-key``,
+        ``s3.path-style-access`` (always "true" for MinIO compatibility), and
+        ``s3.region``.
 
         Example:
             Configure PyIceberg catalog::
@@ -230,15 +202,10 @@ class IcebergSettings(BaseConfig):
 def get_settings(project_root: Path) -> IcebergSettings:
     """Get cached Iceberg settings for the selected project root.
 
-    Settings are cached per resolved project root, with up to 16 entries,
-    to avoid repeatedly loading and parsing configuration.
-
-    Args:
-        project_root: Resolved project root used for cache selection.
-
-    Returns:
-        IcebergSettings: Cached settings with all
-            configuration values resolved from environment and files.
+    Settings are cached per resolved project root, with up to 16 entries, to avoid
+    repeatedly loading and parsing configuration; calls for the same root return the
+    same instance. Call ``get_settings.cache_clear()`` to force a reload after
+    configuration changes.
 
     Example:
         Get settings::
@@ -248,12 +215,6 @@ def get_settings(project_root: Path) -> IcebergSettings:
             settings = get_settings()
             print(f"Warehouse: {settings.iceberg_warehouse_path}")
             print(f"Default namespace: {settings.iceberg_default_namespace}")
-
-    Note:
-        Settings are cached per project root. To force a reload after
-        configuration changes, clear the cache with::
-
-            get_settings.cache_clear()
 
     """
     return IcebergSettings()

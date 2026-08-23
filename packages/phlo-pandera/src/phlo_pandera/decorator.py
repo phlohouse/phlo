@@ -55,26 +55,12 @@ def phlo_pandera(
 ) -> Callable:
     """Generate Dagster asset checks from declarative quality check definitions.
 
-    Args:
-        table: Fully qualified table name (e.g., "bronze.weather_observations").
-        checks: Quality checks to execute.
-        asset_key: Asset key (derived from table if not provided).
-        group: Asset group.
-        blocking: Whether failures block downstream assets.
-        partition_aware: Apply partition scoping (default True).
-        warn_threshold: Max failed-check fraction for WARN vs ERROR.
-        partition_column: Partition column for scoping queries.
-        rolling_window_days: Scope to last N days when unpartitioned.
-        full_table: Disable partition scoping.
-        description: Auto-generated if not provided.
-        query: Custom SQL query (defaults to ``SELECT * FROM {table}``).
-        backend: ``"trino"`` or ``"duckdb"``.
-        owner: Optional quality-check owner/team identifier.
-        consumers: Optional downstream consumer metadata or names.
-        sla: Optional SLA metadata for quality/freshness alerting.
-
-    Returns:
-        Decorator function that wraps the target asset function.
+    The decorated asset function is returned unchanged after its checks are
+    registered; ``table`` scopes the queries and every other option tunes
+    scoping (partition column, rolling window, full table), severity
+    (``warn_threshold``, ``blocking``), or contract metadata (owner,
+    consumers, SLA). The query defaults to ``SELECT * FROM {table}`` on the
+    given backend ("trino" or "duckdb").
 
     """
     normalized_consumers = normalize_consumers(consumers)
@@ -88,18 +74,11 @@ def phlo_pandera(
         contract_tags["contract_sla"] = json.dumps(serialized_sla, sort_keys=True)
 
     def decorator(func: Callable) -> Callable:
-        """Register contract and quality checks for the decorated asset function.
-
-        Args:
-            func: Asset function being decorated.
-
-        Returns:
-            The original function after registering checks.
-
-        """
-        # Derive asset key from table name if not provided
+        """Register the declared checks for this asset function and return it unchanged."""
         nonlocal asset_key, description, full_table
 
+        # Without partition awareness there is no partition filter to apply,
+        # so validation always runs against the full table.
         if not partition_aware:
             full_table = True
 
@@ -129,15 +108,7 @@ def phlo_pandera(
         if schema_checks:
 
             def pandera_contract_check(runtime: RuntimeContext) -> CheckResult:
-                """Execute schema-based checks and emit a contract-style result.
-
-                Args:
-                    runtime: Runtime context with resources and logging.
-
-                Returns:
-                    CheckResult with pass/fail status and metadata.
-
-                """
+                """Run schema-based checks against the scoped partition and emit a CheckResult."""
                 partition_key = get_partition_key(runtime)
                 partition_key_value = str(partition_key) if partition_key else None
                 emitter, telemetry = _make_emitters(
@@ -201,6 +172,8 @@ def phlo_pandera(
                         },
                     )
 
+                # An empty frame contains no violations, so the contract
+                # passes; the no_data note explains why total_count is zero.
                 if df.empty:
                     contract = QualityCheckContract(
                         source="pandera",
@@ -312,15 +285,7 @@ def phlo_pandera(
         if non_schema_checks:
 
             def quality_check_wrapper(runtime: RuntimeContext) -> CheckResult:
-                """Execute non-schema checks and emit aggregated quality metadata.
-
-                Args:
-                    runtime: Runtime context with resources and logging.
-
-                Returns:
-                    CheckResult with pass/fail status and aggregated metadata.
-
-                """
+                """Run non-schema checks against the scoped partition, aggregating metadata."""
                 partition_key = get_partition_key(runtime)
                 partition_key_value = str(partition_key) if partition_key else None
                 emitter, telemetry = _make_emitters(
@@ -376,6 +341,8 @@ def phlo_pandera(
                         },
                     )
 
+                # No rows means nothing to violate: report a pass so an empty
+                # partition does not block downstream assets.
                 if df.empty:
                     runtime.logger.warning("No rows returned; marking check as skipped.")
                     emitter.emit_result(
@@ -484,6 +451,9 @@ def phlo_pandera(
                         warn_threshold=warn_threshold,
                     )
 
+                # Emit one event per individual check so the UI can render
+                # per-check outcomes; the aggregate verdict is the CheckResult
+                # returned below.
                 severity_label = severity if not all_passed else None
                 for check, result in zip(non_schema_checks, check_results):
                     failed_count = _estimate_failed_count([result])
@@ -564,22 +534,12 @@ def phlo_pandera(
 
 
 def get_quality_checks() -> list[AssetCheckSpec]:
-    """Get all asset check specs registered with @phlo_pandera decorator.
-
-    Returns:
-        List of registered AssetCheckSpec objects.
-
-    """
+    """List all asset check specs registered through @phlo_pandera."""
     registry = get_capability_registry()
     return registry.list("check")
 
 
 def clear_quality_checks() -> None:
-    """Clear registered quality check specs (useful for tests).
-
-    Returns:
-        None.
-
-    """
+    """Drop all registered quality check specs; mainly useful in tests."""
     registry = get_capability_registry()
     registry.clear("check")

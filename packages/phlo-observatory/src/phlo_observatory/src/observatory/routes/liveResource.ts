@@ -1,3 +1,15 @@
+/**
+ * Client-side live resource cache for Observatory pages.
+ *
+ * useLiveResource polls a loader on an interval (and when the tab regains
+ * focus) and serves every consumer from one shared cache keyed by resource
+ * key. Successful results are kept in memory and mirrored into sessionStorage
+ * so a reload or client-side navigation starts from the last known data.
+ *
+ * Failure policy: errors are never cached as fresh data. When a refresh fails
+ * but stale data exists, the stale data is returned with the new error
+ * attached (stale-on-error). Only results without useful data are dropped.
+ */
 import { useEffect, useMemo, useState } from 'react'
 
 import type { ObservatoryResourceResult } from '@/observatory/api/types'
@@ -22,6 +34,8 @@ type PersistedEntry<T> = {
 
 const resourceCache = new Map<string, CachedEntry<unknown>>()
 const resourceKeys = new WeakMap<object, string>()
+// Bumping cacheVersion drops every memory and persisted entry at once after
+// a cached-shape change; old sessionStorage entries become unreachable keys.
 const cacheVersion = '2026-07-10-observatory-runtime-v11'
 const persistentCachePrefix = `phlo-observatory:${cacheVersion}`
 const minPersistentTtlMs = 5 * 60_000
@@ -134,6 +148,9 @@ export async function loadCachedResource<T>(
 
   const promise = load().then(async (result) => {
     const fallback = await browserFallbackResource<T>(key)
+    // A browser-direct retry of the same endpoint wins over the server result
+    // whenever it produced useful data: it reflects fresher state than a
+    // server-side fetch that may have failed during SSR.
     const loaded = isCacheableResult(fallback) ? fallback : result
 
     return Promise.resolve(loaded).then((nextResult) => {
@@ -347,6 +364,9 @@ function hasUsefulData(data: unknown): boolean {
   return true
 }
 
+// Loaders without an explicit cacheKey get a stable synthetic key derived
+// from function identity, so re-renders reuse the same cache entry instead
+// of re-fetching.
 function stableResourceKey(load: object): string {
   const existing = resourceKeys.get(load)
   if (existing) return existing
@@ -401,6 +421,9 @@ function writePersistentResource<T>(
   const storage = persistentStorage()
   if (!storage) return
 
+  // Persisted entries live at least minPersistentTtlMs even when the
+  // in-memory TTL is shorter, so navigating back within the session can
+  // restore data.
   const expiresAt = Math.max(
     memoryExpiresAt,
     Date.now() + Math.max(staleMs, minPersistentTtlMs),

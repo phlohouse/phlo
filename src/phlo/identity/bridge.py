@@ -1,20 +1,15 @@
 """Identity bridge for canonical principal resolution.
 
-This module provides the shared authn-to-authz canonicalization bridge that
-converts AuthPrincipal (from authentication) to Principal (for authorization).
+Shared authn-to-authz canonicalization bridge converting AuthPrincipal (from
+authentication) to Principal (for authorization), so all regulated surfaces
+derive principals consistently from the same upstream IdP or trusted proxy
+chain using canonical RBAC subject assignments. Inputs are the AuthPrincipal,
+request/session metadata, and canonical RBAC subject assignments; the output is
+a Principal with canonical roles and attributes.
 
-The bridge ensures that all regulated surfaces derive principals consistently
-from the same upstream IdP or trusted proxy chain, using canonical RBAC
-subject assignments.
-
-Architecture:
-    - Input: AuthPrincipal, request/session metadata, canonical RBAC subject assignments
-    - Output: Principal with canonical roles and attributes
-
-Regulated Mode Rules:
-    - All regulated surfaces must use this bridge for principal resolution
-    - Per-surface bespoke group-to-role mapping is forbidden in regulated mode
-    - Local role mapping behavior is unsupported in regulated mode
+Regulated mode: all regulated surfaces must use this bridge for principal
+resolution; per-surface bespoke group-to-role mapping is forbidden and local
+role mapping behavior is unsupported.
 """
 
 from __future__ import annotations
@@ -55,15 +50,13 @@ APPROVED_PRINCIPAL_TYPES: frozenset[str] = frozenset(
 class IdentityBridgeConfig:
     """Configuration for the identity bridge.
 
-    Attributes:
-        group_role_mapping: Mapping from IdP group names to canonical role names.
-            Defaults to DEFAULT_GROUP_ROLE_MAPPING if not provided.
-        enforce_approved_principal_types: If True, reject principals with
-            non-approved principal types. Required in regulated mode.
-        propagate_idp_groups: If True, propagate original IdP groups to
-            principal attributes for audit purposes. Defaults to True.
-        authentication_source_claim: Claim name to extract authentication source
-            from AuthPrincipal attributes. Defaults to "authentication_source".
+    Fields mirror identity policy knobs: ``group_role_mapping`` maps IdP group
+    names to canonical role names (defaults to DEFAULT_GROUP_ROLE_MAPPING);
+    ``enforce_approved_principal_types`` rejects principals with non-approved
+    types when True (required in regulated mode); ``propagate_idp_groups``
+    copies original IdP groups into principal attributes for audit (default
+    True); ``authentication_source_claim`` names the AuthPrincipal attribute
+    holding the authentication source (default "authentication_source").
     """
 
     group_role_mapping: dict[str, str] = field(
@@ -84,18 +77,10 @@ class IdentityBridge:
     In regulated mode, all approved surfaces must use this bridge to ensure
     consistent principal resolution across the platform.
 
-    Example:
-        >>> from phlo.identity import IdentityBridge, IdentityBridgeConfig
-        >>> bridge = IdentityBridge(IdentityBridgeConfig(enforce_approved_principal_types=True))
-        >>> principal = bridge.canonicalize(auth_principal, request_context)
     """
 
     def __init__(self, config: IdentityBridgeConfig | None = None) -> None:
-        """Initialize the identity bridge.
-
-        Args:
-            config: Bridge configuration. Uses defaults if not provided.
-        """
+        """Initialize the identity bridge with the given (or default) config."""
         self.config = config or IdentityBridgeConfig()
 
     def canonicalize(
@@ -105,21 +90,12 @@ class IdentityBridge:
     ) -> Principal:
         """Convert AuthPrincipal to canonical Principal.
 
-        This is the core bridge function that:
-        1. Validates the principal type is approved (if enforced)
-        2. Maps IdP groups to canonical roles
-        3. Applies principal-type default roles
-        4. Propagates relevant attributes
-
-        Args:
-            auth_principal: Authenticated principal from the authn provider.
-            context: Optional request/session context for audit metadata.
-
-        Returns:
-            Canonical Principal for authorization decisions.
-
-        Raises:
-            ValueError: If principal type is not approved and enforcement is enabled.
+        Core bridge function: validates the principal type is approved (if
+        enforcement is enabled), maps IdP groups to canonical roles, applies
+        principal-type default roles, propagates relevant attributes, and
+        returns the canonical Principal for authorization decisions. ``context``
+        carries optional request/session metadata for audit. Raises ValueError
+        when the principal type is not approved and enforcement is enabled.
         """
         from phlo.capabilities.interfaces import Principal
 
@@ -187,15 +163,9 @@ class IdentityBridge:
     def _map_groups_to_roles(self, groups: tuple[str, ...]) -> tuple[str, ...]:
         """Map authentication groups to canonical roles.
 
-        Only known group names are mapped to canonical roles.
-        Unknown groups are discarded to prevent privilege escalation
-        based on IdP-native group names.
-
-        Args:
-            groups: Tuple of group names from the authentication provider.
-
-        Returns:
-            Tuple of canonical role names.
+        Only known group names are mapped to canonical roles; unknown groups are
+        discarded to prevent privilege escalation based on IdP-native group
+        names. Returns the tuple of mapped canonical role names.
         """
         roles: list[str] = []
         for group in groups:
@@ -212,14 +182,8 @@ class IdentityBridge:
     ) -> tuple[str, ...]:
         """Apply default roles based on principal type.
 
-        Service principals automatically get the 'service' role if not already present.
-
-        Args:
-            principal_type: Type of principal ("user", "service", "platform").
-            existing_roles: Current roles from group mapping.
-
-        Returns:
-            Tuple of roles including any principal-type defaults.
+        Service principals automatically get the 'service' role when absent;
+        otherwise existing roles are returned unchanged.
         """
         if principal_type == "service" and "service" not in existing_roles:
             return (*existing_roles, "service") if existing_roles else ("service",)
@@ -232,15 +196,10 @@ def create_regulated_bridge(
 ) -> IdentityBridge:
     """Create an identity bridge configured for regulated mode.
 
-    This is a convenience factory that creates a bridge with regulated-mode
-    enforcement enabled.
-
-    Args:
-        group_role_mapping: Retained for API compatibility. Regulated bridges
-            never translate identity-provider groups into authorization roles.
-
-    Returns:
-        IdentityBridge configured for regulated mode.
+    Convenience factory returning a bridge with regulated-mode enforcement
+    enabled (empty group mapping, approved-principal-type enforcement on).
+    ``group_role_mapping`` is retained only for API compatibility: regulated
+    bridges never translate identity-provider groups into authorization roles.
     """
     config = IdentityBridgeConfig(
         group_role_mapping={},
@@ -273,16 +232,9 @@ def canonicalize_principal(
 ) -> Principal:
     """Canonicalize an AuthPrincipal to a Principal.
 
-    This is a convenience function for simple use cases. For more control,
-    use the IdentityBridge class directly.
-
-    Args:
-        auth_principal: Authenticated principal from the authn provider.
-        regulated: If True, enable regulated-mode enforcement.
-        context: Optional request/session context.
-
-    Returns:
-        Canonical Principal for authorization decisions.
+    Convenience wrapper for simple use cases; enables regulated-mode enforcement
+    when ``regulated`` is True. ``context`` carries optional request/session
+    metadata. For more control, use the IdentityBridge class directly.
     """
     bridge = create_regulated_bridge() if regulated else IdentityBridge()
     return bridge.canonicalize(auth_principal, context)

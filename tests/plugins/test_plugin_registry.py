@@ -1,4 +1,11 @@
-"""Tests for plugin registry client."""
+"""Tests for plugin registry client.
+
+fetch_registry serves from a TTL-bounded cache, falls back to bundled
+local data when no URL is configured or the remote fetch fails, and
+raises an explicit error for payloads missing a plugins section.
+search_plugins filters by query, type, and tags over the cached
+registry. All HTTP is faked.
+"""
 
 import time
 

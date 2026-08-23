@@ -1,3 +1,11 @@
+"""Tests for "phlo services start": profile selection, preflight plans, and backend interaction.
+
+Covers profile/target resolution and dependency expansion, the preflight
+contract (unknown profiles or targets fail fast; port collisions and invalid
+or missing required env abort before the backend runs), setup-companion
+matching, native interpreter selection, and polished errors without tracebacks.
+"""
+
 from __future__ import annotations
 
 from subprocess import CompletedProcess
@@ -377,6 +385,9 @@ def test_services_start_preflight_skips_already_running_project_service(
     )
     monkeypatch.setattr(start_module, "_is_host_port_available", lambda _port: False)
 
+    # A host port held by one of this project's own running containers is not
+    # a conflict; the preflight must only reject foreign listeners so restarts
+    # of an already-running stack succeed.
     start_module._preflight_requested_host_ports(
         plan=StartPreflightPlan(
             phlo_dir=phlo_dir,
@@ -632,6 +643,8 @@ def test_services_start_requires_full_dependency_match_for_setup_companions(
     )
     monkeypatch.setattr(start_module, "_run_service_hooks", lambda *args, **kwargs: None)
 
+    # Dependency edges resolve downwards only: starting a dependency must not
+    # pull in services that depend on it, so openmetadata-setup stays stopped.
     result = CliRunner().invoke(start_module.start_cmd, ["--service", "openmetadata-mysql"])
 
     assert result.exit_code == 0

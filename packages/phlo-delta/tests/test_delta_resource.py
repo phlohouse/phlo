@@ -1,4 +1,10 @@
-"""Unit tests for DeltaResource table-store interface compatibility."""
+"""Unit tests for DeltaResource table-store interface compatibility.
+
+Delta Lake supports only identity partition transforms and no refs, so
+the resource must translate identity specs to partition columns, accept
+override_ref="main" for interface parity, and fail fast with
+PhloConfigError on anything else.
+"""
 
 from unittest.mock import MagicMock, patch
 

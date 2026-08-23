@@ -1,4 +1,11 @@
-"""Shared constants for plugin discovery and registration."""
+"""Shared constants for plugin discovery and registration.
+
+Defines the canonical PLUGIN_FAMILIES table (entry-point group and plugin type
+per family) plus the PHLO_NO_AUTO_DISCOVER env flag with its truthy/falsy
+value sets. Private to the discovery package; import from the package root.
+Private to phlo.plugins.discovery: shared by its auto-discovery, loading, query,
+and registry modules; maps families onto phlo.plugins.base and hook types.
+"""
 
 from __future__ import annotations
 

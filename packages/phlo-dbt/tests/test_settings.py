@@ -1,3 +1,9 @@
+"""Tests DbtSettings project-path resolution.
+
+An explicit DBT_PROJECT_DIR wins; otherwise settings fall back to the
+discovered nested transforms/dbt project with its profiles directory.
+"""
+
 from __future__ import annotations
 
 from phlo_dbt.settings import DbtSettings

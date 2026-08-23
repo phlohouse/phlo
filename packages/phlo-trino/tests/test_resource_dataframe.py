@@ -1,4 +1,8 @@
-"""Unit tests for TrinoResource DataFrame read helpers."""
+"""Unit tests for TrinoResource DataFrame read helpers.
+
+Drives reads through a fake cursor to pin parameterised SQL execution, cursor
+lifecycle, and error propagation.
+"""
 
 from __future__ import annotations
 

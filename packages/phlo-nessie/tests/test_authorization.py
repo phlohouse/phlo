@@ -1,4 +1,10 @@
-"""Tests for Nessie CLI authorization adapter."""
+"""Tests for Nessie CLI authorization adapter.
+
+Also covers the shared CliPrincipalResolver precedence: service
+account, then human subject, then dev-mode fallback, then anonymous.
+Adapter tests assert singleton access, surface metadata, and that every
+declared mutation command maps to a resource and action.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,10 @@
-"""Tests for table-store support metadata."""
+"""Tests for table-store support metadata.
+
+TableStoreSupport defaults to basic writes only (identity partitioning, no
+refs/snapshots/compaction/vacuum), reports per-transform partition support,
+and a minimal store implementing the core methods satisfies the TableStore
+protocol via its support property.
+"""
 
 from phlo.capabilities.interfaces import TableStore, TableStoreSupport
 

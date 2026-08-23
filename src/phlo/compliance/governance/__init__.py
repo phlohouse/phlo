@@ -1,4 +1,10 @@
-"""Access governance primitives for regulated deployments."""
+"""Access governance primitives for regulated deployments.
+
+Public surface for activity monitoring, break-glass approvals, dormancy
+detection, access recertification, and separation-of-duties checks. The
+submodules own the implementations; this package only re-exports the
+curated API.
+"""
 
 from phlo.compliance.governance.activity import (
     AccessActivity,

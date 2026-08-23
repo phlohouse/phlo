@@ -1,4 +1,9 @@
-"""Tests for ClickStack authorization module."""
+"""Tests for ClickStack authorization module.
+
+Covers the shared CLI principal resolver (service account, human subject,
+dev-mode fallback) plus command classification into read and mutation sets
+with their resource/action mappings.
+"""
 
 from __future__ import annotations
 

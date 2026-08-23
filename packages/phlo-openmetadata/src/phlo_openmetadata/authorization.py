@@ -1,4 +1,9 @@
-"""phlo_openmetadata CLI authorization table."""
+"""phlo-openmetadata CLI authorization table.
+
+Declares the CLI surface adapter for RBAC: openmetadata.sync is a mutation
+on the metadata_catalog resource (action metadata.sync) and requires
+authorization; openmetadata.health is read-only.
+"""
 
 from __future__ import annotations
 
@@ -24,4 +29,5 @@ OpenMetadataSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_openmetadata_adapter() -> CliSurfaceAdapter:
+    """Return the process-wide OpenMetadata CLI surface adapter singleton."""
     return OpenMetadataSurfaceAdapter.get_instance()

@@ -1,3 +1,7 @@
+/**
+ * Tests SQL parsing helpers: source-table extraction, column mappings,
+ * transformation analysis, and smart where-clause building.
+ */
 import { describe, expect, it } from 'vitest'
 
 import {

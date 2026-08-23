@@ -24,15 +24,9 @@ from phlo_testing.mock_trino import MockTrinoResource
 
 
 class LocalTestMode:
-    """Context manager to enable local test mode.
+    """Enable local test mode for a with-block.
 
     Replaces production resources with mocks for fast local testing.
-
-    Attributes:
-        fixture_dir: Directory for fixture recording/playback.
-        use_recorded_fixtures: Whether to use pre-recorded fixtures.
-        table_store: MockIcebergCatalog instance for table operations.
-        trino: MockTrinoResource instance for SQL execution.
 
     Example:
         >>> with LocalTestMode() as mode:
@@ -47,13 +41,7 @@ class LocalTestMode:
         fixture_dir: Optional[Path] = None,
         use_recorded_fixtures: bool = False,
     ) -> None:
-        """Initialize local test mode.
-
-        Args:
-            fixture_dir: Directory for fixture recording/playback.
-            use_recorded_fixtures: Whether to use pre-recorded fixtures.
-
-        """
+        """Initialize local test mode."""
         self.fixture_dir = fixture_dir or Path(tempfile.gettempdir()) / "phlo_test_fixtures"
         self.fixture_dir.mkdir(exist_ok=True)
 
@@ -61,56 +49,34 @@ class LocalTestMode:
         self._original_env: dict[str, Any] = {}
         self._fixtures: dict[str, Any] = {}
 
-        # Initialize mock resources
         self.table_store = MockIcebergCatalog()
         self.trino = MockTrinoResource()
 
     def __enter__(self) -> "LocalTestMode":
-        """Enter local test mode.
-
-        Saves original environment and sets local test flags.
-
-        Returns:
-            Self for context manager use.
-
-        """
-        # Save original environment
+        """Enter local test mode, snapshotting the environment and setting flags."""
+        # Snapshot the whole environment so nested overrides cannot leak out of
+        # the with-block.
         self._original_env = os.environ.copy()
-
-        # Set local test mode flag
         os.environ["PHLO_TEST_LOCAL"] = "1"
         os.environ["PHLO_LOG_LEVEL"] = "DEBUG"
-
-        # Load recorded fixtures if available
         if self.use_recorded_fixtures:
             self._load_fixtures()
-
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Exit local test mode.
-
-        Restores original environment and cleans up resources.
-        """
-        # Restore original environment
+        """Exit local test mode and restore the original environment."""
         os.environ.clear()
         os.environ.update(self._original_env)
 
-        # Clean up resources
         self.table_store.close()
         self.trino.close()
 
     def record_fixture(self, name: str, data: Any) -> None:
-        """Record a fixture for later playback.
-
-        Args:
-            name: Fixture name.
-            data: Data to record.
-
-        """
+        """Record a fixture for later playback."""
         fixture_file = self.fixture_dir / f"{name}.json"
 
-        # Convert to JSON-serializable format
+        # Normalise DataFrame-like objects first; default=str below covers any
+        # remaining non-JSON-native values.
         if hasattr(data, "to_dict"):
             data = data.to_dict()
         elif hasattr(data, "to_json"):
@@ -122,14 +88,7 @@ class LocalTestMode:
     def load_fixture(self, name: str) -> Any:
         """Load a recorded fixture.
 
-        Args:
-            name: Fixture name.
-
-        Returns:
-            Fixture data.
-
-        Raises:
-            FileNotFoundError: If fixture doesn't exist.
+        Raises: FileNotFoundError when the fixture does not exist.
 
         """
         fixture_file = self.fixture_dir / f"{name}.json"
@@ -151,16 +110,9 @@ class LocalTestMode:
                 self._fixtures[name] = json.load(f)
 
     def get_resource(self, name: str) -> Any:
-        """Get a mock resource.
+        """Return the named mock resource.
 
-        Args:
-            name: Resource name (table_store, trino).
-
-        Returns:
-            Mock resource.
-
-        Raises:
-            ValueError: If resource doesn't exist.
+        Raises: ValueError when no resource exists under that name.
 
         """
         resources = {
@@ -178,13 +130,7 @@ class LocalTestMode:
 def local_test_mode(
     fixture_dir: Optional[Path] = None,
 ) -> Iterator["LocalTestMode"]:
-    """Context manager for local test mode.
-
-    Args:
-        fixture_dir: Directory for fixtures.
-
-    Yields:
-        LocalTestMode instance.
+    """Run a block inside local test mode.
 
     Example:
         >>> with local_test_mode() as mode:
@@ -199,7 +145,7 @@ def local_test_mode(
 
 
 class LocalTestDecorator:
-    """Decorator to mark tests that should use local mode.
+    """Mark tests that should use local mode.
 
     Example:
         >>> @local_test
@@ -210,27 +156,10 @@ class LocalTestDecorator:
     """
 
     def __call__(self, func: Any) -> Any:
-        """Apply decorator.
-
-        Args:
-            func: Function to wrap.
-
-        Returns:
-            Wrapped function that runs inside local test mode.
-
-        """
+        """Wrap func so it runs inside local test mode."""
 
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            """Run the wrapped callable inside local test mode.
-
-            Args:
-                *args: Positional arguments passed to the wrapped callable.
-                **kwargs: Keyword arguments passed to the wrapped callable.
-
-            Returns:
-                The wrapped callable result.
-
-            """
+            """Run the wrapped callable inside local test mode."""
             with local_test_mode():
                 return func(*args, **kwargs)
 
@@ -242,23 +171,12 @@ local_test = LocalTestDecorator()
 
 
 def is_local_test_mode() -> bool:
-    """Check if running in local test mode.
-
-    Returns:
-        True if PHLO_TEST_LOCAL environment variable is set.
-
-    """
+    """Check if running in local test mode."""
     return os.environ.get("PHLO_TEST_LOCAL", "").lower() in ("1", "true")
 
 
 class FixtureRecorder:
-    """Helper to record fixtures from real services.
-
-    Captures responses from production services and saves them for
-    replay in local mode.
-
-    Attributes:
-        fixture_dir: Directory to store fixtures.
+    """Record fixtures from production services for replay in local mode.
 
     Example:
         >>> recorder = FixtureRecorder(fixture_dir)
@@ -267,12 +185,7 @@ class FixtureRecorder:
     """
 
     def __init__(self, fixture_dir: Optional[Path] = None) -> None:
-        """Initialize recorder.
-
-        Args:
-            fixture_dir: Directory to store fixtures.
-
-        """
+        """Initialize recorder."""
         self.fixture_dir = fixture_dir or Path(tempfile.gettempdir()) / "phlo_fixtures"
         self.fixture_dir.mkdir(exist_ok=True)
 
@@ -283,23 +196,10 @@ class FixtureRecorder:
         *args: Any,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
-        """Record data from a DLT source.
-
-        Args:
-            name: Fixture name.
-            source_func: Function that returns DLT source.
-            *args: Args to pass to source_func.
-            **kwargs: Kwargs to pass to source_func.
-
-        Returns:
-            List of records from source.
-
-        """
-        # Call source function to get data
+        """Record data from a DLT source as a JSON fixture."""
         source = source_func(*args, **kwargs)
         data = list(source)
 
-        # Save to fixture
         fixture_file = self.fixture_dir / f"{name}_dlt.json"
 
         with open(fixture_file, "w") as f:
@@ -314,28 +214,14 @@ class FixtureRecorder:
         *args: Any,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
-        """Record results from a SQL query.
-
-        Args:
-            name: Fixture name.
-            query_func: Function that executes query.
-            *args: Args to pass to query_func.
-            **kwargs: Kwargs to pass to query_func.
-
-        Returns:
-            Query results.
-
-        """
-        # Execute query
+        """Record SQL query results as a JSON fixture."""
         results = query_func(*args, **kwargs)
-
-        # Convert to list of dicts if needed
+        # Accept DataFrames or any iterable of records.
         if hasattr(results, "to_dict"):
             data = results.to_dict("records")
         else:
             data = list(results)
 
-        # Save to fixture
         fixture_file = self.fixture_dir / f"{name}_sql.json"
 
         with open(fixture_file, "w") as f:
@@ -344,15 +230,7 @@ class FixtureRecorder:
         return data
 
     def load_dlt_fixture(self, name: str) -> MockDLTResource:
-        """Load a recorded DLT fixture.
-
-        Args:
-            name: Fixture name.
-
-        Returns:
-            MockDLTResource with recorded data.
-
-        """
+        """Load a recorded DLT fixture as a MockDLTResource."""
         fixture_file = self.fixture_dir / f"{name}_dlt.json"
 
         if not fixture_file.exists():
@@ -364,21 +242,11 @@ class FixtureRecorder:
         return mock_dlt_source(data, resource_name=name)
 
     def get_fixture_dir(self) -> Path:
-        """Get fixture directory path.
-
-        Returns:
-            Path to fixture directory.
-
-        """
+        """Get the fixture directory path."""
         return self.fixture_dir
 
     def list_fixtures(self) -> list[str]:
-        """List all recorded fixtures.
-
-        Returns:
-            List of fixture names.
-
-        """
+        """List all recorded fixture names."""
         if not self.fixture_dir.exists():
             return []
 
@@ -399,22 +267,12 @@ def disable_local_test_mode() -> None:
 
 
 def set_fixture_dir(path: Path) -> None:
-    """Set fixture directory path.
-
-    Args:
-        path: Path to fixture directory.
-
-    """
+    """Set the fixture directory path."""
     os.environ["PHLO_FIXTURE_DIR"] = str(path)
 
 
 def get_fixture_dir() -> Path:
-    """Get fixture directory path.
-
-    Returns:
-        Path to fixture directory.
-
-    """
+    """Get the fixture directory path."""
     env_path = os.environ.get("PHLO_FIXTURE_DIR")
 
     if env_path:

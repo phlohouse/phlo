@@ -1,4 +1,9 @@
-"""Governance, policy, and audit helper utilities."""
+"""Governance, policy, and audit helper utilities.
+
+Policy checks delegate to the resolved governance backend and fail open when
+no backend is available; column classification and masking are name-based
+heuristics that produce policy mappings, not enforcement.
+"""
 
 from __future__ import annotations
 

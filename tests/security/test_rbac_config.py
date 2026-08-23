@@ -1,4 +1,9 @@
-"""Tests for RBAC config loader."""
+"""Tests for the RBAC config loader.
+
+Covers loading roles and policies from authorization/*.yaml, validation
+error reporting for missing files, deterministic content-derived version
+hashes, and the .phlo default base path.
+"""
 
 from __future__ import annotations
 

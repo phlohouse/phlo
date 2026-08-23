@@ -127,13 +127,7 @@ class SignatureRecord:
 
         The signature_hash is an HMAC-SHA256 keyed with a secret so that
         forging a valid signature requires the secret, not just the payload.
-
-        Args:
-            request: The signature request.
-            authentication_assurance: The assurance level of authentication.
-
-        Returns:
-            A completed SignatureRecord.
+        authentication_assurance records the level of authentication used.
         """
         record = cls(
             signer_subject=request.signer_subject,

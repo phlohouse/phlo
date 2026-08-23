@@ -1,4 +1,8 @@
-"""Tests for ClickHouse resource."""
+"""Tests for ClickHouse resource.
+
+Pins resource defaults and override handling plus the query-engine support
+flags, including that snapshots are not supported for ClickHouse.
+"""
 
 from phlo_clickhouse.resource import CLICKHOUSE_QUERY_ENGINE_SUPPORT, ClickHouseResource
 

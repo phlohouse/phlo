@@ -1,4 +1,11 @@
-"""Controls for scoped operation routes: auth scopes, audit, rate limits, idempotency."""
+"""Controls for scoped operation routes: auth scopes, audit, rate limits, idempotency.
+
+Mutating operations claim an idempotency key in SQLite before touching
+the provider; a pending or unknown claim yields a stable 409 instead of
+a duplicate mutation. Audit records append under a cross-process file
+lock with rotation, and a committed-but-unaudited mutation raises
+MutationSucceededAuditFailed rather than reporting failure.
+"""
 
 from __future__ import annotations
 
@@ -62,11 +69,14 @@ class IdempotencyConflict(HTTPException):
 
 
 def project_root() -> Path:
+    """Resolve the Phlo project root from PHLO_PROJECT_PATH, defaulting to the cwd."""
     return Path(os.environ.get("PHLO_PROJECT_PATH", ".")).resolve()
 
 
 def require_scope(request: Request, required_scope: str) -> dict[str, Any]:
     """Require a bearer token with the requested scope or admin."""
+    # Outside regulated mode there is no token infrastructure; development
+    # callers act with full admin scopes.
     if not is_regulated():
         return {"subject": "development:anonymous", "scopes": ["admin"]}
 
@@ -98,7 +108,7 @@ def require_scope(request: Request, required_scope: str) -> dict[str, Any]:
 
 
 def enforce_rate_limit(subject: str, operation: str) -> None:
-    """Enforce a per-subject, per-operation token bucket."""
+    """Enforce a per-subject, per-operation sliding-window limit (60 s)."""
     limit = _operation_limit(operation)
     now = time.monotonic()
     bucket = _RATE_LIMITS[(subject, operation)]
@@ -679,6 +689,11 @@ def _migrate_operations_schema(conn: sqlite3.Connection) -> None:
 
 
 def _delete_expired(conn: sqlite3.Connection) -> None:
+    """Expire completed rows only.
+
+    Pending and unknown claims never expire: retries must keep receiving the
+    stable conflict until a resolution records the provider outcome.
+    """
     conn.execute(
         "DELETE FROM operations WHERE state = ? AND expires_at < ?",
         (_STATE_COMPLETED, datetime.now(UTC).isoformat()),

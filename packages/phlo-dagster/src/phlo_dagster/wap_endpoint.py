@@ -1,4 +1,10 @@
-"""Resolve the Dagster endpoint for project-policy WAP launches."""
+"""Resolve the Dagster endpoint for project-policy WAP launches.
+
+An explicit ``dagster_url`` is treated as an intentionally remote GraphQL
+endpoint; otherwise the local Dagster service is resolved through the same
+host and port resolution as every other Phlo service, so WAP never bypasses
+shared network configuration.
+"""
 
 from __future__ import annotations
 

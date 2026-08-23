@@ -36,12 +36,7 @@ from phlo_otel.hooks_plugin import OtelHookPlugin
 
 @pytest.fixture()
 def plugin() -> OtelHookPlugin:
-    """Create a fresh OtelHookPlugin instance for testing.
-
-    Returns:
-        OtelHookPlugin: New plugin instance with empty instrument caches.
-
-    """
+    """Create a fresh OtelHookPlugin instance for testing."""
     return OtelHookPlugin()
 
 
@@ -59,12 +54,7 @@ class TestOtelHookPlugin:
     """Test suite for OtelHookPlugin functionality."""
 
     def test_metadata(self, plugin: OtelHookPlugin):
-        """Test plugin metadata contains expected values.
-
-        Args:
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test plugin metadata contains expected values."""
         assert plugin.metadata.name == "otel"
 
     def test_registers_otel_hooks(self, plugin: OtelHookPlugin):
@@ -72,12 +62,7 @@ class TestOtelHookPlugin:
 
         Verifies that get_hooks() returns all 10 expected hook registrations
         covering ingestion, transform, quality, lineage, publish, service
-        lifecycle, schema migration, data migration, telemetry, and log events.
-
-        Args:
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        lifecycle, schema migration, data migration, telemetry, and log events."""
         hooks = plugin.get_hooks()
         assert len(hooks) == 10
         names = {h.hook_name for h in hooks}
@@ -95,12 +80,7 @@ class TestOtelHookPlugin:
         }
 
     def test_ignores_wrong_event_type(self, plugin: OtelHookPlugin):
-        """Test handlers silently ignore incorrect event types.
-
-        Args:
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test handlers silently ignore incorrect event types."""
         wrong = TransformEvent(event_type="transform.start", tool="dbt")
         plugin._handle_ingestion(wrong)  # should not raise
 
@@ -110,14 +90,7 @@ class TestOtelHookPlugin:
         """Test ingestion handler creates OTel span and metrics.
 
         Verifies that _handle_ingestion creates a properly named span with
-        correct attributes, and records both runs and rows counters.
-
-        Args:
-            mock_tracer_fn: Mock for get_tracer function.
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        correct attributes, and records both runs and rows counters."""
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=False)
@@ -156,14 +129,7 @@ class TestOtelHookPlugin:
         """Test ingestion handler respects correlation context.
 
         Verifies that correlation information (run_id, partition_key, job_name)
-        is properly propagated to span attributes and parent context.
-
-        Args:
-            mock_tracer_fn: Mock for get_tracer function.
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        is properly propagated to span attributes and parent context."""
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=False)
@@ -201,12 +167,8 @@ class TestOtelHookPlugin:
         """Test parent context derivation produces stable identifiers.
 
         Verifies that the same run_id produces the same trace_id and span_id,
-        enabling trace continuity across distributed components.
+        enabling trace continuity across distributed components."""
 
-        Args:
-            plugin: The OtelHookPlugin fixture.
-
-        """
         first = plugin._build_parent_context(HookCorrelation(run_id="run-123"))
         second = plugin._build_parent_context(HookCorrelation(run_id="run-123"))
 
@@ -220,12 +182,7 @@ class TestOtelHookPlugin:
         assert first_context.span_id == second_context.span_id
 
     def test_build_parent_context_uses_request_id_when_run_id_missing(self, plugin):
-        """Test parent context falls back to request_id for trace derivation.
-
-        Args:
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test parent context falls back to request_id for trace derivation."""
         context = plugin._build_parent_context(HookCorrelation(request_id="req-99"))
 
         assert context is not None
@@ -238,14 +195,7 @@ class TestOtelHookPlugin:
         """Test ingestion handler correctly records zero row counts.
 
         Verifies that a rows_loaded value of 0 is properly recorded to the
-        counter, rather than being treated as falsy and skipped.
-
-        Args:
-            mock_tracer_fn: Mock for get_tracer function.
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        counter, rather than being treated as falsy and skipped."""
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=False)
@@ -275,14 +225,7 @@ class TestOtelHookPlugin:
     @patch("phlo_otel.hooks_plugin.get_meter")
     @patch("phlo_otel.hooks_plugin.get_tracer")
     def test_ingestion_records_duration_histogram(self, mock_tracer_fn, mock_meter_fn, plugin):
-        """Test ingestion handler records duration histogram when available.
-
-        Args:
-            mock_tracer_fn: Mock for get_tracer function.
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test ingestion handler records duration histogram when available."""
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=False)
@@ -317,14 +260,7 @@ class TestOtelHookPlugin:
     @patch("phlo_otel.hooks_plugin.get_meter")
     @patch("phlo_otel.hooks_plugin.get_tracer")
     def test_quality_fail_sets_error_status(self, mock_tracer_fn, mock_meter_fn, plugin):
-        """Test quality handler sets span status to ERROR on failure.
-
-        Args:
-            mock_tracer_fn: Mock for get_tracer function.
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test quality handler sets span status to ERROR on failure."""
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=False)
@@ -350,14 +286,7 @@ class TestOtelHookPlugin:
     @patch("phlo_otel.hooks_plugin.get_meter")
     @patch("phlo_otel.hooks_plugin.get_tracer")
     def test_lineage_creates_span_and_counters(self, mock_tracer_fn, mock_meter_fn, plugin):
-        """Test lineage handler creates span and edge counters.
-
-        Args:
-            mock_tracer_fn: Mock for get_tracer function.
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test lineage handler creates span and edge counters."""
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=False)
@@ -398,14 +327,7 @@ class TestOtelHookPlugin:
     @patch("phlo_otel.hooks_plugin.get_meter")
     @patch("phlo_otel.hooks_plugin.get_tracer")
     def test_publish_creates_span_and_counters(self, mock_tracer_fn, mock_meter_fn, plugin):
-        """Test publish handler creates span and records metrics.
-
-        Args:
-            mock_tracer_fn: Mock for get_tracer function.
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test publish handler creates span and records metrics."""
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=False)
@@ -446,14 +368,7 @@ class TestOtelHookPlugin:
     def test_publish_failure_records_error_and_duration(
         self, mock_tracer_fn, mock_meter_fn, plugin
     ):
-        """Test publish handler records error counter and duration on failure.
-
-        Args:
-            mock_tracer_fn: Mock for get_tracer function.
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test publish handler records error counter and duration on failure."""
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=False)
@@ -491,14 +406,7 @@ class TestOtelHookPlugin:
     def test_service_lifecycle_sets_error_status_on_failure(
         self, mock_tracer_fn, mock_meter_fn, plugin
     ):
-        """Test service lifecycle handler sets error status on failure.
-
-        Args:
-            mock_tracer_fn: Mock for get_tracer function.
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test service lifecycle handler sets error status on failure."""
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=False)
@@ -545,14 +453,7 @@ class TestOtelHookPlugin:
     @patch("phlo_otel.hooks_plugin.get_meter")
     @patch("phlo_otel.hooks_plugin.get_tracer")
     def test_schema_and_data_migrations_emit_metrics(self, mock_tracer_fn, mock_meter_fn, plugin):
-        """Test migration handlers emit appropriate metrics.
-
-        Args:
-            mock_tracer_fn: Mock for get_tracer function.
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test migration handlers emit appropriate metrics."""
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=False)
@@ -620,13 +521,7 @@ class TestOtelHookPlugin:
 
     @patch("phlo_otel.hooks_plugin.get_meter")
     def test_telemetry_gauge(self, mock_meter_fn, plugin):
-        """Test telemetry handler creates gauge for simple metrics.
-
-        Args:
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test telemetry handler creates gauge for simple metrics."""
         mock_gauge = MagicMock()
         mock_meter = MagicMock()
         mock_meter.create_gauge.return_value = mock_gauge
@@ -649,13 +544,7 @@ class TestOtelHookPlugin:
         """Test metric instruments are cached and reused.
 
         Verifies that creating multiple events with the same metric name
-        results in instrument caching rather than recreation.
-
-        Args:
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        results in instrument caching rather than recreation."""
         mock_meter = MagicMock()
         mock_runs_counter = MagicMock()
         mock_rows_counter = MagicMock()
@@ -696,13 +585,7 @@ class TestOtelHookPlugin:
 
     @patch("phlo_otel.hooks_plugin.get_meter")
     def test_telemetry_counter_metric_kind(self, mock_meter_fn, plugin):
-        """Test telemetry handler respects counter metric_kind.
-
-        Args:
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test telemetry handler respects counter metric_kind."""
         mock_counter = MagicMock()
         mock_meter = MagicMock()
         mock_meter.create_counter.return_value = mock_counter
@@ -723,13 +606,7 @@ class TestOtelHookPlugin:
 
     @patch("phlo_otel.hooks_plugin.get_meter")
     def test_telemetry_histogram_metric_kind(self, mock_meter_fn, plugin):
-        """Test telemetry handler respects histogram metric_kind.
-
-        Args:
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test telemetry handler respects histogram metric_kind."""
         mock_histogram = MagicMock()
         mock_meter = MagicMock()
         mock_meter.create_histogram.return_value = mock_histogram
@@ -753,13 +630,7 @@ class TestOtelHookPlugin:
         """Test telemetry handler normalizes list attributes for metrics.
 
         Verifies that list values in payload are properly handled and that
-        high-cardinality attributes (like model lists) are filtered out.
-
-        Args:
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        high-cardinality attributes (like model lists) are filtered out."""
         mock_gauge = MagicMock()
         mock_meter = MagicMock()
         mock_meter.create_gauge.return_value = mock_gauge
@@ -782,13 +653,7 @@ class TestOtelHookPlugin:
         """Test telemetry handler filters out high-cardinality attributes.
 
         Verifies that run_id and asset_key are not included as metric
-        dimensions to prevent cardinality explosion.
-
-        Args:
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        dimensions to prevent cardinality explosion."""
         mock_gauge = MagicMock()
         mock_meter = MagicMock()
         mock_meter.create_gauge.return_value = mock_gauge
@@ -808,13 +673,7 @@ class TestOtelHookPlugin:
 
     @patch("phlo_otel.hooks_plugin.get_meter")
     def test_telemetry_skips_non_numeric(self, mock_meter_fn, plugin):
-        """Test telemetry handler ignores non-numeric values.
-
-        Args:
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test telemetry handler ignores non-numeric values."""
         event = TelemetryEvent(
             event_type="telemetry.log",
             name="some_log",
@@ -825,15 +684,7 @@ class TestOtelHookPlugin:
 
     @patch("phlo_otel.hooks_plugin.get_meter")
     def test_telemetry_skips_numeric_logs(self, mock_meter_fn, plugin):
-        """Test telemetry handler ignores numeric log events.
-
-        Log events with numeric values should not be treated as metrics.
-
-        Args:
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test telemetry handler ignores numeric log events."""
         event = TelemetryEvent(
             event_type="telemetry.log",
             name="some_log",
@@ -852,14 +703,7 @@ class TestOtelHookPlugin:
         """Test maintenance telemetry promotes to standard Phlo metrics.
 
         Verifies that iceberg.maintenance.* events are mapped to standard
-        phlo.maintenance.* metric names with appropriate instrument types.
-
-        Args:
-            mock_meter_fn: Mock for get_meter function.
-            monkeypatch: Pytest monkeypatch fixture.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        phlo.maintenance.* metric names with appropriate instrument types."""
         mock_runs_counter = MagicMock()
         mock_duration_histogram = MagicMock()
         mock_meter = MagicMock()
@@ -926,13 +770,7 @@ class TestOtelHookPlugin:
 
     @patch("phlo_otel.hooks_plugin.get_meter")
     def test_unknown_telemetry_keeps_generic_metric_namespace(self, mock_meter_fn, plugin):
-        """Test unknown telemetry uses generic phlo.telemetry.* namespace.
-
-        Args:
-            mock_meter_fn: Mock for get_meter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test unknown telemetry uses generic phlo.telemetry.* namespace."""
         mock_gauge = MagicMock()
         mock_meter = MagicMock()
         mock_meter.create_gauge.return_value = mock_gauge
@@ -957,13 +795,7 @@ class TestOtelHookPlugin:
 
     @patch("phlo_otel.hooks_plugin.get_log_emitter")
     def test_log_record_exports_to_otel_logs(self, mock_get_log_emitter, plugin):
-        """Test log handler exports LogEvents to OTel logs.
-
-        Args:
-            mock_get_log_emitter: Mock for get_log_emitter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test log handler exports LogEvents to OTel logs."""
         mock_emitter = MagicMock()
         mock_get_log_emitter.return_value = mock_emitter
 
@@ -996,13 +828,7 @@ class TestOtelHookPlugin:
     def test_log_record_uses_operation_tag_as_semantic_attribute(
         self, mock_get_log_emitter, plugin
     ):
-        """Test log handler promotes operation tag to semantic attribute.
-
-        Args:
-            mock_get_log_emitter: Mock for get_log_emitter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test log handler promotes operation tag to semantic attribute."""
         mock_emitter = MagicMock()
         mock_get_log_emitter.return_value = mock_emitter
 
@@ -1021,13 +847,7 @@ class TestOtelHookPlugin:
 
     @patch("phlo_otel.hooks_plugin.get_log_emitter")
     def test_log_record_uses_correlation_for_trace_context(self, mock_get_log_emitter, plugin):
-        """Test log handler extracts trace context from correlation.
-
-        Args:
-            mock_get_log_emitter: Mock for get_log_emitter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test log handler extracts trace context from correlation."""
         mock_emitter = MagicMock()
         mock_get_log_emitter.return_value = mock_emitter
 
@@ -1054,13 +874,7 @@ class TestOtelHookPlugin:
 
     @patch("phlo_otel.hooks_plugin.get_log_emitter")
     def test_log_record_derives_trace_context_from_run_id(self, mock_get_log_emitter, plugin):
-        """Test log handler derives trace context from run_id when not provided.
-
-        Args:
-            mock_get_log_emitter: Mock for get_log_emitter function.
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test log handler derives trace context from run_id when not provided."""
         mock_emitter = MagicMock()
         mock_get_log_emitter.return_value = mock_emitter
 
@@ -1080,10 +894,5 @@ class TestOtelHookPlugin:
         assert emitted_record.attributes["phlo.run_id"] == "run-777"
 
     def test_parse_trace_identifier_treats_all_digit_strings_as_hex(self, plugin):
-        """Test trace identifier parsing handles hex strings correctly.
-
-        Args:
-            plugin: The OtelHookPlugin fixture.
-
-        """
+        """Test trace identifier parsing handles hex strings correctly."""
         assert plugin._parse_trace_identifier("1234567890123456") == int("1234567890123456", 16)

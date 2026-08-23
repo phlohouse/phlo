@@ -9,6 +9,7 @@ Example:
     settings = get_settings()
     storage_opts = settings.get_storage_options()
 
+Builds on phlo.config.base, phlo.config.cache, and phlo.config.network URL resolution.
 """
 
 from __future__ import annotations
@@ -26,18 +27,8 @@ from phlo.config.network import resolve_url
 class DeltaSettings(BaseConfig):
     """Delta Lake storage configuration.
 
-    This class manages all configuration settings for Delta Lake operations,
-    including S3 storage paths, endpoints, credentials, and behavior flags.
-
-    Attributes:
-        delta_warehouse_path: S3 URI path for Delta table storage.
-        delta_staging_path: S3 URI path for staging parquet files.
-        delta_default_namespace: Default database/schema namespace for tables.
-        delta_s3_endpoint: S3-compatible endpoint URL for Delta I/O operations.
-        delta_s3_access_key: Access key for S3 authentication.
-        delta_s3_secret_key: Secret key for S3 authentication.
-        delta_s3_region: AWS region for S3 operations.
-        delta_s3_allow_unsafe_rename: Flag to allow unsafe renames on S3 backends.
+    Manages S3 storage paths, endpoints, credentials, and behavior flags for
+    Delta Lake operations.
 
     Example:
         settings = DeltaSettings()
@@ -83,12 +74,8 @@ class DeltaSettings(BaseConfig):
     def model_post_init(self, __context: Any) -> None:
         """Post-initialization hook to resolve S3 endpoint URL.
 
-        Resolves the delta_s3_endpoint using the network URL resolver,
-        handling port environment variable substitution.
-
-        Args:
-            __context: Pydantic initialization context.
-
+        Resolves delta_s3_endpoint with the network URL resolver, handling
+        port environment variable substitution.
         """
         if self.delta_s3_endpoint:
             resolved = resolve_url(self.delta_s3_endpoint, port_env_var="MINIO_API_PORT")
@@ -98,11 +85,8 @@ class DeltaSettings(BaseConfig):
         """Build deltalake storage options dict for S3 access.
 
         Constructs a dictionary of storage options compatible with the
-        deltalake library's S3 I/O operations.
-
-        Returns:
-            dict[str, str]: Storage options containing AWS credentials,
-                endpoint URL, region, and safety flags.
+        deltalake library's S3 I/O operations, containing AWS credentials,
+        endpoint URL, region, and safety flags.
 
         Example:
             settings = DeltaSettings()
@@ -129,12 +113,6 @@ def get_settings(project_root: Path) -> DeltaSettings:
 
     Settings are cached per resolved project root, with up to 16 entries,
     and reused across the application lifecycle.
-
-    Args:
-        project_root: Resolved project root used for cache selection.
-
-    Returns:
-        DeltaSettings: Cached settings for the selected project root.
 
     Example:
         settings = get_settings()

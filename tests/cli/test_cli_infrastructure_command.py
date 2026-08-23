@@ -1,3 +1,9 @@
+"""Tests for run_command error reporting.
+
+CommandError must render command and stderr, and credential-bearing arguments
+and output must be redacted before anything is exposed.
+"""
+
 from __future__ import annotations
 
 from subprocess import CompletedProcess

@@ -46,27 +46,18 @@ logger = get_logger(__name__)
 
 
 def _read_query(*, query: str | None, file: Path | None) -> str:
-    """Read and validate SQL query from inline string or file.
+    """Read and validate SQL from an inline string or a file; exactly one source
+    must be provided and the content must be non-empty.
 
-    Extracts SQL text from either an inline query string or a file path.
-    Validates that exactly one source is provided and the content is non-empty.
+    Returns whitespace-stripped SQL text.
 
-    Args:
-        query: Inline SQL query string, or None if using file.
-        file: Path to SQL file, or None if using inline query.
-
-    Returns:
-        Validated SQL query string with whitespace stripped.
-
-    Raises:
-        click.ClickException: If both query and file are provided,
-            if file cannot be read, if file is empty, or if neither is provided.
+    Raises: click.ClickException when both or neither source is given, the
+    file cannot be read, or the file is empty.
 
     Example:
         >>> from pathlib import Path
         >>> _read_query(query="SELECT 1", file=None)
         'SELECT 1'
-
     """
     if query and file:
         raise exclusive_options_error("an inline query", "--file")
@@ -86,20 +77,13 @@ def _read_query(*, query: str | None, file: Path | None) -> str:
 def _ensure_phlo_dir() -> Path:
     """Verify and return the Phlo compose project directory.
 
-    Checks that the current project has an initialized .phlo compose setup.
-
-    Returns:
-        Path to the .phlo directory.
-
-    Raises:
-        click.ClickException: If the compose project files are missing.
+    Raises: click.ClickException when the compose project files are missing.
 
     Example:
         >>> # In a directory with .phlo/ subdirectory
         >>> path = _ensure_phlo_dir()
         >>> path.name
         '.phlo'
-
     """
     return ensure_compose_project()
 
@@ -152,24 +136,15 @@ def clickhouse_query(
     output_format: str,
     timeout_seconds: int,
 ) -> None:
-    """Execute a SQL query against the running ClickHouse service.
+    """Execute a SQL query against the running ClickHouse service via
+    clickhouse-client inside the container backend, printing results to stdout.
 
-    Runs the specified SQL query against ClickHouse using the clickhouse-client
-    utility within the container backend container. Results are printed to stdout.
-
-    Args:
-        query: SQL query string provided as command argument.
-        query_file: Path to file containing SQL query (alternative to query arg).
-        output_format: Format string for result output (ClickHouse format name).
-        timeout_seconds: Maximum time to wait for query execution.
-
-    Raises:
-        click.ClickException: If container backend is unavailable, query fails, or times out.
+    Raises: click.ClickException when the container backend is unavailable,
+    the query fails, or execution times out.
 
     Example:
         $ phlo clickhouse query "SELECT version()"
         $ phlo clickhouse query --file queries/analysis.sql --format CSV
-
     """
     sql = _read_query(query=query, file=query_file)
     if is_mutating_sql(sql):
@@ -217,19 +192,15 @@ def clickhouse_query(
 
 @clickhouse_group.command(name="status")
 def clickhouse_status() -> None:
-    """Show ClickHouse service status and basic server info.
+    """Show ClickHouse service status: version, uptime, and current database.
 
-    Displays version, uptime, and current database information from the
-    running ClickHouse service.
-
-    Raises:
-        click.ClickException: If container backend is unavailable or status check fails.
+    Raises: click.ClickException when the container backend is unavailable or
+    the status check fails.
 
     Example:
         $ phlo clickhouse status
         version    uptime_seconds    current_database
         24.3.0     3600              default
-
     """
     _require_container_backend()
     phlo_dir = _ensure_phlo_dir()

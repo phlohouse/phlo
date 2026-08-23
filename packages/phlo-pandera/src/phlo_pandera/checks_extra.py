@@ -67,18 +67,10 @@ logger = get_logger(__name__)
 
 @dataclass
 class SchemaCheck(QualityCheck):
-    """Check that DataFrame matches a Pandera schema.
-
-    This check validates that a DataFrame conforms to a Pandera DataFrameModel
-    schema, including type validation, constraint checking (min, max, regex, etc.),
-    and nullability verification. It uses lazy validation to collect all errors
-    rather than failing on the first issue.
-
-    Attributes:
-        schema: Pandera DataFrameModel class to validate against (not an instance).
-        lazy: Whether to use lazy validation to collect all errors. Default True.
-            When True, all schema violations are collected and reported.
-            When False, validation stops at the first error.
+    """Check that a DataFrame conforms to a Pandera schema, covering types,
+    constraints, and nullability. Pass the schema class (not an instance);
+    lazy validation collects all violations at once instead of stopping at
+    the first error.
 
     Example:
         ```python
@@ -97,18 +89,6 @@ class SchemaCheck(QualityCheck):
         def customer_quality():
             pass
         ```
-
-    Returns:
-        QualityCheckResult with:
-            - ``metric_name``: "schema_check"
-            - ``metric_value``: Dict with schema_valid boolean
-            - ``metadata``: Includes schema_name, rows_evaluated, failed_checks,
-                failures_by_column, failures_by_check, sample_failures
-
-    Note:
-        The schema parameter should be the class (e.g., ``CustomerSchema``),
-        not an instance (e.g., ``CustomerSchema()``).
-
     """
 
     schema: Any
@@ -118,23 +98,10 @@ class SchemaCheck(QualityCheck):
     """Use lazy validation to collect all errors."""
 
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
-        """Execute schema check on DataFrame.
-
-        Validates the DataFrame against the configured Pandera schema using
-        lazy validation to collect all validation errors. Groups failures by
-        column and check type for detailed reporting.
-
-        Args:
-            df: DataFrame to validate against the schema.
-            context: Runtime context for logging and resources.
-
-        Returns:
-            QualityCheckResult indicating schema validity with detailed failure
-            information when validation fails.
-
-        Raises:
-            Exception: Catches and logs unexpected errors, returning a failed result.
-
+        """Validate the DataFrame against the schema and return the result;
+        failures are grouped by column and check type for reporting.
+        Unexpected errors are logged and turned into a failed result rather
+        than raised.
         """
         try:
             # Validate with Pandera
@@ -189,67 +156,17 @@ class SchemaCheck(QualityCheck):
 
     @property
     def name(self) -> str:
-        """Get the check name.
-
-        Returns:
-            Stable metric name incorporating the schema class name.
-
-        """
+        """Return a stable metric name incorporating the schema class name."""
         schema_name = getattr(self.schema, "__name__", "schema")
         return f"schema_check_{schema_name}"
 
 
 @dataclass
 class CustomSQLCheck(QualityCheck):
-    """Execute arbitrary SQL to validate data.
-
-    This check enables complex validation logic by executing custom SQL queries
-    against the data using DuckDB. The SQL should return a single boolean column
-    where True indicates a valid row and False indicates a violation.
-
-    This is useful for cross-column validations, business rule checks, or any
-    validation that cannot be expressed with the standard check types.
-
-    Attributes:
-        name_: Name of this check for identification in results.
-        sql: SQL query that returns a boolean column. True = valid, False = violation.
-            The DataFrame is registered as a table named "data".
-        expected: Expected boolean result for valid rows. Default True.
-        allow_threshold: Maximum fraction of failures allowed (0.0 = no failures
-            allowed, 0.05 = 5% allowed). Default 0.0.
-
-    Example:
-        ```python
-        # Simple positive value check
-        CustomSQLCheck(
-            name_="positive_amount",
-            sql="SELECT (amount > 0) AS is_valid FROM data",
-        )
-
-        # Cross-column validation
-        CustomSQLCheck(
-            name_="date_consistency",
-            sql="SELECT (end_date >= start_date) AS is_valid FROM data",
-        )
-
-        # Complex business rule
-        CustomSQLCheck(
-            name_="valid_discount",
-            sql="SELECT (discount >= 0 AND discount <= original_price) FROM data",
-            allow_threshold=0.01,  # Allow 1% violations
-        )
-        ```
-
-    Returns:
-        QualityCheckResult with:
-            - ``metric_name``: The provided ``name_`` parameter
-            - ``metric_value``: Dict with failures count and total rows
-            - ``metadata``: Includes failure_percentage, threshold
-
-    Note:
-        This check requires DuckDB to be installed. It registers the DataFrame
-        as a DuckDB table named "data" for querying.
-
+    """Execute arbitrary SQL against the data via DuckDB to validate rows the
+    standard check types cannot express. The SQL must return one boolean
+    column (True = valid row); the DataFrame is queryable as table "data".
+    Requires DuckDB to be installed.
     """
 
     name_: str
@@ -265,23 +182,10 @@ class CustomSQLCheck(QualityCheck):
     """Maximum fraction of failures allowed."""
 
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
-        """Execute custom SQL check on DataFrame.
-
-        Registers the DataFrame as a DuckDB table named "data" and executes the
-        provided SQL query. Counts rows where the result doesn't match the expected
-        value and determines pass/fail based on the threshold.
-
-        Args:
-            df: DataFrame to validate. Registered as "data" table in DuckDB.
-            context: Runtime context for logging.
-
-        Returns:
-            QualityCheckResult with failure counts and statistics.
-
-        Raises:
-            ImportError: If DuckDB is not available.
-            Exception: Catches SQL execution errors and returns failed result.
-
+        """Register the DataFrame as DuckDB table "data", run the check SQL,
+        and count rows whose result differs from expected; passes when the
+        failure fraction stays within allow_threshold. SQL errors are logged
+        and returned as a failed result.
         """
         try:
             # Execute SQL in pandas context
@@ -357,32 +261,15 @@ class CustomSQLCheck(QualityCheck):
 
     @property
     def name(self) -> str:
-        """Get the check name.
-
-        Returns:
-            Check name with "custom_sql_" prefix for identification.
-
-        """
+        """Return the check name with a "custom_sql_" prefix."""
         return f"custom_sql_{self.name_}"
 
 
 @dataclass
 class PatternCheck(QualityCheck):
-    """Check that string column values match a regex pattern.
-
-    This check validates that all non-null values in a string column match
-    a specified regular expression pattern. It's useful for format validation
-    such as email addresses, phone numbers, postal codes, IDs, etc.
-
-    Supports configurable thresholds to allow a percentage of non-matching
-    values, and case sensitivity can be controlled via a flag.
-
-    Attributes:
-        column: Column name to validate.
-        pattern: Regular expression pattern that values must match.
-        allow_threshold: Maximum fraction of non-matching values allowed
-            (0.0 = all values must match, 0.05 = 5% can fail). Default 0.0.
-        case_sensitive: Whether pattern matching is case sensitive. Default True.
+    """Check that non-null values in a string column match a regular
+    expression — format validation for emails, postal codes, IDs, and the
+    like. A configurable fraction of non-matches can be tolerated.
 
     Example:
         ```python
@@ -413,12 +300,6 @@ class PatternCheck(QualityCheck):
         )
         ```
 
-    Returns:
-        QualityCheckResult with:
-            - ``metric_name``: "pattern_check"
-            - ``metric_value``: Dict with match_count and non_match_count
-            - ``metadata``: Includes pattern, match_percentage, sample non-matches
-
     """
 
     column: str
@@ -434,20 +315,9 @@ class PatternCheck(QualityCheck):
     """Whether pattern matching is case sensitive."""
 
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
-        """Execute pattern check on DataFrame.
-
-        Compiles the regex pattern (with optional case insensitivity) and matches
-        it against all non-null string values in the specified column. Calculates
-        match statistics and provides sample non-matching values for debugging.
-
-        Args:
-            df: DataFrame containing the data to validate.
-            context: Runtime context for logging.
-
-        Returns:
-            QualityCheckResult indicating whether the pattern matches the
-            configured percentage of values.
-
+        """Match the pattern against every non-null value in the column,
+        tolerating up to allow_threshold non-matches; sample non-matching
+        values accompany failures.
         """
         if self.column not in df.columns:
             return QualityCheckResult(
@@ -472,6 +342,8 @@ class PatternCheck(QualityCheck):
         flags = 0 if self.case_sensitive else re.IGNORECASE
         pattern_compiled = re.compile(self.pattern, flags)
 
+        # str.match anchors only at the start of the value; patterns must
+        # carry their own end anchor ($) for full-string validation.
         matches = column_data.str.match(pattern_compiled, na=False)
         non_match_count = (~matches).sum()
         non_match_pct = non_match_count / len(column_data)
@@ -512,10 +384,5 @@ class PatternCheck(QualityCheck):
 
     @property
     def name(self) -> str:
-        """Get the check name.
-
-        Returns:
-            Stable metric name incorporating the column name.
-
-        """
+        """Return a stable metric name incorporating the column name."""
         return f"pattern_check_{self.column}"

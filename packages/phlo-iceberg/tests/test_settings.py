@@ -1,3 +1,6 @@
+"""Tests IcebergSettings catalog config: host names resolve to service URLs
+and endpoints stay explicit for local stacks."""
+
 from __future__ import annotations
 
 import socket

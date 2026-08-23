@@ -1,4 +1,9 @@
-"""Tests for Loki service plugin."""
+"""Tests for the Loki service plugin.
+
+Pins the service definition to the observability profile with a named
+volume, an upstream image pinned by digest, and no in-container health
+check for the distroless image.
+"""
 
 from phlo_loki.plugin import LokiServicePlugin
 

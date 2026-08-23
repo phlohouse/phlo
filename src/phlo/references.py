@@ -1,4 +1,10 @@
-"""Logical relation references for workflow authors."""
+"""Logical relation references for workflow authors.
+
+``ref`` resolves an asset name through the capability registry into a
+LogicalRelation; rendering quotes each physical segment with ANSI
+double-quote escaping and falls back to the bare asset key when no physical
+metadata is known.
+"""
 
 from __future__ import annotations
 
@@ -86,6 +92,8 @@ def _resolve_logical_relation(
     registry: CapabilityRegistry | None,
     discover: bool,
 ) -> LogicalRelation:
+    # An asset_key with no registered AssetSpec resolves to an unresolved
+    # LogicalRelation instead of failing; render() then falls back to the bare key.
     capability_registry = registry or get_capability_registry()
     if discover:
         _discover_capabilities()

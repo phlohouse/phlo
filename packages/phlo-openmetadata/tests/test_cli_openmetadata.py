@@ -1,4 +1,8 @@
-"""CLI tests for OpenMetadata commands."""
+"""CLI tests for OpenMetadata commands.
+
+Proves the sync command resolves its catalog scanner through the capability
+helper, passing the scanner name configured in settings.
+"""
 
 from unittest.mock import Mock, patch
 

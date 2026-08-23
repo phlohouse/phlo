@@ -1,4 +1,10 @@
-"""Tests for decorators 2026-05 migration codemods."""
+"""Tests for decorators 2026-05 migration codemods.
+
+Rewrites phlo_dlt/phlo_quality decorator imports into their provider-neutral
+phlo.ingest.dlt and phlo.quality.pandera forms, handling aliases, callable
+aliases, and aliased phlo namespace imports, and reports unchanged sources
+without touching them.
+"""
 
 from __future__ import annotations
 

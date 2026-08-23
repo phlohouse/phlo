@@ -13,6 +13,9 @@ Classes:
 
 Functions:
     _load_service_definition: Loads YAML service definitions from package resources.
+
+Loaded through the phlo plugin entry-point mechanism at startup rather than
+imported directly; exposes S3 object-store capabilities via phlo.capabilities.
 """
 
 from __future__ import annotations
@@ -57,21 +60,15 @@ class RustfsObjectStoreProvider:
 
     def to_sling_connection(self) -> dict[str, Any]:
         """Return a Sling-compatible S3 connection definition.
-
         Constructs an S3 connection dictionary formatted for use with Sling.
         Includes endpoint URL, credentials, and region information read from
         the cached RustfsSettings.
-
-        Returns:
-            Dictionary with keys: type, endpoint, access_key_id,
-            secret_access_key, and region.
 
         Example:
             >>> provider = RustfsObjectStoreProvider()
             >>> conn = provider.to_sling_connection()
             >>> print(conn["type"])
             "s3"
-
         """
         from phlo_rustfs.settings import get_settings
 
@@ -98,13 +95,7 @@ class RustfsResourceProvider(ResourceProviderPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for the RustFS resource provider.
-
-        Returns:
-            PluginMetadata containing name, version, description, and tags.
-            Tagged with "core", "storage", and "s3" for discovery.
-
-        """
+        """Return plugin metadata for the RustFS resource provider."""
         return PluginMetadata(
             name="rustfs",
             version="0.1.0",
@@ -114,26 +105,17 @@ class RustfsResourceProvider(ResourceProviderPlugin):
 
     def get_resources(self) -> list[ResourceSpec]:
         """Return resource specs exposed by this provider.
-
         Currently returns an empty list as RustFS does not expose any
         generic resources. Object store capabilities are exposed via
         get_object_stores instead.
-
-        Returns:
-            Empty list of ResourceSpec objects.
-
         """
         return []
 
     def get_object_stores(self) -> list[ObjectStoreSpec]:
         """Return object-store capability specs exposed by this provider.
-
         Returns a list containing a single ObjectStoreSpec for the RustFS
         S3-compatible storage. The spec includes metadata about the storage
         type and endpoint URL.
-
-        Returns:
-            List containing one ObjectStoreSpec for the "rustfs" object store.
 
         Example:
             >>> provider = RustfsResourceProvider()
@@ -142,7 +124,6 @@ class RustfsResourceProvider(ResourceProviderPlugin):
             1
             >>> stores[0].name
             "rustfs"
-
         """
         provider = RustfsObjectStoreProvider()
         return [

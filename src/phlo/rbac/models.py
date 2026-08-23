@@ -125,18 +125,15 @@ class RolesConfig:
     def expand_role_hierarchy(self, role_name: str) -> tuple[str, ...]:
         """Expand a role to include all inherited roles.
 
-        Args:
-            role_name: Name of the role to expand.
-
-        Returns:
-            Tuple of role names including the role and all inherited roles.
-
-        Raises:
-            ValueError: If the role does not exist or there's a cycle.
+        Returns the role name plus every ancestor. Raise ValueError when the role
+        does not exist or the hierarchy contains a cycle.
         """
         if role_name not in self.roles:
             raise ValueError(f"Unknown role: {role_name}")
 
+        # `path` is the current DFS stack and detects inheritance cycles;
+        # `result_set` memoizes fully expanded roles so diamond hierarchies
+        # contribute each role once and expansion terminates.
         path: list[str] = []
         result_set: set[str] = set()
 
@@ -164,14 +161,7 @@ class RolesConfig:
         return tuple(_expand(role_name))
 
     def get_effective_roles(self, role_name: str) -> frozenset[str]:
-        """Get all effective roles including inherited ones.
-
-        Args:
-            role_name: Name of the role.
-
-        Returns:
-            Frozenset of all role names in the hierarchy.
-        """
+        """Collect all effective roles for a role, including inherited ones."""
         return frozenset(self.expand_role_hierarchy(role_name))
 
 
@@ -281,8 +271,7 @@ class CanonicalRBAC:
     def validate(self) -> list[str]:
         """Validate the canonical RBAC model.
 
-        Returns:
-            List of validation errors (empty if valid).
+        Returns a list of validation errors, empty when the model is valid.
         """
         errors: list[str] = []
 
@@ -315,6 +304,7 @@ class CanonicalRBAC:
 
     def effective_roles_for_subject(self, subject: str, principal_type: str) -> frozenset[str]:
         """Return assigned roles plus their inherited roles for one principal."""
+        # Platform principals share the service assignment table.
         assignments = (
             self.roles.subjects.services
             if principal_type in {"service", "platform"}

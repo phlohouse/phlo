@@ -1,4 +1,11 @@
-"""Provider-neutral Observatory API resources."""
+"""Provider-neutral Observatory API resources.
+
+Exposes the Observatory read/write surface (overview, services, operations,
+runs, assets, datasets, tables, quality, logs, branches, capabilities,
+settings, search, actions) with provider-neutral payloads: provider URLs never
+reach the browser. Project read models are TTL-cached, dataset workflow state
+writes are lock-serialized, and log tails read only a bounded file suffix.
+"""
 
 from __future__ import annotations
 
@@ -181,6 +188,8 @@ def _jsonable_result(result: Any) -> dict[str, Any]:
 
 
 class ObservatoryMaterializeAssetRequest(BaseModel):
+    """Request payload for materializing an asset."""
+
     model_config = {"populate_by_name": True}
 
     dry_run: bool = True
@@ -196,6 +205,8 @@ class ObservatoryMaterializeAssetRequest(BaseModel):
 
 
 class ObservatoryRetryRunRequest(BaseModel):
+    """Request payload for retrying a failed run."""
+
     dry_run: bool = True
     strategy: str = "FROM_FAILURE"
     idempotency_key: str | None = None
@@ -203,11 +214,15 @@ class ObservatoryRetryRunRequest(BaseModel):
 
 
 class ObservatoryCancelRunRequest(BaseModel):
+    """Request payload for cancelling a run."""
+
     reason: str | None = None
     idempotency_key: str | None = None
 
 
 class ObservatoryBackfillAssetRequest(BaseModel):
+    """Request payload for backfilling an asset partition."""
+
     dry_run: bool = True
     partitions: list[str] = Field(default_factory=list)
     partition_range: dict[str, str] | None = None
@@ -219,11 +234,15 @@ class ObservatoryBackfillAssetRequest(BaseModel):
 
 
 class ObservatoryDatasetWorkflowConfig(BaseModel):
+    """Configurable defaults for the Dataset workflow."""
+
     default_owner: str
     approval_states: list[str] = Field(default_factory=list)
 
 
 class ObservatorySchemaDiffRequest(BaseModel):
+    """Request payload for diffing an asset schema between two runs."""
+
     asset_key: str
     from_run: str | None = None
     to_run: str | None = None
@@ -457,6 +476,10 @@ def _import_project_workflows(project_root: Path) -> None:
     if str(parent_dir) not in sys.path:
         sys.path.insert(0, str(parent_dir))
 
+    # Workflows load under synthetic "phlo_observatory_..." module names so a
+    # project file can never shadow a real package. A file that raises during
+    # exec is removed from sys.modules again, leaving no half-initialized
+    # import behind.
     for py_file in sorted(workflows_path.rglob("*.py")):
         if py_file.name == "__init__.py" or py_file.name.startswith("_"):
             continue
@@ -777,6 +800,7 @@ def _overview_attention_rows(
         )
 
     def quality_score(check: ObservatoryQualityCheck) -> tuple[int, int, str]:
+        """Order failing checks by state, then severity, then id."""
         state_score = {"failing": 0, "warning": 1, "unknown": 2}.get(check.status, 3)
         severity_score = {
             "critical": 0,
@@ -1239,6 +1263,10 @@ def _load_publishing_readiness() -> ObservatoryPublishingReadinessList:
 
 def _load_dataset_profile(dataset_id: str) -> ObservatoryDatasetProfile:
     assets = _load_assets()
+    # A dataset id may name a listed manifest dataset, a "candidate:<table>"
+    # workflow candidate, or a table promoted from one. The cascade below
+    # resolves those identities in that order; the first match decides which
+    # read model backs this profile.
     tables = _load_tables_without_catalog()
     quality = _load_quality()
     listed_dataset = next((item for item in _load_datasets() if item.id == dataset_id), None)
@@ -1617,6 +1645,9 @@ def _access_activity_from_mapping(
         "status",
         "warehouse",
     }
+    # Privacy shaping happens here: unless the manifest policy grants full
+    # "identity" detail, only the aggregate metadata allow-list survives and
+    # every actor-identifying key is stripped before the record reaches the UI.
     metadata_source = (
         item
         if policy.identity_detail == "identity"
@@ -2082,6 +2113,11 @@ def _iter_reverse_log_lines(log_path: Path) -> Iterable[tuple[str, str]]:
             position = file_size
             pending = b""
             pending_truncated = False
+            # Read backwards one chunk at a time. `pending` carries the leading
+            # fragment of the oldest line in the chunk; it is prepended to the
+            # next (earlier) chunk where that line begins. A single line longer
+            # than MAX_LOG_EVENT_BYTES is clipped and flagged, and the flag
+            # travels across chunks until the line is fully consumed.
             while position:
                 chunk_size = min(LOG_TAIL_CHUNK_BYTES, position)
                 position -= chunk_size
@@ -2364,6 +2400,9 @@ def _table_rows(
         rows = [dict(row) for row in preview_rows if isinstance(row, Mapping)]
         return rows[offset : offset + max(0, min(limit, 500))]
 
+    # No stored preview rows but a record count exists: synthesize
+    # deterministic placeholder rows from column names so the UI has something
+    # to render. These are shaped samples, not real table contents.
     row_count_raw = table.metadata.get("records")
     if not isinstance(row_count_raw, int):
         return []
@@ -2438,6 +2477,8 @@ def _preview_from_query_engine(
     resolution = resolve_capability("query_engine")
     if resolution is None or not hasattr(resolution.provider, "preview"):
         return None
+    # Any query-engine failure degrades to None; the caller then serves a
+    # metadata-derived preview instead of failing the endpoint.
     try:
         result = resolution.provider.preview(
             relation,
@@ -3011,6 +3052,9 @@ def _load_row_journey(table_id: str, row_id: str) -> ObservatoryRowJourney:
 
 
 def _row_offset(row_id: str) -> int:
+    # A trailing ":N" marks a 1-based positional reference into the table's
+    # current ordering, not a durable key; the journey resolves it by reading
+    # the preview at that offset.
     tail = row_id.rsplit(":", 1)[-1]
     if tail.isdigit():
         return max(0, int(tail) - 1)
@@ -4118,6 +4162,8 @@ def _workflow_action_result(
 
 
 def _record_observatory_telemetry(*, name: str, resource_id: str, action_id: str) -> None:
+    # Best-effort by design: a telemetry failure is swallowed so it can never
+    # fail the user-visible action being recorded.
     try:
         from phlo.capabilities.telemetry import TelemetryRecorder
         from phlo.hooks import HookCorrelation, TelemetryEvent
@@ -4278,6 +4324,7 @@ async def post_observatory_run_retry(
     provider = resolve_orchestrator_operations()
 
     async def execute() -> dict[str, Any]:
+        """Run the guarded retry call and render its result as JSON-safe output."""
         result = await provider.retry_run(run_id, request.model_dump())
         return _jsonable_result(result)
 
@@ -4308,6 +4355,7 @@ async def post_observatory_run_cancel(
     provider = resolve_orchestrator_operations()
 
     async def execute() -> dict[str, Any]:
+        """Run the guarded cancel call and render its result as JSON-safe output."""
         result = await provider.cancel_run(run_id, request.model_dump())
         return _jsonable_result(result)
 
@@ -4516,6 +4564,7 @@ async def post_observatory_asset_materialize(
     provider = resolve_orchestrator_operations()
 
     async def execute() -> dict[str, Any]:
+        """Run the guarded materialization call and render its result as JSON-safe output."""
         result = await provider.materialize_asset(asset_id, request.model_dump())
         return _jsonable_result(result)
 
@@ -4546,6 +4595,7 @@ async def post_observatory_asset_backfill(
     provider = resolve_orchestrator_operations()
 
     async def execute() -> dict[str, Any]:
+        """Run the guarded backfill call and render its result as JSON-safe output."""
         result = await provider.backfill_asset(asset_id, request.model_dump())
         return _jsonable_result(result)
 

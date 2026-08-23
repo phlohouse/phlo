@@ -126,17 +126,6 @@ class DltIngester(BaseIngester):
     - Append and merge strategies
     - Telemetry and event emission
 
-    Attributes:
-        table_config: Table-level ingestion configuration.
-        table_store: Table store capability for merge operations.
-        dlt_source_func: Callable that builds a DLT source for a partition.
-        validation_schema: Optional Pandera schema for validation.
-        validate: Whether to run Pandera validation.
-        strict_validation: Whether to fail on validation errors.
-        add_metadata_columns: Whether to inject metadata columns.
-        merge_strategy: Merge strategy ("append" or "merge").
-        merge_config: Additional merge configuration options.
-
     Example:
         ```python
         from phlo_dlt.executor import DltIngester
@@ -170,26 +159,7 @@ class DltIngester(BaseIngester):
         merge_strategy: str = "merge",
         merge_config: Dict[str, Any] | None = None,
     ):
-        """Initialize the DLT ingester.
-
-        Args:
-            context: Execution context from the orchestrator runtime.
-                Should have log/run_id attributes or be compatible.
-            logger: Logger used for ingestion lifecycle messages.
-            table_config: Table-level ingestion configuration.
-            table_store_resource: Table store resource used for merge operations.
-            dlt_source_func: Callable that builds a DLT source for a partition.
-                Signature: (partition_date: str) -> DltSource
-            validation_schema: Optional Pandera schema used for staged-data validation.
-            validate: Whether Pandera validation should run for staged data.
-            strict_validation: Whether failed validation should abort before visible writes.
-                When True, enables WAP pattern with isolated branches.
-            add_metadata_columns: Whether to inject metadata columns into staged parquet.
-            merge_strategy: Merge strategy name for table-store writes.
-                Options: "append" (insert only), "merge" (upsert on unique_key).
-            merge_config: Optional merge strategy configuration dictionary.
-
-        """
+        """Store the ingester's collaborators and validation/merge options."""
         super().__init__(context, logger)
         self.table_config = table_config
         self.table_store = table_store_resource
@@ -206,30 +176,12 @@ class DltIngester(BaseIngester):
         partition_key: str | None,
         parameters: Dict[str, Any] | None = None,
     ) -> IngestionResult:
-        """Run the full DLT -> Parquet -> table_store flow.
+        """Run the full DLT -> Parquet -> table_store flow for one partition.
 
-        Executes the complete ingestion pipeline:
-        1. Calls dlt_source_func to get DLT source
-        2. If no data, returns no_data result
-        3. Stages data to Parquet via DLT
-        4. Injects metadata columns (if enabled)
-        5. Runs Pandera validation (if enabled)
-        6. Merges to table store
-        7. Emits events and returns result
-
-        Args:
-            partition_key: The partition date (YYYY-MM-DD) to ingest.
-            parameters: Optional dict with:
-                - branch_name: Target branch for writing
-                - target_branch_name: Final target branch (for WAP)
-                - run_id: Orchestrator run identifier
-
-        Returns:
-            IngestionResult: Result with status, row counts, and metadata.
-
-        Raises:
-            PanderaContractValidationError: If strict validation fails.
-            RuntimeError: If any other error occurs during ingestion.
+        `partition_key` is the partition date (YYYY-MM-DD); `parameters` may
+        carry branch_name, target_branch_name, and run_id routing. Raises
+        PanderaContractValidationError on strict validation failure and
+        RuntimeError for other ingestion failures.
 
         Example:
             ```python
@@ -379,20 +331,14 @@ class DltIngester(BaseIngester):
                 dataset_name=pipeline_name,
             )
 
-            # We pass 'self' as context because dlt_helpers expects an object with .log
-            # In a real refactor, dlt_helpers should take logger explicitly.
-            # Helpers consume context.log, so wrap logger behind a tiny shim.
+            # dlt_helpers log through a context object exposing ``.log``;
+            # this shim adapts the plain logger to that contract.
 
             class ContextShim:
                 """Expose a `.log` attribute expected by DLT helpers."""
 
                 def __init__(self, logger):
-                    """Store logger on `.log` to match helper context contract.
-
-                    Args:
-                        logger: Logger instance consumed by helper functions.
-
-                    """
+                    """Store logger on `.log` to match helper context contract."""
                     self.log = logger
 
             shim = ContextShim(self.logger)
@@ -659,5 +605,4 @@ class DltIngester(BaseIngester):
                     level="error",
                     payload={"error": safe_error, "elapsed_seconds": total_elapsed},
                 )
-            # Re-raise so the orchestrator knows it failed
             raise

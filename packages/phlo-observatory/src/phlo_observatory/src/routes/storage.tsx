@@ -1,3 +1,7 @@
+/**
+ * /storage route. Joins storage providers with runtime services and table
+ * records so each provider can be inspected alongside its backing stack.
+ */
 import { createFileRoute } from '@tanstack/react-router'
 import { Boxes, Database, HardDrive, Table2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'

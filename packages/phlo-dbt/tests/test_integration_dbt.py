@@ -1,4 +1,9 @@
-"""Integration tests for phlo-dbt."""
+"""Integration tests for phlo-dbt.
+
+Runs dbt against a temporary project to exercise CLI execution, direct
+DbtTransformer execution, and project parsing. Skips cleanly when the duckdb
+adapter is missing from the environment.
+"""
 
 import os
 import shutil

@@ -203,6 +203,9 @@ def _build_asset_graph(
             for target in targets:
                 edge_details.append(AssetEdge(source=source, target=target))
 
+    # A provider may reference an asset in edges without listing it under
+    # "assets"; synthesize a bare node for each missing endpoint so every edge
+    # in the returned graph points at an existing node.
     for edge in edge_details:
         assets.setdefault(edge.source, AssetNode(name=edge.source))
         assets.setdefault(edge.target, AssetNode(name=edge.target))
@@ -277,15 +280,8 @@ def _optional_dict(value: Any) -> dict[str, Any] | None:
 async def get_row_lineage(row_id: str) -> RowLineageInfo | dict[str, str]:
     """Get lineage info for a single row.
 
-    Args:
-        row_id: The unique row identifier to look up.
-
-    Returns:
-        RowLineageInfo for the current row, or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
+    Return an ``error`` dictionary instead of raising when the sink fails or
+    the row is absent from the lineage store.
     """
     try:
         journey = _resolve_lineage_sink().get_row_journey(row_id=row_id, depth=1)
@@ -307,16 +303,8 @@ async def get_row_ancestors(
 ) -> list[RowLineageInfo] | dict[str, str]:
     """Get ancestor rows recursively upstream.
 
-    Args:
-        row_id: The unique row identifier to trace upstream.
-        max_depth: Maximum depth to traverse (default: 10, max: 50).
-
-    Returns:
-        List of RowLineageInfo for ancestor rows, or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
+    Traverses up to ``max_depth`` levels. Return an ``error`` dictionary
+    instead of raising when the sink fails.
     """
     try:
         journey = _resolve_lineage_sink().get_row_journey(row_id=row_id, depth=max_depth)
@@ -335,16 +323,8 @@ async def get_row_descendants(
 ) -> list[RowLineageInfo] | dict[str, str]:
     """Get descendant rows recursively downstream.
 
-    Args:
-        row_id: The unique row identifier to trace downstream.
-        max_depth: Maximum depth to traverse (default: 10, max: 50).
-
-    Returns:
-        List of RowLineageInfo for descendant rows, or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
+    Traverses up to ``max_depth`` levels. Return an ``error`` dictionary
+    instead of raising when the sink fails.
     """
     try:
         journey = _resolve_lineage_sink().get_row_journey(row_id=row_id, depth=max_depth)
@@ -360,15 +340,7 @@ async def get_row_descendants(
 async def get_row_journey(row_id: str) -> LineageJourney | dict[str, str]:
     """Get full lineage journey for a row (current, ancestors, descendants).
 
-    Args:
-        row_id: The unique row identifier to trace.
-
-    Returns:
-        LineageJourney with current, ancestors, and descendants, or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
+    Return an ``error`` dictionary instead of raising when the sink fails.
     """
     try:
         journey = _resolve_lineage_sink().get_row_journey(row_id=row_id, depth=10)
@@ -392,20 +364,11 @@ async def get_asset_lineage_graph(
 ) -> AssetLineageGraph | dict[str, str]:
     """Get the asset lineage graph.
 
-    Returns the full asset graph or a filtered subgraph around a focal asset.
-
-    Args:
-        asset_key: Optional focal asset key to filter the graph around.
-        direction: Direction to traverse: "upstream", "downstream", or "both".
-        depth: Optional maximum depth to traverse (1-50).
-
-    Returns:
-        AssetLineageGraph with assets and edges, or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
+    Return the full graph, or a subgraph filtered around ``asset_key`` in
+    the requested ``direction`` up to ``depth`` levels. Errors are returned
+    as an ``error`` dictionary instead of raised.
     """
+
     try:
         assets, edges, edge_details = _build_asset_graph(_resolve_lineage_sink().get_asset_graph())
         if asset_key:

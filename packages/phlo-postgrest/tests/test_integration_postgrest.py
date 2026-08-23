@@ -1,4 +1,9 @@
-"""Integration tests for phlo-postgrest."""
+"""Integration tests for phlo-postgrest.
+
+Smoke-checks plugin instantiation and service-definition loading; imports
+are deferred into each test so the module imports without the package
+installed until these integration tests execute.
+"""
 
 import pytest
 

@@ -1,4 +1,10 @@
-"""Tests for phlo-api authorization helpers."""
+"""Tests for phlo-api authorization helpers.
+
+Covers request principal resolution (forwarded identity headers are ignored),
+backend selection when multiple backends register, authorization mode
+resolution (env over phlo.yaml, service-specific config over top-level), and
+fail-closed enforcement in required and regulated modes.
+"""
 
 from __future__ import annotations
 

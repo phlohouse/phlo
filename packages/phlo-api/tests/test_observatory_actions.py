@@ -1,3 +1,10 @@
+"""Tests the Observatory action dispatcher.
+
+Covers guard metadata on ObservatoryAction, rejection of unknown action ids,
+skipped results for known-but-unimplemented families, and execution of a
+quality check registered in a CapabilityRegistry.
+"""
+
 from phlo.capabilities.registry import CapabilityRegistry
 from phlo.capabilities.specs import AlertSinkSpec, AssetCheckSpec, CheckResult
 

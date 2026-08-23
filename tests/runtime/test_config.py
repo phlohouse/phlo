@@ -1,4 +1,9 @@
-"""Tests for core Phlo configuration."""
+"""Tests for core Phlo configuration.
+
+Covers env-driven settings loading, cache identity within one project root,
+and isolation of cached config between different project roots selected by
+cwd or environment.
+"""
 
 import os
 from unittest.mock import patch

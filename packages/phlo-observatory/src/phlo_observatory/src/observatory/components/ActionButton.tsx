@@ -1,3 +1,7 @@
+/**
+ * Run button for a single observatory action. High and critical risk actions
+ * show a warning icon; the button stays disabled until the action is enabled.
+ */
 import { AlertTriangle, Play } from 'lucide-react'
 
 import type { ObservatoryAction } from '@/observatory/api/types'

@@ -1,4 +1,9 @@
-"""Tests for Trino settings environment resolution."""
+"""Tests for Trino settings environment resolution.
+
+Verifies the default ref reads TRINO_DEFAULT_REF and ignores the removed
+legacy Iceberg ref variable, falling back to main. The cached settings are
+cleared around each case.
+"""
 
 from phlo_trino.settings import get_settings
 

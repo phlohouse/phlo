@@ -1,3 +1,7 @@
+/**
+ * /governance route. Renders the governance control matrix per dataset and
+ * defaults selection to the first row with a failing control.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { FileCheck2, ShieldCheck } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'

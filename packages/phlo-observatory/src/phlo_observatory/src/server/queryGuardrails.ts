@@ -1,3 +1,12 @@
+/**
+ * SQL guardrails for user-submitted queries.
+ *
+ * Every query is checked before it reaches Trino: exactly one statement is
+ * allowed, the statement must classify as read-only, and read-only SELECT/WITH
+ * queries are rewritten with a default and a hard maximum LIMIT. Classification
+ * scans the statement with string literals and comments stripped, so keywords
+ * hidden inside them cannot influence the verdict.
+ */
 export type QueryGuardrails = {
   readOnlyMode: boolean
   defaultLimit: number
@@ -11,6 +20,9 @@ export type QueryExecutionError = {
   effectiveQuery?: string
 }
 
+// Split on semicolons that sit outside single/double-quoted strings and
+// comments. Doubled quotes ('' inside a quoted string) do not terminate the
+// literal, so statements containing escaped quotes stay intact.
 export function splitSqlStatements(sql: string): Array<string> {
   const statements: Array<string> = []
   let buffer = ''
@@ -91,6 +103,9 @@ export function splitSqlStatements(sql: string): Array<string> {
   return statements
 }
 
+// Blank out literals and comments so keyword detection only sees structural
+// SQL text. A "SELECT" that appears inside a string literal or a comment no
+// longer counts as evidence of a read-only statement.
 function stripSqlForInspection(sql: string): string {
   let out = ''
   let inSingle = false
@@ -181,6 +196,8 @@ function applyDefaultLimit(sql: string, defaultLimit: number): string {
   return `${sql}\nLIMIT ${defaultLimit}`
 }
 
+// Wrap as a subquery so the outer LIMIT caps results even when the inner
+// query already carries its own (possibly larger) LIMIT.
 function enforceMaxLimit(sql: string, maxLimit: number): string {
   return `SELECT * FROM (\n${sql}\n) AS _phlo_q\nLIMIT ${maxLimit}`
 }

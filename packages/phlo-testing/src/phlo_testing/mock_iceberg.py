@@ -37,20 +37,13 @@ def _validate_identifier(name: str, context: str = "identifier") -> str:
 
 
 def _normalize_type(dtype: str) -> str:
-    """Normalize type string to DuckDB type.
+    """Normalize a type string to a DuckDB type.
 
-    Handles PyIceberg types, Python types, and plain strings.
-
-    Args:
-        dtype: Type string to normalize.
-
-    Returns:
-        Normalized DuckDB type string.
-
+    Handles PyIceberg types, Python types, and plain strings; unknown
+    types default to VARCHAR.
     """
     dtype_str = str(dtype).lower()
 
-    # Map PyIceberg/Pandera types to DuckDB types
     type_mapping = {
         "int32": "INTEGER",
         "int64": "BIGINT",
@@ -81,14 +74,8 @@ def _normalize_type(dtype: str) -> str:
 class MockTable:
     """Mock Iceberg table backed by DuckDB.
 
-    Stores metadata in Python, actual data in DuckDB in-memory database.
-
-    Attributes:
-        name: Table identifier (e.g., "raw.users").
-        schema: Schema dict or PyIceberg Schema object.
-        _db: DuckDB connection for data storage.
-        _catalog: Reference to parent catalog.
-
+    Stores metadata in Python and actual data in an in-memory DuckDB
+    database.
     """
 
     name: str
@@ -133,61 +120,35 @@ class MockTable:
             )
 
     def append(self, df: pd.DataFrame) -> None:
-        """Append DataFrame to table.
+        """Append a DataFrame to the table.
 
-        Args:
-            df: Data to append.
-
-        Raises:
-            ValueError: If schema doesn't match.
-
+        Raises ValueError when the DataFrame columns do not match the
+        table schema.
         """
         namespace, table_name = self.name.split(".")
         full_name = f"{namespace}_{table_name}"
 
-        # Validate schema
         self._validate_schema(df)
 
-        # Insert into DuckDB
         self._db.from_df(df).insert_into(full_name)
 
     def overwrite(self, df: pd.DataFrame) -> None:
-        """Replace table contents with DataFrame.
-
-        Args:
-            df: Data to replace with.
-
-        """
+        """Replace the table contents with a DataFrame."""
         namespace, table_name = self.name.split(".")
         full_name = f"{namespace}_{table_name}"
 
-        # Validate schema
         self._validate_schema(df)
 
-        # Truncate and insert
         _validate_identifier(full_name, "table name")
         self._db.execute(f"DELETE FROM {full_name}")
         self._db.from_df(df).insert_into(full_name)
 
     def scan(self) -> "MockTableScan":
-        """Scan table data.
-
-        Returns:
-            MockTableScan object for querying.
-
-        """
+        """Return a MockTableScan for querying the table."""
         return MockTableScan(self)
 
     def _validate_schema(self, df: pd.DataFrame) -> None:
-        """Validate DataFrame schema against table schema.
-
-        Args:
-            df: DataFrame to validate.
-
-        Raises:
-            ValueError: If schema doesn't match.
-
-        """
+        """Validate that a DataFrame's columns match the table schema."""
         df_cols = set(df.columns)
 
         if isinstance(self.schema, dict):
@@ -208,12 +169,7 @@ class MockTable:
 
     @property
     def full_name(self) -> str:
-        """Get full table name with namespace.
-
-        Returns:
-            Full table name.
-
-        """
+        """Return the full DuckDB table name with namespace prefix."""
         namespace, table_name = self.name.split(".")
         return f"{namespace}_{table_name}"
 
@@ -223,27 +179,14 @@ class MockTableScan:
 
     Provides methods to execute scans and return results in various formats.
 
-    Attributes:
-        table: MockTable being scanned.
-
     """
 
     def __init__(self, table: MockTable) -> None:
-        """Initialize scan for a table.
-
-        Args:
-            table: MockTable to scan.
-
-        """
+        """Initialize the scan for a table."""
         self.table = table
 
     def to_pandas(self) -> pd.DataFrame:
-        """Execute scan and return as pandas DataFrame.
-
-        Returns:
-            Query results as DataFrame.
-
-        """
+        """Execute the scan and return the results as a pandas DataFrame."""
         query = f"SELECT * FROM {self.table.full_name}"
         result = self.table._db.execute(query).fetchall()
 
@@ -259,14 +202,9 @@ class MockTableScan:
         return pd.DataFrame(result, columns=col_names)
 
     def to_arrow(self) -> Any:
-        """Execute scan and return as PyArrow Table.
+        """Execute the scan and return the results as a PyArrow Table.
 
-        Returns:
-            Query results as Arrow Table.
-
-        Raises:
-            ImportError: If PyArrow is not installed.
-
+        Raises ImportError when PyArrow is not installed.
         """
         try:
             import pyarrow as pa
@@ -283,11 +221,6 @@ class MockIcebergCatalog:
     Implements a subset of PyIceberg's Catalog interface for testing.
     Tables are stored in DuckDB with metadata tracked in Python dicts.
 
-    Attributes:
-        _db: DuckDB connection for data storage.
-        _tables: Dictionary of table metadata.
-        _namespaces: Set of namespace names.
-
     Example:
         >>> catalog = MockIcebergCatalog()
         >>> schema = {"id": "int", "name": "string"}
@@ -303,26 +236,21 @@ class MockIcebergCatalog:
         self._tables: dict[str, MockTable] = {}
         self._namespaces: set[str] = set()
 
-        # Create default namespaces
+        # Pre-create the standard Phlo namespaces so tests can use them without
+        # setup calls.
         for ns in ["raw", "bronze", "silver", "gold", "marts"]:
             self.create_namespace(ns)
 
     def create_namespace(self, namespace: str) -> None:
         """Create a namespace.
 
-        Args:
-            namespace: Namespace name.
-
-        Raises:
-            ValueError: If namespace already exists.
-
+        Raises ValueError if the namespace already exists.
         """
         if namespace in self._namespaces:
             raise ValueError(f"Namespace {namespace} already exists")
 
         self._namespaces.add(namespace)
 
-        # Create schema in DuckDB
         try:
             self._db.execute(f'CREATE SCHEMA "{namespace}"')
         except duckdb.CatalogException:
@@ -330,12 +258,7 @@ class MockIcebergCatalog:
             logger.debug("mock_iceberg_namespace_exists", namespace=namespace)
 
     def drop_namespace(self, namespace: str) -> None:
-        """Drop a namespace.
-
-        Args:
-            namespace: Namespace name.
-
-        """
+        """Drop a namespace."""
         self._namespaces.discard(namespace)
         try:
             self._db.execute(f'DROP SCHEMA IF EXISTS "{namespace}"')
@@ -351,25 +274,17 @@ class MockIcebergCatalog:
     ) -> MockTable:
         """Create a new table.
 
-        Args:
-            identifier: Table name (namespace.table).
-            schema: Schema dict like {"col": "type"} or PyIceberg Schema.
-            partition_spec: Optional partitioning (not fully supported).
-            if_not_exists: Return an existing table instead of raising.
-
-        Returns:
-            MockTable instance.
-
-        Raises:
-            ValueError: If table already exists.
-
+        schema may be a dict like {"col": "type"} or a PyIceberg Schema.
+        Partitioning via partition_spec is accepted but not fully
+        supported. With if_not_exists=True an existing matching table is
+        returned instead of raising; otherwise raises ValueError when the
+        table already exists. Creates the table's namespace if needed.
         """
         if identifier in self._tables:
             if if_not_exists:
                 return self._tables[identifier]
             raise ValueError(f"Table {identifier} already exists")
 
-        # Extract namespace and ensure it exists
         namespace = identifier.split(".")[0]
         if namespace not in self._namespaces:
             self.create_namespace(namespace)
@@ -387,15 +302,7 @@ class MockIcebergCatalog:
     def load_table(self, identifier: str) -> MockTable:
         """Load an existing table.
 
-        Args:
-            identifier: Table name (namespace.table).
-
-        Returns:
-            MockTable instance.
-
-        Raises:
-            ValueError: If table doesn't exist.
-
+        Raises ValueError when the table does not exist.
         """
         if identifier not in self._tables:
             raise ValueError(f"Table {identifier} not found")
@@ -403,12 +310,7 @@ class MockIcebergCatalog:
         return self._tables[identifier]
 
     def drop_table(self, identifier: str) -> None:
-        """Drop a table.
-
-        Args:
-            identifier: Table name (namespace.table).
-
-        """
+        """Drop a table."""
         if identifier in self._tables:
             table = self._tables.pop(identifier)
             try:
@@ -424,12 +326,7 @@ class MockIcebergCatalog:
     def list_tables(self, namespace: str | None = None) -> list[str]:
         """List tables in a namespace.
 
-        Args:
-            namespace: Namespace name. If omitted, return all table identifiers.
-
-        Returns:
-            List of table identifiers.
-
+        With no namespace, returns all table identifiers.
         """
         if namespace is None:
             return sorted(self._tables)
@@ -440,24 +337,13 @@ class MockIcebergCatalog:
         ]
 
     def list_namespaces(self) -> list[str]:
-        """List all namespaces.
-
-        Returns:
-            List of namespace names.
-
-        """
+        """List all namespaces."""
         return sorted(self._namespaces)
 
     def rename_table(self, old_identifier: str, new_identifier: str) -> None:
         """Rename a table.
 
-        Args:
-            old_identifier: Current table name.
-            new_identifier: New table name.
-
-        Raises:
-            ValueError: If table doesn't exist.
-
+        Raises ValueError when the old table does not exist.
         """
         if old_identifier not in self._tables:
             raise ValueError(f"Table {old_identifier} not found")
@@ -466,7 +352,6 @@ class MockIcebergCatalog:
         table.name = new_identifier
         self._tables[new_identifier] = table
 
-        # Rename in DuckDB
         old_full = old_identifier.replace(".", "_")
         new_full = new_identifier.replace(".", "_")
         _validate_identifier(old_full, "old table name")
@@ -482,25 +367,12 @@ class MockIcebergCatalog:
             )
 
     def table_exists(self, identifier: str) -> bool:
-        """Check if a table exists.
-
-        Args:
-            identifier: Table name (namespace.table).
-
-        Returns:
-            True if table exists.
-
-        """
+        """Return whether a table exists."""
         return identifier in self._tables
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        """Context manager for transactions (no-op in mock).
-
-        Yields:
-            None
-
-        """
+        """Context manager for transactions (no-op in this mock)."""
         try:
             yield
         except Exception:
@@ -513,12 +385,7 @@ class MockIcebergCatalog:
             self._db.close()
 
     def __enter__(self) -> "MockIcebergCatalog":
-        """Context manager entry.
-
-        Returns:
-            Self for context manager use.
-
-        """
+        """Enter the context manager."""
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:

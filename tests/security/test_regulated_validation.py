@@ -1,3 +1,6 @@
+"""Tests for regulated-stack validation: internal backend boundary
+rules enforced over generated docker-compose files."""
+
 from __future__ import annotations
 
 from pathlib import Path

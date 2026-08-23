@@ -1,4 +1,8 @@
-"""Smoke entry point for bundled-stack profile contract tests."""
+"""Smoke entry point for bundled-stack profile contract tests.
+
+Boots the real core services through BundledStackHarness and asserts
+project wiring (.phlo env, workflows) plus a live Trino endpoint.
+"""
 
 from __future__ import annotations
 

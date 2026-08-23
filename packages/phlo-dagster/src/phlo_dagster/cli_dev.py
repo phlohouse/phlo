@@ -50,19 +50,9 @@ logger = get_logger(__name__)
 @click.option("--port", default=3000, type=int, help="Port to bind to")
 @click.option("--workflows-path", default="workflows", help="Path to workflows directory")
 def dev(host: str, port: int, workflows_path: str) -> None:
-    """Start Dagster development server with your workflows.
+    """Start the Dagster development server for your workflows.
 
-    Args:
-        host: Host address to bind the server to.
-        port: Port number to bind the server to.
-        workflows_path: Path to the workflows directory.
-
-    Returns:
-        None
-
-    Raises:
-        SystemExit: If pyproject.toml not found or dagster command fails.
-
+    Exits when pyproject.toml is not found or the dagster command fails.
     """
     click.echo("Starting Phlo development server...\n")
     logger.info(

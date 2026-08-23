@@ -1,4 +1,10 @@
-"""Tests for capability-driven Trino API defaults."""
+"""Tests for capability-driven Trino API defaults.
+
+Verifies that default catalog, ref, URL, and discovery schemas come from
+query-engine capability metadata and fail clearly when unconfigured.
+Also pins externalized URIs rewriting internal poll URLs onto the
+client-facing base and structured connection-health errors.
+"""
 
 from __future__ import annotations
 

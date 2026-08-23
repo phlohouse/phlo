@@ -1,3 +1,7 @@
+/**
+ * Table element primitives (Table, header, body, row, cell) with shared
+ * styling.
+ */
 import * as React from 'react'
 
 import { cn } from '@/lib/utils'

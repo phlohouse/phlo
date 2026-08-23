@@ -1,4 +1,9 @@
-"""Integration tests for phlo-openmetadata."""
+"""Integration tests for phlo-openmetadata.
+
+Marked integration and intentionally dependency-free: each test only
+asserts that the public client, model, and manifest-parser symbols are
+importable from an installed package.
+"""
 
 import pytest
 

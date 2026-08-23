@@ -11,6 +11,8 @@ Examples:
         >>> plugins = discover_plugins()
         >>> # AlertingResourceProvider is registered automatically
 
+Loaded through the phlo plugin entry-point mechanism at startup rather than
+imported directly; registers its alert sink through phlo.capabilities.
 """
 
 from __future__ import annotations
@@ -24,12 +26,8 @@ from phlo_alerting.alert_sink import AlertManagerSink
 class AlertingResourceProvider(ResourceProviderPlugin):
     """Expose phlo-alerting as a neutral alert sink capability.
 
-    This resource provider registers phlo-alerting with the Phlo capability
-    system, allowing other components to discover and use alerting
-    functionality through the AlertSinkSpec contract.
-
-    Attributes:
-        metadata: Plugin identity and discovery information.
+    Registers phlo-alerting with the Phlo capability system so other
+    components can send alerts through the AlertSinkSpec contract.
 
     Examples:
         >>> provider = AlertingResourceProvider()
@@ -43,10 +41,7 @@ class AlertingResourceProvider(ResourceProviderPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for capability discovery.
-
-        Returns:
-            PluginMetadata containing name, version, description, and tags.
+        """Return the plugin identity used for capability discovery.
 
         Examples:
             >>> provider = AlertingResourceProvider()
@@ -65,13 +60,7 @@ class AlertingResourceProvider(ResourceProviderPlugin):
         )
 
     def get_resources(self) -> list:
-        """Return list of raw resources exposed by this provider.
-
-        This provider does not expose any raw resources directly;
-        alerting functionality is exposed through get_alert_sinks().
-
-        Returns:
-            Empty list since no raw resources are exposed.
+        """Return no raw resources; alerting is exposed via get_alert_sinks().
 
         Examples:
             >>> provider = AlertingResourceProvider()
@@ -82,13 +71,7 @@ class AlertingResourceProvider(ResourceProviderPlugin):
         return []
 
     def get_alert_sinks(self) -> list[AlertSinkSpec]:
-        """Expose phlo-alerting as an alert sink capability.
-
-        Returns a list of AlertSinkSpec objects that define how other
-        components can send alerts through this provider.
-
-        Returns:
-            List containing a single AlertSinkSpec for the alerting capability.
+        """Expose phlo-alerting as a single AlertSinkSpec other components can send alerts through.
 
         Examples:
             >>> provider = AlertingResourceProvider()

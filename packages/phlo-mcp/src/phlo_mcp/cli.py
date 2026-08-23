@@ -1,4 +1,8 @@
-"""CLI entrypoint for phlo-mcp."""
+"""CLI entrypoint for phlo-mcp.
+
+Parses transport and phlo-api connection options into McpConfig, merging CLI
+flags over PHLO_MCP_* environment defaults, then builds and runs the server.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +13,7 @@ from phlo_mcp.server import create_server
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Define the phlo-mcp server's command-line options."""
     parser = argparse.ArgumentParser(description="Run the Phlo MCP server")
     parser.add_argument(
         "--transport",
@@ -30,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parse_args() -> McpConfig:
+    """Parse CLI arguments into McpConfig, layering flags over environment defaults."""
     parser = build_parser()
     args = parser.parse_args()
     env_config = config_from_env()
@@ -46,6 +52,7 @@ def parse_args() -> McpConfig:
 
 
 def main() -> None:
+    """Create and run the MCP server from the parsed configuration."""
     config = parse_args()
     server = create_server(config)
     server.run(transport=config.transport)

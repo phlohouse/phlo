@@ -1,4 +1,10 @@
-"""Tests for lineage authorization module."""
+"""Tests for lineage authorization module.
+
+Covers the LineageSurfaceAdapter surface contract (singleton instance,
+operation listing, framework type) and command classification: read
+commands are always allowed, unknown commands are denied, and mutation
+enforcement routes through the shared policy layer.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""Tests for Pandera decorator helper emitters."""
+"""Tests for Pandera decorator helper emitters.
+
+Quality-result and telemetry emitters must propagate run correlation (run id,
+partition key, asset key) onto the shared hook bus.
+"""
 
 from __future__ import annotations
 

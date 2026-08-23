@@ -1,3 +1,7 @@
+/**
+ * Tests contributing-data server transforms and query payloads stay stable
+ * end to end against mocked phlo-api responses.
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   fetchContributingRowsPageFromApi,

@@ -1,3 +1,9 @@
+/**
+ * Overview dashboard shared by the index route. Aggregates overview,
+ * assets, branches, services, operations, quality, and log data into one
+ * reducer-driven snapshot; loadOverviewSnapshotFromApi lets a route loader
+ * pre-fetch the full state.
+ */
 import {
   Activity,
   AlertCircle,

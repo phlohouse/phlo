@@ -1,4 +1,10 @@
-"""Tests for MinIO CLI commands."""
+"""Tests for MinIO CLI commands.
+
+Exercises the mc-backed ls/admin/shell commands against a stubbed container
+backend, covering target quoting, command timeouts, raw mc stderr hiding,
+rejection of a partially initialized .phlo directory, and regulated-mode
+mutation authorization for shell passthrough.
+"""
 
 from __future__ import annotations
 

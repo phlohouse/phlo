@@ -1,3 +1,11 @@
+"""Subprocess execution helpers that redact sensitive arguments before logging.
+
+Secret-valued arguments are redacted in both `--name value` and
+`--name=value` shapes, so logs never contain credentials. Non-zero exits
+raise CommandError carrying the redacted command, status, and captured
+output.
+"""
+
 from __future__ import annotations
 
 import subprocess
@@ -25,6 +33,8 @@ _SENSITIVE_ARGUMENT_NAMES = frozenset(
 )
 
 
+# Redact secret values in both argument shapes: `--name value` consumes the
+# next token, while `--name=value` is caught by pattern matching alone.
 def _redact_command_args(cmd: tuple[str, ...]) -> tuple[str, ...]:
     redacted: list[str] = []
     redact_next = False
@@ -44,7 +54,11 @@ def _redact_command_args(cmd: tuple[str, ...]) -> tuple[str, ...]:
 
 @dataclass(frozen=True, slots=True)
 class CommandError(RuntimeError):
-    """Error raised when a subprocess command exits with a non-zero status."""
+    """Error raised when a subprocess command exits with a non-zero status.
+
+    Arguments, stdout, and stderr are redacted at construction time, so an
+    instance is safe to log or display without leaking credentials.
+    """
 
     cmd: tuple[str, ...]
     returncode: int
@@ -79,22 +93,11 @@ def run_command(
     capture_output: bool = True,
     check: bool = True,
 ) -> CompletedProcess[str]:
-    """Run a subprocess command with optional timeout and environment overrides.
+    """Run a subprocess command with optional timeout, working directory, and
+    environment overrides, returning the CompletedProcess.
 
-    Args:
-        cmd: Command and arguments to execute.
-        timeout_seconds: Optional timeout in seconds.
-        cwd: Optional working directory.
-        env: Optional environment overrides.
-        capture_output: Whether to capture stdout/stderr.
-        check: Whether to raise on non-zero exit codes.
-
-    Returns:
-        CompletedProcess containing stdout, stderr, returncode, and args.
-
-    Raises:
-        CommandError: When check is True and the command exits non-zero.
-        subprocess.TimeoutExpired: When the command exceeds timeout_seconds.
+    Raises CommandError when check is True and the command exits non-zero, and
+    subprocess.TimeoutExpired when it exceeds timeout_seconds.
     """
     command_name = cmd[0] if cmd else "<empty>"
     logger.debug(

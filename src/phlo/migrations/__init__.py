@@ -1,4 +1,8 @@
-"""Data migration primitives and execution helpers."""
+"""Data migration primitives and execution helpers.
+
+One import point bundling spec parsing, source adapters, executor, and history
+reading for the migration subsystem.
+"""
 
 from phlo.migrations.adapters import (
     SourceAdapter,

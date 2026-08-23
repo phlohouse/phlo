@@ -1,4 +1,10 @@
-"""Apache Iceberg compatibility checks for Phlo's lakehouse surface."""
+"""Apache Iceberg compatibility checks for Phlo's lakehouse surface.
+
+Validates PyIceberg REST catalog configuration against the pinned Iceberg
+target (currently 1.11). Nessie-backed PyIceberg clients encode the ref in
+the REST URI path while Trino uses a prefix property, so prefix-style refs
+are rejected here. Violations raise ValueError before any client is built.
+"""
 
 from __future__ import annotations
 

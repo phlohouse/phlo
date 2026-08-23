@@ -1,4 +1,9 @@
-"""Capability inventory helpers for Observatory."""
+"""Capability inventory helpers for the Observatory API.
+
+Projects registered capabilities and UI contributions into provider-neutral
+inventory models. Provider-native links stay suppressed until an explicit
+public link policy exists.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,9 @@
-"""Status command for showing service status."""
+"""Show service state via the ``phlo services status`` command.
+
+Wraps ``compose ps`` for the project, emitting either a table or JSON; a
+failed compose invocation surfaces as a ClickException rather than a
+traceback.
+"""
 
 import json
 
@@ -92,6 +97,8 @@ def _parse_compose_json_status(stdout: str) -> list[dict[str, object]]:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
+        # Compose v2 emits a single JSON array; some builds emit one object
+        # per line instead. Fall back to line-delimited parsing.
         parsed = [json.loads(line) for line in text.splitlines() if line.strip()]
 
     items = [parsed] if isinstance(parsed, dict) else list(parsed)

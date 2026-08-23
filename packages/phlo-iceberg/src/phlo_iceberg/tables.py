@@ -63,26 +63,7 @@ def _align_arrow_table_to_target_schema(arrow_table, target_schema, *, table_nam
     """Align an Arrow table to an Iceberg target schema.
 
     Missing nullable target columns are backfilled with nulls. Missing required
-    columns fail explicitly so callers get a useful schema error.
-
-    Args:
-        arrow_table: PyArrow Table to align.
-        target_schema: Target Iceberg schema as PyArrow schema.
-        table_name: Name of the target table for error messages.
-
-    Returns:
-        PyArrow Table aligned to target schema with columns in correct order.
-
-    Raises:
-        ValueError: If a required column is missing from the source data.
-
-    Example:
-        Align table before appending::
-
-            aligned = _align_arrow_table_to_target_schema(
-                arrow_table, target_schema, table_name="raw.users"
-            )
-
+    columns raise ValueError so callers get a useful schema error.
     """
     import pyarrow as pa
 
@@ -110,24 +91,9 @@ def ensure_table(
 ) -> Table:
     """Ensure an Iceberg table exists, creating it if necessary.
 
-    Checks if the table exists in the catalog. If not, creates it with the
-    specified schema and optional partitioning. The namespace is created
-    automatically if it doesn't exist.
-
-    Args:
-        table_name: Fully qualified table name in ``namespace.table`` format.
-        schema: Iceberg schema defining table structure.
-        partition_spec: Optional partitioning specification as list of
-            ``(column_name, transform)`` tuples. Supported transforms:
-            ``identity``, ``day``, ``hour``, ``month``, ``year``.
-        ref: Nessie branch/tag reference (default: ``main``).
-
-    Returns:
-        Table: Existing or newly created Iceberg table handle.
-
-    Raises:
-        ValueError: If table name format is invalid or partition spec is malformed.
-        TableAlreadyExistsError: Re-raises and returns existing table on race condition.
+    Creates the namespace automatically when missing. Raises ValueError on an
+    invalid table name or malformed partition spec. If another writer creates
+    the table first, its existing handle is returned instead of failing.
 
     Example:
         Create a partitioned table::
@@ -147,7 +113,6 @@ def ensure_table(
                 partition_spec=[("event_time", "day")],
                 ref="main"
             )
-
     """
     catalog = get_catalog(ref=ref)
 
@@ -159,6 +124,9 @@ def ensure_table(
 
     create_namespace(namespace, ref=ref)
 
+    # Load first so the common path skips creation. A failed load falls through
+    # to create_table, and a concurrent creator is resolved by catching
+    # TableAlreadyExistsError below and reloading the winner's table.
     try:
         return catalog.load_table(table_name)
     except Exception:
@@ -181,6 +149,8 @@ def ensure_table(
         "year": YearTransform(),
     }
 
+    # Partition field IDs form their own ID space, separate from schema
+    # column IDs; start them high to keep the two visually distinct.
     partition_fields = []
     if partition_spec:
         for field_id, (source_name, transform_name) in enumerate(partition_spec, start=1000):
@@ -226,23 +196,10 @@ def append_to_table(
 ) -> dict[str, int]:
     """Append Parquet data to an Iceberg table.
 
-    Reads data from a Parquet file or directory and appends it to the specified
-    table. Automatically aligns the data schema to match the target table,
-    handling missing columns by backfilling nulls for nullable fields.
-
-    Args:
-        table_name: Fully qualified table name in ``namespace.table`` format.
-        data_path: Path to Parquet file or directory containing data files.
-        ref: Nessie branch/tag reference (default: ``main``).
-
-    Returns:
-        dict: Operation statistics containing:
-            - ``rows_inserted``: Number of rows successfully appended.
-            - ``rows_deleted``: Always 0 for append operations.
-
-    Raises:
-        ValueError: If required columns are missing from source data.
-        Exception: Re-raises any PyIceberg or Parquet read errors.
+    Reads from a Parquet file or directory and aligns the data schema to the
+    target table, backfilling missing nullable columns with nulls. Raises
+    ValueError when required columns are missing. Returns ``rows_inserted``
+    statistics; ``rows_deleted`` is always 0.
 
     Example:
         Append single Parquet file::
@@ -260,7 +217,6 @@ def append_to_table(
                 data_path="/data/daily_batches/",
                 ref="main"
             )
-
     """
     source_path = str(data_path)
     source_row_count = 0
@@ -355,31 +311,9 @@ def merge_to_table(
 ) -> dict[str, int]:
     """Merge (upsert) Parquet data into an Iceberg table with deduplication.
 
-    Performs a merge operation that deletes existing rows matching the unique key
-    before inserting new data. This effectively implements an upsert pattern.
-    Duplicate values within the source data are detected and logged as warnings.
-
-    The merge operation:
-        1. Reads source Parquet data
-        2. Identifies unique key values in source data
-        3. Deletes existing rows with matching keys (in batches of 1000)
-        4. Appends source data to table
-
-    Args:
-        table_name: Fully qualified table name in ``namespace.table`` format.
-        data_path: Path to Parquet file or directory containing data files.
-        unique_key: Column name used to identify matching rows for deletion.
-        ref: Nessie branch/tag reference (default: ``main``).
-
-    Returns:
-        dict: Operation statistics containing:
-            - ``rows_deleted``: Approximate count of rows deleted (may include
-              non-existent keys).
-            - ``rows_inserted``: Number of rows successfully inserted.
-
-    Raises:
-        ValueError: If the unique_key column is not found in source data.
-        Exception: Re-raises any PyIceberg or Parquet read errors.
+    Deletes existing rows matching ``unique_key`` before inserting new data;
+    duplicate keys within the source are logged as warnings. Raises ValueError
+    when the unique-key column is absent from the source data.
 
     Example:
         Upsert user data by ID::
@@ -397,7 +331,6 @@ def merge_to_table(
         delete operation doesn't return the actual number of rows deleted.
         It represents the number of unique keys processed, not necessarily
         the count of existing rows removed.
-
     """
     source_path = str(data_path)
     source_row_count = 0
@@ -452,6 +385,8 @@ def merge_to_table(
             from pyiceberg.expressions import In, Reference
 
             delete_expr = In(term=Reference(unique_key), values=set(batch))
+            # A failed delete batch is ignored so the append still happens;
+            # the affected keys can then appear twice until the next merge.
             try:
                 table.delete(delete_expr)
                 rows_deleted += len(batch)  # Approximation
@@ -528,23 +463,9 @@ def overwrite_table(
 ) -> dict[str, int]:
     """Overwrite an Iceberg table with Parquet data.
 
-    Replaces all existing data in the table with the contents of the source
-    Parquet file(s). Creates a new snapshot. The previous data remains
-    accessible via snapshot history until snapshots are expired.
-
-    Args:
-        table_name: Fully qualified table name in ``namespace.table`` format.
-        data_path: Path to Parquet file or directory containing replacement data.
-        ref: Nessie branch/tag reference (default: ``main``).
-
-    Returns:
-        dict: Operation statistics containing:
-            - ``rows_inserted``: Number of rows in replacement data.
-            - ``rows_deleted``: Always 0 (full replacement, not row-level delete).
-
-    Raises:
-        ValueError: If required columns are missing from source data.
-        Exception: Re-raises any PyIceberg or Parquet read errors.
+    Replaces all existing data in a new snapshot; previous data remains
+    accessible via snapshot history until snapshots are expired. Raises
+    ValueError when required columns are missing from the source data.
 
     Example:
         Full table replacement::
@@ -557,7 +478,6 @@ def overwrite_table(
 
     See Also:
         :func:`merge_to_table`: For partial updates without full replacement.
-
     """
     source_path = str(data_path)
     source_row_count = 0
@@ -649,21 +569,8 @@ def delete_rows_from_table(
 ) -> dict[str, int]:
     """Delete rows matching a predicate expression from an Iceberg table.
 
-    Uses Iceberg's delete operation with a filter predicate. The predicate
-    should be a valid Iceberg SQL expression string.
-
-    Args:
-        table_name: Fully qualified table name in ``namespace.table`` format.
-        predicate: Filter expression string (e.g., ``"status = 'inactive'"``,
-            ``"created_at < '2024-01-01'"``).
-        ref: Nessie branch/tag reference (default: ``main``).
-
-    Returns:
-        dict: Operation statistics containing:
-            - ``rows_deleted``: Always -1 (PyIceberg doesn't return delete count).
-
-    Raises:
-        Exception: Re-raises any PyIceberg errors during delete.
+    ``predicate`` must be a valid Iceberg SQL expression string. PyIceberg does
+    not report deleted row counts, so ``rows_deleted`` is always -1.
 
     Example:
         Delete old records::
@@ -679,11 +586,6 @@ def delete_rows_from_table(
                 table_name="raw.users",
                 predicate="account_status = 'deleted'"
             )
-
-    Note:
-        PyIceberg does not return the number of rows actually deleted.
-        The ``rows_deleted`` value will always be -1.
-
     """
     logger.info(
         "iceberg_table_delete_started",
@@ -723,17 +625,10 @@ def list_table_snapshots(
     limit: int = 10,
     ref: str = "main",
 ) -> list[dict]:
-    """List recent snapshots of an Iceberg table.
+    """List recent snapshots of an Iceberg table, most recent first.
 
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        limit: Maximum number of snapshots to return.
-        ref: Nessie branch reference.
-
-    Returns:
-        List of snapshot dicts (most recent first), each with snapshot_id,
-        timestamp_ms, operation, and summary.
-
+    Each entry carries ``snapshot_id``, ``timestamp_ms``, ``operation``, and
+    ``summary``.
     """
     catalog = get_catalog(ref=ref)
     table = catalog.load_table(table_name)
@@ -761,14 +656,7 @@ def rollback_table_to_snapshot(
 ) -> dict:
     """Roll back an Iceberg table to a previous snapshot.
 
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        snapshot_id: Target snapshot ID.
-        ref: Nessie branch reference.
-
-    Returns:
-        Dict with rolled_back_to snapshot ID.
-
+    Returns a dict with the ``rolled_back_to`` snapshot ID.
     """
     logger.info(
         "iceberg_table_rollback_started",
@@ -805,20 +693,12 @@ def rollback_table_to_snapshot(
 def get_table_schema(table_name: str, ref: str = "main") -> Schema:
     """Get the current schema of an Iceberg table.
 
-    Args:
-        table_name: Fully qualified table name in ``namespace.table`` format.
-        ref: Nessie branch/tag reference (default: ``main``).
-
-    Returns:
-        Schema: The Iceberg schema object for the table.
-
     Example:
         Inspect table structure::
 
             schema = get_table_schema("raw.events")
             for field in schema.fields:
                 print(f"{field.name}: {field.field_type}")
-
     """
     catalog = get_catalog(ref=ref)
     table = catalog.load_table(table_name)
@@ -833,13 +713,6 @@ def delete_table(table_name: str, ref: str = "main") -> None:
         may persist in storage until cleanup, the table metadata is
         permanently removed from the catalog.
 
-    Args:
-        table_name: Fully qualified table name in ``namespace.table`` format.
-        ref: Nessie branch/tag reference (default: ``main``).
-
-    Raises:
-        Exception: Re-raises any PyIceberg errors during deletion.
-
     Example:
         Remove table with confirmation::
 
@@ -848,7 +721,6 @@ def delete_table(table_name: str, ref: str = "main") -> None:
 
     See Also:
         :func:`remove_orphan_files`: To clean up underlying storage files.
-
     """
     catalog = get_catalog(ref=ref)
     catalog.drop_table(table_name)
@@ -864,21 +736,11 @@ def expire_snapshots(
 ) -> dict[str, int]:
     """Expire old snapshots from an Iceberg table.
 
-    Args:
-        table_name: Fully qualified table name (namespace.table)
-        older_than_days: Expire snapshots older than this many days (must be positive).
-            Mutually exclusive with ``older_than_hours``; defaults to 7 when neither is set.
-        retain_last: Always retain at least this many snapshots (must be at least one)
-        ref: Nessie branch reference
-        older_than_hours: Expire snapshots older than this many hours (must be positive).
-
-    Returns:
-        Dict with deleted_snapshots count
-
-    Raises:
-        ValueError: If both ``older_than_days`` and ``older_than_hours`` are set,
-            retention <= 0, retain_last < 0, or table_name format invalid.
-
+    ``older_than_days`` and ``older_than_hours`` are mutually exclusive and
+    default to 7 days when neither is set; ``retain_last`` always keeps at least
+    that many snapshots. Returns a dict with the ``deleted_snapshots`` count.
+    Raise ValueError when both cutoffs are set, retention is non-positive,
+    retain_last < 0, or the table name is invalid.
     """
     if older_than_days is not None and older_than_hours is not None:
         raise ValueError("Specify older_than_days or older_than_hours, not both")
@@ -897,6 +759,8 @@ def expire_snapshots(
         raise ValueError(f"retain_last must be at least 1, got {retain_last}")
     if "." not in table_name:
         raise ValueError(f"table_name must be namespace.table format, got {table_name}")
+    # Validation above runs before this refusal so callers with bad retention
+    # arguments get a precise error instead of the generic "disabled" one.
     raise ValueError(
         "Direct snapshot expiry is disabled; use IcebergResource.expire_snapshots "
         "for plan-first retention maintenance"
@@ -916,22 +780,10 @@ def remove_orphan_files(
     Direct destructive deletion is disabled here. Use the provider-neutral
     ``IcebergResource.cleanup_orphan_files`` contract for dry-run discovery;
     destructive execution is refused on the blessed provider boundary.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table)
-        older_than_days: Only remove files older than this many days (must be positive).
-            Mutually exclusive with ``older_than_hours``; defaults to 7 when neither is set.
-        dry_run: If True, only list files without deleting
-        ref: Nessie branch reference
-        older_than_hours: Only remove files older than this many hours (must be positive).
-
-    Returns:
-        Dict with orphan_count, orphan_files list, and dry_run flag
-
-    Raises:
-        ValueError: If both ``older_than_days`` and ``older_than_hours`` are set,
-            retention <= 0, or table_name format invalid.
-
+    ``older_than_days`` and ``older_than_hours`` are mutually exclusive and
+    default to 7 days when neither is set. Returns orphan counts and file lists.
+    Raise ValueError when both cutoffs are set, retention is non-positive, or
+    the table name is invalid.
     """
     from datetime import datetime, timedelta, timezone
 
@@ -986,6 +838,8 @@ def remove_orphan_files(
         for file_info in _list_storage_files(io, data_location):
             if _storage_path_key(str(file_info.path)) not in normalized_references:
                 # Check if file is old enough
+                # Files without a readable mtime cannot be age-checked and are
+                # treated as orphans regardless of age.
                 if hasattr(file_info, "mtime") and file_info.mtime:
                     if file_info.mtime < older_than_ts:
                         orphan_files.append(file_info.path)
@@ -1010,9 +864,8 @@ def remove_orphan_files(
 def get_table_stats(table_name: str, ref: str = "main", *, table: Table | None = None) -> dict:
     """Get statistics about an Iceberg table.
 
-    Returns:
-        Dict with snapshot_count, file_count, total_size_bytes, etc.
-
+    Returns a dict with ``snapshot_count``, ``file_count``, and
+    ``total_size_bytes``, among other fields.
     """
     if table is None:
         catalog = get_catalog(ref=ref)

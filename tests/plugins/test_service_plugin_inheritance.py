@@ -1,4 +1,9 @@
-"""Regression tests for YAML-backed service plugin inheritance."""
+"""Regression tests for YAML-backed service plugin inheritance.
+
+Parametrized over every shipped YAML-only plugin class; each must inherit the
+package YAML loader base and resolve its packaged service definition under
+its expected service name.
+"""
 
 from __future__ import annotations
 

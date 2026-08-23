@@ -1,3 +1,7 @@
+/**
+ * Tests the metadata cache: key building, TTLs, invalidation, and stats
+ * accounting.
+ */
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import {

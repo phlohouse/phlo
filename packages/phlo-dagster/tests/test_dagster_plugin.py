@@ -1,4 +1,8 @@
-"""Tests for Dagster service plugin."""
+"""Tests for the Dagster service plugin.
+
+Checks the exposed service metadata and pins the packaged service.yaml and
+Dockerfile to their discoverable dbt project layout and webserver image.
+"""
 
 from importlib import resources
 

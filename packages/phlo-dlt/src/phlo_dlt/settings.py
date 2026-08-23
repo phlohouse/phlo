@@ -28,6 +28,8 @@ Example:
     print(settings.dlt_default_namespace)  # "raw"
     ```
 
+
+Package-local settings module built on the shared phlo.config base and caching machinery.
 """
 
 from __future__ import annotations
@@ -43,17 +45,10 @@ from phlo.config.cache import project_root_cached
 class DltSettings(BaseConfig):
     """Configuration for DLT ingestion defaults.
 
-    Pydantic-based settings class that provides default configuration
-    values for DLT ingestion operations. Values can be overridden via
-    environment variables or .env files.
-
-    Attributes:
-        dlt_default_namespace: Default namespace/schema used for generated
-            ingestion table names. Prepended to table_name to create
-            full_table_name.
-
-    Environment:
-        Set ``PHLO_DLT_DEFAULT_NAMESPACE`` to override the default namespace.
+    Pydantic settings for DLT ingestion defaults, overridable via
+    environment variables (``PHLO_DLT_`` prefix) or .env files.
+    ``dlt_default_namespace`` is prepended to table names to form
+    full_table_name.
 
     Example:
         ```python
@@ -82,14 +77,9 @@ class DltSettings(BaseConfig):
 def get_settings(project_root: Path) -> DltSettings:
     """Return cached DLT settings for the selected project root.
 
-    Settings are cached per resolved project root, with up to 16 entries,
-    improving performance while keeping project configuration isolated.
-
-    Args:
-        project_root: Resolved project root used for cache selection.
-
-    Returns:
-        DltSettings: The cached settings instance for the selected root.
+    Cached per resolved project root (up to 16 entries) so repeated calls
+    for the same root return the same instance while keeping project
+    configuration isolated.
 
     Example:
         ```python
@@ -102,6 +92,5 @@ def get_settings(project_root: Path) -> DltSettings:
         settings2 = get_settings()
         assert settings is settings2  # True
         ```
-
     """
     return DltSettings()

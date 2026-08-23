@@ -1,4 +1,9 @@
-"""Tests for Trino CLI commands."""
+"""Tests for Trino CLI commands.
+
+Covers plugin metadata and query dispatch through the trino executable:
+mutating-SQL authorization, backend selection, file input, missing-input and
+uninitialized-service rejection, timeout surfacing, and shell grouping.
+"""
 
 from __future__ import annotations
 

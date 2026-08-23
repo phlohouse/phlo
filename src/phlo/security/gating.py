@@ -205,14 +205,9 @@ def is_write_restricted(service_name: str, regulated: bool | None = None) -> boo
     """Check if a service is write-restricted in regulated mode.
 
     Write-restricted services (hasura, postgrest) must operate in read-only
-    mode unless the operator explicitly opts in via phlo.yaml.
-
-    Args:
-        service_name: Service name to check.
-        regulated: Whether regulated mode is active.
-
-    Returns:
-        True if the service is write-restricted in the current mode.
+    mode unless the operator explicitly opts in via phlo.yaml
+    ``surfaces.<service>.allow_writes``. Defaults to is_regulated() when
+    regulated is not supplied.
     """
     if regulated is None:
         regulated = is_regulated()
@@ -247,16 +242,8 @@ def is_write_restricted(service_name: str, regulated: bool | None = None) -> boo
 def check_cli_package_allowed(package_name: str, regulated: bool | None = None) -> None:
     """Check if a CLI plugin package is allowed in regulated mode.
 
-    CLI plugin packages (phlo-alerting, phlo-lineage, etc.) are authorized
-    through their own regulated surface adapters. This function checks if
-    the package is in the approved list.
-
-    Args:
-        package_name: Name of the CLI package (e.g., "phlo-alerting").
-        regulated: Whether regulated mode is active.
-
-    Raises:
-        UnsupportedSurfaceError: If the package is not approved.
+    Raises UnsupportedSurfaceError when package_name is not in the approved
+    list; non-regulated mode allows everything.
     """
     if regulated is None:
         regulated = is_regulated()
@@ -312,6 +299,8 @@ def validate_service_selection(
             result["ingress_optional"].append(
                 {"service": service, "reason": "Ingress protection required"}
             )
+            # Fail closed: this report cannot verify that ingress enforcement
+            # is configured, so ingress-optional services count as blocked too.
             result["blocked"].append(
                 {"service": service, "reason": "Required ingress enforcement is not configured"}
             )

@@ -1,4 +1,10 @@
-"""Publish target helper utilities."""
+"""Publish target helper utilities.
+
+Routes publishing through the resolved publish-target capability so core
+never imports a provider directly. Governance readiness is checked before
+publishing and can block with PhloConfigError; providers lacking an
+operation raise rather than being skipped.
+"""
 
 from __future__ import annotations
 

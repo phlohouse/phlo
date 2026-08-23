@@ -1,4 +1,12 @@
-"""CLI commands for RBAC authorization management."""
+"""CLI commands for RBAC authorization management.
+
+Exposes the validate/plan/sync/verify/revert workflow over RBACConfigLoader
+and SyncController. Mutating commands (real sync, any revert) are gated by
+require_mutation_authorization; read-only commands run unauthenticated.
+
+Imported by phlo.cli.main to expose the `phlo authz` command group; covered by tests/cli.
+Drives phlo.rbac sync over phlo.capabilities.discovery with mutation authorization wrappers.
+"""
 
 from __future__ import annotations
 
@@ -153,6 +161,8 @@ def plan(path, backend, environment):
     is_flag=True,
     help="Plan changes without applying them.",
 )
+# Dry-run applies nothing, so it is exempt from mutation authorization;
+# only a real sync requires it.
 @require_mutation_authorization("authz.sync", when=lambda params: not params.get("dry_run"))
 def sync(path, backend, environment, dry_run):
     """Synchronize RBAC policies to backend-native enforcement.

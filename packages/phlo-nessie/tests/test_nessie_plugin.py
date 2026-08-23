@@ -1,4 +1,9 @@
-"""Tests for Nessie service plugin."""
+"""Tests for the Nessie service plugin.
+
+Verifies the service definition (pinned upstream image, no local build) and
+that NessieResourceProvider registers a single versioned catalog capability
+supporting refs and promotion.
+"""
 
 from phlo.capabilities import CapabilitySupport
 from phlo_nessie.plugin import NessieServicePlugin

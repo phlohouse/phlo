@@ -1,3 +1,6 @@
+"""Tests for logical references: unresolved refs stay stable, resolved
+refs map to physical catalog.schema.table names via the registry."""
+
 from __future__ import annotations
 
 from phlo.capabilities.registry import CapabilityRegistry

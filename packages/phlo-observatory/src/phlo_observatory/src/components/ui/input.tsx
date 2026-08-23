@@ -1,3 +1,6 @@
+/**
+ * Text input wrapping the Base UI input with the shared field styling.
+ */
 import * as React from 'react'
 import { Input as InputPrimitive } from '@base-ui/react/input'
 

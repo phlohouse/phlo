@@ -1,4 +1,12 @@
-"""Service definition data model and parsing helpers."""
+"""Service definition data model and parsing helpers.
+
+ServiceDefinition loads from service.yaml files, dictionaries, or inline
+phlo.yaml config. A declared source_path resolves relative to the phlo package
+tree; an undeclared one defaults to the definition's own directory.
+
+Imported by service loading and discovery modules and by the CLI services
+command utilities.
+"""
 
 from __future__ import annotations
 
@@ -40,6 +48,9 @@ class ServiceDefinition:
         if not isinstance(data, dict):
             raise ValueError(f"Service definition must be a mapping: {path}")
 
+        # A declared source_path is relative to the phlo package tree, not to
+        # the YAML file itself; only an undeclared one defaults to sitting
+        # beside the definition.
         if data.get("source_path"):
             phlo_root = Path(__file__).parent.parent.parent.parent
             source_path = phlo_root / data["source_path"]

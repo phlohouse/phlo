@@ -1,4 +1,10 @@
-"""Quality helper factories and checks that do not require a provider import."""
+"""Quality helper factories and checks that do not require a provider import.
+
+Produces provider-neutral QualityRule descriptors (null, unique, freshness,
+accepted values) from schemas and SLAs, plus in-memory uniqueness
+validation and schema nullability helpers. Importable without any quality
+provider installed.
+"""
 
 from __future__ import annotations
 

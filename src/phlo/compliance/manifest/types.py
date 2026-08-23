@@ -87,20 +87,10 @@ def capture_manifest(
     platform: str | None = None,
     region: str | None = None,
 ) -> SystemManifest:
-    """Capture a system manifest with current state.
+    """Capture a system manifest with the current deployment state.
 
-    Args:
-        phlo_version: Version of phlo being deployed.
-        environment: Deployment environment.
-        security: Security configuration snapshot.
-        components: Optional list of deployed components.
-        config_snapshot: Optional configuration snapshot.
-        manifest_id: Optional manifest ID. Generated if not provided.
-        platform: Optional platform identifier.
-        region: Optional region identifier.
-
-    Returns:
-        A SystemManifest capturing the current state.
+    A manifest_id is generated when not supplied; components default to an
+    empty tuple and config_snapshot to an empty mapping.
     """
     from uuid import uuid4
 

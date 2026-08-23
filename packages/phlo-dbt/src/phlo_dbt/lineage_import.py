@@ -187,22 +187,11 @@ def _get_manifest_columns(node: Mapping[str, Any]) -> set[str]:
 
 
 def import_manifest_lineage(manifest_path: Path) -> dict[str, int]:
-    """Import asset lineage and best-effort column lineage from a dbt manifest.
-
-    Loads a dbt manifest.json file and imports lineage information into the
-    configured Phlo lineage sink. This includes:
-    - Asset-level dependencies (edges between models)
-    - Column-level lineage using same-name heuristics
-
-    Requires a lineage sink capability to be available (e.g., phlo-lineage package).
-
-    Args:
-        manifest_path: Path to the dbt manifest.json file to import.
-
-    Returns:
-        Summary dictionary with counts:
-            - asset_edges: Number of asset dependency edges imported
-            - column_mappings: Number of column-level lineage mappings imported
+    """Import asset lineage and best-effort column lineage from a dbt
+    manifest.json into the configured Phlo lineage sink: asset-level
+    dependency edges plus column mappings via same-name heuristics.
+    Requires a lineage sink capability (e.g., phlo-lineage). Returns counts
+    of asset_edges and column_mappings imported.
 
     Example:
         >>> from pathlib import Path

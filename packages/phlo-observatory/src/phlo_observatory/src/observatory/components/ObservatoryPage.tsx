@@ -1,3 +1,8 @@
+/**
+ * Shared page shell for observatory sections: kicker breadcrumbs (linked when
+ * the kicker maps to a section route), title, description, and an optional
+ * action slot.
+ */
 import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'

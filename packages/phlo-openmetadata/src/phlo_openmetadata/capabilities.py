@@ -29,18 +29,9 @@ def _discover_capabilities() -> None:
 
 
 def resolve_catalog_scanner(name: str | None = None) -> CatalogScanner:
-    """Resolve a catalog scanner capability for metadata sync flows.
-
-    Args:
-        name: Optional name of a specific scanner to resolve. If None,
-            returns the first available scanner.
-
-    Returns:
-        CatalogScanner: A catalog scanner capability provider.
-
-    Raises:
-        RuntimeError: If the specified scanner or any scanner is not available.
-
+    """Resolve a catalog scanner capability for metadata sync flows; name
+    picks a specific scanner, otherwise the first available is used.
+    Raises RuntimeError when no matching scanner exists.
     """
     _discover_capabilities()
     resolution = resolve_capability("catalog_scanner", name)
@@ -52,18 +43,9 @@ def resolve_catalog_scanner(name: str | None = None) -> CatalogScanner:
 
 
 def resolve_query_engine_catalog(name: str | None = None) -> str:
-    """Resolve the default catalog name from query-engine capability metadata.
-
-    Args:
-        name: Optional name of a specific query engine to resolve. If None,
-            uses the first available query engine.
-
-    Returns:
-        str: The catalog name from the query engine metadata.
-
-    Raises:
-        RuntimeError: If the query engine is not available or lacks catalog metadata.
-
+    """Return the default catalog name from query-engine capability metadata;
+    name picks a specific engine, otherwise the first available is used.
+    Raises RuntimeError when unavailable or lacking catalog metadata.
     """
     _discover_capabilities()
     resolution = resolve_capability("query_engine", name)
@@ -85,18 +67,10 @@ def resolve_query_engine_catalog(name: str | None = None) -> str:
 
 
 def resolve_query_engine_service_type(name: str | None = None) -> str:
-    """Resolve the OpenMetadata service type from query-engine capability metadata.
-
-    Args:
-        name: Optional name of a specific query engine to resolve. If None,
-            uses the first available query engine.
-
-    Returns:
-        str: The OpenMetadata service type (e.g., 'Trino', 'Snowflake').
-
-    Raises:
-        RuntimeError: If the query engine is not available or lacks service_type metadata.
-
+    """Return the OpenMetadata service type (e.g. 'Trino', 'Snowflake') from
+    query-engine capability metadata; name picks a specific engine,
+    otherwise the first available is used. Raises RuntimeError when
+    unavailable or lacking service_type metadata.
     """
     _discover_capabilities()
     resolution = resolve_capability("query_engine", name)

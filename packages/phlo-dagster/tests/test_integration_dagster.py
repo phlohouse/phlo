@@ -1,4 +1,11 @@
-"""Integration tests for phlo-dagster."""
+"""Integration tests for phlo-dagster.
+
+Covers plugin/daemon registration, partition setup, Iceberg S3
+credential propagation into service definitions, and runtime context
+handling: run tags and run ids are read from the run when the context
+lacks them, invalid retry attempts are rejected rather than aliased to
+attempt 1, and failed materializations report failure status.
+"""
 
 from types import SimpleNamespace
 from typing import cast

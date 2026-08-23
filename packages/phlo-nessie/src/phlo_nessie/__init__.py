@@ -9,9 +9,8 @@ Example:
     >>> plugin = NessieServicePlugin()
     >>> resource = NessieResource()
 
-Attributes:
-    __version__: Package version string.
-
+    Exposes NessieServicePlugin, NessieResourceProvider, NessieResource,
+    BranchManagerResource, and NessieSettings.
 """
 
 from phlo_nessie.plugin import NessieServicePlugin

@@ -1,4 +1,11 @@
-"""Dagster CLI plugin registration."""
+"""Dagster CLI plugin registration.
+
+Wires the dev, logs, status, backfill, and materialize command groups
+into the plugin system via cli_command_plugin_class; owns no logic
+beyond registration.
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported directly.
+Wires the Dagster command groups into the CLI plugin registry of phlo.plugins.base.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,9 @@
-"""Tests for WAP launch coordination before Dagster starts a run."""
+"""Tests for WAP launch coordination before Dagster starts a run.
+
+Verifies deterministic WAP branch and tag creation with manifest emission,
+and that launch refuses to reuse an existing branch or to run without a
+configured project.
+"""
 
 from __future__ import annotations
 

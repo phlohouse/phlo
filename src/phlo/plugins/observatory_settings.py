@@ -81,7 +81,9 @@ class SettingsStore(Protocol):
     ``settings_store`` capability; there is no separate per-scope backend.
     """
 
-    def get(self, scope: SettingsScope, namespace: str) -> SettingsRecord | None: ...
+    def get(self, scope: SettingsScope, namespace: str) -> SettingsRecord | None:
+        """Return the stored record for a scope and namespace, or None."""
+        ...
 
     def put(
         self,
@@ -89,7 +91,9 @@ class SettingsStore(Protocol):
         namespace: str,
         settings: dict[str, Any],
         schema: dict[str, Any] | None = None,
-    ) -> SettingsRecord: ...
+    ) -> SettingsRecord:
+        """Validate settings against the schema when given, then store and return them."""
+        ...
 
     def mutate(
         self,
@@ -114,6 +118,7 @@ class InMemorySettingsService:
         self._lock = RLock()
 
     def get(self, scope: SettingsScope, namespace: str) -> SettingsRecord | None:
+        """Return the stored record for a scope and namespace, or None."""
         return self._store.get((scope, namespace))
 
     def put(
@@ -123,6 +128,7 @@ class InMemorySettingsService:
         settings: dict[str, Any],
         schema: dict[str, Any] | None = None,
     ) -> SettingsRecord:
+        """Validate settings against the schema when given (ValueError on failure), then store."""
         if schema:
             try:
                 validate(instance=settings, schema=schema)
@@ -144,6 +150,7 @@ class InMemorySettingsService:
         namespace: str,
         mutation: Callable[[dict[str, Any] | None], dict[str, Any]],
     ) -> SettingsRecord:
+        """Atomically replace the record with one computed from its latest stored value."""
         with self._lock:
             current = self._store.get((scope, namespace))
             settings = mutation(current.settings if current else None)

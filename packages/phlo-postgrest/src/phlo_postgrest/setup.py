@@ -35,18 +35,10 @@ def get_db_connection(
     user: Optional[str] = None,
     password: Optional[str] = None,
 ):
-    """Get a PostgreSQL database connection.
+    """Open an autocommit psycopg2 connection.
 
-    Args:
-        host: Database host (default: from POSTGRES_HOST env var or 'localhost')
-        port: Database port (default: from POSTGRES_PORT env var or 5432)
-        database: Database name (default: from POSTGRES_DB env var or 'lakehouse')
-        user: Database user (default: from POSTGRES_USER env var or 'lake')
-        password: Database password (default: from POSTGRES_PASSWORD env var)
-
-    Returns:
-        psycopg2 connection object
-
+    Each parameter falls back to its POSTGRES_* environment variable, then
+    to the built-in default (localhost:5432/lakehouse as user "lake").
     """
     env = load_project_env()
     conn_params = {
@@ -63,17 +55,9 @@ def get_db_connection(
 
 
 def execute_sql_file(conn, filepath: Path, verbose: bool = True):
-    """Execute a SQL file.
-
-    Args:
-        conn: Database connection
-        filepath: Path to SQL file
-        verbose: Print progress messages
-
-    """
+    """Execute a SQL file on ``conn``, logging and re-raising on failure."""
     if verbose:
         logger.info("Executing: %s", filepath.name)
-
     with open(filepath, "r") as f:
         sql_content = f.read()
 
@@ -90,15 +74,9 @@ def execute_sql_file(conn, filepath: Path, verbose: bool = True):
 
 
 def check_if_setup_complete(conn) -> bool:
-    """Check if PostgREST setup has already been completed.
-
-    Returns:
-        True if setup is complete, False otherwise
-
-    """
+    """Return True when both the auth schema and authenticator role exist."""
     cursor = conn.cursor()
     try:
-        # Check if auth schema exists
         cursor.execute("""
             SELECT EXISTS (
                 SELECT 1 FROM information_schema.schemata
@@ -132,26 +110,14 @@ def setup_postgrest(
 ):
     """Set up PostgREST authentication infrastructure.
 
-    This function is idempotent - it's safe to run multiple times.
-    It will skip setup if the infrastructure already exists unless force=True.
-
-    Args:
-        host: Database host
-        port: Database port
-        database: Database name
-        user: Database user (must have superuser privileges)
-        password: Database password
-        force: Force re-setup even if already completed
-        verbose: Print progress messages
+    Idempotent: skips setup when already complete unless ``force`` is set.
+    Connection parameters follow get_db_connection precedence; ``user``
+    must have superuser privileges. Applies every SQL file in the bundled
+    sql/ directory in sorted order.
 
     Example:
         >>> from phlo_postgrest import setup_postgrest
         >>> setup_postgrest()
-        Executing: 001_extensions.sql
-        ✓ 001_extensions.sql completed successfully
-        ...
-        ✓ PostgREST setup completed successfully!
-
     """
     if verbose:
         logger.info("=" * 50)

@@ -1,4 +1,9 @@
-"""Core helpers for resolving running service containers."""
+"""Core helpers for resolving running service containers.
+
+Resolution follows a fixed fallback chain: configured name, compose default,
+legacy names, then a pattern match against running containers; a failed
+container listing is logged and treated as empty rather than raised.
+"""
 
 from __future__ import annotations
 

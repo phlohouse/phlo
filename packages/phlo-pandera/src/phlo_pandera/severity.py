@@ -1,19 +1,9 @@
 """Severity mapping utilities for quality checks.
 
-This module provides functions to map quality check results to severity levels
-that are consumed by the orchestration system (Dagster). The severity determines
-how check failures are handled - whether they block downstream execution,
-trigger warnings, or are purely informational.
-
-Severity Levels:
-    - ``None`` (or omitted): Check passed successfully
-    - ``"warn"``: Check failed but is non-blocking; may trigger alerts
-    - ``"error"``: Check failed and is blocking; stops downstream execution
-
-Severity Policies:
-    - Pandera schema contract checks are always blocking (ERROR on failure)
-    - Quality checks use configurable thresholds to determine WARN vs ERROR
-    - dbt tests use tags and test types to determine severity
+Maps quality-check results to severities consumed by orchestration: omitted
+for passes, ``warn`` for non-blocking failures, and ``error`` for blocking
+failures. Pandera schema contract checks always map to ``error``; quality
+checks use configurable warn thresholds; dbt tests use tags and test types.
 
 Example:
     ```python
@@ -39,7 +29,6 @@ Example:
 See Also:
     - ``contract.py``: Quality check contract definitions
     - ``decorator.py``: ``@phlo_pandera`` which uses these severity mappings
-
 """
 
 from __future__ import annotations
@@ -52,16 +41,7 @@ DBT_BLOCKING_TEST_TYPES = {"not_null", "unique", "relationships"}
 
 
 def normalize_dbt_tags(tags: Iterable[str] | None) -> set[str]:
-    """Normalize dbt test tags for severity evaluation.
-
-    Converts tags to lowercase, strips whitespace, and filters out empty values.
-    This ensures consistent tag matching regardless of formatting variations.
-
-    Args:
-        tags: Raw dbt tags as an iterable of strings, or None.
-
-    Returns:
-        Set of normalized, lowercase, non-empty tag strings.
+    """Normalize dbt tags to lowercase, stripped, non-empty strings.
 
     Example:
         ```python
@@ -71,7 +51,6 @@ def normalize_dbt_tags(tags: Iterable[str] | None) -> set[str]:
         normalize_dbt_tags(None)
         # Returns: set()
         ```
-
     """
 
     if tags is None:
@@ -80,17 +59,10 @@ def normalize_dbt_tags(tags: Iterable[str] | None) -> set[str]:
 
 
 def severity_for_pandera_contract(*, passed: bool) -> str | None:
-    """Map Pandera contract pass/fail state to severity.
+    """Map a Pandera contract evaluation to severity: None on pass, else error.
 
-    Pandera schema contract checks are always blocking. A failure indicates
-    that the data does not conform to the expected schema, which is typically
-    a serious data quality issue that should halt processing.
-
-    Args:
-        passed: Whether the Pandera contract evaluation passed.
-
-    Returns:
-        ``None`` if passed (no severity needed), otherwise ``"error"``.
+    Pandera schema contract failures mean the data does not conform to the
+    expected schema, so they are always blocking.
 
     Example:
         ```python
@@ -100,7 +72,6 @@ def severity_for_pandera_contract(*, passed: bool) -> str | None:
         severity_for_pandera_contract(passed=False)
         # Returns: "error"
         ```
-
     """
 
     return None if passed else "error"
@@ -109,27 +80,10 @@ def severity_for_pandera_contract(*, passed: bool) -> str | None:
 def severity_for_quality_check(
     *, passed: bool, failure_fraction: float, warn_threshold: float
 ) -> str | None:
-    """Map quality-check result values to severity.
+    """Map a quality-check outcome to None, warn, or error by failure fraction.
 
-    Determines the appropriate severity level based on whether the check
-    passed and, if it failed, what fraction of rows failed. This enables
-    configurable tolerance for data quality issues.
-
-    Logic:
-        - If ``passed`` is True: returns None (no severity)
-        - If ``failure_fraction`` is 0 or less: returns "error"
-        - If ``warn_threshold`` > 0 and ``failure_fraction`` <= ``warn_threshold``:
-          returns "warn"
-        - Otherwise: returns "error"
-
-    Args:
-        passed: Whether the quality check passed.
-        failure_fraction: Failed rows divided by total rows (0.0 to 1.0).
-        warn_threshold: Maximum failure fraction treated as a warning.
-            Values above this threshold are treated as errors.
-
-    Returns:
-        ``None`` for pass, ``"warn"`` for bounded failures, ``"error"`` otherwise.
+    A pass returns None. A failure at or below a positive ``warn_threshold``
+    returns ``warn``; any other failure returns ``error``.
 
     Example:
         ```python
@@ -145,7 +99,6 @@ def severity_for_quality_check(
         severity_for_quality_check(passed=False, failure_fraction=0.15, warn_threshold=0.1)
         # Returns: "error"
         ```
-
     """
 
     if passed:
@@ -158,28 +111,11 @@ def severity_for_quality_check(
 
 
 def severity_for_dbt_test(*, test_type: str | None, tags: Iterable[str] | None) -> str:
-    """Map dbt test metadata to severity.
+    """Map dbt test type and tags to severity.
 
-    Determines severity for dbt tests based on test type and tags.
-    Certain test types (not_null, unique, relationships) are considered
-    blocking by default. Tags can override this behavior.
-
-    Tag Overrides:
-        - ``tag:blocking``: Forces severity to "error"
-        - ``tag:warn`` or ``tag:anomaly``: Forces severity to "warn"
-
-    Blocking Test Types:
-        - ``not_null``: Missing values are critical
-        - ``unique``: Duplicate keys are critical
-        - ``relationships``: Referential integrity violations are critical
-
-    Args:
-        test_type: dbt test type string (e.g., "not_null", "accepted_values").
-        tags: dbt test tags as an iterable of strings.
-
-    Returns:
-        ``"error"`` when blocking tags or blocking test types are present,
-        otherwise ``"warn"``.
+    ``tag:blocking`` forces ``error``; ``tag:warn``/``tag:anomaly`` force
+    ``warn``. Without tag overrides, blocking test types (``not_null``,
+    ``unique``, ``relationships``) yield ``error``; all others yield ``warn``.
 
     Example:
         ```python
@@ -199,7 +135,6 @@ def severity_for_dbt_test(*, test_type: str | None, tags: Iterable[str] | None) 
         severity_for_dbt_test(test_type="not_null", tags=["warn"])
         # Returns: "warn"
         ```
-
     """
 
     normalized_tags = normalize_dbt_tags(tags)

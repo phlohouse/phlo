@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Run the Phlo release artifact golden path in an owned temporary project."""
+"""Run the Phlo release artifact golden path in an owned temporary project.
+
+Drives the full release path end to end: build a wheelhouse, install
+the operator, scaffold and configure a non-dev project, start the
+stack, materialize fixture partitions, then exercise WAP promotion
+including one deliberately rejected run. The script owns every
+directory it creates and removes them on exit unless --keep-project is
+given; any failure triggers runtime diagnostics before cleanup.
+"""
 
 from __future__ import annotations
 
@@ -48,6 +56,8 @@ RUNTIME_DIAGNOSTIC_SERVICES = (
 
 @dataclass(frozen=True)
 class RunConfig:
+    """Hold paths and names for one release golden path run."""
+
     repo_root: Path
     project_dir: Path
     wheelhouse: Path
@@ -59,22 +69,27 @@ class RunConfig:
 
     @property
     def operator_python(self) -> Path:
+        """Return the operator venv's Python executable."""
         return venv_executable(self.operator_env, "python")
 
     @property
     def operator_bin(self) -> Path:
+        """Return the operator venv's phlo executable."""
         return venv_executable(self.operator_env, "phlo")
 
     @property
     def project_env(self) -> Path:
+        """Return the generated project's virtualenv directory."""
         return self.project_dir / ".venv"
 
     @property
     def project_python(self) -> Path:
+        """Return the generated project venv's Python executable."""
         return venv_executable(self.project_env, "python")
 
     @property
     def compose_file(self) -> Path:
+        """Return the generated project's Docker Compose file path."""
         return self.project_dir / ".phlo" / "docker-compose.yml"
 
 
@@ -153,6 +168,7 @@ def run(
 
 
 def force_local_install(config: RunConfig, python: Path, *packages: str) -> None:
+    """Force-install packages strictly from the local wheelhouse."""
     run(
         command(
             "uv",
@@ -172,6 +188,7 @@ def force_local_install(config: RunConfig, python: Path, *packages: str) -> None
 
 
 def build_wheelhouse(config: RunConfig) -> None:
+    """Build all workspace wheels into the wheelhouse."""
     config.wheelhouse.mkdir(parents=True, exist_ok=True)
     run(
         command("uv", "build", "--all-packages", "--wheel", "--out-dir", str(config.wheelhouse)),
@@ -179,7 +196,11 @@ def build_wheelhouse(config: RunConfig) -> None:
     )
 
 
+# The ordering matters: dependency resolution may still pick a same-named
+# workspace package from PyPI, so every run ends by re-pinning all workspace
+# packages to the local wheelhouse with --no-index/--no-deps.
 def install_operator(config: RunConfig) -> None:
+    """Install the phlo CLI and core plugins into the operator venv."""
     run(command("uv", "venv", str(config.operator_env), "--python", "3.11"), cwd=config.repo_root)
     run(
         command(
@@ -225,6 +246,7 @@ def install_operator(config: RunConfig) -> None:
 
 
 def create_project(config: RunConfig) -> None:
+    """Scaffold a new CSV-batch project with the installed CLI."""
     run(
         command(
             str(config.operator_bin),
@@ -372,6 +394,7 @@ def align_project_name(config: RunConfig) -> None:
 
 
 def install_project_dependencies(config: RunConfig) -> None:
+    """Install plugin dependencies into the generated project venv."""
     run(command("uv", "venv", str(config.project_env), "--python", "3.11"), cwd=config.project_dir)
     run(
         command(
@@ -400,6 +423,7 @@ def install_project_dependencies(config: RunConfig) -> None:
 def configure_non_dev_compose(
     config: RunConfig,
 ) -> None:
+    """Initialize non-dev services config and write the release environment."""
     run(
         command(
             str(config.operator_bin),
@@ -433,6 +457,7 @@ def configure_non_dev_compose(
 
 
 def start_stack(config: RunConfig) -> None:
+    """Start the API-profile Compose stack, dumping diagnostics on failure."""
     try:
         run(
             compose_command(config, "--profile", "api", "up", "--detach", "--build"),
@@ -448,6 +473,7 @@ def start_stack(config: RunConfig) -> None:
 
 
 def materialize_partition(config: RunConfig) -> None:
+    """Materialize the DLT events asset for the configured partition."""
     run(
         command(
             str(config.operator_bin),
@@ -461,6 +487,7 @@ def materialize_partition(config: RunConfig) -> None:
 
 
 def materialize_transform(config: RunConfig) -> None:
+    """Materialize the dbt events mart for the configured partition."""
     run(
         command(
             str(config.operator_bin),
@@ -780,6 +807,7 @@ def verify_rejected_wap_report(config: RunConfig, wap_run: WapRun) -> None:
 def verify_rows(
     config: RunConfig, table: str = "raw.events", expected_count: int = FIXTURE_ROW_COUNT
 ) -> None:
+    """Require an Iceberg table's Trino row count to match expectations."""
     query = f"SELECT count(*) FROM iceberg.{table}"
     try:
         result = run(
@@ -857,6 +885,7 @@ def cleanup(
     owned_paths: set[Path],
     temporary_root: Path | None = None,
 ) -> list[Exception]:
+    """Tear down the stack and delete owned paths, returning any failures."""
     errors: list[Exception] = []
     if config.compose_file.exists():
         try:
@@ -877,6 +906,8 @@ def cleanup(
         except FileNotFoundError:
             pass
         except PermissionError:
+            # Containers write root-owned files the host user cannot delete;
+            # remove them through a throwaway container and retry as the host.
             try:
                 run(
                     command(
@@ -901,6 +932,7 @@ def cleanup(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse release golden path CLI arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--project-dir", type=Path)
@@ -910,6 +942,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the full release golden path and return its exit code."""
     args = parse_args(argv)
     repo_root = args.repo_root.resolve()
     temporary_root: Path | None = None

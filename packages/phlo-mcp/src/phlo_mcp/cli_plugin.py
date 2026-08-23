@@ -1,4 +1,12 @@
-"""MCP server management CLI plugin."""
+"""MCP server management CLI plugin.
+
+Provides `phlo mcp` for serving the MCP server, inspecting its resolved
+configuration (secrets redacted) and registered tools/prompts, and writing
+client config snippets. Server imports are deferred to invocation so the
+plugin stays importable without the MCP dependency installed.
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported directly.
+Exposes the phlo_mcp MCP server through phlo.plugins.base CLI plugin registration.
+"""
 
 from __future__ import annotations
 

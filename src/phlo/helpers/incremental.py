@@ -1,4 +1,10 @@
-"""Incremental load and watermark helpers."""
+"""Incremental load and watermark helpers.
+
+Resolves a watermark from runtime, stored, or default values and renders it
+as a SQL predicate using the shared literal encoder. Also provides lookback
+windows, immutable state updates that advance committed watermarks, and
+unique changed-key extraction since a watermark.
+"""
 
 from __future__ import annotations
 

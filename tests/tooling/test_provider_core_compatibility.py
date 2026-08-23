@@ -1,4 +1,9 @@
-"""Verify provider wheels enforce and run with the current core compatibility epoch."""
+"""Compatibility epoch enforcement between provider wheels and phlo core.
+
+Builds real wheels and verifies providers declare the current minor epoch,
+older cores reject newer providers before import, and declared minimums
+install and import cleanly.
+"""
 
 from __future__ import annotations
 

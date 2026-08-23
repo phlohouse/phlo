@@ -1,4 +1,10 @@
-"""Integration tests for core service auto-configuration."""
+"""Integration tests for core service auto-configuration.
+
+Every core service (postgres, minio, nessie, trino, dagster) must
+declare its dependencies and auto-setup hooks, reference only
+placeholders defined in env_vars, and own its host-port defaults so
+auto-configuration never depends on undeclared configuration.
+"""
 
 from __future__ import annotations
 
@@ -22,12 +28,8 @@ class ServiceFixture:
     """Store service name and discovered service definition for assertions."""
 
     def __init__(self, name: str, definition: Mapping[str, Any]):
-        """Initialize the fixture container.
-
-        Args:
-            name: Service identifier.
-            definition: Service definition mapping from the plugin.
-        """
+        """Initialize the fixture with a service identifier and its plugin
+        service definition."""
         self.name = name
         self.definition = definition
 
@@ -42,26 +44,12 @@ CORE_SERVICES = {
 
 
 def _extract_required_placeholders(value: str) -> set[str]:
-    """Extract environment placeholder names that have no inline default.
-
-    Args:
-        value: String that may contain `${VAR}` placeholders.
-
-    Returns:
-        set[str]: Required placeholder names without delimiters.
-    """
+    """Extract ``${VAR}`` placeholder names (without delimiters) from a string."""
     return {match.group(1) for match in REQUIRED_PLACEHOLDER_RE.finditer(value)}
 
 
 def _collect_required_placeholders(values: Iterable[object]) -> set[str]:
-    """Collect required placeholder names from iterable string values.
-
-    Args:
-        values: Values to scan for placeholders.
-
-    Returns:
-        set[str]: Union of extracted required placeholder names.
-    """
+    """Collect the union of required placeholder names across string values."""
     placeholders: set[str] = set()
     for item in values:
         if isinstance(item, str):
@@ -70,14 +58,8 @@ def _collect_required_placeholders(values: Iterable[object]) -> set[str]:
 
 
 def _collect_required_service_placeholders(definition: Mapping[str, Any]) -> set[str]:
-    """Collect required placeholders referenced by a service definition.
-
-    Args:
-        definition: Service definition mapping.
-
-    Returns:
-        set[str]: Required placeholder names referenced in image, build args, and compose data.
-    """
+    """Collect required placeholders referenced by a service definition's image,
+    build args, and compose environment/port data."""
     placeholders: set[str] = set()
 
     image = definition.get("image")

@@ -1,4 +1,8 @@
-"""Tests for Python-first Sling asset discovery."""
+"""Tests for Python-first Sling asset discovery.
+
+Verifies the decorator registers multiple assets and applies default modes at
+collection time.
+"""
 
 from __future__ import annotations
 

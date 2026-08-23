@@ -485,11 +485,7 @@ def _check_phlo_api_adapter(runtime: Any) -> ValidationResult:
 
 
 def _collect_adapter_taxonomy(runtime: Any) -> tuple[set[str], set[str]]:
-    """Collect canonical actions and resource types from all registered adapters.
-
-    Returns:
-        Tuple of (surface_actions, surface_resource_types) from registered adapters.
-    """
+    """Collect canonical actions and resource types from all registered adapters."""
     from phlo.capabilities import get_capability_registry
 
     surface_actions: set[str] = set()
@@ -600,16 +596,13 @@ def run_regulated_validation(
 ) -> RegulatedValidationReport:
     """Run all regulated mode validation checks.
 
-    Args:
-        surface_actions: Optional override actions for taxonomy validation.
-            If not provided, collects from registered adapter operations.
-        surface_resource_types: Optional override resource types for taxonomy validation.
-            If not provided, collects from registered adapter operations.
-        config_regulated: Regulated mode setting from config file.
-        runtime: The framework runtime (e.g., FastAPI app) to validate adapter wiring against.
+    surface_actions and surface_resource_types optionally override the taxonomy
+    used for validation; when omitted they are collected from registered adapter
+    operations. config_regulated is the regulated-mode setting from the config
+    file, and runtime is the framework runtime (e.g., FastAPI app) to validate
+    adapter wiring against.
 
-    Returns:
-        RegulatedValidationReport with all check results.
+    Returns a RegulatedValidationReport with all check results.
     """
     regulated = is_regulated(config_regulated)
 

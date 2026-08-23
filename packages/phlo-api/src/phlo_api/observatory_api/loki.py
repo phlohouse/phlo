@@ -126,11 +126,8 @@ def _filter_entries_with_regex(entries: list[LogEntry], pattern_text: str) -> li
 
 
 def resolve_loki_url() -> str:
-    """Resolve the Loki base URL from server-side configuration only.
-
-    Returns:
-        Loki URL from environment or the Docker-internal default.
-
+    """Resolve the Loki base URL from server-side configuration only, taking the
+    value from the environment or falling back to the Docker-internal default.
     """
     return resolve_url(
         project_env_value("LOKI_URL", DEFAULT_LOKI_URL) or DEFAULT_LOKI_URL,
@@ -141,12 +138,7 @@ def resolve_loki_url() -> str:
 def reject_request_loki_url(loki_url: str | None) -> None:
     """Reject a caller-supplied Loki URL before any outbound work.
 
-    Args:
-        loki_url: Optional query parameter value from an HTTP request.
-
-    Raises:
-        HTTPException: 422 when the caller supplies ``loki_url``.
-
+    Raises: HTTPException with status 422 when the caller supplies ``loki_url``.
     """
     if loki_url is not None:
         raise HTTPException(status_code=422, detail=_LOKI_URL_OVERRIDE_ERROR)
@@ -156,14 +148,8 @@ def reject_request_loki_url(loki_url: str | None) -> None:
 
 
 class LogEntry(BaseModel):
-    """Represents a normalized log record.
-
-    Attributes:
-        timestamp: Event timestamp in ISO 8601 format.
-        level: Log severity level.
-        message: Log message text.
-        metadata: Correlation metadata extracted from the payload.
-
+    """Represents a normalized log record carrying correlation metadata
+    extracted from the payload.
     """
 
     timestamp: str
@@ -173,12 +159,8 @@ class LogEntry(BaseModel):
 
 
 class LogQueryResult(BaseModel):
-    """Contains query results from Loki.
-
-    Attributes:
-        entries: Parsed log entries for the request.
-        has_more: Whether additional entries may exist beyond the returned limit.
-
+    """Contains query results from Loki: the parsed entries plus ``has_more``,
+    which says whether additional entries may exist beyond the returned limit.
     """
 
     entries: list[LogEntry]
@@ -187,13 +169,8 @@ class LogQueryResult(BaseModel):
 
 
 class LokiConnectionStatus(BaseModel):
-    """Describes Loki connectivity status.
-
-    Attributes:
-        connected: Whether the Loki endpoint is reachable.
-        error: Error message when the connection check fails.
-        version: Loki version string when available.
-
+    """Describes Loki connectivity status, including the error message when the
+    connection check fails and the Loki version string when available.
     """
 
     connected: bool
@@ -213,20 +190,8 @@ def build_log_query(
     level: LogLevel | None = None,
     service: str | None = None,
 ) -> str:
-    """Build a LogQL query with optional filters.
-
-    Args:
-        run_id: Optional Dagster run identifier.
-        asset_key: Optional asset key filter.
-        job: Optional job name filter.
-        partition_key: Optional partition key filter.
-        check_name: Optional check name filter.
-        level: Optional log level filter.
-        service: Optional service/container selector.
-
-    Returns:
-        LogQL query string.
-
+    """Build a LogQL query with optional filters for run ID, asset key, job,
+    partition key, check name, level, and service.
     """
     label_matchers = []
     line_filters = []
@@ -262,14 +227,8 @@ def build_log_query(
 
 
 def parse_loki_response(response: dict[str, Any]) -> list[LogEntry]:
-    """Parse Loki query response into log entries.
-
-    Args:
-        response: Loki query API response payload.
-
-    Returns:
-        Parsed log entries sorted by timestamp descending.
-
+    """Parse a Loki query API response payload into log entries sorted by
+    timestamp descending.
     """
     entries = []
 
@@ -337,11 +296,8 @@ def parse_loki_response(response: dict[str, Any]) -> list[LogEntry]:
 
 
 async def fetch_connection_status() -> LokiConnectionStatus:
-    """Check whether the configured Loki endpoint is reachable.
-
-    Returns:
-        LokiConnectionStatus with connection state and version information.
-
+    """Check whether the configured Loki endpoint is reachable, returning the
+    connection state and Loki version information.
     """
     url = resolve_loki_url()
 
@@ -382,23 +338,8 @@ async def fetch_log_entries(
     service: str | None = None,
     limit: int = 100,
 ) -> LogQueryResult | dict[str, str]:
-    """Query the configured Loki endpoint with correlation filters.
-
-    Args:
-        start: Query start time as an ISO 8601 timestamp.
-        end: Query end time as an ISO 8601 timestamp.
-        run_id: Optional Dagster run identifier filter.
-        asset_key: Optional asset key filter.
-        job: Optional job name filter.
-        partition_key: Optional partition key filter.
-        check_name: Optional check name filter.
-        level: Optional log level filter.
-        service: Optional service/container selector.
-        limit: Maximum number of entries to request from Loki.
-
-    Returns:
-        LogQueryResult with entries and has_more flag, or an error dictionary.
-
+    """Query the configured Loki endpoint with correlation filters, returning a
+    result with entries and a has_more flag, or an error dictionary on failure.
     """
     url = resolve_loki_url()
 
@@ -441,21 +382,12 @@ async def fetch_run_log_entries(
     until: str | None = None,
     cursor: str | None = None,
 ) -> LogQueryResult | dict[str, str]:
-    """Query configured Loki for logs belonging to a Dagster run.
+    """Query configured Loki for logs belonging to a Dagster run, returning
+    paginated entries or an error dictionary. Applies optional case-insensitive
+    and regular-expression message filters after fetching.
 
-    Args:
-        run_id: Dagster run identifier.
-        level: Optional log level filter.
-        limit: Maximum number of entries to return.
-        query: Optional case-insensitive message filter.
-        regex: Optional regular-expression message filter.
-        since: Optional ISO 8601 query start time.
-        until: Optional ISO 8601 query end time.
-        cursor: Optional pagination cursor.
-
-    Returns:
-        LogQueryResult with paginated entries, or an error dictionary.
-
+    Raises: HTTPException with status 400 for an over-long or invalid regex,
+    and 422 when regex evaluation exceeds its time budget.
     """
     if regex is not None and len(regex) > MAX_REGEX_PATTERN_LENGTH:
         raise HTTPException(status_code=400, detail=_INVALID_REGEX_ERROR)
@@ -501,18 +433,8 @@ async def fetch_asset_log_entries(
     hours_back: int = 24,
     limit: int = 200,
 ) -> LogQueryResult | dict[str, str]:
-    """Query configured Loki for logs belonging to an asset.
-
-    Args:
-        asset_key: Asset key filter.
-        partition_key: Optional partition key filter.
-        level: Optional log level filter.
-        hours_back: Hours to include before now.
-        limit: Maximum number of entries to request from Loki.
-
-    Returns:
-        LogQueryResult with entries and has_more flag, or an error dictionary.
-
+    """Query configured Loki for logs belonging to an asset over a lookback
+    window ending now, returning entries or an error dictionary.
     """
     end = datetime.now()
     start = end - timedelta(hours=hours_back)
@@ -528,11 +450,8 @@ async def fetch_asset_log_entries(
 
 
 async def fetch_log_labels() -> dict[str, Any]:
-    """Fetch available label keys from the configured Loki endpoint.
-
-    Returns:
-        Label key list payload or an error dictionary.
-
+    """Fetch available label keys from the configured Loki endpoint, returning
+    the label payload or an error dictionary.
     """
     url = resolve_loki_url()
 
@@ -553,15 +472,9 @@ async def fetch_log_labels() -> dict[str, Any]:
 async def check_connection(loki_url: str | None = None) -> LokiConnectionStatus:
     """Check whether Loki is reachable.
 
-    Args:
-        loki_url: Rejected when present. Kept only for explicit request compatibility.
-
-    Returns:
-        LokiConnectionStatus with connection state and version info.
-
-    Raises:
-        HTTPException: 422 when ``loki_url`` is supplied.
-
+    Raises: HTTPException with status 422 when a ``loki_url`` query parameter is
+    supplied; it is never honored and exists only for explicit request
+    compatibility.
     """
     reject_request_loki_url(loki_url)
     return await fetch_connection_status()
@@ -584,27 +497,12 @@ async def query_logs(
     """Query logs with correlation filters.
 
     Executes a LogQL query against Loki with optional filters for run_id,
-    asset_key, job, partition_key, check_name, level, and service.
+    asset_key, job, partition_key, check_name, level, and service, returning a
+    result with entries and a has_more flag or an error dictionary.
 
-    Args:
-        start: Query start time as ISO 8601 timestamp.
-        end: Query end time as ISO 8601 timestamp.
-        run_id: Optional Dagster run identifier filter.
-        asset_key: Optional asset key filter.
-        job: Optional job name filter.
-        partition_key: Optional partition key filter.
-        check_name: Optional check name filter.
-        level: Optional log level filter (debug, info, warn, error).
-        service: Optional service/container selector.
-        limit: Maximum number of log entries (default: 100, max: 1000).
-        loki_url: Rejected when present. Kept only for explicit request compatibility.
-
-    Returns:
-        LogQueryResult with entries and has_more flag, or error dictionary.
-
-    Raises:
-        HTTPException: 422 when ``loki_url`` is supplied.
-
+    Raises: HTTPException with status 422 when a ``loki_url`` query parameter is
+    supplied; it is never honored and exists only for explicit request
+    compatibility.
     """
     reject_request_loki_url(loki_url)
     return await fetch_log_entries(
@@ -633,20 +531,12 @@ async def query_run_logs(
     cursor: str | None = None,
     loki_url: str | None = None,
 ) -> LogQueryResult | dict[str, str]:
-    """Query logs for a Dagster run.
+    """Query logs for a Dagster run, returning the paginated result or an error
+    dictionary.
 
-    Args:
-        run_id: Dagster run identifier.
-        level: Optional log level filter.
-        limit: Maximum number of log entries.
-        loki_url: Rejected when present. Kept only for explicit request compatibility.
-
-    Returns:
-        Query result with log entries or an error dictionary.
-
-    Raises:
-        HTTPException: 422 when ``loki_url`` is supplied.
-
+    Raises: HTTPException with status 422 when a ``loki_url`` query parameter is
+    supplied; it is never honored and exists only for explicit request
+    compatibility.
     """
     reject_request_loki_url(loki_url)
     return await fetch_run_log_entries(
@@ -671,14 +561,16 @@ async def stream_run_logs(
 ) -> StreamingResponse:
     """Stream bounded Server-Sent Events for run logs.
 
-    Raises:
-        HTTPException: 422 when ``loki_url`` is supplied.
-
+    Raises: HTTPException with status 422 when ``loki_url`` is supplied.
     """
     reject_request_loki_url(loki_url)
 
     async def events():  # noqa: ANN202
+        """Yield log events until the deadline, then a done event."""
         deadline = datetime.now() + timedelta(seconds=timeout_seconds)
+        # Polling re-queries Loki from scratch each interval and Loki offers no
+        # cursor, so entries are deduped by content identity (timestamp, level,
+        # message) to emit each record exactly once per stream.
         seen: set[str] = set()
         while datetime.now() < deadline:
             result = await fetch_run_log_entries(run_id=run_id, limit=limit)
@@ -707,22 +599,12 @@ async def query_asset_logs(
     limit: int = Query(default=200, le=1000),
     loki_url: str | None = None,
 ) -> LogQueryResult | dict[str, str]:
-    """Query logs for an asset.
+    """Query logs for an asset over a lookback window ending now, returning the
+    result or an error dictionary.
 
-    Args:
-        asset_key: Asset key.
-        partition_key: Optional partition key filter.
-        level: Optional log level filter.
-        hours_back: Hours to include before now.
-        limit: Maximum number of log entries.
-        loki_url: Rejected when present. Kept only for explicit request compatibility.
-
-    Returns:
-        Query result with log entries or an error dictionary.
-
-    Raises:
-        HTTPException: 422 when ``loki_url`` is supplied.
-
+    Raises: HTTPException with status 422 when a ``loki_url`` query parameter is
+    supplied; it is never honored and exists only for explicit request
+    compatibility.
     """
     reject_request_loki_url(loki_url)
     return await fetch_asset_log_entries(
@@ -736,17 +618,11 @@ async def query_asset_logs(
 
 @router.get("/labels", response_model=dict)
 async def get_log_labels(loki_url: str | None = None) -> dict[str, Any]:
-    """Get available Loki label keys.
+    """Get available Loki label keys, returning the label payload or an error
+    dictionary.
 
-    Args:
-        loki_url: Rejected when present. Kept only for explicit request compatibility.
-
-    Returns:
-        Label key list payload or an error dictionary.
-
-    Raises:
-        HTTPException: 422 when ``loki_url`` is supplied.
-
+    Raises: HTTPException with status 422 when ``loki_url`` is supplied; it is
+    never honored and exists only for explicit request compatibility.
     """
     reject_request_loki_url(loki_url)
     return await fetch_log_labels()

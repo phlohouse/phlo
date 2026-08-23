@@ -1,4 +1,10 @@
-"""Regression tests for plugin entry-point compatibility helpers."""
+"""Regression tests for plugin entry-point compatibility helpers.
+
+entry_points_for_group must work across importlib.metadata shapes:
+modern select()-only collections, mapping-like legacy collections, and
+the group= keyword form. Also guards that audit-flagged workspace
+plugins stay present in installed entry points.
+"""
 
 from __future__ import annotations
 

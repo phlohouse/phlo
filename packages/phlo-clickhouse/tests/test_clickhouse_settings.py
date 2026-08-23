@@ -1,4 +1,8 @@
-"""Tests for ClickHouse settings."""
+"""Tests for ClickHouse settings defaults, endpoint generation, and caching.
+
+Host resolution failures fall back to localhost so local stacks without DNS
+still start, and get_settings() returns a cached instance across calls.
+"""
 
 import socket
 

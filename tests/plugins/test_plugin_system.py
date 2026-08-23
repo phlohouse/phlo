@@ -211,22 +211,11 @@ class TestPluginValidation:
 
             @property
             def metadata(self):
-                """Return placeholder metadata for the broken source.
-
-                Returns:
-                    PluginMetadata: Minimal metadata for validation tests.
-                """
+                """Return minimal metadata for validation tests."""
                 return PluginMetadata(name="broken", version="1.0.0")
 
             def fetch_data(self, config):
-                """Return a non-generator payload used in validation tests.
-
-                Args:
-                    config: Source configuration.
-
-                Returns:
-                    list: Placeholder rows.
-                """
+                """Return a non-generator payload used in validation tests."""
                 return []
 
         plugin = BrokenSource()
@@ -252,11 +241,7 @@ class TestPluginListing:
 
             @property
             def metadata(self) -> PluginMetadata:
-                """Return plugin metadata.
-
-                Returns:
-                    PluginMetadata: Metadata for the second source plugin.
-                """
+                """Return metadata for the second source plugin."""
                 return PluginMetadata(
                     name="test_source2",
                     version="1.0.0",
@@ -264,14 +249,7 @@ class TestPluginListing:
                 )
 
             def fetch_data(self, config):
-                """Yield one row for list tests.
-
-                Args:
-                    config: Source configuration.
-
-                Yields:
-                    dict: Dummy source row.
-                """
+                """Yield one dummy source row."""
                 yield {"id": 2, "value": "test2"}
 
         plugin2 = AnotherSourcePlugin()

@@ -1,4 +1,9 @@
-"""Shared metadata sanitization for Observatory contracts."""
+"""Shared metadata sanitization for Observatory contracts.
+
+safe_metadata() strips secret-bearing keys and provider URLs by token match
+and value patterns, returning deterministic metadata safe to expose to the
+browser. Unsafe values are dropped, never redacted in place.
+"""
 
 from __future__ import annotations
 

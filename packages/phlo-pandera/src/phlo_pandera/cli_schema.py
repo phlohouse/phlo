@@ -51,16 +51,9 @@ def schema():
     help="Output format",
 )
 def list(domain: Optional[str], format: str):
-    """List all available Pandera schemas.
+    """List all available Pandera schemas with name, field count, and file path.
 
-    Shows schema name, field count, and file path.
-
-    Args:
-        domain: Filter schemas by domain name (optional).
-        format: Output format - "table" or "json".
-
-    Returns:
-        None. Prints results to console.
+    Optionally filters by domain; prints results as a table or JSON.
 
     Example:
         ```bash
@@ -134,16 +127,9 @@ def list(domain: Optional[str], format: str):
     help="Show Iceberg schema equivalent",
 )
 def show(schema_name: str, iceberg: bool):
-    """Show schema details.
+    """Show a schema's fields, types, constraints, and descriptions.
 
-    Displays fields, types, constraints, and descriptions.
-
-    Args:
-        schema_name: Name of the schema to display.
-        iceberg: Whether to show Iceberg schema equivalent.
-
-    Returns:
-        None. Prints schema details to console.
+    With --iceberg, prints the equivalent Iceberg schema instead.
 
     Example:
         ```bash
@@ -226,17 +212,11 @@ def show(schema_name: str, iceberg: bool):
     default="text",
 )
 def diff(schema_name: str, old: str, format: str):
-    """Compare schema versions.
+    """Compare a schema version against an older one.
 
-    Detects added/removed/modified fields and classifies changes as safe or breaking.
-
-    Args:
-        schema_name: Name of the schema to compare.
-        old: Git reference or file path for the old schema version (default: HEAD~1).
-        format: Output format - "text" or "json".
-
-    Returns:
-        None. Prints diff results to console.
+    Detects added/removed/modified fields, classifies changes as safe or
+    breaking, and prints the diff as text or JSON. The old version may be a
+    git ref (default HEAD~1) or a file path.
 
     Example:
         ```bash
@@ -318,15 +298,9 @@ def _load_current_schema(schema_cls: type, schema_name: str) -> dict[str, str]:
 @schema.command()
 @click.argument("schema_path")
 def validate(schema_path: str):
-    """Validate schema file syntax.
+    """Validate a schema file's syntax and common integration issues.
 
-    Checks for common issues and integration problems.
-
-    Args:
-        schema_path: Path to the schema file to validate.
-
-    Returns:
-        None. Prints validation results to console. Exits with code 1 on failure.
+    Prints validation results; exits with code 1 on failure.
 
     Example:
         ```bash
@@ -405,16 +379,8 @@ def validate(schema_path: str):
 def _load_old_schema(schema_cls: type, schema_name: str, old_ref: str) -> dict[str, str]:
     """Load a previous schema definition from a file path or git ref.
 
-    Args:
-        schema_cls: Current schema class to get source file location.
-        schema_name: Name of the schema to load.
-        old_ref: Git reference (e.g., HEAD~1) or file path to old schema.
-
-    Returns:
-        Dictionary mapping column names to type annotations.
-
-    Raises:
-        ValueError: If schema cannot be loaded from the reference.
+    Returns a mapping of column names to type annotations.
+    Raises: ValueError when the schema cannot be loaded from the reference.
 
     """
     source_path = getattr(schema_cls, "__phlo_schema_source_path__", None)
@@ -452,16 +418,8 @@ def _load_old_schema(schema_cls: type, schema_name: str, old_ref: str) -> dict[s
 def _extract_schema_annotations(source: str, schema_name: str, source_label: str) -> dict[str, str]:
     """Extract annotated class fields from schema source without importing it.
 
-    Args:
-        source: Python source code containing the schema class.
-        schema_name: Name of the schema class to extract.
-        source_label: Label for error messages (e.g., file path or git ref).
-
-    Returns:
-        Dictionary mapping field names to type annotation strings.
-
-    Raises:
-        ValueError: If schema class is not found or has no annotated fields.
+    Returns a mapping of field names to type annotation strings.
+    Raises: ValueError when the schema class is missing or has no annotated fields.
 
     """
     module = ast.parse(source, filename=source_label)
@@ -489,15 +447,7 @@ def _get_repo_root() -> Path:
 
 
 def _pandera_to_iceberg_example(schema_cls) -> str:
-    """Generate example Iceberg schema from Pandera schema.
-
-    Args:
-        schema_cls: Pandera DataFrameModel class to convert.
-
-    Returns:
-        YAML-formatted string showing Iceberg schema equivalent.
-
-    """
+    """Generate a YAML-formatted example Iceberg schema for a Pandera model."""
     lines = [
         "# Iceberg Schema Equivalent",
         "schema:",
@@ -515,13 +465,9 @@ def _pandera_to_iceberg_example(schema_cls) -> str:
 
 
 def _map_python_to_iceberg_type(python_type: str) -> str:
-    """Map Python type annotation to Iceberg type.
+    """Map a Python type annotation string to an Iceberg type name.
 
-    Args:
-        python_type: Python type annotation as a string.
-
-    Returns:
-        Corresponding Iceberg type string (e.g., "string", "int", "double").
+    Falls back to "string" for unmapped types.
 
     """
     type_lower = python_type.lower()

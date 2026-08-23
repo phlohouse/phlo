@@ -1,44 +1,22 @@
 """Framework definitions builder for Phlo-Dagster projects.
 
-This module provides the primary entry point for building Dagster Definitions
-in Phlo projects. It orchestrates the discovery of user workflows, merges them
-with framework-provided resources, and configures executor and sensor settings.
+Primary entry point for building Dagster Definitions in Phlo projects: loads
+configuration and logging, discovers user workflows from the configured
+``workflows/`` directory, merges in Dagster extensions collected from plugins
+(via the ``phlo.plugins.dagster`` entry point group), adds WAP sensors when
+the catalog capability supports refs, and ensures core resources such as
+Trino. WAP sensors require a ``VersionedCatalog`` provider; incompatible or
+unavailable providers log warnings instead of raising.
 
-Building Process:
-    1. Setup logging and load configuration
-    2. Discover user workflows from configured path
-    3. Optionally refresh schema contracts
-    4. Collect Dagster extension definitions from plugins
-    5. Collect WAP (Write-Audit-Publish) definitions if catalog supports refs
-    6. Merge all definition sources
-    7. Ensure core resources (Trino, etc.)
-    8. Select appropriate executor based on platform
-    9. Return final Definitions object
+Executor selection honors the ``PHLO_FORCE_IN_PROCESS_EXECUTOR`` and
+``PHLO_FORCE_MULTIPROCESS_EXECUTOR`` overrides first, then falls back to
+the ``PHLO_HOST_PLATFORM`` setting and finally ``platform.system()``.
+Darwin/macOS hosts default to the in-process executor because multiprocess
+execution crashes (SIGBUS) under Docker Desktop/Colima on macOS.
 
-Integration Points:
-    - User workflows: Imported from workflows/ directory
-    - Extensions: Discovered via phlo.plugins.dagster entry_points
-    - WAP sensors: Optional, requires VersionedCatalog capability
-    - Core resources: Trino connection, logging, etc.
-
-Executor Selection:
-    Platform-aware selection with priority:
-    1. PHLO_FORCE_IN_PROCESS_EXECUTOR (override)
-    2. PHLO_FORCE_MULTIPROCESS_EXECUTOR (override)
-    3. PHLO_HOST_PLATFORM detection
-    4. platform.system() fallback
-
-    Darwin/macOS defaults to in-process for Docker Desktop compatibility.
-
-Entry Points:
-    - build_definitions(): Programmatic entry point
-    - defs: Global Definitions instance for Dagster to load
-
-    Configured in workspace.yaml::
-
-        load_from:
-          - python_module:
-              module_name: phlo_dagster.framework.definitions
+The module exposes ``build_definitions()`` as the programmatic entry point
+and a global ``defs`` instance that Dagster loads via ``workspace.yaml``
+(``load_from: - python_module: phlo_dagster.framework.definitions``).
 
 Example:
     Basic usage::
@@ -50,7 +28,6 @@ Example:
     Custom workflows path::
 
         defs = build_definitions(workflows_path="custom_workflows")
-
 """
 
 from __future__ import annotations
@@ -79,18 +56,7 @@ logger = get_logger(__name__)
 
 
 def _collect_wap_definitions() -> dg.Definitions | None:
-    """Load WAP sensors when a versioned catalog capability is available.
-
-    Args:
-        None
-
-    Returns:
-        Dagster Definitions containing WAP sensors, or None if WAP is not available.
-
-    Raises:
-        No explicit exceptions raised. Logs warnings for incompatible providers.
-
-    """
+    """Load WAP sensors when a versioned catalog capability is available."""
     if not load_wap_config().enabled:
         logger.info("dagster_wap_definitions_disabled_by_project_policy")
         return None
@@ -129,22 +95,13 @@ def _collect_wap_definitions() -> dg.Definitions | None:
 
 
 def _default_executor() -> dg.ExecutorDefinition | None:
-    """
-    Choose an executor suited to the current environment.
+    """Choose an executor suited to the current environment.
 
-    Priority order:
-    1. PHLO_FORCE_IN_PROCESS_EXECUTOR (explicit override)
-    2. PHLO_FORCE_MULTIPROCESS_EXECUTOR (explicit override)
-    3. PHLO_HOST_PLATFORM (from environment, for Docker on macOS)
-    4. platform.system() (fallback for local dev)
-
-    Multiprocessing is desirable on Linux servers, but DuckDB has been crashing
-    (SIGBUS) when the container runs under Docker Desktop/Colima on macOS.
-    Fall back to the in-process executor on macOS, and allow overrides if needed.
-
-    Returns:
-        Executor definition or None to use default
-
+    Explicit force-in-process and force-multiprocess overrides win, followed
+    by the configured host platform and finally ``platform.system()``.
+    Defaults to the in-process executor on Darwin/macOS because DuckDB has
+    been crashing (SIGBUS) when multiprocessing runs under Docker
+    Desktop/Colima on macOS.
     """
     settings = get_settings()
 
@@ -180,20 +137,11 @@ def _default_executor() -> dg.ExecutorDefinition | None:
 def build_definitions(
     workflows_path: Path | str | None = None,
 ) -> Any:
-    """
-    Build Dagster definitions by merging user workflows with framework resources.
+    """Build Dagster definitions by merging user workflows with framework resources.
 
-    This is the main entry point for user projects. It:
-    1. Loads configuration
-    2. Discovers user workflows from workflows_path
-    3. Loads core Phlo resources
-    4. Merges everything together
-
-    Args:
-        workflows_path: Path to user workflows directory. If None, uses
-            configuration value (default: "workflows")
-    Returns:
-        Merged Dagster Definitions
+    Main entry point for user projects: loads configuration, discovers user
+    workflows from ``workflows_path`` (falling back to the configured default
+    of "workflows"), loads core Phlo resources, and merges everything together.
 
     Example:
         ```python
@@ -210,7 +158,6 @@ def build_definitions(
 
         defs = build_definitions()
         ```
-
     """
     setup_logging()
     settings = get_settings()

@@ -1,4 +1,9 @@
-"""Tests for Nessie catalog scanner capability resolution."""
+"""Tests for Nessie catalog scanner capability resolution.
+
+Stubs a query engine to verify namespace listing goes through the QueryEngine
+capability, that resolution returns None when the capability is missing, and
+that the configured capability name is honoured.
+"""
 
 from __future__ import annotations
 

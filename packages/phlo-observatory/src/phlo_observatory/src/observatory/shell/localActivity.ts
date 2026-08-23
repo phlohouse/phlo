@@ -1,3 +1,7 @@
+/**
+ * Browser-local activity state for the shell: recent visits, query execution
+ * history, and query workspace tabs persisted to localStorage.
+ */
 export interface ObservatoryRecentVisit {
   path: string
   label: string
@@ -104,6 +108,8 @@ function readList<T>(key: string): Array<T> {
   }
 }
 
+// 'storage' events only fire in other tabs, so writers also dispatch a
+// custom event for same-page listeners that re-read localStorage.
 function writeList<T>(key: string, value: Array<T>): void {
   window.localStorage.setItem(key, JSON.stringify(value))
   window.dispatchEvent(new Event(localActivityEvent))

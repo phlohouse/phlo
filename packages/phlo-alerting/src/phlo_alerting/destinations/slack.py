@@ -44,13 +44,8 @@ logger = get_logger(__name__)
 class SlackAlertDestination(AlertDestination):
     """Send alerts to Slack via webhook.
 
-        Concrete implementation of AlertDestination that delivers alerts
-    to Slack channels using incoming webhooks. Formats messages as Slack
-    attachments with severity-based colors and structured field layouts.
-
-    Attributes:
-            webhook_url: Slack incoming webhook URL for posting messages.
-            channel: Optional channel override (e.g., "#alerts").
+    Delivers alerts to Slack channels using incoming webhooks, formatted as
+    Slack attachments with severity-based colors and structured fields.
 
     Examples:
             >>> dest = SlackAlertDestination(
@@ -64,22 +59,6 @@ class SlackAlertDestination(AlertDestination):
 
     def __init__(self, webhook_url: str, channel: Optional[str] = None):
         """Initialize Slack destination.
-
-                Creates a SlackAlertDestination instance configured to send
-        messages to the specified webhook URL. The webhook URL must be a
-        valid Slack incoming webhook.
-
-        Args:
-                    webhook_url: Slack incoming webhook URL obtained from
-                        the Slack app configuration (e.g., "https://hooks.slack.com/services/...").
-                    channel: Optional channel name to override the webhook's
-        default channel (e.g., "#alerts", "@username").
-
-        Returns:
-                    None
-
-        Raises:
-                    None; URL validation occurs during send().
 
         Examples:
                     >>> dest = SlackAlertDestination("https://hooks.slack.com/services/...")
@@ -95,18 +74,8 @@ class SlackAlertDestination(AlertDestination):
     def send(self, alert: Alert) -> bool:
         """Send alert to Slack.
 
-                Posts the alert to the configured Slack webhook as a message
-        attachment with severity-based coloring and structured fields.
-
-        Args:
-                    alert: Alert object containing notification details.
-
-        Returns:
-                    True if the message was posted successfully (HTTP 200),
-                    False otherwise.
-
-        Raises:
-                    None; network errors are caught and logged.
+        Posts the alert as a message attachment with severity-based coloring;
+        returns True on HTTP 200, False on any network error (logged, not raised).
 
         Examples:
                     >>> from phlo_alerting.manager import Alert, AlertSeverity
@@ -138,15 +107,8 @@ class SlackAlertDestination(AlertDestination):
     def _build_payload(self, alert: Alert) -> dict:
         """Build Slack message payload.
 
-                Constructs a Slack message attachment payload with severity-based
-        color coding and structured field layout. Includes asset name, run ID,
-                and error details when available.
-
-        Args:
-                    alert: Alert object to format.
-
-        Returns:
-                    Dictionary representing Slack message payload.
+        Constructs a message attachment payload with severity-based color
+        coding and structured fields (asset name, run ID, error details).
 
         Examples:
                     >>> from phlo_alerting.manager import Alert, AlertSeverity

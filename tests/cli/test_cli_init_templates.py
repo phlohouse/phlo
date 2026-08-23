@@ -1,3 +1,10 @@
+"""Tests for init templates and the init-command discovery guard.
+
+Template generation must produce runnable projects: generated Python parses and
+imports, dependencies are pinned in pyproject.toml, and onboarding output stays
+current. The discovery guard matches only root-level init invocations.
+"""
+
 import ast
 import importlib
 import json
@@ -121,6 +128,9 @@ def _assert_python_files_parse(project_dir: Path) -> None:
         ast.parse(path.read_text(), filename=str(path))
 
 
+# Every generated project ships a top-level `workflows` package, so stale
+# entries from earlier imports must be purged or a later project would
+# import another project's modules.
 @contextmanager
 def _generated_project_import_path(project_dir: Path) -> Iterator[None]:
     sys.path.insert(0, str(project_dir))
@@ -345,6 +355,8 @@ def test_unknown_template_prints_clean_error(tmp_path) -> None:
 
 
 def test_unknown_template_real_command_has_no_plugin_traceback_noise(tmp_path) -> None:
+    # Runs through a fresh interpreter on purpose: startup-time plugin
+    # discovery noise never surfaces inside an in-process CliRunner.
     result = subprocess.run(
         [
             "uv",

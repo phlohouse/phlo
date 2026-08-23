@@ -20,6 +20,8 @@ Example:
     >>> results = trino.execute("SELECT * FROM iceberg.my_schema.my_table")
     >>> trino.wait_ready(timeout=30.0)
 
+
+Implements the Trino capability resource; nothing outside this package imports it.
 """
 
 from __future__ import annotations
@@ -66,42 +68,22 @@ class _ConfigFacade:
 
     @property
     def trino_host(self) -> str:
-        """Get the configured Trino host.
-
-        Returns:
-            Trino service hostname.
-
-        """
+        """Return the configured Trino service hostname."""
         return get_trino_settings().trino_host
 
     @property
     def trino_port(self) -> int:
-        """Get the configured Trino port.
-
-        Returns:
-            Trino HTTP port.
-
-        """
+        """Return the configured Trino HTTP port."""
         return get_trino_settings().trino_port
 
     @property
     def trino_catalog(self) -> str:
-        """Get the configured Trino catalog.
-
-        Returns:
-            Default Trino catalog name.
-
-        """
+        """Return the configured default Trino catalog name."""
         return get_trino_settings().trino_catalog
 
     @property
     def default_catalog_ref(self) -> str:
-        """Get the configured default ref for ref-aware catalogs.
-
-        Returns:
-            Branch or tag reference.
-
-        """
+        """Return the configured branch or tag used when no explicit ref is set."""
         return get_trino_settings().trino_default_ref
 
 
@@ -110,17 +92,7 @@ config = _ConfigFacade()
 
 @dataclass
 class TrinoResource:
-    """Resource wrapper for Trino connections and query execution.
-
-    Attributes:
-        host: Optional Trino host override.
-        port: Optional Trino port override.
-        user: Trino username for connections.
-        catalog: Optional catalog override.
-        ref: Optional Nessie ref override for catalog resolution.
-        runtime: Optional runtime context providing canonical ref routing.
-
-    """
+    """Resource wrapper for Trino connections and query execution."""
 
     host: str | None = None
     port: int | None = None
@@ -130,12 +102,7 @@ class TrinoResource:
     runtime: RuntimeContext | None = None
 
     def _resolved_ref(self) -> str | None:
-        """Resolve the effective ref for Trino catalog routing.
-
-        Returns:
-            Resolved reference string or None if using default.
-
-        """
+        """Resolve the effective ref for catalog routing, falling back to the default."""
         return resolve_runtime_ref(
             self.runtime,
             support=TRINO_QUERY_ENGINE_SUPPORT,
@@ -143,14 +110,11 @@ class TrinoResource:
         )
 
     def _resolved_catalog(self) -> str:
-        """Resolve the catalog name, including non-main Nessie refs.
-
-        Returns:
-            Catalog name used for Trino connections.
-
-        """
+        """Resolve the connection catalog, switching to a per-ref catalog off main."""
         base_catalog = self.catalog or config.trino_catalog
         ref = self._resolved_ref()
+        # Non-main refs route to a dedicated per-ref catalog created by
+        # _provision_catalog; its name must keep the {base}_{ref} convention.
         if ref and ref != "main":
             return f"{base_catalog}_{ref}"
         return base_catalog
@@ -263,14 +227,9 @@ class TrinoResource:
             bootstrap.close()
 
     def get_connection(self, schema: str | None = None):
-        """Create a DB-API connection to Trino.
+        """Open a DB-API connection to Trino, provisioning any owned WAP catalog first.
 
-        Args:
-            schema: Optional schema name for the connection.
-
-        Returns:
-            Open Trino DB-API connection.
-
+        `schema` optionally scopes the connection.
         """
         self._provision_resolved_catalog()
         return connect(
@@ -294,15 +253,7 @@ class TrinoResource:
 
     @contextmanager
     def cursor(self, schema: str | None = None):
-        """Yield a Trino cursor and close resources on exit.
-
-        Args:
-            schema: Optional schema name for the connection.
-
-        Yields:
-            Active Trino cursor.
-
-        """
+        """Yield an active Trino cursor, closing cursor and connection on exit."""
         conn = self.get_connection(schema=schema)
         cursor = None
         try:
@@ -316,17 +267,7 @@ class TrinoResource:
                 conn.close()
 
     def execute(self, sql: str, params: Iterable[object] | None = None, schema: str | None = None):
-        """Execute SQL and return query results when present.
-
-        Args:
-            sql: SQL statement to execute.
-            params: Optional positional query parameters.
-            schema: Optional schema name for the connection.
-
-        Returns:
-            List of query result rows, or an empty list for statements without results.
-
-        """
+        """Execute SQL with optional positional params; return rows, or [] without a result set."""
         params = list(params or [])
         with self.cursor(schema=schema) as cursor:
             cursor.execute(sql, params)
@@ -514,19 +455,10 @@ class TrinoResource:
     ) -> pd.DataFrame:
         """Execute a read query and return results as a pandas DataFrame.
 
-        Args:
-            query: SQL string or logical relation to read with ``SELECT *``.
-            params: Optional positional query parameters.
-            schema: Optional schema name for the connection.
-            schema_class: Optional Pandera-style schema class used for lightweight
-                DataFrame type coercion.
-
-        Returns:
-            Query results as a pandas DataFrame.
-
-        Raises:
-            RuntimeError: If Trino query execution fails, with SQL/relation context.
-
+        `query` is a SQL string or a logical relation read with ``SELECT *``;
+        `schema_class`, when given, applies lightweight Pandera-style type
+        coercion. RuntimeError carries SQL/relation context when execution
+        fails.
         """
         sql = self._read_dataframe_sql(query)
         params_list = list(params or [])
@@ -564,18 +496,8 @@ class TrinoResource:
     ) -> pd.DataFrame:
         """Read a table or logical relation into a pandas DataFrame.
 
-        Args:
-            table: Physical table identifier or logical relation.
-            columns: Optional column names to select. Defaults to all columns.
-            limit: Optional row limit.
-            params: Optional positional query parameters.
-            schema: Optional schema name for the connection.
-            schema_class: Optional Pandera-style schema class used for lightweight
-                DataFrame type coercion.
-
-        Returns:
-            Table contents as a pandas DataFrame.
-
+        Selects all columns unless `columns` narrows them; `limit` bounds the
+        row count and must be non-negative.
         """
         selected = _render_columns(columns)
         relation = _render_table(table)
@@ -600,22 +522,13 @@ class TrinoResource:
     ) -> None:
         """Wait for Trino to accept queries, retrying on startup/connection errors.
 
-        Polls Trino with "SELECT 1" until successful or timeout exceeded.
-        Automatically retries on transient connection errors.
-
-        Args:
-            timeout: Maximum seconds to wait before raising TimeoutError.
-            interval: Seconds between retry attempts.
-            schema: Optional schema name for the test query.
-
-        Raises:
-            TimeoutError: If Trino is not ready within the timeout period.
-            Exception: If a non-transient error occurs.
+        Polls with "SELECT 1" every `interval` seconds until `timeout`
+        expires. Transient errors are retried; non-transient ones raise
+        immediately, and TimeoutError is raised once the deadline passes.
 
         Example:
             >>> trino = TrinoResource()
             >>> trino.wait_ready(timeout=30.0, interval=2.0)
-
         """
         deadline = time.monotonic() + timeout
         last_error: Exception | None = None
@@ -659,15 +572,7 @@ class TrinoResource:
 
 
 def _is_transient_trino_error(exc: Exception) -> bool:
-    """Check whether an exception chain indicates transient Trino startup/connectivity errors.
-
-    Args:
-        exc: Root exception to inspect.
-
-    Returns:
-        True when retrying is likely useful; otherwise False.
-
-    """
+    """Return True when the exception chain looks transient enough to retry."""
     for error in iter_exception_chain(exc):
         message = str(error).lower()
         if "server_starting_up" in message:
@@ -685,6 +590,7 @@ def _is_transient_trino_error(exc: Exception) -> bool:
             )
         ):
             return True
+        # errno values are Linux socket codes: ECONNRESET, ECONNREFUSED, EHOSTUNREACH.
         errno = getattr(error, "errno", None)
         if errno in {104, 111, 113}:
             return True

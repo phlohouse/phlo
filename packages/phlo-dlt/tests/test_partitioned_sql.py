@@ -1,4 +1,9 @@
-"""Tests for partitioned SQL ingestion helpers."""
+"""Tests for partitioned SQL ingestion helpers.
+
+Uses fake cursor/connection doubles to verify window binding, batch fetching,
+row normalization, parameter merging with default overrides, empty-result
+handling, missing-template reporting, and packaged SQL template loading.
+"""
 
 from __future__ import annotations
 

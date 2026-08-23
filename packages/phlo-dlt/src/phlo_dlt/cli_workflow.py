@@ -143,19 +143,6 @@ def create_workflow_cmd(
     - Ingestion asset in workflows/ingestion/{domain}/{table}.py
     - Unit tests in tests/test_{domain}_{table}.py
 
-    Args:
-        workflow_type: Type of workflow (currently only "ingestion" supported)
-        domain: Domain/category name for the data (e.g., "weather", "stripe")
-        table: Target table name
-        unique_key: Column name to use for deduplication
-        cron: Cron expression for scheduling (default: "0 */1 * * *")
-        api_base_url: Base URL for REST API source (optional)
-        fields: Additional schema fields as "name:type" strings
-
-    Exits:
-        0: Success
-        1: Error (unsupported type or exception)
-
     Example:
         ```bash
         # Interactive mode (prompts for all values)
@@ -180,7 +167,6 @@ def create_workflow_cmd(
             --field middle_name:str? \
             --field email:str!
         ```
-
     """
     from phlo_dlt.scaffold import create_ingestion_workflow
 

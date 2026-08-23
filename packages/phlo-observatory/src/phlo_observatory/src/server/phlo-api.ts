@@ -18,7 +18,12 @@ interface RequestOptions {
 }
 
 /**
- * Internal request handler - all HTTP methods go through here
+ * Internal request handler - all HTTP methods go through here.
+ *
+ * Any non-2xx response throws an Error whose message carries both the status
+ * code and the response body, so callers can classify failures without a
+ * second round trip. Requests abort after timeoutMs (30s unless overridden).
+ * Only apiGet forwards an Authorization header to the backend today.
  */
 async function request<T>(
   endpoint: string,

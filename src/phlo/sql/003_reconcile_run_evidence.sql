@@ -1,4 +1,6 @@
--- Run-evidence schema version 2 migration for stores created by schema version 1.
+-- Run-evidence schema version 2: heartbeat-based reconciliation.
+-- started_at becomes nullable: from this version a run row may exist without
+-- an observed start event. attempt columns are backfilled with a default of 1.
 ALTER TABLE phlo.pipeline_run ALTER COLUMN started_at DROP NOT NULL;
 ALTER TABLE phlo.pipeline_run ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ;
 ALTER TABLE phlo.pipeline_run ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;

@@ -1,4 +1,8 @@
-"""Tests for Superset service plugin."""
+"""Tests for the Superset service plugin.
+
+Locks the pinned upstream image digest, non-root runtime user, plugin
+identity, and local development settings defaults.
+"""
 
 from phlo_superset.plugin import SupersetServicePlugin
 from phlo_superset.settings import SupersetSettings

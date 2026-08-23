@@ -1,4 +1,8 @@
-"""Search result composition for Observatory."""
+"""Search result composition for Observatory.
+
+Ranks services, assets, tables, operations, quality checks, and extensions
+against a free-text query and maps each hit to its route path segment.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +30,11 @@ def search_results(
     quality: Sequence[ObservatoryQualityCheck] = (),
     extensions: Sequence[ObservatoryExtension] = (),
 ) -> list[ObservatorySearchResult]:
+    """Match services, assets, tables, operations, quality checks, and extensions to a query.
+
+    Performs a case-insensitive substring match over each record's identifying fields and
+    returns up to 25 results; returns an empty list when the query is blank.
+    """
     needle = query.strip().lower()
     if not needle:
         return []
@@ -121,4 +130,5 @@ def search_results(
 
 
 def route_path_segment(resource_id: str) -> str:
+    """Percent-encode a resource id for safe inclusion in a route path segment."""
     return quote(resource_id, safe="")

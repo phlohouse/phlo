@@ -1,4 +1,11 @@
-"""Mechanical coverage and access-matrix tests for the mandatory API boundary."""
+"""Mechanical coverage and access-matrix tests for the mandatory API boundary.
+
+Every registered route must appear in the security manifest with a canonical
+action, and an unclassified route fails validation. Authorization cases pin the
+failure semantics: anonymous requests are rejected before handlers reach the
+application, unregulated surfaces pass through, and principals are checked
+against the resolved resource identity with correlation context attached.
+"""
 
 from __future__ import annotations
 

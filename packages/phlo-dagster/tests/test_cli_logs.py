@@ -1,4 +1,10 @@
-"""Tests for the phlo logs CLI command."""
+"""Tests for the phlo logs CLI command.
+
+Covers event-level mapping and time-filter parsing, the GraphQL log lookup
+against Dagster's current runs/event schema (with an expanded event window
+for level filters), the Postgres fallback that honors project env overrides,
+and CLI-facing details such as user-facing help text and JSON detection.
+"""
 
 from datetime import datetime, timedelta, timezone
 import json

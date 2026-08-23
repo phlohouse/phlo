@@ -1,4 +1,8 @@
-"""Tests for maintenance API capability resolution."""
+"""Tests for maintenance API capability resolution.
+
+Registers a fake maintenance read-model provider to pin how the API surfaces
+status snapshots and metrics without touching real infrastructure.
+"""
 
 from __future__ import annotations
 

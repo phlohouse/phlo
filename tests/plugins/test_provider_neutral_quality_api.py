@@ -1,4 +1,11 @@
-"""Tests for provider-neutral quality public API."""
+"""Tests for the provider-neutral quality public API.
+
+Verifies that top-level rule factories return neutral QualityRule
+descriptors and reject unbounded inputs, that the Pandera provider
+translates them (with safe SQL quoting) or fails on unknown rules at
+decoration time, and that phlo.quality.provider/rules resolve named
+providers and fail clearly when translation is unsupported.
+"""
 
 from __future__ import annotations
 

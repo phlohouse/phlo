@@ -1,4 +1,10 @@
-"""Small SQL helpers for CLI surfaces."""
+"""Small SQL helpers for CLI surfaces.
+
+Classification is conservative: literals, quoted identifiers, and
+comments are blanked (preserving offsets) before verb extraction so a
+mutating verb inside a string can never trigger the mutating verdict,
+and only an explicit mutating verb counts as unsafe.
+"""
 
 from __future__ import annotations
 

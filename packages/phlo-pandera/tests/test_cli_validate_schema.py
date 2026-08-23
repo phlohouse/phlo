@@ -1,4 +1,9 @@
-"""Tests for schema validation CLI behavior."""
+"""Tests for schema validation CLI behavior.
+
+The validate command must fail with actionable errors: files without
+DataFrameModel classes are rejected, and missing schema files point at
+the workflow-create escape hatch.
+"""
 
 from click.testing import CliRunner
 

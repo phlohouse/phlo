@@ -239,14 +239,7 @@ class ServiceConfig(BaseModel):
     def validate_container_name(cls, v: str | None) -> str | None:
         """Validate `container_name` characters and format.
 
-        Args:
-            v: Candidate container name.
-
-        Returns:
-            Optional[str]: Original value when valid.
-
-        Raises:
-            ValueError: If the container name is empty or contains invalid characters.
+        Raises: ValueError when the name is empty or contains invalid characters.
         """
         if v is None:
             return v
@@ -268,16 +261,9 @@ class ServiceConfig(BaseModel):
     @field_validator("service_name")
     @classmethod
     def validate_service_name(cls, v: str) -> str:
-        """Validate and normalize a service name.
+        """Validate and normalize a service name, returning the trimmed value.
 
-        Args:
-            v: Candidate service name.
-
-        Returns:
-            str: Trimmed service name.
-
-        Raises:
-            ValueError: If the service name is empty.
+        Raises: ValueError when the service name is empty.
         """
         if not v or not v.strip():
             raise ValueError("service_name cannot be empty")
@@ -335,14 +321,7 @@ class InfrastructureConfig(BaseModel):
     def validate_pattern(cls, v: str) -> str:
         """Validate a container naming pattern.
 
-        Args:
-            v: Naming pattern template.
-
-        Returns:
-            str: Original pattern when valid.
-
-        Raises:
-            ValueError: If pattern includes neither `{project}` nor `{service}`.
+        Raises: ValueError when the pattern includes neither `{project}` nor `{service}`.
         """
         if "{project}" not in v and "{service}" not in v:
             raise ValueError(

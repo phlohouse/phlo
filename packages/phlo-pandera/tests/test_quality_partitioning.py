@@ -1,3 +1,6 @@
+"""Verify apply_partition_scope SQL rewriting: WHERE injection, AND
+composition with existing filters, and rolling-window date bounds."""
+
 from __future__ import annotations
 
 import importlib
@@ -37,12 +40,7 @@ def test_apply_partition_scope_appends_and_when_where_exists() -> None:
 
 
 def test_apply_partition_scope_rolling_window(monkeypatch) -> None:
-    """Verify rolling window scope uses today's date minus window days.
-
-    Args:
-        monkeypatch: Pytest fixture for patching module state.
-
-    """
+    """Verify rolling window scope uses today's date minus window days."""
 
     class _Date(date):
         """Deterministic date replacement for rolling window tests."""

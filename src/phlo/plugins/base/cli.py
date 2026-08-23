@@ -42,9 +42,11 @@ def cli_command_plugin_class(
     class DeclarativeCliCommandPlugin(CliCommandPlugin):
         @property
         def metadata(self) -> PluginMetadata:
+            """Return the plugin metadata captured at class creation."""
             return metadata
 
         def get_cli_commands(self) -> list[click.Command]:
+            """Return the Click commands captured at class creation."""
             return list(commands)
 
     DeclarativeCliCommandPlugin.__name__ = class_name

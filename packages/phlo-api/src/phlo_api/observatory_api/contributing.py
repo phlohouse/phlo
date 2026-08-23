@@ -177,6 +177,9 @@ def to_sql_equality(column_name: str, column_type: str, value: Primitive) -> str
 
     normalized_type = column_type.lower()
 
+    # Trino renders timestamp values with exactly six fractional digits.
+    # Normalize the incoming value to that shape and compare as varchar so a
+    # precision mismatch on either side cannot silently break the predicate.
     if normalized_type.startswith("timestamp") or normalized_type.startswith("time"):
         raw = str(value)
         normalized = raw
@@ -239,6 +242,7 @@ def to_safe_page_size(page_size: int | None) -> int:
     """Clamp page size to the supported range."""
     if page_size is None:
         return DEFAULT_PAGE_SIZE
+    # NaN compares unequal to itself, so this rejects NaN input before int().
     if page_size != page_size:
         return DEFAULT_PAGE_SIZE
     return max(1, min(MAX_PAGE_SIZE, int(page_size)))
@@ -248,6 +252,7 @@ def to_safe_page(page: int | None) -> int:
     """Clamp page number to the supported range."""
     if page is None:
         return 0
+    # NaN compares unequal to itself, so this rejects NaN input before int().
     if page != page:
         return 0
     return max(0, min(MAX_PAGE, int(page)))
@@ -460,20 +465,10 @@ async def resolve_iceberg_table(
 async def get_contributing_rows_query(
     request: ContributingRowsQueryRequest,
 ) -> ContributingRowsQueryResponse | dict[str, str]:
-    """Generate the contributing rows query for a row journey selection.
+    """Generate the SQL query finding upstream rows that contributed to a downstream row.
 
-    Builds a SQL query to find upstream rows that contributed to a downstream row.
-
-    Args:
-        request: ContributingRowsQueryRequest with downstream/upstream asset keys
-            and row data for predicate construction.
-
-    Returns:
-        ContributingRowsQueryResponse with generated query and upstream reference,
-        or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
+    Returns the query and upstream reference, or an error dictionary;
+    exceptions are caught and reported in the response rather than raised.
 
     """
     try:
@@ -520,19 +515,11 @@ async def get_contributing_rows_query(
 async def get_contributing_rows_page(
     request: ContributingRowsPageRequest,
 ) -> ContributingRowsPageResponse | dict[str, str]:
-    """Return paginated contributing rows for the selected upstream/downstream pair.
+    """Return paginated contributing rows with a has_more flag for the selected pair.
 
-    Executes the generated query and returns paginated results with has_more flag.
-
-    Args:
-        request: ContributingRowsPageRequest with asset keys, row data, and pagination.
-
-    Returns:
-        ContributingRowsPageResponse with mode, rows, columns, and pagination info,
-        or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
+    Executes the generated query and returns mode, rows, columns, and
+    pagination info, or an error dictionary; exceptions are caught and
+    reported in the response rather than raised.
 
     """
     try:

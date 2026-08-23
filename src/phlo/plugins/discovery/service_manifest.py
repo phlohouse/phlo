@@ -1,4 +1,11 @@
-"""Service package manifest resolution primitives."""
+"""Service package manifest resolution primitives.
+
+Resolves a service's primary manifest and picks up sibling *-setup.yaml /
+*-daemon.yaml manifests beside the plugin source, skipping already-registered
+names; dependency resolution layers on top of the resolved manifests.
+Imported by phlo.plugins.discovery.services and the phlo CLI services commands
+(phlo.cli.commands.services.utils) to resolve service manifests.
+"""
 
 from __future__ import annotations
 
@@ -20,6 +27,7 @@ def _is_service_yaml(filename: str) -> bool:
 
 
 def get_registered_service_plugins() -> dict[str, Any]:
+    """Return every service plugin registered in the global registry, keyed by name."""
     registry = get_global_registry()
     return {
         name: plugin
@@ -84,6 +92,7 @@ class ServiceManifest:
 
     @property
     def name(self) -> str:
+        """Service name from the underlying definition."""
         return self.definition.name
 
 
@@ -94,6 +103,9 @@ class ServiceManifestResolver:
     services_dir: Path | None = None
 
     def resolve_plugin_manifests(self) -> list[ServiceManifest]:
+        """Discover registered service plugins and build manifests from their definitions,
+        including sibling setup/daemon manifests beside each plugin source.
+        """
         discover_plugins(plugin_type="service", auto_register=True)
         manifests: list[ServiceManifest] = []
         names: set[str] = set()
@@ -115,6 +127,7 @@ class ServiceManifestResolver:
         return manifests
 
     def resolve_directory_manifests(self) -> list[ServiceManifest]:
+        """Parse service YAML files under services_dir into manifests, skipping schema files."""
         if not self.services_dir or not self.services_dir.exists():
             return []
 
@@ -139,6 +152,7 @@ class ServiceManifestResolver:
         services: list[ServiceDefinition],
         requested_names: list[str],
     ) -> list[ServiceDefinition]:
+        """Expand the requested services to their full dependency closure in dependency order."""
         service_by_name = {service.name: service for service in services}
         missing = [name for name in requested_names if name not in service_by_name]
         if missing:
@@ -150,6 +164,7 @@ class ServiceManifestResolver:
         selected: dict[str, ServiceDefinition] = {}
 
         def include(service: ServiceDefinition) -> None:
+            """Recursively include a service and everything it depends on."""
             for dependency_name in service.depends_on:
                 dependency = service_by_name.get(dependency_name)
                 if dependency is not None:
@@ -158,6 +173,9 @@ class ServiceManifestResolver:
 
         for name in requested_names:
             include(service_by_name[name])
+        # A "-setup" service is pulled in automatically, but only when every
+        # dependency it declares is already part of the selection; a setup job
+        # whose dependencies were not requested must not drag in new services.
 
         bootstrap_companions = [
             service

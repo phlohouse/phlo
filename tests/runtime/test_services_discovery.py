@@ -1,4 +1,9 @@
-"""Tests for service discovery with plugin services."""
+"""Tests for plugin-backed service discovery.
+
+Covers registry population from service.yaml definitions, rejection and
+skipping of non-mapping definitions, stale-cache refresh, and load-failure
+reporting.
+"""
 
 from pathlib import Path
 from typing import Any, TypedDict, cast

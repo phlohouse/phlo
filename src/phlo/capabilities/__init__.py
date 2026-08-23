@@ -76,6 +76,8 @@ See Also:
 Note:
     This module uses lazy loading for resolver functions to prevent
     circular imports during plugin discovery.
+Aggregating package root of the capability subsystem: re-exports the interfaces,
+inventory, registry, resolver, runtime, specs, and workflow-wizard modules.
 """
 
 from typing import TYPE_CHECKING

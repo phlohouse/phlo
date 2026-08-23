@@ -1,4 +1,9 @@
-"""phlo_minio CLI authorization table."""
+"""phlo_minio CLI authorization table.
+
+Declares which phlo-minio commands are reads versus mutations and maps each
+to its storage resource/action pair; builds a singleton surface adapter
+from those tables for the shared policy layer.
+"""
 
 from __future__ import annotations
 
@@ -32,4 +37,5 @@ MinioCliSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_minio_cli_adapter() -> CliSurfaceAdapter:
+    """Return the shared MinIO CLI surface adapter instance."""
     return MinioCliSurfaceAdapter.get_instance()

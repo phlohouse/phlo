@@ -1,4 +1,11 @@
-"""Iceberg provider adapter for authoritative mutation readback."""
+"""Iceberg provider adapter for authoritative mutation readback.
+
+Reads table state back from the catalog after mutations and emits evidence
+observations for each operation. Only NoSuchTableError proves absence: any
+other load failure yields an "unavailable" readback state so callers can
+never mistake an outage for a missing table. Payloads carry checksums and
+safe error summaries before leaving the process boundary.
+"""
 
 from __future__ import annotations
 
@@ -32,6 +39,9 @@ def table_state(catalog: Any, table_name: str) -> dict[str, Any]:
             "metadata": {"snapshot": "observed" if snapshot else "absent"},
         }
     except Exception as exc:
+        # Only NoSuchTableError proves absence; any other load failure leaves
+        # the state unknown, which callers must not confuse with a missing
+        # table.
         try:
             from pyiceberg.exceptions import NoSuchTableError
         except ImportError:
@@ -78,11 +88,21 @@ def emit_mutation(
     error: BaseException | str | None = None,
     extra_metadata: dict[str, Any] | None = None,
 ) -> None:
+    """Emit mutation evidence for one Iceberg operation.
+
+    Silently does nothing when the run context lacks a project or run id, and
+    never raises: persistence failures are logged so evidence collection can
+    never alter the provider's own outcome.
+    """
     if not context or not context.get("project_id") or not context.get("run_id"):
         return
     effective_status = status
     effective_error = safe_error_summary(error) if error else None
     metadata = {"before": before, "after": after, **(extra_metadata or {})}
+    # Classify how trustworthy the readback is. A successful write whose
+    # post-read reports the table absent contradicts the operation; an
+    # unavailable post-read leaves the true outcome unproven, so downstream
+    # consumers must treat the evidence as incomplete rather than authoritative.
     if status == "success" and after.get("state") == "absent":
         metadata["outcome"] = "contradictory"
         metadata["evidence_completeness"] = "incomplete"

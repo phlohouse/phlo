@@ -1,4 +1,9 @@
-"""Tests for phlo_dagster.framework.definitions."""
+"""Tests for phlo_dagster.framework.definitions.
+
+Executor selection (platform-derived vs forced flags), definition assembly with
+user-workflow discovery, capability setup errors, and WAP sensor collection
+gated by project policy.
+"""
 
 from __future__ import annotations
 

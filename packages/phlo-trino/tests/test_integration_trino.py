@@ -405,41 +405,21 @@ class TestCatalogGenerator:
 
             @property
             def metadata(self):
-                """Return mock plugin metadata.
-
-                Returns:
-                    PluginMetadata: Mock plugin metadata.
-
-                """
+                """Return mock plugin metadata."""
                 return PluginMetadata("mock", "1.0.0", "Mock catalog")
 
             @property
             def targets(self) -> list[str]:
-                """Return supported integration targets.
-
-                Returns:
-                    list[str]: Single Trino target.
-
-                """
+                """Advertise the single supported Trino target."""
                 return ["trino"]
 
             @property
             def catalog_name(self) -> str:
-                """Return mock catalog name.
-
-                Returns:
-                    str: Catalog identifier.
-
-                """
+                """Return the mock catalog identifier."""
                 return "mock_catalog"
 
             def get_properties(self):
-                """Return catalog properties for file generation.
-
-                Returns:
-                    dict[str, str]: Connector property map.
-
-                """
+                """Return the connector property map written into the generated file."""
                 return {"connector.name": "mock", "key": "value"}
 
         with tempfile.TemporaryDirectory() as tmpdir:

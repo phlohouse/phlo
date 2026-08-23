@@ -1,4 +1,11 @@
-"""Focused contract tests for snapshot planning and orphan discovery."""
+"""Contract tests for Iceberg retention: snapshot expiry planning and orphan discovery.
+
+Both operations follow a plan-first protocol. The dry-run plan issues a
+plan_token that binds the candidate set, the inventory snapshot, and the
+request parameters; execution revalidates the token and refuses provider
+submission when any of them moved. A stale or mutated plan therefore fails
+closed instead of deleting objects chosen against outdated state.
+"""
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace

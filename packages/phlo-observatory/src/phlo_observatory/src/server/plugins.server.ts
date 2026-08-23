@@ -68,6 +68,8 @@ function parseCliOutput(stdout: string): {
   installed: Array<PluginInfo>
   available: Array<PluginInfo>
 } {
+  // Older CLI builds emit a bare array of installed plugins; the object form
+  // additionally carries the registry-derived `available` list.
   const parsed = JSON.parse(stdout)
   if (Array.isArray(parsed)) {
     return { installed: parsed as Array<PluginInfo>, available: [] }
@@ -107,6 +109,14 @@ async function fetchRegistryPlugins(): Promise<Array<PluginInfo>> {
   }
 }
 
+/**
+ * Single-flight registry fetcher.
+ *
+ * Concurrent callers share one in-flight request instead of stampeding the
+ * remote registry. When a refresh fails, cached data is served for up to
+ * staleOnErrorMs before the error is allowed to propagate; past that window
+ * the failure surfaces so the UI does not show indefinitely stale plugins.
+ */
 export function createRegistryFetcherWithCache(dependencies: {
   fetchRegistry: () => Promise<Array<PluginInfo>>
   ttlMs: number

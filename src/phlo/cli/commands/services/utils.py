@@ -1,4 +1,8 @@
-"""Shared utilities for services commands."""
+"""Shared utilities for services commands.
+
+Holds the phlo.yaml project template, native-process state tracking, and
+compose/config plumbing shared across the services command group.
+"""
 
 import json
 import os
@@ -166,9 +170,6 @@ def detect_phlo_source_path() -> str | None:
     1. PHLO_DEV_SOURCE environment variable
     2. Common directory patterns relative to CWD
     3. Returns None if not found
-
-    Returns:
-        Relative path to phlo source from .phlo/ directory, or None.
     """
     # Strategy 1: Environment variable
     env_path = os.environ.get("PHLO_DEV_SOURCE")
@@ -199,14 +200,7 @@ def detect_phlo_source_path() -> str | None:
 
 
 def _get_env_overrides(config: dict) -> dict[str, object]:
-    """Extract service environment overrides from configuration.
-
-    Args:
-        config: Loaded project configuration dictionary.
-
-    Returns:
-        Environment override mapping, or an empty mapping.
-    """
+    """Return the service environment override mapping from loaded configuration."""
     env_overrides = config.get("env", {})
     return env_overrides if isinstance(env_overrides, dict) else {}
 
@@ -302,12 +296,7 @@ def normalize_services_enabled_disabled_config(
 
 
 def _warn_secret_env_overrides(env_overrides: dict[str, object], services: list) -> None:
-    """Warn when config env overrides include secret-backed service variables.
-
-    Args:
-        env_overrides: User-defined environment override mapping.
-        services: Service definitions that declare environment variables.
-    """
+    """Warn when config env overrides include secret-backed service variables."""
     if not env_overrides:
         return
     secret_keys = {
@@ -324,14 +313,7 @@ def _warn_secret_env_overrides(env_overrides: dict[str, object], services: list)
 
 
 def _normalize_hook_entries(hooks: object) -> list[dict[str, object]]:
-    """Normalize hook configuration to a list of mapping entries.
-
-    Args:
-        hooks: Raw hook configuration value.
-
-    Returns:
-        Normalized list of hook entry dictionaries.
-    """
+    """Normalize hook configuration to a list of mapping entries."""
     if hooks is None:
         return []
     if isinstance(hooks, dict):
@@ -350,20 +332,14 @@ def _normalize_hook_entries(hooks: object) -> list[dict[str, object]]:
 
 
 def _format_hook_command(command: object, substitutions: dict[str, str]) -> list[str]:
-    """Format hook command tokens with safe placeholder substitution.
-
-    Args:
-        command: Hook command value from service config.
-        substitutions: Placeholder values for command formatting.
-
-    Returns:
-        Formatted command tokens.
-    """
+    """Format hook command tokens with safe placeholder substitution."""
     if isinstance(command, str):
         command = [command]
     if not isinstance(command, list):
         return []
 
+    # Values are brace-escaped before substitution so user-controlled data
+    # cannot inject additional format placeholders into the command.
     safe_substitutions = {
         k: v.replace("{", "{{").replace("}", "}}") for k, v in substitutions.items()
     }
@@ -387,14 +363,7 @@ def _run_service_hooks(
     project_name: str,
     project_root: Path,
 ) -> None:
-    """Execute configured service hooks for a lifecycle event.
-
-    Args:
-        hook_name: Lifecycle hook name to execute.
-        service_names: Target service names.
-        project_name: Active project name.
-        project_root: Project root path.
-    """
+    """Execute configured service hooks for a lifecycle event."""
     if not service_names:
         return
 
@@ -523,14 +492,7 @@ def _emit_service_lifecycle_events(
 ) -> None:
     """Emit lifecycle hook events for each service in scope.
 
-    Args:
-        phase: Lifecycle phase name.
-        service_names: Target service names.
-        project_name: Active project name.
-        project_root: Project root path.
-        request_id: Shared correlation identifier for this lifecycle operation.
-        status: Optional lifecycle status value.
-        metadata: Optional extra metadata attached to emitted events.
+    request_id correlates every event emitted for one lifecycle operation.
     """
     if not service_names:
         return
@@ -561,14 +523,7 @@ def _native_state_path(project_root: Path) -> Path:
 
 
 def _load_native_state(project_root: Path) -> dict[str, dict]:
-    """Load persisted native process state for a project.
-
-    Args:
-        project_root: Project root path.
-
-    Returns:
-        Mapping of service names to persisted process metadata.
-    """
+    """Load persisted native process state; empty mapping when missing or corrupt."""
     path = _native_state_path(project_root)
     if not path.exists():
         return {}
@@ -581,12 +536,7 @@ def _load_native_state(project_root: Path) -> dict[str, dict]:
 
 
 def _save_native_state(project_root: Path, state: dict[str, dict]) -> None:
-    """Atomically save native process state for a project.
-
-    Args:
-        project_root: Project root path.
-        state: Native process state to persist.
-    """
+    """Atomically save native process state for a project."""
     path = _native_state_path(project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
@@ -595,12 +545,7 @@ def _save_native_state(project_root: Path, state: dict[str, dict]) -> None:
 
 
 def _stop_native_processes(project_root: Path, service_names: list[str] | None = None) -> None:
-    """Stop tracked native service processes and update persisted state.
-
-    Args:
-        project_root: Project root path.
-        service_names: Optional subset of service names to stop.
-    """
+    """Stop tracked native service processes and update persisted state."""
     state = _load_native_state(project_root)
     if not state:
         return
@@ -615,6 +560,10 @@ def _stop_native_processes(project_root: Path, service_names: list[str] | None =
             state.pop(name, None)
             continue
 
+        # Termination protocol: SIGTERM the process group first (falling back
+        # to the bare pid if the group is gone), allow up to 10 seconds for
+        # exit, then SIGKILL any survivor. Exited services are dropped from
+        # persisted state as soon as they are confirmed gone.
         try:
             os.killpg(pid, signal.SIGTERM)
         except ProcessLookupError:
@@ -668,14 +617,7 @@ def _stop_native_processes(project_root: Path, service_names: list[str] | None =
 
 
 def get_profile_service_names(profile_names: tuple[str, ...]) -> list[str]:
-    """Get service names for the specified profiles.
-
-    Args:
-        profile_names: Tuple of profile names (e.g., ('observability', 'api'))
-
-    Returns:
-        List of service names belonging to those profiles.
-    """
+    """Return service names belonging to the specified profiles."""
     if not profile_names:
         return []
 

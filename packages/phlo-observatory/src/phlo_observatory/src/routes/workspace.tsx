@@ -1,3 +1,7 @@
+/**
+ * /workspace route. Live resource counts across datasets, tables, pipelines,
+ * branches, and saved queries as a landing index.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Boxes, Database, FileCode2, GitBranch, Workflow } from 'lucide-react'
 

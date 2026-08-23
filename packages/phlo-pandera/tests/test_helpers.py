@@ -1,3 +1,6 @@
+"""Verify conversion of data contracts into Pandera checks: null checks from
+non-nullable fields, uniqueness, freshness, accepted values, and custom SQL."""
+
 from datetime import datetime
 
 import pytest

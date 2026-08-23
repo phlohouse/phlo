@@ -8,9 +8,7 @@ Example:
     >>> plugin = TraefikServicePlugin()
     >>> metadata = plugin.metadata
 
-Attributes:
-    __version__: Package version string.
-
+    Exposes TraefikServicePlugin for the reverse proxy service.
 """
 
 from phlo_traefik.plugin import TraefikServicePlugin

@@ -1,4 +1,10 @@
-"""Shared helpers for service CLI commands."""
+"""Shared helpers for service CLI commands.
+
+Parses and validates --service/--profile selections against discovered
+profiles, reads service names from the compose file (a malformed file yields
+no services rather than an error), and runs compose commands with uniform
+ClickException error handling.
+"""
 
 from __future__ import annotations
 

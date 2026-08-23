@@ -1,4 +1,9 @@
-"""Golden tests for stable CLI error output contracts."""
+"""Golden tests for stable CLI error output contracts.
+
+Each contract locks both the exit code and the normalized stdout against a
+golden file, so any user-visible change to an error message must update a
+golden deliberately.
+"""
 
 from collections.abc import Mapping
 from pathlib import Path

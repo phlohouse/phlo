@@ -1,4 +1,9 @@
-"""Bundled-stack versioned catalog contract checks."""
+"""Bundled-stack versioned catalog contract checks.
+
+End-to-end integration test: a Dagster materialization must write to an
+isolated Nessie branch, promote it to main (wap_promoted tag), and drop the
+branch afterwards, leaving queryable snapshots in Trino.
+"""
 
 from __future__ import annotations
 

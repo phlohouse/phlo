@@ -1,4 +1,9 @@
-"""Backfill planning helpers."""
+"""Backfill planning helpers.
+
+Builds daily partition BackfillPlan objects over partition_range(); plans are
+frozen value objects and dry_run_backfill() only summarizes — nothing here
+executes a backfill.
+"""
 
 from __future__ import annotations
 

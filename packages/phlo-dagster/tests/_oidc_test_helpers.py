@@ -1,4 +1,9 @@
-"""Small deterministic OIDC fixtures for Dagster boundary tests."""
+"""Small deterministic OIDC fixtures for Dagster boundary tests.
+
+Generates an RSA keypair plus matching JWKS document, mints RS256 tokens with
+controllable claims, and serves the JWKS through a fake response object so
+tests never touch a real identity provider.
+"""
 
 from __future__ import annotations
 

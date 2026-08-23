@@ -1,4 +1,12 @@
-"""Contract tests for the ref-aware Trino maintenance executor."""
+"""Contract tests for the ref-aware Trino maintenance executor.
+
+Every maintenance operation runs a preflight snapshot check against the
+selected ref before submitting SQL; a stale revision aborts before any
+write and preflight failures are never submitted. Submission failures
+are surfaced as phase-tagged MaintenanceExecutionError (outcome
+unknown), identifiers are validated, and retain_last is reported as
+unenforced by Trino's threshold-only expire_snapshots.
+"""
 
 from unittest.mock import MagicMock
 

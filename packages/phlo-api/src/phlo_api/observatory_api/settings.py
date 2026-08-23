@@ -20,6 +20,9 @@ Example:
 Authorization is enforced when an authorization backend is configured.
 In strict mode, these endpoints fail closed if the backend is absent.
 
+
+Serves the Observatory API settings surface: builds on phlo.plugins.observatory_settings
+and the phlo-api authorization layer.
 """
 
 from __future__ import annotations
@@ -120,11 +123,8 @@ OBSERVATORY_SETTINGS_NAMESPACE = "observatory.core"
 
 
 def _fetch_settings_sync() -> ObservatorySettingsResponse:
-    """Fetch persisted global Observatory settings.
-
-    Returns:
-        ObservatorySettingsResponse: Stored settings and update timestamp.
-
+    """Fetch persisted global Observatory settings, or a null-settings
+    response when none are stored.
     """
     service = get_settings_service()
     record = service.get(SettingsScope.GLOBAL, OBSERVATORY_SETTINGS_NAMESPACE)
@@ -137,15 +137,7 @@ def _fetch_settings_sync() -> ObservatorySettingsResponse:
 
 
 def _upsert_settings_sync(payload: ObservatorySettingsPayload) -> ObservatorySettingsResponse:
-    """Persist global Observatory settings.
-
-    Args:
-        payload: Incoming settings payload.
-
-    Returns:
-        ObservatorySettingsResponse: Saved settings and update timestamp.
-
-    """
+    """Persist global Observatory settings and return the saved record."""
     service = get_settings_service()
     record = service.put(
         SettingsScope.GLOBAL,
@@ -161,17 +153,8 @@ def _upsert_settings_sync(payload: ObservatorySettingsPayload) -> ObservatorySet
 
 @router.get("/settings", response_model=ObservatorySettingsResponse)
 async def get_observatory_settings(request: Request) -> ObservatorySettingsResponse:
-    """Fetch server-wide Observatory settings.
-
-    Args:
-        request: FastAPI request object for authorization checks.
-
-    Returns:
-        ObservatorySettingsResponse with current settings and update timestamp.
-
-    Raises:
-        HTTPException: If settings service is unavailable (503) or on other errors (500).
-
+    """Fetch server-wide Observatory settings. Raises HTTPException 503 when
+    the settings service is unavailable, 500 on other errors.
     """
     check_admin_read(request, "observatory_settings")
     try:
@@ -188,19 +171,9 @@ async def put_observatory_settings(
     request: Request,
     payload: ObservatorySettingsPayload,
 ) -> ObservatorySettingsResponse:
-    """Replace server-wide Observatory settings.
-
-    Args:
-        request: FastAPI request object for authorization checks.
-        payload: ObservatorySettingsPayload with new settings values.
-
-    Returns:
-        ObservatorySettingsResponse with saved settings and update timestamp.
-
-    Raises:
-        HTTPException: If settings service is unavailable (503), validation fails (422),
-            or on other errors (500).
-
+    """Replace server-wide Observatory settings. Raises HTTPException 503
+    when the settings service is unavailable, 422 on validation failure,
+    500 on other errors.
     """
     check_admin_manage(request, "observatory_settings")
     try:

@@ -92,6 +92,9 @@ export async function executeQueryFromApi(data: {
     offset: data.offset ?? 0,
   })
 
+  // The backend answers with either a structured QueryExecutionError
+  // ({ok: false, kind: ...}) or a plain {error} string; normalize both into
+  // QueryExecutionError so callers handle a single failure shape.
   if ('ok' in result && result.ok === false) return result
   if ('error' in result) {
     return { ok: false, error: result.error, kind: 'trino' }
@@ -156,7 +159,11 @@ export const previewData = createServerFn()
   )
 
 /**
- * Run an arbitrary read-only query
+ * Run an arbitrary query through phlo-api.
+ *
+ * Guardrail inputs (readOnlyMode, limits, timeouts) are validated but not
+ * forwarded: enforcement happens entirely in the Python backend, which
+ * returns the effective (rewritten) SQL alongside the results.
  */
 export const executeQuery = createServerFn()
   .middleware([authMiddleware])

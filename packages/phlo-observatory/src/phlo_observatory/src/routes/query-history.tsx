@@ -1,3 +1,7 @@
+/**
+ * /query-history route. Shows SQL executions recorded in this browser's
+ * local activity log, kept separate from orchestrator pipeline runs.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Clock3, Database, Play } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'

@@ -1,4 +1,9 @@
-"""Tests for Nessie startup hooks."""
+"""Tests for Nessie startup hooks.
+
+Covers URL resolution from project env, idempotent bootstrap commits
+(no-op when the ref log is non-empty), namespace cleanup around the
+bootstrap marker, and dev branch creation ordering.
+"""
 
 from __future__ import annotations
 

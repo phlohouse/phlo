@@ -1,4 +1,8 @@
-"""Runtime contract checks for observatory service packaging."""
+"""Runtime contract checks for observatory service packaging.
+
+The bundled container must ship the docker CLI for status discovery while
+never mounting the host Docker socket.
+"""
 
 from importlib import resources
 

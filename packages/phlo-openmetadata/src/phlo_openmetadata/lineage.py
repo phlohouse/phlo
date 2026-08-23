@@ -24,46 +24,18 @@ R = TypeVar("R")
 
 
 def log_extraction_errors(source_name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
-    """Decorator that logs exceptions with context and re-raises them.
+    """Decorator that logs exceptions with source context and re-raises them.
 
-    Wraps lineage extraction functions to provide consistent error logging
-    with source identification.
-
-    Args:
-        source_name: Identifier for the lineage source (e.g., 'Dagster', 'dbt').
-
-    Returns:
-        Callable[[Callable[P, R]], Callable[P, R]]: Decorator function that
-            adds error logging.
-
+    source_name identifies the lineage source (e.g., 'Dagster', 'dbt') in
+    the log record.
     """
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
-        """Wrap an extraction function with source-aware error logging.
-
-        Args:
-            fn: Extraction function to wrap.
-
-        Returns:
-            Callable[P, R]: Wrapped function that logs failures with source context.
-
-        """
+        """Wrap an extraction function with source-aware error logging."""
 
         @wraps(fn)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            """Execute extraction function and log source-specific failures.
-
-            Args:
-                *args: Positional arguments forwarded to the wrapped callable.
-                **kwargs: Keyword arguments forwarded to the wrapped callable.
-
-            Returns:
-                R: Result produced by the wrapped callable.
-
-            Raises:
-                Exception: Re-raises any exception after logging.
-
-            """
+            """Execute the wrapped callable, logging then re-raising any failure."""
             try:
                 return fn(*args, **kwargs)
             except Exception as exc:
@@ -80,12 +52,7 @@ def log_extraction_errors(source_name: str) -> Callable[[Callable[P, R]], Callab
 
 
 class LineageExtractor:
-    """Extracts lineage from various sources (Dagster, dbt, Iceberg).
-
-    Builds a unified lineage graph and publishes to OpenMetadata.
-
-    Attributes:
-        graph: OpenMetadataLineageGraph storing extracted lineage.
+    """Extracts lineage from Dagster, dbt, and Iceberg into a unified graph.
 
     Example:
         >>> extractor = LineageExtractor()
@@ -95,26 +62,14 @@ class LineageExtractor:
     """
 
     def __init__(self):
-        """Initialize lineage extractor.
-
-        Creates a new OpenMetadataLineageGraph instance for tracking
-        lineage between assets.
-        """
+        """Initialize the extractor with an empty lineage graph."""
         from phlo_openmetadata.graph import OpenMetadataLineageGraph
 
         self.graph = OpenMetadataLineageGraph()
 
     @log_extraction_errors("Dagster")
     def extract_from_dagster(self, context: Any) -> None:
-        """Extract lineage from Dagster context.
-
-        Args:
-            context: Dagster context with run and asset information.
-
-        Returns:
-            None
-
-        """
+        """Extract lineage from a Dagster execution context."""
         if not hasattr(context, "get_asset_materialization_events"):
             logger.warning(
                 "Unsupported Dagster execution context for lineage extraction. "
@@ -148,15 +103,7 @@ class LineageExtractor:
 
     @log_extraction_errors("dbt")
     def extract_from_dbt_manifest(self, manifest: dict[str, Any]) -> None:
-        """Extract lineage from dbt manifest.json.
-
-        Args:
-            manifest: Parsed dbt manifest dictionary.
-
-        Returns:
-            None
-
-        """
+        """Extract assets and model dependencies from a parsed dbt manifest."""
         for unique_id, node in manifest.get("nodes", {}).items():
             if unique_id.startswith("model."):
                 model_name = node.get("name")
@@ -223,15 +170,7 @@ class LineageExtractor:
         self,
         nessie_tables: dict[str, list[dict[str, Any]]],
     ) -> None:
-        """Add Iceberg tables to lineage graph.
-
-        Args:
-            nessie_tables: Dictionary of namespace -> tables from Nessie.
-
-        Returns:
-            None
-
-        """
+        """Add Iceberg tables from Nessie to the lineage graph."""
         for namespace, tables in nessie_tables.items():
             for table in tables:
                 table_name = table.get("name")
@@ -256,19 +195,10 @@ class LineageExtractor:
         manifest: dict[str, Any],
         postgres_schema: str,
     ) -> dict[str, list[str]]:
-        """Build source -> published tables mapping.
+        """Build a source -> published-tables mapping.
 
-        Identifies dbt models in `postgres_schema` as "published" tables, then returns
-        which of those tables are downstream of each ingestion source.
-
-        Args:
-            manifest: Parsed dbt manifest dictionary.
-            postgres_schema: Schema name identifying published models.
-
-        Returns:
-            dict[str, list[str]]: Dictionary mapping source FQN to list of
-                published downstream tables.
-
+        Treats dbt models in postgres_schema as "published" tables and maps
+        each ingestion source to its downstream published tables.
         """
         published_models: set[str] = set()
         for unique_id, node in manifest.get("nodes", {}).items():
@@ -295,16 +225,10 @@ class LineageExtractor:
         om_client: Any,  # OpenMetadataClient
         include_edges: bool = True,
     ) -> dict[str, int]:
-        """Publish lineage graph to OpenMetadata.
+        """Publish lineage edges to OpenMetadata.
 
-        Args:
-            om_client: OpenMetadataClient instance.
-            include_edges: Whether to publish edges (default True).
-
-        Returns:
-            dict[str, int]: Publication statistics with 'edges_published'
-                and 'failed' counts.
-
+        Returns statistics with 'edges_published' and 'failed' counts;
+        individual edge failures are logged and counted, not raised.
         """
         stats = {"edges_published": 0, "failed": 0}
 
@@ -340,29 +264,15 @@ class LineageExtractor:
     def get_impact_analysis(self, asset_name: str) -> dict[str, Any]:
         """Return downstream impact analysis for an asset.
 
-        Args:
-            asset_name: Name of the asset to analyze.
-
-        Returns:
-            dict[str, Any]: Dictionary with 'affected_assets' list
-                and 'total_affected' count.
-
+        The result carries 'affected_assets' and 'total_affected'.
         """
         affected = sorted(self.graph.get_downstream(asset_name))
         return {"affected_assets": affected, "total_affected": len(affected)}
 
     def export_lineage(self, format_type: str = "json") -> str:
-        """Export lineage graph in a supported format.
+        """Export the lineage graph as 'json', 'dot', or 'mermaid'.
 
-        Args:
-            format_type: Export format - 'json', 'dot', or 'mermaid'.
-
-        Returns:
-            str: Formatted lineage graph string.
-
-        Raises:
-            ValueError: If format_type is not supported.
-
+        Raises ValueError for unsupported formats.
         """
         if format_type == "json":
             return self.graph.to_json()
@@ -374,13 +284,5 @@ class LineageExtractor:
 
     @staticmethod
     def _normalize_fqn(fqn: str) -> str:
-        """Normalize unqualified table names to `default.<name>`.
-
-        Args:
-            fqn: Table name that may or may not include schema prefix.
-
-        Returns:
-            str: Fully qualified name with 'default.' prefix if needed.
-
-        """
+        """Normalize an unqualified table name to ``default.<name>``."""
         return fqn if "." in fqn else f"default.{fqn}"

@@ -1,4 +1,9 @@
-"""Focused contracts for the installed-provider artifact harness."""
+"""Focused contracts for the installed-provider artifact harness.
+
+Loads scripts/verify_installed_provider_artifacts.py directly via importlib
+and locks its workspace inventory, external-environment scrubbing, missing
+artifact reporting, and healthcheck shard behavior.
+"""
 
 import importlib.util
 import sys

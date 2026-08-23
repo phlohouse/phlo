@@ -26,21 +26,6 @@ class ReplicationConfig:
     single Sling replication operation, including source and target connections,
     replication mode, filtering, and options.
 
-    Attributes:
-        stream_name: Source stream identifier (e.g., 'public.users').
-        table_name: Target table-store table name.
-        source_conn: Sling source connection name or URL.
-        target_conn: Sling target connection name or URL.
-        mode: Replication mode (full-refresh, incremental, snapshot, backfill).
-        primary_key: Column(s) used as primary key for merge operations.
-        update_key: Column used as cursor for incremental replication.
-        group_name: Dagster/asset group name for generated assets.
-        object: Target object path (for file-based targets).
-        select: Column selection list. Empty means all columns.
-        where: SQL WHERE clause for source filtering.
-        source_options: Additional Sling source options.
-        target_options: Additional Sling target options.
-
     Example:
         Create a replication config::
 
@@ -51,7 +36,6 @@ class ReplicationConfig:
                 mode="incremental",
                 update_key="updated_at",
             )
-
     """
 
     stream_name: str
@@ -74,10 +58,6 @@ class ReplicationConfig:
 
         Combines the configured namespace with the table name to create
         a fully qualified identifier for the target table.
-
-        Returns:
-            Namespace-prefixed table name (e.g., "raw.users").
-
         """
         return f"{get_settings().sling_default_namespace}.{self.table_name}"
 
@@ -87,10 +67,6 @@ class ReplicationConfig:
 
         Generates a unique asset key for referencing this replication
         within the Phlo orchestration system.
-
-        Returns:
-            Asset key string prefixed with "sling_" (e.g., "sling_users").
-
         """
         return f"sling_{self.table_name}"
 
@@ -103,25 +79,6 @@ class SlingReplication:
     configurations when using the @phlo_sling_assets decorator. It supports
     all the same options as the individual @phlo_sling_replication decorator
     but allows for dynamic generation of multiple assets.
-
-    Attributes:
-        stream_name: Source stream identifier (e.g., 'public.users').
-        table_name: Target table name.
-        source_conn: Sling source connection name or URL.
-        target_conn: Sling target connection name or URL.
-        mode: Replication mode (full-refresh, incremental, snapshot, backfill).
-        primary_key: Column(s) used as primary key.
-        update_key: Column used as cursor for incremental replication.
-        group_name: Asset group name (overrides decorator default).
-        object: Target object path for file-based targets.
-        select: Column selection list.
-        where: SQL WHERE clause for source filtering.
-        source_options: Additional Sling source options.
-        target_options: Additional Sling target options.
-        description: Asset description.
-        owner: Asset owner identifier.
-        metadata: Additional asset metadata.
-        tags: Asset tags.
 
     Example:
         Use in a discovery function::
@@ -139,7 +96,6 @@ class SlingReplication:
                         update_key="updated_at",
                     ),
                 ]
-
     """
 
     stream_name: str

@@ -1,3 +1,10 @@
+"""Tests error handling in build_dbt_asset_specs.
+
+A missing dbt project yields an empty spec list; an unavailable or
+structurally invalid manifest raises PhloCapabilitySetupError with a
+diagnostic reason instead of returning partial assets.
+"""
+
 from __future__ import annotations
 
 import json

@@ -1,4 +1,8 @@
-"""Plugin create command."""
+"""Scaffold a package via the `phlo plugin create` command.
+
+Scaffolds a new plugin package of the requested type behind mutation
+authorization, printing next steps or a machine-readable JSON envelope.
+"""
 
 from __future__ import annotations
 

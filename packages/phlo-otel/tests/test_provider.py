@@ -16,13 +16,8 @@ from phlo_otel import provider
 
 def test_build_resource_attributes(monkeypatch):
     """Test resource attributes use OTEL_* environment variables when set.
-
     Verifies that OTEL_SERVICE_NAME, OTEL_SERVICE_NAMESPACE, etc. take
     precedence over Phlo configuration settings.
-
-    Args:
-        monkeypatch: Pytest monkeypatch fixture for environment manipulation.
-
     """
     monkeypatch.setenv("OTEL_SERVICE_NAME", "phlo-api")
     monkeypatch.setenv("OTEL_SERVICE_NAMESPACE", "phlohouse")
@@ -55,13 +50,8 @@ def test_build_resource_attributes(monkeypatch):
 
 def test_build_resource_attributes_uses_phlo_defaults(monkeypatch):
     """Test resource attributes fall back to Phlo defaults when OTEL_* unset.
-
     Verifies that Phlo configuration settings are used when environment
     variables are not set, with appropriate defaults for hostname and version.
-
-    Args:
-        monkeypatch: Pytest monkeypatch fixture for environment manipulation.
-
     """
     monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
     monkeypatch.delenv("OTEL_SERVICE_NAMESPACE", raising=False)
@@ -93,13 +83,8 @@ def test_build_resource_attributes_uses_phlo_defaults(monkeypatch):
 
 def test_build_resource_attributes_uses_phlo_observability_settings(monkeypatch):
     """Test resource attributes respect Phlo observability settings.
-
     Verifies that all Phlo-specific settings are properly mapped to resource
     attributes when OTEL_* environment variables are not present.
-
-    Args:
-        monkeypatch: Pytest monkeypatch fixture for environment manipulation.
-
     """
     monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
     monkeypatch.delenv("OTEL_SERVICE_NAMESPACE", raising=False)
@@ -129,12 +114,7 @@ def test_build_resource_attributes_uses_phlo_observability_settings(monkeypatch)
 
 
 def test_get_log_emitter_uses_cached_logger_provider(monkeypatch):
-    """Test get_log_emitter returns cached logger when available.
-
-    Args:
-        monkeypatch: Pytest monkeypatch fixture.
-
-    """
+    """Test get_log_emitter returns cached logger when available."""
     provider._initialized = True
     fake_logger = object()
     fake_provider = SimpleNamespace(get_logger=lambda name, version: fake_logger)
@@ -144,12 +124,7 @@ def test_get_log_emitter_uses_cached_logger_provider(monkeypatch):
 
 
 def test_get_log_emitter_returns_none_when_logs_disabled(monkeypatch):
-    """Test get_log_emitter returns None when log export is disabled.
-
-    Args:
-        monkeypatch: Pytest monkeypatch fixture.
-
-    """
+    """Test get_log_emitter returns None when log export is disabled."""
     monkeypatch.setattr(provider, "_initialized", True)
     monkeypatch.setattr(provider, "_logger_provider", None)
 
@@ -158,13 +133,8 @@ def test_get_log_emitter_returns_none_when_logs_disabled(monkeypatch):
 
 def test_signal_export_enabled_defaults_off_without_endpoint(monkeypatch):
     """Test trace export defaults to disabled without OTLP endpoint.
-
     Verifies that traces are not exported by default when no OTLP endpoint
     is configured and OTEL_TRACES_EXPORTER is not explicitly set.
-
-    Args:
-        monkeypatch: Pytest monkeypatch fixture for environment manipulation.
-
     """
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
@@ -175,13 +145,8 @@ def test_signal_export_enabled_defaults_off_without_endpoint(monkeypatch):
 
 def test_signal_export_enabled_uses_endpoint_when_exporter_unset(monkeypatch):
     """Test trace export enabled when OTLP endpoint is configured.
-
     Verifies that traces are exported when OTEL_EXPORTER_OTLP_ENDPOINT is
     set, even without explicit OTEL_TRACES_EXPORTER setting.
-
-    Args:
-        monkeypatch: Pytest monkeypatch fixture for environment manipulation.
-
     """
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
     monkeypatch.delenv("OTEL_TRACES_EXPORTER", raising=False)
@@ -191,13 +156,8 @@ def test_signal_export_enabled_uses_endpoint_when_exporter_unset(monkeypatch):
 
 def test_shutdown_otel_resets_cached_providers(monkeypatch):
     """Test shutdown_otel properly shuts down and clears all providers.
-
     Verifies that shutdown_otel calls shutdown on all providers and
     resets internal state for clean re-initialization.
-
-    Args:
-        monkeypatch: Pytest monkeypatch fixture.
-
     """
     calls: list[str] = []
 
@@ -205,12 +165,7 @@ def test_shutdown_otel_resets_cached_providers(monkeypatch):
         """Fake provider that records shutdown calls."""
 
         def __init__(self, name: str) -> None:
-            """Initialize with a name for tracking.
-
-            Args:
-                name: Provider name for call tracking.
-
-            """
+            """Initialize with a name for tracking."""
             self._name = name
 
         def shutdown(self) -> None:

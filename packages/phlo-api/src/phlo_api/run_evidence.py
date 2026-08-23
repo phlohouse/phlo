@@ -1,4 +1,9 @@
-"""Application-owned run-evidence store dependency."""
+"""Application-owned run-evidence store dependency.
+
+The store is created once during application lifespan startup and read
+from app state per request. The default-store fallback exists only as a
+test seam for routers used without the full application.
+"""
 
 from __future__ import annotations
 

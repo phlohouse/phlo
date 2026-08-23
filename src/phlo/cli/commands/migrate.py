@@ -1,4 +1,12 @@
-"""Data migration CLI commands."""
+"""Data migration CLI commands.
+
+Subcommands validate and run migration specs (with dry-run override and
+recorded execution history), list specs, report status, and run the dated
+codemod that rewrites flow decorators.
+
+Wired into the phlo CLI command tree by src/phlo/cli/main.py; runs migrations
+through phlo.migrations.
+"""
 
 from __future__ import annotations
 
@@ -49,7 +57,11 @@ def migrate_group() -> None:
     when=lambda params: bool(params.get("write")),
 )
 def decorators_2026_05(path: Path, check: bool, write: bool, show_diff: bool) -> None:
-    """Migrate May 2026 decorator APIs."""
+    """Migrate May 2026 decorator APIs.
+
+    Without --write this only reports pending changes. --check exits with
+    status 1 when any file still needs migration, so it can gate CI.
+    """
     if check and write:
         raise click.UsageError("Use either --check or --write, not both.")
 

@@ -1,4 +1,10 @@
-"""Tests for phlo-mcp package surfaces."""
+"""Tests for phlo-mcp package surfaces.
+
+Exercises the API client route wrapping (with faked HTTP responses),
+server tool/resource registration including the auth-gated write
+tools, CLI/env config parsing, and run-log/trace rendering helpers.
+All HTTP is stubbed; no server or network is involved.
+"""
 
 from __future__ import annotations
 

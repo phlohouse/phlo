@@ -1,3 +1,6 @@
+"""Verify `phlo dev` exports project and workflow environment variables to
+the spawned Dagster subprocess."""
+
 from __future__ import annotations
 
 from subprocess import CompletedProcess

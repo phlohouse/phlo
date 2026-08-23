@@ -29,6 +29,7 @@ class InMemoryAuditStore:
         self._lock = threading.Lock()
 
     def append(self, record: SealedAuditRecord) -> None:
+        """Append a sealed record to the store, grouped by event surface."""
         surface = record.event.surface or "unknown"
         with self._lock:
             if surface not in self._records:
@@ -36,6 +37,7 @@ class InMemoryAuditStore:
             self._records[surface].append(record)
 
     def get_last(self, surface: str) -> SealedAuditRecord | None:
+        """Return the most recent sealed record for ``surface``, or None."""
         with self._lock:
             records = self._records.get(surface, [])
             return records[-1] if records else None
@@ -47,6 +49,7 @@ class InMemoryAuditStore:
         before: int | None = None,
         limit: int = 1000,
     ) -> list[SealedAuditRecord]:
+        """Return stored records matching the given filters."""
         with self._lock:
             records = self._records.get(surface, [])
             filtered = [
@@ -62,6 +65,7 @@ class InMemoryAuditStore:
         surface: str,
         hmac_key: bytes | None = None,
     ) -> ChainVerificationResult:
+        """Verify the hash chain integrity of records for ``surface``."""
         from phlo.compliance.audit.sealed import (
             GENESIS_HASH,
             ChainVerificationResult,
@@ -121,11 +125,7 @@ class PostgresAuditStore:
     is_durable = True
 
     def __init__(self, connection) -> None:
-        """Initialize the Postgres audit store.
-
-        Args:
-            connection: A psycopg2 database connection or connection pool.
-        """
+        """Initialize the store with a psycopg2 connection or pool."""
         self._conn = connection
         self._ensure_table()
 
@@ -161,6 +161,7 @@ class PostgresAuditStore:
             cursor.close()
 
     def append(self, record: SealedAuditRecord) -> None:
+        """Persist a sealed record to the append-only audit table."""
         event_data = json.dumps(record.event.to_dict())
         cursor = self._conn.cursor()
         try:
@@ -187,6 +188,7 @@ class PostgresAuditStore:
             cursor.close()
 
     def get_last(self, surface: str) -> SealedAuditRecord | None:
+        """Return the newest stored record for ``surface``, or None."""
         from phlo.audit.events import CanonicalAuditEvent
 
         cursor = self._conn.cursor()
@@ -229,6 +231,7 @@ class PostgresAuditStore:
         before: int | None = None,
         limit: int = 1000,
     ) -> list[SealedAuditRecord]:
+        """Return stored records matching the given filters."""
         from phlo.audit.events import CanonicalAuditEvent
 
         query_sql = """
@@ -279,6 +282,7 @@ class PostgresAuditStore:
         surface: str,
         hmac_key: bytes | None = None,
     ) -> ChainVerificationResult:
+        """Verify the hash chain integrity of all stored records."""
         from phlo.compliance.audit.sealed import (
             GENESIS_HASH,
             ChainVerificationResult,

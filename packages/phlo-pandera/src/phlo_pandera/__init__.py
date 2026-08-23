@@ -103,16 +103,7 @@ Examples:
             pass
         ```
 
-Attributes:
-    __version__: Package version string (e.g., "0.2.3")
-
-See Also:
-    - `checks.py`: Core quality check implementations
-    - `checks_extra.py`: Extended check types (SchemaCheck, CustomSQLCheck, PatternCheck)
-    - `reconciliation.py`: Cross-table reconciliation checks
-    - `decorator.py`: ``@phlo_pandera`` implementation
-    - `examples.py`: Usage examples and patterns
-
+``__version__`` holds the package version string.
 """
 
 from phlo_pandera.checks import (

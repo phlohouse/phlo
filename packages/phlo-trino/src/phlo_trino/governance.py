@@ -51,18 +51,9 @@ _IDENTIFIER_RE = re.compile(r"^[\w][\w.]*$")
 
 
 def _validate_identifier(value: str, label: str) -> str:
-    """Validate a SQL identifier to prevent injection.
-
-    Args:
-        value: Identifier string to validate.
-        label: Human-readable label for error messages.
-
-    Returns:
-        The validated identifier.
-
-    Raises:
-        ValueError: If the identifier contains invalid characters.
-
+    """Validate a SQL identifier against the allowed-character pattern to
+    prevent injection, raising ValueError (with label in the message) on
+    invalid characters.
     """
     if not _IDENTIFIER_RE.match(value):
         raise ValueError(f"Invalid {label}: {value!r}")
@@ -169,7 +160,11 @@ class TrinoGovernanceBackend:
         self._trino.execute(sql)
 
     def check_access(self, *, principal: str, table_name: str, action: str) -> bool:
-        """Check if principal has the specified privilege on a table."""
+        """Check if principal has the specified privilege on a table.
+
+        Only positive grants are inspected: a DENY applied via apply_policy
+        does not make this return False.
+        """
         policies = self.list_policies(table_name=table_name)
         action_upper = action.upper()
         for policy in policies:

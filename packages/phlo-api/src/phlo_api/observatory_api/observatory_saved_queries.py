@@ -1,4 +1,10 @@
-"""Saved-query read model persistence for Observatory."""
+"""Saved-query read model persistence for Observatory.
+
+Saved queries live in the durable-state collection under
+.phlo/observatory. Only simple SELECT preview queries can be saved;
+anything else is rejected. Unreadable stored state raises
+StorageCorruptionError rather than surfacing validation details.
+"""
 
 from __future__ import annotations
 
@@ -26,19 +32,25 @@ READ_QUERY_RE = re.compile(
 
 
 def saved_queries_path(project_root: Path) -> Path:
+    """Return the saved-queries file path, creating the state directory if needed."""
     state_dir = project_root / ".phlo" / "observatory"
     state_dir.mkdir(parents=True, exist_ok=True)
     return state_dir / "saved_queries.json"
 
 
 def load_saved_queries(project_root: Path) -> list[ObservatorySavedQuery]:
+    """Load and validate saved queries from durable state."""
     return _validate_queries(
         load_collection(project_root, "saved_queries", saved_queries_path(project_root))
     )
 
 
 def dedupe_saved_queries(queries: list[ObservatorySavedQuery]) -> list[ObservatorySavedQuery]:
+    """Return queries deduplicated by casefolded name, whitespace-collapsed SQL, and branch."""
     unique: dict[tuple[str, str, str], ObservatorySavedQuery] = {}
+    # Identity is casefolded name + whitespace-collapsed SQL + branch. Sorting
+    # newest-first and keeping the first occurrence per identity means the most
+    # recently updated duplicate wins.
     for query in sorted(queries, key=lambda item: item.updated_at, reverse=True):
         key = (
             query.name.strip().casefold(),
@@ -50,6 +62,7 @@ def dedupe_saved_queries(queries: list[ObservatorySavedQuery]) -> list[Observato
 
 
 def write_saved_queries(project_root: Path, queries: list[ObservatorySavedQuery]) -> None:
+    """Replace the stored saved queries with the given list."""
     mutate_collection(
         project_root,
         "saved_queries",
@@ -59,6 +72,10 @@ def write_saved_queries(project_root: Path, queries: list[ObservatorySavedQuery]
 
 
 def save_query(project_root: Path, request: ObservatorySavedQueryRequest) -> ObservatorySavedQuery:
+    """Validate and persist a saved query, keeping the newest 100.
+
+    Raises: HTTPException when the name is empty or the SQL is not a
+    simple SELECT preview query."""
     if not request.name.strip():
         raise HTTPException(status_code=400, detail="Saved query name is required.")
     validate_error = validate_saved_query_sql(request.sql)
@@ -75,6 +92,8 @@ def save_query(project_root: Path, request: ObservatorySavedQueryRequest) -> Obs
         updated_at=now,
         metadata=safe_metadata(request.metadata),
     )
+    # dedupe returns entries sorted newest-first, so truncating to 100 drops the
+    # oldest rather than an arbitrary subset.
     mutate_collection(
         project_root,
         "saved_queries",
@@ -97,6 +116,7 @@ def _validate_queries(items: list[dict[str, object]]) -> list[ObservatorySavedQu
 
 
 def validate_saved_query_sql(sql: str) -> str | None:
+    """Return an error message when the SQL is not a simple SELECT preview, else None."""
     if READ_QUERY_RE.match(sql):
         return None
     return "Only simple SELECT preview queries can be saved."

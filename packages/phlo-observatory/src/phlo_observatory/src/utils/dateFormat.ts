@@ -1,3 +1,4 @@
+/** Formats dates as ISO dates or locale strings per the user's preference. */
 export type DateFormatMode = 'iso' | 'local'
 
 export function formatDate(date: Date, mode: DateFormatMode): string {

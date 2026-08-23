@@ -1,4 +1,10 @@
-"""Tests for system manifest."""
+"""Tests for the compliance system manifest models.
+
+Covers deployment environments, compliance modes and their regulated
+mapping, component versions with optional build metadata, immutable
+SystemManifest construction, and capture_manifest id/timestamp
+semantics.
+"""
 
 from __future__ import annotations
 

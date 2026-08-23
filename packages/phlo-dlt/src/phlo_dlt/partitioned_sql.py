@@ -1,4 +1,10 @@
-"""Helpers for partitioned SQL sources used by DLT ingestion workflows."""
+"""Helpers for partitioned SQL sources used by DLT ingestion workflows.
+
+Loads a caller-configured SQL template, binds per-partition window bounds
+and parameters, executes it on a short-lived connection, and yields rows with
+normalized snake_case keys wrapped as a DLT resource or source. Connections
+and cursors are closed quietly, even when row iteration fails.
+"""
 
 from __future__ import annotations
 

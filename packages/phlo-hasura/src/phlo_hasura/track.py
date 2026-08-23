@@ -1,17 +1,9 @@
 """Hasura table tracking and auto-discovery.
 
-This module provides classes and functions for automatically discovering
-and tracking PostgreSQL tables in Hasura. It handles schema discovery,
-foreign key relationship detection, and bulk table operations.
-
-Classes:
-    HasuraPostgresSettings: PostgreSQL connection settings.
-    HasuraTableTracker: Automatically discovers and tracks tables.
-
-Functions:
-    auto_track: Convenience function to auto-track all tables in a schema.
-    auto_track_all: Auto-discover and track all tables in all user schemas.
-    _resolve_db_host: Resolve database host with Docker hostname handling.
+Discovers PostgreSQL schemas and tables automatically and tracks them in
+Hasura, including foreign key relationship detection and bulk table
+operations. The main entry points are HasuraTableTracker, auto_track,
+and auto_track_all.
 
 Example:
     >>> from phlo_hasura.track import HasuraTableTracker, auto_track
@@ -38,15 +30,9 @@ logger = get_logger(__name__)
 class HasuraPostgresSettings(BaseConfig):
     """PostgreSQL connection settings used by Hasura table tracking.
 
-        Pydantic model for PostgreSQL connection configuration with sensible
-    defaults for Docker environments.
-
-    Attributes:
-            postgres_host: PostgreSQL server hostname (default: "postgres").
-            postgres_port: PostgreSQL server port (default: 5432).
-            postgres_user: Database username (default: "phlo").
-            postgres_password: Database password (default: "phlo").
-            postgres_db: Database name (default: "phlo").
+    Pydantic model for PostgreSQL connection configuration with sensible
+    defaults for Docker environments. Host and port are resolved on
+    construction to handle running outside Docker containers.
 
     Example:
             >>> settings = HasuraPostgresSettings()
@@ -63,11 +49,14 @@ class HasuraPostgresSettings(BaseConfig):
     postgres_db: str = Field(default="phlo", description="PostgreSQL database name")
 
     def model_post_init(self, __context: object) -> None:
+        """Resolve the PostgreSQL host and port and store them, bypassing validation."""
         host, port = resolve_host(
             self.postgres_host,
             self.postgres_port,
             port_env_var="POSTGRES_PORT",
         )
+        # object.__setattr__ skips pydantic's validated assignment, which is
+        # fine here: the resolved values keep the declared types.
         object.__setattr__(self, "postgres_host", host)
         object.__setattr__(self, "postgres_port", port)
 
@@ -77,14 +66,6 @@ class HasuraTableTracker:
 
     Provides methods for schema discovery, table tracking, relationship
     creation from foreign keys, and default permission setup.
-
-    Attributes:
-        client: HasuraClient for Hasura API operations.
-        db_host: Resolved PostgreSQL host.
-        db_port: Resolved PostgreSQL port.
-        db_name: PostgreSQL database name.
-        db_user: PostgreSQL username.
-        db_password: PostgreSQL password.
 
     Example:
         >>> tracker = HasuraTableTracker()
@@ -103,18 +84,11 @@ class HasuraTableTracker:
         db_user: str | None = None,
         db_password: str | None = None,
     ):
-        """Initialize table tracker.
+        """Initialize the tracker with Hasura client and PostgreSQL credentials.
 
-        Args:
-            hasura_client: HasuraClient instance for API operations.
-            db_host: PostgreSQL host (default: from HasuraPostgresSettings).
-            db_port: PostgreSQL port (default: from HasuraPostgresSettings).
-            db_name: PostgreSQL database name (default: from HasuraPostgresSettings).
-            db_user: PostgreSQL username (default: from HasuraPostgresSettings).
-            db_password: PostgreSQL password (default: from HasuraPostgresSettings).
-
-        The database host is automatically resolved to handle running
-        outside Docker containers.
+        Omitted arguments default to HasuraPostgresSettings values. The
+        database host is automatically resolved to handle running outside
+        Docker containers.
 
         Example:
             >>> tracker = HasuraTableTracker()
@@ -137,16 +111,10 @@ class HasuraTableTracker:
         self.db_password = db_password or settings.postgres_password
 
     def _get_db_connection(self):
-        """Get PostgreSQL database connection.
+        """Return a psycopg2 connection in autocommit mode.
 
-        Creates and returns a psycopg2 connection with autocommit enabled.
         The connection is configured with the resolved host and port.
-
-        Returns:
-            psycopg2 connection object with ISOLATION_LEVEL_AUTOCOMMIT.
-
-        Raises:
-            psycopg2.Error: If connection fails.
+        Raises psycopg2.Error if the connection fails.
 
         Example:
             >>> conn = tracker._get_db_connection()
@@ -165,17 +133,10 @@ class HasuraTableTracker:
         return conn
 
     def discover_user_schemas(self) -> list[str]:
-        """Discover all user schemas that contain tables.
+        """Return the sorted names of non-system schemas containing base tables.
 
-        Queries the database to find all schemas that:
-        - Have at least one base table
-        - Are not system schemas (pg_*, information_schema, etc.)
-
-        Returns:
-            Sorted list of schema names containing user tables.
-
-        Raises:
-            psycopg2.Error: If database query fails.
+        Schemas named like pg_* and information_schema are excluded.
+        Raises psycopg2.Error if the database query fails.
 
         Example:
             >>> schemas = tracker.discover_user_schemas()
@@ -203,19 +164,9 @@ class HasuraTableTracker:
             conn.close()
 
     def get_tables_in_schema(self, schema: str) -> list[str]:
-        """Get all tables in a schema.
+        """Return the sorted base-table names in the given schema.
 
-        Queries the information_schema to find all base tables
-        within the specified database schema.
-
-        Args:
-            schema: Schema name to query.
-
-        Returns:
-            Sorted list of table names in the schema.
-
-        Raises:
-            psycopg2.Error: If database query fails.
+        Raises psycopg2.Error if the database query fails.
 
         Example:
             >>> tables = tracker.get_tables_in_schema("api")
@@ -242,24 +193,10 @@ class HasuraTableTracker:
             conn.close()
 
     def get_foreign_keys(self, schema: str, table: str) -> list[dict]:
-        """Get foreign key constraints for a table.
+        """Return the foreign key constraints defined on a table.
 
-        Queries the information_schema to find all foreign key
-        relationships defined on the specified table.
-
-        Args:
-            schema: Schema name containing the table.
-            table: Table name to query for foreign keys.
-
-        Returns:
-            List of foreign key dictionaries with keys:
-                - local_column: Column in the source table
-                - ref_schema: Schema of referenced table
-                - ref_table: Name of referenced table
-                - ref_column: Column in referenced table
-
-        Raises:
-            psycopg2.Error: If database query fails.
+        Each result dict carries local_column, ref_schema, ref_table, and
+        ref_column. Raises psycopg2.Error if the database query fails.
 
         Example:
             >>> fks = tracker.get_foreign_keys("api", "orders")
@@ -313,22 +250,12 @@ class HasuraTableTracker:
     def track_tables(
         self, schema: str, exclude: list[str] | None = None, verbose: bool = True
     ) -> dict[str, bool]:
-        """Track all tables in a schema.
+        """Track all tables in a schema and report per-table success.
 
-        Discovers all tables in the specified schema and tracks them
-        in Hasura, optionally excluding specific tables.
-
-        Args:
-            schema: Schema name to track tables from.
-            exclude: List of table names to skip (default: None).
-            verbose: Print progress messages (default: True).
-
-        Returns:
-            Dictionary mapping table_name -> success boolean.
-
-        Raises:
-            requests.RequestException: If Hasura API calls fail.
-            psycopg2.Error: If database queries fail.
+        Discovers the schema's tables (skipping any named in exclude) and
+        tracks each in Hasura. Returns a dict mapping table name to success
+        boolean. Raises requests.RequestException on Hasura API failure or
+        psycopg2.Error if database queries fail.
 
         Example:
             >>> results = tracker.track_tables("api")
@@ -365,24 +292,14 @@ class HasuraTableTracker:
         return results
 
     def setup_relationships(self, schema: str, verbose: bool = True) -> dict[tuple[str, str], bool]:
-        """Auto-create relationships from foreign keys.
+        """Create Hasura object relationships from foreign keys.
 
-        Discovers foreign key constraints in all tables of the schema
-        and creates corresponding object relationships in Hasura.
-
-        Relationship names are derived from the local column name by
-        removing '_id' suffix (e.g., 'customer_id' -> 'customer').
-
-        Args:
-            schema: Schema name to set up relationships in.
-            verbose: Print progress messages (default: True).
-
-        Returns:
-            Dictionary mapping (table, relationship_name) -> success boolean.
-
-        Raises:
-            requests.RequestException: If Hasura API calls fail.
-            psycopg2.Error: If database queries fail.
+        Discovers foreign keys on every table in the schema and creates an
+        object relationship per key; relationship names drop the "_id"
+        suffix from the local column. Returns a dict mapping
+        (table, relationship_name) to success boolean. Raises
+        requests.RequestException on Hasura API failure or psycopg2.Error
+        if database queries fail.
 
         Example:
             >>> results = tracker.setup_relationships("api")
@@ -433,22 +350,12 @@ class HasuraTableTracker:
     def setup_default_permissions(
         self, schema: str, verbose: bool = True
     ) -> dict[tuple[str, str], bool]:
-        """Set up default permissions for tables.
+        """Create default SELECT permissions on every table in the schema.
 
-        Creates default SELECT permissions for standard roles (anon, analyst, admin)
-        on all tables in the specified schema. The 'anon' role gets full access,
-        while 'analyst' and 'admin' get standard access.
-
-        Args:
-            schema: Schema name to set up permissions in.
-            verbose: Print progress messages (default: True).
-
-        Returns:
-            Dictionary mapping (table, role) -> success boolean.
-
-        Raises:
-            requests.RequestException: If Hasura API calls fail.
-            psycopg2.Error: If database queries fail.
+        Roles anon, analyst, and admin each get SELECT permissions; the
+        'anon' role allows aggregations. Returns a dict mapping
+        (table, role) to success boolean. Raises requests.RequestException
+        on Hasura API failure or psycopg2.Error if database queries fail.
 
         Example:
             >>> results = tracker.setup_default_permissions("api")
@@ -487,26 +394,13 @@ class HasuraTableTracker:
 
 
 def auto_track(schema: str = "api", verbose: bool = True) -> dict[str, Any]:
-    """Convenience function to auto-track all tables in a schema.
+    """Fully auto-configure a schema: track tables, relationships, permissions.
 
-    Performs complete auto-configuration of a schema: tracks all tables,
-    creates relationships from foreign keys, and sets up default permissions.
-
-    Args:
-        schema: Schema name to auto-configure (default: "api").
-        verbose: Print progress messages (default: True).
-
-    Returns:
-        Dictionary containing tracking results:
-        {
-            "tables": {table_name: success_bool, ...},
-            "relationships": {(table, rel): success_bool, ...},
-            "permissions": {(table, role): success_bool, ...}
-        }
-
-    Raises:
-        requests.RequestException: If Hasura API calls fail.
-        psycopg2.Error: If database queries fail.
+    Returns a dict with "tables", "relationships", and "permissions" keys,
+    each mapping its target (table name, (table, relationship) pair, or
+    (table, role) pair) to a success boolean. Raises
+    requests.RequestException on Hasura API failure or psycopg2.Error if
+    database queries fail.
 
     Example:
         >>> results = auto_track("api")
@@ -565,21 +459,12 @@ def auto_track(schema: str = "api", verbose: bool = True) -> dict[str, Any]:
 
 
 def auto_track_all(verbose: bool = True) -> dict[str, dict[str, Any]]:
-    """Auto-discover and track all tables in all user schemas.
+    """Auto-configure every user schema via auto_track.
 
-    Discovers all non-system schemas containing tables and runs
-    auto_track() on each one.
-
-    Args:
-        verbose: Print progress messages (default: True).
-
-    Returns:
-        Dictionary mapping schema_name -> tracking results dict.
-        Each schema's results contains tables, relationships, and permissions.
-
-    Raises:
-        requests.RequestException: If Hasura API calls fail.
-        psycopg2.Error: If database queries fail.
+    Discovers all non-system schemas containing tables and runs auto_track
+    on each, returning a dict mapping schema name to that schema's tracking
+    results. Raises requests.RequestException on Hasura API failure or
+    psycopg2.Error if database queries fail.
 
     Example:
         >>> all_results = auto_track_all()

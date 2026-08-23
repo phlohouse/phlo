@@ -1,4 +1,12 @@
-"""Dependency resolution for discovered services."""
+"""Dependency resolution for discovered services.
+
+Kahn's topological sort over service depends_on edges; dependencies naming
+unknown services are ignored rather than failing. A dependency cycle raises
+ValueError with the cycle path instead of returning a partial order.
+
+Private discovery helper used by service_manifest and services to order service dependencies;
+topological sort with cycle detection, no phlo imports beyond its own cycle helper.
+"""
 
 from __future__ import annotations
 

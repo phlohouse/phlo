@@ -31,17 +31,9 @@ from phlo_postgres.settings import get_settings
 class PostgresPublishTarget:
     """Structured publish target for PostgreSQL serving tables.
 
-    This class provides a high-level interface for publishing data to PostgreSQL.
-    It encapsulates the database resource and configuration for the target schema
-    where published mart tables are stored.
-
-    The default schema is determined by the postgres_mart_schema setting, which
-    typically defaults to "marts" for serving analytics data.
-
-    Attributes:
-        resource: The PostgresResource instance for database operations.
-            Automatically instantiated if not provided.
-        target_system: Identifier for the target system (always "postgres").
+    Encapsulates the database resource and configuration for the target
+    schema where published mart tables are stored; the default schema comes
+    from the postgres_mart_schema setting (typically "marts").
 
     Example:
         >>> target = PostgresPublishTarget()
@@ -63,12 +55,6 @@ class PostgresPublishTarget:
     @property
     def default_schema(self) -> str:
         """Return the default serving schema for published mart tables.
-
-        Retrieves the configured mart schema from settings, which determines
-        where published tables should be created in the PostgreSQL database.
-
-        Returns:
-            str: Schema name for published mart tables (default: "marts").
 
         Example:
             >>> target = PostgresPublishTarget()

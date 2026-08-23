@@ -1,4 +1,9 @@
-"""Tests for hook bus behavior."""
+"""Tests for hook bus behavior.
+
+Locks the dispatch contract: filters gate delivery, lower priority numbers
+run first, and the failure policy decides whether handler exceptions
+propagate to the emitter.
+"""
 
 from typing import cast
 

@@ -1,4 +1,9 @@
-"""Tests for DLT settings environment resolution."""
+"""Tests for DLT settings environment resolution.
+
+Settings read only DLT_* variables; the removed legacy
+ICEBERG_DEFAULT_NAMESPACE must be ignored. Each case clears the settings
+cache so env changes are picked up.
+"""
 
 from phlo_dlt.registry import TableConfig
 from phlo_dlt.settings import get_settings

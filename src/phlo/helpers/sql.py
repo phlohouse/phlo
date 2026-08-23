@@ -1,4 +1,9 @@
-"""Small SQL construction and safety helpers."""
+"""Small SQL construction and safety helpers.
+
+Identifiers are validated or quoted before rendering and literals are
+conservatively escaped; ``validate_read_only_sql`` rejects any statement
+containing a mutating keyword so helper-generated SQL stays read-only.
+"""
 
 from __future__ import annotations
 

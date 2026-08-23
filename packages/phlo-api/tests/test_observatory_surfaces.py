@@ -1,4 +1,8 @@
-"""Tests for concrete Observatory API surfaces."""
+"""Tests for concrete Observatory API surfaces.
+
+Checks that run, governance, and capability endpoints return provider-neutral
+shapes and that removed endpoints stay hard-removed.
+"""
 
 from __future__ import annotations
 

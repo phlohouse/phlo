@@ -1,4 +1,12 @@
-"""Default observability capability provider."""
+"""Default observability capability provider owned by core.
+
+Resolves public URLs for dashboards, logs, metrics, and query endpoints from
+environment overrides with service-discovery fallbacks, and registers these
+default providers when no plugin supplies its own.
+
+Imported by the phlo.capabilities package (init and discovery); part of the core capabilities layer.
+Registers default observability URL providers built on the capabilities registry and specs.
+"""
 
 from __future__ import annotations
 
@@ -53,6 +61,7 @@ class DefaultObservabilityBackend:
         self._maintenance = DefaultMaintenanceReadModel()
 
     def health_summary(self) -> PlatformHealthSummary:
+        """Summarize overall and per-component health, degraded when maintenance failed."""
         try:
             maintenance = self._maintenance.load_maintenance_status()
             components = {
@@ -75,6 +84,7 @@ class DefaultObservabilityBackend:
         )
 
     def service_status(self) -> list[ServiceStatus]:
+        """Report the latest status per service derived from maintenance operations."""
         try:
             maintenance = self._maintenance.load_maintenance_status()
             latest_by_service: dict[str, ServiceStatus] = {}
@@ -99,6 +109,7 @@ class DefaultObservabilityBackend:
             ]
 
     def platform_metrics(self, period: str) -> PlatformMetricsSummary:
+        """Aggregate maintenance operation counts for the requested period."""
         try:
             maintenance = self._maintenance.load_maintenance_status()
             total_ops = len(maintenance.operations)
@@ -118,6 +129,7 @@ class DefaultObservabilityBackend:
         )
 
     def recent_alerts(self, limit: int) -> list[AlertSummary]:
+        """List recent failed maintenance operations as firing alerts, oldest trimmed to limit."""
         try:
             maintenance = self._maintenance.load_maintenance_status()
             failed_ops = [op for op in maintenance.operations if op.status == "failed"]
@@ -134,6 +146,7 @@ class DefaultObservabilityBackend:
             return []
 
     def dashboard_links(self) -> list[DashboardLink]:
+        """Return dashboard links, preferring ClickStack and falling back to Grafana."""
         clickstack_url = self._resolve_clickstack_url()
         if clickstack_url is not None:
             dashboards_path = (
@@ -168,6 +181,7 @@ class DefaultObservabilityBackend:
         ]
 
     def logs_query_link(self, service: str | None = None) -> str | None:
+        """Build a logs query URL for the service via ClickStack or Loki."""
         clickstack_url = self._resolve_clickstack_url()
         if clickstack_url is not None:
             logs_path = _service_env_value("clickstack", _CLICKSTACK_LOGS_PATH_ENV) or "/"
@@ -186,6 +200,7 @@ class DefaultObservabilityBackend:
         return f"{loki_url}{logs_path}"
 
     def metrics_query_link(self, metric: str | None = None) -> str | None:
+        """Build a metrics query URL for the metric via ClickStack or Prometheus."""
         clickstack_url = self._resolve_clickstack_url()
         if clickstack_url is not None:
             metrics_path = _service_env_value("clickstack", _CLICKSTACK_METRICS_PATH_ENV) or "/"

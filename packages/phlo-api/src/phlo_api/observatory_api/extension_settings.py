@@ -58,15 +58,7 @@ class ExtensionSettingsResponse(BaseModel):
 
 
 def _get_extension(name: str) -> Any | None:
-    """Return an Observatory extension plugin by name.
-
-    Args:
-        name: Registered extension name.
-
-    Returns:
-        ObservatoryExtensionPlugin | None: Matched extension, if present.
-
-    """
+    """Return the registered Observatory extension plugin with that name, or None."""
     return get_observatory_extension(name)
 
 
@@ -75,15 +67,7 @@ def _get_extension_scope_schema_defaults(
 ) -> tuple[SettingsScope, dict[str, Any] | None, dict[str, Any] | None]:
     """Resolve settings scope, schema, and defaults for an extension.
 
-    Args:
-        name: Registered extension name.
-
-    Returns:
-        tuple[SettingsScope, dict[str, Any] | None, dict[str, Any] | None]:
-            Storage scope, validation schema, and default settings.
-
-    Raises:
-        HTTPException: If the extension is not found.
+    Raises HTTPException when the extension is not found.
 
     """
     extension = _get_extension(name)
@@ -97,28 +81,12 @@ def _get_extension_scope_schema_defaults(
 
 
 def _extension_namespace(name: str) -> str:
-    """Build the settings namespace key for an extension.
-
-    Args:
-        name: Registered extension name.
-
-    Returns:
-        str: Namespaced storage key.
-
-    """
+    """Build the namespaced settings storage key for an extension."""
     return f"observatory.extension.{name}"
 
 
 def _fetch_settings_sync(name: str) -> ExtensionSettingsResponse:
-    """Fetch extension settings for one extension name.
-
-    Args:
-        name: Registered extension name.
-
-    Returns:
-        ExtensionSettingsResponse: Stored settings or manifest defaults.
-
-    """
+    """Fetch stored settings for one extension, falling back to manifest defaults."""
     scope, _schema, defaults = _get_extension_scope_schema_defaults(name)
     service = get_settings_service()
     record = service.get(scope, _extension_namespace(name))
@@ -130,17 +98,9 @@ def _fetch_settings_sync(name: str) -> ExtensionSettingsResponse:
 def _upsert_settings_sync(
     name: str, payload: ExtensionSettingsPayload
 ) -> ExtensionSettingsResponse:
-    """Persist extension settings for one extension name.
+    """Persist settings for one extension and return them with the update timestamp.
 
-    Args:
-        name: Registered extension name.
-        payload: Incoming extension settings.
-
-    Returns:
-        ExtensionSettingsResponse: Saved settings and update timestamp.
-
-    Raises:
-        HTTPException: If validation fails.
+    Raises HTTPException when validation against the schema fails.
 
     """
     scope, schema, _defaults = _get_extension_scope_schema_defaults(name)
@@ -161,15 +121,8 @@ def _upsert_settings_sync(
 async def get_extension_settings(name: str) -> ExtensionSettingsResponse:
     """Fetch settings for a single extension.
 
-    Args:
-        name: Registered extension name.
-
-    Returns:
-        ExtensionSettingsResponse with current settings and update timestamp.
-
-    Raises:
-        HTTPException: If extension not found (404), settings service unavailable (503),
-            or on other errors (500).
+    Raises HTTPException when the extension is not found (404), the settings
+    service is unavailable (503), or on other errors (500).
 
     """
     try:
@@ -189,16 +142,9 @@ async def put_extension_settings(
 ) -> ExtensionSettingsResponse:
     """Replace settings for a single extension.
 
-    Args:
-        name: Registered extension name.
-        payload: ExtensionSettingsPayload with new settings values.
-
-    Returns:
-        ExtensionSettingsResponse with saved settings and update timestamp.
-
-    Raises:
-        HTTPException: If extension not found (404), validation fails (422),
-            settings service unavailable (503), or on other errors (500).
+    Raises HTTPException when the extension is not found (404), validation
+    fails (422), the settings service is unavailable (503), or on other
+    errors (500).
 
     """
     try:

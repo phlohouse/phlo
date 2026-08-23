@@ -1,4 +1,7 @@
-"""Contract checks for the support artifact included in distributable wheels."""
+"""Contract checks for the support artifact bundled into distributable wheels.
+
+Verifies that built wheels ship the bundled support status manifest.
+"""
 
 from __future__ import annotations
 

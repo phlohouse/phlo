@@ -1,4 +1,8 @@
-"""Regression tests for public API exports."""
+"""Regression tests for phlo's public API exports.
+
+Guards compatibility aliases, lazy discovery exports, observatory re-exports,
+and that importing plugins never pulls provider-only dependencies.
+"""
 
 from __future__ import annotations
 

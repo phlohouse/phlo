@@ -15,6 +15,9 @@ Environment Variables:
     HOST: API server bind address (default: "0.0.0.0").
     PORT: API server port (default: 4000).
     PHLO_PROJECT_PATH: Path to the phlo project directory (default: "/app/project").
+
+    API server entrypoint: launched via uvicorn as phlo_api.main:app rather than imported directly.
+    Wires phlo.capabilities, plugin discovery, registry client, and run evidence into one FastAPI app.
 """
 
 from __future__ import annotations
@@ -75,7 +78,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1):\d+$",
-    allow_credentials=_cors_origins != ["*"],
+    allow_credentials=_cors_origins != ["*"],  # Browsers reject credentials with a "*" origin.
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -108,7 +111,6 @@ def _register_observatory_routers() -> None:
     degradation when optional dependencies are not installed.
 
     """
-    # Combine routers with prefix and without prefix into single iterable
     all_routers = [
         *_ROUTERS,
         *((f"phlo_api.observatory_api.{name}", None) for name in _OBSERVATORY_ROUTERS_NO_PREFIX),
@@ -134,20 +136,8 @@ _register_observatory_routers()
 async def bind_request_logging_context(request: Request, call_next: Any) -> Any:
     """Bind per-request correlation fields for structured logging.
 
-    This middleware extracts or generates request tracking identifiers
-    and binds them to the logging context for the duration of the
-    request. This enables correlation of logs across the request lifecycle.
-
-    Args:
-        request: The incoming FastAPI request.
-        call_next: The next middleware or route handler in the chain.
-
-    Returns:
-        The response from the next handler in the chain.
-
-    Raises:
-        Any exception raised by call_next will propagate after context cleanup.
-
+    Reuses an inbound x-request-id (generating one when absent) and honors
+    traceparent/x-trace-id so logs correlate across the request lifecycle.
     """
     request_id = request.headers.get("x-request-id") or str(uuid4())
     trace_id = request.headers.get("traceparent") or request.headers.get("x-trace-id")
@@ -167,18 +157,11 @@ async def bind_request_logging_context(request: Request, call_next: Any) -> Any:
 def get_project_path() -> Path:
     """Get the phlo project path from environment or default.
 
-    The project path is used to locate configuration files like
-    phlo.yaml and contract artifacts.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        Path: The resolved project directory path.
+    The project path locates configuration files like phlo.yaml and
+    contract artifacts.
 
     Environment Variables:
         PHLO_PROJECT_PATH: Overrides the default path.
-
     """
     project_path = os.environ.get("PHLO_PROJECT_PATH", "/app/project")
     return Path(project_path)
@@ -187,22 +170,8 @@ def get_project_path() -> Path:
 def load_phlo_config() -> dict[str, Any]:
     """Load phlo.yaml configuration from the project directory.
 
-    Reads and parses the phlo.yaml configuration file from the
-    project path. If the file is missing or unreadable, returns
-    a fallback configuration.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        dict[str, Any]: Parsed configuration dictionary.
-
-    Raises:
-        Exception: If the file exists but cannot be parsed.
-
-    Logging:
-        Logs configuration load events for observability.
-
+    Returns a fallback configuration when the file is missing; raises a 500
+    when the file exists but cannot be read or is not a mapping.
     """
     config_path = get_project_path() / "phlo.yaml"
     logger.info("phlo_config_load_started", config_path=str(config_path))
@@ -236,20 +205,7 @@ def load_phlo_config() -> dict[str, Any]:
 
 
 def _default_table_store_name() -> str | None:
-    """Resolve the default table store capability name.
-
-    Returns:
-        str | None: The name of the resolved table_store capability,
-            or None if not available or an error occurs.
-
-    Example:
-        .. code-block:: python
-
-            store = _default_table_store_name()
-            if store:
-                print(f"Using table store: {store}")
-
-    """
+    """Resolve the default table store capability name (None when unavailable)."""
     try:
         from phlo.capabilities import resolve_capability
 
@@ -260,20 +216,7 @@ def _default_table_store_name() -> str | None:
 
 
 def _default_schema_migrator_name() -> str | None:
-    """Resolve the default schema migrator capability name.
-
-    Returns:
-        str | None: The name of the resolved schema_migrator capability,
-            or None if not available or an error occurs.
-
-    Example:
-        .. code-block:: python
-
-            migrator = _default_schema_migrator_name()
-            if migrator:
-                print(f"Using schema migrator: {migrator}")
-
-    """
+    """Resolve the default schema migrator capability name (None when unavailable)."""
     try:
         from phlo.capabilities import resolve_capability
 
@@ -284,25 +227,10 @@ def _default_schema_migrator_name() -> str | None:
 
 
 def _list_api_backends() -> list[dict[str, Any]]:
-    """List capability-backed API backends and their current health.
+    """List capability-backed API backends with their current health status.
 
-    Discovers all registered API backend capabilities and performs
-    health checks on each provider.
-
-    Returns:
-        list[dict[str, Any]]: List of backend dictionaries containing:
-            - name: Backend identifier
-            - healthy: Health check status
-            - metadata: Capability metadata
-            - description: Provider description
-
-    Example:
-        .. code-block:: python
-
-            backends = _list_api_backends()
-            healthy_count = sum(1 for b in backends if b["healthy"])
-            print(f"Healthy backends: {healthy_count}/{len(backends)}")
-
+    A backend whose describe() or health_check() raises is reported unhealthy
+    rather than failing the whole listing.
     """
     try:
         from phlo.capabilities import get_capability_registry
@@ -335,22 +263,7 @@ def _list_api_backends() -> list[dict[str, Any]]:
 
 
 def _get_api_backend(name: str) -> dict[str, Any] | None:
-    """Get one capability-backed API backend by name.
-
-    Args:
-        name: Backend identifier to search for.
-
-    Returns:
-        dict[str, Any] | None: The backend dictionary if found, None otherwise.
-
-    Example:
-        .. code-block:: python
-
-            backend = _get_api_backend("postgres")
-            if backend:
-                print(f"Backend status: {backend['healthy']}")
-
-    """
+    """Get one capability-backed API backend by name."""
     for backend in _list_api_backends():
         if backend["name"] == name:
             return backend
@@ -358,32 +271,9 @@ def _get_api_backend(name: str) -> dict[str, Any] | None:
 
 
 def _parse_quality_contract_tags(tags: dict[str, str]) -> dict[str, Any]:
-    """Parse quality contract metadata from asset tags.
+    """Parse owner, consumers, and SLA from contract_* asset tags.
 
-    Extracts owner, consumer list, and SLA from contract-related
-    tags attached to quality checks or assets.
-
-    Args:
-        tags: Dictionary of tag key-value pairs.
-
-    Returns:
-        dict[str, Any]: Parsed contract metadata containing:
-            - owner: Contract owner identifier
-            - consumers: List of consumer identifiers
-            - sla: Service level agreement as dict (if parseable)
-
-    Example:
-        .. code-block:: python
-
-            tags = {
-                "contract_owner": "data-team",
-                "contract_consumers": "analytics,ml",
-                "contract_sla": '{"freshness_hours": 24}'
-            }
-            result = _parse_quality_contract_tags(tags)
-            assert result["owner"] == "data-team"
-            assert len(result["consumers"]) == 2
-
+    An SLA payload that does not parse as a JSON object is treated as absent.
     """
     owner = tags.get("contract_owner")
     consumers_raw = tags.get("contract_consumers", "")
@@ -403,22 +293,10 @@ def _parse_quality_contract_tags(tags: dict[str, str]) -> dict[str, Any]:
 
 
 def _load_contract_artifacts() -> dict[str, dict[str, Any]]:
-    """Load contract artifacts from the .phlo/contracts directory.
+    """Load contract artifacts from .phlo/contracts, keyed by table name.
 
-    Reads JSON contract files and returns them keyed by table name.
-    Invalid or malformed files are silently skipped.
-
-    Returns:
-        dict[str, dict[str, Any]]: Dictionary mapping table names to
-            their contract artifact payloads.
-
-    Example:
-        .. code-block:: python
-
-            artifacts = _load_contract_artifacts()
-            for table, contract in artifacts.items():
-                print(f"{table}: {contract['contract_version']}")
-
+    Malformed files are skipped silently; the API degrades to registry-only
+    contract data.
     """
     contracts_dir = get_project_path() / ".phlo" / "contracts"
     if not contracts_dir.exists():
@@ -440,6 +318,12 @@ def _load_contract_artifacts() -> dict[str, dict[str, Any]]:
 
 
 def _list_contracts() -> list[dict[str, Any]]:
+    """Merge registry-derived table contracts with generated artifacts.
+
+    Registry assets form the base contracts; artifact JSONs enrich matching
+    tables with generated schemas and migration plans and contribute tables
+    the registry no longer exposes. Output is sorted by table name.
+    """
     contracts: dict[str, dict[str, Any]] = {}
 
     try:
@@ -487,6 +371,7 @@ def _list_contracts() -> list[dict[str, Any]]:
         if not isinstance(table_name, str) or not table_name:
             continue
 
+        # dlt assets without a schema qualifier are assumed to land in the raw schema.
         qualified_table = table_name if "." in table_name else f"raw.{table_name}"
         transform_refs: list[str] = []
         for dbt_asset in dbt_assets:
@@ -553,58 +438,23 @@ def _get_contract_by_table(table_name: str) -> dict[str, Any] | None:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    """Health check endpoint.
-
-    Returns the API service health status.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        Dictionary with "status" key set to "healthy".
-
-    Raises:
-        None: No exceptions raised directly.
-
-    """
+    """Health check endpoint."""
     return {"status": "healthy"}
 
 
 @app.get("/api/config")
 def get_config() -> dict[str, Any]:
-    """Get phlo.yaml configuration.
-
-    Returns the parsed phlo.yaml configuration from the project directory.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        Dictionary containing the project configuration.
-
-    Raises:
-        None: Exceptions are caught and returned as error responses.
-
-    """
+    """Get the parsed phlo.yaml configuration."""
     logger.info("api_config_get_started")
     return load_phlo_config()
 
 
 @app.get("/api/plugins")
 def get_plugins() -> dict[str, list[str]]:
-    """List all installed plugins by type.
+    """List installed plugins by type.
 
-    Returns plugins organized by their type/category.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        Dictionary mapping plugin types to lists of plugin names.
-
-    Raises:
-        None: Exceptions are caught and fallback returned.
-
+    Falls back to an empty per-type mapping when the plugin system cannot be
+    imported.
     """
     logger.info("api_plugins_list_started")
     try:
@@ -702,19 +552,9 @@ def get_plugin_info(plugin_type: str, name: str) -> dict[str, Any]:
 
 @app.get("/api/services")
 def get_services() -> list[dict[str, Any]]:
-    """List all discovered services.
+    """List discovered services.
 
-    Returns metadata for all services discovered via the ServiceDiscovery.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        List of service metadata dictionaries.
-
-    Raises:
-        None: Exceptions are caught and empty list returned.
-
+    Returns an empty list when service discovery is unavailable.
     """
     logger.info("api_services_list_started")
     try:
@@ -811,21 +651,7 @@ def get_api_backend_info(name: str) -> dict[str, Any]:
 
 @app.get("/api/contracts")
 def get_contracts() -> list[dict[str, Any]]:
-    """List resolved table contracts from registry and generated artifacts.
-
-    Combines contract data from the capability registry with stored artifacts
-    to produce a comprehensive list of table contracts.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        List of contract dictionaries with metadata, quality checks, and refs.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
-    """
+    """List resolved table contracts from registry and generated artifacts."""
     logger.info("api_contracts_list_started")
     contracts = _list_contracts()
     logger.info("api_contracts_list_succeeded", contract_count=len(contracts))
@@ -834,17 +660,10 @@ def get_contracts() -> list[dict[str, Any]]:
 
 @app.get("/api/contracts/{table_name:path}")
 def get_contract(table_name: str) -> dict[str, Any]:
-    """Get resolved contract payload for a single table.
-
-    Args:
-        table_name: Table name to look up (supports path-style names).
-
-    Returns:
-        Contract dictionary for the specified table.
+    """Get the resolved contract payload for a single table.
 
     Raises:
-        HTTPException: 404 if contract not found.
-
+        HTTPException: 404 if the contract is not found.
     """
     logger.info("api_contract_get_started", table_name=table_name)
     contract = _get_contract_by_table(table_name)

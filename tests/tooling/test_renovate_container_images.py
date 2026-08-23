@@ -1,4 +1,9 @@
-"""Semantic contracts for Renovate-managed package runtime images."""
+"""Semantic contracts for Renovate-managed package runtime images.
+
+Replays the configured regex manager's match and mustache replacement against
+real source strings to prove image references in package service.yaml files
+update in place, including digest-pinned forms.
+"""
 
 from __future__ import annotations
 

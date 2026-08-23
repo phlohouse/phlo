@@ -1,4 +1,9 @@
-"""Tests for Trino service plugin."""
+"""Tests for Trino service plugin.
+
+Validates service-definition fields, pinning of the upstream image by
+digest with no local build, and that every runtime file copied into
+.phlo/trino ships in installed wheels via package data.
+"""
 
 from pathlib import Path
 from fnmatch import fnmatch

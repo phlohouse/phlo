@@ -1,4 +1,9 @@
-"""Evidence summary helpers for governed workflow outputs."""
+"""Evidence summary helpers for governed workflow outputs.
+
+EvidenceSummary is a frozen, JSON-serializable record of one workflow
+action's inputs, outputs, checks, lineage, artifacts, and decisions. A
+summary counts as passed only when every check payload reports passed.
+"""
 
 from __future__ import annotations
 

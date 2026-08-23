@@ -28,27 +28,6 @@ class Settings(BaseConfig):
     Environment variables are read with case-insensitive matching. Aliases
     are provided for common configuration patterns (e.g., OTEL_* variables).
 
-    Attributes:
-        phlo_orchestrator: Active orchestrator adapter name (default: "dagster").
-        phlo_log_level: Default log level (default: "WARNING").
-        phlo_log_format: Log output format - "auto", "json", or "console".
-        phlo_log_router_enabled: Enable structured log event routing to hook bus.
-        phlo_log_service_name: Default service name for log records.
-        phlo_log_file_template: Optional log file path template with date placeholders.
-        phlo_environment: Runtime environment identifier (dev, staging, prod).
-        phlo_service_namespace: Service namespace for observability resources.
-        phlo_service_version: Optional service version for observability.
-        phlo_service_instance_id: Optional instance identifier for observability.
-        phlo_project: Optional project identifier for observability.
-        phlo_default_capabilities: Default capability provider mappings.
-        plugins_enabled: Enable the plugin system.
-        plugins_auto_discover: Automatically discover plugins from entry points.
-        plugins_whitelist: List of allowed plugin names (empty = all allowed).
-        plugins_blacklist: List of plugin names to exclude.
-        plugin_registry_url: URL for the plugin registry catalog.
-        plugin_registry_cache_ttl_seconds: Cache TTL for registry responses.
-        plugin_registry_timeout_seconds: Timeout for registry fetch requests.
-
     Example:
         ```python
         from phlo.config import get_settings
@@ -57,7 +36,6 @@ class Settings(BaseConfig):
         print(f"Orchestrator: {settings.phlo_orchestrator}")
         print(f"Log level: {settings.phlo_log_level}")
         ```
-
     """
 
     phlo_orchestrator: str = Field(
@@ -143,21 +121,10 @@ class Settings(BaseConfig):
 
 @project_root_cached
 def _get_config(project_root: Path) -> Settings:
-    """Get cached config for the selected project root.
+    """Build Settings for an already-resolved project root.
 
-    Configuration is cached per resolved project root, with up to 16 entries,
-    and reused across the application lifecycle. This avoids repeated file
-    I/O and parsing while keeping project configuration isolated.
-
-    Args:
-        project_root: Resolved project root used for cache selection.
-
-    Returns:
-        Settings: Validated Settings instance with all configuration values.
-
-    Note:
-        This is an internal function. Use :func:`get_settings` for public access.
-
+    Cached by ``project_root_cached`` (LRU, 16 entries) so repeated calls
+    skip env-file I/O and validation. Internal; use :func:`get_settings`.
     """
     return Settings()
 
@@ -169,14 +136,6 @@ def get_settings(project_root: Path | str | None = None) -> Settings:
     It returns a cached Settings instance for the selected project root and
     supports future dependency injection patterns for testing.
 
-    Args:
-        project_root: Optional project root to select configuration for. When
-            omitted, the active project root context, ``PHLO_PROJECT_PATH``,
-            or current working directory is used.
-
-    Returns:
-        Settings: Validated Settings instance with all configuration values.
-
     Example:
         ```python
         from phlo.config import get_settings
@@ -186,6 +145,5 @@ def get_settings(project_root: Path | str | None = None) -> Settings:
             # Apply production-specific logic
             pass
         ```
-
     """
     return _get_config(project_root)

@@ -1,3 +1,7 @@
+/**
+ * /bi route. BI surfaces joined with table records; when nothing is
+ * selected it falls back to the Trino-backed surface.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { BarChart3, Database, Send, Table2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'

@@ -1,4 +1,8 @@
-"""Unit coverage for phlo-api CORS defaults."""
+"""CORS regression tests for the phlo-api service.
+
+Each case issues a preflight OPTIONS request against /health and asserts that
+the Observatory browser origins are accepted as allowed origins.
+"""
 
 from __future__ import annotations
 

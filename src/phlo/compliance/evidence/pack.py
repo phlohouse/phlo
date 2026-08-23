@@ -31,16 +31,16 @@ from uuid import uuid4
 # ---------------------------------------------------------------------------
 
 EVIDENCE_PACK_FORMAT_VERSION = 2
-"""Current evidence-pack format version."""
+# Current evidence-pack format version.
 
 EVIDENCE_PACK_ALGORITHM = "HMAC-SHA256"
-"""Authentication algorithm used by evidence-pack format v2."""
+# Authentication algorithm used by evidence-pack format v2.
 
 PHLO_EVIDENCE_HMAC_KEY_ENV = "PHLO_EVIDENCE_HMAC_KEY"
-"""Preferred environment variable for the evidence-pack HMAC key."""
+# Preferred environment variable for the evidence-pack HMAC key.
 
 PHLO_AUDIT_HMAC_KEY_ENV = "PHLO_AUDIT_HMAC_KEY"
-"""Fallback environment variable, reusing the regulated audit-key contract."""
+# Fallback environment variable, reusing the regulated audit-key contract.
 
 # Files inside the archive that are not evidence payloads.
 _ARCHIVE_META_FILES = frozenset({"manifest.json", "checksums.json", "signature.json"})
@@ -137,13 +137,9 @@ class EvidencePack:
         pack format version, algorithm, key identifier, checksum-envelope
         digest, and authentication value.
 
-        Raises:
-            EvidenceKeyError: When no key material is available.
-
-        Args:
-            output_path: Path to write the ZIP file.
-            hmac_key: Explicit key material.  Falls back to the pack's
-                stored key or environment configuration.
+        Raises EvidenceKeyError when no key material is available from the
+        *hmac_key* argument, the pack's stored key, or environment
+        configuration.
         """
         key = _resolve_evidence_hmac_key(hmac_key or self.hmac_key)
         key_id = _compute_key_id(key)
@@ -206,20 +202,9 @@ def create_evidence_pack(
 ) -> EvidencePack:
     """Create an evidence pack with the given contents.
 
-    Args:
-        created_by: Subject who created the pack.
-        compliance_domain: Compliance domain (e.g., "sox", "hipaa", "pci").
-        description: Description of the evidence pack.
-        audit_records: List of audit record dicts to include.
-        signatures: List of signature record dicts to include.
-        manifest_data: System manifest data to include.
-        hmac_key: Explicit key material for HMAC authentication.  When
-            provided, stored on the pack and used by :meth:`write_zip`
-            unless overridden.  When ``None``, ``write_zip`` resolves the
-            key from environment configuration.
-
-    Returns:
-        An EvidencePack ready to be written.
+    `hmac_key`, when given, is stored on the pack and used by
+    :meth:`write_zip` unless overridden; otherwise ``write_zip`` resolves
+    the key from environment configuration.
     """
     files: dict[str, bytes] = {}
 
@@ -266,14 +251,6 @@ def verify_evidence_pack(
 
     The result and logs never expose key material or the expected
     authentication value.
-
-    Args:
-        zip_path: Path to the evidence pack ZIP file.
-        hmac_key: Explicit key material.  Falls back to environment
-            configuration when ``None``.
-
-    Returns:
-        Verification result with details.
     """
     if not zip_path.exists():
         return {"valid": False, "error": "File not found"}

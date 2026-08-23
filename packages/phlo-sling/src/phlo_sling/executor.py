@@ -31,16 +31,11 @@ from phlo_sling.registry import ReplicationConfig
 class SlingIngester(BaseIngester):
     """Sling-specific implementation of the ingestion engine.
 
-    Mirrors DltIngester: wraps Sling execution with hook event emission,
-    timing, and standardised IngestionResult output. This class handles
-    the actual execution of Sling replications within the Phlo runtime.
-
-    Attributes:
-        context: Execution context from the orchestrator runtime.
-        logger: Logger used for replication lifecycle messages.
-        replication_config: Replication-level configuration.
-        source_func: The decorated user function (for reference).
-        overrides: Optional runtime overrides from the user function.
+    Mirrors DltIngester: wraps Sling execution with hook event emission, timing,
+    and standardized IngestionResult output. ``context`` carries the orchestrator
+    runtime, ``replication_config`` the replication-level configuration,
+    ``source_func`` the decorated user function, and ``overrides`` its optional
+    runtime overrides.
 
     Example:
         Execute a Sling replication::
@@ -53,7 +48,6 @@ class SlingIngester(BaseIngester):
                 overrides={"where": "updated_at > '2024-01-01'"},
             )
             result = ingester.run_ingestion(partition_key="2024-01-15")
-
     """
 
     def __init__(
@@ -64,16 +58,7 @@ class SlingIngester(BaseIngester):
         source_func: Callable[..., Any],
         overrides: dict[str, Any] | None = None,
     ):
-        """Initialize the Sling ingester.
-
-        Args:
-            context: Execution context from the orchestrator runtime.
-            logger: Logger used for replication lifecycle messages.
-            replication_config: Replication-level configuration.
-            source_func: The decorated user function (for reference).
-            overrides: Optional runtime overrides returned by the user function.
-
-        """
+        """Initialize the Sling ingester from runtime context and configuration."""
         super().__init__(context, logger)
         self.replication_config = replication_config
         self.source_func = source_func
@@ -82,23 +67,11 @@ class SlingIngester(BaseIngester):
     def run_ingestion(
         self, partition_key: str | None, parameters: Dict[str, Any]
     ) -> IngestionResult:
-        """Run the Sling replication flow.
+        """Run the configured Sling replication flow.
 
-        Executes the configured Sling replication with event emission,
-        timing metrics, and standardized result handling. Emits hook
-        events for start, completion, and failure scenarios.
-
-        Args:
-            partition_key: Partition date string.
-            parameters: Additional runtime parameters (run_id, etc.).
-
-        Returns:
-            IngestionResult with status, row counts, and metadata.
-
-        Raises:
-            Exception: Re-raises any exception from Sling execution after
-                emitting failure events.
-
+        Emits hook events for start, completion, and failure, then returns an
+        IngestionResult with status, row counts, and metadata. Re-raises any Sling
+        execution exception after emitting failure events.
         """
         parameters = parameters or {}
         run_id = parameters.get("run_id", "unknown")
@@ -145,6 +118,9 @@ class SlingIngester(BaseIngester):
             from sling import Sling
             from phlo_sling.connections import apply_sling_connection_env
 
+            # Connections must be in the environment before Sling resolves
+            # src_conn/tgt_conn names; auto-discovered values never overwrite
+            # variables that are already set.
             apply_sling_connection_env()
             sling_kwargs = self._build_sling_kwargs(partition_key)
             sling_config = Sling(**sling_kwargs)
@@ -212,19 +188,9 @@ class SlingIngester(BaseIngester):
     def _build_sling_kwargs(self, partition_key: str | None) -> dict[str, Any]:
         """Build keyword arguments for the Sling constructor.
 
-        Merges static configuration from the ReplicationConfig with runtime
-        overrides from the user function. Validates that a target object
-        is defined.
-
-        Args:
-            partition_key: Partition date for dynamic WHERE clause injection.
-
-        Returns:
-            Dict of kwargs suitable for `Sling(**kwargs)`.
-
-        Raises:
-            PhloConfigError: If no target object can be determined.
-
+        Merges static ReplicationConfig values with runtime overrides and injects a
+        dynamic WHERE clause from ``partition_key``. Raise PhloConfigError when no
+        target object can be determined.
         """
         config = self.replication_config
 

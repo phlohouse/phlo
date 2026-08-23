@@ -1,4 +1,9 @@
-"""Tests for the root `phlo test` command."""
+"""Tests for the root ``phlo test`` command.
+
+Verifies runner selection (uv run pytest when available, direct pytest
+otherwise), that integration tests are deselected in the uv path, and that
+a fresh project with no collected tests still exits successfully.
+"""
 
 from click.testing import CliRunner
 

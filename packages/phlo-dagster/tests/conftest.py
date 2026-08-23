@@ -1,4 +1,8 @@
-"""Test-module import path for local fixtures."""
+"""Makes sibling test helper modules importable.
+
+Inserts the tests directory at the front of ``sys.path`` before collection so
+local fixture modules resolve without installation.
+"""
 
 from __future__ import annotations
 

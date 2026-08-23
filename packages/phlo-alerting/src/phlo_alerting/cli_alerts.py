@@ -73,13 +73,6 @@ def test_alerts(severity: str, destination: Optional[str]) -> None:
     destinations are properly configured and receiving notifications.
     Useful for validating alert setup after configuration changes.
 
-    Args:
-            severity: Alert severity level (info, warning, error, critical).
-            destination: Optional specific destination name to test.
-
-    Returns:
-            None; results are printed to console.
-
     Examples:
             $ phlo alerts test
             ✓ Test alert sent successfully!
@@ -134,9 +127,6 @@ def list_destinations() -> None:
         Displays all currently configured alert destinations with their
     types and status. Shows configuration guidance if no destinations
         are configured.
-
-    Returns:
-            None; results are printed to console as a table or instructions.
 
     Examples:
             With destinations configured:
@@ -194,9 +184,6 @@ def check_status() -> None:
 
         Displays overall alert system health including configured destinations,
     recent alert statistics, and next steps for configuration.
-
-    Returns:
-            None; results are printed to console.
 
     Examples:
             $ phlo alerts status

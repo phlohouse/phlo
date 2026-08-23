@@ -1,4 +1,8 @@
-"""Architecture and dependency-inversion coverage for provider-neutral CLI commands."""
+"""Architecture and dependency-inversion coverage for provider-neutral CLI commands.
+
+Asserts core never imports provider packages statically and that the CLI
+contract helpers accept fake providers.
+"""
 
 from __future__ import annotations
 

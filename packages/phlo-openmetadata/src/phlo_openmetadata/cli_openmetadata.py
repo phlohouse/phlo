@@ -33,15 +33,7 @@ logger = get_logger(__name__)
 
 
 def _resolve_database_name() -> str:
-    """Resolve the database name or raise a clear user-facing CLI error.
-
-    Returns:
-        str: The resolved database name.
-
-    Raises:
-        click.ClickException: If database resolution fails.
-
-    """
+    """Resolve the database name, converting failures to a user-facing CLI error."""
     try:
         return get_settings().openmetadata_database()
     except RuntimeError as exc:
@@ -53,15 +45,8 @@ def _resolve_database_name() -> str:
 
 
 def _resolve_service_type() -> str:
-    """Resolve the service type or raise a clear user-facing CLI error.
-
-    Returns:
-        str: The resolved service type (e.g., 'Trino').
-
-    Raises:
-        click.ClickException: If service type resolution fails.
-
-    """
+    """Resolve the service type (e.g., 'Trino'), converting failures to a
+    user-facing CLI error."""
     try:
         return get_settings().openmetadata_database_service_type()
     except RuntimeError as exc:
@@ -74,29 +59,15 @@ def _resolve_service_type() -> str:
 
 @click.group()
 def openmetadata():
-    """Manage OpenMetadata integration (optional).
-
-    Provides commands to check health and sync metadata to OpenMetadata.
-
-    Commands:
-        health: Check OpenMetadata connectivity
-        sync: Sync catalog tables and dbt documentation
+    """Manage OpenMetadata integration (optional): check health and sync
+    catalog tables and dbt documentation.
     """
 
 
 @openmetadata.command()
 def health() -> None:
-    """Check OpenMetadata connectivity using configured credentials.
-
-    Attempts to connect to OpenMetadata server and reports health status.
-    Exits with code 1 if the server is unreachable.
-
-    Returns:
-        None
-
-    Raises:
-        SystemExit: With code 1 if OpenMetadata is not reachable.
-
+    """Check OpenMetadata connectivity using configured credentials; exits 1
+    when the server is unreachable.
     """
     cfg = get_settings()
     database_name = _resolve_database_name()
@@ -133,24 +104,8 @@ def sync(
     dbt: bool,
     dbt_schema: str | None,
 ) -> None:
-    """Sync Nessie catalog (and optionally dbt docs) into OpenMetadata.
-
-    Discovers tables from the configured catalog scanner and syncs them to
-    OpenMetadata. Optionally syncs dbt model documentation if a manifest
-    file is available.
-
-    Args:
-        include_namespace: Namespaces to include in sync.
-        exclude_namespace: Namespaces to exclude from sync.
-        dbt: Whether to sync dbt documentation.
-        dbt_schema: Specific schema to sync for dbt models.
-
-    Returns:
-        None
-
-    Raises:
-        SystemExit: With code 1 if sync fails or OpenMetadata is unreachable.
-
+    """Sync Nessie catalog tables (and optionally dbt docs) into OpenMetadata;
+    exits 1 when sync fails or OpenMetadata is unreachable.
     """
     enforce_surface_mutation_authorization("openmetadata.sync", get_openmetadata_adapter)
     logger.info(

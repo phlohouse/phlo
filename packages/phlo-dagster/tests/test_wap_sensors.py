@@ -1,4 +1,10 @@
-"""Tests for WAP (Write-Audit-Publish) lifecycle sensors."""
+"""Tests for WAP (Write-Audit-Publish) lifecycle sensors.
+
+Launch manifests immutably bind logical run ids to Dagster run ids via tags and
+checksums, failing closed when any binding field is tampered with. Promotion
+sensors require every quality check to pass before merging a WAP branch, and
+terminal runs are reported but never promoted.
+"""
 
 from __future__ import annotations
 

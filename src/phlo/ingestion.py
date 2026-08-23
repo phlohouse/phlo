@@ -33,6 +33,9 @@ class _CallableIngestionModule(ModuleType):
         return phlo_ingestion(*args, **kwargs)
 
 
+# Re-class the module object so ``phlo.ingestion(...)`` keeps working as a call
+# while the name still resolves to a normal module with attributes. Only
+# subclasses of ModuleType support this __class__ assignment.
 sys.modules[__name__].__class__ = _CallableIngestionModule
 
 __all__ = ["get_ingestion_assets", "phlo_ingestion"]

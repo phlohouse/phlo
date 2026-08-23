@@ -1,4 +1,8 @@
-"""Tests for core quality check plugins."""
+"""Tests for core quality check plugins.
+
+Each plugin is exercised through create_check() to confirm the generated check
+name matches the expected identifier for its check kind.
+"""
 
 from phlo_core.quality.freshness_check import FreshnessCheckPlugin
 from phlo_core.quality.null_check import NullCheckPlugin
@@ -37,16 +41,7 @@ def test_schema_check_plugin():
         __name__ = "DummySchema"
 
         def validate(self, df, lazy=True):
-            """Return input dataframe unchanged.
-
-            Args:
-                df: Input dataframe-like object.
-                lazy: Validation mode flag.
-
-            Returns:
-                The unmodified input dataframe.
-
-            """
+            """Return input dataframe unchanged."""
             return df
 
     check = plugin.create_check(schema=DummySchema)

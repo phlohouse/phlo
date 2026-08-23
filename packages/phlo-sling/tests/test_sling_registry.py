@@ -1,4 +1,8 @@
-"""Tests for Sling replication config registry."""
+"""Tests for the Sling replication config registry.
+
+Checks ReplicationConfig defaults, qualified table-name derivation, and
+custom-field handling.
+"""
 
 from phlo_sling.registry import ReplicationConfig
 

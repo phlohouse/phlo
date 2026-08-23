@@ -1,4 +1,9 @@
-"""Built-in telemetry hook providers."""
+"""Built-in telemetry hook providers.
+
+CoreTelemetryHookProvider subscribes to telemetry.log and telemetry.metric
+events and forwards TelemetryEvent instances into a module-local
+TelemetryRecorder; non-telemetry events are silently ignored.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +21,7 @@ class CoreTelemetryHookProvider:
         self._recorder = TelemetryRecorder()
 
     def get_hooks(self) -> list[HookRegistration]:
+        """Register the core telemetry hook for log and metric events."""
         return [
             HookRegistration(
                 hook_name="core_telemetry",

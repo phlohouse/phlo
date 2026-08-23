@@ -15,10 +15,8 @@ Classes:
     NessieResource: Low-level Nessie REST client with retry logic.
     BranchManagerResource: High-level convenience wrapper for branch operations.
 
-Attributes:
-    _MAX_RETRIES: Maximum retry attempts for failed requests.
-    _BACKOFF_SCHEDULE: Exponential backoff delays between retries.
-
+    Dagster resources for Nessie branch management; re-exported through the phlo_nessie package.
+    Builds on phlo.logging and phlo_nessie.settings.
 """
 
 from __future__ import annotations
@@ -41,14 +39,7 @@ _BACKOFF_SCHEDULE = [0.5, 1.0]
 
 @dataclass
 class BranchInfo:
-    """Branch metadata returned by Nessie.
-
-    Attributes:
-        name: Branch name.
-        hash: Current branch hash, if available.
-        created_at: Branch creation timestamp, if provided by Nessie.
-
-    """
+    """Branch metadata returned by Nessie."""
 
     name: str
     hash: str | None
@@ -62,25 +53,18 @@ class NessieResource:
     for transient failures. Supports branch management operations including
     list, create, delete, and merge.
 
-    Attributes:
-        base_url: Full Nessie base URL including host and port.
-
     Example:
         >>> nessie = NessieResource()
         >>> branches = nessie.list_branches()
         >>> nessie.create_branch("feature/new", from_ref="main")
 
-    Note:
-        Uses exponential backoff retry for connection errors and 5xx responses.
-
+    Uses exponential backoff retry on connection errors and 5xx responses.
     """
 
     def __init__(self, base_url: str | None = None):
         """Initialize a Nessie client.
 
-        Args:
-            base_url: Optional explicit Nessie base URL.
-                If not provided, uses settings from configuration.
+        Falls back to configured settings when base_url is omitted.
 
         Example:
             >>> nessie = NessieResource()  # Uses default settings
@@ -99,15 +83,7 @@ class NessieResource:
         )
 
     def _url(self, path: str) -> str:
-        """Build a full Nessie URL.
-
-        Args:
-            path: Nessie API path.
-
-        Returns:
-            Fully qualified API URL.
-
-        """
+        """Build a fully qualified Nessie API URL."""
         return f"{self.base_url}{path}"
 
     @staticmethod
@@ -126,20 +102,10 @@ class NessieResource:
         """Execute an HTTP request with retry logic.
 
         Retries up to ``_MAX_RETRIES`` times on connection errors and 5xx
-        responses, using exponential backoff defined by ``_BACKOFF_SCHEDULE``.
-
-        Args:
-            method: HTTP method (``GET``, ``POST``, ``DELETE``).
-            url: Fully qualified URL.
-            **kwargs: Forwarded to :func:`requests.request`.
-
-        Returns:
-            The successful :class:`requests.Response`.
-
-        Raises:
-            requests.exceptions.ConnectionError: After all retries exhausted.
-            requests.exceptions.RequestException: On non-retryable failures.
-
+        responses, using exponential backoff defined by ``_BACKOFF_SCHEDULE``;
+        kwargs are forwarded to :func:`requests.request`. Raises
+        requests.exceptions.ConnectionError after all retries are exhausted
+        and RequestException on non-retryable failures.
         """
         request_fn = getattr(requests, method.lower())
         last_exc: Exception | None = None
@@ -177,14 +143,9 @@ class NessieResource:
     def list_branches(self) -> list[BranchInfo]:
         """List all branch references from Nessie.
 
-        Fetches branch metadata including name, hash, and creation timestamp
-        from the Nessie API.
-
-        Returns:
-            list[BranchInfo]: Parsed branch information for each branch reference.
-
-        Raises:
-            Exception: Propagates HTTP or parsing errors.
+        Fetches branch metadata including name, hash, and creation timestamp;
+        returns parsed :class:`BranchInfo` per branch reference and propagates
+        HTTP or parsing errors.
 
         Example:
             >>> nessie = NessieResource()
@@ -237,13 +198,7 @@ class NessieResource:
         return branches
 
     def get_branch_hash(self, name: str) -> str | None:
-        """Fetch the current hash for a branch.
-
-        Args:
-            name: Branch name.
-
-        Returns:
-            str | None: Branch hash when found, otherwise ``None``.
+        """Fetch the current hash for a branch, or None when it is missing.
 
         Example:
             >>> nessie = NessieResource()
@@ -277,12 +232,6 @@ class NessieResource:
     def delete_branch(self, name: str) -> bool:
         """Delete a branch by name.
 
-        Args:
-            name: Branch name.
-
-        Returns:
-            bool: ``True`` if deletion succeeded, else ``False``.
-
         Example:
             >>> nessie = NessieResource()
             >>> deleted = nessie.delete_branch("feature/old")
@@ -300,6 +249,9 @@ class NessieResource:
                 branch_name=name,
             )
             return False
+        # Nessie mutations are conditional on the branch hash read moments
+        # ago: if the branch moved in between, Nessie rejects the delete with
+        # a conflict instead of discarding commits we never saw.
         response = self._request(
             "DELETE",
             self._url(f"/api/v1/trees/branch/{name}"),
@@ -318,13 +270,6 @@ class NessieResource:
 
     def create_branch(self, name: str, from_ref: str = "main") -> str | None:
         """Create a new branch from an existing reference.
-
-        Args:
-            name: New branch name.
-            from_ref: Source reference to branch from.
-
-        Returns:
-            str | None: Hash of the new branch, or ``None`` on failure.
 
         Example:
             >>> nessie = NessieResource()
@@ -372,13 +317,6 @@ class NessieResource:
 
     def merge_branch(self, source: str, target: str = "main") -> bool:
         """Merge source branch into target branch.
-
-        Args:
-            source: Source branch name.
-            target: Target branch name to merge into.
-
-        Returns:
-            bool: ``True`` if merge succeeded, else ``False``.
 
         Example:
             >>> nessie = NessieResource()
@@ -431,9 +369,6 @@ class BranchManagerResource:
     Provides high-level operations for managing pipeline branches,
     filtering out system branches like 'main' and 'dev'.
 
-    Attributes:
-        _nessie: Internal NessieResource instance.
-
     Example:
         >>> manager = BranchManagerResource()
         >>> old_branches = manager.get_all_pipeline_branches()
@@ -445,9 +380,7 @@ class BranchManagerResource:
     def __init__(self, nessie: NessieResource | None = None):
         """Initialize a branch manager.
 
-        Args:
-            nessie: Optional Nessie client instance.
-                If not provided, creates a new NessieResource.
+        Creates a default :class:`NessieResource` when none is supplied.
 
         Example:
             >>> manager = BranchManagerResource()  # Uses default NessieResource
@@ -459,11 +392,7 @@ class BranchManagerResource:
     def get_all_pipeline_branches(self) -> list[BranchInfo]:
         """Return non-system branches used for pipelines.
 
-        Excludes 'main' and 'dev' branches which are considered
-        system branches.
-
-        Returns:
-            list[BranchInfo]: Branches excluding ``main`` and ``dev``.
+        Excludes 'main' and 'dev', which are considered system branches.
 
         Example:
             >>> manager = BranchManagerResource()
@@ -483,12 +412,6 @@ class BranchManagerResource:
 
     def cleanup_branch(self, name: str) -> bool:
         """Delete a pipeline branch.
-
-        Args:
-            name: Branch name.
-
-        Returns:
-            bool: ``True`` when cleanup succeeds, else ``False``.
 
         Example:
             >>> manager = BranchManagerResource()

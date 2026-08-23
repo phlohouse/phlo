@@ -1,4 +1,8 @@
-"""Tests for authentication provider capability."""
+"""Tests for authentication provider capability.
+
+Covers static/dev-mode, JWT, proxy-header, and service-token providers; the
+capability registry and config cache reset around every test.
+"""
 
 from __future__ import annotations
 

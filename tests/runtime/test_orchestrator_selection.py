@@ -1,4 +1,9 @@
-"""Regression tests for orchestrator adapter selection."""
+"""Regression tests for orchestrator adapter selection.
+
+Verifies selection precedence (explicit name beats PHLO_ORCHESTRATOR env),
+whitespace trimming, and that a missing adapter raises PhloConfigError with
+actionable install/config suggestions.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,9 @@
+/**
+ * Workflow builder route. The loader snapshots wizard inputs before render;
+ * the canvas builder composes source, transform, quality, and publish
+ * stages from extension-contributed wizard steps and applies the resulting
+ * proposal.
+ */
 import { createFileRoute } from '@tanstack/react-router'
 import { Button, IconButton } from '@primer/react'
 import {

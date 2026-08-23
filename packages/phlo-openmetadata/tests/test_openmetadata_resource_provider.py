@@ -1,4 +1,9 @@
-"""Tests for OpenMetadata resource provider."""
+"""Tests for OpenMetadata resource provider.
+
+Verifies metadata-catalog capability registration, forwarding of lineage
+edges and quality results to OpenMetadata, and resolution of OpenMetadata as
+a metadata catalog provider through global capability discovery.
+"""
 
 from unittest.mock import Mock, patch
 

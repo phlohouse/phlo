@@ -1,4 +1,9 @@
-"""Tests for opaque cursor pagination contracts."""
+"""Tests for opaque cursor pagination contracts.
+
+Pins the cursor round-trip and the (page, next_cursor) contract of
+paginate_items, plus next_cursor emission from list endpoints such as the
+workflow authoring view.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,9 @@
-"""Quality provider plugin classes."""
+"""Quality provider plugin classes.
+
+QualityProviderPlugin is the abstract extension point for quality engines:
+it supplies the check decorator, check classes, schema extraction, and schema
+module rendering used when scaffolding typed quality schemas.
+"""
 
 from __future__ import annotations
 
@@ -59,10 +64,7 @@ class QualityProviderPlugin(Plugin, ABC):
 
     @abstractmethod
     def get_decorator(self) -> Callable:
-        """Return the quality decorator function.
-
-        Returns:
-            The @phlo_quality decorator or equivalent.
+        """Return the quality decorator function, such as ``@phlo_quality``.
 
         Example:
             ```python
@@ -70,15 +72,11 @@ class QualityProviderPlugin(Plugin, ABC):
                 from phlo_pandera import phlo_quality
                 return phlo_quality
             ```
-
         """
 
     @abstractmethod
     def get_check_classes(self) -> dict[str, type]:
-        """Return a mapping of check type names to classes.
-
-        Returns:
-            Dictionary mapping short names to check classes.
+        """Return a mapping of check type short names to check classes.
 
         Example:
             ```python
@@ -86,26 +84,14 @@ class QualityProviderPlugin(Plugin, ABC):
                 from phlo_pandera import NullCheck, RangeCheck
                 return {"null": NullCheck, "range": RangeCheck}
             ```
-
         """
 
     def get_schema_extractor(self) -> Any | None:
-        """Return a schema extractor class for converting native schemas.
-
-        Returns:
-            Schema extractor class, or None if not available.
-
-        """
+        """Return the schema extractor class for converting native schemas, or None."""
         return None
 
     def get_schema_base_import(self) -> tuple[str, str] | None:
-        """Return the schema base import for generated project schemas.
-
-        Returns:
-            Tuple of (module, symbol), or None if this provider does not expose
-            a generated-schema base class.
-
-        """
+        """Return ``(module, symbol)`` for the generated-schema base class, or None."""
         return None
 
     def render_schema_field(
@@ -116,12 +102,9 @@ class QualityProviderPlugin(Plugin, ABC):
         nullable: bool,
         description: str | None = None,
     ) -> str | None:
-        """Render one generated schema field for this quality provider.
+        """Render one class-level field declaration as source.
 
-        Returns:
-            Python source for a class-level field declaration, or None when the
-            provider does not support schema scaffolding.
-
+        Return None when the provider does not support schema scaffolding.
         """
         return None
 
@@ -133,22 +116,14 @@ class QualityProviderPlugin(Plugin, ABC):
         type_imports: str,
         schema_fields: str,
     ) -> str | None:
-        """Render a complete generated schema module for this quality provider.
+        """Render a complete generated schema module as source.
 
-        Returns:
-            Python source for the schema module, or None when the provider does
-            not support schema scaffolding.
-
+        Return None when the provider does not support schema scaffolding.
         """
         return None
 
     def get_reconciliation_checks(self) -> dict[str, type] | None:
-        """Return reconciliation check classes.
-
-        Returns:
-            Dictionary mapping check names to classes, or None.
-
-        """
+        """Return reconciliation check classes mapped by name, or None."""
         return None
 
     def build_checks_from_rules(self, rules: list[Any]) -> list[Any] | None:

@@ -1,4 +1,8 @@
-"""Tests for PostgREST view generation."""
+"""Tests for PostgREST view generation.
+
+Covers manifest parsing, view SQL generation, PostgreSQL view management, and
+connection setup driven by project environment settings.
+"""
 
 import json
 import socket

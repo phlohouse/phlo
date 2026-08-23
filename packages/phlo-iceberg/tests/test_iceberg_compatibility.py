@@ -1,3 +1,6 @@
+"""Tests validation of pyiceberg REST catalog configuration against the
+declared Apache Iceberg compatibility target."""
+
 from __future__ import annotations
 
 import pytest

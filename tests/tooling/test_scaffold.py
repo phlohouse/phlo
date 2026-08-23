@@ -1,3 +1,6 @@
+"""Tests for the phlo-dlt ingestion scaffold: field spec parsing and
+validation, generated workflow structure, dependency requirements."""
+
 from __future__ import annotations
 
 import re
@@ -154,12 +157,7 @@ def test_phlo_dlt_does_not_depend_on_pandera_packages() -> None:
 def test_scaffold_generates_no_todos_and_is_syntax_valid(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Generates scaffold files without placeholders and with valid Python syntax.
-
-    Args:
-        tmp_path: Temporary filesystem root for generated files.
-        monkeypatch: Pytest fixture for changing current working directory.
-    """
+    """Generate scaffold files and assert they contain no placeholders and parse."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "workflows" / "schemas").mkdir(parents=True)
     (tmp_path / "workflows" / "ingestion").mkdir(parents=True)

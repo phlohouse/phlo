@@ -1,4 +1,10 @@
-"""Generic artifact manifest helpers."""
+"""Generic artifact manifest helpers.
+
+ArtifactManifest collects ArtifactEntry records with optional checksums,
+sizes, and metadata. Helpers build manifests from local paths, verify the
+checksums that are present (entries without one are reported, not failed),
+and render entries as lakehouse-ready table rows.
+"""
 
 from __future__ import annotations
 

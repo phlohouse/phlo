@@ -29,6 +29,10 @@ Usage:
         from phlo_dagster.framework import build_definitions
 
         defs = build_definitions(workflows_path="custom_workflows")
+
+Placement: this module is the Dagster code location for Phlo projects; it is
+loaded by Dagster via workspace.yaml load_from rather than imported by other
+phlo modules.
 """
 
 __all__ = ["build_definitions", "defs"]

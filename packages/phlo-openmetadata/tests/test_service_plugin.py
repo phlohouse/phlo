@@ -1,4 +1,9 @@
-"""OpenMetadata generated service contracts."""
+"""OpenMetadata generated service contracts.
+
+Pins every bundled image (server, MySQL setup, Elasticsearch) to a
+version plus digest and rejects build sections, so generated definitions
+stay reproducible and never drift to floating tags.
+"""
 
 from importlib import resources
 

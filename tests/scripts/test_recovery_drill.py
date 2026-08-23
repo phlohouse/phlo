@@ -1,3 +1,6 @@
+"""Tests for scripts/recovery_drill.py: pinned stack images, isolated
+ports, generated compose output, and drill lifecycle behaviour."""
+
 from __future__ import annotations
 
 import importlib.util

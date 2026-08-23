@@ -17,19 +17,10 @@ _PHLO_REGULATED_MODE_ENV_DEPRECATED = "PHLO_REGULATED_MODE"
 
 
 def is_regulated(config_regulated: bool | None = None) -> bool:
-    """Check if regulated mode is enabled.
-
-    Precedence:
-        1. PHLO_REGULATED environment variable
-        2. phlo.yaml root regulated setting
-        3. Default (False)
-
-    Args:
-        config_regulated: Regulated setting from config file.
-
-    Returns:
-        True if regulated mode is enabled, False otherwise.
-    """
+    """Return whether regulated mode is enabled, resolving in precedence order:
+    PHLO_REGULATED env var, then config_regulated from phlo.yaml, then the
+    deprecated PHLO_REGULATED_MODE env var, then the config file default,
+    otherwise False."""
     env_value = os.environ.get(PHLO_REGULATED_ENV, "").strip().lower()
     if env_value in ("1", "true", "yes", "on"):
         return True

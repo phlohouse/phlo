@@ -1,4 +1,10 @@
-"""Contract tests for the required PostgreSQL concurrency CI gate."""
+"""Contract tests for the required PostgreSQL concurrency CI gate.
+
+Pins the ci.yml postgres-concurrency-gates job: its own attributable CI
+status gate, a Postgres 16 service, both required test DSNs with driver and
+connection checks, exactly the three live concurrency/upgrade selectors,
+and that the nightly golden-path schedule remains untouched.
+"""
 
 from __future__ import annotations
 

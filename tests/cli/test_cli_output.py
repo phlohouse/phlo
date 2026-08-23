@@ -1,3 +1,9 @@
+"""Tests for CLI user-error formatting.
+
+Locks the message contract: summary first, then Missing, detail, and a
+Run: hint, so every CLI error tells the user the next actionable command.
+"""
+
 from __future__ import annotations
 
 from phlo.cli.output import missing_compose_file_error, missing_query_error, user_error

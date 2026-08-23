@@ -1,4 +1,10 @@
-"""Provider-neutral quality rule factories."""
+"""Provider-neutral quality rule factories.
+
+Factories producing QualityRule records (not_null, unique, freshness, range,
+accepted_values) without binding to any execution provider. Invalid ranges
+and empty accepted-value lists raise ValueError at construction time, before
+a rule can reach a pipeline.
+"""
 
 from __future__ import annotations
 

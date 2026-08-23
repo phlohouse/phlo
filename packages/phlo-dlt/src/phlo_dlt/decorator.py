@@ -4,21 +4,11 @@ This module provides the primary ``@phlo_ingestion`` decorator used to define
 DLT-based data ingestion pipelines in Phlo. It handles asset registration,
 validation configuration, merge strategy setup, and runtime execution.
 
-Key Functions:
-    - :func:`phlo_ingestion`: Main decorator for defining ingestion assets
-    - :func:`get_ingestion_assets`: Retrieve all registered ingestion assets
-    - :func:`clear_ingestion_assets`: Clear the asset registry
-
-Validation Functions:
-    - :func:`_validate_unique_key_in_schema`: Validate unique_key exists in schema
-    - :func:`_validate_merge_config`: Validate merge strategy and configuration
-    - :func:`_default_merge_config`: Build default merge configuration
-
-Capability Resolution:
-    - :func:`_resolve_table_store_capability`: Resolve table-store provider
-
-Registry:
-    - ``_INGESTION_ASSETS``: Global list of registered AssetSpec objects
+Public entry points are ``phlo_ingestion`` (the registration decorator) along
+with ``get_ingestion_assets`` and ``clear_ingestion_assets``, which manage the
+global ``_INGESTION_ASSETS`` registry. Internal helpers validate unique keys
+and merge configuration, build merge defaults, and resolve the table-store
+capability for each run.
 
 The decorator integrates with Phlo's capability system for table store resolution,
 supports Write-Audit-Publish (WAP) patterns with strict validation, and provides
@@ -96,14 +86,9 @@ _INGESTION_ASSETS: list[AssetSpec] = []
 def get_ingestion_assets() -> list[AssetSpec]:
     """Return registered ingestion asset specifications.
 
-    Retrieves a copy of all ingestion assets that have been registered
-    via the ``@phlo_ingestion`` decorator. This function is used by
-    plugin interfaces and asset discovery systems.
-
-    Returns:
-        list[AssetSpec]: A shallow copy of all ingestion assets created
-            via ``phlo_ingestion``. Modifying the returned list does not
-            affect the internal registry.
+    Retrieves a shallow copy of all ingestion assets registered via the
+    ``@phlo_ingestion`` decorator; modifying the returned list does not affect
+    the internal registry. Used by plugin interfaces and asset discovery systems.
 
     Example:
         ```python
@@ -153,13 +138,8 @@ def clear_ingestion_assets() -> None:
 def _validate_unique_key_in_schema(unique_key: str, schema: type[Any] | None) -> None:
     """Validate that the configured unique key exists in the schema annotations.
 
-    Args:
-        unique_key: Column name used to identify unique records.
-        schema: Optional schema class used for validation.
-
-    Raises:
-        PhloConfigError: If `schema` is provided and `unique_key` is missing.
-
+    Raises: PhloConfigError when a schema is provided and `unique_key` is not
+    among its annotations.
     """
     if schema is None:
         return
@@ -181,14 +161,10 @@ def _validate_merge_config(
 ) -> None:
     """Validate merge strategy and merge configuration semantics.
 
-    Args:
-        merge_strategy: Write strategy for ingestion (`append` or `merge`).
-        unique_key: Column name used for deduplication and merge operations.
-        merge_config: Optional merge behavior overrides.
+    `merge_strategy` must be `append` or `merge`; when provided, `merge_config`
+    must be a dict whose `deduplication` flag requires a non-empty `unique_key`.
 
-    Raises:
-        PhloConfigError: If strategy or config values are invalid.
-
+    Raises: PhloConfigError when the strategy or config values are invalid.
     """
     if merge_strategy not in ("append", "merge"):
         raise PhloConfigError(
@@ -218,13 +194,9 @@ def _default_merge_config(
 ) -> dict[str, Any]:
     """Build merge configuration defaults for the selected strategy.
 
-    Args:
-        merge_strategy: Write strategy for ingestion (`append` or `merge`).
-        merge_config: Optional user-provided merge configuration.
-
-    Returns:
-        Effective merge configuration with strategy defaults applied.
-
+    Copies the user-supplied `merge_config`, then applies defaults per strategy:
+    `append` disables deduplication, while `merge` enables it with the `last`
+    deduplication method unless already set.
     """
     config = merge_config.copy() if merge_config else {}
 
@@ -240,25 +212,14 @@ def _default_merge_config(
 def _resolve_table_store_capability(context: RuntimeContext) -> tuple[Any, str]:
     """Resolve the effective table-store capability for an ingestion run.
 
-    Queries the Phlo capability system to find an appropriate table store
-    provider for the current runtime context. Supports multiple provider
-    types (e.g., Iceberg, Delta) and handles configuration errors.
+    Queries the Phlo capability system for a table-store provider matching the
+    runtime context, honouring capability overrides in the runtime context, the
+    ``PHLO_DEFAULT_CAPABILITIES`` environment variable, then the registry
+    default, in that order.
 
-    Resolution Order:
-        1. Check capability overrides in runtime context
-        2. Check PHLO_DEFAULT_CAPABILITIES environment variable
-        3. Use default from capability registry
-
-    Args:
-        context: Runtime context with capability configuration.
-
-    Returns:
-        tuple[Any, str]: Tuple of (provider_instance, provider_name).
-
-    Raises:
-        PhloConfigError: If the configured provider is not installed,
-            if multiple providers are available but none selected,
-            or if no providers are installed.
+    Raises: PhloConfigError when the configured provider is not installed, when
+    multiple providers are available but none was selected, or when no providers
+    are installed.
 
     Example:
         ```python
@@ -334,11 +295,9 @@ def phlo_ingestion(
     This is the primary decorator for defining data ingestion pipelines in Phlo.
     It wraps a source function that returns DLT-compatible data and creates a
     fully configured ingestion asset with validation, scheduling, and table store
-    integration.
-
-    Asset Naming:
-        The generated asset key is ``dlt_{table_name}``. For example, a table
-        named "users" becomes asset key "dlt_users".
+    integration. The generated asset key is ``dlt_{table_name}`` (a table named
+    "users" becomes asset key "dlt_users"), which also names the physical
+    destination table.
 
     Execution Flow:
         1. Call the decorated function to get DLT source/data
@@ -355,48 +314,26 @@ def phlo_ingestion(
           on validation errors (blocking, enables WAP pattern)
         - ``validate=False``: Skip validation entirely
 
-    Args:
-        table_name: Destination table-store table name (without ``dlt_`` prefix).
-            This is used for both the asset key and the physical table name.
-        unique_key: Column used for deduplication and merge operations.
-            Must exist in the validation_schema if one is provided.
-        group: Dagster/asset group name for organizing related assets.
-        validation_schema: Optional Pandera DataFrameModel for data contract checks.
-            If provided, data will be validated against this schema.
-        table_schema: Optional explicit table-store schema. If not provided,
-            the table_store provider will derive schema from validation_schema.
-        partition_spec: Optional partition specification for the table store.
-            Format depends on the table store provider (e.g., Iceberg transforms).
-        cron: Optional cron schedule for automated runs (e.g., "0 */6 * * *" for every 6 hours).
-        freshness_hours: Optional freshness policy as (warning_hours, error_hours) tuple.
-            Used for SLA monitoring and alerting.
-        max_runtime_seconds: Maximum runtime before timeout (default: 300 seconds).
-        max_retries: Maximum retry attempts for failed runs (default: 3).
-        retry_delay_seconds: Delay between retries in seconds (default: 30).
-        validate: Whether to execute Pandera contract checks (default: True).
-        strict_validation: Whether failed validation should fail the run (default: True).
-            When True, enables Write-Audit-Publish pattern with isolated branches.
-        merge_strategy: Ingestion write strategy:
-            - ``"append"``: Insert-only, never update existing rows
-            - ``"merge"``: Upsert based on unique_key (default)
-        merge_config: Optional merge behavior overrides as a dict.
-            Common options: ``{"deduplication": True, "deduplication_method": "last"}``
-        add_metadata_columns: Whether to inject Phlo metadata columns (default: True).
-            Columns added: _phlo_row_id, _phlo_ingested_at, _phlo_partition_date, _phlo_run_id
-        owner: Optional asset owner/team identifier for governance.
-        consumers: Optional list of downstream consumers (strings or Consumer objects)
-            for lineage and impact analysis.
-        sla: Optional SLA metadata for freshness/quality alerting.
-        capabilities: Optional capability provider overrides for this asset.
-            Format: ``{"table_store": "iceberg", "catalog": "nessie"}``
+    Parameter notes:
+        - `unique_key` drives deduplication and merge operations and must exist
+          in `validation_schema` when one is provided.
+        - `table_schema` supplies an explicit table-store schema; otherwise the
+          provider derives one from `validation_schema`.
+        - `partition_spec` format depends on the provider (e.g., Iceberg transforms).
+        - `merge_strategy` selects insert-only ``"append"`` versus ``"merge"``
+          upserts on `unique_key`; `merge_config` overrides merge behaviour, e.g.
+          ``{"deduplication": True, "deduplication_method": "last"}``.
+        - With `add_metadata_columns` enabled, Phlo injects `_phlo_row_id`,
+          `_phlo_ingested_at`, `_phlo_partition_date`, and `_phlo_run_id`.
+        - `freshness_hours` is a (warning_hours, error_hours) tuple used for SLA
+          monitoring; `sla` carries additional freshness/quality alerting metadata.
+        - `consumers` lists downstream consumers (strings or `Consumer` objects)
+          for lineage and impact analysis; `owner` records the owning team.
+        - `capabilities` overrides providers per asset, e.g.
+          ``{"table_store": "iceberg", "catalog": "nessie"}``.
 
-    Returns:
-        Callable[[Callable[..., Any]], Callable[..., Any]]: A decorator that
-        registers the ingestion asset and returns the original function unchanged.
-
-    Raises:
-        PhloConfigError: If schema is missing, unique_key not found in schema,
-            merge_strategy is invalid, or merge_config is malformed.
+    Raises: PhloConfigError when the schema is missing, `unique_key` is not found
+    in the schema, `merge_strategy` is invalid, or `merge_config` is malformed.
 
     Example:
         Basic usage with REST API source:
@@ -512,22 +449,15 @@ def phlo_ingestion(
         This inner function is the actual decorator that processes the user's
         source function and registers it as a Phlo asset. It creates the
         AssetSpec with all configuration and adds it to the global registry.
-
-        Args:
-            func: The user's source function that returns DLT-compatible data.
-                Must accept ``partition_date: str`` as a parameter.
-
-        Returns:
-            Any: The original function with an added ``_phlo_table_config`` attribute.
+        The source function must accept a ``partition_date: str`` parameter and
+        is returned unmodified in behaviour, with an added
+        ``_phlo_table_config`` attribute carrying metadata for the plugin
+        system and executor.
 
         Side Effects:
             - Creates AssetCheckSpec if validation is enabled
             - Appends AssetSpec to ``_INGESTION_ASSETS`` registry
             - Sets ``func._phlo_table_config`` attribute
-
-        Note:
-            The returned function is unmodified in behavior but carries metadata
-            used by the plugin system and executor.
 
         """
         check_specs: list[AssetCheckSpec] = []
@@ -559,19 +489,13 @@ def phlo_ingestion(
                 8. Merge to table store
                 9. Yield MaterializeResult or CheckResult objects
 
-            Args:
-                runtime: RuntimeContext with partition_key, run_id, logger,
-                    and other execution context.
-
-            Yields:
-                RunResult: Either CheckResult (for validation) or MaterializeResult
-                (for data loads). Multiple results may be yielded in a single run.
-
-            Raises:
-                PhloConfigError: If partition key is missing.
-                RuntimeError: If strict validation fails.
-                PanderaContractValidationError: If validation fails in strict mode.
-                Exception: Any other error is logged and re-raised for orchestrator handling.
+            Called with a RuntimeContext carrying partition_key, run_id, and
+            logger. Yields CheckResult objects for validation and
+            MaterializeResult objects for data loads; multiple results may be
+            yielded in a single run. Raises: PhloConfigError when the partition
+            key is missing; RuntimeError when strict validation fails;
+            PanderaContractValidationError when validation fails in strict mode;
+            any other error is logged and re-raised for orchestrator handling.
 
             WAP Pattern:
                 When ``strict_validation=True``, writes go to an isolated branch
@@ -807,6 +731,9 @@ def phlo_ingestion(
                 )
 
             except PanderaContractValidationError as exc:
+                # Emit the failed check before aborting: the generator must
+                # surface the check result so the orchestrator records the
+                # validation failure even though the run itself raises.
                 validation_schema = table_config.validation_schema
                 assert validation_schema is not None
                 query_or_sql = ",".join(

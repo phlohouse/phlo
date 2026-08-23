@@ -1,4 +1,10 @@
-"""Tests for observability API capability resolution."""
+"""Tests for observability API capability resolution.
+
+Each test registers a mock observability backend capability and asserts
+the API routes read from that capability rather than any built-in
+source. The registry is cleared before and after every test, so tests
+never share resolved backends.
+"""
 
 from __future__ import annotations
 

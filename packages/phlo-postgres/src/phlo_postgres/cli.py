@@ -43,26 +43,10 @@ from phlo_postgres.settings import get_settings
 
 
 def _read_sql(*, query: str | None, file: Path | None) -> str:
-    """Read SQL from inline query string or file path.
+    """Read SQL from an inline query string or file path.
 
-    Validates that exactly one of query or file is provided and returns the
-    SQL content. Handles empty file detection and encoding issues.
-
-    Args:
-        query: Inline SQL query string.
-        file: Path to SQL file to read.
-
-    Returns:
-        str: The SQL content to execute.
-
-    Raises:
-        click.ClickException: If both query and file are provided, neither is
-            provided, or the file is empty/cannot be read.
-
-    Example:
-        >>> sql = _read_sql(query="SELECT 1")
-        >>> sql = _read_sql(file=Path("query.sql"))
-
+    Exactly one of ``query`` and ``file`` must be provided. Raise ClickException
+    when both or neither are given, or the file is empty or unreadable.
     """
     if query and file:
         raise exclusive_options_error("an inline query", "--file")
@@ -85,22 +69,14 @@ def _require_container_backend() -> None:
 
 
 def _postgres_exec_base(*, tty: bool) -> list[str]:
-    """Build the docker compose exec base command for PostgreSQL container.
+    """Build the docker compose exec base command for the PostgreSQL container.
 
-    Constructs the initial portion of the docker compose exec command including
-    project name and service name. Used as a base for all container operations.
-
-    Args:
-        tty: Whether to allocate a TTY (-t flag). Disable for non-interactive
-            commands that capture output.
-
-    Returns:
-        list[str]: Base command as a list of strings ready for subprocess.
+    Includes project and service names; ``tty=False`` drops the ``-t`` flag for
+    commands that capture output.
 
     Example:
         >>> cmd = _postgres_exec_base(tty=True)
         >>> # Returns: ['docker', 'compose', '-p', 'phlo', '-f', '...', 'exec', '-t', 'postgres']
-
     """
     phlo_dir = ensure_compose_project()
     project_name = get_project_name()
@@ -113,25 +89,13 @@ def _postgres_exec_base(*, tty: bool) -> list[str]:
 
 
 def _postgres_identity(*, user: str | None, database: str | None) -> tuple[str, str]:
-    """Resolve PostgreSQL connection identity (user and database).
+    """Resolve PostgreSQL user and database, falling back to settings defaults.
 
-    Returns explicit values if provided, otherwise falls back to settings
-    defaults. This allows CLI commands to use configured defaults while
-    permitting overrides.
-
-    Args:
-        user: Database username override, or None to use settings default.
-        database: Database name override, or None to use settings default.
-
-    Returns:
-        tuple[str, str]: Tuple of (resolved_user, resolved_database).
+    Returns a ``(resolved_user, resolved_database)`` tuple.
 
     Example:
-        >>> user, db = _postgres_identity(user=None, database=None)
-        >>> # Uses settings.postgres_user and settings.postgres_db
         >>> user, db = _postgres_identity(user="admin", database=None)
         >>> # Uses "admin" for user, settings default for database
-
     """
     settings = get_settings()
     return user or settings.postgres_user, database or settings.postgres_db
@@ -146,21 +110,15 @@ def _postgres_identity(*, user: str | None, database: str | None) -> tuple[str, 
 def postgres_group(ctx: click.Context, postgres_args: tuple[str, ...]) -> None:
     """Run psql or PostgreSQL helper commands against the project database.
 
-    This is the main entry point for PostgreSQL CLI operations. It supports:
-    - Interactive psql sessions (default if no subcommand)
-    - Subcommands: query, dump, restore, vacuum
-    - Direct psql arguments passthrough
-
-    Args:
-        ctx: Click context object.
-        postgres_args: Additional arguments passed to psql or subcommands.
+    With no subcommand, opens an interactive psql session; subcommands cover
+    query, dump, restore, and vacuum, and remaining arguments pass through to
+    psql.
 
     Example:
         $ phlo postgres                    # Interactive psql
         $ phlo postgres -c "SELECT 1"       # One-off query via psql
         $ phlo postgres query "SELECT * FROM users"
         $ phlo postgres dump --file backup.sql.gz
-
     """
     if postgres_args and postgres_args[0] == "query":
         postgres_query.main(
@@ -221,23 +179,12 @@ def postgres_query(
 ) -> None:
     """Execute a SQL query against the running PostgreSQL service.
 
-    Executes a SQL query inside the PostgreSQL container and prints results
-    to stdout. Supports inline queries or reading from a file.
-
-    Args:
-        query: SQL query string to execute.
-        query_file: Path to file containing SQL query.
-        user: Database user (default from settings).
-        database: Database name (default from settings).
-        timeout_seconds: Maximum time to wait for query completion.
-
-    Raises:
-        click.ClickException: If the query fails or times out.
+    Accepts inline SQL or a query file and prints results to stdout. Raise
+    ClickException when the query fails or times out.
 
     Example:
         $ phlo postgres query "SELECT * FROM users"
         $ phlo postgres query --file query.sql --timeout 60
-
     """
     _require_container_backend()
     enforce_surface_mutation_authorization("postgres.query", get_postgres_cli_adapter)
@@ -287,22 +234,12 @@ def postgres_dump(
 ) -> None:
     """Create a PostgreSQL logical backup (pg_dump) to a local file.
 
-    Dumps the entire database using pg_dump, with optional gzip compression
-    if the output file has a .gz extension.
-
-    Args:
-        output_file: Path to write the dump. Use .gz extension for compression.
-        user: Database user (default from settings).
-        database: Database name (default from settings).
-        timeout_seconds: Maximum time to wait for dump completion.
-
-    Raises:
-        click.ClickException: If the dump fails or times out.
+    Dumps the entire database, gzip-compressing when the output file ends in
+    ``.gz``. Raise ClickException when the dump fails or times out.
 
     Example:
         $ phlo postgres dump --file backup.sql
         $ phlo postgres dump --file backup.sql.gz --timeout 300
-
     """
     _require_container_backend()
     enforce_surface_mutation_authorization("postgres.dump", get_postgres_cli_adapter)
@@ -360,25 +297,16 @@ def postgres_restore(
 ) -> None:
     """Restore a PostgreSQL database from a logical backup file.
 
-    Restores the database from a SQL dump file (plain or gzip-compressed).
-    Uses psql internally to execute the dump SQL.
+    Uses psql to execute a plain or gzip-compressed SQL dump.
 
     Warning:
         This may overwrite existing data. Use with caution on production databases.
 
-    Args:
-        input_file: Path to the dump file (.sql or .sql.gz).
-        user: Database user (default from settings).
-        database: Database name (default from settings).
-        timeout_seconds: Maximum time to wait for restore completion.
-
-    Raises:
-        click.ClickException: If the restore fails or times out.
+    Raise ClickException when the restore fails or times out.
 
     Example:
         $ phlo postgres restore --file backup.sql
         $ phlo postgres restore --file backup.sql.gz --db mydb --timeout 600
-
     """
     _require_container_backend()
     enforce_surface_mutation_authorization("postgres.restore", get_postgres_cli_adapter)
@@ -427,23 +355,13 @@ def postgres_vacuum(
 ) -> None:
     """Run vacuumdb for PostgreSQL maintenance inside the container.
 
-    Executes vacuumdb to reclaim storage and optionally update statistics.
-    This is useful for routine database maintenance after large operations.
-
-    Args:
-        user: Database user (default from settings).
-        database: Database name (default from settings).
-        analyze: Whether to run ANALYZE after vacuum (updates statistics).
-        timeout_seconds: Maximum time to wait for vacuum completion.
-
-    Raises:
-        click.ClickException: If vacuum fails or times out.
+    Reclaims storage and optionally ANALYZEs afterwards to refresh statistics.
+    Raise ClickException when vacuum fails or times out.
 
     Example:
         $ phlo postgres vacuum
         $ phlo postgres vacuum --no-analyze
         $ phlo postgres vacuum --db analytics --timeout 300
-
     """
     _require_container_backend()
     enforce_surface_mutation_authorization("postgres.vacuum", get_postgres_cli_adapter)

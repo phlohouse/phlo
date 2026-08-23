@@ -1,3 +1,9 @@
+"""Tests for "phlo doctor": probes, JSON payloads, and remediation hints.
+
+The startup fast-path must detect doctor invocations before plugin command discovery
+runs, so a broken plugin cannot block diagnostics.
+"""
+
 from subprocess import CompletedProcess, TimeoutExpired
 
 import yaml
@@ -260,6 +266,8 @@ def test_discovery_check_summarizes_exception(monkeypatch) -> None:
         for result in results
     )
     failure = next(result for result in results if result.id == "discovery.services")
+    # Non-verbose runs summarize failures; raw exception text stays out of
+    # default output.
     assert "entry point exploded" not in failure.message
 
 

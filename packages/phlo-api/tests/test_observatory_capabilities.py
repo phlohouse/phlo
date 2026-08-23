@@ -1,3 +1,10 @@
+"""Tests Observatory capability inventory construction and secret redaction.
+
+Fake registries expose metadata containing URLs, DSNs, and connection strings;
+these tests pin that such fields never leak into the published inventory while
+safe values and nested entries survive.
+"""
+
 from types import SimpleNamespace
 
 from phlo_api.observatory_api.observatory_capabilities import build_capability_inventory

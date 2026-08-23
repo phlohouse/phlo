@@ -22,15 +22,7 @@ os.environ.setdefault("MINIO_HOST", "localhost")
 
 
 def _is_nessie_unreachable_error(exc: Exception) -> bool:
-    """Check whether an exception indicates Nessie network unreachability.
-
-    Args:
-        exc: Exception raised while connecting to Nessie.
-
-    Returns:
-        True when the exception message matches known connectivity failures.
-
-    """
+    """Check whether an exception message matches known Nessie connectivity failures."""
     message = str(exc).lower()
     patterns = (
         "temporary failure in name resolution",

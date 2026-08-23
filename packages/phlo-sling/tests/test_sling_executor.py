@@ -1,4 +1,10 @@
-"""Tests for Sling executor."""
+"""Tests for the Sling executor.
+
+Target resolution defaults to the configured table name, fails with
+PhloConfigError before invoking Sling when no destination resolves, and
+accepts runtime file/object overrides without a connection. Executor
+runs inject auto-discovered Sling connection env before execution.
+"""
 
 from types import SimpleNamespace
 

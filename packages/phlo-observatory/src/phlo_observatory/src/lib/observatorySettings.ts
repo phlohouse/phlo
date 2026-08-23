@@ -1,3 +1,8 @@
+/**
+ * Zod schema, defaults, and storage helpers for Observatory user settings.
+ * Shared by the client preferences UI and the server settings API so both
+ * validate against one definition.
+ */
 import { z } from 'zod'
 
 const OBSERVATORY_SETTINGS_STORAGE_KEY = 'phlo-observatory-settings-v1'
@@ -85,6 +90,12 @@ export function parseObservatorySettings(
   return parsed.data
 }
 
+/**
+ * Read settings from localStorage. The returned source separates a real user
+ * override ('localStorage') from built-in defaults ('fallback'): callers such
+ * as getEffectiveObservatorySettings treat only the former as authoritative.
+ * SSR, missing storage, and malformed JSON all degrade to 'fallback'.
+ */
 export function loadStoredObservatorySettings():
   | { settings: ObservatorySettings; source: 'localStorage' }
   | { settings: ObservatorySettings; source: 'fallback' } {

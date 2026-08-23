@@ -1,3 +1,7 @@
+/**
+ * Catch-all route. Every unmatched path lands here and is converted into a
+ * 404 render instead of a router error.
+ */
 import { Link, createFileRoute, notFound } from '@tanstack/react-router'
 
 import { buttonVariants } from '@/components/ui/button'

@@ -1,4 +1,11 @@
-"""Provider-neutral transformation authoring decorators."""
+"""Provider-neutral transformation authoring decorators.
+
+The sql() decorator registers a transform asset at import time: SQL is
+captured eagerly by calling the function with no arguments, and
+functions with required parameters yield no static SQL rather than
+deferring evaluation. Assets accumulate in a module-level list owned by
+the core provider; clear_transform_assets() exists for test isolation.
+"""
 
 from __future__ import annotations
 
@@ -62,6 +69,9 @@ def sql(
     return _decorator
 
 
+# SQL is captured eagerly at decoration time by calling fn() with no arguments.
+# A function with required parameters cannot be called here, so its SQL is
+# treated as unavailable (None) rather than deferring evaluation to run time.
 def _static_sql_text(fn: Callable[..., str]) -> str | None:
     signature = inspect.signature(fn)
     required_parameters = [

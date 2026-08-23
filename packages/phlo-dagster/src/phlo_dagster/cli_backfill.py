@@ -125,27 +125,10 @@ def backfill(
 ):
     """Run asset materialization across a date range with parallel execution.
 
-    Supports multiple invocation modes:
-    - Date range: --start-date and --end-date
-    - Explicit partitions: --partitions comma-separated
-    - Resume: --resume to continue interrupted backfill
-
-    Args:
-        asset_name: Name of the asset to backfill.
-        start_date: Start date (YYYY-MM-DD) for date range mode.
-        end_date: End date (YYYY-MM-DD) for date range mode.
-        partitions: Comma-separated partition dates for explicit mode.
-        parallel: Number of concurrent workers (default: 1).
-        resume: If True, resume from previous backfill state.
-        dry_run: If True, show commands without executing.
-        delay: Delay between parallel executions in seconds.
-
-    Returns:
-        None
-
-    Raises:
-        SystemExit: On validation failure or backfill failure.
-
+    Invoked either with a --start-date/--end-date range, explicit
+    comma-separated --partitions, or --resume to continue an interrupted
+    backfill from its persisted state. Exits non-zero on validation or
+    backfill failure.
     """
     console.print("\n[bold blue]📦 Asset Backfill[/bold blue]\n")
     logger.info(
@@ -378,6 +361,9 @@ def _run_wap_backfill(
                     "logical_run_id": logical_run_id,
                     "dagster_run_id": dagster_run_id,
                 }
+                # Persist the in-flight mapping immediately after Dagster
+                # accepts the run, so an interrupted CLI resumes by
+                # reconciling that run instead of launching a duplicate.
                 _save_backfill_state(
                     asset_name,
                     [
@@ -455,6 +441,9 @@ def _wait_for_wap_lifecycle(
             report = read_wap_report(logical_run_id)
         except Exception as exc:
             poll_failures += 1
+            # Transient poll failures (Dagster restarts, network blips) are
+            # tolerated with capped exponential backoff before giving up;
+            # the run itself is untouched and --resume can retry later.
             if poll_failures >= max_poll_failures:
                 raise click.ClickException(
                     f"WAP lifecycle polling failed {poll_failures} times for logical run "
@@ -484,15 +473,8 @@ def _wait_for_wap_lifecycle(
 
 def _generate_partition_dates(start_date: str, end_date: str) -> list[str]:
     """
-    Generate list of partition dates for a date range.
-
-    Args:
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
-
-    Returns:
-        List of date strings in YYYY-MM-DD format
-
+    Generate the YYYY-MM-DD partition dates between start_date and
+    end_date, inclusive.
     """
     try:
         start = datetime.strptime(start_date, "%Y-%m-%d")
@@ -532,14 +514,8 @@ def _generate_partition_dates(start_date: str, end_date: str) -> list[str]:
 
 def _validate_partition_dates(dates: list[str]) -> None:
     """
-    Validate partition date format.
-
-    Args:
-        dates: List of date strings to validate
-
-    Raises:
-        SystemExit if validation fails
-
+    Validate that every partition date is in YYYY-MM-DD format; exits
+    non-zero on the first invalid date.
     """
     for date in dates:
         try:
@@ -563,15 +539,8 @@ def _build_materialize_command(
     backend: ContainerBackend | None = None,
 ) -> list[str]:
     """
-    Build the container exec command for materializing an asset.
-
-    Args:
-        asset_name: Name of the asset to materialize
-        partition_date: Partition date in YYYY-MM-DD format
-
-    Returns:
-        List of command components
-
+    Build the container exec command that materializes asset_name for one
+    partition date.
     """
     import platform
 
@@ -611,15 +580,8 @@ def _run_backfill(
     completed_partitions: list[str] | None = None,
 ) -> None:
     """
-    Execute backfill with progress tracking.
-
-    Args:
-        asset_name: Asset to backfill
-        partition_dates: List of partition dates
-        parallel: Number of concurrent workers
-        delay: Delay between executions in seconds
-        completed_partitions: List of already-completed partitions
-
+    Execute the backfill across partition dates with a worker pool,
+    persisting state periodically so an interrupted run can resume.
     """
     if completed_partitions is None:
         completed_partitions = []
@@ -755,17 +717,8 @@ def _run_backfill(
 
 
 def _load_backfill_state() -> dict[str, Any]:
-    """Load persisted backfill state from disk.
-
-    Args:
-        None
-
-    Returns:
-        Dictionary containing backfill state.
-
-    Raises:
-        Exception: If state file cannot be read.
-
+    """Read the persisted backfill state file and return its dictionary;
+    failures to read are logged and re-raised.
     """
     logger.info(
         "dagster_backfill_state_load_started",
@@ -799,16 +752,9 @@ def _materialize_partition(
     backend: ContainerBackend | None = None,
 ) -> tuple[bool, str]:
     """
-    Materialize a single partition.
-
-    Args:
-        asset_name: Asset to materialize
-        partition_date: Partition date
-        delay: Delay before execution in seconds
-
-    Returns:
-        Tuple of (success, output_message)
-
+    Materialize a single partition after an optional delay, returning a
+    (success, output_message) pair; timeouts and container errors count as
+    failure, not exceptions.
     """
     import time
 
@@ -908,14 +854,8 @@ def _save_backfill_state(
     emit_log: bool = False,
 ) -> None:
     """
-    Save backfill state for resume capability.
-
-    Args:
-        asset_name: Asset name
-        remaining_partitions: Partitions still to process
-        completed_partitions: Completed partitions
-        in_flight_wap: Accepted WAP runs that must be reconciled before resume.
-
+    Persist backfill state (asset name, remaining/completed partitions, and
+    any in-flight WAP runs) so an interrupted run can resume.
     """
     state_dir = BACKFILL_STATE_FILE.parent
     state_dir.mkdir(exist_ok=True)
@@ -961,17 +901,8 @@ def _save_backfill_state(
 
 
 def _remove_backfill_state() -> None:
-    """Remove persisted backfill state file if present.
-
-    Args:
-        None
-
-    Returns:
-        None
-
-    Raises:
-        Exception: If state file cannot be removed.
-
+    """Delete the persisted backfill state file if it exists; failures are
+    logged and re-raised.
     """
     if not BACKFILL_STATE_FILE.exists():
         return
@@ -997,11 +928,8 @@ def _remove_backfill_state() -> None:
 
 def _display_backfill_results(results: dict[str, Any]) -> None:
     """
-    Display backfill results in a formatted table.
-
-    Args:
-        results: Backfill results dictionary
-
+    Print backfill results as a summary table plus per-partition failures;
+    exits non-zero when any partition failed.
     """
     successful = len(results["successful"])
     failed = len(results["failed"])

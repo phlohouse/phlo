@@ -22,17 +22,7 @@ from phlo_clickhouse.resource import ClickHouseResource
 
 @dataclass
 class ClickHousePublishTarget:
-    """Publish target backed by ClickHouse.
-
-    Provides configuration for publishing data marts to ClickHouse tables.
-    Uses a ClickHouseResource for database connections and operations.
-
-    Attributes:
-        resource: ClickHouseResource instance for database operations.
-            Defaults to a new ClickHouseResource instance.
-        target_system: Target system identifier. Always "clickhouse".
-        default_schema: Default database/schema for publishing.
-            Defaults to "marts".
+    """Publish target backed by ClickHouse for data marts.
 
     Example:
         >>> target = ClickHousePublishTarget()

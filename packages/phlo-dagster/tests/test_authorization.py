@@ -1,4 +1,10 @@
-"""Tests for Dagster regulated surface adapter and authorization middleware."""
+"""Tests for Dagster regulated surface adapter and authorization middleware.
+
+Covers adapter metadata and operation listing, install-time surface
+registration in the capability registry (None runtimes rejected), the
+get_adapter() singleton, GraphQL-to-canonical-action mapping, and
+service gating for the dagster-daemon regulated surface.
+"""
 
 import pytest
 

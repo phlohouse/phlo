@@ -1,4 +1,9 @@
-"""Load human-authored schema migration instructions."""
+"""Load human-authored schema migration instructions.
+
+Renames come from a per-table YAML file plus CLI flags; conflicting targets
+for the same column, table mismatches, and malformed files raise
+MigrationInstructionError instead of being silently merged.
+"""
 
 from __future__ import annotations
 

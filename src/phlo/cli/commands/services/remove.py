@@ -1,4 +1,10 @@
-"""Remove command for removing services from the project."""
+"""Remove command for removing services from the project.
+
+Computes the transitive dependent closure of the target service and refuses
+to remove a service others still depend on. Removal is mutation-gated,
+stops the containers unless --keep-running is given, regenerates compose,
+and rewrites phlo.yaml service config.
+"""
 
 from collections.abc import Mapping
 from pathlib import Path
@@ -152,6 +158,8 @@ def remove_cmd(service_name: str, keep_running: bool):
     enabled, disabled = normalize_services_enabled_disabled_config(config)
     canonical_service_name = service.name
 
+    # Removing a service also removes anything that depends on it, directly
+    # or transitively; those services cannot run once their dependency is gone.
     dependent_names = _dependent_closure(all_services, canonical_service_name)
     names_to_disable = [canonical_service_name, *dependent_names]
 

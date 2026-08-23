@@ -1,3 +1,6 @@
+"""Tests validate_with_pandera coercing datetime columns before Pandera
+validation, including failure logging."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -18,29 +21,11 @@ class ExampleSchema(DataFrameModel):
 
 
 def test_validate_with_pandera_only_coerces_datetime_columns(monkeypatch) -> None:
-    """Assert datetime columns are coerced while string columns remain strings.
-
-    Args:
-        monkeypatch: Pytest monkeypatch fixture.
-
-    """
+    """Assert datetime columns are coerced while string columns remain strings."""
 
     captured: dict[str, pd.DataFrame] = {}
 
     def _validate(cls, df: pd.DataFrame, *args, **kwargs):  # noqa: ANN001,ANN002,ANN003
-        """Capture the DataFrame passed to schema validation.
-
-        Args:
-            cls: Schema class receiving the validation call.
-            df: DataFrame to validate.
-            *args: Additional positional validate arguments.
-            **kwargs: Additional keyword validate arguments.
-
-        Returns:
-            pd.DataFrame: Unmodified DataFrame.
-
-        """
-
         captured["df"] = df.copy()
         return df
 

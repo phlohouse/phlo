@@ -1,4 +1,8 @@
-"""WAP endpoint resolution follows normal Phlo host resolution."""
+"""Endpoint resolution for WAP-enabled Dagster runs.
+
+Asserts local runs resolve through normal Phlo host resolution while an
+explicitly configured endpoint bypasses resolution entirely.
+"""
 
 from types import SimpleNamespace
 

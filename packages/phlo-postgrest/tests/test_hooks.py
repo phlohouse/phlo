@@ -1,4 +1,9 @@
-"""Unit tests for PostgREST lifecycle hooks."""
+"""Unit tests for PostgREST lifecycle hooks.
+
+Verifies schema reload signaling after configuration changes, psql subprocess
+failure and nonzero-exit logging, and that reloads happen only when the
+service restart failed.
+"""
 
 from __future__ import annotations
 

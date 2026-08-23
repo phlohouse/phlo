@@ -1,3 +1,6 @@
+"""Tests PostgresResource lifecycle: transactions, health checks, query
+helpers, and pool teardown under failure."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -8,12 +11,7 @@ from phlo_postgres.resource import PostgresResource
 
 
 def _resource() -> PostgresResource:
-    """Build a Postgres resource configured for local unit tests.
-
-    Returns:
-        Configured `PostgresResource` instance.
-
-    """
+    """Build a Postgres resource configured for local unit tests."""
     return PostgresResource(
         host="localhost",
         port=5432,

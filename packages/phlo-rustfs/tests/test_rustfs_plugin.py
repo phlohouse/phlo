@@ -118,14 +118,10 @@ def test_rustfs_resource_provider_exposes_object_store(monkeypatch) -> None:
     through get_object_stores(). Mocks the S3 connection details to avoid
     external dependencies during testing.
 
-    Args:
-        monkeypatch: Pytest fixture for mocking attributes.
-
     Asserts:
         - Object stores list has exactly one entry
         - Object store name is "rustfs"
         - Endpoint metadata matches mocked value
-
     """
     monkeypatch.setattr(
         "phlo_rustfs.plugin.RustfsObjectStoreProvider.to_sling_connection",

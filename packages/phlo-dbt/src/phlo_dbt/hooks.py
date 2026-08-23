@@ -14,6 +14,9 @@ Example:
     >>> if exit_code == 0:
     ...     print("Compilation successful")
 
+
+Invoked standalone during dbt service lifecycle operations rather than imported
+by other phlo modules; drives compilation through phlo.cli.infrastructure.
 """
 
 from __future__ import annotations
@@ -54,22 +57,11 @@ def _container_path(local_path: Path, project_root: Path | None = None) -> Path:
 def compile_dbt() -> int:
     """Compile dbt models in the Dagster container when a dbt project exists.
 
-    Checks for the existence of a dbt project and, if found, compiles it within
-    the Dagster webserver container. This includes:
-    - Installing dbt dependencies (dbt deps)
-    - Compiling models (dbt compile)
-    - Restarting Dagster services to pick up the new manifest
-
-    Designed to be called as a service hook during Phlo startup or development
-    workflows.
-
-    Returns:
-        Process-style status code (0 for success, non-zero for failure).
-        Returns 0 if no dbt project exists.
-
-    Raises:
-        No explicit exceptions raised; errors are logged and reported via
-        return code and structured log events.
+    Installs dependencies, compiles models, and restarts Dagster services to
+    pick up the new manifest. Intended as a service hook during startup or
+    development workflows. Returns a process-style status code: 0 on success
+    and also when no dbt project exists; failures surface via the return code
+    and structured log events rather than exceptions.
 
     Example:
         >>> from phlo_dbt.hooks import compile_dbt
@@ -191,12 +183,7 @@ def compile_dbt() -> int:
 
 
 def main() -> int:
-    """Run dbt hook CLI entrypoint.
-
-    Returns:
-        Process-style status code.
-
-    """
+    """Run the dbt hook CLI entrypoint, returning a process-style status code."""
     parser = argparse.ArgumentParser(description="Phlo dbt hooks")
     parser.add_argument("action", choices=["compile"])
     args = parser.parse_args()

@@ -9,6 +9,7 @@ Example:
     >>> settings.openmetadata_uri()
     'http://openmetadata-server:8585/api'
 
+Builds on phlo.config.* and resolves query-engine mappings via phlo_openmetadata.capabilities.
 """
 
 from __future__ import annotations
@@ -29,24 +30,8 @@ from phlo_openmetadata.capabilities import (
 class OpenMetadataSettings(BaseConfig):
     """OpenMetadata integration configuration.
 
-    Manages all configuration settings for OpenMetadata integration including
-    connection parameters, authentication credentials, and sync behavior.
-
-    Attributes:
-        openmetadata_host: Server hostname.
-        openmetadata_port: Server port.
-        openmetadata_username: Authentication username.
-        openmetadata_password: Authentication password.
-        openmetadata_verify_ssl: SSL certificate verification flag.
-        openmetadata_service_name: Database service name.
-        openmetadata_service_type: Database service type.
-        openmetadata_catalog_scanner: Catalog scanner capability name.
-        openmetadata_query_engine: Query engine capability name.
-        openmetadata_database_name: Explicit database name.
-        openmetadata_dbt_manifest_path: Path to dbt manifest.json.
-        openmetadata_dbt_catalog_path: Path to dbt catalog.json.
-        openmetadata_sync_enabled: Enable automatic sync flag.
-        openmetadata_sync_interval_seconds: Minimum sync interval.
+    Covers connection parameters, authentication credentials, and sync
+    behavior for the OpenMetadata integration.
 
     Example:
         >>> settings = OpenMetadataSettings()
@@ -100,6 +85,7 @@ class OpenMetadataSettings(BaseConfig):
     )
 
     def model_post_init(self, __context: object) -> None:
+        """Resolve final host and port from configuration and environment overrides."""
         host, port = resolve_host(
             self.openmetadata_host,
             self.openmetadata_port,
@@ -109,43 +95,24 @@ class OpenMetadataSettings(BaseConfig):
         object.__setattr__(self, "openmetadata_port", port)
 
     def openmetadata_uri(self) -> str:
-        """Build the OpenMetadata API base URI.
-
-        Returns:
-            str: Base API URI for OpenMetadata.
-
-        """
+        """Build the OpenMetadata API base URI."""
         return f"http://{self.openmetadata_host}:{self.openmetadata_port}/api"
 
     def openmetadata_database(self) -> str:
         """Resolve the OpenMetadata database name.
 
-        Uses explicit configuration or discovers from query engine capability.
-
-        Returns:
-            str: Explicit OpenMetadata database name or discovered query-engine catalog.
-
-        Raises:
-            RuntimeError: If database name cannot be resolved from configuration
-                or query engine metadata.
-
+        Prefers explicit configuration, then the query engine capability;
+        raises RuntimeError when neither resolves.
         """
         if self.openmetadata_database_name:
             return self.openmetadata_database_name
         return resolve_query_engine_catalog(self.openmetadata_query_engine)
 
     def openmetadata_database_service_type(self) -> str:
-        """Resolve the OpenMetadata service type.
+        """Resolve the OpenMetadata service type (e.g., 'Trino', 'Snowflake').
 
-        Uses explicit configuration or discovers from query engine capability.
-
-        Returns:
-            str: Service type for OpenMetadata (e.g., 'Trino', 'Snowflake').
-
-        Raises:
-            RuntimeError: If service type cannot be resolved from configuration
-                or query engine metadata.
-
+        Prefers explicit configuration, then the query engine capability;
+        raises RuntimeError when neither resolves.
         """
         if self.openmetadata_service_type:
             return self.openmetadata_service_type
@@ -154,16 +121,5 @@ class OpenMetadataSettings(BaseConfig):
 
 @project_root_cached
 def get_settings(project_root: Path) -> OpenMetadataSettings:
-    """Get cached OpenMetadata settings for the selected project root.
-
-    Settings are cached per resolved project root, with up to 16 entries,
-    to avoid repeated configuration loading while isolating project state.
-
-    Args:
-        project_root: Resolved project root used for cache selection.
-
-    Returns:
-        OpenMetadataSettings: Cached OpenMetadata settings instance.
-
-    """
+    """Get cached OpenMetadata settings for the selected project root."""
     return OpenMetadataSettings()

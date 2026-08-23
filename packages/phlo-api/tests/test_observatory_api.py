@@ -1,4 +1,10 @@
-"""Tests for the Observatory provider-neutral API contract."""
+"""Tests for the Observatory provider-neutral API contract.
+
+Covers payload serialization shape (no provider URLs leak), scoped run-report
+identity and idempotency on operational routes, read-model caching, service
+and docker status resolution, capability inventory gating, bounded log tails,
+and the saved-query, branch, and WAP-report contracts.
+"""
 
 from __future__ import annotations
 
@@ -60,6 +66,8 @@ from phlo_api.observatory_api.observatory_services import (
 )
 from phlo_api.security_manifest import RUN_REPORT_RESOURCE_ID_ATTRIBUTE
 
+# Lowercase concatenations catch camelCase spellings that `.lower()` would
+# otherwise merge past the snake_case names (e.g. "dagsterGraphqlUrl").
 _PROVIDER_URL_SETTING_NAMES = (
     "dagster_url",
     "trino_url",

@@ -1,4 +1,8 @@
-"""Tests for migration spec parser."""
+"""Tests for migration spec parser.
+
+Locks the required spec shape (name, source, destination) and asserts that
+missing files, non-mapping roots, and absent fields raise MigrationSpecError.
+"""
 
 from __future__ import annotations
 

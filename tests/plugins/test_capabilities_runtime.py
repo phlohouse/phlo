@@ -1,3 +1,6 @@
+"""Tests for the capability registry: registration, resolution, runtime
+routing, and missing-required-capability detection."""
+
 from __future__ import annotations
 
 import pytest

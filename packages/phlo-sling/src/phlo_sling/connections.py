@@ -1,17 +1,8 @@
 """Auto-generate Sling connections from Phlo capability metadata.
 
-This module provides functionality to automatically discover and configure
-Sling connections based on installed Phlo package capabilities. It resolves
-connections for Postgres, Iceberg, and S3-compatible object stores by inspecting
-the configuration of related Phlo packages.
-
-Functions:
-    resolve_phlo_connections: Build Sling connection definitions from
-        Phlo package settings.
-    export_sling_env: Convert connection dicts to Sling environment
-        variable format.
-    apply_sling_connection_env: Inject resolved connections into the
-        environment.
+Discovers and configures Sling connections based on installed Phlo package
+capabilities, resolving Postgres, Iceberg, and S3-compatible object-store
+connections by inspecting the configuration of related Phlo packages.
 """
 
 from __future__ import annotations
@@ -32,21 +23,16 @@ def resolve_phlo_connections() -> dict[str, dict[str, Any]]:
     """Build Sling connection definitions from installed Phlo package settings.
 
     Inspects known Phlo capability providers (phlo-postgres, phlo-minio, etc.)
-    and generates Sling-compatible connection dicts. This enables seamless
-    integration between Phlo-managed infrastructure and Sling replication
-    without manual connection configuration.
-
-    Returns:
-        Dict mapping connection name to Sling connection config. Each config
-        contains connection-specific parameters like host, port, credentials,
-        and endpoint URLs.
+    and returns a dict mapping connection name to a Sling-compatible config with
+    connection-specific parameters (host, port, credentials, endpoint URLs),
+    so Phlo-managed infrastructure can back Sling replications without manual
+    connection configuration.
 
     Example:
         Get auto-discovered connections::
 
             connections = resolve_phlo_connections()
             # {"PHLO_POSTGRES": {"type": "postgres", "host": "...", ...}}
-
     """
     if not get_settings().sling_auto_connections:
         logger.debug("sling_auto_connections_disabled")
@@ -64,15 +50,9 @@ def resolve_phlo_connections() -> dict[str, dict[str, Any]]:
 def _project_env_value(name: str) -> str | None:
     """Read a non-secret default from phlo.yaml env: when host os.environ lacks it.
 
-    This helper function provides a fallback mechanism for retrieving
-    environment variable values from the project configuration file when
-    they are not set in the actual environment.
-
-    Args:
-        name: The environment variable name to look up.
-
-    Returns:
-        The value from phlo.yaml if found and valid, otherwise None.
+    Falls back to the project configuration file for ``name`` when the variable
+    is not set in the actual environment; returns the phlo.yaml value when found
+    and valid, otherwise None.
 
     """
     try:
@@ -92,15 +72,8 @@ def _project_env_value(name: str) -> str | None:
 def _ensure_capabilities_discovered(*kinds: str) -> None:
     """Populate the capability registry only when the requested kinds are absent.
 
-    Lazily discovers capabilities from installed Phlo packages when the
-    requested capability kinds are not already registered.
-
-    Args:
-        *kinds: Capability type strings to check for and potentially discover.
-
-    Returns:
-        None
-
+    Lazily discovers capabilities from installed Phlo packages when none of the
+    requested capability kinds are already registered.
     """
     if any(list_capabilities(kind) for kind in kinds):
         return
@@ -113,14 +86,9 @@ def _ensure_capabilities_discovered(*kinds: str) -> None:
 def _get_iceberg_settings():
     """Import phlo-iceberg settings lazily for optional package installs.
 
-    This helper provides lazy importing of phlo-iceberg settings to avoid
-    import errors when the package is not installed.
-
-    Returns:
-        The phlo-iceberg settings instance.
-
-    Raises:
-        ImportError: If phlo-iceberg is not installed.
+    Lazily imports phlo-iceberg settings so installs without the optional
+    package do not fail at import time. Raises ImportError when phlo-iceberg is
+    not installed; otherwise returns the settings instance.
 
     """
     from phlo_iceberg.settings import get_settings as get_iceberg_settings
@@ -132,11 +100,8 @@ def _resolve_postgres_connection() -> dict[str, dict[str, Any]]:
     """Resolve Postgres connection from phlo-postgres settings.
 
     Builds a Sling-compatible connection configuration from the installed
-    phlo-postgres package settings if available.
-
-    Returns:
-        Dict with "PHLO_POSTGRES" key containing connection configuration,
-        or empty dict if phlo-postgres is not installed or configured.
+    phlo-postgres package settings if available; returns {"PHLO_POSTGRES": ...}
+    or an empty dict when phlo-postgres is not installed or configured.
 
     """
     try:
@@ -162,12 +127,10 @@ def _resolve_postgres_connection() -> dict[str, dict[str, Any]]:
 def _resolve_iceberg_connection() -> dict[str, dict[str, Any]]:
     """Resolve an Iceberg REST catalog connection from phlo-iceberg settings.
 
-    Builds a Sling-compatible connection configuration for Iceberg REST
-    catalog access from the installed phlo-iceberg package settings.
-
-    Returns:
-        Dict with "PHLO_ICEBERG" key containing connection configuration,
-        or empty dict if phlo-iceberg is not installed or configured.
+    Builds a Sling-compatible connection configuration for Iceberg REST catalog
+    access from the installed phlo-iceberg package settings; returns
+    {"PHLO_ICEBERG": ...} or an empty dict when phlo-iceberg is not installed or
+    configured.
 
     """
     try:
@@ -195,12 +158,10 @@ def _resolve_iceberg_connection() -> dict[str, dict[str, Any]]:
 def _resolve_s3_connection() -> dict[str, dict[str, Any]]:
     """Resolve S3 connection from the active object-store capability.
 
-    Discovers and builds a Sling-compatible S3 connection configuration
-    from the active object-store capability provider (e.g., phlo-minio).
-
-    Returns:
-        Dict with "PHLO_S3" key containing connection configuration,
-        or empty dict if no object-store capability is available.
+    Discovers and builds a Sling-compatible S3 connection configuration from the
+    active object-store capability provider (e.g., phlo-minio); returns
+    {"PHLO_S3": ...} or an empty dict when no object-store capability is
+    available.
 
     """
     _ensure_capabilities_discovered("object_store")
@@ -238,15 +199,8 @@ def _resolve_s3_connection() -> dict[str, dict[str, Any]]:
 def export_sling_env(connections: dict[str, dict[str, Any]]) -> dict[str, str]:
     """Convert connection dicts to Sling environment variable format.
 
-    Sling expects connections as environment variables with JSON values.
-    This function transforms the internal connection dictionary format
-    into the environment variable format required by Sling.
-
-    Args:
-        connections: Dict of connection name → connection config.
-
-    Returns:
-        Dict of environment variable name → JSON string value.
+    Sling expects connections as environment variables with JSON values; returns
+    a dict mapping each connection name to its JSON-serialized config.
 
     Example:
         Export connections for environment setup::
@@ -267,14 +221,9 @@ def export_sling_env(connections: dict[str, dict[str, Any]]) -> dict[str, str]:
 def apply_sling_connection_env(environ: MutableMapping[str, str] | None = None) -> dict[str, str]:
     """Inject resolved Sling connections into an environment mapping.
 
-    Applies auto-discovered Sling connections to the environment. Existing
-    variables are preserved and not overwritten by auto-generated values.
-
-    Args:
-        environ: Environment mapping to mutate. Defaults to ``os.environ``.
-
-    Returns:
-        Dict of injected environment variables that were added.
+    Applies auto-discovered Sling connections to ``environ`` (default
+    ``os.environ``), preserving existing variables rather than overwriting them;
+    returns the injected environment variables.
 
     Example:
         Apply connections before running Sling::

@@ -72,15 +72,7 @@ def _parse_dbt_summary(stdout: str) -> dict[str, int]:
 
 
 def _resource_type_for_result(result: Mapping[str, Any]) -> str:
-    """Infer dbt resource type from a run result mapping.
-
-    Args:
-        result: Single result item from dbt run results.
-
-    Returns:
-        Resource type value, or an empty string if unavailable.
-
-    """
+    """Return the dbt resource type for a run result, or an empty string if unavailable."""
     resource_type = result.get("resource_type")
     if isinstance(resource_type, str) and resource_type:
         return resource_type
@@ -91,15 +83,7 @@ def _resource_type_for_result(result: Mapping[str, Any]) -> str:
 
 
 def _parse_run_results_counts(payload: Mapping[str, Any]) -> dict[str, int] | None:
-    """Extract model and test pass/fail counts from dbt run results payload.
-
-    Args:
-        payload: Parsed JSON payload from ``run_results.json``.
-
-    Returns:
-        Count mapping when parseable; otherwise ``None``.
-
-    """
+    """Extract model and test pass/fail counts from dbt run results; None if unparsable."""
     results = payload.get("results")
     if not isinstance(results, list):
         return None
@@ -147,15 +131,7 @@ def _read_run_results(path: Path) -> Mapping[str, Any] | None:
 
 
 def _latest_project_mtime(dbt_project_path: Path) -> float:
-    """Return latest modification time across key dbt project files.
-
-    Args:
-        dbt_project_path: Path to the dbt project root.
-
-    Returns:
-        Unix timestamp of the newest relevant file modification.
-
-    """
+    """Return the newest mtime across key dbt project files and asset directories."""
     candidates: list[Path] = [
         dbt_project_path / "dbt_project.yml",
         dbt_project_path / "packages.yml",
@@ -186,16 +162,7 @@ def _latest_project_mtime(dbt_project_path: Path) -> float:
 
 
 def ensure_dbt_manifest(dbt_project_path: Path, profiles_path: Path) -> bool:
-    """Ensure dbt manifest exists and is valid for the project.
-
-    Args:
-        dbt_project_path: Path to the dbt project root.
-        profiles_path: Path to the dbt profiles directory.
-
-    Returns:
-        ``True`` when a valid manifest is present after checks/parse.
-
-    """
+    """Ensure a valid dbt manifest exists for the project; True when present after checks/parse."""
     manifest_path = dbt_project_path / "target" / "manifest.json"
     ensure_dbt_profile(profiles_path)
 
@@ -250,16 +217,7 @@ def _emit_dbt_lineage(
     logger: Any,
     reader: Callable[[str], Any],
 ) -> None:
-    """Emit lineage edges from a dbt manifest.
-
-    Args:
-        manifest_path: Path to ``manifest.json``.
-        translator: Translator used to derive asset keys.
-        lineage_emitter: Lineage event emitter instance.
-        logger: Logger used for warning output.
-        reader: JSON loader callable for manifest text.
-
-    """
+    """Emit lineage edges derived from a dbt manifest via the lineage emitter."""
     manifest = load_dbt_manifest(manifest_path)
     if manifest is None:
         return
@@ -289,13 +247,6 @@ class DbtTransformer(BaseTransformer):
     The transformer integrates with Phlo's hook system to emit events for
     lineage tracking, performance metrics, and execution monitoring. It
     supports both local and containerized dbt execution environments.
-
-    Attributes:
-        context: Execution context from the orchestrator.
-        project_dir: Path to the dbt project directory.
-        profiles_dir: Path to the dbt profiles directory.
-        target: dbt target profile name (default: "dev").
-        dbt_executable: dbt binary name or path (default: "dbt").
 
     Example:
         >>> transformer = DbtTransformer(
@@ -328,17 +279,7 @@ class DbtTransformer(BaseTransformer):
         target: str = "dev",
         dbt_executable: str = "dbt",
     ):
-        """Initialize dbt transformer runtime configuration.
-
-        Args:
-            context: Execution context passed from orchestrator.
-            logger: Logger instance.
-            project_dir: dbt project directory.
-            profiles_dir: dbt profiles directory.
-            target: dbt target profile name.
-            dbt_executable: dbt binary name or path.
-
-        """
+        """Initialize dbt transformer runtime configuration."""
         super().__init__(context, logger)
         self.project_dir = project_dir
         self.profiles_dir = profiles_dir
@@ -386,22 +327,10 @@ class DbtTransformer(BaseTransformer):
     def _run_command(
         self, args: list[str], env: dict[str, str] | None = None
     ) -> subprocess.CompletedProcess:
-        """Run a dbt subprocess command inside the configured project.
-
-        Args:
-            args: dbt command arguments.
-            env: Optional environment variable overrides.
-
-        Returns:
-            Completed subprocess result.
-
-        """
+        """Run a dbt subprocess command in the configured project with optional env overrides."""
         full_env = os.environ.copy()
         if env:
             full_env.update(env)
-
-        # Ensure DBT_PROFILES_DIR is set if not passed explicitly in args (though we pass it)
-        # But for 'subprocess', arguments are better.
 
         log_event(
             self.logger,
@@ -423,16 +352,7 @@ class DbtTransformer(BaseTransformer):
     def run_transform(
         self, partition_key: str | None = None, parameters: dict[str, Any] | None = None
     ) -> TransformationResult:
-        """Execute dbt build/docs flow and emit transform telemetry events.
-
-        Args:
-            partition_key: Optional partition date key for dbt vars.
-            parameters: Optional runtime parameters controlling dbt execution.
-
-        Returns:
-            Transformation result containing status, counts, and metadata.
-
-        """
+        """Execute dbt build/docs flow and emit transform telemetry events."""
         parameters = parameters or {}
         self.build_run_results = None
         select_args = parameters.get("select", [])
@@ -441,7 +361,6 @@ class DbtTransformer(BaseTransformer):
         skip_build = parameters.get("skip_build", False)
         ensure_dbt_profile(self.profiles_dir, runtime=self.context, target=self.target)
 
-        # Build dbt args
         build_args = [
             "build",
             "--profiles-dir",
@@ -470,9 +389,8 @@ class DbtTransformer(BaseTransformer):
                 partition_key=partition_key,
             )
 
-        # Setup Emitters
-        # We need model names for context. If select args are passed, we use those as proxy
-        # or we might parse the output.
+        # Model names for event context are approximated from --select; the
+        # resolved dbt selection is not known before the build runs.
         model_names = select_args if select_args else ["all"]
         run_id = getattr(self.context, "run_id", None)
         asset_key = getattr(self.context, "asset_key", None)
@@ -517,8 +435,6 @@ class DbtTransformer(BaseTransformer):
         start_time = time.time()
         elapsed = 0.0
         result_stdout = ""
-
-        # Only emit start if we're actually running build
         if not skip_build:
             emitter.emit_start()
 
@@ -538,7 +454,7 @@ class DbtTransformer(BaseTransformer):
 
                 elapsed = time.time() - start_time
 
-                # 2. Emit Success Metrics
+                # 2. Emit success metrics.
                 emitter.emit_end(status="success", metrics={"dbt_args": build_args})
                 telemetry.emit_metric(
                     name="transform.duration_seconds",
@@ -547,8 +463,7 @@ class DbtTransformer(BaseTransformer):
                     payload={"models": model_names},
                 )
 
-            # 3. Emit Lineage
-            # We assume manifest is at target/manifest.json
+            # 3. Emit lineage from the manifest left by the build.
             manifest_path = self.project_dir / "target" / "manifest.json"
             translator = DbtSpecTranslator()
 
@@ -560,8 +475,8 @@ class DbtTransformer(BaseTransformer):
                 reader=json.loads,
             )
 
-            # 4. Generate Docs (Optional, but legacy implementation did it)
-            # We skip it for optimization unless requested, but to match legacy behavior:
+            # 4. Generate Docs. On by default to preserve legacy behavior;
+            # a docs failure must not fail the transform, so its result is ignored.
             if parameters.get("generate_docs", True):
                 docs_args = [
                     "docs",
@@ -572,7 +487,6 @@ class DbtTransformer(BaseTransformer):
                     self.target,
                 ]
                 self._run_command(docs_args)
-                # We don't fail hard on docs gen failure usually
 
             if skip_build:
                 elapsed = time.time() - start_time

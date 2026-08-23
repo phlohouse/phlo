@@ -1,4 +1,11 @@
-"""Source adapters for data migration reads."""
+"""Source adapters for data migration reads.
+
+Adapters implement the SourceAdapter protocol: chunked row iteration,
+config validation returning error strings, and an optional row-count
+estimate. CSV is the only built-in; other types resolve at call time
+from registered "data_migration_source" capabilities and are accepted
+only if they satisfy the protocol.
+"""
 
 from __future__ import annotations
 
@@ -38,9 +45,11 @@ class CsvSourceAdapter:
 
     @property
     def source_type(self) -> str:
+        """Return this adapter's source type identifier."""
         return "csv"
 
     def validate_config(self, source: MigrationSource) -> list[str]:
+        """Return configuration errors for a CSV migration source."""
         errors: list[str] = []
         if not source.path:
             errors.append("source.path is required for csv source")
@@ -60,6 +69,7 @@ class CsvSourceAdapter:
         *,
         chunk_size: int = 50_000,
     ) -> Iterator[list[dict[str, Any]]]:
+        """Yield CSV rows in chunks of at most chunk_size records."""
         if not source.path:
             raise ValueError("source.path is required for csv source")
 
@@ -76,6 +86,11 @@ class CsvSourceAdapter:
                 yield buffer
 
     def estimate_row_count(self, source: MigrationSource) -> int | None:
+        """Estimate source row count by counting physical lines minus the header.
+
+        Quoted fields containing embedded newlines inflate the count, so treat
+        the result as a progress hint rather than an exact total.
+        """
         if not source.path:
             return None
         csv_path = Path(source.path)

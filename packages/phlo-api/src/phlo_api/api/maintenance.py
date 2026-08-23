@@ -110,20 +110,7 @@ class MaintenanceStatusSnapshot(BaseModel):
 
 @router.get("/status", response_model=MaintenanceStatusSnapshot | dict)
 def get_maintenance_status() -> MaintenanceStatusSnapshot | dict[str, str]:
-    """Get maintenance status derived from telemetry logs.
-
-    Returns the current maintenance operation snapshot from the read model.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        MaintenanceStatusSnapshot with operations and timestamp, or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
-    """
+    """Get maintenance status snapshot from the read model."""
     try:
         snapshot = _resolve_maintenance_read_model().load_maintenance_status()
         logger.debug("maintenance_status_loaded", operation_count=len(snapshot.operations))
@@ -135,20 +122,7 @@ def get_maintenance_status() -> MaintenanceStatusSnapshot | dict[str, str]:
 
 @router.get("/metrics", response_class=PlainTextResponse)
 def get_maintenance_metrics() -> PlainTextResponse:
-    """Expose maintenance metrics in Prometheus text format.
-
-    Returns maintenance operation metrics formatted for Prometheus scraping.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        PlainTextResponse with Prometheus-formatted metrics.
-
-    Raises:
-        None: Exceptions are caught and returned with status 500.
-
-    """
+    """Expose maintenance metrics in Prometheus text format."""
     try:
         metrics_payload = _resolve_maintenance_read_model().render_maintenance_prometheus()
         logger.debug("maintenance_metrics_rendered", payload_length=len(metrics_payload))

@@ -1,4 +1,8 @@
-"""Core metrics CLI tests."""
+"""Core metrics CLI tests.
+
+Covers metrics model creation, JSON export, byte formatting, period parsing,
+and the summary command in text and JSON output modes.
+"""
 
 from __future__ import annotations
 

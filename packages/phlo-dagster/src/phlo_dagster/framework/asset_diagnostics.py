@@ -1,4 +1,12 @@
-"""Diagnostics for ambiguous Dagster asset definition failures."""
+"""Diagnostics for ambiguous Dagster asset definition failures.
+
+Duplicate asset keys become Phlo discovery errors that name each spec's
+provider/module/file origin; Definitions.merge failures are re-inspected so the
+same guidance replaces Dagster's opaque duplicate-key error.
+
+Framework-internal phlo_dagster helper: used by definitions, discovery, and the Dagster adapter.
+Reports duplicate assets as phlo.capabilities.specs-aware origins instead of opaque Dagster errors.
+"""
 
 from __future__ import annotations
 
@@ -29,6 +37,7 @@ class AssetOrigin:
     object_name: str | None = None
 
     def describe(self) -> str:
+        """Render populated origin fields as a comma-separated key=value string."""
         parts: list[str] = []
         if self.provider:
             parts.append(f"provider={self.provider}")

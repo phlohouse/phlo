@@ -1,4 +1,10 @@
-"""Guarded Observatory action family dispatcher."""
+"""Guarded Observatory action family dispatcher.
+
+Resolves action ids against declared action families, each carrying the
+capability its execution needs. Never raises: unknown ids return a failed
+result and known families without an executable provider path return
+skipped, so callers render outcomes from the result alone.
+"""
 
 from __future__ import annotations
 
@@ -39,14 +45,17 @@ class _ActionRuntimeContext:
 
     @property
     def logger(self) -> Any:
+        """Return the module logger for action handling."""
         return logging.getLogger("phlo.observatory.observatory.actions")
 
     @property
     def resources(self) -> dict[str, Any]:
+        """Return the registered resources by name."""
         return self._resources
 
     @property
     def routing(self) -> RuntimeRouting:
+        """Build runtime routing from the recorded run, partition, and resources."""
         return RuntimeRouting(
             partition_key=self.partition_key,
             run_id=self.run_id,
@@ -54,6 +63,7 @@ class _ActionRuntimeContext:
         )
 
     def get_resource(self, name: str) -> Any:
+        """Return a named resource."""
         return self._resources[name]
 
 
@@ -388,6 +398,9 @@ def execute_observatory_action(
     request: ObservatoryActionRequest, *, registry: Any | None = None
 ) -> ObservatoryActionResult:
     """Execute or decline a guarded Observatory action."""
+    # Never raises: unknown action ids return a failed result, known families
+    # without an executable provider path return skipped, so callers can always
+    # render the outcome from the returned result alone.
     family = _known_family_for_action(request.action_id)
     if family is not None:
         result = _provider_action_result(request, family, registry)

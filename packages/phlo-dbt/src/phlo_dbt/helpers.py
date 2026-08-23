@@ -1,4 +1,9 @@
-"""Ergonomic helpers for dbt-backed lakehouse workflows."""
+"""Ergonomic helpers for dbt-backed lakehouse workflows.
+
+Selector matching stays deliberately lightweight -- exact names, aliases, unique
+IDs, ``package.model`` shapes, and globs over those; complex graph operators are
+left to dbt itself.
+"""
 
 from __future__ import annotations
 

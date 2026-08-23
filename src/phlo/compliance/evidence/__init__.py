@@ -1,4 +1,8 @@
-"""Evidence pack creation and verification for compliance auditing."""
+"""Evidence pack creation and verification for compliance auditing.
+
+Re-exports the pack implementation as the public entrypoint of this
+subpackage.
+"""
 
 from phlo.compliance.evidence.pack import (
     EVIDENCE_PACK_ALGORITHM,

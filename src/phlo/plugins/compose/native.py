@@ -65,9 +65,8 @@ class NativeProcessManager:
     def __init__(self, project_root: Path, log_dir: Path | None = None):
         """Initialize a native process manager.
 
-        Args:
-            project_root: Root directory for resolving service paths.
-            log_dir: Optional directory for per-service log files.
+        ``project_root`` resolves service paths; ``log_dir`` optionally receives
+        per-service log files.
         """
 
         self.project_root = project_root
@@ -79,17 +78,10 @@ class NativeProcessManager:
         return bool(service.dev and service.dev.get("command"))
 
     def _expand_env_vars(self, value: str, env: dict[str, str]) -> str:
-        """Expand `${VAR}` and `${VAR:-default}` placeholders in a string.
+        """Expand ``${VAR}`` and ``${VAR:-default}`` placeholders in ``value``.
 
-        Args:
-            value: Input string that may include environment placeholders.
-            env: Environment mapping used for substitution.
-
-        Returns:
-            String with placeholders replaced from env or defaults.
-
-        Raises:
-            KeyError: If a placeholder has no matching env value and no default.
+        Substitutes from ``env``; raise KeyError when a placeholder has neither a
+        matching env value nor a default.
         """
 
         pattern = re.compile(r"\$\{([A-Z0-9_]+)(?::-([^}]*))?\}")
@@ -114,12 +106,7 @@ class NativeProcessManager:
     ) -> NativeProcess | None:
         """Start a service as a subprocess in dev mode.
 
-        Args:
-            service: Service definition with dev config.
-            env_overrides: Additional environment variables.
-
-        Returns:
-            NativeProcess if started, None if not supported.
+        Return the NativeProcess handle, or None when the service is not supported.
         """
         if not self.can_run_dev(service):
             logger.warning("service_dev_mode_not_supported", service_name=service.name)
@@ -242,14 +229,9 @@ class NativeProcessManager:
         return native_process
 
     async def stop_service(self, name: str, timeout: int = 10) -> bool:
-        """Stop a native service.
+        """Stop a native service, waiting up to ``timeout`` seconds for shutdown.
 
-        Args:
-            name: Service name.
-            timeout: Seconds to wait for graceful shutdown.
-
-        Returns:
-            True if stopped, False if not found or failed.
+        Return True when stopped; False when not found or shutdown failed.
         """
         native_process = self._processes.get(name)
         if not native_process:

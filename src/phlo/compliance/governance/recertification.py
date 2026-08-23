@@ -76,17 +76,8 @@ class RecertificationManager:
         compliance_domain: str | None = None,
         deadline_days: int = 30,
     ) -> RecertificationCampaign:
-        """Create a new recertification campaign.
-
-        Args:
-            name: Name of the campaign.
-            description: Optional description.
-            compliance_domain: Compliance domain (e.g., "sox", "hipaa").
-            deadline_days: Days until deadline.
-
-        Returns:
-            The created campaign.
-        """
+        """Create a recertification campaign with a deadline the given number
+        of days out (no deadline when deadline_days is not positive)."""
         deadline = None
         if deadline_days > 0:
             deadline_dt = datetime.now(UTC) + timedelta(days=deadline_days)
@@ -106,11 +97,9 @@ class RecertificationManager:
         campaign_id: str,
         review: AccessReview,
     ) -> None:
-        """Add a review to a campaign.
+        """Add a review to a campaign and activate it.
 
-        Args:
-            campaign_id: ID of the campaign.
-            review: AccessReview to add.
+        Raises ValueError when the campaign ID is unknown.
         """
         if campaign_id not in self._campaigns:
             raise ValueError(f"Campaign not found: {campaign_id}")
@@ -121,14 +110,7 @@ class RecertificationManager:
         object.__setattr__(campaign, "status", CampaignStatus.ACTIVE)
 
     def get_summary(self, campaign_id: str) -> CampaignSummary | None:
-        """Get summary statistics for a campaign.
-
-        Args:
-            campaign_id: ID of the campaign.
-
-        Returns:
-            CampaignSummary or None if not found.
-        """
+        """Return summary statistics for a campaign, or None if not found."""
         if campaign_id not in self._campaigns:
             return None
 
@@ -167,10 +149,9 @@ class RecertificationManager:
         return "pending"
 
     def complete_campaign(self, campaign_id: str) -> None:
-        """Mark a campaign as completed.
+        """Mark a campaign as completed with a completion timestamp.
 
-        Args:
-            campaign_id: ID of the campaign.
+        Raises ValueError when the campaign ID is unknown.
         """
         if campaign_id not in self._campaigns:
             raise ValueError(f"Campaign not found: {campaign_id}")
@@ -186,17 +167,8 @@ def create_attestation(
     attestations: tuple[str, ...],
     expires_days: int | None = None,
 ) -> ComplianceAttestation:
-    """Create a compliance attestation.
-
-    Args:
-        principal_subject: Subject whose access is being attested.
-        reviewer_subject: Subject providing the attestation.
-        attestations: List of attestation statements.
-        expires_days: Days until expiration.
-
-    Returns:
-        ComplianceAttestation instance.
-    """
+    """Create a compliance attestation for a principal reviewed by a reviewer,
+    optionally expiring after the given number of days."""
     from phlo.compliance.governance.types import ComplianceAttestation
 
     expires_at = None

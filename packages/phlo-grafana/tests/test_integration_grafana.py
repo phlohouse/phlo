@@ -1,4 +1,8 @@
-"""Integration tests for phlo-grafana."""
+"""Integration tests for phlo-grafana.
+
+Covers plugin initialization, service definition loading, and that the
+deployed image stays pinned to an upstream Grafana release tag.
+"""
 
 import pytest
 

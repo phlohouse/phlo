@@ -45,6 +45,8 @@ Example:
 
         path = get_workflows_path_from_config()
 
+Sits in the phlo-dagster framework layer, building on phlo.capabilities.discovery and
+phlo.plugins.discovery to turn user workflow modules into Dagster definitions.
 """
 
 from __future__ import annotations
@@ -73,20 +75,11 @@ def discover_user_workflows(
     workflows_path: Path | str,
     clear_registries: bool = False,
 ) -> Any:
-    """Discover and load user workflow files from a directory.
+    """Import workflow modules and build orchestrator definitions from them.
 
-    Imports workflow modules (which registers capability specs) and builds
-    orchestrator definitions using the active adapter.
-
-    Args:
-        workflows_path: Path to the workflows directory to discover.
-        clear_registries: If True, clear capability registries before discovery.
-
-    Returns:
-        Dagster Definitions object containing discovered assets, checks, and resources.
-
-    Raises:
-        ValueError: If workflows_path is not a directory.
+    Imports every module under ``workflows_path`` (which registers
+    capability specs), then builds definitions via the active adapter.
+    Raises ValueError when the path is not a directory.
 
     """
     workflows_path = Path(workflows_path)
@@ -168,16 +161,7 @@ def _build_dagster_fallback_definitions(
 
 
 def _import_workflow_modules(workflows_path: Path) -> list[Any]:
-    """
-    Import all Python modules in workflows directory.
-
-    Args:
-        workflows_path: Path to workflows directory
-
-    Returns:
-        List of imported module objects
-
-    """
+    """Import all non-underscore Python modules under the workflows directory."""
     imported_modules = []
 
     # Find all Python files
@@ -353,18 +337,7 @@ def _default_trino_resource() -> Any | None:
 
 
 def _clear_capability_registries() -> None:
-    """Clear capability registries (for testing).
-
-    Args:
-        None
-
-    Returns:
-        None
-
-    Raises:
-        No explicit exceptions raised. Logs warnings for cleanup failures.
-
-    """
+    """Clear capability registries for testing; logs warnings when plugin cleanup fails."""
     from phlo.plugins.discovery import discover_plugins, get_global_registry
 
     clear_all_capabilities()
@@ -458,11 +431,7 @@ def _is_plugin_allowed(plugin_name: str, settings) -> bool:
 
 
 def get_workflows_path_from_config() -> Path:
-    """
-    Get workflows path from configuration.
-
-    Returns:
-        Path to workflows directory from config, or default "workflows"
+    """Return the workflows path from configuration, defaulting to "workflows".
 
     Example:
         ```python

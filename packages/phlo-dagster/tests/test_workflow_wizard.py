@@ -1,3 +1,6 @@
+"""Verify the orchestration contribution phlo-dagster registers with the
+workflow wizard."""
+
 from phlo.capabilities import WorkflowContributionMode
 from phlo_dagster.plugin import get_workflow_wizard_contributions
 

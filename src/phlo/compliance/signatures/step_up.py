@@ -35,13 +35,10 @@ class StepUpAuthChallenge:
     """
 
     def challenge(self, session: AuthenticatedSession) -> StepUpResult:
-        """Present a step-up challenge and return the result.
+        """Present a step-up challenge for the given session and return the result.
 
-        Args:
-            session: The current authenticated session.
-
-        Returns:
-            StepUpResult indicating success and assurance level achieved.
+        The returned ``StepUpResult`` reports success and the assurance
+        level achieved.
         """
         raise NotImplementedError
 
@@ -57,11 +54,7 @@ class SessionConfirmChallenge(StepUpAuthChallenge):
     def challenge(self, session: AuthenticatedSession) -> StepUpResult:
         """Accept the current session as sufficient for step-up.
 
-        Args:
-            session: The current authenticated session.
-
-        Returns:
-            StepUpResult with "session" assurance level.
+        Returns a successful ``StepUpResult`` with "session" assurance level.
         """
         return StepUpResult(
             success=True,

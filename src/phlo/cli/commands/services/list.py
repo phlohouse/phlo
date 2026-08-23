@@ -1,4 +1,9 @@
-"""List command for showing available services."""
+"""List command for showing available services.
+
+Combines declared compose services with live container state from the selected
+backend, reporting enabled/disabled flags, ports, and running status per
+service.
+"""
 
 import json
 from pathlib import Path

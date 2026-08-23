@@ -1,4 +1,9 @@
-"""Plugin info command."""
+"""Plugin info command.
+
+Looks up a plugin across all plugin types by normalized name (package
+prefixes such as phlo_plugin_ are stripped for matching). The type is
+auto-detected when --type is omitted; an unknown plugin exits non-zero.
+"""
 
 from __future__ import annotations
 

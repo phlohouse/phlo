@@ -1,4 +1,8 @@
-"""Service management commands."""
+"""Service management commands for the phlo CLI.
+
+Subcommands import lazily on first invocation so that plugin discovery pulling
+in utility modules stays lightweight; registration runs once per process.
+"""
 
 from __future__ import annotations
 

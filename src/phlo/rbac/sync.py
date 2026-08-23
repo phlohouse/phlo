@@ -36,9 +36,8 @@ class SyncController:
     ):
         """Initialize the sync controller.
 
-        Args:
-            loader: RBAC config loader. Defaults to new loader with default path.
-            compilers: Dict of backend name to compiler instance.
+        ``loader`` defaults to a loader with the default config path;
+        ``compilers`` maps backend names to prebuilt compiler instances.
         """
         self._loader = loader or RBACConfigLoader()
         self._compilers = compilers or {}
@@ -48,11 +47,7 @@ class SyncController:
         return self._loader.load()
 
     def validate(self) -> tuple[bool, list[str]]:
-        """Validate the RBAC configuration.
-
-        Returns:
-            Tuple of (is_valid, error_messages).
-        """
+        """Return (is_valid, error_messages) from the config loader."""
         return self._loader.validate()
 
     def plan(
@@ -60,15 +55,9 @@ class SyncController:
         backends: list[str] | None = None,
         environment: str = "development",
     ) -> dict[str, SyncPlan]:
-        """Create sync plans for specified backends.
-
-        Args:
-            backends: List of backend names to plan for. Defaults to all registered.
-            environment: Environment name for context.
-
-        Returns:
-            Dict of backend name to sync plan.
-        """
+        """Compile sync plans for ``backends`` (default: all registered)
+        under ``environment``; backends without a compiler are skipped with
+        a warning."""
         rbac = self.load_rbac()
         plans: dict[str, SyncPlan] = {}
 
@@ -108,16 +97,10 @@ class SyncController:
         environment: str = "development",
         dry_run: bool = False,
     ) -> dict[str, SyncResult]:
-        """Synchronize RBAC to backends.
-
-        Args:
-            backends: List of backend names to sync. Defaults to all registered.
-            environment: Environment name for context.
-            dry_run: If True, only plan without applying.
-
-        Returns:
-            Dict of backend name to sync result.
-        """
+        """Plan and apply RBAC changes on ``backends`` (default: all
+        registered) under ``environment``. With ``dry_run`` the plan is
+        computed but nothing is applied. Compiler failures are logged and
+        reported as failed results rather than raised."""
         rbac = self.load_rbac()
         results: dict[str, SyncResult] = {}
 
@@ -192,15 +175,9 @@ class SyncController:
         backends: list[str] | None = None,
         environment: str = "development",
     ) -> dict[str, VerifyResult]:
-        """Verify backend state matches desired state.
-
-        Args:
-            backends: List of backend names to verify. Defaults to all registered.
-            environment: Environment name for context.
-
-        Returns:
-            Dict of backend name to verify result.
-        """
+        """Compare backend state with the desired RBAC model on ``backends``
+        (default: all registered) under ``environment``; backends whose
+        verification raises are logged and omitted from the results."""
         rbac = self.load_rbac()
         results: dict[str, VerifyResult] = {}
 
@@ -244,16 +221,9 @@ class SyncController:
         backends: list[str] | None = None,
         environment: str = "development",
     ) -> dict[str, tuple[list[str], list[str]]]:
-        """Revert previously applied changes.
-
-        Args:
-            revert_ids: List of revert IDs to undo.
-            backends: List of backend names to revert. Defaults to all registered.
-            environment: Environment name for context.
-
-        Returns:
-            Dict of backend name to (success_ids, errors) tuple.
-        """
+        """Undo the given ``revert_ids`` on ``backends`` (default: all
+        registered); per-backend failures are logged and returned as error
+        lists rather than raised."""
         results: dict[str, tuple[list[str], list[str]]] = {}
 
         target_backends = backends or list(COMPILER_REGISTRY.keys())

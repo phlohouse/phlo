@@ -1,4 +1,8 @@
-"""Tests for Sling settings."""
+"""Tests for Sling settings.
+
+Validates default values (namespace, incremental mode, auto connections)
+and custom overrides.
+"""
 
 from phlo_sling.settings import SlingSettings
 

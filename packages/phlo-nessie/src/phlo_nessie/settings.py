@@ -10,6 +10,8 @@ Example:
     >>> print(settings.nessie_uri())
     'http://nessie:19120/api'
 
+Part of the phlo-nessie package's configuration layer, built on the shared phlo.config base,
+cache, and network host-resolution helpers.
 """
 
 from __future__ import annotations
@@ -43,34 +45,21 @@ class NessieSettings(BaseConfig):
     def model_post_init(self, __context: Any) -> None:
         """Post-initialization hook to resolve host and port."""
         host, port = resolve_host(self.nessie_host, self.nessie_port, port_env_var="NESSIE_PORT")
+        # object.__setattr__ skips pydantic's validated assignment, which is
+        # fine here: the resolved values keep the declared types.
         object.__setattr__(self, "nessie_host", host)
         object.__setattr__(self, "nessie_port", port)
 
     def nessie_uri(self) -> str:
-        """Return the base Nessie API URI.
-
-        Returns:
-            str: Base URI for Nessie API endpoints.
-
-        """
+        """Return the base Nessie API URI."""
         return f"http://{self.nessie_host}:{self.nessie_port}/api"
 
     def nessie_api_uri(self) -> str:
-        """Return the versioned Nessie API URI.
-
-        Returns:
-            str: Versioned URI for Nessie API endpoints.
-
-        """
+        """Return the versioned Nessie API URI."""
         return f"http://{self.nessie_host}:{self.nessie_port}/api/{self.nessie_api_version}"
 
     def nessie_iceberg_rest_uri(self) -> str:
-        """Return the Nessie Iceberg REST catalog URI.
-
-        Returns:
-            str: URI for Iceberg REST catalog integration.
-
-        """
+        """Return the Nessie Iceberg REST catalog URI."""
         return f"http://{self.nessie_host}:{self.nessie_port}/iceberg"
 
 

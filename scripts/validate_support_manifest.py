@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Validate the checked-in v1 support boundary without network access."""
+"""Validate the checked-in v1 support boundary without network access.
+
+Checks registry/support/v1.json against its schema (a minimal in-repo
+validator, not a full JSON Schema implementation), verifies that manifest
+paths, markdown anchors, and named claims bind to committed files, and that
+provider packages declare the current core compatibility epoch. Exits 0
+only when the boundary is internally consistent with the repository.
+"""
 
 from __future__ import annotations
 
@@ -134,6 +141,9 @@ def _type_matches(value: object, expected: str) -> bool:
     }.get(expected, True)
 
 
+# Implements exactly the JSON Schema keywords schema/v1.json uses. Unknown
+# keywords pass through unchecked; extend here before adding them to the
+# schema file.
 def _schema_errors(
     value: Any, schema: dict[str, Any], path: str = "$", root: dict[str, Any] | None = None
 ) -> list[str]:
@@ -885,6 +895,7 @@ def _service_inventory_at(repo_root: Path) -> dict[str, Path]:
 
 
 def main() -> int:
+    """Validate the support manifest and exit nonzero on failure."""
     try:
         manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
         errors = validate_manifest(manifest)

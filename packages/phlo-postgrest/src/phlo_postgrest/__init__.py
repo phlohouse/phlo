@@ -10,9 +10,6 @@ Example:
     >>> setup_postgrest()  # Sets up auth infrastructure
     >>> setup_postgrest(force=True)  # Re-apply even if already set up
 
-Attributes:
-    setup_postgrest: Main function to configure PostgREST authentication.
-
 Note:
     This package requires a running PostgreSQL instance with appropriate
     superuser privileges to create roles and schemas.

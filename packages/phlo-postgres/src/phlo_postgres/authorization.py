@@ -1,4 +1,8 @@
-"""phlo_postgres CLI authorization table."""
+"""Authorization surface table for the phlo-postgres CLI.
+
+Declares which postgres commands mutate state plus their dataset resources and
+required actions; the shared CLI surface adapter enforces these mappings.
+"""
 
 from __future__ import annotations
 
@@ -38,4 +42,5 @@ PostgresCliSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_postgres_cli_adapter() -> CliSurfaceAdapter:
+    """Return the shared Postgres CLI surface adapter instance."""
     return PostgresCliSurfaceAdapter.get_instance()

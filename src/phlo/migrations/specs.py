@@ -1,4 +1,9 @@
-"""Data migration specs and execution result models."""
+"""Data migration specs and execution result models.
+
+Frozen dataclasses describing a migration (source, destination, options,
+column mapping) and its execution outcome. All models are plain data with
+no execution logic; runners consume these specs as-is.
+"""
 
 from __future__ import annotations
 

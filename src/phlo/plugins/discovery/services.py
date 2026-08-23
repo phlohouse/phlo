@@ -1,4 +1,14 @@
-"""Discover and cache service definitions from plugins and optional directories."""
+"""Discover and cache service definitions from plugins and optional directories.
+
+ServiceDiscovery loads definitions from installed service plugins and,
+when a services_dir is given, extra service.yaml files; results are
+cached per instance until refresh=True. Dependency cycles are rejected
+via shared cycle detection, and manifest errors surface as
+ServiceManifestError.
+
+Imported by phlo.plugins.discovery (its public facade) and by the CLI services
+command utilities.
+"""
 
 from pathlib import Path
 from typing import Any, cast
@@ -54,25 +64,17 @@ class ServiceDiscovery:
     """Discovers and manages service definitions."""
 
     def __init__(self, services_dir: Path | None = None):
-        """Initialize with an optional services directory.
+        """Initialize with an optional directory of additional service.yaml files.
 
-        Args:
-            services_dir: Optional path to additional service.yaml files. If None,
-                services are discovered exclusively from installed service plugins.
+        When services_dir is None, services come exclusively from installed
+        service plugins.
         """
         self.services_dir = services_dir
         self._services: dict[str, ServiceDefinition] = {}
         self._loaded = False
 
     def discover(self, refresh: bool = False) -> dict[str, ServiceDefinition]:
-        """Discover all service definitions.
-
-        Args:
-            refresh: If ``True``, clear cached state and re-run discovery.
-
-        Returns:
-            Dictionary mapping service names to their definitions.
-        """
+        """Discover all service definitions, cached unless ``refresh`` is True."""
         if refresh:
             _emit_service_discovery_signal(
                 event_name="service_discovery_refresh_requested",
@@ -114,6 +116,9 @@ class ServiceDiscovery:
             )
             raise
 
+        # Plugin manifests are inserted first, so setdefault makes a
+        # plugin-provided definition win over a same-named file from
+        # services_dir. Directory files can only fill gaps.
         for manifest in plugin_manifests:
             self._services.setdefault(manifest.name, manifest.definition)
         for manifest in directory_manifests:
@@ -235,11 +240,7 @@ class ServiceDiscovery:
     def get_default_services(
         self, disabled_services: set[str] | None = None
     ) -> list[ServiceDefinition]:
-        """Get all services marked as default, excluding disabled ones.
-
-        Args:
-            disabled_services: Set of service names to exclude.
-        """
+        """Get all services marked as default, excluding disabled ones."""
         self.discover()
         disabled = disabled_services or set()
         return [s for s in self._services.values() if s.default and s.name not in disabled]
@@ -260,27 +261,16 @@ class ServiceDiscovery:
         return {s.profile for s in self._services.values() if s.profile}
 
     def resolve_dependencies(self, services: list[ServiceDefinition]) -> list[ServiceDefinition]:
-        """Resolve and sort services by dependencies (topological sort).
+        """Sort services topologically so dependencies come first.
 
-        Args:
-            services: List of services to sort.
-
-        Returns:
-            List of services in dependency order (dependencies first).
-
-        Raises:
-            ValueError: If circular dependencies are detected.
+        Raises ValueError when circular dependencies are detected.
         """
         self.discover()
 
         return resolve_service_dependencies(services)
 
     def list_all(self) -> list[dict[str, Any]]:
-        """List all services with their metadata.
-
-        Returns:
-            List of service info dictionaries.
-        """
+        """List all services as metadata dictionaries."""
         self.discover()
         return [
             {

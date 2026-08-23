@@ -1,4 +1,9 @@
-"""Integration tests for phlo-pgweb."""
+"""Integration tests for phlo-pgweb.
+
+Smoke-checks plugin instantiation and service-definition loading; imports
+are deferred into each test so the suite runs without the package installed
+until these integration tests execute.
+"""
 
 import pytest
 

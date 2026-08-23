@@ -32,29 +32,20 @@ class HasuraPermissionManager:
     Provides methods for loading permission configurations, synchronizing
     them with Hasura, and exporting current permissions back to config format.
 
-    Attributes:
-        client: HasuraClient instance for API operations.
-
     Example:
         >>> manager = HasuraPermissionManager()
         >>> config = manager.load_config("permissions.yaml")
         >>> manager.sync_permissions(config, verbose=True)
         >>> current = manager.export_permissions()
         >>> manager.save_permissions(current, "backup.json")
-
     """
 
     def __init__(self, client: Optional[HasuraClient] = None):
         """Initialize permission manager.
 
-        Args:
-            client: HasuraClient instance for API operations. If not provided,
-                a new HasuraClient will be instantiated with default settings.
-
         Example:
             >>> manager = HasuraPermissionManager()
             >>> custom_manager = HasuraPermissionManager(HasuraClient())
-
         """
         self.client = client or HasuraClient()
 
@@ -64,21 +55,12 @@ class HasuraPermissionManager:
         Reads a permission configuration file and returns it as a dictionary.
         Supports both .json and .yaml/.yml file extensions.
 
-        Args:
-            config_path: Path to the config file (relative or absolute).
-
-        Returns:
-            Config dictionary containing permission definitions.
-
-        Raises:
-            ImportError: If PyYAML is required but not installed (YAML files only).
-            ValueError: If the file format is not supported.
-            FileNotFoundError: If the config file does not exist.
-
+        Raises: ImportError if PyYAML is required but not installed (YAML files only).
+        Raises: ValueError if the file format is not supported.
+        Raises: FileNotFoundError if the config file does not exist.
         Example:
             >>> config = manager.load_config("permissions.yaml")
             >>> config = manager.load_config("/path/to/config.json")
-
         """
         config_path = Path(config_path)
 
@@ -109,30 +91,6 @@ class HasuraPermissionManager:
         the actual Hasura instance. Creates or updates SELECT, INSERT,
         UPDATE, and DELETE permissions for all tables and roles specified.
 
-        Args:
-            config: Permission configuration dictionary with structure:
-                {
-                    "tables": {
-                        "schema.table": {
-                            "select": {"role": {"filter": {}, "columns": []}},
-                            "insert": {"role": {"check": {}, "columns": [], "set": {}}},
-                            "update": {
-                                "role": {"filter": {}, "check": {}, "columns": [], "set": {}}
-                            },
-                            "delete": {"role": {"filter": {}}}
-                        }
-                    }
-                }
-            verbose: Print progress messages during synchronization.
-
-        Returns:
-            Summary dictionary with success/failure status for each permission:
-            {
-                "select": {(table_path, role): bool},
-                "insert": {(table_path, role): bool},
-                ...
-            }
-
         Example:
             >>> config = {
             ...     "tables": {
@@ -142,7 +100,6 @@ class HasuraPermissionManager:
             ...     }
             ... }
             >>> results = manager.sync_permissions(config)
-
         """
         if verbose:
             logger.info("=" * 60)
@@ -237,23 +194,10 @@ class HasuraPermissionManager:
         Retrieves the current permission configuration from Hasura and
         formats it as a config dictionary suitable for saving to a file.
 
-        Returns:
-            Permission configuration dictionary with structure:
-            {
-                "tables": {
-                    "schema.table": {
-                        "select": {"role": {"filter": {}, "columns": []}},
-                        "insert": {"role": {"filter": {}, "columns": [], "check": {}}},
-                        ...
-                    }
-                }
-            }
-
         Example:
             >>> config = manager.export_permissions()
             >>> for table, perms in config["tables"].items():
             ...     print(f"{table}: {list(perms.keys())}")
-
         """
         metadata = self.client.export_metadata()
 
@@ -307,20 +251,12 @@ class HasuraPermissionManager:
         Writes a permission configuration dictionary to a file in either
         JSON or YAML format.
 
-        Args:
-            config: Permission configuration dictionary to save.
-            output_path: Path where the file should be saved.
-            format: Output format, either 'json' or 'yaml' (default: 'json').
-
-        Raises:
-            ImportError: If PyYAML is required but not installed (YAML format only).
-            ValueError: If an unsupported format is specified.
-
+        Raises: ImportError if PyYAML is required but not installed (YAML format only).
+        Raises: ValueError if an unsupported format is specified.
         Example:
             >>> config = manager.export_permissions()
             >>> manager.save_permissions(config, "perms.json")
             >>> manager.save_permissions(config, "perms.yaml", format="yaml")
-
         """
         output_path = Path(output_path)
 
@@ -348,26 +284,15 @@ class RoleHierarchy:
     permissions from other roles. For example, an "admin" role might
     inherit all permissions from "analyst" and "anon" roles.
 
-    Attributes:
-        hierarchy: Dictionary mapping roles to their inherited roles.
-
     Example:
         >>> hierarchy = RoleHierarchy()
         >>> inherited = hierarchy.get_inherited_roles("admin")
         >>> print(inherited)  # ['admin', 'analyst', 'anon']
         >>> expanded = hierarchy.expand_permissions(config)
-
     """
 
     def __init__(self, hierarchy: Optional[dict[str, list[str]]] = None):
         """Initialize role hierarchy.
-
-        Args:
-            hierarchy: Dictionary mapping roles to lists of inherited roles.
-                Default hierarchy is:
-                - admin -> [analyst, anon]
-                - analyst -> [anon]
-                - anon -> []
 
         Example:
             >>> default = RoleHierarchy()
@@ -376,7 +301,6 @@ class RoleHierarchy:
             ...     "admin": ["user"],
             ...     "user": []
             ... })
-
         """
         self.hierarchy = hierarchy or {
             "admin": ["analyst", "anon"],
@@ -390,19 +314,12 @@ class RoleHierarchy:
         Performs a depth-first traversal of the role hierarchy to find
         all roles that the specified role inherits from, including itself.
 
-        Args:
-            role: Role name to get inherited roles for.
-
-        Returns:
-            List of inherited role names including the input role itself.
-
         Example:
             >>> hierarchy = RoleHierarchy()
             >>> hierarchy.get_inherited_roles("admin")
             ['admin', 'analyst', 'anon']
             >>> hierarchy.get_inherited_roles("anon")
             ['anon']
-
         """
         inherited = [role]
 
@@ -423,14 +340,6 @@ class RoleHierarchy:
         all inherited permissions. Higher-level roles receive the
         permissions of their inherited roles.
 
-        Args:
-            config: Permission configuration dictionary with tables and roles.
-
-        Returns:
-            Expanded configuration with inherited permissions included.
-            Each role in the hierarchy receives all permissions from the
-            roles it inherits.
-
         Example:
             >>> config = {
             ...     "tables": {
@@ -441,7 +350,6 @@ class RoleHierarchy:
             ... }
             >>> expanded = hierarchy.expand_permissions(config)
             >>> # Now includes select permissions for analyst and anon too
-
         """
         expanded = {"tables": {}}
 

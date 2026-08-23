@@ -1,4 +1,10 @@
-"""Restart command for restarting services."""
+"""Restart command for restarting services.
+
+Restarts rendered compose services, optionally scoped with --profile or
+--service, with optional pre-start image builds and dev-mode source mounts.
+Requires an initialized compose project and passes mutation authorization
+before touching running services.
+"""
 
 import click
 
@@ -103,7 +109,8 @@ def restart_cmd(
     else:
         click.echo(f"Restarting {project_name} infrastructure...")
 
-    # Stop services
+    # A full restart uses `down` so containers orphaned by config changes are
+    # removed too; targeting named services only stops those containers.
     cmd = compose_base_cmd(
         phlo_dir=phlo_dir,
         project_name=project_name,

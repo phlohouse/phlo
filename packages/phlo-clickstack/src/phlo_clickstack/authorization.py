@@ -1,4 +1,8 @@
-"""phlo_clickstack CLI authorization table."""
+"""Authorization table for the phlo-clickstack CLI surface.
+
+Declares which commands mutate state and maps every command onto the resource
+and action names evaluated by the shared CLI surface adapter.
+"""
 
 from __future__ import annotations
 
@@ -24,4 +28,5 @@ ClickStackSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_adapter() -> CliSurfaceAdapter:
+    """Return the shared ClickStackSurfaceAdapter instance for this surface."""
     return ClickStackSurfaceAdapter.get_instance()

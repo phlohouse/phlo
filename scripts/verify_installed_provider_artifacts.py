@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Verify provider wheels work only from an installed external consumer environment."""
+"""Verify provider wheels work only from an installed external consumer
+environment.
+
+Builds all workspace wheels, installs them into a clean uv environment with
+repository sources stripped from the path, renders services from the
+installed CLI, and checks that declared entry points and modules resolve
+from installed distributions only.
+"""
 
 from __future__ import annotations
 
@@ -19,6 +26,8 @@ from typing import Any
 
 @dataclass(frozen=True)
 class WorkspacePackage:
+    """Workspace package metadata: name, path, dependencies, and entry points."""
+
     name: str
     path: Path
     dependencies: tuple[str, ...]
@@ -26,10 +35,12 @@ class WorkspacePackage:
 
 
 def canonicalize_name(name: str) -> str:
+    """Return the canonical (lowercase, hyphen-normalized) distribution name."""
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def requirement_name(requirement: str) -> str:
+    """Return the bare distribution name from a requirement string."""
     return re.split(r"[\s\[<>=!~;]", requirement, maxsplit=1)[0]
 
 
@@ -41,6 +52,7 @@ def _run(command: list[str], *, cwd: Path, env: dict[str, str] | None = None) ->
 
 
 def workspace_packages(repo_root: Path) -> list[WorkspacePackage]:
+    """Collect WorkspacePackage metadata for the root and every packages/* member."""
     paths = [
         repo_root / "pyproject.toml",
         *sorted((repo_root / "packages").glob("*/pyproject.toml")),
@@ -64,6 +76,7 @@ def workspace_packages(repo_root: Path) -> list[WorkspacePackage]:
 
 
 def wheel_inventory(wheelhouse: Path) -> dict[str, Path]:
+    """Map canonical wheel names to paths, rejecting duplicate wheels."""
     wheels: dict[str, Path] = {}
     for wheel in wheelhouse.glob("*.whl"):
         normalized = canonicalize_name(wheel.name.split("-", maxsplit=1)[0])
@@ -74,12 +87,14 @@ def wheel_inventory(wheelhouse: Path) -> dict[str, Path]:
 
 
 def build_wheelhouse(repo_root: Path, wheelhouse: Path) -> dict[str, Path]:
+    """Build all workspace wheels with uv into ``wheelhouse`` and return the inventory."""
     wheelhouse.mkdir(parents=True, exist_ok=True)
     _run(["uv", "build", "--all-packages", "--wheel", "--out-dir", str(wheelhouse)], cwd=repo_root)
     return wheel_inventory(wheelhouse)
 
 
 def clean_environment(base: Path) -> tuple[Path, Path]:
+    """Create a fresh Python 3.11 venv and consumer project directory under ``base``."""
     environment = base / "environment"
     consumer = base / "consumer"
     _run(["uv", "venv", str(environment), "--python", "3.11"], cwd=base)
@@ -88,6 +103,7 @@ def clean_environment(base: Path) -> tuple[Path, Path]:
 
 
 def executable(environment: Path, name: str) -> Path:
+    """Return the platform-correct path to an executable inside the venv."""
     return (
         environment
         / ("Scripts" if os.name == "nt" else "bin")
@@ -95,7 +111,10 @@ def executable(environment: Path, name: str) -> Path:
     )
 
 
+# Strip any variable that could let the consumer import repository sources;
+# everything must resolve from installed distributions.
 def external_environment() -> dict[str, str]:
+    """Drop PYTHONPATH and PHLO_DEV_SOURCE so imports resolve to installed wheels only."""
     environment = os.environ.copy()
     environment.pop("PYTHONPATH", None)
     environment.pop("PHLO_DEV_SOURCE", None)
@@ -109,6 +128,7 @@ def install_dependencies(
     packages: list[WorkspacePackage],
     wheelhouse: Path,
 ) -> None:
+    """Install every workspace wheel plus external dependencies into the clean venv."""
     workspace_names = {canonicalize_name(package.name) for package in packages}
     requirements = sorted(
         {
@@ -121,6 +141,9 @@ def install_dependencies(
     python = executable(environment, "python")
     if requirements:
         _run(["uv", "pip", "install", "--python", str(python), *requirements], cwd=consumer)
+    # Third-party dependencies first, from the normal index. Workspace packages
+    # then install with --no-index/--no-deps so they can only come from the
+    # built wheels and cannot pull a same-named package from PyPI.
     _run(
         [
             "uv",
@@ -140,6 +163,7 @@ def install_dependencies(
 
 
 def installed_distributions(environment: Path) -> dict[str, str]:
+    """Map installed distribution names to install locations per the child interpreter."""
     script = """import json
 from importlib.metadata import distributions
 print(json.dumps({d.metadata['Name']: str(d.locate_file('')) for d in distributions() if d.metadata.get('Name')}))
@@ -157,6 +181,7 @@ def assert_installed_artifacts(
     installed: dict[str, str],
     repo_root: Path,
 ) -> dict[str, list[str]]:
+    """Report missing packages, missing wheels, and any editable installs leaking repo sources."""
     missing_packages = [
         package.name
         for package in packages
@@ -174,10 +199,12 @@ def assert_installed_artifacts(
 
 
 def parse_json_command(command: list[str], *, cwd: Path, env: dict[str, str]) -> Any:
+    """Run a command in the clean environment and parse its stdout as JSON."""
     return json.loads(_run(command, cwd=cwd, env=env))
 
 
 def read_yaml(environment: Path, path: Path, *, cwd: Path, env: dict[str, str]) -> dict[str, Any]:
+    """Load a YAML file via the clean environment's Python interpreter."""
     script = "import json, pathlib, yaml; print(json.dumps(yaml.safe_load(pathlib.Path(__import__('sys').argv[1]).read_text()) or {}))"
     return parse_json_command(
         [str(executable(environment, "python")), "-c", script, str(path)], cwd=cwd, env=env
@@ -185,6 +212,7 @@ def read_yaml(environment: Path, path: Path, *, cwd: Path, env: dict[str, str]) 
 
 
 def files_changed(root: Path, before: set[Path]) -> list[str]:
+    """Return files created under ``root`` after the snapshot ``before``, relative to it."""
     return sorted(
         str(path.relative_to(root))
         for path in root.rglob("*")
@@ -199,6 +227,7 @@ def render_services(
     services: list[dict[str, Any]],
     env: dict[str, str],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Render each service into the consumer project, capturing files and compose output."""
     _run([str(phlo), "services", "init", "--no-dev"], cwd=consumer, env=env)
     rendered: list[dict[str, Any]] = []
     for service in services:
@@ -226,6 +255,7 @@ def render_services(
 
 
 def module_locations(environment: Path) -> dict[str, str]:
+    """Map top-level module names to their defining file, as seen by the venv interpreter."""
     script = """import importlib.metadata as m, importlib.util, json
 result = {}
 for distribution in m.distributions():
@@ -265,6 +295,7 @@ def build_shard(
     shard_count: int,
     env: dict[str, str],
 ) -> list[dict[str, Any]]:
+    """Docker-compose-build this shard's buildable services and report pass/fail per service."""
     buildable = [
         (name, config)
         for name, config in (compose.get("services") or {}).items()
@@ -363,6 +394,7 @@ def health_shard(
 
 
 def verify(args: argparse.Namespace) -> dict[str, Any]:
+    """Run the full installed-artifact verification flow and return the summary report."""
     repo_root = Path(args.repo_root).resolve()
     packages = workspace_packages(repo_root)
     temporary = Path(tempfile.mkdtemp(prefix="phlo-installed-artifacts-"))
@@ -463,6 +495,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse CLI arguments and run verification; return the process exit code."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output", required=True)

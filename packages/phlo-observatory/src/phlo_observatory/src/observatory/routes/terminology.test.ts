@@ -1,3 +1,7 @@
+/**
+ * Source scan enforcing the Observatory glossary: fails when banned
+ * user-facing terms appear outside the explicit allowlist.
+ */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 

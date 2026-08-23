@@ -1,4 +1,12 @@
-"""Tests for service-to-service identity."""
+"""Tests for service-to-service identity.
+
+Covers HMAC service tokens (creation, expiry, tamper and malformed
+rejection, bounded max-age), header construction for initiator and
+correlation IDs, and scoped per-audience tokens whose nonces are
+consumed exactly once across receiver instances — enforced by the
+Postgres nonce store under concurrent consumers. Shared-secret
+compatibility is refused in production and regulated mode.
+"""
 
 from __future__ import annotations
 

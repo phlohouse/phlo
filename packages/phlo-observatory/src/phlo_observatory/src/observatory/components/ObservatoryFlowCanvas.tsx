@@ -1,3 +1,8 @@
+/**
+ * React Flow canvas for observatory topology diagrams. Nodes are positioned
+ * on fixed lanes (raw through marts, plus branch/quality/operation lanes) by
+ * kind, with labeled edges between them.
+ */
 import { useCallback, useMemo } from 'react'
 
 import {

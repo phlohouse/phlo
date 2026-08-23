@@ -1,4 +1,8 @@
-"""Tests for Prometheus service plugin."""
+"""Tests for the Prometheus service plugin.
+
+Locks the shipped service definition: pinned upstream image digest, named
+volume storage instead of a bind mount, and no local Dockerfile build.
+"""
 
 from phlo_prometheus.plugin import PrometheusServicePlugin
 

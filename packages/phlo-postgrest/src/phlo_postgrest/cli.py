@@ -84,24 +84,17 @@ def generate_postgrest_views(
 
     Parses dbt manifest.json to discover models and generates CREATE VIEW
     statements that expose them through PostgREST's REST API. Can output
-    to file, stdout, or apply directly to the database.
+    to file (--output), stdout (default), apply directly to the database
+    (--apply), or show a diff of changes without applying (--diff). Models
+    can be filtered by glob pattern (e.g., 'mrt_*', 'stg_*'); views are
+    written to the target schema (default: 'api').
 
-    Args:
-        output: Path to write SQL file (default: stdout if neither apply nor
-            output specified).
-        apply: If True, execute SQL directly against the database.
-        diff: If True, show diff of changes without applying.
-        models: Glob pattern to filter models (e.g., 'mrt_*', 'stg_*').
-        schema: Target schema for API views (default: 'api').
-
-    Raises:
-        click.ClickException: If view generation or database application fails.
+    Raises: click.ClickException when view generation or database application fails.
 
     Example:
         $ phlo postgrest generate-views
         $ phlo postgrest generate-views --apply --models mrt_*
         $ phlo postgrest generate-views --diff --output views.sql
-
     """
     logger.info(
         "postgrest_generate_views_started",
@@ -147,30 +140,22 @@ def generate_postgrest_views(
 def setup_postgrest_cmd(host, port, database, user, password, force, quiet):
     """Set up PostgREST authentication infrastructure.
 
-        Configures the PostgreSQL database with JWT authentication functions,
-        database roles (anon, authenticated, analyst, admin), user management
+    Configures the PostgreSQL database with JWT authentication functions,
+    database roles (anon, authenticated, analyst, admin), user management
     tables, and Row-Level Security policies required by PostgREST.
 
-        This command is idempotent - safe to run multiple times. It will skip
-        setup if infrastructure already exists unless --force is specified.
+    This command is idempotent - safe to run multiple times. It will skip
+    setup if infrastructure already exists unless --force is specified.
+    Connection parameters come from the options above or their POSTGRES_HOST,
+    POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD
+    environment variables; pass --quiet to suppress progress output.
 
-    Args:
-            host: PostgreSQL server hostname (env: POSTGRES_HOST).
-            port: PostgreSQL server port (env: POSTGRES_PORT).
-            database: Database name (env: POSTGRES_DB).
-            user: Superuser username with privileges to create roles (env: POSTGRES_USER).
-            password: Database password (env: POSTGRES_PASSWORD).
-            force: Re-apply setup even if already configured.
-            quiet: Suppress progress output.
-
-    Raises:
-            click.ClickException: If setup fails due to connection or permission errors.
+    Raises: click.ClickException when setup fails due to connection or permission errors.
 
     Example:
-            $ phlo postgrest setup-auth
-            $ phlo postgrest setup-auth --force --quiet
-            $ phlo postgrest setup-auth --host db.example.com --port 5433
-
+        $ phlo postgrest setup-auth
+        $ phlo postgrest setup-auth --force --quiet
+        $ phlo postgrest setup-auth --host db.example.com --port 5433
     """
     logger.info(
         "postgrest_setup_started",

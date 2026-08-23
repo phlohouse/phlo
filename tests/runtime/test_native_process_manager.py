@@ -1,4 +1,9 @@
-"""Tests for NativeProcessManager."""
+"""Tests for NativeProcessManager.
+
+Units cover dev-command gating, environment expansion with defaults, path
+placeholder resolution (project root, source path, alias), process tracking
+and stopping, and PATH setup prepending the project venv bin directory.
+"""
 
 from __future__ import annotations
 
@@ -15,16 +20,7 @@ from phlo.plugins.discovery import ServiceDefinition
 
 
 def _svc(name: str, dev: dict | None = None, **kwargs) -> ServiceDefinition:
-    """Build a service definition fixture for tests.
-
-    Args:
-        name: Service name.
-        dev: Optional development configuration.
-        **kwargs: Additional `ServiceDefinition` fields.
-
-    Returns:
-        Service definition object.
-    """
+    """Build a ServiceDefinition fixture, passing extra fields straight through."""
     return ServiceDefinition(
         name=name,
         description=f"{name} service",

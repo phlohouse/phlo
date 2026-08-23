@@ -1,3 +1,9 @@
+"""Opt-in Podman backend smoke test; requires PHLO_PODMAN_SMOKE=1 and a local podman.
+
+Initializes a minimal project, forces the podman backend, and asserts the CLI
+never falls back to docker. Skips silently when either prerequisite is absent.
+"""
+
 from __future__ import annotations
 
 import os

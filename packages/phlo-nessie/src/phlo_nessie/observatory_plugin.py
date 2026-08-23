@@ -12,12 +12,8 @@ Example:
     >>> plugin = NessieObservatoryExtension()
     >>> manifest = plugin.manifest
 
-Classes:
-    NessieObservatoryExtension: Observatory extension for Nessie branches UI.
-
-Attributes:
-    VERSION: Extension version string.
-
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported directly.
+Contributes a branches UI extension to phlo.plugins.observatory.
 """
 
 from __future__ import annotations
@@ -42,12 +38,7 @@ class NessieObservatoryExtension(ObservatoryExtensionPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for Nessie observatory integration.
-
-        Returns:
-            PluginMetadata: Plugin identity, version, and description.
-
-        """
+        """Return plugin metadata for Nessie observatory integration."""
         return PluginMetadata(
             name="nessie",
             version=VERSION,
@@ -56,12 +47,7 @@ class NessieObservatoryExtension(ObservatoryExtensionPlugin):
 
     @property
     def manifest(self) -> ObservatoryExtensionManifest:
-        """Return the observatory extension manifest for Nessie.
-
-        Returns:
-            ObservatoryExtensionManifest: Manifest defining UI navigation and compatibility.
-
-        """
+        """Return the observatory extension manifest for Nessie."""
         return ObservatoryExtensionManifest(
             name="nessie",
             version=VERSION,
@@ -73,10 +59,5 @@ class NessieObservatoryExtension(ObservatoryExtensionPlugin):
 
     @property
     def asset_root(self) -> Traversable:
-        """Return the root directory containing extension frontend assets.
-
-        Returns:
-            Traversable: Package resource path for observatory static assets.
-
-        """
+        """Return the root directory containing extension frontend assets."""
         return resources.files("phlo_nessie").joinpath("observatory_assets")

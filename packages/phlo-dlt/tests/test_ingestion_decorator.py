@@ -511,12 +511,7 @@ class TestSchemaAutoGeneration:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Verify asset was created
@@ -544,12 +539,7 @@ class TestSchemaAutoGeneration:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Asset should be created successfully
@@ -569,12 +559,7 @@ class TestSchemaAutoGeneration:
                 group="test",
             )
             def test_asset(partition_date: str):
-                """Placeholder asset function used for decorator registration tests.
-
-                Args:
-                    partition_date: Partition key passed by the orchestrator.
-
-                """
+                """Placeholder asset function used for decorator registration tests."""
                 pass
 
 
@@ -596,12 +581,7 @@ class TestDecoratorConfiguration:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Check asset name includes table name
@@ -623,12 +603,7 @@ class TestDecoratorConfiguration:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Asset should be created
@@ -649,12 +624,7 @@ class TestDecoratorConfiguration:
             group="custom_group",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Check asset has correct group
@@ -716,12 +686,7 @@ class TestAutomationConfiguration:
             cron="0 */1 * * *",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Check automation condition is set
@@ -744,12 +709,7 @@ class TestAutomationConfiguration:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Check no automation condition
@@ -777,12 +737,7 @@ class TestFreshnessConfiguration:
             freshness_hours=(1, 24),
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Check freshness policy is set
@@ -805,12 +760,7 @@ class TestFreshnessConfiguration:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Check no freshness policy
@@ -837,12 +787,7 @@ class TestRetryConfiguration:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Check retry policy exists
@@ -867,12 +812,7 @@ class TestRetryConfiguration:
             retry_delay_seconds=60,
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Check retry policy exists
@@ -903,12 +843,7 @@ class TestAssetRegistration:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Check asset was registered
@@ -931,12 +866,7 @@ class TestAssetRegistration:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         assets = get_ingestion_assets()
@@ -968,12 +898,7 @@ class TestAssetAttributes:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Check asset name
@@ -1017,12 +942,7 @@ class TestAssetAttributes:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         spec = get_asset_spec("dlt_test_table")
@@ -1044,12 +964,7 @@ class TestAssetAttributes:
             group="test",
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Check partitions def
@@ -1073,12 +988,7 @@ class TestAssetAttributes:
             capabilities={"table_store": "delta"},
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         spec = get_asset_spec("dlt_test_table")
@@ -1174,12 +1084,7 @@ class TestEdgeCases:
             partition_spec=None,
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Should create asset successfully
@@ -1201,12 +1106,7 @@ class TestEdgeCases:
             validate=False,
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         # Should create asset successfully
@@ -1228,12 +1128,7 @@ class TestEdgeCases:
             max_runtime_seconds=900,
         )
         def test_asset(partition_date: str):
-            """Placeholder asset function used for decorator registration tests.
-
-            Args:
-                partition_date: Partition key passed by the orchestrator.
-
-            """
+            """Placeholder asset function used for decorator registration tests."""
             pass
 
         spec = get_asset_spec("dlt_test_table")

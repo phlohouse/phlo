@@ -1,3 +1,6 @@
+"""Tests that the Nessie catalog advertises its Iceberg REST compatibility
+checks as capability metadata."""
+
 from __future__ import annotations
 
 from phlo_nessie.resource_provider import NessieResourceProvider

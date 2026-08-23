@@ -1,3 +1,6 @@
+"""Tests for the dependency refresh plan script: separating routine
+patch bumps from risk-managed upgrades across package manifests."""
+
 from __future__ import annotations
 
 import importlib.util

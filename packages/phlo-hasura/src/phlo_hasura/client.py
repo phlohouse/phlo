@@ -51,16 +51,8 @@ def get_settings(project_root: Path) -> HasuraClientSettings:
 
 
 def _resolve_hasura_url(url: str) -> str:
-    """Resolve Hasura URL, handling Docker hostname resolution.
-
-    Uses the phlo network resolver to handle Docker-internal hostnames
-    and port overrides from environment variables.
-
-    Args:
-        url: The raw URL to resolve (may contain Docker hostnames like 'hasura').
-
-    Returns:
-        The resolved URL with proper hostname and port.
+    """Resolve a raw Hasura URL to a host-reachable endpoint, applying the
+    HASURA_PORT override for Docker-internal hostnames such as 'hasura'.
 
     Example:
         >>> _resolve_hasura_url("http://hasura:8080")
@@ -73,14 +65,10 @@ def _resolve_hasura_url(url: str) -> str:
 class HasuraClient:
     """Client for Hasura Metadata API v1.
 
-    Provides methods for managing Hasura metadata including table tracking,
-    permissions, relationships, and metadata import/export. Handles URL
-    resolution and authentication automatically.
-
-    Attributes:
-        hasura_url: Resolved Hasura GraphQL endpoint URL.
-        admin_secret: Admin secret for API authentication.
-        metadata_url: Full URL to the metadata API endpoint.
+    Manages table tracking, permissions, relationships, and metadata
+    import/export, resolving URLs and authenticating automatically.
+    Exposes hasura_url (the resolved GraphQL endpoint), admin_secret, and
+    the derived metadata_url.
 
     Example:
         >>> client = HasuraClient()
@@ -100,13 +88,9 @@ class HasuraClient:
     metadata_url: str
 
     def __init__(self, hasura_url: str | None = None, admin_secret: str | None = None) -> None:
-        """Initialize Hasura client.
-
-        Args:
-            hasura_url: Hasura GraphQL endpoint URL (default: http://hasura:8080).
-                The URL will be resolved to handle Docker hostnames.
-            admin_secret: Hasura admin secret. Defaults to the generated
-                development Compose secret when not provided.
+        """Initialize the client, resolving hasura_url for Docker hostnames and
+        taking the admin secret from the argument, HASURA_ADMIN_SECRET, or
+        project config; the generated development default logs a warning.
 
         Example:
             >>> client = HasuraClient()
@@ -143,21 +127,9 @@ class HasuraClient:
         data: dict[str, Any],
         query_type: str | None = None,
     ) -> dict[str, Any]:
-        """Make request to Hasura metadata API.
-
-        Internal method for making authenticated requests to the Hasura
-        metadata endpoint. Handles errors and provides structured logging.
-
-        Args:
-            method: HTTP method (usually "POST" for metadata API).
-            data: Request payload dictionary containing type and args.
-            query_type: Type of query for error context and logging.
-
-        Returns:
-            Response JSON as dictionary.
-
-        Raises:
-            requests.RequestException: If the request fails or returns an error status.
+        """Send an authenticated metadata API request and return the response
+        JSON. Raises requests.RequestException on transport failure or a
+        non-2xx status, with the response body appended to the error.
 
         Example:
             >>> data = {
@@ -204,23 +176,8 @@ class HasuraClient:
         return response.json()
 
     def track_table(self, schema: str, table: str, alias: str | None = None) -> dict[str, Any]:
-        """Track a table in Hasura.
-
-        Registers a PostgreSQL table with Hasura so it becomes available
-        through the GraphQL API. Optionally provides a custom alias for
-        the root field names.
-
-        Args:
-            schema: Schema name containing the table.
-            table: Table name to track.
-            alias: Optional alias for GraphQL type name (default: table name).
-                When provided, custom root fields are configured.
-
-        Returns:
-            API response dictionary.
-
-        Raises:
-            requests.RequestException: If the API call fails.
+        """Track a PostgreSQL table so it becomes available through the GraphQL
+        API; alias customizes the GraphQL root field names.
 
         Example:
             >>> client.track_table("api", "orders")
@@ -255,20 +212,8 @@ class HasuraClient:
         return self._request("POST", data, f"track_table({schema}.{table})")
 
     def untrack_table(self, schema: str, table: str) -> dict[str, Any]:
-        """Untrack a table from Hasura.
-
-        Removes a previously tracked table from Hasura metadata, making it
-        unavailable through the GraphQL API.
-
-        Args:
-            schema: Schema name containing the table.
-            table: Table name to untrack.
-
-        Returns:
-            API response dictionary.
-
-        Raises:
-            requests.RequestException: If the API call fails.
+        """Remove a previously tracked table from Hasura metadata so it is no
+        longer exposed through the GraphQL API.
 
         Example:
             >>> client.untrack_table("api", "old_table")
@@ -292,24 +237,8 @@ class HasuraClient:
         filter: dict[str, Any] | None = None,
         columns: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Create SELECT permission for a role on a table.
-
-        Grants SELECT access to a specific role on a tracked table.
-        Supports row-level security through filter expressions and
-        column-level security through column lists.
-
-        Args:
-            schema: Schema name containing the table.
-            table: Table name to grant permissions on.
-            role: Role name to grant permissions to.
-            filter: Row-level security filter expression (default: {} for all rows).
-            columns: Allowed columns list (default: ["*"] for all columns).
-
-        Returns:
-            API response dictionary.
-
-        Raises:
-            requests.RequestException: If the API call fails.
+        """Grant SELECT on a tracked table to a role, with an optional row-level
+        filter (default: all rows) and column allow-list (default: all columns).
 
         Example:
             >>> # Allow anon to read all rows
@@ -352,25 +281,9 @@ class HasuraClient:
         columns: list[str] | None = None,
         set: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Create INSERT permission for a role on a table.
-
-        Grants INSERT access to a specific role on a tracked table.
-        Supports validation through check expressions and preset values
-        that are automatically set on insert.
-
-        Args:
-            schema: Schema name containing the table.
-            table: Table name to grant permissions on.
-            role: Role name to grant permissions to.
-            check: Validation check expression (default: {} for no validation).
-            columns: Allowed columns for insert (default: ["*"] for all).
-            set: Preset values to automatically set on insert (e.g., {"created_by": "x-hasura-user-id"}).
-
-        Returns:
-            API response dictionary.
-
-        Raises:
-            requests.RequestException: If the API call fails.
+        """Grant INSERT on a tracked table to a role, with an optional check
+        expression for validation (default: none), column allow-list, and
+        preset values applied to every insert.
 
         Example:
             >>> client.create_insert_permission("api", "orders", "user")
@@ -414,27 +327,9 @@ class HasuraClient:
         columns: list[str] | None = None,
         set: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Create UPDATE permission for a role on a table.
-
-        Grants UPDATE access to a specific role on a tracked table.
-        Supports row filters for selecting updatable rows, check expressions
-        for validating updated rows, column allow-lists, and preset values.
-
-        Args:
-            schema: Schema name containing the table.
-            table: Table name to grant permissions on.
-            role: Role name to grant permissions to.
-            filter: Row-level filter expression controlling which rows can be updated.
-            check: Validation check expression for updated rows.
-            columns: Allowed columns for update (default: ["*"] for all).
-            set: Preset values to automatically set on update.
-
-        Returns:
-            API response dictionary.
-
-        Raises:
-            requests.RequestException: If the API call fails.
-
+        """Grant UPDATE on a tracked table to a role; filter selects the
+        updatable rows, check validates the rows after update, and set
+        presets values on update.
         """
         if filter is None:
             filter = {}
@@ -469,23 +364,8 @@ class HasuraClient:
         role: str,
         filter: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create DELETE permission for a role on a table.
-
-        Grants DELETE access to a specific role on a tracked table.
-        Supports row-level filters controlling which rows can be deleted.
-
-        Args:
-            schema: Schema name containing the table.
-            table: Table name to grant permissions on.
-            role: Role name to grant permissions to.
-            filter: Row-level filter expression controlling which rows can be deleted.
-
-        Returns:
-            API response dictionary.
-
-        Raises:
-            requests.RequestException: If the API call fails.
-
+        """Grant DELETE on a tracked table to a role, restricted by an optional
+        row-level filter.
         """
         if filter is None:
             filter = {}
@@ -507,23 +387,9 @@ class HasuraClient:
     def drop_permission(
         self, schema: str, table: str, role: str, permission_type: str = "select"
     ) -> dict[str, Any]:
-        """Drop a permission for a role.
-
-        Removes a previously granted permission from a role on a table.
-
-        Args:
-            schema: Schema name containing the table.
-            table: Table name to remove permissions from.
-            role: Role name to remove permissions for.
-            permission_type: Type of permission to drop. One of:
-                'select', 'insert', 'update', or 'delete' (default: 'select').
-
-        Returns:
-            API response dictionary.
-
-        Raises:
-            requests.RequestException: If the API call fails.
-            KeyError: If an invalid permission_type is provided.
+        """Remove a previously granted permission from a role on a table.
+        permission_type is one of select, insert, update, or delete (default
+        select); unknown values raise KeyError.
 
         Example:
             >>> client.drop_permission("api", "orders", "anon", "select")
@@ -559,24 +425,9 @@ class HasuraClient:
         name: str,
         manual_configuration: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create object relationship (many-to-one).
-
-        Creates a relationship where a single row in the source table
-        relates to a single row in another table (e.g., order -> customer).
-
-        Args:
-            schema: Schema name containing the source table.
-            table: Source table name.
-            name: Relationship name (e.g., "customer" for orders.customer).
-            manual_configuration: Manual configuration dict specifying how to
-                relate the tables. Typically contains 'foreign_key_constraint_on'
-                with the column name.
-
-        Returns:
-            API response dictionary.
-
-        Raises:
-            requests.RequestException: If the API call fails.
+        """Create a many-to-one relationship where a row of the source table
+        relates to a single row of another table (e.g., order -> customer);
+        manual_configuration typically carries 'foreign_key_constraint_on'.
 
         Example:
             >>> client.create_object_relationship(
@@ -608,24 +459,10 @@ class HasuraClient:
         name: str,
         manual_configuration: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create array relationship (one-to-many).
-
-        Creates a relationship where a single row in the source table
-        relates to multiple rows in another table (e.g., customer -> orders).
-
-        Args:
-            schema: Schema name containing the source table.
-            table: Source table name.
-            name: Relationship name (e.g., "orders" for customer.orders).
-            manual_configuration: Manual configuration dict specifying how to
-                relate the tables. Typically contains 'foreign_key_constraint_on'
-                with table and column information.
-
-        Returns:
-            API response dictionary.
-
-        Raises:
-            requests.RequestException: If the API call fails.
+        """Create a one-to-many relationship where a row of the source table
+        relates to multiple rows of another table (e.g., customer -> orders);
+        manual_configuration typically carries 'foreign_key_constraint_on'
+        with table and column.
 
         Example:
             >>> client.create_array_relationship(
@@ -656,22 +493,8 @@ class HasuraClient:
         )
 
     def export_metadata(self) -> dict[str, Any]:
-        """Export all Hasura metadata.
-
-        Retrieves the complete Hasura metadata including tracked tables,
-        relationships, permissions, event triggers, and remote schemas.
-
-        Returns:
-            Complete metadata dictionary containing:
-                - version: Metadata format version
-                - sources: Data sources and their tables
-                - remote_schemas: Remote GraphQL schemas
-                - actions: Custom actions
-                - cron_triggers: Scheduled triggers
-                - etc.
-
-        Raises:
-            requests.RequestException: If the API call fails.
+        """Export the complete Hasura metadata: tracked tables, relationships,
+        permissions, event triggers, remote schemas, actions, and more.
 
         Example:
             >>> metadata = client.export_metadata()
@@ -683,20 +506,8 @@ class HasuraClient:
         return self._request("POST", data, "export_metadata")
 
     def apply_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
-        """Apply metadata to Hasura.
-
-        Replaces the current Hasura metadata with the provided metadata
-        dictionary. This is a destructive operation that will remove
-        any existing metadata not present in the input.
-
-        Args:
-            metadata: Complete metadata dictionary to apply.
-
-        Returns:
-            API response dictionary.
-
-        Raises:
-            requests.RequestException: If the API call fails.
+        """Replace the current Hasura metadata with the given dictionary,
+        removing any existing metadata not present in the input.
 
         Example:
             >>> metadata = client.export_metadata()
@@ -708,16 +519,8 @@ class HasuraClient:
         return self._request("POST", data, "apply_metadata")
 
     def reload_metadata(self) -> dict[str, Any]:
-        """Reload metadata from database.
-
-        Forces Hasura to reload its metadata from the underlying database.
-        Useful when database schema changes occur outside of Hasura.
-
-        Returns:
-            API response dictionary.
-
-        Raises:
-            requests.RequestException: If the API call fails.
+        """Force Hasura to reload its metadata from the database, e.g. after
+        schema changes made outside Hasura.
 
         Example:
             >>> client.reload_metadata()  # After manual DB schema changes
@@ -727,16 +530,8 @@ class HasuraClient:
         return self._request("POST", data, "reload_metadata")
 
     def get_tables(self, schema: str) -> list[str]:
-        """Get list of tables in a schema.
-
-        Queries the current metadata to find all tracked tables
-        within a specific schema.
-
-        Args:
-            schema: Schema name to query.
-
-        Returns:
-            List of table names tracked in the specified schema.
+        """Return the names of all tables tracked in a schema, read from the
+        current metadata.
 
         Example:
             >>> tables = client.get_tables("api")
@@ -756,14 +551,8 @@ class HasuraClient:
         return tables
 
     def get_tracked_tables(self) -> dict[str, list[str]]:
-        """Get all tracked tables by schema.
-
-        Returns a mapping of schema names to lists of tracked tables
-        across all data sources in the metadata.
-
-        Returns:
-            Dictionary mapping schema names to lists of table names.
-            Example: {"api": ["orders", "customers"], "public": ["users"]}
+        """Return tracked table names grouped by schema across all data
+        sources, e.g. {"api": ["orders", "customers"], "public": ["users"]}.
 
         Example:
             >>> tracked = client.get_tracked_tables()

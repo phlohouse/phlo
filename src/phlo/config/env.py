@@ -1,4 +1,11 @@
-"""Project environment helpers."""
+"""Project environment helpers.
+
+Resolves the project root (explicit argument, per-context override, or
+cwd; traversal is rejected) and layers configuration from phlo.yaml
+env:, .phlo/.env, and .phlo/.env.local, with later sources winning.
+The ContextVar-based use_project_root keeps nested settings
+construction correct under async without touching process cwd.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +17,9 @@ from pathlib import Path
 
 import yaml
 
+# Per-context project root, consulted by resolve_project_root when callers
+# pass no explicit root. A ContextVar keeps nested settings construction
+# correct under async without touching process-wide cwd state.
 _PROJECT_ROOT: ContextVar[Path | None] = ContextVar("phlo_project_root", default=None)
 
 
@@ -81,6 +91,8 @@ def parse_project_config_env(path: Path) -> dict[str, str]:
     try:
         config = yaml.safe_load(path.read_text()) or {}
     except (OSError, yaml.YAMLError):
+        # An unreadable or malformed phlo.yaml counts as "no env block"
+        # rather than a load failure.
         return {}
 
     if not isinstance(config, dict):

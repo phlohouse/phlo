@@ -1,4 +1,10 @@
-"""Start command for starting services."""
+"""Start command for Phlo infrastructure services.
+
+Builds a preflight plan (requested services, profiles, host ports, required
+env) and fails before touching the container backend if anything is missing.
+Supports compose-backed and native subprocess modes; starting is a mutation
+and requires authorization via services.start.
+"""
 
 import asyncio
 import signal
@@ -641,11 +647,7 @@ def start_cmd(
                     click.echo("No native services to start.")
 
                 async def start_native_services():
-                    """Start selected native services and collect runtime state.
-
-                    Returns:
-                        Mapping of started service names to persisted process metadata.
-                    """
+                    """Start selected native services, returning name -> process metadata."""
                     started: dict[str, dict] = {}
                     env_overrides = {
                         **_load_native_env_overrides(project_root),
@@ -739,6 +741,9 @@ def start_cmd(
 
             started_services: list[str] = []
             if not skip_docker_compose:
+                # A zero exit from `compose up` does not guarantee health: a
+                # container can exit immediately after being created. Verify
+                # the actual container states before reporting success.
                 compose_service_names = load_compose_service_names(compose_file)
                 if docker_services_list:
                     started_services = [

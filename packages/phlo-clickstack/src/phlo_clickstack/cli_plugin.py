@@ -1,4 +1,10 @@
-"""Clickstack CLI plugin registration."""
+"""Clickstack CLI plugin registration.
+
+Registers the clickstack command group with the plugin system via
+cli_command_plugin_class; owns no logic beyond registration.
+
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported directly.
+"""
 
 from __future__ import annotations
 

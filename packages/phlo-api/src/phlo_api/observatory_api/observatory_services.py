@@ -1,4 +1,11 @@
-"""Service read models for Observatory."""
+"""Service read models for Observatory.
+
+Builds service status from registry metadata plus live Docker state: the
+Docker CLI is tried first, then the daemon socket over HTTP. When several
+containers map to one service the highest-ranked status wins, so a healthy
+replica outranks but never hides an unhealthy one. Registry loading stays
+quiet: no remote fetches or logging hooks on these paths.
+"""
 
 from __future__ import annotations
 
@@ -37,6 +44,8 @@ DOCKER_CLI_CANDIDATES = (
     "/opt/homebrew/bin/docker",
     "/usr/local/bin/docker",
 )
+# When several containers map to one service, the highest-ranked status wins,
+# so a healthy replica outranks a stopped one but never hides an unhealthy one.
 DOCKER_SERVICE_STATUS_RANK: dict[ServiceStatus, int] = {
     "running": 4,
     "unhealthy": 3,
@@ -193,6 +202,7 @@ def _available_registry_service(
 
 
 def coerce_str(value: Any, default: str = "") -> str:
+    """Coerce a value to a string, returning the default when it is None."""
     if value is None:
         return default
     return str(value)
@@ -233,6 +243,7 @@ def fallback_services() -> list[ObservatoryService]:
 def docker_status_from_container(
     container: Mapping[str, Any],
 ) -> tuple[ServiceStatus, ObservatoryHealth]:
+    """Map a Docker container payload to a service status and health summary."""
     state = coerce_str(container.get("State"), "unknown").lower()
     status_text = coerce_str(container.get("Status"), "")
     status_lower = status_text.lower()
@@ -254,6 +265,7 @@ def docker_status_from_container(
 
 
 def docker_inspect_container(container_id: str) -> dict[str, Any]:
+    """Inspect a container via the Docker CLI, returning an empty dict on any failure."""
     if not container_id:
         return {}
     docker_cli = docker_cli_path()
@@ -282,6 +294,7 @@ def docker_inspect_container(container_id: str) -> dict[str, Any]:
 
 
 def docker_runtime_metadata(container: Mapping[str, Any]) -> dict[str, Any]:
+    """Extract restart, exit, and health-probe metadata, inspecting the container if needed."""
     inspected = (
         container
         if "RestartCount" in container or isinstance(container.get("State"), Mapping)
@@ -324,9 +337,13 @@ def health_with_runtime_evidence(
     health: ObservatoryHealth,
     metadata: Mapping[str, Any],
 ) -> ObservatoryHealth:
+    """Downgrade container health to warning on recent kills (exit 137) or restarts."""
     restart_count = metadata.get("restart_count")
     recent_exits = metadata.get("recent_health_exit_codes")
     exit_code = metadata.get("exit_code")
+    # Exit code 137 means the container was SIGKILLed -- typically OOM-killed
+    # by the kernel or Docker -- even when the container has since restarted
+    # and reports healthy.
     has_recent_137 = exit_code == 137 or (isinstance(recent_exits, list) and 137 in recent_exits)
     has_restarts = isinstance(restart_count, int) and restart_count > 0
     if has_recent_137:
@@ -343,6 +360,7 @@ def health_with_runtime_evidence(
 
 
 def container_labels(container: Mapping[str, Any]) -> dict[str, str]:
+    """Parse a container's labels into a dict, accepting mapping or comma-separated forms."""
     labels = container.get("Labels")
     if isinstance(labels, Mapping):
         return {str(key): str(value) for key, value in labels.items()}
@@ -358,11 +376,14 @@ def container_labels(container: Mapping[str, Any]) -> dict[str, str]:
 
 
 class UnixSocketHTTPConnection(http.client.HTTPConnection):
+    """HTTP connection tunneled over a Unix domain socket."""
+
     def __init__(self, socket_path: str):
         super().__init__("localhost", timeout=DOCKER_SOCKET_TIMEOUT_SECONDS)
         self.socket_path = socket_path
 
     def connect(self) -> None:
+        """Connect over the Unix socket instead of TCP."""
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(DOCKER_SOCKET_TIMEOUT_SECONDS)
         sock.connect(self.socket_path)
@@ -396,6 +417,7 @@ def docker_socket_candidates() -> list[str]:
 
 
 def docker_socket_json(path: str, socket_path: str = DOCKER_SOCKET) -> Any:
+    """GET a Docker Engine API path over a Unix socket, returning None on any failure."""
     connection = UnixSocketHTTPConnection(socket_path)
     try:
         connection.request("GET", path)
@@ -411,6 +433,7 @@ def docker_socket_json(path: str, socket_path: str = DOCKER_SOCKET) -> Any:
 
 
 def normalize_docker_api_container(container: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize a Docker Engine API container payload to the CLI ps field names."""
     names = container.get("Names")
     if isinstance(names, list) and names:
         name = str(names[0]).lstrip("/")
@@ -426,6 +449,7 @@ def normalize_docker_api_container(container: Mapping[str, Any]) -> dict[str, An
 
 
 def parse_docker_ps_output(output: str) -> list[dict[str, Any]]:
+    """Parse newline-delimited JSON from docker ps into container dicts, skipping bad lines."""
     containers: list[dict[str, Any]] = []
     for line in output.splitlines():
         try:
@@ -438,6 +462,7 @@ def parse_docker_ps_output(output: str) -> list[dict[str, Any]]:
 
 
 def docker_cli_path() -> str | None:
+    """Return the path to a usable Docker CLI binary, or None when absent."""
     for candidate in DOCKER_CLI_CANDIDATES:
         if candidate == "docker":
             resolved = shutil.which(candidate)
@@ -450,7 +475,11 @@ def docker_cli_path() -> str | None:
 
 
 def docker_ps_containers(*filters: str) -> list[dict[str, Any]] | None:
+    """List containers via docker ps, returning None when the CLI is unusable or times out."""
     global _DOCKER_CLI_DISABLED
+    # One CLI timeout marks the CLI path dead for the lifetime of the process;
+    # later calls go straight to the Unix-socket fallback instead of paying the
+    # timeout on every request.
     if _DOCKER_CLI_DISABLED:
         return None
     docker_cli = docker_cli_path()
@@ -480,6 +509,7 @@ def docker_ps_containers(*filters: str) -> list[dict[str, Any]] | None:
 
 
 def load_docker_containers() -> list[dict[str, Any]]:
+    """Load all containers via the Docker CLI, falling back to the Engine socket API."""
     containers = docker_ps_containers()
     if containers is not None:
         return containers
@@ -496,6 +526,7 @@ def load_docker_containers() -> list[dict[str, Any]]:
 
 
 def load_project_docker_containers(project_root: Path | None) -> list[dict[str, Any]]:
+    """Load containers belonging to the project's compose project, empty when unknown."""
     compose_project = project_compose_name(project_root)
     if compose_project:
         containers = docker_ps_containers(f"label=com.docker.compose.project={compose_project}")
@@ -556,6 +587,7 @@ def current_compose_project(
     containers: Sequence[Mapping[str, Any]],
     project_root: Path | None = None,
 ) -> str | None:
+    """Resolve the active compose project name from env, project config, or running containers."""
     configured = os.environ.get("PHLO_COMPOSE_PROJECT") or os.environ.get("COMPOSE_PROJECT_NAME")
     if configured:
         return configured
@@ -567,6 +599,8 @@ def current_compose_project(
     hostname = os.environ.get("HOSTNAME", "")
     if not hostname:
         return None
+    # Inside a container, HOSTNAME is that container's id; matching it against
+    # the container list identifies which compose project this process runs in.
 
     for container in containers:
         container_id = coerce_str(container.get("ID") or container.get("Id"), "")
@@ -588,17 +622,21 @@ def current_compose_project(
 
 
 def compose_service_name(container: Mapping[str, Any]) -> str | None:
+    """Derive the compose service name from container labels or Docker's default naming."""
     labels = container_labels(container)
     service_name = labels.get("com.docker.compose.service")
     if service_name:
         return service_name
     name = coerce_str(container.get("Names"), "")
+    # Containers without compose labels still follow Docker's default
+    # <project>-<service>-<ordinal> naming; peel off the suffix parts.
     if name.endswith("-1") and "-" in name:
         return name.rsplit("-", 2)[-2]
     return None
 
 
 def service_name_from_container(name: str, service_ids: set[str]) -> str | None:
+    """Match a container name to a known service id, preferring the longest id."""
     ordered_service_ids = list(service_ids)
     ordered_service_ids.sort(key=lambda value: len(value), reverse=True)
     for service_id in ordered_service_ids:
@@ -612,6 +650,7 @@ def load_docker_service_statuses(
     containers: Sequence[Mapping[str, Any]] | None = None,
     project_root: Path | None = None,
 ) -> dict[str, tuple[ServiceStatus, ObservatoryHealth]]:
+    """Map known service ids to status and health from the project's containers."""
     if not service_ids:
         return {}
 
@@ -652,6 +691,7 @@ def load_docker_service_metadata(
     containers: Sequence[Mapping[str, Any]] | None = None,
     project_root: Path | None = None,
 ) -> dict[str, dict[str, Any]]:
+    """Map known service ids to runtime metadata from the project's containers."""
     if not service_ids:
         return {}
 
@@ -684,6 +724,7 @@ def runtime_services_from_containers(
     known_ids: set[str],
     project_root: Path | None = None,
 ) -> list[ObservatoryService]:
+    """Build service entries for running containers that are not in the known set."""
     compose_project = current_compose_project(containers, project_root)
     if not compose_project:
         return []
@@ -724,6 +765,7 @@ def runtime_services_from_containers(
 
 
 def service_links_from_definition(service: Any) -> list[ObservatoryExternalLink]:
+    """Extract external links from a service definition's Traefik rules and published ports."""
     compose = getattr(service, "compose", {}) if service is not None else {}
     labels = compose.get("labels") if isinstance(compose, Mapping) else {}
     ports = compose.get("ports") if isinstance(compose, Mapping) else []
@@ -757,6 +799,7 @@ def service_links_from_definition(service: Any) -> list[ObservatoryExternalLink]
 def service_links_from_compose(
     project_root: Path, service_name: str
 ) -> list[ObservatoryExternalLink]:
+    """Extract port links for a service from the generated compose file."""
     compose_file = project_root / ".phlo" / "docker-compose.yml"
     try:
         payload = yaml.safe_load(compose_file.read_text()) or {}
@@ -786,6 +829,7 @@ def service_links_from_compose(
 def merge_service_links(
     *groups: Iterable[ObservatoryExternalLink],
 ) -> list[ObservatoryExternalLink]:
+    """Merge link groups in order, dropping duplicates and capping at four links."""
     links: list[ObservatoryExternalLink] = []
     seen: set[tuple[str, str]] = set()
     for group in groups:
@@ -799,6 +843,7 @@ def merge_service_links(
 
 
 def service_ports_from_definition(service: Any) -> list[ObservatoryServicePort]:
+    """Extract published and target ports from a service definition."""
     compose = getattr(service, "compose", {}) if service is not None else {}
     ports = compose.get("ports") if isinstance(compose, Mapping) else []
     exposed: list[ObservatoryServicePort] = []
@@ -820,6 +865,7 @@ def service_ports_from_definition(service: Any) -> list[ObservatoryServicePort]:
 
 
 def resolve_env_default(value: str) -> str:
+    """Resolve ``${VAR:-default}`` references in a value using the project env file."""
     match = ENV_REFERENCE_RE.match(value)
     if match is not None:
         env_value = load_project_env().get(match.group("name"))
@@ -859,6 +905,7 @@ def native_service_override(
     status: ServiceStatus,
     health: ObservatoryHealth,
 ) -> tuple[ServiceStatus, ObservatoryHealth, str | None]:
+    """Probe native ports for core services, overriding status when a port listens locally."""
     env = load_project_env()
     candidates: list[tuple[str, str]] = []
     if service_name == "phlo-api":
@@ -886,6 +933,7 @@ def native_service_override(
 
 
 def service_config_from_definition(service: Any) -> list[ObservatoryServiceConfigEntry]:
+    """Build config entries from a service definition's env vars, masking secrets."""
     env_vars = getattr(service, "env_vars", {}) if service is not None else {}
     if not isinstance(env_vars, Mapping):
         return []

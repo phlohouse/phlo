@@ -1,4 +1,9 @@
-"""Shared utilities for plugin commands."""
+"""Shared utilities for plugin commands.
+
+Normalizes plugin type names between internal, CLI, and registry vocabularies,
+collects installed and registry plugins, renders listing tables, and compares
+versions to surface available updates.
+"""
 
 from __future__ import annotations
 
@@ -335,7 +340,11 @@ def version_tuple(version: str) -> tuple[int, object]:
 
 
 def is_version_newer(installed: str, available: str) -> bool:
-    """Check if available version is newer than installed."""
+    """Check if available version is newer than installed.
+
+    When either side is not parseable as a version, any difference counts as
+    an update so the user is still prompted to refresh.
+    """
     try:
         return parse(available) > parse(installed)
     except Exception:

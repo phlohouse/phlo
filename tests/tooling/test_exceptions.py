@@ -1,4 +1,11 @@
-"""Tests for `phlo.exceptions` formatting and suggestion helpers."""
+"""Tests for `phlo.exceptions` formatting and suggestion helpers.
+
+PhloError messages carry a stable error code, numbered suggestions,
+cause chain, and docs URL, with optional sections omitted when unset.
+_redact_sensitive scrubs password/token/key material — including PEM
+bodies and token-only URL userinfo — before anything reaches the
+rendered message.
+"""
 
 from __future__ import annotations
 

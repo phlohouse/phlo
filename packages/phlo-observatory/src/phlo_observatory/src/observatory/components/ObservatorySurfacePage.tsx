@@ -1,3 +1,8 @@
+/**
+ * Generic list page for an observatory surface: renders items as selectable
+ * rows with empty and error states, plus an inspector aside naming the
+ * backing data contract.
+ */
 import { Layers3 } from 'lucide-react'
 
 import type {

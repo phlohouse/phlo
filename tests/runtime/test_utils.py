@@ -1,3 +1,6 @@
+"""Tests for dict/list utilities: None-stripping compaction and
+order-preserving dedupe."""
+
 from __future__ import annotations
 
 from phlo.utils import compact_dict, dedupe_preserve_order

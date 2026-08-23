@@ -1,4 +1,9 @@
-"""Generic cross-system identity mapping helpers."""
+"""Generic cross-system identity mapping helpers.
+
+Each CrosswalkEntry maps one (source_system, source_id) pair to one canonical_id
+with a confidence score; collisions onto multiple canonical IDs are surfaced by
+detect_crosswalk_collisions rather than silently resolved.
+"""
 
 from __future__ import annotations
 

@@ -32,6 +32,9 @@ Example:
         migrator = get_resource("schema_migrator", name="iceberg")
         plan = migrator.diff_schema(table_name="raw.users", desired=schema)
 
+
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported
+directly; registers IcebergResourceProvider through phlo.capabilities and phlo.plugins.
 """
 
 from phlo.capabilities import CapabilitySupport, ResourceSpec, SchemaMigrationSpec, TableStoreSpec
@@ -93,13 +96,6 @@ class IcebergResourceProvider(ResourceProviderPlugin):
     def metadata(self) -> PluginMetadata:
         """Get plugin metadata.
 
-        Returns:
-            PluginMetadata: Plugin information including:
-                - name: "iceberg"
-                - version: "0.1.0"
-                - description: "Iceberg/Nessie catalog resource for Phlo"
-                - support: Full capability support flags
-
         Example:
             Check plugin capabilities::
 
@@ -128,10 +124,6 @@ class IcebergResourceProvider(ResourceProviderPlugin):
 
         Returns the primary Iceberg resource for table operations.
 
-        Returns:
-            list[ResourceSpec]: Resource specifications containing
-                ``IcebergResource`` instances.
-
         Example:
             Get resources::
 
@@ -147,10 +139,6 @@ class IcebergResourceProvider(ResourceProviderPlugin):
 
     def get_table_stores(self) -> list[TableStoreSpec]:
         """Get table-store capability specs exposed by this plugin.
-
-        Returns:
-            list[TableStoreSpec]: Table store specifications with
-                full Iceberg capability support.
 
         Example:
             Get table store capabilities::
@@ -180,10 +168,6 @@ class IcebergResourceProvider(ResourceProviderPlugin):
 
     def get_schema_migrators(self) -> list[SchemaMigrationSpec]:
         """Get schema-migrator capability specs exposed by this plugin.
-
-        Returns:
-            list[SchemaMigrationSpec]: Schema migration specifications
-                using ``IcebergSchemaMigrator``.
 
         Example:
             Get schema migrator::

@@ -1,3 +1,10 @@
+"""Tests the Observatory legacy API proxy routes against stubbed HTTPX clients.
+
+A scripted _AsyncClient stands in for outbound requests so loki, nessie,
+trino, iceberg, search, and settings endpoints can be exercised without live
+services; authentication comes from security_test_support.
+"""
+
 from __future__ import annotations
 
 from types import SimpleNamespace

@@ -1,3 +1,8 @@
+/**
+ * Command palette. Debounced search across nav pages, cached table/service
+ * lists, and the observatory search API; selecting a result navigates or
+ * copies a table's SQL preview to the clipboard.
+ */
 import { useNavigate } from '@tanstack/react-router'
 import { Command as CommandPrimitive } from 'cmdk'
 import {

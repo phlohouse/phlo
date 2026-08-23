@@ -59,9 +59,14 @@ repos:
         entry: uv run --locked ruff format
         language: system
         types_or: [python, pyi, jupyter]
+      - id: check-file-headers
+        name: check file headers (module docstring / comment block)
+        entry: python3 scripts/check_file_headers.py
+        language: system
+        types_or: [python, ts, tsx, javascript, sql, shell]
       - id: prettier-observatory
         name: prettier (Observatory)
-        entry: npx prettier --cache --write
+        entry: packages/phlo-observatory/src/phlo_observatory/node_modules/.bin/prettier --cache --write
         language: system
         files: ^packages/phlo-observatory/src/phlo_observatory/.*(\.ts|\.tsx)$
       - id: zizmor

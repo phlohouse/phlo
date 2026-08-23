@@ -1,4 +1,11 @@
-"""Plugin update command."""
+"""Plugin update command.
+
+Compares installed plugins against the registry and upgrades them with
+pip. Read-only modes (--json, --dry-run) bypass mutation authorization;
+the actual update requires the "plugin.update" mutation. Per-plugin
+failures are collected, reported, and fail the command with exit 1
+after every remaining update has been attempted.
+"""
 
 from __future__ import annotations
 

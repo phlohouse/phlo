@@ -1,3 +1,4 @@
+/** Tests theme mode resolution and snapshot behavior across light/dark/system. */
 import { describe, expect, test } from 'vitest'
 
 import {

@@ -47,6 +47,8 @@ mc admin policy create "$ALIAS" phlo-dagster /tmp/phlo-dagster-policy.json
 echo "  Created policy: phlo-dagster"
 
 # Create dagster service account
+# The secret is generated inline and never echoed or persisted by this script;
+# MinIO cannot display it again afterwards, so re-running creates a new one.
 mc admin user add "$ALIAS" phlo-dagster-svc "$(openssl rand -base64 24)"
 mc admin policy attach "$ALIAS" phlo-dagster --user phlo-dagster-svc
 echo "  Created user: phlo-dagster-svc with policy phlo-dagster"

@@ -128,19 +128,11 @@ def materialize(
 ) -> None:
     """Materialize Dagster assets via the configured container backend.
 
-    Args:
-        asset_name: Name of the asset to materialize.
-        partition: Optional partition date (YYYY-MM-DD) for partitioned assets.
-        select: Optional asset selector expression to override asset_name.
-        no_contract_refresh: If True, skip automatic schema contract refresh.
-        dry_run: If True, show command without executing.
+    select overrides asset_name; no_contract_refresh skips automatic schema
+    contract refresh; dry_run prints the command without executing.
 
-    Returns:
-        None
-
-    Raises:
-        SystemExit: On command failure or container backend not found.
-
+    Raises: SystemExit on command failure or when the container backend is
+    not found.
     """
     if not asset_name and not select:
         raise click.UsageError("Provide ASSET_NAME or --select.")

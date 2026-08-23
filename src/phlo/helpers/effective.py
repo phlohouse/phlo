@@ -1,4 +1,11 @@
-"""Effective-dated reference data helpers."""
+"""Effective-dated reference data helpers.
+
+Validity windows are half-open: a row covers [valid_from, valid_to),
+and open ends (None) mean unbounded on that side. Dates are coerced
+freely among date, datetime, and ISO strings. effective_join attaches
+the reference row valid at each fact's event time; unmatched facts are
+surfaced by assert_no_reference_gap instead of silently dropped.
+"""
 
 from __future__ import annotations
 

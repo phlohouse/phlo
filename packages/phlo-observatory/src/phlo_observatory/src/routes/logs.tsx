@@ -1,3 +1,7 @@
+/**
+ * /logs route. Log explorer with facet-driven level, source, and query
+ * filtering; all view state lives in a single reducer.
+ */
 import { createFileRoute } from '@tanstack/react-router'
 import { AlertCircle, FileText, Radio, Search, Terminal } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useReducer } from 'react'

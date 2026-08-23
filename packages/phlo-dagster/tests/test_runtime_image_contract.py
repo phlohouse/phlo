@@ -1,3 +1,6 @@
+"""Contract tests for the Dagster runtime Dockerfile: pinned base image,
+uv install commands, toolchain versions, and provider version build args."""
+
 from __future__ import annotations
 
 from importlib import resources

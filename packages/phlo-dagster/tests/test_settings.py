@@ -1,3 +1,6 @@
+"""Verify DagsterSettings resolves workflows_path across the PHLO_WORKFLOWS_PATH
+and legacy WORKFLOWS_PATH aliases."""
+
 from __future__ import annotations
 
 from phlo_dagster.settings import DagsterSettings

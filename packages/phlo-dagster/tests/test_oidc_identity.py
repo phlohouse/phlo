@@ -1,4 +1,10 @@
-"""OIDC/JWKS hardening tests for the Dagster boundary."""
+"""OIDC/JWKS hardening tests for the Dagster boundary.
+
+Covers HTTPS-only JWKS fetches with explicit loopback opt-in, bounded numeric
+configuration, one refresh then a global cooldown for unknown key ids, atomic
+rejection of malformed or oversized JWKS documents, fail-closed cache-refresh
+failures, and claim allowlisting on the resulting principal.
+"""
 
 from __future__ import annotations
 

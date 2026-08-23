@@ -35,56 +35,24 @@ def _validate_identifier(name: str, context: str = "identifier") -> str:
 
 
 class MockCursor:
-    """Mock Trino cursor backed by DuckDB.
-
-    Implements the DB-API 2.0 cursor interface for compatibility
-    with standard database access patterns.
-
-    Attributes:
-        _connection: DuckDB connection.
-        _result: Current query result.
-        _description: Column metadata from last query.
-        _row_index: Current row position.
-
-    """
+    """Mock Trino cursor backed by DuckDB, implementing the DB-API 2.0 cursor interface."""
 
     def __init__(self, connection: duckdb.DuckDBPyConnection) -> None:
-        """Initialize cursor.
-
-        Args:
-            connection: DuckDB connection to use for queries.
-
-        """
+        """Initialize cursor around an existing DuckDB connection."""
         self._connection = connection
         self._result = None
         self._description = None
         self._row_index = 0
 
     def execute(self, query: str, params: Optional[tuple] = None) -> "MockCursor":
-        """Execute a SQL query.
-
-        Args:
-            query: SQL query string.
-            params: Optional parameters (not fully supported).
-
-        Returns:
-            Self for method chaining.
-
-        Raises:
-            RuntimeError: If query fails.
-
-        """
+        """Translate, run, and return self for chaining; wraps any failure in RuntimeError."""
         try:
-            # Translate Trino SQL to DuckDB if needed
             query = self._translate_query(query)
 
-            # Execute query
             result = self._connection.execute(query)
             self._result = result
 
-            # Get column names and types
             try:
-                # Try to get columns from result
                 cols = getattr(result, "columns", None)
                 if cols:
                     self._description = [
@@ -105,12 +73,7 @@ class MockCursor:
             raise RuntimeError(f"Query execution failed: {e}") from e
 
     def fetchall(self) -> list[tuple]:
-        """Fetch all results.
-
-        Returns:
-            List of tuples representing rows.
-
-        """
+        """Return every result row as tuples; empty list when no query has run."""
         if self._result is None:
             return []
 
@@ -119,12 +82,7 @@ class MockCursor:
         return rows
 
     def fetchone(self) -> Optional[tuple]:
-        """Fetch one result.
-
-        Returns:
-            Single row as tuple, or None if no more rows.
-
-        """
+        """Return the next row as a tuple, or None when exhausted."""
         if self._result is None:
             return None
 
@@ -134,15 +92,7 @@ class MockCursor:
         return row
 
     def fetchmany(self, size: int = 1) -> list[tuple]:
-        """Fetch multiple results.
-
-        Args:
-            size: Number of rows to fetch.
-
-        Returns:
-            List of tuples.
-
-        """
+        """Advance through and return up to ``size`` result rows as tuples."""
         if self._result is None:
             return []
 
@@ -151,12 +101,7 @@ class MockCursor:
         return rows
 
     def fetchdf(self) -> pd.DataFrame:
-        """Fetch all results as DataFrame.
-
-        Returns:
-            DataFrame with query results.
-
-        """
+        """Return all results as a DataFrame; empty when no query has run."""
         if self._result is None:
             return pd.DataFrame()
 
@@ -164,22 +109,12 @@ class MockCursor:
 
     @property
     def description(self) -> Optional[list]:
-        """Get column metadata.
-
-        Returns:
-            List of column descriptors.
-
-        """
+        """Return column descriptors from the last query."""
         return self._description
 
     @property
     def rowcount(self) -> int:
-        """Get number of affected rows.
-
-        Returns:
-            Row count.
-
-        """
+        """Return the consumed-row count, or -1 when no query has run."""
         return self._row_index if self._result else -1
 
     def close(self) -> None:
@@ -189,37 +124,15 @@ class MockCursor:
 
     @staticmethod
     def _translate_query(query: str) -> str:
-        """Translate Trino SQL to DuckDB SQL.
-
-        Args:
-            query: Trino SQL query.
-
-        Returns:
-            DuckDB SQL query.
-
-        Note:
-            Most Trino SQL is compatible with DuckDB, but we handle some
-            common differences here.
-
-        """
-        # Replace common Trino functions with DuckDB equivalents
-
-        # For now, most Trino queries work directly in DuckDB
+        """Pass Trino SQL through unchanged; add DuckDB rewrites here when a test needs them."""
+        # Trino and DuckDB SQL overlap enough that queries currently pass
+        # through unchanged. Add rewrites here when a test needs a Trino-only
+        # construct that DuckDB rejects.
         return query
 
 
 class MockConnection:
-    """Mock Trino connection backed by DuckDB.
-
-    Implements the DB-API 2.0 connection interface.
-
-    Attributes:
-        _db: DuckDB connection.
-        catalog: Catalog name (for compatibility).
-        schema: Schema name (for compatibility).
-        _tables: Dictionary of loaded test tables.
-
-    """
+    """Mock Trino connection backed by DuckDB, implementing the DB-API 2.0 connection interface."""
 
     def __init__(
         self,
@@ -229,40 +142,18 @@ class MockConnection:
         catalog: str = "memory",
         schema: Optional[str] = None,
     ) -> None:
-        """Initialize connection.
-
-        Args:
-            host: Host (ignored, for compatibility).
-            port: Port (ignored, for compatibility).
-            user: Username (ignored, for compatibility).
-            catalog: Catalog name (ignored, for compatibility).
-            schema: Schema name (ignored, for compatibility).
-
-        """
+        """Open an in-memory DuckDB connection; all parameters exist for compatibility."""
         self._db = duckdb.connect(":memory:")
         self.catalog = catalog
         self.schema = schema
         self._tables: dict[str, pd.DataFrame] = {}
 
     def cursor(self) -> MockCursor:
-        """Create a cursor.
-
-        Returns:
-            MockCursor instance.
-
-        """
+        """Return a MockCursor over the shared DuckDB connection."""
         return MockCursor(self._db)
 
     def execute(self, query: str) -> MockCursor:
-        """Execute a query and return cursor.
-
-        Args:
-            query: SQL query.
-
-        Returns:
-            MockCursor with results.
-
-        """
+        """Run the query on a fresh cursor and return that cursor."""
         cursor = self.cursor()
         cursor.execute(query)
         return cursor
@@ -281,12 +172,7 @@ class MockConnection:
             self._db.close()
 
     def __enter__(self) -> "MockConnection":
-        """Context manager entry.
-
-        Returns:
-            Self for context manager use.
-
-        """
+        """Return self so the connection can be used as a context manager."""
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -295,19 +181,10 @@ class MockConnection:
 
 
 class MockTrinoResource:
-    """Mock Trino resource for testing.
+    """Drop-in TrinoResource replacement backed by DuckDB for SQL tests without a server.
 
-    Drop-in replacement for TrinoResource that uses DuckDB as backend.
-    Enables SQL testing without a real Trino server.
-
-    Attributes:
-        host: Hostname (for compatibility).
-        port: Port number (for compatibility).
-        user: Username (for compatibility).
-        catalog: Catalog name (for compatibility).
-        trino_schema: Schema name (for compatibility).
-        _db: DuckDB connection for query execution.
-        _tables: Dictionary of loaded test tables.
+    Connection attributes (host, port, user, catalog, trino_schema) exist for
+    compatibility and are ignored.
 
     Example:
         >>> trino = MockTrinoResource()
@@ -325,16 +202,7 @@ class MockTrinoResource:
         catalog: str = "memory",
         trino_schema: Optional[str] = None,
     ) -> None:
-        """Initialize mock Trino resource.
-
-        Args:
-            host: Host (ignored, for compatibility).
-            port: Port (ignored, for compatibility).
-            user: Username (ignored, for compatibility).
-            catalog: Catalog name (ignored, for compatibility).
-            trino_schema: Schema name (ignored, for compatibility).
-
-        """
+        """Initialize the mock resource; connection parameters exist for compatibility."""
         self.host = host
         self.port = port
         self.user = user
@@ -348,16 +216,7 @@ class MockTrinoResource:
         schema: Optional[str] = None,
         branch: Optional[Literal["main", "dev"]] = None,
     ) -> MockConnection:
-        """Get a connection.
-
-        Args:
-            schema: Schema to use.
-            branch: Branch (ignored, for compatibility).
-
-        Returns:
-            MockConnection instance.
-
-        """
+        """Return a MockConnection using the given or default schema; branch is ignored."""
         return MockConnection(
             host=self.host,
             port=self.port,
@@ -372,16 +231,7 @@ class MockTrinoResource:
         schema: Optional[str] = None,
         branch: Optional[Literal["main", "dev"]] = None,
     ) -> Iterator[MockConnection]:
-        """Context manager for a connection.
-
-        Args:
-            schema: Schema to use.
-            branch: Branch (ignored, for compatibility).
-
-        Yields:
-            MockConnection instance.
-
-        """
+        """Yield a MockConnection and close it afterwards; branch is ignored."""
         conn = self.get_connection(schema=schema, branch=branch)
         try:
             yield conn
@@ -393,16 +243,7 @@ class MockTrinoResource:
         schema: Optional[str] = None,
         branch: Optional[Literal["main", "dev"]] = None,
     ) -> MockCursor:
-        """Get a cursor.
-
-        Args:
-            schema: Schema to use.
-            branch: Branch (ignored, for compatibility).
-
-        Returns:
-            MockCursor instance.
-
-        """
+        """Return a MockCursor over the resource's DuckDB connection; branch is ignored."""
         return MockCursor(self._db)
 
     def execute(
@@ -411,17 +252,7 @@ class MockTrinoResource:
         schema: Optional[str] = None,
         branch: Optional[Literal["main", "dev"]] = None,
     ) -> list[tuple]:
-        """Execute a query.
-
-        Args:
-            query: SQL query.
-            schema: Schema to use.
-            branch: Branch (ignored, for compatibility).
-
-        Returns:
-            List of result tuples.
-
-        """
+        """Run the query and return all result rows as tuples; branch is ignored."""
         cursor = self.cursor(schema=schema, branch=branch)
         cursor.execute(query)
         return cursor.fetchall()
@@ -433,19 +264,9 @@ class MockTrinoResource:
         schema: Optional[str] = None,
         branch: Optional[Literal["main", "dev"]] = None,
     ) -> pd.DataFrame:
-        """Execute a query and apply types from a Pandera schema.
+        """Execute the query and coerce result types from a Pandera schema class.
 
-        This eliminates manual type conversion boilerplate in quality checks.
-        The DataFrame types are automatically coerced based on schema annotations.
-
-        Args:
-            query: SQL query.
-            schema_class: Pandera DataFrameModel class with type annotations.
-            schema: Schema to use.
-            branch: Branch (ignored, for compatibility).
-
-        Returns:
-            DataFrame with types coerced according to schema.
+        Saves manual type conversion in quality checks; branch is ignored.
 
         Example:
             >>> from phlo_testing import MockTrinoResource
@@ -464,17 +285,10 @@ class MockTrinoResource:
         cursor.execute(query)
         df = cursor.fetchdf()
 
-        # Apply schema-aware type conversions
         return apply_schema_types(df, schema_class)
 
     def load_table(self, table_name: str, df: pd.DataFrame) -> None:
-        """Load a DataFrame as a test table.
-
-        Useful for setting up test data.
-
-        Args:
-            table_name: Name of table to create.
-            df: DataFrame with data.
+        """Register a DataFrame as a queryable test table.
 
         Example:
             >>> trino = MockTrinoResource()
@@ -486,32 +300,15 @@ class MockTrinoResource:
         """
         self._tables[table_name] = df
 
-        # Register DataFrame with DuckDB
         _validate_identifier(table_name.replace(".", "_"), "table name")
         self._db.register(table_name.replace(".", "_"), df)
 
     def get_table(self, table_name: str) -> Optional[pd.DataFrame]:
-        """Get a loaded test table.
-
-        Args:
-            table_name: Name of table.
-
-        Returns:
-            DataFrame if table exists, None otherwise.
-
-        """
+        """Return the loaded test table, or None when it was never registered."""
         return self._tables.get(table_name)
 
     def list_tables(self, schema: Optional[str] = None) -> list[str]:
-        """List available tables.
-
-        Args:
-            schema: Schema to list (ignored).
-
-        Returns:
-            List of table names.
-
-        """
+        """Return the names of all loaded test tables; schema is ignored."""
         return list(self._tables.keys())
 
     def close(self) -> None:
@@ -520,12 +317,7 @@ class MockTrinoResource:
             self._db.close()
 
     def __enter__(self) -> "MockTrinoResource":
-        """Context manager entry.
-
-        Returns:
-            Self for context manager use.
-
-        """
+        """Return self so the resource can be used as a context manager."""
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:

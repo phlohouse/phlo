@@ -43,22 +43,9 @@ OWNED_WAP_REF_PREFIX = "pipeline-run-"
 class DbtRuntimeConfig:
     """Canonical dbt runtime configuration for the active execution target.
 
-    This dataclass holds all configuration needed to generate a dbt profile,
-    including connection details for the query engine (typically Trino),
-    authentication settings, and execution parameters.
-
-    Attributes:
-        profile_name: Name of the dbt profile (default: "phlo").
-        target_name: dbt target environment name (default: "dev").
-        engine_type: Query engine adapter type (default: "trino").
-        user: Database user for connections (default: "dagster").
-        host: Query engine hostname (default: "trino").
-        port: Query engine port (default: 8080).
-        catalog: Default catalog name (default: "iceberg").
-        schema: Default schema name (default: "raw").
-        threads: Number of parallel threads for dbt execution (default: 2).
-        http_scheme: HTTP scheme for connections (default: "http").
-        method: Authentication method (default: "none").
+    Holds everything needed to generate a dbt profile: connection details for
+    the query engine (typically Trino), authentication settings, and execution
+    parameters. Field defaults encode the bundled stack layout.
 
     Example:
         >>> config = DbtRuntimeConfig(
@@ -69,7 +56,6 @@ class DbtRuntimeConfig:
         ... )
         >>> payload = config.to_profile_payload()
         >>> print(yaml.dump(payload))
-
     """
 
     profile_name: str = DEFAULT_DBT_PROFILE_NAME
@@ -87,18 +73,11 @@ class DbtRuntimeConfig:
     def to_profile_payload(self) -> dict[str, Any]:
         """Return the config in dbt `profiles.yml` shape.
 
-        Converts this configuration into the YAML structure expected by dbt,
-        including the profile name, target, and output configuration.
-
-        Returns:
-            Dictionary formatted as dbt profiles.yml content.
-
         Example:
             >>> config = DbtRuntimeConfig(target_name="prod")
             >>> payload = config.to_profile_payload()
             >>> "phlo" in payload
             True
-
         """
         return {
             self.profile_name: {
@@ -131,13 +110,6 @@ def resolve_dbt_target_name(
     3. Legacy `dbt_target` tag
     4. Default `DEFAULT_DBT_TARGET`
 
-    Args:
-        runtime: Optional runtime context for environment-based resolution.
-        target: Optional explicit target name to use (highest priority).
-
-    Returns:
-        Resolved dbt target name string.
-
     Example:
         >>> target = resolve_dbt_target_name(target="prod")
         >>> print(target)
@@ -146,7 +118,6 @@ def resolve_dbt_target_name(
         >>> # With runtime context containing environment
         >>> target = resolve_dbt_target_name(runtime=ctx)
         >>> # Returns environment name from routing context
-
     """
     if target:
         return target
@@ -168,15 +139,9 @@ def resolve_dbt_runtime_config(
 ) -> DbtRuntimeConfig:
     """Resolve canonical dbt runtime config from query-engine settings and routing.
 
-    Combines Phlo settings with runtime context to produce a complete dbt runtime
-    configuration. Handles catalog name resolution based on runtime references.
-
-    Args:
-        runtime: Optional runtime context for environment-based configuration.
-        target: Optional explicit target name to use.
-
-    Returns:
-        Fully configured DbtRuntimeConfig instance.
+    Combines Phlo settings with runtime context to produce a complete dbt
+    runtime configuration. Handles catalog name resolution based on runtime
+    references.
 
     Example:
         >>> config = resolve_dbt_runtime_config(target="prod")
@@ -184,12 +149,15 @@ def resolve_dbt_runtime_config(
         >>> # With runtime that has a branch reference
         >>> config = resolve_dbt_runtime_config(runtime=ctx)
         >>> # Catalog will include branch suffix if not "main"
-
     """
     settings = get_dbt_settings()
     target_name = resolve_dbt_target_name(runtime, target=target)
     catalog = settings.dbt_query_catalog
     ref = resolve_runtime_ref(runtime, support=DBT_QUERY_ENGINE_SUPPORT, default_ref="main")
+    # Non-main refs run against an isolated catalog. Refs owned by a
+    # pipeline run (OWNED_WAP_REF_PREFIX) get their catalog provisioned by
+    # the query engine when it implements RefQueryCatalogManager; any other
+    # ref falls back to the plain "<catalog>_<ref>" name.
     if ref and ref != "main":
         catalog = f"{catalog}_{ref}"
         if ref.startswith(OWNED_WAP_REF_PREFIX):
@@ -217,21 +185,13 @@ def resolve_dbt_runtime_config(
 def resolve_dbt_profile_name(project_dir: Path) -> str:
     """Resolve the dbt profile name declared by the project, if any.
 
-    Reads the dbt_project.yml file to extract the profile name. Falls back
-    to the default profile name if the file doesn't exist or doesn't specify
-    a profile.
-
-    Args:
-        project_dir: Path to the dbt project directory containing dbt_project.yml.
-
-    Returns:
-        Profile name string, either from the project file or the default.
+    Reads the profile name out of dbt_project.yml, falling back to the default
+    profile name when the file is missing or declares none.
 
     Example:
         >>> profile = resolve_dbt_profile_name(Path("/app/workflows/transforms/dbt"))
         >>> print(profile)
         phlo  # or the profile name from dbt_project.yml
-
     """
     project_file = project_dir / "dbt_project.yml"
     if not project_file.exists():
@@ -249,12 +209,6 @@ def resolve_dbt_profile_name(project_dir: Path) -> str:
 def render_dbt_profile_yaml(config: DbtRuntimeConfig) -> str:
     """Render canonical dbt runtime config as `profiles.yml` text.
 
-    Args:
-        config: DbtRuntimeConfig instance to serialize.
-
-    Returns:
-        YAML-formatted string suitable for writing to profiles.yml.
-
     Example:
         >>> config = DbtRuntimeConfig(target_name="prod")
         >>> yaml_text = render_dbt_profile_yaml(config)
@@ -265,7 +219,6 @@ def render_dbt_profile_yaml(config: DbtRuntimeConfig) -> str:
             prod:
               type: trino
               ...
-
     """
     return yaml.safe_dump(config.to_profile_payload(), sort_keys=False)
 
@@ -276,27 +229,15 @@ def write_dbt_profile(
     *,
     filename: str = "profiles.yml",
 ) -> Path:
-    """Write canonical `profiles.yml` to disk and return its path.
+    """Write canonical `profiles.yml` to disk and return its path, creating the
+    profiles directory if it does not exist.
 
-    Creates the profiles directory if it doesn't exist, then writes the
-    rendered YAML configuration.
-
-    Args:
-        config: DbtRuntimeConfig to serialize and write.
-        profiles_dir: Directory path where profiles.yml should be written.
-        filename: Name of the profile file (default: "profiles.yml").
-
-    Returns:
-        Path to the written profile file.
-
-    Raises:
-        OSError: If directory creation or file write fails.
+    Raises: OSError when directory creation or the file write fails.
 
     Example:
         >>> config = DbtRuntimeConfig(target_name="prod")
         >>> path = write_dbt_profile(config, Path("/app/profiles"))
         >>> print(f"Profile written to: {path}")
-
     """
     profiles_dir.mkdir(parents=True, exist_ok=True)
     profile_path = profiles_dir / filename
@@ -313,16 +254,8 @@ def ensure_dbt_profile(
     """Resolve and write canonical `profiles.yml` for the active dbt target.
 
     Combines configuration resolution and profile writing into a single
-    convenience function. Ensures a valid profiles.yml exists for the
-    specified runtime context and target.
-
-    Args:
-        profiles_dir: Directory path where profiles.yml should be written.
-        runtime: Optional runtime context for configuration resolution.
-        target: Optional explicit target name.
-
-    Returns:
-        Path to the written (or existing) profile file.
+    convenience function so a valid profiles.yml always exists for the given
+    runtime context and target.
 
     Example:
         >>> from phlo_dbt.runtime_config import ensure_dbt_profile
@@ -331,7 +264,6 @@ def ensure_dbt_profile(
         ...     target="prod"
         ... )
         >>> print(f"Profile ready at: {path}")
-
     """
     return write_dbt_profile(
         resolve_dbt_runtime_config(runtime, target=target),

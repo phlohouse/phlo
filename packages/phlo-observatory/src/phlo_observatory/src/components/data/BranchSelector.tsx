@@ -1,3 +1,8 @@
+/**
+ * Nessie branch picker for the data preview page. Loads branches once on
+ * mount; a failed connection check yields an empty, non-error list so the
+ * rest of the page stays usable.
+ */
 import { GitBranch, Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useReducer } from 'react'
 

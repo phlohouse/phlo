@@ -1,4 +1,11 @@
-"""Persistent operation journal for Observatory."""
+"""Persistent operation journal for Observatory.
+
+Stores validated ObservatoryOperation records in the project's durable
+state collection, capped at MAX_OPERATION_RECORDS and kept sorted newest
+first on every write. Corrupt records raise StorageCorruptionError rather
+than surfacing partially valid state. Also derives the stable v1
+agent-readable observability context contract from each operation.
+"""
 
 from __future__ import annotations
 
@@ -27,18 +34,21 @@ OPERATION_OBSERVABILITY_SCHEMA_VERSION = "phlo.operation_observability.v1"
 
 
 def operation_journal_path(project_root: Path) -> Path:
+    """Return the journal file path, creating the Observatory state directory."""
     state_dir = project_root / ".phlo" / "observatory"
     state_dir.mkdir(parents=True, exist_ok=True)
     return state_dir / "operation_journal.json"
 
 
 def load_operation_journal(project_root: Path) -> list[ObservatoryOperation]:
+    """Load and validate the persisted operations, newest first; raises on corrupt state."""
     return _validate_operations(
         load_collection(project_root, "operation_journal", operation_journal_path(project_root))
     )
 
 
 def write_operation_journal(project_root: Path, operations: Iterable[ObservatoryOperation]) -> None:
+    """Replace the journal with the given operations, sorted and capped at MAX_OPERATION_RECORDS."""
     records = sort_operations(list(operations))[:MAX_OPERATION_RECORDS]
     mutate_collection(
         project_root,
@@ -55,9 +65,13 @@ def append_operation(
     record_id: str | None = None,
     recorded_at: str | None = None,
 ) -> ObservatoryOperation:
+    """Persist a copy of the operation under a new record id, original id kept in metadata."""
     timestamp = recorded_at or datetime.now(UTC).isoformat()
     original_id = operation.id
     operation_id = record_id or f"op-{uuid4().hex[:12]}"
+    # The journal copy gets its own record id; the in-memory operation's id is
+    # preserved in metadata so a recorded entry stays traceable to the action
+    # that produced it.
     metadata = safe_metadata(
         {
             **operation.metadata,
@@ -112,6 +126,7 @@ def record_action_result(
     record_id: str | None = None,
     recorded_at: str | None = None,
 ) -> ObservatoryActionResult:
+    """Record an action result's operation in the journal and attach it to the result."""
     operation = result.operation or operation_from_action_result(result, target=target)
     recorded = append_operation(
         project_root,
@@ -161,6 +176,7 @@ def operation_from_action_result(
     *,
     target: ObservatoryResourceRef | None = None,
 ) -> ObservatoryOperation:
+    """Build an operation record from a completed action result, optionally bound to a target."""
     action = result.action
     return ObservatoryOperation(
         id=action.id,
@@ -192,6 +208,7 @@ def operation_from_workflow_action(
     message: str,
     files: list[str],
 ) -> ObservatoryOperation:
+    """Build the operation record for applying a workflow proposal to the listed files."""
     return ObservatoryOperation(
         id=f"workflow:{action_id}",
         name="Apply workflow proposal",
@@ -272,6 +289,7 @@ def _string_or_default(value: object, default: str) -> str:
 
 
 def sort_operations(operations: Iterable[ObservatoryOperation]) -> list[ObservatoryOperation]:
+    """Sort operations by completion (or start) timestamp, newest first."""
     return sorted(operations, key=_operation_sort_key, reverse=True)
 
 

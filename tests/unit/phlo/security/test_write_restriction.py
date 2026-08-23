@@ -1,4 +1,10 @@
-"""Tests for write-restricted service gating."""
+"""Tests for write-restricted service gating.
+
+Hasura and PostgREST are write-restricted: in regulated mode writes are
+blocked unless explicitly opted out, while non-regulated mode, opt-out
+configuration, and non-restricted services pass through; matching is
+case-insensitive.
+"""
 
 from __future__ import annotations
 

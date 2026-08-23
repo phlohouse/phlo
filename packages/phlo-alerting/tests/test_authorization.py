@@ -1,4 +1,8 @@
-"""Tests for alerting authorization module."""
+"""Tests for the phlo-alerting CLI authorization surface adapter.
+
+Verifies mutation-command classification and principal resolution against the
+shared CLI authorization contract.
+"""
 
 from __future__ import annotations
 

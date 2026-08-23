@@ -1,3 +1,6 @@
+/**
+ * Tabs primitives built on Base UI tabs with cva list and trigger styling.
+ */
 'use client'
 
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'

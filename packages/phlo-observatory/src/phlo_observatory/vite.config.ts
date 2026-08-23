@@ -1,3 +1,7 @@
+/**
+ * Vite config for the Observatory TanStack Start app: dev-server host and
+ * HMR overrides, tsconfig path aliases, Tailwind, and nitro output.
+ */
 import tailwindcss from '@tailwindcss/vite'
 import { devtools } from '@tanstack/devtools-vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'

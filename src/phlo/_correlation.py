@@ -1,4 +1,10 @@
-"""Provider-neutral resolution of single-project runtime identity."""
+"""Provider-neutral resolution of single-project runtime identity.
+
+Resolves the project id from the phlo/project_id tag and the configured
+project. The two sources may not disagree: a conflict returns an explicit
+project_conflict error instead of letting either side win, and absence of
+both yields project_missing.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +24,13 @@ def resolve_project_identity(
     tags: Mapping[str, object] | None = None,
     configured_project: str | None = None,
 ) -> ProjectIdentity:
-    """Resolve tags and configured identity without allowing silent disagreement."""
+    """Resolve tags and configured identity without allowing silent disagreement.
+
+    When the tag and the configured project disagree, no id is returned at all:
+    callers get ``error="project_conflict"`` instead of one side winning. A
+    missing tag is filled from configuration; neither source yields
+    ``error="project_missing"``.
+    """
     tag_values = {
         str(key): str(value).strip()
         for key, value in (tags or {}).items()

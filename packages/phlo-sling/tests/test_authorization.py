@@ -1,4 +1,10 @@
-"""Tests for Sling authorization module."""
+"""Tests for the Sling authorization module.
+
+Covers principal resolution from env (service accounts, human subjects,
+dev-mode admin fallback, anonymous default), the Sling CLI surface adapter's
+command classification, mutation enforcement, and complete resource/action
+mappings with no unclassified commands.
+"""
 
 from __future__ import annotations
 

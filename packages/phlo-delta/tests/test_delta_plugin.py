@@ -1,4 +1,9 @@
-"""Tests for Delta Lake resource provider plugin."""
+"""Tests for the Delta Lake resource provider plugin.
+
+Verifies the provider exposes exactly one canonical table_store resource plus
+table_store and schema_migrator capability metadata with Delta-specific
+support flags.
+"""
 
 from phlo.capabilities import CapabilitySupport
 from phlo_delta.plugin import DeltaResourceProvider

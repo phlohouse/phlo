@@ -1,3 +1,6 @@
+"""Tests the nessie catalog CLI: backend selection and behavior when the
+catalog endpoint is unreachable."""
+
 import socket
 from types import SimpleNamespace
 from unittest.mock import MagicMock

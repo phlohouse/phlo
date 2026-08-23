@@ -10,6 +10,8 @@ Classes:
 
 Functions:
     get_settings: Returns a cached instance of SlingSettings.
+Package configuration boundary, building on phlo.config.base and phlo.config.cache;
+consumed through get_settings() at runtime.
 """
 
 from __future__ import annotations
@@ -24,26 +26,10 @@ from phlo.config.cache import project_root_cached
 
 class SlingSettings(BaseConfig):
     """Configuration for Sling replication defaults.
-
     This class defines the configuration schema and defaults for Sling
     replication operations within the Phlo platform. Settings are loaded
     from environment variables prefixed appropriately and validated
     using Pydantic.
-
-    Attributes:
-        sling_default_namespace: Default namespace/prefix for generated
-            replication table names. Tables will be created as
-            ``{namespace}.{table_name}``.
-        sling_binary_path: Override path to the Sling binary executable.
-            If None, the bundled binary from the sling package is used.
-        sling_default_mode: Default replication mode for Sling operations.
-            Valid modes are "full-refresh", "incremental", "snapshot",
-            and "backfill".
-        sling_auto_connections: Whether to automatically generate Sling
-            connection definitions from Phlo capability metadata.
-        sling_connections_dir: Directory path containing Sling env.yaml
-            files for explicit connection definitions. If provided,
-            these connections are merged with auto-discovered ones.
 
     Example:
         Load settings with defaults::
@@ -52,7 +38,6 @@ class SlingSettings(BaseConfig):
 
             settings = get_settings()
             print(settings.sling_default_namespace)  # "raw"
-
     """
 
     sling_default_namespace: str = Field(
@@ -80,23 +65,15 @@ class SlingSettings(BaseConfig):
 @project_root_cached
 def get_settings(project_root: Path) -> SlingSettings:
     """Return cached Sling settings for the selected project root.
-
     Settings are cached per resolved project root, with up to 16 entries,
     avoiding repeated configuration loading while isolating project state.
     Settings are loaded from environment variables and configuration files
     on first access for each root.
-
-    Args:
-        project_root: Resolved project root used for cache selection.
-
-    Returns:
-        Cached SlingSettings instance with loaded configuration values.
 
     Example:
         Get settings in application code::
 
             settings = get_settings()
             namespace = settings.sling_default_namespace
-
     """
     return SlingSettings()

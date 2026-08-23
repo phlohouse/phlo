@@ -1,4 +1,9 @@
-"""Tests for multi-file DLT staging and write helpers."""
+"""Tests for multi-file DLT staging and write helpers.
+
+Covers parquet collection across load packages, merges into the table store via
+the neutral observer surface only, staged object inventory identity, and
+source-identity normalization that redacts query credentials.
+"""
 
 from __future__ import annotations
 

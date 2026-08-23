@@ -1,4 +1,9 @@
-"""Tests for observability features."""
+"""Tests for observability features.
+
+Covers metrics models and export helpers, alert creation and manager
+destination registration, per-destination alert payload rendering (Slack,
+PagerDuty, email), and lineage graph serialization.
+"""
 
 from __future__ import annotations
 

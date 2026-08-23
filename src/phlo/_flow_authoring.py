@@ -1,4 +1,10 @@
-"""Shared helpers for terse flow authoring decorators."""
+"""Shared helpers for terse flow authoring decorators.
+
+Private to the decorator layer: normalizes asset keys and dependency
+references, builds owner/consumer/SLA contract metadata, and wraps user
+functions into RunSpec/AssetSpec objects, injecting RuntimeContext only when
+the authored signature asks for it.
+"""
 
 from __future__ import annotations
 
@@ -45,6 +51,9 @@ def build_run(fn: Callable[..., Any]) -> RunSpec:
     return RunSpec(fn=_run)
 
 
+# Accepted shapes: zero parameters, or exactly one positional context
+# parameter. Keyword-only, *args, and **kwargs parameters are rejected because
+# there is no meaningful value to supply for them at run time.
 def _call_with_optional_context(fn: Callable[..., Any], context: RuntimeContext) -> Any:
     signature = inspect.signature(fn)
     unsupported_parameters = [

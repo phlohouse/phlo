@@ -1,4 +1,10 @@
-"""phlo_lineage CLI authorization table."""
+"""CLI authorization table for the phlo-lineage surface.
+
+All lineage.column.* and export/impact/show/status commands are reads;
+the single mutation is lineage.column.import-dbt, which writes the
+"lineage_store" resource (action lineage.import). The adapter is built
+once at import time and served through get_lineage_adapter().
+"""
 
 from __future__ import annotations
 
@@ -33,4 +39,5 @@ LineageSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_lineage_adapter() -> CliSurfaceAdapter:
+    """Return the process-wide CLI authorization adapter for the phlo-lineage surface."""
     return LineageSurfaceAdapter.get_instance()

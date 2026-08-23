@@ -1,4 +1,8 @@
-"""Tests for dormant account governance."""
+"""Tests for dormant account governance.
+
+Verifies DormancyDetector severity assignment at the warning and maximum
+dormancy thresholds.
+"""
 
 from __future__ import annotations
 

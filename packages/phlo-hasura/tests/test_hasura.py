@@ -1,4 +1,10 @@
-"""Tests for Hasura metadata and table tracking."""
+"""Tests for Hasura metadata, table tracking, and permissions.
+
+Covers admin-secret resolution from .phlo env files with a service
+default fallback, track/untrack and permission payloads, Postgres-backed
+table discovery with exclusions, permission sync/export, role hierarchy
+expansion, and metadata import/export diffing.
+"""
 
 import json
 import socket

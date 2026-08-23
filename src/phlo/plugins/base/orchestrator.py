@@ -33,15 +33,8 @@ class OrchestratorAdapterPlugin(Plugin, ABC):
         checks: Iterable[AssetCheckSpec],
         resources: Iterable[ResourceSpec],
     ) -> Any:
-        """Build orchestrator definitions from normalized capability specs.
+        """Build orchestrator-native definitions from normalized capability specs.
 
-        Args:
-            assets: Asset specifications to register.
-            checks: Asset-check specifications to register.
-            resources: Resource specifications required by assets/checks.
-
-        Returns:
-            Orchestrator-native definitions object.
-
+        Registers asset specs, asset-check specs, and the resources they require.
         """
         raise NotImplementedError

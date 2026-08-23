@@ -1,4 +1,10 @@
-"""Lineage helper utilities."""
+"""Lineage helper utilities.
+
+Lineage is collected as input/output table sets and emitted as a
+cartesian product of edges through the resolved lineage-sink capability;
+emission is a silent no-op when no sink is available. Also owns the
+standard _phlo_* metadata column names shared across the pipeline.
+"""
 
 from __future__ import annotations
 

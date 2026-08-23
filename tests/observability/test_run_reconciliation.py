@@ -1,3 +1,9 @@
+"""Tests for pipeline run evidence reconciliation against the SQLite evidence store.
+
+Reconciliation must be idempotent and attempt-scoped, never invent lifecycle facts from
+absent or contradictory evidence, and preserve immutable decision history.
+"""
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor

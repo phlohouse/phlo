@@ -12,6 +12,8 @@ Example:
     postgres
     >>> definition = plugin.service_definition
 
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported directly.
+Publishes PostgreSQL resource and publish-target specs through phlo.capabilities.
 """
 
 from __future__ import annotations
@@ -74,9 +76,6 @@ class PostgresResourceProvider(ResourceProviderPlugin):
     def metadata(self) -> PluginMetadata:
         """Return plugin metadata for the PostgreSQL resource provider.
 
-        Returns:
-            PluginMetadata: Metadata describing the resource provider plugin.
-
         Example:
             >>> provider = PostgresResourceProvider()
             >>> meta = provider.metadata
@@ -93,10 +92,6 @@ class PostgresResourceProvider(ResourceProviderPlugin):
     def get_resources(self) -> list[ResourceSpec]:
         """Return resource specifications exposed by this provider.
 
-        Returns:
-            list[ResourceSpec]: List of registered resource specifications
-                that can be accessed by other phlo components.
-
         Example:
             >>> provider = PostgresResourceProvider()
             >>> specs = provider.get_resources()
@@ -108,10 +103,6 @@ class PostgresResourceProvider(ResourceProviderPlugin):
 
     def get_publish_targets(self) -> list[PublishTargetSpec]:
         """Return publish target capability specs exposed by this provider.
-
-        Returns:
-            list[PublishTargetSpec]: List of publish target specifications
-                that define where data can be published to PostgreSQL.
 
         Example:
             >>> provider = PostgresResourceProvider()
@@ -133,9 +124,8 @@ class PostgresResourceProvider(ResourceProviderPlugin):
     def get_settings_stores(self) -> list[SettingsStoreSpec]:
         """Return settings store capability specs for durable Observatory settings.
 
-        Returns:
-            list[SettingsStoreSpec]: Capability spec wrapping a
-            :class:`~phlo_postgres.settings_store.PostgresSettingsStore`
-            that persists Observatory settings to PostgreSQL.
+        Wraps a
+        :class:`~phlo_postgres.settings_store.PostgresSettingsStore`
+        that persists Observatory settings to PostgreSQL.
         """
         return get_settings_stores()

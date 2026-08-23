@@ -1,3 +1,9 @@
+/**
+ * Git tools for the agent. Registers the branch push tool only for scheduler
+ * sessions with autonomous writes enabled; pushes validate the ref, route
+ * sandbox egress through a token-injecting broker policy, and restore access
+ * afterwards.
+ */
 import { defineDynamic, defineTool } from 'eve/tools'
 import { z } from 'zod'
 import { githubCredentials } from '../lib/github/credentials'
@@ -14,12 +20,16 @@ const PUSH_URL = 'https://github.com/phlohouse/phlo.git'
 export default defineDynamic({
   events: {
     'turn.started': (_event, ctx) => {
+      // Register the push tool only for scheduler sessions with autonomous
+      // writes enabled; other sessions never see the tool at all.
       if (!isScheduleAppAuth(ctx.session.auth.current) || !autonomousWritesEnabled()) return null
       return {
         git__push: defineTool({
           description: `Push a committed feature branch from ${REPO_DIR}. Direct pushes to main and master are refused.`,
           inputSchema: z.object({ branch: z.string().min(1) }),
           async execute(input, toolCtx) {
+            // Trust is re-checked at execution time rather than relying on
+            // the registration gate above alone.
             if (!isScheduleAppAuth(toolCtx.session.auth.current) || !autonomousWritesEnabled()) {
               return {
                 success: false as const,
@@ -29,6 +39,10 @@ export default defineDynamic({
             const refusal = validatePushBranch(input.branch)
             if (refusal) return { success: false as const, error: refusal }
 
+            // Scope sandbox egress to the push broker for the duration of
+            // the push, then restore unrestricted access. The finally clause
+            // keeps a failed git push from stranding later tool calls behind
+            // the restricted policy.
             const sandbox = await toolCtx.getSandbox()
             const token = await mintInstallationToken(githubCredentials)
             await sandbox.setNetworkPolicy(pushBrokerPolicy(token))

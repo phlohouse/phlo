@@ -1,3 +1,8 @@
+/**
+ * Root layout. Wires theme, React Query, extension, and settings providers
+ * around the Observatory shell, injects the runtime API URL bootstrap
+ * script, and renders the app-wide not-found page.
+ */
 import { BaseStyles, ThemeProvider } from '@primer/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {

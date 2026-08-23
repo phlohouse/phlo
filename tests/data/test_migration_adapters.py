@@ -1,4 +1,9 @@
-"""Tests for migration source adapters."""
+"""Tests for migration source adapters.
+
+Covers CsvSourceAdapter config validation (required path, no query/table
+selectors), chunked reads and row-count estimation, and registry-based
+resolution that returns None for unknown source types.
+"""
 
 from __future__ import annotations
 

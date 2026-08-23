@@ -1,4 +1,8 @@
-"""Tests for IcebergSchemaMigrator."""
+"""Tests for IcebergSchemaMigrator.
+
+Settings are pinned to local Nessie/MinIO endpoints, and the cached settings
+singleton is cleared around every test so env overrides apply.
+"""
 
 from __future__ import annotations
 

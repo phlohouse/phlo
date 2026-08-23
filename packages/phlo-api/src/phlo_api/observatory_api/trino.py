@@ -8,19 +8,11 @@ including table previews, column profiling, row lookups, and ad-hoc queries
 with guardrails. Dataset authorization is enforced when an authorization
 backend is configured, and strict mode fails closed when it is not.
 
-Key Endpoints:
-    GET /connection: Check Trino connectivity.
-    GET /preview/{table}: Preview table data with pagination.
-    GET /profile/{table}/{column}: Get column statistics.
-    GET /metrics/{table}: Get table-level metrics.
-    POST /query: Execute ad-hoc queries with guardrails.
-    POST /query-with-filters: Query with simple equality filters.
-    GET /row/{table}/{row_id}: Get single row by phlo_row_id.
-
-Environment Variables:
-    PHLO_QUERY_ENGINE_URL: URL for the Trino server.
-    PHLO_QUERY_CATALOG: Default Trino catalog.
-    PHLO_DEFAULT_REF: Default schema/branch.
+Endpoints cover connectivity checks, paginated table previews, column statistics,
+table-level metrics, ad-hoc queries with guardrails, filtered queries, and
+single-row lookups by phlo_row_id. Configuration is read from the
+PHLO_QUERY_ENGINE_URL, PHLO_QUERY_CATALOG, and PHLO_DEFAULT_REF environment
+variables.
 
 Example:
     Previewing table data:
@@ -114,18 +106,7 @@ def _build_trino_headers(
 
 
 def _resolve_query_engine() -> Any | None:
-    """Resolve the query engine capability.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        Capability resolution object or None if not available.
-
-    Raises:
-        None: No exceptions raised directly.
-
-    """
+    """Resolve the query engine capability, returning None when none is available."""
     discover_capabilities()
     return resolve_capability(
         "query_engine",
@@ -136,15 +117,7 @@ def _resolve_query_engine() -> Any | None:
 def resolve_trino_url(override: str | None = None) -> str:
     """Resolve the query-engine URL from override, environment, or capability metadata.
 
-    Args:
-        override: Optional explicit Trino URL override.
-
-    Returns:
-        Resolved Trino HTTP URL string.
-
-    Raises:
-        RuntimeError: If no query-engine URL is configured.
-
+    Raises: RuntimeError when no query-engine URL is configured.
     """
     env_url = project_env_value(_QUERY_ENGINE_URL_ENV) or project_env_value("TRINO_URL")
     if override and override.strip():
@@ -174,17 +147,9 @@ def resolve_trino_url(override: str | None = None) -> str:
 
 
 def resolve_default_catalog() -> str:
-    """Resolve the default catalog from query-engine capability metadata.
+    """Resolve the default catalog from query-engine capability metadata or environment.
 
-    Args:
-        None: No arguments required.
-
-    Returns:
-        Default catalog name string.
-
-    Raises:
-        RuntimeError: If no default catalog is configured.
-
+    Raises: RuntimeError when no default catalog is configured.
     """
     env_catalog = project_env_value("PHLO_QUERY_CATALOG") or project_env_value("TRINO_CATALOG")
     if env_catalog:
@@ -205,15 +170,7 @@ def resolve_default_catalog() -> str:
 def resolve_default_ref() -> str:
     """Resolve the default ref/schema context from metadata or environment.
 
-    Args:
-        None: No arguments required.
-
-    Returns:
-        Default schema/branch reference string.
-
-    Raises:
-        RuntimeError: If no default ref is configured.
-
+    Raises: RuntimeError when no default ref is configured.
     """
     env_ref = project_env_value("PHLO_DEFAULT_REF") or project_env_value("NESSIE_DEFAULT_REF")
     if env_ref:
@@ -237,16 +194,8 @@ def resolve_table_discovery_schemas(
 ) -> list[str]:
     """Resolve schemas to query when listing catalog tables.
 
-    Args:
-        preferred_schema: Optional preferred schema name to use.
-        branch: Optional branch name to use as fallback schema.
-
-    Returns:
-        List of schema names to query for table discovery.
-
-    Raises:
-        RuntimeError: If no table-discovery schemas are configured.
-
+    Prefers an explicit schema, then the branch as a fallback schema, then configured
+    discovery schemas. Raises: RuntimeError when no table-discovery schemas are configured.
     """
     if preferred_schema and preferred_schema.strip():
         return [preferred_schema.strip()]
@@ -358,22 +307,9 @@ async def execute_trino_query(
 ) -> dict[str, Any] | QueryExecutionError:
     """Execute a query against Trino and wait for results.
 
-    Trino uses a multi-stage query execution model with polling.
-
-    Args:
-        query: SQL query string to execute.
-        catalog: Optional Trino catalog name (default from resolve_default_catalog).
-        schema: Optional Trino schema name (default from resolve_default_ref).
-        trino_url: Optional Trino URL override.
-        timeout_ms: Query timeout in milliseconds (default: 30000).
-
-    Returns:
-        Dictionary with columns, column_types, and rows, or QueryExecutionError on failure.
-
-    Raises:
-        RuntimeError: If URL resolution fails.
-        httpx.TimeoutException: If query times out.
-
+    Submits the query, polls until completion, and returns a dictionary with columns,
+    column_types, and rows, or a QueryExecutionError on failure. Raises: RuntimeError
+    when URL resolution fails; httpx.TimeoutException when the query times out.
     """
     try:
         url = resolve_trino_url(trino_url)
@@ -460,18 +396,7 @@ async def execute_trino_query(
 
 @router.get("/connection", response_model=TrinoConnectionStatus)
 async def check_connection(trino_url: str | None = None) -> TrinoConnectionStatus:
-    """Check if Trino is reachable.
-
-    Args:
-        trino_url: Optional Trino URL override.
-
-    Returns:
-        TrinoConnectionStatus with connection state and version.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
-    """
+    """Check if Trino is reachable, reporting connection state and cluster version."""
     try:
         url = resolve_trino_url(trino_url)
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -506,23 +431,8 @@ async def preview_data(
 ) -> DataPreviewResult | dict[str, str]:
     """Preview data from a table with pagination.
 
-    Args:
-        request: FastAPI request object for authorization checks.
-        table: Table name or fully qualified table path.
-        branch: Optional schema/branch name.
-        catalog: Optional Trino catalog override.
-        schema: Optional Trino schema override.
-        limit: Maximum rows to return (default: 100, max: 5000).
-        offset: Number of rows to skip (default: 0).
-        trino_url: Optional Trino URL override.
-        timeout_ms: Query timeout in milliseconds (default: 30000, max: 120000).
-
-    Returns:
-        DataPreviewResult with columns, types, and rows, or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
+    Returns a DataPreviewResult with columns, types, and rows, or an error dictionary
+    when resolution or execution fails.
     """
     try:
         effective_catalog = catalog or resolve_default_catalog()
@@ -569,23 +479,10 @@ async def profile_column(
     trino_url: str | None = None,
     timeout_ms: int = Query(default=30000, le=120000),
 ) -> ColumnProfile | dict[str, str]:
-    """Get column statistics and profiling metrics.
+    """Get column statistics and profiling metrics for a table column.
 
-    Args:
-        table: Table name or fully qualified table path.
-        column: Column name to profile.
-        branch: Optional schema/branch name.
-        catalog: Optional Trino catalog override.
-        schema: Optional Trino schema override.
-        trino_url: Optional Trino URL override.
-        timeout_ms: Query timeout in milliseconds (default: 30000, max: 120000).
-
-    Returns:
-        ColumnProfile with statistics, or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
+    Returns a ColumnProfile with statistics, or an error dictionary when resolution
+    or execution fails.
     """
     try:
         effective_catalog = catalog or resolve_default_catalog()
@@ -644,22 +541,9 @@ async def get_table_metrics(
     trino_url: str | None = None,
     timeout_ms: int = Query(default=30000, le=120000),
 ) -> TableMetrics | dict[str, str]:
-    """Get table-level metrics (row count, etc).
+    """Get table-level metrics such as row count.
 
-    Args:
-        table: Table name or fully qualified table path.
-        branch: Optional schema/branch name.
-        catalog: Optional Trino catalog override.
-        schema: Optional Trino schema override.
-        trino_url: Optional Trino URL override.
-        timeout_ms: Query timeout in milliseconds (default: 30000, max: 120000).
-
-    Returns:
-        TableMetrics with row count and optional size info, or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
+    Returns TableMetrics, or an error dictionary when resolution or execution fails.
     """
     try:
         effective_catalog = catalog or resolve_default_catalog()
@@ -693,19 +577,7 @@ async def execute_query(
     http_request: Request,
     request: ExecuteQueryRequest,
 ) -> QueryExecutionResult | QueryExecutionError:
-    """Run an arbitrary query with guardrails.
-
-    Args:
-        http_request: FastAPI request object for authorization checks.
-        request: ExecuteQueryRequest with query parameters and options.
-
-    Returns:
-        QueryExecutionResult on success, or QueryExecutionError on failure.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
-    """
+    """Run an arbitrary query with guardrails, returning a result or error payload."""
     try:
         effective_catalog = request.catalog or resolve_default_catalog()
         effective_schema = request.schema_name or request.branch or resolve_default_ref()
@@ -771,15 +643,8 @@ async def query_with_filters(
 ) -> DataPreviewResult | dict[str, str]:
     """Query a table with simple equality filters.
 
-    Args:
-        request: QueryWithFiltersRequest with table, schema, filters, and options.
-
-    Returns:
-        DataPreviewResult with filtered data, or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
+    Returns a DataPreviewResult with the filtered rows, or an error dictionary when
+    validation or execution fails.
     """
     try:
         catalog = request.catalog or resolve_default_catalog()
@@ -837,20 +702,8 @@ async def get_row_by_id(
 ) -> DataPreviewResult | dict[str, str]:
     """Get a single row by its _phlo_row_id.
 
-    Args:
-        table: Table name or fully qualified table path.
-        row_id: The _phlo_row_id value to look up.
-        catalog: Optional Trino catalog override.
-        schema: Optional Trino schema override.
-        trino_url: Optional Trino URL override.
-        timeout_ms: Query timeout in milliseconds (default: 30000, max: 120000).
-
-    Returns:
-        DataPreviewResult with the matching row, or error dictionary.
-
-    Raises:
-        None: Exceptions are caught and returned in the response.
-
+    Returns a DataPreviewResult with the matching row, or an error dictionary when
+    resolution or execution fails.
     """
     try:
         effective_catalog = catalog or resolve_default_catalog()
@@ -864,6 +717,8 @@ async def get_row_by_id(
         else qualify_table_name(effective_catalog, effective_schema, table)
     )
 
+    # row_id is interpolated straight into the SQL literal below; the
+    # character whitelist here is what keeps that interpolation injection-safe.
     if not _SAFE_ROW_ID_RE.match(row_id):
         return {"error": "Invalid row_id: contains disallowed characters"}
 

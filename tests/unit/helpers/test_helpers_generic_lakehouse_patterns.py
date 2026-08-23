@@ -1,3 +1,7 @@
+"""Tests for reusable lakehouse patterns: bitemporal scopes, crosswalk
+detection and coverage, effective-dated joins, sequence gap checks,
+and artifact manifests."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

@@ -1,3 +1,6 @@
+"""Tests nessie branch creation: reference response shape parsing and
+head reporting in CLI output."""
+
 from types import SimpleNamespace
 
 from click.testing import CliRunner

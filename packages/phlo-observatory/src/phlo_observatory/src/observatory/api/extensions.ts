@@ -1,3 +1,7 @@
+/**
+ * Fetches the Observatory extension manifest from phlo-api and shapes it into
+ * contributed nav items, routes, slots, and typed settings access.
+ */
 import { createServerFn } from '@tanstack/react-start'
 
 import { apiGet } from '@/server/phlo-api'
@@ -54,6 +58,9 @@ export type ObservatoryExtensionResponse = {
 
 const PHLO_API_URL = process.env.PHLO_API_URL || 'http://localhost:4000'
 
+// Manifest module paths are relative to the extension's assets directory;
+// rewrite them to absolute URLs so the browser can fetch remote extension
+// modules. Absolute http(s) paths pass through untouched.
 function withAssetUrl(basePath: string, path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) return path
   const normalized = path.startsWith('/') ? path : `/${path}`
@@ -76,6 +83,8 @@ export async function resolveObservatoryExtensions(
   try {
     response = await fetchExtensions()
   } catch {
+    // Extensions are optional decoration: an unreachable phlo-api yields an
+    // empty list rather than failing the whole page render.
     return []
   }
 

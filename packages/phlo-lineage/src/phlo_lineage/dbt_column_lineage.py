@@ -58,20 +58,9 @@ logger = get_logger(__name__)
 def _resolve_asset_name(node: dict[str, Any]) -> str:
     """Derive a qualified asset name from a dbt node dictionary.
 
-    Constructs the fully qualified table/model name using the schema (database
-    schema) and alias if available, falling back to the node name.
-
-    Args:
-        node: dbt manifest node dictionary containing keys like schema, alias, name.
-
-    Returns:
-        Fully qualified asset name in "schema.name" format if schema is present,
-        otherwise just the node name.
-
-    Resolution Order:
-        1. node["schema"] + "." + node["alias"]
-        2. node["schema"] + "." + node["name"]
-        3. node["name"]
+    Prefers schema + alias, then schema + name, then bare name; returns
+    "schema.name" when a (non-None) schema is present. A None schema is not
+    handled, only an empty string.
 
     Example:
         >>> node = {"schema": "silver", "alias": "stg_orders", "name": "staging_orders"}
@@ -82,10 +71,6 @@ def _resolve_asset_name(node: dict[str, Any]) -> str:
         >>> _resolve_asset_name(node)
         'raw_orders'
 
-    Note:
-        This is an internal helper function. It does not handle the case where
-        schema is None (only empty string).
-
     """
     schema = node.get("schema", "")
     name = node.get("alias") or node.get("name", "")
@@ -95,15 +80,8 @@ def _resolve_asset_name(node: dict[str, Any]) -> str:
 def _get_node_columns(node: dict[str, Any]) -> set[str]:
     """Extract column names from a dbt node dictionary.
 
-    Retrieves the set of column names defined in the node's "columns" property.
-    This typically includes columns explicitly documented in the model's
-    YAML schema or inferred from the model SQL.
-
-    Args:
-        node: dbt manifest node dictionary containing a "columns" key.
-
-    Returns:
-        Set of column name strings. Empty set if node has no columns defined.
+    Returns only names from the node's "columns" property; types and
+    descriptions are ignored. Empty set when no columns are defined.
 
     Example:
         >>> node = {
@@ -119,10 +97,6 @@ def _get_node_columns(node: dict[str, Any]) -> set[str]:
         >>> _get_node_columns(node)
         set()
 
-    Note:
-        This is an internal helper function. Column types and descriptions
-        are ignored; only names are extracted.
-
     """
     columns: dict[str, Any] = node.get("columns", {})
     return set(columns.keys())
@@ -131,34 +105,11 @@ def _get_node_columns(node: dict[str, Any]) -> set[str]:
 def extract_column_lineage(manifest: dict[str, Any]) -> list[ColumnLineage]:
     """Extract column lineage from a dbt manifest using same-name heuristics.
 
-    Processes all model nodes in the manifest and creates ColumnLineage
-    mappings for columns that share names across dependency edges.
-
-    Algorithm:
-        1. Filter manifest["nodes"] to include only resource_type="model"
-        2. For each model node:
-           a. Determine target_asset from schema + alias/name
-           b. Collect target_columns from node["columns"]
-           c. Skip if no columns defined
-           d. For each upstream in depends_on["nodes"]:
-              - Resolve source_asset from upstream node
-              - Collect source_columns
-              - Compute intersection (shared column names)
-              - Create ColumnLineage for each shared column
-        3. Return all mappings with source_type="dbt_heuristic"
-
-    Args:
-        manifest: Parsed dbt manifest.json as a dictionary. Must contain
-            a "nodes" key with model node dictionaries.
-
-    Returns:
-        List of ColumnLineage dataclass instances representing inferred
-        column-level relationships. May be empty if no models have columns
-        defined or no dependencies exist.
-
-    Logging:
-        Logs INFO at start with model_count and at completion with mapping_count.
-        Logs DEBUG for models with no columns.
+    For every model node with columns defined, intersects its column names
+    with each upstream dependency's columns and emits a ColumnLineage per
+    shared name (source_type="dbt_heuristic"). Known limitations: renames,
+    derived columns, and SELECT * are not detected; common column names may
+    produce false positives.
 
     Example:
         >>> import json
@@ -169,21 +120,6 @@ def extract_column_lineage(manifest: dict[str, Any]) -> list[ColumnLineage]:
         >>>
         >>> mappings = extract_column_lineage(manifest)
         >>> print(f"Extracted {len(mappings)} column mappings")
-        >>>
-        >>> # Persist to store
-        >>> from phlo_lineage import LineageStore
-        >>> store = LineageStore("postgresql://...")
-        >>> store.record_column_lineage(mappings)
-
-    Limitations:
-        This heuristic approach has known limitations:
-        - Column renames across models are not detected
-        - Calculated/derived columns have no upstream lineage
-        - SELECT * is not expanded to individual columns
-        - Common columns (id, name, created_at) may produce false positives
-
-    See Also:
-        https://docs.getdbt.com/reference/artifacts/manifest-json
 
     """
     nodes: dict[str, Any] = manifest.get("nodes", {})

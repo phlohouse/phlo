@@ -45,34 +45,23 @@ logger = get_logger(__name__)
 class _ReferenceLike(Protocol):
     """Structural type for pynessie references used by this CLI.
 
-    Defines the minimal interface required for branch/tag references
-    across different pynessie client versions.
-
-    Attributes:
-        name: Reference name (branch or tag identifier).
-
+    Defines the minimal interface required for branch/tag references across
+    different pynessie client versions; ``name`` is the branch or tag identifier.
     """
 
     name: str
 
 
 def _list_references(client) -> list[_ReferenceLike]:
-    """Return a normalized reference list across pynessie client versions.
+    """Return a reference list normalized across pynessie client versions.
 
-    Handles API variations where references may be wrapped in a 'references'
+    Handles API variations where references may be wrapped in a ``references```
     attribute or returned as a direct list.
-
-    Args:
-        client: Initialized pynessie client instance.
-
-    Returns:
-        list[_ReferenceLike]: Normalized list of reference objects.
 
     Example:
         >>> client = get_nessie_client()
         >>> refs = _list_references(client)
         >>> print([ref.name for ref in refs])
-
     """
     references = client.list_references()
     if hasattr(references, "references"):
@@ -81,22 +70,14 @@ def _list_references(client) -> list[_ReferenceLike]:
 
 
 def _ref_hash(ref: object) -> str | None:
-    """Return reference hash across pynessie model variants.
+    """Return the reference commit hash across pynessie model variants, or None.
 
-    Handles attribute naming differences (hash vs hash_) in different
-    pynessie versions.
-
-    Args:
-        ref: Reference object from pynessie client.
-
-    Returns:
-        str | None: Commit hash if available, None otherwise.
+    Handles attribute naming differences (``hash`` vs ``hash_``) across versions.
 
     Example:
         >>> ref = _list_references(client)[0]
         >>> hash = _ref_hash(ref)
         'abc123def...'
-
     """
     for attr_name in ("hash_", "hash"):
         ref_hash = getattr(ref, attr_name, None)
@@ -106,28 +87,19 @@ def _ref_hash(ref: object) -> str | None:
 
 
 def get_nessie_client():
-    """Get Nessie client configured from settings.
+    """Build a Nessie client from settings.
 
-    Initializes and returns a pynessie client instance using the
-    configured Nessie URI. Handles import errors and connection failures
-    with informative error messages.
-
-    Returns:
-        Client: Initialized pynessie client instance.
-
-    Raises:
-        click.ClickException: If pynessie is not installed or connection fails.
+    Raises ClickException when pynessie is not installed or the connection to
+    the configured Nessie URI fails.
 
     Example:
         >>> client = get_nessie_client()
         >>> refs = client.list_references()
-
     """
     logger.debug("nessie_branch_client_init_requested")
     try:
         from pynessie import init
 
-        # Initialize Nessie client
         client = init(get_nessie_settings().nessie_uri())
         logger.debug("nessie_branch_client_init_succeeded")
         return client
@@ -180,10 +152,8 @@ def list(all: bool, format: str):
     try:
         client = get_nessie_client()
 
-        # Get all references
         refs = []
 
-        # Get branches
         for branch_ref in _list_references(client):
             ref_hash = _ref_hash(branch_ref)
             refs.append(
@@ -277,7 +247,6 @@ def create(branch_name: str, from_ref: str):
     try:
         client = get_nessie_client()
 
-        # Get reference to branch from
         source_ref = None
         for ref in _list_references(client):
             if ref.name == from_ref:
@@ -297,7 +266,6 @@ def create(branch_name: str, from_ref: str):
             )
         assert source_ref is not None
 
-        # Create branch
         try:
             new_branch = client.create_branch(
                 branch=branch_name,
@@ -387,7 +355,6 @@ def delete(branch_name: str, force: bool):
         force=force,
     )
     try:
-        # Prevent deleting default branch
         if branch_name == get_nessie_settings().nessie_default_ref:
             logger.warning(
                 "nessie_branch_delete_default_forbidden",
@@ -400,7 +367,6 @@ def delete(branch_name: str, force: bool):
 
         client = get_nessie_client()
 
-        # Find branch
         branch_ref = None
         for ref in _list_references(client):
             if ref.name == branch_name:
@@ -419,7 +385,6 @@ def delete(branch_name: str, force: bool):
             )
         assert branch_ref is not None
 
-        # Delete branch
         try:
             branch_hash = _ref_hash(branch_ref)
             if not branch_hash:
@@ -490,6 +455,9 @@ def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_sourc
         phlo branch merge dev main --no-delete-source
 
     """
+    # Merging deletes the source branch by default, so this also demands the
+    # branch.delete permission unless --no-delete-source was passed. Dry-run
+    # changes nothing and therefore skips authorization entirely.
     if not dry_run:
         enforce_surface_mutation_authorization("branch.merge", get_nessie_cli_adapter)
         if not no_delete_source:
@@ -508,7 +476,6 @@ def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_sourc
     try:
         client = get_nessie_client()
 
-        # Find branches
         source_ref = None
         target_ref = None
 
@@ -570,7 +537,6 @@ def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_sourc
             console.print("[yellow]No changes will be made (--dry-run)[/yellow]")
             return
 
-        # Perform merge
         try:
             client.merge(
                 from_ref=source_branch,
@@ -693,7 +659,6 @@ def diff(source_branch: str, target_branch: str, format: str):
     try:
         client = get_nessie_client()
 
-        # Find branches
         source_ref = None
         target_ref = None
 

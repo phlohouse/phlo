@@ -1,22 +1,9 @@
 """Logs command for accessing Dagster run logs.
 
-This module implements the `phlo logs` CLI command, providing access to
-Dagster run logs with filtering capabilities. It queries Dagster's
-GraphQL API to retrieve structured log data from pipeline executions.
-
-Features:
-    - Filtering: By asset, job, log level, time range, specific run ID
-    - Tail mode: Real-time log following with --follow flag
-    - Output formats: Rich formatted tables or JSON
-    - Time-based filtering: Human-readable formats (1h, 30m, 2d)
-    - Message truncation control with --full flag
-
-GraphQL Integration:
-    The command constructs GraphQL queries to fetch run events including:
-    - Log messages with levels
-    - Execution step events
-    - Step failures and successes
-    - Pipeline status changes
+Implements the ``phlo logs`` CLI command, querying Dagster's GraphQL API for
+structured run events. Supports filtering by asset, job, level, time range,
+and run ID; tail mode via --follow; Rich table or JSON output; human-readable
+time windows (1h, 30m, 2d); and message truncation control with --full.
 
 Example:
     CLI usage::
@@ -119,25 +106,9 @@ def logs(
     limit: int,
     output_json: bool,
 ):
-    """Access and filter Dagster run logs.
+    """Access and filter Dagster run logs per the CLI options above.
 
-    Args:
-        asset: Optional asset name filter.
-        job: Optional job name filter.
-        level: Optional log level filter.
-        since: Optional relative time window.
-        run_id: Optional Dagster run identifier.
-        follow: If True, follow new log output.
-        full: If True, do not truncate long messages.
-        limit: Maximum number of log rows to display.
-        output_json: If True, emit JSON for scripting.
-
-    Returns:
-        None
-
-    Raises:
-        ClickException: If incompatible options are provided.
-
+    Raises ClickException when incompatible options are provided.
     """
     if follow and output_json:
         raise click.ClickException(
@@ -191,14 +162,8 @@ def logs(
 
 def _parse_since(since_str: str) -> datetime:
     """
-    Parse time filter string (e.g., '1h', '30m', '2d').
-
-    Args:
-        since_str: Time filter string
-
-    Returns:
-        datetime object for the cutoff time
-
+    Parse a relative time filter string (e.g., '1h', '30m', '2d') into a UTC
+    cutoff datetime; falls back to the last 24 hours on invalid input.
     """
     try:
         # Extract numeric part and unit
@@ -230,14 +195,8 @@ def _parse_since(since_str: str) -> datetime:
 
 def _get_logs(filters: dict) -> list[dict]:
     """
-    Retrieve logs from Dagster with filters.
-
-    Args:
-        filters: Filter criteria (asset, job, level, run_id, start_time, limit)
-
-    Returns:
-        List of log dictionaries
-
+    Retrieve filtered log dictionaries from Dagster, preferring the Postgres
+    path when a level filter is set.
     """
     if filters.get("level"):
         postgres_logs = _get_logs_from_postgres(filters)
@@ -365,6 +324,8 @@ def _get_logs_from_postgres(filters: dict) -> list[dict]:
 
     requested_limit = int(filters.get("limit", 100))
     query_limit = requested_limit
+    # Level filtering happens after decoding rows in Python, so over-fetch
+    # enough raw rows to still fill the requested limit post-filter.
     if filters.get("level"):
         query_limit = max(requested_limit * 20, 200)
 
@@ -500,14 +461,7 @@ def _level_from_event_payload(payload: dict, event_type: str) -> str:
 
 def _build_logs_query(filters: dict) -> str:
     """
-    Build GraphQL query for logs.
-
-    Args:
-        filters: Filter criteria
-
-    Returns:
-        GraphQL query string
-
+    Build the GraphQL query used to fetch run log events.
     """
     # Simplified query structure - in production would be more comprehensive
     limit = int(filters.get("limit", 100))
@@ -579,15 +533,7 @@ def _build_logs_query(filters: dict) -> str:
 
 
 def _get_log_level(event_type: str) -> str:
-    """Map event type to log level.
-
-    Args:
-        event_type: Dagster event type string.
-
-    Returns:
-        Log level string (ERROR, WARNING, INFO, DEBUG).
-
-    """
+    """Map a Dagster event type to a log level (ERROR, WARNING, INFO, DEBUG)."""
     if "ERROR" in event_type or "FAILURE" in event_type:
         return "ERROR"
     elif "WARNING" in event_type:

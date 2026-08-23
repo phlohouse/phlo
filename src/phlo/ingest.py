@@ -1,4 +1,8 @@
-"""Provider-neutral ingestion public API."""
+"""Provider-neutral ingestion public API.
+
+Plugin discovery is re-run on each public call, so ingestion providers
+installed after this process started are still visible without a restart.
+"""
 
 from __future__ import annotations
 

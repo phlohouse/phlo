@@ -1,4 +1,10 @@
-"""Regression tests for schema-migrate CLI commands."""
+"""Regression tests for schema-migrate CLI commands.
+
+Pins migrator resolution (explicit schema_migrator config, table_store
+derivation, deterministic failure on ambiguity), history/export/scaffold/
+plan/apply behavior, scaffold determinism, and clean error surfaces without
+tracebacks.
+"""
 
 import json
 import os

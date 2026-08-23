@@ -98,25 +98,15 @@ def pandera_to_iceberg(
     """Convert a Pandera DataFrameModel schema to a PyIceberg Schema.
 
     Maps Pandera column types to Iceberg types, preserving nullability and
-    descriptions. Automatically assigns field IDs and can inject standard
-    metadata columns for data lineage.
+    descriptions, assigning field IDs sequentially from start_field_id, and
+    optionally injecting DLT (`_dlt_load_id`, `_dlt_id`) and Phlo
+    (`_phlo_ingested_at`, `_phlo_row_id`, `_phlo_partition_date`,
+    `_phlo_run_id`) metadata columns.
 
-    Args:
-        pandera_schema: Pandera DataFrameModel class to convert.
-        start_field_id: Starting field ID for user-defined columns (default: 1).
-            Metadata columns use reserved IDs 100-105.
-        add_dlt_metadata: Whether to add DLT metadata columns
-            (``_dlt_load_id``, ``_dlt_id``).
-        add_phlo_metadata: Whether to add Phlo metadata columns
-            (``_phlo_ingested_at``, ``_phlo_row_id``, ``_phlo_partition_date``,
-            ``_phlo_run_id``).
+    Metadata columns use reserved field IDs 100-105.
 
-    Returns:
-        Schema: Equivalent Iceberg schema with all fields and metadata.
-
-    Raises:
-        SchemaConversionError: If conversion fails due to unsupported types,
-            missing annotations, or invalid schema structure.
+    Raises: SchemaConversionError when conversion fails due to unsupported
+    types, missing annotations, or invalid schema structure.
 
     Example:
         Basic conversion::
@@ -139,11 +129,6 @@ def pandera_to_iceberg(
                 add_phlo_metadata=False
             )
             # Only has event_id and event_type fields
-
-    Note:
-        Reserved field IDs 100-105 are used for metadata columns.
-        User columns start from ``start_field_id`` and increment sequentially.
-
     """
     reserved_field_ids: dict[str, int] = {
         "_dlt_load_id": 100,
@@ -317,21 +302,13 @@ def pandera_to_iceberg(
 
 
 def _map_type(field_name: str, pandera_type: Any) -> Any:
-    """Map a Pandera-annotated type to an Iceberg type.
+    """Map a Pandera-annotated type to an Iceberg type, handling Optional and
+    generic types via scalar mappings.
 
-    Handles Optional types, generic types, and scalar mappings. Lists and
-    dictionaries are explicitly not supported and will raise an error.
+    Lists and dictionaries are explicitly unsupported.
 
-    Args:
-        field_name: Source field name for error reporting.
-        pandera_type: Annotated Python/Pandera type from the model.
-
-    Returns:
-        Corresponding Iceberg type instance.
-
-    Raises:
-        SchemaConversionError: If the type is a list, dict, or otherwise
-            cannot be represented in Iceberg.
+    Raises: SchemaConversionError when the type is a list, dict, or otherwise
+    cannot be represented in Iceberg.
 
     Example:
         Mapping types::
@@ -340,10 +317,7 @@ def _map_type(field_name: str, pandera_type: Any) -> Any:
             opt_int = _map_type("age", Optional[int])  # Returns LongType()
 
     Note:
-        Lists and dictionaries are explicitly unsupported and will raise
-        ``SchemaConversionError``. Complex nested types should be flattened
-        or stored as JSON strings.
-
+        Complex nested types should be flattened or stored as JSON strings.
     """
     origin = get_origin(pandera_type)
     if origin is None:
@@ -372,27 +346,10 @@ def _map_type(field_name: str, pandera_type: Any) -> Any:
 
 
 def _map_scalar(field_name: str, t: Any) -> Any:
-    """Map a scalar Python type to an Iceberg type.
+    """Map a scalar Python type (str, int, float, bool, datetime, date, bytes,
+    Decimal) to its Iceberg equivalent.
 
-    Supports standard Python types and some common extensions like Decimal.
-
-    Args:
-        field_name: Source field name for error reporting.
-        t: Scalar Python type (e.g., ``str``, ``int``, ``datetime``).
-
-    Returns:
-        Corresponding Iceberg type instance:
-            - ``str`` -> ``StringType()``
-            - ``int`` -> ``LongType()``
-            - ``float`` -> ``DoubleType()``
-            - ``bool`` -> ``BooleanType()``
-            - ``datetime`` -> ``TimestamptzType()``
-            - ``date`` -> ``DateType()``
-            - ``bytes`` -> ``BinaryType()``
-            - ``Decimal`` -> ``DoubleType()``
-
-    Raises:
-        SchemaConversionError: If the type is not supported.
+    Raises: SchemaConversionError when the type is not supported.
 
     Example:
         Scalar mappings::
@@ -400,7 +357,6 @@ def _map_scalar(field_name: str, t: Any) -> Any:
             assert isinstance(_map_scalar("id", int), LongType)
             assert isinstance(_map_scalar("name", str), StringType)
             assert isinstance(_map_scalar("score", float), DoubleType)
-
     """
     if t in (str,):
         return StringType()

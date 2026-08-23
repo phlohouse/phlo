@@ -1,4 +1,11 @@
-"""Workflow management commands."""
+"""Workflow management commands.
+
+create scaffolds a workflow through the lazily resolved authoring provider and
+prints next steps; check validates workflow and schema files, optionally
+emitting JSON.
+Imported by src/phlo/cli/main.py and phlo_api.api.authoring (the workflow authoring API).
+Resolves workflow validators through phlo.capabilities.discovery.
+"""
 
 from __future__ import annotations
 

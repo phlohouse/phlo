@@ -1,4 +1,8 @@
-"""Tests for Hasura CLI output contracts."""
+"""Tests for Hasura CLI output contracts.
+
+Raw client exceptions stay out of user output; commands log internally and show
+recoverable errors pointing at `phlo services status`.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,9 @@
-"""Tests for lineage API capability resolution."""
+"""Tests for lineage API capability resolution.
+
+Endpoints are exercised against a stubbed lineage sink to prove that row and
+asset lineage responses are always built from the resolved capability rather
+than any built-in data source.
+"""
 
 from __future__ import annotations
 

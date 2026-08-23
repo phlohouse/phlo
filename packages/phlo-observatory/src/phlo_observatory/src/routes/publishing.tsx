@@ -1,3 +1,7 @@
+/**
+ * /publishing route. Promoted dataset publication queue with bulk readiness
+ * checks and publish/archive actions that invalidate cached resources.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Archive, FileText, ShieldAlert, UploadCloud } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'

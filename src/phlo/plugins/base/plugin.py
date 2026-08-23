@@ -71,29 +71,12 @@ from phlo.capabilities.support import CapabilitySupport
 
 @dataclass
 class PluginMetadata:
-    """Metadata about a plugin.
-
-    This dataclass captures all essential information about a plugin including
-    identity, authorship, dependencies, and capability requirements. It is used
-    during plugin discovery, registration, and display.
-
-    Attributes:
-        name: Unique plugin name within its plugin type. Must be a valid
-            Python identifier without spaces.
-        version: Plugin version following semantic versioning (e.g., "1.0.0").
-        description: Human-readable description of what the plugin does.
-        author: Plugin author name, organization, or email.
-        license: SPDX license identifier (e.g., "MIT", "Apache-2.0", "GPL-3.0").
-        homepage: URL to the plugin repository or documentation.
-        tags: Categorization tags for plugin discovery (e.g., ["source", "api"]).
-        dependencies: Required Python packages with version constraints.
-        requires_capabilities: Capability names that must be available for
-            this plugin to function. Plugin loading will fail if unavailable.
-        optional_capabilities: Capability names that enhance functionality
-            when available, but are not required.
-        support: :class:`~phlo.capabilities.support.CapabilitySupport` declaring
-            operational guarantees (best_effort, self_healing, etc.).
-
+    """Metadata about a plugin — identity, authorship, dependencies, and
+    capability requirements — used during discovery, registration, and
+    display. name must be a unique valid Python identifier within its
+    plugin type; version follows semver; requires_capabilities must be
+    present at load time or loading fails, while optional_capabilities only
+    enhance functionality; support declares operational guarantees.
     Example:
         ```python
         from phlo.plugins.base import PluginMetadata
@@ -169,9 +152,8 @@ class Plugin(ABC):
         3. Override :meth:`initialize` for setup logic
         4. Override :meth:`cleanup` for teardown logic
 
-    Attributes:
-        None at the base class level. Subclasses may add attributes
-        for their specific functionality.
+    Subclasses may add attributes for their specific functionality; the
+    base class defines none.
 
     Abstract Methods:
         - :meth:`metadata`: Return :class:`PluginMetadata` for this plugin
@@ -212,25 +194,12 @@ class Plugin(ABC):
     @property
     @abstractmethod
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata.
-
-        Returns:
-            PluginMetadata with name, version, description, etc.
-
-        """
+        """Return PluginMetadata with name, version, description, etc."""
 
     def initialize(self, config: dict[str, Any]) -> None:
-        """Initialize the plugin with configuration.
-
-        This method is called once when the plugin is loaded.
-        Override to perform initialization tasks like:
-        - Validating configuration
-        - Setting up connections
-        - Loading resources
-
-        Args:
-            config: Configuration dictionary for the plugin
-
+        """Initialize the plugin with its configuration dictionary; called
+        once when the plugin is loaded. Override to validate configuration,
+        set up connections, or load resources.
         """
         return
 

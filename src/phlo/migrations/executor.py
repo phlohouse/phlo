@@ -1,4 +1,10 @@
-"""Migration execution engine."""
+"""Migration execution engine.
+
+MigrationExecutor.validate()/execute() stream CSV chunks through optional
+quality validation and column mapping, writing to the table store in append
+or overwrite mode; every run appends a result record to a local JSON history
+file that backfills migration list/status reporting.
+"""
 
 from __future__ import annotations
 
@@ -154,6 +160,9 @@ class MigrationExecutor:
             quality_schema = _resolve_quality_schema(spec.options.quality_schema)
 
         try:
+            # Chunks are validated then written one at a time. There is no
+            # transaction spanning chunks: a quality-validation failure aborts
+            # the run with every earlier chunk already committed.
             for index, chunk in enumerate(
                 adapter.read_chunks(spec.source, chunk_size=spec.options.chunk_size), start=1
             ):
@@ -240,7 +249,10 @@ class MigrationExecutor:
 
 
 def read_migration_history(limit: int = 10) -> list[dict[str, Any]]:
-    """Read recent migration results from local history."""
+    """Read recent migration results from local history, newest first.
+
+    Malformed lines are skipped so a torn or partial append cannot break reads.
+    """
     if limit <= 0:
         return []
     if not _HISTORY_PATH.exists():
@@ -341,6 +353,9 @@ def _write_chunk_to_table_store(
     chunk: list[dict[str, Any]],
     first_chunk: bool,
 ) -> None:
+    # "overwrite" replaces the table only for the first chunk; later chunks
+    # append so a single run produces exactly one full replacement. Chunk
+    # order is therefore significant.
     parquet_path = _stage_chunk_parquet(chunk)
     try:
         if write_mode == "append":
@@ -371,6 +386,11 @@ def _write_chunk_to_table_store(
 
 
 def _stage_chunk_parquet(chunk: list[dict[str, Any]]) -> Path:
+    """Stage a chunk as a temporary parquet file for the table store to ingest.
+
+    The file is created with delete=False because the table store reopens it by
+    path; ownership passes to the caller, which must unlink it when done.
+    """
     try:
         import pyarrow as pa
         import pyarrow.parquet as pq

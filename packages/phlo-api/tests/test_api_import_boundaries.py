@@ -1,4 +1,8 @@
-"""Import boundary tests for phlo-api optional integrations."""
+"""Import boundary tests for phlo-api optional integrations.
+
+Verifies that importing the phlo API entrypoint does not eagerly load the
+phlo-observatory package, keeping optional integrations lazy.
+"""
 
 from __future__ import annotations
 

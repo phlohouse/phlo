@@ -1,3 +1,8 @@
+/**
+ * /lineage route. Asset-level lineage rendered on the flow canvas, plus
+ * table previews, quality checks, and recent operations for the selected
+ * asset.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   Activity,

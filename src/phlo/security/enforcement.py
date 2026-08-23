@@ -199,22 +199,10 @@ def enforce(
 ) -> EnforcementResult:
     """Make an authorization decision and emit a canonical audit event.
 
-    This is the core enforcement function called by surface adapters.
-    It canonicalizes the principal, resolves the PDP, and emits an audit event.
-
-    Args:
-        principal: AuthPrincipal or Principal from the surface adapter.
-        action: Canonical action name (e.g., "dataset.read").
-        resource: ResourceRef for the resource being accessed.
-        context: Optional decision context.
-        request_id: Optional request correlation ID for audit.
-        surface: Name of the surface invoking enforcement (e.g., "phlo-api").
-        correlation_id: Optional end-to-end correlation ID across services.
-        require_durable_audit: Fail a permitted operation closed unless its audit
-            event persists to a durable sink.
-
-    Returns:
-        EnforcementResult: allow, deny, or error.
+    Core enforcement entrypoint for surface adapters: canonicalizes the
+    principal, resolves the PDP, and returns an allow, deny, or error
+    EnforcementResult. With ``require_durable_audit``, a permitted operation
+    fails closed unless its audit event persists to a durable sink.
     """
     ctx = EnforcementContext.get_instance()
 

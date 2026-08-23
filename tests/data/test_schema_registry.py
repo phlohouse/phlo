@@ -1,4 +1,9 @@
-"""Tests for the schema registry module."""
+"""Tests for the schema registry module.
+
+Covers deterministic canonical schema serialization and hashing (field
+order independent), schema round-trips through deserialization, and
+persistence behavior including treating "already exists" as initialized.
+"""
 
 from __future__ import annotations
 

@@ -2,6 +2,8 @@
 Phlo CLI Main Entry Point
 
 Provides command-line interface for Phlo workflows.
+Entry module for the phlo console script; imported by the phlo-mcp server and
+covered extensively by the CLI and integration test suites.
 """
 
 import importlib.util
@@ -43,6 +45,10 @@ def _is_doctor_invocation(argv: list[str]) -> bool:
     return False
 
 
+# Startup guard computed from argv before any heavy imports. `phlo doctor`,
+# `phlo support`, and `phlo init` must run in minimal installs where the
+# audit/plugin machinery below cannot be imported, so those invocations skip
+# it entirely instead of failing at module import time.
 _DOCTOR_INVOCATION = _is_doctor_invocation(sys.argv)
 _SUPPORT_INVOCATION = len(sys.argv) > 1 and sys.argv[1] == "support"
 _INIT_INVOCATION = is_init_command_invocation(sys.argv)
@@ -403,14 +409,7 @@ def init(
 
 
 def _create_project_structure(project_dir: Path, project_name: str, template: str):
-    """
-    Create project directory structure and files.
-
-    Args:
-        project_dir: Path to project directory
-        project_name: Name of the project
-        template: Project template name.
-    """
+    """Resolve the named project template and validate its required packages."""
     try:
         selected_template = get_template(template)
     except KeyError as exc:

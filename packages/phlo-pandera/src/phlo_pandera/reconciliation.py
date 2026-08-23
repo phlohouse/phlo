@@ -93,19 +93,6 @@ class ReconciliationCheck(QualityCheck):
     lost or duplicated during transformation. Supports configurable tolerance
     for acceptable differences.
 
-    Attributes:
-        source_table: Fully qualified source table name (e.g., 'silver.stg_events').
-        partition_column: Column used for partition filtering. Default is
-            "_phlo_partition_date".
-        check_type: Type of reconciliation to perform:
-            - "rowcount_parity": Exact count match within tolerance
-            - "rowcount_gte": Target must have at least as many rows as source
-        tolerance: Allowed percentage difference (0.0 = exact match,
-            0.05 = 5% tolerance). Default 0.0.
-        absolute_tolerance: Allowed absolute difference in row counts.
-            None disables this check. Default None.
-        where_clause: Optional WHERE clause to filter source data.
-
     Example:
         ```python
         # Exact match required
@@ -136,13 +123,6 @@ class ReconciliationCheck(QualityCheck):
             where_clause="event_type = 'purchase'",
         )
         ```
-
-    Returns:
-        QualityCheckResult with:
-            - ``metric_name``: "reconciliation_check"
-            - ``metric_value``: Dict with target_count, source_count, difference metrics
-            - ``metadata``: Includes query used, tolerance settings
-
     """
 
     source_table: str
@@ -164,16 +144,7 @@ class ReconciliationCheck(QualityCheck):
     """Optional WHERE clause to filter source data."""
 
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
-        """Execute reconciliation check comparing row counts.
-
-        Args:
-            df: Target DataFrame with data to validate.
-            context: Runtime context with resources and partition info.
-
-        Returns:
-            QualityCheckResult with comparison results.
-
-        """
+        """Execute reconciliation check comparing row counts."""
         target_count = len(df)
 
         # Get partition key from context if available
@@ -263,15 +234,7 @@ class ReconciliationCheck(QualityCheck):
         )
 
     def _build_source_query(self, partition_key: str | None) -> str:
-        """Build SQL query to count source rows.
-
-        Args:
-            partition_key: Optional partition key for filtering.
-
-        Returns:
-            SQL query string for counting source rows.
-
-        """
+        """Build SQL query to count source rows."""
         query = f"SELECT COUNT(*) FROM {self.source_table}"
 
         conditions = []
@@ -286,16 +249,7 @@ class ReconciliationCheck(QualityCheck):
         return query
 
     def _get_source_count(self, context: RuntimeContext | None, query: str) -> int | None:
-        """Execute query to get source row count.
-
-        Args:
-            context: Runtime context with Trino resource.
-            query: SQL query to execute.
-
-        Returns:
-            Row count as int, or None if query failed.
-
-        """
+        """Execute query to get source row count."""
         try:
             if context is None:
                 return None
@@ -324,17 +278,6 @@ class AggregateConsistencyCheck(QualityCheck):
     expected computation from source data. Useful for validating sum, count,
     average, and other aggregate transformations.
 
-    Attributes:
-        source_table: Fully qualified source table name.
-        aggregate_column: Column in target table containing the aggregate value.
-        source_expression: SQL expression to compute from source
-            (e.g., 'COUNT(*)', 'SUM(amount)', 'AVG(price)').
-        partition_column: Column used for partition filtering.
-        group_by: Columns to group by when comparing aggregates.
-        tolerance: Allowed percentage difference (0.0 = exact match).
-        absolute_tolerance: Allowed absolute difference in values.
-        where_clause: Optional WHERE clause to filter source data.
-
     Example:
         ```python
         # Simple count validation
@@ -361,10 +304,6 @@ class AggregateConsistencyCheck(QualityCheck):
             absolute_tolerance=0.1,  # Allow 0.1 degree difference
         )
         ```
-
-    Returns:
-        QualityCheckResult with mismatch counts and sample mismatches.
-
     """
 
     source_table: str
@@ -392,16 +331,7 @@ class AggregateConsistencyCheck(QualityCheck):
     """Optional WHERE clause to filter source data."""
 
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
-        """Execute aggregate consistency check.
-
-        Args:
-            df: Target DataFrame with aggregated data.
-            context: Runtime context with resources and partition info.
-
-        Returns:
-            QualityCheckResult with mismatch details.
-
-        """
+        """Execute aggregate consistency check."""
         if self.aggregate_column not in df.columns:
             return QualityCheckResult(
                 passed=False,
@@ -505,20 +435,13 @@ class AggregateConsistencyCheck(QualityCheck):
         )
 
     def _values_match(self, target: Any, source: Any) -> bool:
-        """Check if target and source values match within tolerance.
-
-        Args:
-            target: Target value to compare.
-            source: Source value to compare.
-
-        Returns:
-            True if values match within tolerance, False otherwise.
-
-        """
+        """Check if target and source values match within tolerance."""
         try:
             target_val = float(target) if target is not None else 0.0
             source_val = float(source) if source is not None else 0.0
 
+            # A zero source baseline makes the relative tolerance undefined
+            # (division by zero), so only the absolute tolerance can decide.
             if source_val == 0 and target_val == 0:
                 return True
             if source_val == 0:
@@ -536,15 +459,7 @@ class AggregateConsistencyCheck(QualityCheck):
             return target == source
 
     def _build_source_query(self, partition_key: str | None) -> str:
-        """Build SQL query to compute source aggregates.
-
-        Args:
-            partition_key: Optional partition key for filtering.
-
-        Returns:
-            SQL query string for computing aggregates.
-
-        """
+        """Build SQL query to compute source aggregates."""
         select_cols = ", ".join(self.group_by) if self.group_by else "1 as grp"
         query = (
             f"SELECT {select_cols}, {self.source_expression} as agg_value FROM {self.source_table}"
@@ -567,16 +482,7 @@ class AggregateConsistencyCheck(QualityCheck):
     def _get_source_aggregates(
         self, context: RuntimeContext | None, query: str
     ) -> dict[tuple, Any] | None:
-        """Execute query to get source aggregate values.
-
-        Args:
-            context: Runtime context with Trino resource.
-            query: SQL query to execute.
-
-        Returns:
-            Dictionary mapping group keys to aggregate values, or None if query failed.
-
-        """
+        """Execute query to get source aggregate values."""
         try:
             if context is None:
                 return None
@@ -615,11 +521,6 @@ class AggregateSpec:
     Defines a single aggregate computation to be validated in a
     MultiAggregateConsistencyCheck.
 
-    Attributes:
-        name: Alias used for the source aggregate expression.
-        expression: SQL expression to compute from source.
-        target_column: Column in target table containing the aggregate value.
-
     Example:
         ```python
         AggregateSpec(
@@ -628,7 +529,6 @@ class AggregateSpec:
             target_column="revenue",
         )
         ```
-
     """
 
     name: str
@@ -649,13 +549,6 @@ class KeyParityCheck(QualityCheck):
     missing or extra rows even when row counts match. Useful for detecting
     data alignment issues in joins and aggregations.
 
-    Attributes:
-        source_table: Fully qualified source table name.
-        key_columns: Primary key or composite key columns used for alignment.
-        partition_column: Column used for partition filtering.
-        tolerance: Allowed fraction of missing keys (0.0 = exact match).
-        where_clause: Optional WHERE clause to filter source data.
-
     Example:
         ```python
         # Single key validation
@@ -671,7 +564,6 @@ class KeyParityCheck(QualityCheck):
             tolerance=0.001,  # Allow tiny mismatch rate
         )
         ```
-
     """
 
     source_table: str
@@ -690,16 +582,7 @@ class KeyParityCheck(QualityCheck):
     """Optional WHERE clause to filter source data."""
 
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
-        """Execute key parity check.
-
-        Args:
-            df: Target DataFrame with key data.
-            context: Runtime context with resources and partition info.
-
-        Returns:
-            QualityCheckResult with key comparison results.
-
-        """
+        """Execute key parity check."""
         missing_columns = [column for column in self.key_columns if column not in df.columns]
         if missing_columns:
             return QualityCheckResult(
@@ -773,15 +656,7 @@ class KeyParityCheck(QualityCheck):
         )
 
     def _build_source_query(self, partition_key: str | None) -> str:
-        """Build SQL query to fetch distinct source keys.
-
-        Args:
-            partition_key: Optional partition key for filtering.
-
-        Returns:
-            SQL query string for fetching distinct keys.
-
-        """
+        """Build SQL query to fetch distinct source keys."""
         select_cols = ", ".join(self.key_columns)
         query = f"SELECT DISTINCT {select_cols} FROM {self.source_table}"
 
@@ -797,16 +672,7 @@ class KeyParityCheck(QualityCheck):
         return query
 
     def _get_source_rows(self, context: RuntimeContext | None, query: str) -> list[tuple] | None:
-        """Execute query to fetch source keys.
-
-        Args:
-            context: Runtime context with Trino resource.
-            query: SQL query to execute.
-
-        Returns:
-            List of key tuples, or None if query failed.
-
-        """
+        """Execute query to fetch source keys."""
         try:
             if context is None:
                 return None
@@ -835,15 +701,6 @@ class MultiAggregateConsistencyCheck(QualityCheck):
     repeated scans of the source table. More efficient than running multiple
     AggregateConsistencyCheck instances separately.
 
-    Attributes:
-        source_table: Fully qualified source table name.
-        aggregates: List of AggregateSpec defining aggregates to compare.
-        partition_column: Column used for partition filtering.
-        group_by: Columns to group by when comparing aggregates.
-        tolerance: Allowed percentage difference (0.0 = exact match).
-        absolute_tolerance: Allowed absolute difference in values.
-        where_clause: Optional WHERE clause to filter source data.
-
     Example:
         ```python
         MultiAggregateConsistencyCheck(
@@ -855,7 +712,6 @@ class MultiAggregateConsistencyCheck(QualityCheck):
             group_by=["order_id"],
         )
         ```
-
     """
 
     source_table: str
@@ -880,16 +736,7 @@ class MultiAggregateConsistencyCheck(QualityCheck):
     """Optional WHERE clause to filter source data."""
 
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
-        """Execute multi-aggregate consistency check.
-
-        Args:
-            df: Target DataFrame with aggregated data.
-            context: Runtime context with resources and partition info.
-
-        Returns:
-            QualityCheckResult with comparison results.
-
-        """
+        """Execute multi-aggregate consistency check."""
         if not self.aggregates:
             return QualityCheckResult(
                 passed=False,
@@ -1045,16 +892,7 @@ class MultiAggregateConsistencyCheck(QualityCheck):
         )
 
     def _values_match(self, target: Any, source: Any) -> bool:
-        """Check if target and source values match within tolerance.
-
-        Args:
-            target: Target value to compare.
-            source: Source value to compare.
-
-        Returns:
-            True if values match within tolerance, False otherwise.
-
-        """
+        """Check if target and source values match within tolerance."""
         try:
             target_val = float(target) if target is not None else 0.0
             source_val = float(source) if source is not None else 0.0
@@ -1076,15 +914,7 @@ class MultiAggregateConsistencyCheck(QualityCheck):
             return target == source
 
     def _build_source_query(self, partition_key: str | None) -> str:
-        """Build SQL query to compute source aggregates.
-
-        Args:
-            partition_key: Optional partition key for filtering.
-
-        Returns:
-            SQL query string for computing aggregates.
-
-        """
+        """Build SQL query to compute source aggregates."""
         select_cols = ", ".join(self.group_by) if self.group_by else "1 as grp"
         aggregate_exprs = ", ".join(
             f"{aggregate.expression} as {aggregate.name}" for aggregate in self.aggregates
@@ -1108,16 +938,7 @@ class MultiAggregateConsistencyCheck(QualityCheck):
     def _get_source_aggregates(
         self, context: RuntimeContext | None, query: str
     ) -> dict[tuple, dict[str, Any]] | None:
-        """Execute query to get source aggregate values.
-
-        Args:
-            context: Runtime context with Trino resource.
-            query: SQL query to execute.
-
-        Returns:
-            Dictionary mapping group keys to aggregate dicts, or None if query failed.
-
-        """
+        """Execute query to get source aggregate values."""
         try:
             if context is None:
                 return None
@@ -1166,19 +987,6 @@ class ChecksumReconciliationCheck(QualityCheck):
     source and target tables. It can detect data corruption, unexpected
     transformations, or synchronization issues at the row level.
 
-    Attributes:
-        source_table: Fully qualified source table name.
-        target_table: Fully qualified target table name.
-        key_columns: Primary key or composite key columns for row alignment.
-        columns: Columns to hash. None = hash all non-key columns from target.
-        partition_column: Column used for partition filtering.
-        tolerance: Allowed fraction of mismatches (0.0 = exact match).
-        absolute_tolerance: Allowed absolute count of mismatches.
-        hash_algorithm: Hash algorithm ('xxhash64' or 'md5').
-        float_precision: Precision used when normalizing floats for hashing.
-        sample: Optional deterministic sampling fraction (0 < sample <= 1).
-        limit: Optional limit on number of keys compared (applies to source).
-
     Example:
         ```python
         # Full row comparison
@@ -1205,7 +1013,6 @@ class ChecksumReconciliationCheck(QualityCheck):
             limit=10000,  # Max 10k keys
         )
         ```
-
     """
 
     source_table: str
@@ -1242,16 +1049,7 @@ class ChecksumReconciliationCheck(QualityCheck):
     """Optional limit on the number of keys compared (applies to source)."""
 
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
-        """Execute checksum reconciliation check.
-
-        Args:
-            df: Target DataFrame with data to validate.
-            context: Runtime context with resources and partition info.
-
-        Returns:
-            QualityCheckResult with hash comparison results.
-
-        """
+        """Execute checksum reconciliation check."""
         missing_columns = [column for column in self.key_columns if column not in df.columns]
         if missing_columns:
             return QualityCheckResult(
@@ -1311,6 +1109,9 @@ class ChecksumReconciliationCheck(QualityCheck):
         source_hashes, source_duplicates = self._rows_to_hash_map(source_rows)
         target_hashes, target_duplicates = self._rows_to_hash_map(target_rows)
 
+        # The LIMIT applies only to the source query, so restrict the target
+        # to the sampled source keys; extra target rows would otherwise all
+        # count as missing_in_source.
         if self.limit is not None:
             target_hashes = {
                 key: value for key, value in target_hashes.items() if key in source_hashes
@@ -1396,18 +1197,7 @@ class ChecksumReconciliationCheck(QualityCheck):
         partition_key: str | None,
         apply_limit: bool,
     ) -> str:
-        """Build SQL query to compute key + hash for a table.
-
-        Args:
-            table: Table name to query.
-            hash_columns: List of columns to include in hash computation.
-            partition_key: Optional partition key for filtering.
-            apply_limit: Whether to apply the limit clause.
-
-        Returns:
-            SQL query string for computing row hashes.
-
-        """
+        """Build SQL query to compute key + hash for a table."""
         select_cols = ", ".join(self.key_columns)
         hash_expr = self._hash_expression(hash_columns)
         query = f"SELECT {select_cols}, {hash_expr} AS row_hash FROM {table}"
@@ -1433,6 +1223,9 @@ class ChecksumReconciliationCheck(QualityCheck):
             return None
         if self.sample <= 0 or self.sample > 1:
             raise ValueError("sample must be within (0, 1]")
+        # Bucket on the key hash so sampling is deterministic: a given key is
+        # either sampled in both tables or in neither, keeping the comparison
+        # meaningful.
         key_expr = " || '|' || ".join(
             [f"coalesce(cast({col} as varchar), '__NULL__')" for col in self.key_columns]
         )
@@ -1443,16 +1236,12 @@ class ChecksumReconciliationCheck(QualityCheck):
     def _hash_expression(self, hash_columns: list[str]) -> str:
         """Build SQL expression to compute the row hash.
 
-        Args:
-            hash_columns: List of column names to hash.
-
-        Returns:
-            SQL expression string for computing the hash.
-
-        Raises:
-            ValueError: If hash_algorithm is not supported.
-
+        Raises: ValueError if hash_algorithm is not supported.
         """
+        # Normalize every value to a string before hashing: floats are rounded
+        # so equivalent values from different engines hash identically, and
+        # NULLs become a sentinel because a NULL would otherwise poison the
+        # whole concatenation.
         normalized_columns = []
         for column in hash_columns:
             normalized_columns.append(
@@ -1472,16 +1261,7 @@ class ChecksumReconciliationCheck(QualityCheck):
         raise ValueError(f"Unsupported hash algorithm: {self.hash_algorithm}")
 
     def _get_hash_rows(self, context: RuntimeContext | None, query: str) -> list[tuple] | None:
-        """Execute query to fetch key + hash rows.
-
-        Args:
-            context: Runtime context with Trino resource.
-            query: SQL query to execute.
-
-        Returns:
-            List of (key..., hash) tuples, or None if query failed.
-
-        """
+        """Execute query to fetch key + hash rows."""
         try:
             if context is None:
                 return None
@@ -1497,15 +1277,7 @@ class ChecksumReconciliationCheck(QualityCheck):
         return None
 
     def _rows_to_hash_map(self, rows: list[tuple]) -> tuple[dict[tuple, Any], int]:
-        """Convert query rows to key -> hash mapping and return duplicate count.
-
-        Args:
-            rows: List of (key..., hash) tuples from query.
-
-        Returns:
-            Tuple of (hash_map, duplicate_count) where hash_map maps keys to hashes.
-
-        """
+        """Convert query rows to key -> hash mapping and return duplicate count."""
         hashes: dict[tuple, Any] = {}
         duplicates = 0
         for row in rows:
@@ -1524,16 +1296,7 @@ class ChecksumReconciliationCheck(QualityCheck):
 
 
 def _get_context_resource(context: RuntimeContext, name: str) -> Any | None:
-    """Fetch a resource from context, supporting attribute and helper access.
-
-    Args:
-        context: Runtime context that may contain resources.
-        name: Name of the resource to fetch (e.g., "trino").
-
-    Returns:
-        Resource object if found, None otherwise.
-
-    """
+    """Fetch a resource from context, supporting attribute and helper access."""
     resources = getattr(context, "resources", None)
     if isinstance(resources, dict):
         resource = resources.get(name)
@@ -1546,6 +1309,10 @@ def _get_context_resource(context: RuntimeContext, name: str) -> Any | None:
                 return resource
 
     try:
+        # A plain unittest.mock.MagicMock fabricates any attribute, so calling
+        # get_resource on one would return a fake resource instead of None.
+        # Detect mocks (no spec, but mock_calls present) and treat them as
+        # having no resources.
         if hasattr(context, "get_resource"):
             get_resource = getattr(context, "get_resource", None)
             if get_resource is None:

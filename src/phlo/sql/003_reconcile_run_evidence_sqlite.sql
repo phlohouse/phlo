@@ -1,4 +1,4 @@
--- SQLite run-evidence schema version 2.
+-- SQLite run-evidence schema version 2, mirroring 003_reconcile_run_evidence.sql.
 ALTER TABLE pipeline_run ADD COLUMN last_heartbeat_at TEXT;
 ALTER TABLE pipeline_run ADD COLUMN reconciled_at TEXT;
 ALTER TABLE pipeline_run ADD COLUMN reconciliation_reason TEXT;
@@ -7,6 +7,9 @@ ALTER TABLE run_resource ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1 CHECK (at
 ALTER TABLE run_catalog_change ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt > 0);
 ALTER TABLE run_quality_result ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt > 0);
 ALTER TABLE run_artifact ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt > 0);
+-- SQLite cannot drop a column's NOT NULL constraint in place, so pipeline_run
+-- is rebuilt as pipeline_run_v2 with started_at made nullable, then swapped
+-- in under the original name.
 CREATE TABLE pipeline_run_v2 (
     project_id TEXT NOT NULL, run_id TEXT NOT NULL, pipeline_name TEXT,
     provider_run_id TEXT, trigger TEXT, initiator TEXT, effective_identity TEXT,
@@ -21,6 +24,8 @@ CREATE TABLE pipeline_run_v2 (
     last_heartbeat_at TEXT, reconciled_at TEXT, reconciliation_reason TEXT,
     PRIMARY KEY (project_id, run_id)
 );
+-- SELECT * relies on pipeline_run_v2 declaring the same columns, in the same
+-- order, as the table being replaced.
 INSERT INTO pipeline_run_v2 SELECT * FROM pipeline_run;
 DROP TABLE pipeline_run;
 ALTER TABLE pipeline_run_v2 RENAME TO pipeline_run;

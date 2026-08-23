@@ -1,4 +1,12 @@
-"""Tests for executor-level strict validation semantics."""
+"""Tests for executor-level strict validation semantics.
+
+Strict validation must block the write entirely before any merge runs;
+non-strict mode still writes but records the failed Pandera evaluation.
+Failure telemetry keeps runtime correlation intact, evidence-sink errors
+never mask the provider exception, a failed submission records an unknown
+after-state with redacted error details, and a successful provider call
+stays successful even when readback is contradictory.
+"""
 
 from __future__ import annotations
 

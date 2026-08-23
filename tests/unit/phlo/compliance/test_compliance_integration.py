@@ -1,4 +1,8 @@
-"""Integration tests for compliance plane."""
+"""Integration tests for the compliance plane.
+
+Chains audit events, signatures, governance, and evidence packs through full
+workflow scenarios using temporary directories.
+"""
 
 from __future__ import annotations
 

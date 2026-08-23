@@ -28,12 +28,7 @@ from phlo_hasura.client import HasuraClient
 class HasuraApiBackend:
     """Expose Hasura through the neutral API backend capability.
 
-    This class wraps the Hasura GraphQL engine to provide a standardized
-    API backend interface. It handles health checks and returns metadata
-    describing the available endpoints.
-
-    Attributes:
-        _client: The internal HasuraClient instance for making API calls.
+    Wraps the Hasura GraphQL engine with health checks and endpoint metadata.
 
     Example:
         >>> backend = HasuraApiBackend()
@@ -45,11 +40,7 @@ class HasuraApiBackend:
     """
 
     def __init__(self, client: HasuraClient | None = None) -> None:
-        """Initialize the Hasura API backend.
-
-        Args:
-            client: HasuraClient instance. If not provided, a new
-                HasuraClient will be instantiated with default settings.
+        """Initialize the backend, defaulting to a standard HasuraClient.
 
         Example:
             >>> backend = HasuraApiBackend()
@@ -61,16 +52,9 @@ class HasuraApiBackend:
         self._client = client or HasuraClient()
 
     def health_check(self) -> bool:
-        """Check whether the Hasura health endpoint responds successfully.
+        """Check the /healthz endpoint; True only on HTTP 200 or 204.
 
-        Makes a GET request to the /healthz endpoint to verify that
-        Hasura is running and responsive.
-
-        Returns:
-            True if the health endpoint returns 200 or 204, False otherwise.
-
-        Raises:
-            No exceptions are raised; all errors are caught and return False.
+        All errors are caught and reported as False, never raised.
 
         Example:
             >>> backend = HasuraApiBackend()
@@ -89,19 +73,8 @@ class HasuraApiBackend:
     def describe(self) -> dict[str, Any]:
         """Return a stable description of the Hasura backend surface.
 
-        Returns metadata describing the Hasura GraphQL API endpoints,
-        including the base URL, health check path, and available
-        public endpoints.
-
-        Returns:
-            Dictionary containing:
-                - service_name: The service identifier ("hasura")
-                - backend_kind: The type of backend ("graphql")
-                - default_path: Default GraphQL endpoint path
-                - health_path: Health check endpoint path
-                - metadata_path: Metadata API endpoint path
-                - base_url: Base URL for all endpoints
-                - public_endpoints: List of available endpoints with names and URLs
+        Covers service and backend kind, GraphQL/health/metadata paths, base
+        URL, and the public endpoints with their URLs.
 
         Example:
             >>> backend = HasuraApiBackend()

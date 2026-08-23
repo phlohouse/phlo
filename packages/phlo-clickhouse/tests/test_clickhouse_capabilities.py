@@ -1,4 +1,9 @@
-"""Tests for ClickHouse resource provider capabilities."""
+"""Tests for ClickHouse resource provider capabilities.
+
+Verifies the provider-neutral surface of ClickHouseResourceProvider: one
+resource, table store, query engine, and publish target, each named
+"clickhouse", with snapshots unsupported and schema evolution supported.
+"""
 
 from phlo_clickhouse.plugin import ClickHouseResourceProvider
 

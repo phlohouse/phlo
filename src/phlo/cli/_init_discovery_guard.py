@@ -1,4 +1,10 @@
-"""Disable eager plugin discovery for built-in init invocations."""
+"""Disable eager plugin discovery for built-in init invocations.
+
+Imported for its side effect before the CLI loads: when argv's first root
+command is `init` (global flags short-circuit), PHLO_NO_AUTO_DISCOVER is
+set unless already present, so a fresh project can initialize without any
+plugins installed.
+"""
 
 from __future__ import annotations
 

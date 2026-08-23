@@ -1,3 +1,12 @@
+"""Tests for build_governance_surface.
+
+Verifies the surface derives complete governed tables from contract,
+publish, access, and observe declarations, merges repeated observations
+deterministically, and emits coded warnings (ungoverned published tables,
+PII contracts without column policy, orphaned access policies) that fail
+the check result.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Iterator

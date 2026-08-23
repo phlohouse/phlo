@@ -1,3 +1,7 @@
+-- Schema registry for data-contract enforcement, loaded by
+-- phlo.schema_registry at store setup. Each row captures one table's
+-- schema at one point in time; UNIQUE (table_name, schema_hash) keeps a single
+-- row per distinct shape, so history records changes, not individual runs.
 CREATE SCHEMA IF NOT EXISTS phlo;
 
 CREATE TABLE IF NOT EXISTS phlo.schema_snapshots (

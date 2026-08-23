@@ -1,4 +1,11 @@
-"""Error handling helpers for workflow code."""
+"""Error handling helpers for workflow code.
+
+Classifies exceptions into coarse categories (authorization, network, schema,
+not_found) that drive failure hints; with_phlo_errors wraps unexpected errors
+in PhloIngestionError with suggestions, retry_transient retries only
+transient classifications, and collect_errors gathers partial failures
+instead of raising on the first item.
+"""
 
 from __future__ import annotations
 

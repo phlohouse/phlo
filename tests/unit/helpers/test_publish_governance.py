@@ -1,3 +1,6 @@
+"""Tests for publish_table and governance publish readiness against a
+fake publish target, including config error paths."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator

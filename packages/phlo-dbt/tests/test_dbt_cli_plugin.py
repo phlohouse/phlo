@@ -1,4 +1,10 @@
-"""Tests for dbt CLI commands."""
+"""Tests for dbt CLI commands.
+
+Covers dbt run routing: container execution via the orchestrator by
+default, host dbt in local mode, actionable errors for missing projects or
+missing exec services, and lineage manifest import only after successful
+runs (never for compile or failed runs).
+"""
 
 from __future__ import annotations
 

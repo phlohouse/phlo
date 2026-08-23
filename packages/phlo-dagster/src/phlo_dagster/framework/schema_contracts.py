@@ -29,6 +29,8 @@ Example:
         phlo materialize my_asset
         # Contracts will be refreshed before materialization
 
+Sits at the materialization boundary: refreshes contracts ahead of asset runs,
+building on phlo.cli.commands.schema_migrate, with no other module importing it.
 """
 
 from __future__ import annotations
@@ -41,16 +43,8 @@ from typing import Any
 def maybe_refresh_contracts(workflows_path: Path, logger: Any) -> None:
     """Refresh schema contracts when explicitly enabled via env vars.
 
-    Args:
-        workflows_path: Path to workflows directory used for contract resolution.
-        logger: Logger instance for operation logging.
-
-    Returns:
-        None
-
-    Raises:
-        No explicit exceptions raised. Logs warnings on failure.
-
+    Resolves contracts against workflows_path; failures are logged as warnings
+    rather than raised.
     """
     enabled = os.getenv("PHLO_AUTO_REFRESH_CONTRACTS", "").strip().lower()
     if enabled not in {"1", "true", "yes"}:

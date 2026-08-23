@@ -1,4 +1,10 @@
-"""Tests for Loki response normalization and URL override rejection."""
+"""Tests for Loki response normalization and URL override rejection.
+
+Covers run-id correlation on plain container logs, legacy and current
+function metadata parsing, and server-configuration-only URL resolution.
+Regex filtering must reject oversized or invalid patterns before fetching,
+time out as a structured 422, and never echo log content in errors.
+"""
 
 from __future__ import annotations
 

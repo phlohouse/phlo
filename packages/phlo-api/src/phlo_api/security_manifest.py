@@ -573,6 +573,9 @@ def _route_for_request(app: Any, request: Request) -> tuple[OperationSpec, dict[
         if not methods or request.method not in methods:
             continue
         scope = request.scope
+        # Routes match against their unprefixed path; strip the accumulated
+        # include prefix so FastAPI's matcher sees the registered form while
+        # the manifest lookup below still uses the fully prefixed path.
         if prefix:
             request_path = scope.get("path", "")
             if not request_path.startswith(prefix):
@@ -596,6 +599,8 @@ async def _request_json(request: Request) -> Any:
         "application/graphql+json",
     }:
         return None
+    # Cache the parsed body back onto request._body: Starlette does not buffer
+    # stream reads and the route handler still needs the raw body afterwards.
     try:
         content_length = request.headers.get("content-length")
         if content_length and content_length.isdigit() and int(content_length) > 1_048_576:
@@ -621,6 +626,13 @@ async def resolve_resource(
     spec: OperationSpec,
     path_params: dict[str, str],
 ) -> ResourceRef:
+    """Build the resource reference from the spec's declared resource keys.
+
+    Each key resolves from path, query, or body according to its declared
+    source. Conflicting values across sources raise 400 (ambiguous_resource)
+    instead of silently preferring one; a body-keyed operation with no
+    resolvable key raises 400 (missing_resource).
+    """
     sources = dict(spec.resource_sources)
     body_keys = {key for key in spec.resource_keys if sources.get(key) in {"body", "path_body"}}
     body = await _request_json(request) if body_keys else None
@@ -703,6 +715,8 @@ async def enforce_http_operation(
     if spec.public:
         return
 
+    # Unregulated mode skips RBAC, but run-scoped service tokens must remain
+    # confined to their single report even without policy enforcement.
     if not is_regulated():
         if spec.operation_name == "get_observatory_run_report":
             auth_principal = get_request_principal(request)
@@ -788,6 +802,7 @@ async def _specialize_operation(request: Request, spec: OperationSpec) -> Operat
         return spec
 
     def bind_identity(key: str, value: str) -> None:
+        """Bind an identity value into the request body, rejecting conflicts."""
         existing = body.get(key)
         if existing is not None and str(existing) != value:
             raise HTTPException(status_code=400, detail={"error": "ambiguous_resource"})

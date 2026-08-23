@@ -25,6 +25,10 @@ from typing import TYPE_CHECKING, Any, Optional, TypeAlias, TypeVar
 
 from phlo.logging import get_logger
 
+# phlo_pandera is an optional dependency. When it is absent, the stub classes
+# below keep this module importable and every isinstance() dispatch against
+# them simply returns False, degrading mapped checks to OpenMetadata's
+# generic customCheck.
 try:
     from phlo_pandera.checks import (
         CountCheck as _CountCheck,
@@ -79,17 +83,11 @@ def _publish_items(
     item_name_fn: Callable[[T], str],
     context: str,
 ) -> dict[str, int]:
-    """Generic publish loop with error handling and stats tracking.
+    """Publish each item through publish_fn, tracking created and failed counts.
 
-    Args:
-        items: Items to publish.
-        publish_fn: Function to call for each item (should raise on failure).
-        item_name_fn: Function to get display name for logging.
-        context: Context string for error messages.
-
-    Returns:
-        Dict with 'created' and 'failed' counts.
-
+    publish_fn is expected to raise on failure; failures are logged with the
+    item's display name and counted instead of aborting the loop. Returns
+    {'created': n, 'failed': m}.
     """
     stats = {"created": 0, "failed": 0}
     for item in items:
@@ -113,19 +111,12 @@ def _publish_items(
 
 
 class QualityCheckMapper:
-    """Maps quality checks to OpenMetadata test definitions.
+    """Maps Phlo quality checks to OpenMetadata test definitions and test cases.
 
-    Converts @phlo_quality checks to OpenMetadata TestDefinition objects
-    and handles parameter mapping for various check types including:
-    - NullCheck: Column null value validation
-    - RangeCheck: Numeric range validation
-    - UniqueCheck: Column uniqueness validation
-    - CountCheck: Row count validation
-    - FreshnessCheck: Data recency validation
-    - CustomSQLCheck: Custom SQL-based validation
-
-    Attributes:
-        CHECK_TYPE_MAP: Mapping of Phlo check types to OpenMetadata test types.
+    Handles parameter mapping for NullCheck, RangeCheck, UniqueCheck,
+    CountCheck, FreshnessCheck, and CustomSQLCheck. CHECK_TYPE_MAP translates
+    check type names to OpenMetadata test types; unknown types fall back to
+    customCheck.
 
     Example:
         >>> from phlo_pandera.checks import NullCheck
@@ -153,16 +144,7 @@ class QualityCheckMapper:
         check: Any,  # Union of quality check classes
         table_fqn: str,
     ) -> dict[str, Any]:
-        """Convert quality check to OpenMetadata test definition format.
-
-        Args:
-            check: Quality check instance.
-            table_fqn: Fully qualified name of table being tested.
-
-        Returns:
-            Dictionary with test definition format.
-
-        """
+        """Convert a quality check instance to OpenMetadata test definition format."""
         check_type = type(check).__name__
         om_test_type = cls.CHECK_TYPE_MAP.get(check_type, "customCheck")
 
@@ -186,16 +168,10 @@ class QualityCheckMapper:
         table_fqn: str,
         test_suite_name: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Convert quality check to OpenMetadata test case format.
+        """Convert a quality check to OpenMetadata test case format.
 
-        Args:
-            check: Quality check instance.
-            table_fqn: Fully qualified name of table being tested.
-            test_suite_name: Optional name for test suite.
-
-        Returns:
-            Dictionary with test case format.
-
+        When test_suite_name is omitted the suite name is derived from the
+        table's last name segment.
         """
         test_name = cls._get_test_name(check)
 
@@ -229,16 +205,10 @@ class QualityCheckMapper:
         test_case_fqn: str,
         execution_timestamp: Optional[datetime] = None,
     ) -> dict[str, Any]:
-        """Convert quality check result to OpenMetadata test result format.
+        """Convert a check result to OpenMetadata test result format.
 
-        Args:
-            check_result: QualityCheckResult from executing a check.
-            test_case_fqn: Fully qualified name of test case.
-            execution_timestamp: When the test executed.
-
-        Returns:
-            Dictionary with test result format.
-
+        execution_timestamp defaults to the current UTC time. Failure details
+        (message and metadata) are included only when the check failed.
         """
         if execution_timestamp is None:
             execution_timestamp = datetime.now(timezone.utc)
@@ -262,16 +232,7 @@ class QualityCheckMapper:
         dbt_test: dict[str, Any],
         table_fqn: str,
     ) -> dict[str, Any]:
-        """Convert dbt test to OpenMetadata test case format.
-
-        Args:
-            dbt_test: dbt test metadata from manifest.
-            table_fqn: Fully qualified name of table being tested.
-
-        Returns:
-            Dictionary with test case format.
-
-        """
+        """Convert a dbt manifest test entry to OpenMetadata test case format."""
         test_name = dbt_test.get("name", "unknown_test")
         test_type = (
             dbt_test.get("type") or dbt_test.get("test_metadata", {}).get("name") or "unknown"
@@ -296,15 +257,7 @@ class QualityCheckMapper:
 
     @staticmethod
     def _get_test_name(check: Any) -> str:
-        """Generate OpenMetadata-friendly test name from check.
-
-        Args:
-            check: Quality check instance.
-
-        Returns:
-            Sanitized test name string.
-
-        """
+        """Return an OpenMetadata-friendly sanitized test name for a check."""
         if isinstance(check, NullCheck):
             cols = "_".join(check.columns)
             return QualityCheckMapper._sanitize_name(f"null_check_{cols}")
@@ -323,46 +276,24 @@ class QualityCheckMapper:
 
     @staticmethod
     def _sanitize_name(value: str) -> str:
-        """Sanitize entity names for OpenMetadata compatibility.
+        """Replace every character outside [A-Za-z0-9_] with an underscore.
 
-        Args:
-            value: Raw entity name.
-
-        Returns:
-            Name with only alphanumeric and underscore characters.
-
+        Returns "phlo" when nothing remains after stripping, so the name is
+        never empty.
         """
         cleaned = re.sub(r"[^A-Za-z0-9_]", "_", value).strip("_")
         return cleaned or "phlo"
 
     @staticmethod
     def _build_entity_link(table_fqn: str, column: str | None) -> str:
-        """Build an OpenMetadata entity link for a table or table column.
-
-        Args:
-            table_fqn: Fully qualified table name.
-            column: Optional column name to target column-level links.
-
-        Returns:
-            OpenMetadata entity link string.
-
-        """
+        """Build an OpenMetadata table entity link, or a column-level link when column is given."""
         if column:
             return f"<#E::table::{table_fqn}::columns::{column}>"
         return f"<#E::table::{table_fqn}>"
 
     @classmethod
     def _get_entity_link(cls, check: Any, table_fqn: str) -> str:
-        """Build an entity link for the check scope.
-
-        Args:
-            check: Quality check instance.
-            table_fqn: Fully qualified table name.
-
-        Returns:
-            OpenMetadata entity link for table or column scope.
-
-        """
+        """Build an entity link scoped to the check's single target column, or to the table."""
         column: str | None = None
         if isinstance(check, NullCheck) and len(check.columns) == 1:
             column = check.columns[0]
@@ -376,15 +307,7 @@ class QualityCheckMapper:
 
     @staticmethod
     def _get_entity_type(check: Any) -> str:
-        """Determine the OpenMetadata entity type for a check.
-
-        Args:
-            check: Quality check instance.
-
-        Returns:
-            'COLUMN' for column-scoped checks, otherwise 'TABLE'.
-
-        """
+        """Return 'COLUMN' for column-scoped checks and 'TABLE' otherwise."""
         if isinstance(check, (NullCheck, RangeCheck, FreshnessCheck)):
             return "COLUMN"
         if isinstance(check, UniqueCheck) and len(check.columns) == 1:
@@ -393,15 +316,7 @@ class QualityCheckMapper:
 
     @staticmethod
     def _get_test_description(check: Any) -> str:
-        """Generate human-readable description for a quality check.
-
-        Args:
-            check: Quality check instance.
-
-        Returns:
-            Description string explaining the check purpose.
-
-        """
+        """Describe in prose what the check asserts."""
         if isinstance(check, NullCheck):
             return f"Check that columns {', '.join(check.columns)} have no null values"
         if isinstance(check, RangeCheck):
@@ -424,14 +339,9 @@ class QualityCheckMapper:
 
     @staticmethod
     def _get_parameter_definition(check: Any) -> list[dict[str, Any]]:
-        """Extract parameter definitions for check type.
+        """Return the OpenMetadata parameter definitions for a check type.
 
-        Args:
-            check: Quality check instance.
-
-        Returns:
-            List of parameter definition dicts with name, dataType, and required.
-
+        Each entry carries name, dataType, and required.
         """
         if isinstance(check, NullCheck):
             return [
@@ -466,15 +376,7 @@ class QualityCheckMapper:
 
     @staticmethod
     def _get_parameter_values(check: Any) -> list[dict[str, str]]:
-        """Extract parameter values from a check instance.
-
-        Args:
-            check: Quality check instance.
-
-        Returns:
-            List of parameter value dicts with name and value.
-
-        """
+        """Extract a check's configured values as OpenMetadata parameter dicts."""
         params: list[dict[str, str]] = []
 
         if isinstance(check, NullCheck):
@@ -501,15 +403,7 @@ class QualityCheckMapper:
 
     @staticmethod
     def _get_dbt_test_parameters(dbt_test: dict[str, Any]) -> list[dict[str, str]]:
-        """Extract parameter values from dbt test metadata.
-
-        Args:
-            dbt_test: dbt test metadata dictionary.
-
-        Returns:
-            List of parameter value dicts.
-
-        """
+        """Convert a dbt test's kwargs into OpenMetadata parameter value dicts."""
         params: list[dict[str, str]] = []
         kwargs = dbt_test.get("kwargs") or dbt_test.get("test_metadata", {}).get("kwargs", {})
 
@@ -520,13 +414,7 @@ class QualityCheckMapper:
 
 
 class QualityCheckPublisher:
-    """Publishes quality check results to OpenMetadata.
-
-    Handles creating test definitions, cases, and publishing results.
-    Coordinates with OpenMetadataClient to sync quality metadata.
-
-    Attributes:
-        om_client: OpenMetadataClient instance for API operations.
+    """Publishes quality checks, cases, and results to OpenMetadata.
 
     Example:
         >>> publisher = QualityCheckPublisher(om_client)
@@ -536,12 +424,7 @@ class QualityCheckPublisher:
     """
 
     def __init__(self, om_client: OpenMetadataClient):
-        """Initialize publisher with an OpenMetadata client.
-
-        Args:
-            om_client: Client used to create definitions, cases, and results.
-
-        """
+        """Store the client used for all definition, case, and result operations."""
         self.om_client = om_client
 
     def publish_test_definitions(
@@ -549,15 +432,9 @@ class QualityCheckPublisher:
         checks: list[Any],
         table_fqn: str,
     ) -> dict[str, int]:
-        """Publish quality check definitions to OpenMetadata.
+        """Map each check to an OpenMetadata test definition and create it.
 
-        Args:
-            checks: List of quality checks.
-            table_fqn: Fully qualified table name.
-
-        Returns:
-            Dictionary with publication statistics.
-
+        Returns {'created': n, 'failed': m}; a failed creation is logged, not raised.
         """
         # Pre-map all checks to avoid duplicate mapping
         mapped_defs = [
@@ -590,16 +467,9 @@ class QualityCheckPublisher:
         table_fqn: str,
         test_suite_name: Optional[str] = None,
     ) -> dict[str, int]:
-        """Publish quality check cases to OpenMetadata.
+        """Map each check to an OpenMetadata test case and create it.
 
-        Args:
-            checks: List of quality checks.
-            table_fqn: Fully qualified table name.
-            test_suite_name: Optional test suite name.
-
-        Returns:
-            Dictionary with publication statistics.
-
+        Returns {'created': n, 'failed': m}; a failed creation is logged, not raised.
         """
         # Pre-map all checks to avoid duplicate mapping
         mapped_cases = [
@@ -631,15 +501,10 @@ class QualityCheckPublisher:
         self,
         results: list[dict[str, Any]],
     ) -> dict[str, int]:
-        """Publish quality check results to OpenMetadata.
+        """Publish mapped test results to OpenMetadata.
 
-        Args:
-            results: List of test result dictionaries with
-                     'test_case_fqn', 'check_result', and 'timestamp' keys.
-
-        Returns:
-            Dictionary with publication statistics.
-
+        Entries missing test_case_fqn or check_result are skipped with a
+        warning. Returns {'published': n, 'failed': m}.
         """
         stats = {"published": 0, "failed": 0}
 
@@ -678,15 +543,9 @@ class QualityCheckPublisher:
         dbt_tests: list[dict[str, Any]],
         table_fqn: str,
     ) -> dict[str, int]:
-        """Publish dbt test definitions to OpenMetadata.
+        """Map dbt manifest tests to OpenMetadata test cases and create them.
 
-        Args:
-            dbt_tests: List of dbt tests from manifest.
-            table_fqn: Fully qualified table name.
-
-        Returns:
-            Dictionary with publication statistics.
-
+        Returns {'created': n, 'failed': m}.
         """
         # Pre-map all dbt tests to avoid duplicate mapping
         mapped_tests = [

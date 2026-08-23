@@ -1,4 +1,12 @@
-"""Default authentication provider capability providers."""
+"""Built-in authentication providers for the capability registry.
+
+Provides static, reverse-proxy, service-token, and JWT providers. Each loads
+its configuration from environment variables first, falling back to
+phlo.yaml; register_default_capability_providers activates a provider only
+when it is explicitly enabled in configuration.
+Imported by the phlo capabilities layer (phlo.capabilities.discovery) and phlo.security.
+Registers default providers into the phlo.capabilities registry at activation time.
+"""
 
 from __future__ import annotations
 
@@ -241,6 +249,8 @@ class StaticAuthenticationProvider:
     def validate_token(self, token: str) -> AuthenticatedSession | None:
         """Validate a bearer token."""
         matched_key: str | None = None
+        # Compare every configured key in full rather than dict-lookup by
+        # token: comparison time must not reveal whether a prefix matched.
         for key in self._static_users:
             if hmac.compare_digest(key, token):
                 matched_key = key
@@ -535,6 +545,8 @@ class ServiceTokenAuthenticationProvider:
 
     def validate_token(self, token: str) -> AuthenticatedSession | None:
         """Validate a service token."""
+        # Same constant-time scan as the static provider: never leak match
+        # progress through comparison timing.
         matched_key: str | None = None
         for key in self._service_tokens:
             if hmac.compare_digest(key, token):

@@ -1,4 +1,11 @@
-"""Governance CLI commands."""
+"""Governance CLI commands.
+
+`check` validates governed tables and exits non-zero on failure for CI gating;
+`export` prints the browser-safe read model. Both optionally import user
+modules first so declarations register before the surface is built.
+Registered into the phlo CLI by src/phlo/cli/main.py; builds on phlo.flow and
+phlo.governance.
+"""
 
 from __future__ import annotations
 
@@ -27,7 +34,10 @@ def governance_group() -> None:
     help="Import a Python module or .py file that registers Phlo declarations.",
 )
 def check_cmd(output_json: bool, modules: tuple[str, ...]) -> None:
-    """Validate governed tables for publish and production readiness."""
+    """Validate governed tables for publish and production readiness.
+
+    Exits with status 1 when any check fails, so it can be used as a CI gate.
+    """
     _load_modules(modules)
     surface = build_governance_surface()
     payload = surface.to_check_result()

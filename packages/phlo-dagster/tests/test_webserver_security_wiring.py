@@ -1,4 +1,9 @@
-"""Tests for the shipped Dagster webserver enforcement boundary."""
+"""Tests for the shipped Dagster webserver enforcement boundary.
+
+Covers classification of the installed GraphQL schema, HTTP authentication
+wrapping of the webserver ASGI app, GraphQL-over-WebSocket authentication, and
+the authorization middleware applied in front of them.
+"""
 
 from pathlib import Path
 import asyncio

@@ -1,4 +1,9 @@
-"""Shared user-facing CLI output helpers."""
+"""Shared user-facing CLI output helpers.
+
+``json_envelope`` is the machine-readable contract: every JSON response
+carries ``data``, ``warnings``, and ``errors``. Exceptions built here hold
+user-facing text only; internal diagnostics go to structured logs instead.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""Regression tests for schema migration contract helpers."""
+"""Regression tests for schema migration contract helpers.
+
+Pins table-to-artifact naming and default contract/scaffold paths plus contract
+write/read round trips with force-overwrite semantics.
+"""
 
 from __future__ import annotations
 

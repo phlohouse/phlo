@@ -1,4 +1,12 @@
-"""Plugin validation command."""
+"""Plugin validation command.
+
+Validates installed plugins by generating a disposable project and checking
+only its generated files: hadolint and Trivy run as digest-pinned container
+images so results stay reproducible, remote images are resolved to immutable
+manifest digests before scanning, and tool output is captured at bounded
+size. Trivy HIGH/CRITICAL findings can be waived only per exact finding
+fingerprint.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +36,8 @@ from phlo.plugins.discovery._service_loading import resolve_plugin_source_path
 
 logger = get_logger(__name__)
 
+# Scanner tools are pinned by digest, not tag: results stay reproducible and
+# a moved tag can never change what these checks run.
 HADOLINT_IMAGE = (
     "hadolint/hadolint@sha256:27086352fd5e1907ea2b934eb1023f217c5ae087992eb59fde121dce9c9ff21e"
 )
@@ -714,6 +724,7 @@ def check_generated_containers(
         builder_cache_owner: tuple[str, str] | None = None
 
         def prune_builder_cache() -> None:
+            """Prune the buildx cache and record any cleanup failure for this service."""
             nonlocal builder_cache_owner
             if builder_cache_owner is None:
                 return

@@ -1,3 +1,6 @@
+"""Tests for workflow wizard contracts: browser-safe contribution
+serialization, file conflict detection, and proposal validation."""
+
 from pathlib import Path
 
 from phlo.capabilities.workflow_wizard import (

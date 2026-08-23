@@ -1,3 +1,8 @@
+/**
+ * Toast notification state for the Observatory shell: a global store that
+ * queues toasts (one visible at a time), auto-dismisses after a delay, and
+ * exposes add/update/dispatch actions via the useToast hook.
+ */
 import * as React from 'react'
 
 const TOAST_LIMIT = 1

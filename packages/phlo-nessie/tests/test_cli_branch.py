@@ -1,3 +1,6 @@
+"""Tests the nessie branch CLI, including diff rendering when the API
+falls back to empty output."""
+
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 

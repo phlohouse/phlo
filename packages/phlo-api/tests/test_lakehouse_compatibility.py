@@ -1,3 +1,10 @@
+"""Tests that Observatory derives Iceberg compatibility from capability metadata.
+
+Registry specs for table stores, catalogs, and query engines carry compatibility
+blocks; these tests pin how those blocks combine into the reported compatibility
+report and which named checks run against them.
+"""
+
 from __future__ import annotations
 
 from types import SimpleNamespace

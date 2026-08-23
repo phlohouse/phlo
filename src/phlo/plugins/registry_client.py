@@ -1,4 +1,14 @@
-"""Registry client for Phlo plugins."""
+"""Registry client for Phlo plugins.
+
+Fetches the plugin registry with a TTL cache: remote URL first, then a
+bundled local copy as fallback. A fallback result is cached like a remote
+success, so a transient network failure is not retried until the TTL
+expires. Entries are normalized into RegistryPlugin records for lookup and
+search.
+
+Imported across the system: the phlo API, the observatory package-install flow, and the plugin
+CLI commands (install/search/update) all go through it for remote plugin registry access.
+"""
 
 from __future__ import annotations
 
@@ -148,6 +158,8 @@ def fetch_registry(force_refresh: bool = False) -> dict[str, Any]:
     if registry is None:
         registry = _load_registry_from_local()
         _validate_registry(registry)
+        # A local fallback is cached exactly like a remote success, so a
+        # transient network failure is not retried until the TTL expires.
 
     _REGISTRY_CACHE["loaded_at"] = now
     _REGISTRY_CACHE["data"] = registry

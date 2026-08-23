@@ -1,4 +1,8 @@
-"""Tests for ergonomic Sling helper utilities."""
+"""Tests for ergonomic Sling helper utilities.
+
+Pins partition WHERE-clause construction with SQL escaping, stream-to-table-name
+sanitising, and replication-plan defaults.
+"""
 
 from __future__ import annotations
 

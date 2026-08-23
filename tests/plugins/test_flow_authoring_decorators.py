@@ -1,4 +1,10 @@
-"""Tests for terse flow authoring decorators."""
+"""Tests for terse flow authoring decorators.
+
+Each decorator (transform/publish/observe/backfill/contract/access/schedule)
+registers its asset, surface, or job metadata at decoration time without
+executing the wrapped callable; dependencies compose strings with logical
+relations and unsupported signatures fail clearly at run time.
+"""
 
 from __future__ import annotations
 

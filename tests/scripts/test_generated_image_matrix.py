@@ -1,4 +1,9 @@
-"""Tests for the generated GHCR publication matrix."""
+"""Tests for the generated GHCR publication matrix.
+
+The matrix deduplicates services sharing one image/build, accepts build
+contexts only from the project checkout or .phlo, rejects images that are not
+published to GHCR, and fails on unknown selected services.
+"""
 
 from __future__ import annotations
 

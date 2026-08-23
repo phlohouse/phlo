@@ -84,14 +84,9 @@ class SealedAuditRecord:
     ) -> SealedAuditRecord:
         """Create a sealed audit record.
 
-        Args:
-            event: The audit event to seal.
-            sequence_number: Monotonically increasing sequence number.
-            previous_hash: Hash of the previous record, or GENESIS_HASH for first.
-            hmac_key: Secret key for HMAC. Uses env default if not provided.
-
-        Returns:
-            SealedAuditRecord with computed record_hash.
+        Seals ``event`` at ``sequence_number`` over ``previous_hash``
+        (GENESIS_HASH for the first record). Uses the env default key when
+        ``hmac_key`` is not provided.
         """
         record_hash = compute_record_hash(
             event,
@@ -128,12 +123,8 @@ class TamperEvidentAuditSink:
     """
 
     def __init__(self, store: AuditStore, hmac_key: bytes | None = None) -> None:
-        """Initialize the tamper-evident sink.
-
-        Args:
-            store: The AuditStore to delegate to.
-            hmac_key: Secret key for HMAC sealing. Uses env default if not provided.
-        """
+        """Initialize the sink over ``store``, sealing with ``hmac_key`` or
+        the env default."""
         self._store = store
         self.is_durable = store.is_durable
         self._hmac_key = hmac_key or _get_hmac_key()
@@ -150,10 +141,8 @@ class TamperEvidentAuditSink:
             return self._surface_locks[surface]
 
     def _get_surface_state(self, surface: str) -> tuple[int, str]:
-        """Get the sequence number and last hash for a surface.
-
-        Initializes from store if not cached.
-        """
+        """Return a surface's cached sequence number and last hash,
+        initializing from the store on first access."""
         with self._state_guard:
             if surface not in self._surface_state:
                 last_record = self._store.get_last(surface)
@@ -167,11 +156,7 @@ class TamperEvidentAuditSink:
             return self._surface_state[surface]
 
     def write(self, event: CanonicalAuditEvent) -> None:
-        """Seal and write an audit event.
-
-        Args:
-            event: The audit event to seal and write.
-        """
+        """Seal and write an audit event under its surface lock."""
         surface = event.surface or "unknown"
         lock = self._get_surface_lock(surface)
 
@@ -193,25 +178,12 @@ class AuditStore:
     is_durable = False
 
     def append(self, record: SealedAuditRecord) -> None:
-        """Append a sealed record to the store.
-
-        Args:
-            record: The sealed audit record to append.
-
-        Raises:
-            NotImplementedError: If not implemented by subclass.
-        """
+        """Append a sealed record to the store; subclasses must implement."""
         raise NotImplementedError
 
     def get_last(self, surface: str) -> SealedAuditRecord | None:
-        """Get the last sealed record for a surface.
-
-        Args:
-            surface: The surface name.
-
-        Returns:
-            The last sealed record, or None if no records exist.
-        """
+        """Return the last sealed record for a surface, or None if empty;
+        subclasses must implement."""
         raise NotImplementedError
 
     def query(
@@ -221,17 +193,8 @@ class AuditStore:
         before: int | None = None,
         limit: int = 1000,
     ) -> list[SealedAuditRecord]:
-        """Query sealed records for a surface.
-
-        Args:
-            surface: The surface name.
-            after: Sequence number lower bound (exclusive).
-            before: Sequence number upper bound (exclusive).
-            limit: Maximum number of records to return.
-
-        Returns:
-            List of matching sealed records.
-        """
+        """Return sealed records for a surface between exclusive sequence
+        bounds, capped at ``limit``; subclasses must implement."""
         raise NotImplementedError
 
     def verify_chain(
@@ -239,15 +202,8 @@ class AuditStore:
         surface: str,
         hmac_key: bytes | None = None,
     ) -> ChainVerificationResult:
-        """Verify the integrity of the chain for a surface.
-
-        Args:
-            surface: The surface name.
-            hmac_key: Secret key for HMAC verification. Uses env default if not provided.
-
-        Returns:
-            ChainVerificationResult with pass/fail and details.
-        """
+        """Verify chain integrity for a surface and return the outcome;
+        subclasses must implement."""
         raise NotImplementedError
 
 

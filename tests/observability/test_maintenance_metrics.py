@@ -1,4 +1,10 @@
-"""Tests for maintenance telemetry aggregation."""
+"""Tests for maintenance telemetry aggregation.
+
+Completed maintenance log events aggregate into a latest-per-operation
+status snapshot; telemetry.metric run events render as Prometheus
+counters labelled by operation, namespace, ref, status, and dry_run.
+Both views are fed from hand-written JSONL telemetry files.
+"""
 
 from __future__ import annotations
 

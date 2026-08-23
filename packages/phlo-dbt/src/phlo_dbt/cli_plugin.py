@@ -15,6 +15,8 @@ Example:
     >>> plugin = DbtCliPlugin()
     >>> commands = plugin.get_cli_commands()
 
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported directly.
+Composes dbt commands from phlo.cli infrastructure/output helpers and phlo.plugins.base.
 """
 
 from __future__ import annotations
@@ -49,20 +51,12 @@ def _container_path(path: Path, *, project_root: Path) -> str:
     Converts a local filesystem path to the corresponding path inside the
     Docker container where the project is mounted (typically under /app).
 
-    Args:
-        path: Local filesystem path to convert.
-        project_root: Project root directory used as reference point.
-
-    Returns:
-        Container-mounted path as a string (e.g., "/app/workflows/transforms/dbt").
-
     Example:
         >>> from pathlib import Path
         >>> local = Path("workflows/transforms/dbt")
         >>> container = _container_path(local, project_root=Path("."))
         >>> print(container)
         /app/workflows/transforms/dbt
-
     """
     relative = path.resolve().relative_to(project_root.resolve())
     return str(Path("/app") / relative)
@@ -75,12 +69,6 @@ def _should_run_in_container(local: bool) -> bool:
     or on the local host. Container execution is preferred when a Phlo
     project directory exists.
 
-    Args:
-        local: If True, force local execution regardless of environment.
-
-    Returns:
-        True if commands should run in container, False for local execution.
-
     Example:
         >>> # In a project with .phlo directory
         >>> should_container = _should_run_in_container(local=False)
@@ -91,7 +79,6 @@ def _should_run_in_container(local: bool) -> bool:
         >>> should_local = _should_run_in_container(local=True)
         >>> print(should_local)
         False
-
     """
     if local:
         return False
@@ -205,14 +192,7 @@ def _import_lineage_after_run(
 
 
 def _run_dbt_local(subcommand: str, target: str, select_expr: str | None = None) -> None:
-    """Run a dbt subcommand against the local project.
-
-    Args:
-        subcommand: dbt subcommand to execute (compile, run, test).
-        target: dbt target profile name.
-        select_expr: Optional dbt model selector expression.
-
-    """
+    """Run a dbt subcommand against the local project."""
     from phlo_dbt.settings import get_settings
 
     logger = get_logger(f"phlo.dbt.{subcommand}")

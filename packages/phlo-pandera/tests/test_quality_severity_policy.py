@@ -1,3 +1,6 @@
+"""Verify severity mapping for quality results: warn-threshold boundaries,
+contract failures as errors, and dbt tag overrides of default severities."""
+
 from __future__ import annotations
 
 from phlo_pandera.severity import (

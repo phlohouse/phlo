@@ -1,4 +1,9 @@
-"""Reconciliation helpers for comparing source and target datasets."""
+"""Reconciliation helpers for comparing source and target datasets.
+
+Row checksums hash canonical JSON so comparisons stay order-stable. Every
+check returns a ReconciliationResult with matched counts and bounded mismatch
+samples rather than raising on differences.
+"""
 
 from __future__ import annotations
 

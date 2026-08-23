@@ -34,16 +34,8 @@ logger = get_logger(__name__)
 
 
 def _log_error_and_raise(exception: Exception, log_context: dict, error_msg: str) -> None:
-    """Log an error and raise a ClickException.
-
-    Args:
-        exception: The exception that occurred.
-        log_context: Dictionary of context for structured logging.
-        error_msg: The message to display to the user.
-
-    Raises:
-        click.ClickException: Always raises with the provided error message.
-
+    """Log the exception with context, then raise a ClickException carrying
+    error_msg for display to the user.
     """
     logger.exception("hasura_command_failed", error=str(exception), **log_context)
     raise user_error(
@@ -87,19 +79,8 @@ def hasura() -> None:
     help="Verbose output",
 )
 def track(schema: str, exclude: tuple, verbose: bool) -> None:
-    """Auto-discover and track tables in Hasura.
-
-    Discovers all tables in the specified schema and tracks them in Hasura,
-    optionally excluding specific tables. Prints a summary of successfully
-    tracked tables.
-
-    Args:
-        schema: Schema name to discover tables from (default: "api").
-        exclude: Tuple of table names to exclude from tracking.
-        verbose: Enable verbose output showing per-table progress.
-
-    Raises:
-        click.ClickException: If an error occurs during tracking.
+    """Auto-discover and track tables in Hasura, optionally excluding specific
+    tables, and print a summary of tracked tables.
 
     Example:
         $ phlo hasura track --schema api
@@ -144,17 +125,8 @@ def track(schema: str, exclude: tuple, verbose: bool) -> None:
     help="Verbose output",
 )
 def relationships(schema: str, verbose: bool) -> None:
-    """Auto-create relationships from foreign keys.
-
-    Analyzes foreign key constraints in the specified schema and automatically
-    creates object relationships (many-to-one) in Hasura metadata.
-
-    Args:
-        schema: Schema name to analyze foreign keys in (default: "api").
-        verbose: Enable verbose output showing per-relationship progress.
-
-    Raises:
-        click.ClickException: If an error occurs during relationship creation.
+    """Analyze foreign key constraints in the schema and create object
+    relationships (many-to-one) in Hasura metadata.
 
     Example:
         $ phlo hasura relationships --schema api
@@ -193,17 +165,8 @@ def relationships(schema: str, verbose: bool) -> None:
     help="Verbose output",
 )
 def permissions(schema: str, verbose: bool) -> None:
-    """Set up default permissions for tracked tables.
-
-    Creates default SELECT permissions for standard roles (anon, analyst, admin)
-    on all tracked tables in the specified schema.
-
-    Args:
-        schema: Schema name to configure permissions for (default: "api").
-        verbose: Enable verbose output showing per-permission progress.
-
-    Raises:
-        click.ClickException: If an error occurs during permission setup.
+    """Create default SELECT permissions for standard roles (anon, analyst,
+    admin) on all tracked tables in the schema.
 
     Example:
         $ phlo hasura permissions --schema api
@@ -242,18 +205,8 @@ def permissions(schema: str, verbose: bool) -> None:
     help="Verbose output",
 )
 def auto_setup(schema: str, verbose: bool) -> None:
-    """Auto-track tables, set up relationships and permissions.
-
-    Complete auto-configuration that runs track, relationships, and permissions
-    in sequence for the specified schema. Provides a one-command setup for
-    new schemas.
-
-    Args:
-        schema: Schema name to auto-configure (default: "api").
-        verbose: Enable verbose output showing all operations.
-
-    Raises:
-        click.ClickException: If an error occurs during any step.
+    """Run track, relationships, and permissions in sequence — one-command
+    setup for a new schema.
 
     Example:
         $ phlo hasura auto-setup --schema api
@@ -278,16 +231,8 @@ def auto_setup(schema: str, verbose: bool) -> None:
     help="Output file path for metadata",
 )
 def export(output: str) -> None:
-    """Export current Hasura metadata to file.
-
-    Exports the complete Hasura metadata (including tracked tables,
-    relationships, and permissions) to a JSON file.
-
-    Args:
-        output: Path to save the exported metadata JSON file.
-
-    Raises:
-        click.ClickException: If an error occurs during export.
+    """Export the complete Hasura metadata (tracked tables, relationships,
+    permissions) to a JSON file.
 
     Example:
         $ phlo hasura export --output hasura_metadata.json
@@ -309,16 +254,8 @@ def export(output: str) -> None:
     help="Input metadata file",
 )
 def apply_meta(input: str) -> None:
-    """Apply Hasura metadata from file.
-
-    Imports and applies Hasura metadata from a previously exported JSON file.
-    This will replace the current metadata with the contents of the file.
-
-    Args:
-        input: Path to the metadata JSON file to import.
-
-    Raises:
-        click.ClickException: If the file doesn't exist or import fails.
+    """Apply Hasura metadata from a previously exported JSON file, replacing
+    the current metadata.
 
     Example:
         $ phlo hasura apply --input hasura_metadata.json
@@ -334,13 +271,8 @@ def apply_meta(input: str) -> None:
 
 @hasura.command()
 def status() -> None:
-    """Show Hasura tracking status.
-
-    Displays a summary of all tracked tables organized by schema,
-    showing which tables are currently configured in Hasura metadata.
-
-    Raises:
-        click.ClickException: If an error occurs fetching status.
+    """Show a summary of all tracked tables organized by schema, reflecting
+    the current Hasura metadata.
 
     Example:
         $ phlo hasura status
@@ -371,17 +303,8 @@ def status() -> None:
     help="Permission config file (JSON/YAML)",
 )
 def sync_permissions(config: str) -> None:
-    """Sync permissions from config file.
-
-    Applies permission configurations from a YAML or JSON file to Hasura.
-    The config file should define tables, roles, and their respective
-    SELECT/INSERT/UPDATE/DELETE permissions.
-
-    Args:
-        config: Path to the permission configuration file (YAML or JSON).
-
-    Raises:
-        click.ClickException: If the file doesn't exist or sync fails.
+    """Apply permission configurations from a YAML or JSON config file that
+    defines tables, roles, and their SELECT/INSERT/UPDATE/DELETE grants.
 
     Example:
         $ phlo hasura sync-permissions --config permissions.yaml

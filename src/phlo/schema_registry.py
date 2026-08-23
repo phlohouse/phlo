@@ -36,6 +36,8 @@ def _load_psycopg2() -> Any:
     return psycopg2
 
 
+# Importing psycopg2 is deferred to first attribute access so that importing
+# this module never requires the runtime extra; only actual registry use does.
 class _LazyPsycopg2:
     def __getattr__(self, name: str) -> Any:
         return getattr(_load_psycopg2(), name)
@@ -96,6 +98,11 @@ class SchemaRegistry:
         self.connection_string = connection_string
 
     def _ensure_schema(self) -> None:
+        # The flag is class-level on purpose: one successful initialization per
+        # process covers every SchemaRegistry instance pointed at the same DB.
+        # A concurrent-creator "already exists" error counts as initialized;
+        # any other failure is only warned about, leaving the flag unset so
+        # the next call retries setup before its first statement.
         if SchemaRegistry._schema_initialized:
             return
         try:
@@ -125,7 +132,12 @@ class SchemaRegistry:
         run_id: str | None = None,
         source: str = "materialization",
     ) -> str:
-        """Snapshot a schema. Returns snapshot_id. Dedupes by (table_name, schema_hash)."""
+        """Snapshot a schema. Returns snapshot_id.
+
+        Rows are deduped by (table_name, schema_hash): re-snapshotting an
+        unchanged schema upserts created_at/run_id/source and rotates the
+        snapshot_id rather than inserting a second row.
+        """
         canonical = _canonical_schema_json(schema)
         schema_hash = _schema_hash(canonical)
         snapshot_id = str(uuid.uuid4())

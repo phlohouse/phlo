@@ -1,4 +1,9 @@
-"""Planning helpers for services lifecycle commands."""
+"""Planning helpers for services lifecycle commands.
+
+Resolves requested service names, profiles, and config into pure plan objects:
+ServiceSelectionPlan for what will start, StartPreflightPlan for paths and
+project identity before startup.
+"""
 
 from __future__ import annotations
 
@@ -41,6 +46,11 @@ def build_service_selection_plan(
     profiles: tuple[str, ...],
     requested_names: list[str],
 ) -> ServiceSelectionPlan:
+    """Resolve requested services (or defaults, profile matches, and enabled
+    entries when none requested) into a selection plan.
+
+    Rejects unknown or phlo.yaml-disabled names with ClickException.
+    """
     unknown_requested = [name for name in requested_names if name not in services]
     if unknown_requested:
         raise click.ClickException(f"Unknown service name(s): {', '.join(unknown_requested)}")
@@ -91,6 +101,10 @@ def build_start_preflight_plan(
     services: list[ServiceDefinition] | None = None,
     service_names: list[str] | None = None,
 ) -> StartPreflightPlan:
+    """Assemble the inputs needed by services start preflight checks.
+
+    Requires at least one service across service_names or services.
+    """
     resolved_service_names = (
         service_names if service_names is not None else [service.name for service in services or []]
     )

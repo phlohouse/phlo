@@ -52,16 +52,10 @@ class DormancyDetector:
         last_activity: datetime,
         reference_time: datetime | None = None,
     ) -> DormantPrincipal | None:
-        """Check if a principal is potentially dormant.
+        """Check if a principal is dormant against the configured thresholds.
 
-        Args:
-            principal_subject: The principal's subject identifier.
-            principal_type: The type of principal (user, service, etc.).
-            last_activity: Timestamp of the principal's last activity.
-            reference_time: Time to check against (default: now).
-
-        Returns:
-            DormantPrincipal if dormant, None otherwise.
+        Returns a DormantPrincipal (high severity past max_inactive_days,
+        medium past warning_days) or None when still active.
         """
         if reference_time is None:
             reference_time = datetime.now(UTC)
@@ -92,15 +86,7 @@ class DormancyDetector:
         principals: list[dict],
         reference_time: datetime | None = None,
     ) -> list[DormantPrincipal]:
-        """Check multiple principals for dormancy.
-
-        Args:
-            principals: List of dicts with subject, type, last_activity keys.
-            reference_time: Time to check against.
-
-        Returns:
-            List of dormant principals requiring review.
-        """
+        """Check multiple principals for dormancy, returning those requiring review."""
         results: list[DormantPrincipal] = []
         for p in principals:
             dormant = self.check_dormancy(
@@ -118,15 +104,7 @@ def create_dormancy_review(
     dormant: DormantPrincipal,
     review_type: str | None = None,
 ) -> AccessReview:
-    """Create an AccessReview for a dormant principal.
-
-    Args:
-        dormant: The dormant principal to create a review for.
-        review_type: Type of review to create.
-
-    Returns:
-        AccessReview instance ready for processing.
-    """
+    """Create an AccessReview for a dormant principal, ready for processing."""
     from phlo.compliance.governance.types import (
         AccessReview,
         AccessReviewStatus,

@@ -19,6 +19,9 @@ Example:
     ...     result = db.query_one("SELECT COUNT(*) FROM users")
     >>> db.close()
 
+
+Re-exported as PostgresResource from the phlo_postgres package root for
+publishing and operational writes across the platform.
 """
 
 from __future__ import annotations
@@ -44,16 +47,9 @@ class PostgresResource:
     It supports both context manager usage (recommended) and manual lifecycle management.
     Transactions are automatically handled when using the transactional_cursor context manager.
 
-    Attributes:
-        host: PostgreSQL server hostname. Uses settings default if None.
-        port: PostgreSQL server port. Uses settings default if None.
-        user: Database username. Uses settings default if None.
-        password: Database password. Uses settings default if None.
-        database: Database name. Uses settings default if None.
-        min_connections: Minimum number of connections to maintain in the pool.
-        max_connections: Maximum number of connections allowed in the pool.
-        _pool: Internal connection pool instance (initialized on first use).
-        _connection: Active connection from the pool (acquired on demand).
+    Connection parameters (host, port, user, password, database) fall back to the
+    settings defaults when left as None. The pool is created on first use and the
+    active connection is acquired from it on demand.
 
     Example:
         >>> # Basic usage with defaults from settings
@@ -83,8 +79,7 @@ class PostgresResource:
         This method ensures a connection is available when entering the context.
         The connection is automatically returned to the pool when exiting.
 
-        Returns:
-            PostgresResource: The initialized resource instance ready for queries.
+        The initialized resource instance is returned ready for queries.
 
         Example:
             >>> with PostgresResource() as db:
@@ -98,18 +93,9 @@ class PostgresResource:
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         """Clean up the resource on context exit.
 
-        Performs rollback if an exception occurred, then returns the connection
-        to the pool and closes the pool.
-
-        Args:
-            exc_type: Exception type raised in the context, if any.
-            exc: Exception instance raised in the context, if any.
-            tb: Traceback object for the raised exception, if any.
-
-        Note:
-            Rollback is attempted on exception but failures are logged, not raised,
-            to ensure the original exception propagates.
-
+        Performs rollback if an exception occurred, then returns the connection to
+        the pool and closes the pool. Rollback failures are logged, not raised, so
+        the original exception propagates.
         """
         if exc_type is not None:
             try:
@@ -144,11 +130,8 @@ class PostgresResource:
         default settings. Connection parameters are resolved in order:
         explicit attribute > settings default > built-in default.
 
-        Returns:
-            pool.SimpleConnectionPool: The active connection pool.
-
-        Raises:
-            psycopg2.Error: If pool creation fails (e.g., bad credentials, host unreachable).
+        Raises psycopg2.Error if pool creation fails (e.g., bad credentials,
+        host unreachable).
 
         Example:
             >>> db = PostgresResource()
@@ -205,11 +188,7 @@ class PostgresResource:
         Returns a healthy connection from the pool, creating the pool if needed.
         Stale connections are detected and replaced automatically.
 
-        Returns:
-            Any: Active psycopg2 connection object.
-
-        Raises:
-            psycopg2.Error: If connection acquisition fails.
+        Raises psycopg2.Error if connection acquisition fails.
 
         Example:
             >>> db = PostgresResource()
@@ -252,9 +231,6 @@ class PostgresResource:
         rolling back transactions. Useful when you need fine-grained control
         over transaction boundaries.
 
-        Yields:
-            psycopg2.cursor: Database cursor ready for query execution.
-
         Example:
             >>> with PostgresResource() as db:
             ...     with db.cursor() as cur:
@@ -278,11 +254,7 @@ class PostgresResource:
         Yields a cursor and automatically commits on success or rolls back on
         exception. This is the recommended way to perform write operations.
 
-        Yields:
-            psycopg2.cursor: Database cursor ready for query execution.
-
-        Raises:
-            Exception: Re-raises any exception after performing rollback.
+        Any exception is re-raised after the rollback.
 
         Example:
             >>> with PostgresResource() as db:
@@ -425,9 +397,6 @@ class PostgresResource:
         Performs a simple health check by executing "SELECT 1" and returns
         True if the query succeeds.
 
-        Returns:
-            bool: True if the connection is healthy, False otherwise.
-
         Example:
             >>> with PostgresResource() as db:
             ...     if db.is_healthy():
@@ -452,12 +421,7 @@ class PostgresResource:
         commits the transaction immediately. For queries that return data,
         use query() or query_one() instead.
 
-        Args:
-            sql_stmt: SQL statement to execute. Can include placeholders (%s).
-            params: Tuple of parameters to substitute into the SQL statement.
-
-        Raises:
-            psycopg2.Error: If the SQL execution fails.
+        Raises psycopg2.Error if the SQL execution fails.
 
         Example:
             >>> with PostgresResource() as db:
@@ -483,15 +447,8 @@ class PostgresResource:
         Executes a SELECT query and returns all rows as a list of tuples.
         For large result sets, consider using a cursor directly to stream results.
 
-        Args:
-            sql_stmt: SQL SELECT statement. Can include placeholders (%s).
-            params: Tuple of parameters to substitute into the SQL statement.
-
-        Returns:
-            list[tuple]: All rows returned by the query. Empty list if no results.
-
-        Raises:
-            psycopg2.Error: If the query execution fails.
+        Returns an empty list when the query has no results. Raises psycopg2.Error
+        if the query execution fails.
 
         Example:
             >>> with PostgresResource() as db:
@@ -522,15 +479,8 @@ class PostgresResource:
         no results. Useful for queries expected to return at most one row
         (e.g., lookups by primary key).
 
-        Args:
-            sql_stmt: SQL SELECT statement. Can include placeholders (%s).
-            params: Tuple of parameters to substitute into the SQL statement.
-
-        Returns:
-            tuple | None: First row as a tuple, or None if query returns no rows.
-
-        Raises:
-            psycopg2.Error: If the query execution fails.
+        Returns `None` when the query has no rows. Raises psycopg2.Error if the
+        query execution fails.
 
         Example:
             >>> with PostgresResource() as db:
@@ -562,11 +512,7 @@ class PostgresResource:
         Safe to call multiple times; subsequent calls are no-ops if the
         schema already exists.
 
-        Args:
-            schema_name: Name of the schema to create.
-
-        Raises:
-            psycopg2.Error: If schema creation fails (e.g., permission denied).
+        Raises psycopg2.Error if schema creation fails (e.g., permission denied).
 
         Example:
             >>> with PostgresResource() as db:

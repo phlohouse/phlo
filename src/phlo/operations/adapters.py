@@ -1,4 +1,10 @@
-"""Compatibility adapters for sync and async operation contracts."""
+"""Compatibility adapters for sync and async operation contracts.
+
+Adapt ingesters and transformers in both directions: sync implementations run
+on worker threads behind the async contract, async implementations run on a
+private event loop behind the sync contract. The sync wrappers refuse to run
+inside an active event loop instead of failing opaquely.
+"""
 
 from __future__ import annotations
 
@@ -34,6 +40,11 @@ class SyncToAsyncIngesterAdapter(AsyncIngester):
         partition_key: str | None,
         parameters: dict[str, Any],
     ) -> IngestionResult:
+        """Run the wrapped sync ingester on a worker thread.
+
+        The blocking call must not occupy the caller's event loop thread, so it
+        is offloaded via ``asyncio.to_thread``.
+        """
         return await asyncio.to_thread(self._ingester.run_ingestion, partition_key, parameters)
 
 
@@ -49,6 +60,11 @@ class AsyncToSyncIngesterAdapter(BaseIngester):
         partition_key: str | None,
         parameters: dict[str, Any],
     ) -> IngestionResult:
+        """Run the wrapped async ingester on a private event loop.
+
+        ``asyncio.run`` creates and closes a loop per call; a caller already
+        inside an event loop must use the async contract instead.
+        """
         _ensure_no_running_event_loop()
         return asyncio.run(self._ingester.run_ingestion(partition_key, parameters))
 
@@ -65,6 +81,11 @@ class SyncToAsyncTransformerAdapter(AsyncTransformer[Any]):
         partition_key: str | None = None,
         parameters: dict[str, Any] | None = None,
     ) -> TransformationResult:
+        """Run the wrapped sync transformer on a worker thread.
+
+        The blocking call must not occupy the caller's event loop thread, so it
+        is offloaded via ``asyncio.to_thread``.
+        """
         return await asyncio.to_thread(self._transformer.run_transform, partition_key, parameters)
 
 
@@ -80,5 +101,10 @@ class AsyncToSyncTransformerAdapter(BaseTransformer[Any]):
         partition_key: str | None = None,
         parameters: dict[str, Any] | None = None,
     ) -> TransformationResult:
+        """Run the wrapped async transformer on a private event loop.
+
+        ``asyncio.run`` creates and closes a loop per call; a caller already
+        inside an event loop must use the async contract instead.
+        """
         _ensure_no_running_event_loop()
         return asyncio.run(self._transformer.run_transform(partition_key, parameters))

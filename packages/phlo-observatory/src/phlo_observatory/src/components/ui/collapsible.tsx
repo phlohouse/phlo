@@ -1,3 +1,6 @@
+/**
+ * Collapsible primitives re-exposed from Base UI with data-slot attributes.
+ */
 import { Collapsible as CollapsiblePrimitive } from '@base-ui/react/collapsible'
 
 function Collapsible({ ...props }: CollapsiblePrimitive.Root.Props) {

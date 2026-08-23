@@ -1,4 +1,10 @@
-"""Tests for provider-neutral ingestion public API."""
+"""Tests for provider-neutral ingestion public API.
+
+Covers phlo.ingest: named-provider decorator resolution, install-focused
+errors for missing providers, dlt/sling convenience aliases, asset
+retrieval per provider or across all, and single-run discovery shared by
+all providers.
+"""
 
 from __future__ import annotations
 

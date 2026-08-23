@@ -1,4 +1,11 @@
-"""Configuration loader for canonical RBAC files."""
+"""Configuration loader for canonical RBAC files.
+
+RBACConfigLoader reads roles.yaml and policies.yaml from
+``<base>/authorization/`` (default .phlo in the cwd), validates them through
+the CanonicalRBAC model, and exposes compute_version_hash() for sync drift
+detection. The hash covers raw parsed YAML, so two files projecting to the
+same canonical model can still hash differently.
+"""
 
 from __future__ import annotations
 
@@ -16,10 +23,9 @@ class RBACConfigLoader:
     """Loads and validates canonical RBAC configuration files."""
 
     def __init__(self, base_path: Path | None = None):
-        """Initialize the RBAC config loader.
+        """Initialize the loader rooted at base_path (default .phlo in the cwd).
 
-        Args:
-            base_path: Base path for RBAC config files. Defaults to .phlo in cwd.
+        Config files live under ``<base>/authorization/``.
         """
         self._base_path = base_path or Path.cwd() / ".phlo"
 
@@ -29,17 +35,10 @@ class RBACConfigLoader:
         return self._base_path
 
     def load_roles(self, path: Path | None = None) -> RolesConfig:
-        """Load roles configuration from YAML file.
+        """Read roles.yaml (default base_path/authorization/roles.yaml) into RolesConfig.
 
-        Args:
-            path: Path to roles.yaml. Defaults to base_path/authorization/roles.yaml.
-
-        Returns:
-            Parsed RolesConfig.
-
-        Raises:
-            FileNotFoundError: If the roles file doesn't exist.
-            ValueError: If the roles file is invalid.
+        Raises: FileNotFoundError when the file is absent; ValueError when
+        its contents fail validation.
         """
         if path is None:
             path = self._base_path / "authorization" / "roles.yaml"
@@ -56,17 +55,10 @@ class RBACConfigLoader:
             raise ValueError(f"Invalid roles config: {e}") from e
 
     def load_policies(self, path: Path | None = None) -> PoliciesConfig:
-        """Load policies configuration from YAML file.
+        """Read policies.yaml (default base_path/authorization/policies.yaml) into PoliciesConfig.
 
-        Args:
-            path: Path to policies.yaml. Defaults to base_path/authorization/policies.yaml.
-
-        Returns:
-            Parsed PoliciesConfig.
-
-        Raises:
-            FileNotFoundError: If the policies file doesn't exist.
-            ValueError: If the policies file is invalid.
+        Raises: FileNotFoundError when the file is absent; ValueError when
+        its contents fail validation.
         """
         if path is None:
             path = self._base_path / "authorization" / "policies.yaml"
@@ -83,14 +75,10 @@ class RBACConfigLoader:
             raise ValueError(f"Invalid policies config: {e}") from e
 
     def load(self) -> CanonicalRBAC:
-        """Load the complete canonical RBAC configuration.
+        """Load roles.yaml and policies.yaml into a validated CanonicalRBAC.
 
-        Returns:
-            Combined CanonicalRBAC model.
-
-        Raises:
-            FileNotFoundError: If required config files don't exist.
-            ValueError: If the configuration is invalid.
+        Raises: FileNotFoundError when either file is absent; ValueError when
+        parsing or validation fails.
         """
         roles = self.load_roles()
         policies = self.load_policies()
@@ -104,11 +92,7 @@ class RBACConfigLoader:
         return rbac
 
     def validate(self) -> tuple[bool, list[str]]:
-        """Validate the RBAC configuration.
-
-        Returns:
-            Tuple of (is_valid, error_messages).
-        """
+        """Validate the configuration without raising, returning (is_valid, error_messages)."""
         try:
             rbac = self.load()
             errors = rbac.validate()
@@ -117,14 +101,7 @@ class RBACConfigLoader:
             return False, [str(e)]
 
     def compute_version_hash(self) -> str:
-        """Compute a hash of the current RBAC configuration.
-
-        Returns:
-            SHA256 hash of the configuration (truncated to 16 chars).
-
-        Raises:
-            FileNotFoundError: If required config files don't exist.
-        """
+        """Compute a 16-character SHA256 hash of the raw parsed RBAC YAML content."""
         roles_path = self._base_path / "authorization" / "roles.yaml"
         policies_path = self._base_path / "authorization" / "policies.yaml"
 
@@ -136,5 +113,8 @@ class RBACConfigLoader:
             with policies_path.open() as f:
                 content["policies"] = yaml.safe_load(f) or {}
 
+        # Hashes the raw parsed YAML, not the canonical projection built by
+        # CanonicalRBAC.from_configs: two files yielding the same canonical model
+        # can therefore produce different hashes here.
         json_content = json.dumps(content, sort_keys=True)
         return hashlib.sha256(json_content.encode()).hexdigest()[:16]

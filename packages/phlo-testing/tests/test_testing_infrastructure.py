@@ -261,15 +261,7 @@ class TestAssetExecution:
         """Test executing a simple asset."""
 
         def simple_asset(partition_date: str):
-            """Return one synthetic record for the requested partition.
-
-            Args:
-                partition_date: Partition date under test.
-
-            Returns:
-                Single-row payload for assertions.
-
-            """
+            """Return one synthetic record for the requested partition."""
             return [{"id": 1, "date": partition_date}]
 
         result = run_asset_test(simple_asset, partition="2024-01-01")
@@ -283,15 +275,7 @@ class TestAssetExecution:
         """Test asset that returns DataFrame."""
 
         def dataframe_asset(partition_date: str):
-            """Return a synthetic DataFrame payload.
-
-            Args:
-                partition_date: Partition date under test.
-
-            Returns:
-                Three-row DataFrame for assertions.
-
-            """
+            """Return a synthetic DataFrame payload."""
             return pd.DataFrame(
                 {
                     "id": [1, 2, 3],
@@ -310,15 +294,7 @@ class TestAssetExecution:
         """Test asset with provided mock data."""
 
         def ingestion_asset(partition_date: str):
-            """Return one ingestion-style record.
-
-            Args:
-                partition_date: Partition date under test.
-
-            Returns:
-                Single-row payload containing partition metadata.
-
-            """
+            """Return one ingestion-style record."""
             return [{"id": 1, "name": "Test", "date": partition_date}]
 
         mock_data = [{"id": 1, "name": "Test"}]
@@ -337,15 +313,7 @@ class TestAssetExecution:
         """Test that execution time is captured."""
 
         def quick_asset(partition_date: str):
-            """Return one record quickly for timing assertions.
-
-            Args:
-                partition_date: Partition date under test.
-
-            Returns:
-                Single-row payload.
-
-            """
+            """Return one record quickly for timing assertions."""
             return [{"id": 1}]
 
         result = run_asset_test(quick_asset, partition="2024-01-01")
@@ -359,12 +327,7 @@ class TestAssetExecution:
         def failing_asset(partition_date: str):
             """Raise an error to simulate asset failure.
 
-            Args:
-                partition_date: Partition date under test.
-
-            Raises:
-                ValueError: Always raised for failure-path assertions.
-
+            Raises: ValueError when always raised for failure-path assertions.
             """
             raise ValueError("Asset failed")
 
@@ -378,15 +341,7 @@ class TestAssetExecution:
         """Test asset that returns no data."""
 
         def empty_asset(partition_date: str):
-            """Return an empty payload.
-
-            Args:
-                partition_date: Partition date under test.
-
-            Returns:
-                Empty list of records.
-
-            """
+            """Return an empty payload."""
             return []
 
         result = run_asset_test(empty_asset, partition="2024-01-01")
@@ -458,12 +413,7 @@ class TestFixtureRecorder:
 
             # Record a DLT source
             def fake_source():
-                """Yield fixture rows for recording tests.
-
-                Yields:
-                    dict[str, object]: Synthetic user rows.
-
-                """
+                """Yield fixture rows for recording tests."""
                 yield {"id": 1, "name": "Alice"}
                 yield {"id": 2, "name": "Bob"}
 
@@ -485,12 +435,7 @@ class TestFixtureRecorder:
 
             # Record fixture
             def fake_source():
-                """Yield one fixture row for load tests.
-
-                Yields:
-                    dict[str, object]: Synthetic value row.
-
-                """
+                """Yield one fixture row for load tests."""
                 yield {"id": 1, "value": 42}
 
             recorder.record_dlt_source("test", fake_source)
@@ -545,15 +490,7 @@ class TestIntegration:
         """Test local mode with asset execution."""
 
         def test_asset(partition_date: str):
-            """Return partitioned DataFrame rows.
-
-            Args:
-                partition_date: Partition date under test.
-
-            Returns:
-                DataFrame with partition column for assertions.
-
-            """
+            """Return partitioned DataFrame rows."""
             return pd.DataFrame(
                 {
                     "id": [1, 2],

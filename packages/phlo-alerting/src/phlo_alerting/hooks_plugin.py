@@ -1,12 +1,9 @@
 """Hook plugin for alerting on quality and telemetry events.
 
-This module implements the HookPlugin interface to automatically trigger
-alerts based on Phlo pipeline events. It monitors quality check results
-and telemetry events, sending notifications when issues are detected.
+Implements the HookPlugin interface to trigger alerts on pipeline events:
+a quality-result handler fires on failed checks and a telemetry handler
+fires on error-level telemetry events.
 
-The plugin registers two hook handlers:
-    1. Quality result handler: Triggers alerts on failed quality checks
-    2. Telemetry handler: Triggers alerts on error-level telemetry events
 
 Examples:
     The plugin is automatically discovered and registered by Phlo's
@@ -34,15 +31,8 @@ logger = get_logger(__name__)
 
 
 class AlertingHookPlugin(HookPlugin):
-    """Emit alerts based on quality and telemetry events.
-
-        Hook plugin implementation that listens to Phlo pipeline events and
-        automatically sends alerts when quality checks fail or error-level
-    telemetry events occur. Integrates with the AlertManager to route
-        notifications to configured destinations.
-
-    Attributes:
-            metadata: Plugin identity and discovery information.
+    """Emit alerts on failed quality checks and error-level telemetry events,
+    routed through the AlertManager to configured destinations.
 
     Examples:
             >>> plugin = AlertingHookPlugin()
@@ -57,9 +47,6 @@ class AlertingHookPlugin(HookPlugin):
     @property
     def metadata(self) -> PluginMetadata:
         """Metadata for the alerting hook plugin.
-
-        Returns:
-            PluginMetadata containing name, version, and description.
 
         Examples:
             >>> plugin = AlertingHookPlugin()
@@ -78,13 +65,7 @@ class AlertingHookPlugin(HookPlugin):
         )
 
     def get_hooks(self) -> list[HookRegistration]:
-        """Register quality and telemetry hook handlers.
-
-        Returns a list of HookRegistration objects defining which events
-        this plugin handles and the corresponding handler methods.
-
-        Returns:
-            List of HookRegistration objects for quality and telemetry events.
+        """Register handlers for quality and telemetry events.
 
         Examples:
             >>> plugin = AlertingHookPlugin()
@@ -108,27 +89,9 @@ class AlertingHookPlugin(HookPlugin):
         ]
 
     def _handle_quality(self, event: Any) -> None:
-        """Send an alert for failed quality checks.
-
-        Event handler for quality check results. Only processes events
-        of type QualityResultEvent that have failed (passed=False).
-        Maps quality severity levels to alert severities and formats
-        a human-readable message.
-
-        Args:
-            event: The quality result event to process. Expected to be
-                a QualityResultEvent instance.
-
-        Returns:
-            None
-
-        Raises:
-            None; exceptions are caught and logged by the hook system.
-
-        Examples:
-            This method is called automatically by the Phlo hook system
-            when quality.result events are emitted.
-
+        """Send an alert for failed quality checks, mapping quality severity
+        levels to alert severities; called automatically by the hook system on
+        quality.result events.
         """
 
         if not isinstance(event, QualityResultEvent):
@@ -154,26 +117,10 @@ class AlertingHookPlugin(HookPlugin):
         get_alert_manager().send(alert)
 
     def _handle_telemetry(self, event: Any) -> None:
-        """Send an alert for error-level telemetry events.
-
-                Event handler for telemetry events. Only processes events of
-        type TelemetryEvent with level "error" or "critical". Maps telemetry
-                levels to alert severities and extracts asset information from tags.
-
-        Args:
-                    event: The telemetry event to process. Expected to be a
-                        TelemetryEvent instance with error or critical level.
-
-        Returns:
-                    None
-
-        Raises:
-                    None; exceptions are caught and logged by the hook system.
-
-        Examples:
-                    This method is called automatically by the Phlo hook system
-                    when telemetry.log or telemetry.metric events are emitted.
-
+        """Send an alert for TelemetryEvent instances with "error" or "critical"
+        level, mapping telemetry levels to alert severities and taking the asset
+        name from tags; called automatically by the hook system on telemetry.log
+        and telemetry.metric events.
         """
 
         if not isinstance(event, TelemetryEvent):
@@ -198,17 +145,8 @@ class AlertingHookPlugin(HookPlugin):
 
 
 def _map_quality_severity(severity: str | None) -> AlertSeverity:
-    """Map quality severity strings to alert severities.
-
-    Converts quality check severity strings into AlertSeverity enum values.
-    Handles various quality severity formats including "WARN", "CRITICAL",
-    and "FATAL".
-
-    Args:
-        severity: Quality severity string or None.
-
-    Returns:
-        AlertSeverity corresponding to the input, or ERROR as default.
+    """Map quality severity strings ("WARN", "CRITICAL", "FATAL") to alert
+    severities, defaulting to ERROR for None or unknown values.
 
     Examples:
         >>> _map_quality_severity("WARN")
@@ -233,17 +171,8 @@ def _map_quality_severity(severity: str | None) -> AlertSeverity:
 
 
 def _map_telemetry_severity(level: str) -> AlertSeverity:
-    """Map telemetry levels to alert severities.
-
-        Converts telemetry event levels into AlertSeverity enum values.
-        Critical telemetry events become CRITICAL alerts, all other
-    error levels become ERROR alerts.
-
-    Args:
-            level: Telemetry level string (e.g., "error", "critical").
-
-    Returns:
-            AlertSeverity corresponding to the telemetry level.
+    """Map telemetry levels to alert severities: critical becomes CRITICAL,
+    everything else ERROR.
 
     Examples:
             >>> _map_telemetry_severity("critical")
@@ -260,17 +189,8 @@ def _map_telemetry_severity(level: str) -> AlertSeverity:
 
 
 def _format_quality_message(event: QualityResultEvent) -> str:
-    """Format a human-readable quality failure message.
-
-        Constructs a formatted message string from quality check failure
-    details, including asset information, check name, partition key, and
-    any available error or failure messages.
-
-    Args:
-            event: QualityResultEvent containing failure details.
-
-    Returns:
-            Formatted multi-line string with quality failure information.
+    """Format a multi-line quality failure message with asset, check, partition
+    key, and any error or failure details.
 
     Examples:
             >>> from phlo.hooks import QualityResultEvent

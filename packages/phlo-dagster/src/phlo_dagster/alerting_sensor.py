@@ -41,15 +41,7 @@ logger = get_logger(__name__)
 def _load_alert_sink() -> AlertSink:
     """Resolve the configured alert sink capability.
 
-    Args:
-        None
-
-    Returns:
-        AlertSink provider instance.
-
-    Raises:
-        RuntimeError: If alert_sink:alerting capability is not available.
-
+    Raise RuntimeError when the alert_sink:alerting capability is unavailable.
     """
     resolution = resolve_capability("alert_sink", "alerting")
     if resolution is None:
@@ -66,20 +58,10 @@ def _load_alert_sink() -> AlertSink:
     minimum_interval_seconds=300,  # Check every 5 minutes
 )
 def failure_alert_sensor(context):
-    """Sensor that triggers alerts when asset materializations fail.
+    """Trigger alerts for asset materialization failures.
 
-    Uses cursor to track the last-seen run creation time cutoff to avoid
-    re-alerting across sensor ticks.
-
-    Args:
-        context: Dagster sensor evaluation context.
-
-    Returns:
-        None
-
-    Raises:
-        Exception: Re-raises any exception during alert processing.
-
+    Tracks the last-seen run creation cutoff in the sensor cursor to avoid
+    re-alerting across ticks. Re-raises any exception during alert processing.
     """
     instance = context.instance
 
@@ -160,15 +142,7 @@ def failure_alert_sensor(context):
 
 
 def _extract_error_message(event) -> str | None:
-    """Extract error message from event.
-
-    Args:
-        event: Dagster event log entry.
-
-    Returns:
-        Error message string or None.
-
-    """
+    """Extract the error message from a Dagster event log entry, or None."""
     if hasattr(event, "step_output_event"):
         return event.step_output_event.get("error")
     return None
@@ -183,20 +157,7 @@ def send_alert(
     run_id: str | None = None,
     error_message: str | None = None,
 ) -> bool:
-    """Send a custom alert.
-
-    Args:
-        title: Alert title.
-        message: Alert message.
-        severity: Alert severity (default: ERROR).
-        asset_name: Optional asset name.
-        run_id: Optional run ID.
-        error_message: Optional detailed error message.
-
-    Returns:
-        True if alert was sent successfully.
-
-    """
+    """Send a custom alert and return True when delivery succeeds."""
     return _load_alert_sink().send_alert(
         title=title,
         message=message,

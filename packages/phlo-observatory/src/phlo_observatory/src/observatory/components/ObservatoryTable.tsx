@@ -1,3 +1,8 @@
+/**
+ * Lightweight role-annotated table for observatory index pages. Rows are
+ * buttons carrying active/status markers; column widths come from the
+ * caller's CSS grid template.
+ */
 import type { CSSProperties, ReactNode } from 'react'
 
 export type ObservatoryTableColumn = {

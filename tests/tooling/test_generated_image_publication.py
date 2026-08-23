@@ -1,4 +1,10 @@
-"""Contracts for generated service image publication and remote CI scanning."""
+"""Contracts for generated service image publication and remote CI scanning.
+
+Every generated build pins a versioned ghcr image; vendor runtime defaults pin
+immutable digests while upstream images such as Prometheus and Trino stay
+unpublished, safe full-image overrides are limited, and publication runs only
+after digest scans produce attestations.
+"""
 
 from __future__ import annotations
 

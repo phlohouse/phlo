@@ -1,4 +1,9 @@
-"""Workflow contracts for the focused container-security lanes."""
+"""Workflow contracts for the focused container-security lanes.
+
+Pins container-security.yml and container-rescan.yml structure: nightly
+schedules, SHA-pinned tooling, affected-image scoping, digest-based nightly
+rescans, and no docker build steps in either lane.
+"""
 
 from pathlib import Path
 

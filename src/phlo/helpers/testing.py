@@ -1,4 +1,9 @@
-"""Testing helpers for lightweight workflow unit tests."""
+"""Testing helpers for lightweight workflow unit tests.
+
+FakeRuntimeContext stands in for the orchestrator runtime so workflow
+functions can be unit tested without Dagster installed; logging defaults to
+a null logger unless one is supplied.
+"""
 
 from __future__ import annotations
 
@@ -38,16 +43,16 @@ class FakeRuntimeContext:
 
 class _NullLogger:
     def debug(self, *args: Any, **kwargs: Any) -> None:
-        pass
+        """Discard the debug record."""
 
     def info(self, *args: Any, **kwargs: Any) -> None:
-        pass
+        """Discard the info record."""
 
     def warning(self, *args: Any, **kwargs: Any) -> None:
-        pass
+        """Discard the warning record."""
 
     def error(self, *args: Any, **kwargs: Any) -> None:
-        pass
+        """Discard the error record."""
 
 
 def assert_materialize_result(result: Any, *, status: str | None = None) -> None:

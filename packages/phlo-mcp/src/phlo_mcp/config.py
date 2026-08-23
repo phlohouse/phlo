@@ -1,4 +1,9 @@
-"""Configuration helpers for phlo-mcp."""
+"""Configuration helpers for phlo-mcp.
+
+Parses MCP server settings from PHLO_MCP_* environment variables into an
+immutable McpConfig. Transport names are validated against a fixed set and
+write tools are disabled unless explicitly enabled via env.
+"""
 
 from __future__ import annotations
 

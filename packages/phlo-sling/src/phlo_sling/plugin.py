@@ -8,6 +8,8 @@ Sling-based data ingestion.
 Classes:
     SlingAssetProvider: Provides Sling replication assets to the Phlo runtime.
     SlingIngestionProvider: Provides Sling-based ingestion capabilities.
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported directly.
+Contributes Sling asset and ingestion providers plus wizard workflows via phlo.capabilities.specs.
 """
 
 from __future__ import annotations
@@ -105,10 +107,6 @@ class SlingAssetProvider(AssetProviderPlugin):
     via decorators to the Phlo orchestration runtime. It manages the lifecycle
     of Sling asset registrations.
 
-    Attributes:
-        metadata (PluginMetadata): Information about this plugin including
-            name, version, and description.
-
     Example:
         The plugin is automatically discovered by the Phlo plugin system::
 
@@ -119,13 +117,7 @@ class SlingAssetProvider(AssetProviderPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for discovery and registration.
-
-        Returns:
-            PluginMetadata containing name, version, and description of
-            this Sling asset provider plugin.
-
-        """
+        """Return plugin metadata for discovery and registration."""
         return PluginMetadata(
             name="sling",
             version="0.1.0",
@@ -137,35 +129,21 @@ class SlingAssetProvider(AssetProviderPlugin):
 
         Retrieves all Sling replication assets that have been registered
         via the @phlo_sling_replication or @phlo_sling_assets decorators.
-
-        Returns:
-            Iterable of AssetSpec objects representing registered
-            Sling replication pipelines.
-
         """
         return get_sling_assets()
 
     def get_checks(self) -> Iterable[AssetCheckSpec]:
         """Return asset checks exposed by this provider.
 
-        Currently, Sling replication assets do not expose any built-in
-        asset checks through this provider.
-
-        Returns:
-            Empty iterable as no checks are defined.
-
+        Currently empty: Sling replication assets do not expose any
+        built-in asset checks through this provider.
         """
         return []
 
     def clear_registries(self) -> None:
         """Clear in-memory Sling replication asset registrations.
 
-        Removes all registered Sling assets from the internal registry.
-        This is typically called during testing or plugin reload scenarios.
-
-        Returns:
-            None
-
+        Typically called during testing or plugin reload scenarios.
         """
         clear_sling_assets()
 
@@ -176,10 +154,6 @@ class SlingIngestionProvider(IngestionProviderPlugin):
     This plugin class exposes Sling replication as an ingestion mechanism
     within the Phlo platform. It provides the decorator and asset retrieval
     functions needed to define and execute Sling-based data replication.
-
-    Attributes:
-        metadata (PluginMetadata): Information about this plugin including
-            name, version, and description.
 
     Example:
         The provider exposes the replication decorator::
@@ -193,13 +167,7 @@ class SlingIngestionProvider(IngestionProviderPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata.
-
-        Returns:
-            PluginMetadata containing name, version, and description of
-            this Sling ingestion provider plugin.
-
-        """
+        """Return plugin metadata."""
         return PluginMetadata(
             name="sling",
             version="0.1.0",
@@ -209,29 +177,14 @@ class SlingIngestionProvider(IngestionProviderPlugin):
     def get_decorator(self) -> Callable:
         """Return the @phlo_sling_replication decorator.
 
-        Returns the decorator function that can be used to register
-        Sling-backed replication assets.
-
-        Returns:
-            Callable decorator function for registering Sling replication
-            definitions.
-
+        The returned decorator registers Sling-backed replication assets.
         """
         from phlo_sling import phlo_sling_replication
 
         return phlo_sling_replication
 
     def get_asset_retriever(self) -> Callable[[], list[Any]]:
-        """Return function to get registered replication assets.
-
-        Returns a callable that, when invoked, returns the list of all
-        registered Sling replication assets.
-
-        Returns:
-            Callable that returns a list of registered Sling asset
-            specifications.
-
-        """
+        """Return callable that lists registered replication assets."""
         return get_sling_assets
 
     def get_workflow_wizard_contributions(self) -> list[WorkflowWizardContribution]:
@@ -253,6 +206,12 @@ class SlingWorkflowAuthoringProvider:
     """Create Sling-backed replication workflow files."""
 
     def create_workflow(self, *, project_root: Path, request: dict[str, Any]) -> dict[str, Any]:
+        """Write the Sling ingestion asset module and replication config for
+        a new workflow, returning created files and next steps.
+
+        Raises: ValueError when required values are missing or the requested
+        contribution is not Sling's; FileExistsError when target files exist.
+        """
         values = dict(request.get("values") or {})
         contribution_id = request.get("contribution_id")
         if contribution_id not in {None, "", "sling.replication-source"}:

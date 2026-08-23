@@ -1,4 +1,9 @@
-"""Add command for rendering optional services into the project stack."""
+"""Add command for rendering optional services into the project stack.
+
+Persists the enabled/disabled service state to phlo.yaml, re-renders the
+compose stack, and starts newly-added services unless --no-start is given.
+The mutation requires authorization before any state changes.
+"""
 
 from __future__ import annotations
 
@@ -174,6 +179,9 @@ def add_cmd(
 
     normalized_profiles = validate_requested_profiles(profiles)
     explicit_services = parse_service_args(services)
+    # A bare positional name that matches a profile but no service is treated
+    # as a profile request, so `add observability` behaves like `--profile
+    # observability`.
     if service_name:
         available_profiles = discovery.get_available_profiles()
         if service_name in available_profiles and service_name not in all_services:

@@ -1,3 +1,8 @@
+/**
+ * /branches route. Branch list and detail panels with branch actions routed
+ * through a reducer; completed actions invalidate cached resources so new
+ * refs show up immediately.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   AlertTriangle,

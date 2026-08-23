@@ -2,6 +2,7 @@
 
 Provides conservative (lowest-common-denominator) classification rules that
 storage providers can override via ``SchemaMigrator.classify_change``.
+Imported by the phlo CLI schema-registry command and phlo.schema_migration planning.
 """
 
 from __future__ import annotations
@@ -23,14 +24,9 @@ CLASSIFICATION_ORDER = ("safe", "warning", "breaking")
 
 
 def default_classify_change(change_type: str, **details: Any) -> str:
-    """Classify a schema change using conservative defaults.
-
-    Args:
-        change_type: One of the recognised change type strings.
-        **details: Extra context (e.g. ``nullable``, ``has_default``).
-
-    Returns:
-        Classification string: ``"safe"``, ``"warning"``, or ``"breaking"``.
+    """Classify a schema change using conservative defaults, returning ``"safe"``,
+    ``"warning"``, or ``"breaking"`` based on change_type and extra context
+    such as nullability or default presence.
     """
     if change_type == "add":
         nullable = details.get("nullable", True)
@@ -45,14 +41,7 @@ def default_classify_change(change_type: str, **details: Any) -> str:
 
 
 def worst_classification(classifications: list[str]) -> str:
-    """Return the most severe classification from a list.
-
-    Args:
-        classifications: List of classification strings.
-
-    Returns:
-        The worst (most severe) classification present.
-    """
+    """Return the most severe classification present in the list."""
     if not classifications:
         return "safe"
     worst_idx = max(CLASSIFICATION_ORDER.index(c) for c in classifications)

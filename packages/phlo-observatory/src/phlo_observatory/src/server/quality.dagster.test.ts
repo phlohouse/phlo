@@ -1,3 +1,7 @@
+/**
+ * Tests the Dagster-backed quality snapshot: counts, failing checks, and
+ * recent executions computed from GraphQL responses.
+ */
 import { describe, expect, it, vi } from 'vitest'
 
 describe('fetchQualitySnapshot', () => {

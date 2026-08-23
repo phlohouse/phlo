@@ -1,4 +1,12 @@
-"""Cryptographically verified OIDC identity for the Dagster boundary."""
+"""Cryptographically verified OIDC identity for the Dagster boundary.
+
+OIDCIdentityValidator checks RS256 tokens against an explicitly
+configured issuer/audience/JWKS triple. All settings come from
+environment variables with hard upper bounds; JWKS responses are size-
+and key-count-limited and cached under a lock with rate-limited
+refresh. Insecure HTTP is accepted only for loopback hosts and only
+when explicitly enabled; validation failures return None, never raise.
+"""
 
 from __future__ import annotations
 
@@ -83,6 +91,7 @@ class OIDCIdentityValidator:
 
     @property
     def configured(self) -> bool:
+        """Return whether issuer, audience, and JWKS URL settings are present and valid."""
         if not (self.issuer and self.audience and self.jwks_url):
             return False
         issuer = urlparse(self.issuer)
@@ -169,6 +178,8 @@ class OIDCIdentityValidator:
         now = time.monotonic()
         if kid in self._keys and now - self._keys_fetched_at < self.cache_ttl:
             return self._keys[kid]
+        # Cache unknown kids briefly so a flood of forged tokens cannot force
+        # one JWKS fetch per request.
         if kid in self._negative_kids and now < self._negative_kids[kid]:
             return None
         refreshed = self._refresh_keys(force=kid not in self._keys)
@@ -184,6 +195,9 @@ class OIDCIdentityValidator:
             now = time.monotonic()
             if not force and now - self._keys_fetched_at < self.cache_ttl and self._keys:
                 return True
+            # Rate-limit refresh attempts and back off after failures so an
+            # unreachable identity provider does not turn every token
+            # validation into a network call.
             if now < self._refresh_backoff_until:
                 return False
             if (

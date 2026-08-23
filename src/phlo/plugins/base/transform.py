@@ -50,14 +50,6 @@ class TransformationPlugin(Plugin, ABC):
     @abstractmethod
     def transform(self, df: Any, config: dict[str, Any]) -> Any:
         """Transform a DataFrame.
-
-        Args:
-            df: Input DataFrame
-            config: Configuration for the transformation
-
-        Returns:
-            Transformed DataFrame
-
         Example:
             ```python
             def transform(self, df: pd.DataFrame, config: dict) -> pd.DataFrame:
@@ -68,36 +60,18 @@ class TransformationPlugin(Plugin, ABC):
                 df[column] = df[column] * multiplier
                 return df
             ```
-
         """
 
     def get_output_schema(
         self, input_schema: dict[str, str], config: dict[str, Any]
     ) -> dict[str, str] | None:
         """Get the schema of transformed data.
-
         This method is optional but recommended for type inference.
-
-        Args:
-            input_schema: Schema of input DataFrame
-            config: Configuration for the transformation
-
-        Returns:
-            Schema of output DataFrame or None if unknown
-
         """
         return None
 
     def validate_config(self, config: dict[str, Any]) -> bool:
         """Validate transformation configuration.
-
         This method is optional but recommended for catching errors early.
-
-        Args:
-            config: Configuration to validate
-
-        Returns:
-            True if configuration is valid, False otherwise
-
         """
         return True

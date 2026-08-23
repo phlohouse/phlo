@@ -1,4 +1,10 @@
-"""Generic state-transition validation helpers."""
+"""Generic state-transition validation helpers.
+
+Transitions are validated against declarative StateTransitionRule tables;
+terminal states only ever allow self-transitions. Validation works on
+plain mappings ordered by a caller-supplied field, so it needs no model
+coupling.
+"""
 
 from __future__ import annotations
 

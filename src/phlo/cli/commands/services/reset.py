@@ -1,4 +1,9 @@
-"""Reset command for resetting services and volumes."""
+"""Reset data volumes via the `phlo services reset` command.
+
+Stops compose services and deletes their data volumes after confirmation.
+Selective resets resolve and validate each service volume path against the
+project's volumes directory before anything is removed.
+"""
 
 import shutil
 from pathlib import Path
@@ -162,7 +167,9 @@ def reset_cmd(service: tuple[str, ...], yes: bool, backend_name: str | None):
             service_count=len(services_list),
         )
 
-    # Delete local volume directories
+    # Deletion is confined to .phlo/volumes: symlinks are never followed and
+    # each resolved path must stay inside the volumes root, so a hostile
+    # service name or mounted link cannot steer rmtree at other files.
     deleted_count = 0
     for vol_dir in volume_dirs:
         if not vol_dir.exists():

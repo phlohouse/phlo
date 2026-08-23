@@ -1,4 +1,9 @@
-"""Plugin search command."""
+"""Plugin search command.
+
+Merges installed plugins with remote registry results under type, tag, and
+free-text query filters; installed entries take precedence over same-named
+registry hits. Renders as a rich table or machine-readable JSON.
+"""
 
 from __future__ import annotations
 

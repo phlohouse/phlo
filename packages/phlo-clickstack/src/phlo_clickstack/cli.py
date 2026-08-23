@@ -35,23 +35,10 @@ logger = get_logger(__name__)
 def _read_query(*, query: str | None, file: Path | None) -> str:
     """Read and validate SQL query from inline argument or file.
 
-    Accepts either an inline SQL query string or a path to a SQL file.
-    Validates that exactly one input source is provided and that the
-    content is non-empty.
-
-    Args:
-        query: Inline SQL query string, or None if reading from file.
-        file: Path to SQL file, or None if using inline query.
-
-    Returns:
-        str: The SQL query text to execute.
-
-    Raises:
-        click.ClickException: If both query and file are provided.
-        click.ClickException: If file cannot be read.
-        click.ClickException: If file is empty or contains only whitespace.
-        click.ClickException: If neither query nor file is provided.
-
+    Accepts either an inline SQL query string or a path to a SQL file;
+    exactly one non-empty source must be provided. Raises ClickException
+    when both are given, the file is unreadable/empty, or neither is
+    provided.
     """
     if query and file:
         raise exclusive_options_error("an inline query", "--file")
@@ -71,15 +58,8 @@ def _read_query(*, query: str | None, file: Path | None) -> str:
 def _ensure_phlo_dir() -> Path:
     """Locate and return the local .phlo directory.
 
-    Searches for a .phlo directory in the current working directory.
-    This directory is required for Docker Compose project configuration.
-
-    Returns:
-        Path: Path to the .phlo directory.
-
-    Raises:
-        click.ClickException: If .phlo directory does not exist.
-
+    Required for Docker Compose project configuration; raises
+    ClickException when the directory does not exist.
     """
     return ensure_compose_project()
 
@@ -113,22 +93,9 @@ def clickstack_query(
 
     Runs a SQL query via clickhouse-client inside the ClickStack container.
     Accepts SQL either as a command argument or from a file. Requires Docker
-    and a running phlo services stack with ClickStack enabled.
-
-    Args:
-        query: SQL query string to execute.
-        query_file: Path to file containing SQL query.
-        output_format: ClickHouse output format (default: TabSeparatedRaw).
-        timeout_seconds: Query execution timeout in seconds.
-
-    Raises:
-        click.ClickException: If Docker is unavailable.
-        click.ClickException: If .phlo directory is missing.
-        click.ClickException: If both query and file options provided.
-        click.ClickException: If query file cannot be read.
-        click.ClickException: If query execution fails.
-        click.ClickException: If query times out.
-
+    and a running phlo services stack with ClickStack enabled; raises
+    ClickException when Docker is unavailable, the .phlo directory is
+    missing, inputs are invalid, execution fails, or the query times out.
     """
     sql = _read_query(query=query, file=query_file)
     if is_mutating_sql(sql):

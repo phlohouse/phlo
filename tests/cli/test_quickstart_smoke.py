@@ -1,3 +1,10 @@
+"""Regression smoke tests for the quickstart path using a fake service discovery.
+
+Drives the documented bootstrap flow end to end with fake discovery and a
+stubbed composer, asserting it reaches service start with the expected
+rendered services.
+"""
+
 from __future__ import annotations
 
 import os

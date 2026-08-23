@@ -1,3 +1,6 @@
+/**
+ * Form label element with the shared field styling.
+ */
 'use client'
 
 import * as React from 'react'

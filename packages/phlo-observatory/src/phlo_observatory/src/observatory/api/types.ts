@@ -1,3 +1,11 @@
+/**
+ * Shared wire contracts between the Observatory UI and phlo-api.
+ *
+ * Types that pass through from backend JSON keep snake_case field names;
+ * shapes built or normalized client-side use camelCase. These are transport
+ * contracts, not internal models: renaming a field here silently breaks the
+ * matching Python serializer.
+ */
 export type ObservatoryHealthState = 'ok' | 'warning' | 'error' | 'unknown'
 
 export type ObservatoryMetadata = Record<string, NonNullable<unknown>>

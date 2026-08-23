@@ -1,4 +1,10 @@
-"""Tests for authorization policy backend capability."""
+"""Tests for authorization policy backend capability.
+
+Registry resolution fails closed on missing or ambiguous providers; the
+default backend loads project policies (refusing regulated startup when they
+are absent) and evaluates allow/deny with deny-wins precedence, wildcard
+actions, resource filtering, and explain parity with is_allowed.
+"""
 
 from __future__ import annotations
 

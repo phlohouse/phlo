@@ -43,9 +43,6 @@ class OpenMetadataHookPlugin(HookPlugin):
     The plugin initializes the OpenMetadata client lazily and only syncs
     when openmetadata_sync_enabled is True in settings.
 
-    Attributes:
-        _client: Cached OpenMetadataClient instance (initialized lazily).
-
     Example:
         >>> plugin = OpenMetadataHookPlugin()
         >>> hooks = plugin.get_hooks()
@@ -64,12 +61,7 @@ class OpenMetadataHookPlugin(HookPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Metadata for the OpenMetadata hook plugin.
-
-        Returns:
-            PluginMetadata: PluginMetadata with name, version, and description.
-
-        """
+        """Plugin name, version, and description."""
         return PluginMetadata(
             name="openmetadata",
             version="0.1.0",
@@ -77,13 +69,7 @@ class OpenMetadataHookPlugin(HookPlugin):
         )
 
     def get_hooks(self) -> list[HookRegistration]:
-        """Register lineage, quality, and publish hook handlers.
-
-        Returns:
-            list[HookRegistration]: List of HookRegistration objects for each
-                supported event type.
-
-        """
+        """Register lineage, quality, and publish hook handlers."""
         return [
             HookRegistration(
                 hook_name="openmetadata_lineage",
@@ -103,28 +89,13 @@ class OpenMetadataHookPlugin(HookPlugin):
         ]
 
     def cleanup(self) -> None:
-        """Close the OpenMetadata client if initialized.
-
-        Should be called during plugin shutdown to release resources.
-
-        Returns:
-            None
-
-        """
+        """Close the OpenMetadata client if initialized; call during plugin shutdown."""
         if self._client:
             self._client.close()
             self._client = None
 
     def _handle_lineage(self, event: Any) -> None:
-        """Sync lineage edges into OpenMetadata.
-
-        Args:
-            event: LineageEvent containing edges to sync.
-
-        Returns:
-            None
-
-        """
+        """Sync lineage edges from a LineageEvent into OpenMetadata."""
         if not isinstance(event, LineageEvent):
             return
         logger.info("openmetadata_lineage_sync_started", edge_count=len(event.edges))
@@ -163,15 +134,8 @@ class OpenMetadataHookPlugin(HookPlugin):
     def _handle_quality_result(self, event: Any) -> None:
         """Sync quality results into OpenMetadata test metadata.
 
-        Creates or updates test definitions, test cases, and publishes
-        test results for quality checks.
-
-        Args:
-            event: QualityResultEvent with check results.
-
-        Returns:
-            None
-
+        Creates or updates test definitions and test cases, then publishes
+        the check result.
         """
         if not isinstance(event, QualityResultEvent):
             return
@@ -282,15 +246,7 @@ class OpenMetadataHookPlugin(HookPlugin):
         )
 
     def _handle_publish(self, event: Any) -> None:
-        """Sync published tables into OpenMetadata.
-
-        Args:
-            event: PublishEvent with published table information.
-
-        Returns:
-            None
-
-        """
+        """Sync published tables into OpenMetadata; non-success events are skipped."""
         if not isinstance(event, PublishEvent):
             return
         if event.status != "success":
@@ -319,11 +275,6 @@ class OpenMetadataHookPlugin(HookPlugin):
 
         Lazily initializes the client on first call. Returns None if
         sync is disabled in settings.
-
-        Returns:
-            OpenMetadataClient | None: Client if enabled and configured,
-                otherwise None.
-
         """
         settings = get_openmetadata_settings()
         if not settings.openmetadata_sync_enabled:
@@ -346,15 +297,7 @@ class OpenMetadataHookPlugin(HookPlugin):
 
 
 def _resolve_table_fqn(event: QualityResultEvent) -> str | None:
-    """Resolve the table FQN from quality event metadata.
-
-    Args:
-        event: QualityResultEvent to extract table information from.
-
-    Returns:
-        str | None: Fully qualified table name or None if not found.
-
-    """
+    """Return the table FQN from event metadata, falling back to the asset key."""
     for key in ("table_fqn", "table_name", "table"):
         value = event.metadata.get(key)
         if isinstance(value, str) and value:
@@ -365,15 +308,7 @@ def _resolve_table_fqn(event: QualityResultEvent) -> str | None:
 
 
 def _resolve_test_type(event: QualityResultEvent) -> str:
-    """Map quality check types to OpenMetadata test types.
-
-    Args:
-        event: QualityResultEvent with check type information.
-
-    Returns:
-        str: OpenMetadata test type string.
-
-    """
+    """Map a quality check type to its OpenMetadata test type."""
     check_type = event.check_type or ""
     if check_type.lower() == "pandera":
         return "schemaCheck"
@@ -381,15 +316,7 @@ def _resolve_test_type(event: QualityResultEvent) -> str:
 
 
 def _resolve_entity_type(event: QualityResultEvent) -> str:
-    """Infer entity type for OpenMetadata tests.
-
-    Args:
-        event: QualityResultEvent to determine entity scope from.
-
-    Returns:
-        str: 'COLUMN' for column-level checks, otherwise 'TABLE'.
-
-    """
+    """Return 'COLUMN' for column-level check types, otherwise 'TABLE'."""
     check_type = (event.check_type or "").lower()
     if check_type in {"nullcheck", "rangecheck", "uniquecheck", "freshnesscheck"}:
         return "COLUMN"
@@ -397,16 +324,7 @@ def _resolve_entity_type(event: QualityResultEvent) -> str:
 
 
 def _split_table_fqn(table_fqn: str, default_schema: str) -> tuple[str, str]:
-    """Split a table FQN into schema and table name components.
-
-    Args:
-        table_fqn: Fully qualified table name (e.g., 'schema.table' or 'table').
-        default_schema: Schema to use if FQN has no dot separator.
-
-    Returns:
-        tuple[str, str]: Tuple of (schema_name, table_name).
-
-    """
+    """Split 'schema.table' into schema and table, using default_schema when unqualified."""
     if "." not in table_fqn:
         return default_schema, table_fqn
     schema_name, table_name = table_fqn.split(".", 1)

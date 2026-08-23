@@ -14,6 +14,8 @@ Functions:
     init_branches: Ensure Nessie main/dev branches exist and are bootstrapped.
     main: CLI entrypoint for hooks execution.
 
+Invoked as a standalone hooks CLI by the Nessie Docker entrypoint rather than
+imported by other modules; builds on phlo.config.env and phlo.logging.
 """
 
 from __future__ import annotations
@@ -33,21 +35,10 @@ _DEFAULT_WAREHOUSE = "s3://lake/warehouse"
 
 
 def _get_json(url: str) -> dict[str, Any]:
-    """Perform a JSON GET request.
+    """GET a URL and parse the JSON body.
 
-    Executes an HTTP GET request with JSON Accept header and parses
-    the response body as JSON.
-
-    Args:
-        url: URL to request.
-
-    Returns:
-        dict[str, Any]: Parsed JSON response payload.
-
-    Raises:
-        HTTPError: On non-2xx HTTP responses.
-        URLError: On connection errors.
-        json.JSONDecodeError: On invalid JSON response.
+    Raises HTTPError on non-2xx responses, URLError on connection errors, and
+    json.JSONDecodeError on invalid JSON.
 
     Example:
         >>> data = _get_json("http://localhost:19120/api/v1/trees")
@@ -71,21 +62,10 @@ def _get_json(url: str) -> dict[str, Any]:
 
 
 def _post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Perform a JSON POST request.
+    """POST a JSON payload and parse the response; an empty body yields an empty dict.
 
-    Sends a JSON payload via HTTP POST and parses the response.
-
-    Args:
-        url: URL to request.
-        payload: JSON payload to send.
-
-    Returns:
-        dict[str, Any]: Parsed JSON response payload, or empty dict for empty bodies.
-
-    Raises:
-        HTTPError: On non-2xx HTTP responses.
-        URLError: On connection errors.
-        json.JSONDecodeError: On invalid JSON response.
+    Raises HTTPError on non-2xx responses, URLError on connection errors, and
+    json.JSONDecodeError on invalid JSON.
 
     Example:
         >>> result = _post_json(
@@ -121,17 +101,9 @@ def _post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _delete(url: str) -> int:
-    """Perform a DELETE request and return the HTTP status code.
+    """DELETE a URL and return the HTTP status code.
 
-    Args:
-        url: URL to delete.
-
-    Returns:
-        int: HTTP status code from the response.
-
-    Raises:
-        HTTPError: On non-2xx HTTP responses.
-        URLError: On connection errors.
+    Raises HTTPError on non-2xx responses and URLError on connection errors.
 
     Example:
         >>> status = _delete("http://localhost:19120/api/v1/trees/branch/old")
@@ -155,13 +127,7 @@ def _delete(url: str) -> int:
 
 
 def _resolve_nessie_url() -> str:
-    """Resolve the Nessie base URL from environment variables.
-
-    Checks NESSIE_URL first, then falls back to localhost with
-    NESSIE_PORT (defaulting to 19120).
-
-    Returns:
-        str: Nessie base URL without trailing slash.
+    """Resolve the Nessie base URL from NESSIE_URL, or localhost via NESSIE_PORT (default 19120).
 
     Example:
         >>> url = _resolve_nessie_url()
@@ -176,16 +142,7 @@ def _resolve_nessie_url() -> str:
 
 
 def _get_ref_log(base_url: str, ref: str) -> list[dict[str, Any]]:
-    """Return the Nessie commit log entries for a ref.
-
-    Retrieves the most recent commit log entry for a given reference.
-
-    Args:
-        base_url: Nessie base URL.
-        ref: Reference name (branch or tag).
-
-    Returns:
-        list[dict[str, Any]]: List of log entry dictionaries.
+    """Return the most recent Nessie commit log entry for a ref.
 
     Example:
         >>> log = _get_ref_log("http://localhost:19120", "main")
@@ -198,20 +155,7 @@ def _get_ref_log(base_url: str, ref: str) -> list[dict[str, Any]]:
 
 
 def _get_iceberg_prefix(base_url: str, ref: str) -> str:
-    """Resolve the Iceberg REST prefix for a Nessie ref.
-
-    Fetches Iceberg catalog configuration and extracts the REST API prefix
-    for the given reference.
-
-    Args:
-        base_url: Nessie base URL.
-        ref: Reference name (branch or tag).
-
-    Returns:
-        str: Iceberg REST prefix string.
-
-    Raises:
-        RuntimeError: If prefix is missing from configuration.
+    """Extract the Iceberg REST prefix for a ref from catalog config; RuntimeError when missing.
 
     Example:
         >>> prefix = _get_iceberg_prefix("http://localhost:19120", "main")
@@ -227,18 +171,7 @@ def _get_iceberg_prefix(base_url: str, ref: str) -> str:
 
 
 def _delete_namespace_if_present(base_url: str, prefix: str, namespace: str) -> None:
-    """Delete a bootstrap namespace when it already exists.
-
-    Silently handles 404 errors (namespace not found) while raising
-    other HTTP errors.
-
-    Args:
-        base_url: Nessie base URL.
-        prefix: Iceberg REST prefix for the reference.
-        namespace: Namespace name to delete.
-
-    Raises:
-        HTTPError: On non-404 HTTP errors.
+    """Delete a bootstrap namespace, silently tolerating 404 but re-raising other HTTP errors.
 
     Example:
         >>> _delete_namespace_if_present(
@@ -255,15 +188,7 @@ def _delete_namespace_if_present(base_url: str, prefix: str, namespace: str) -> 
 
 
 def _ensure_bootstrap_commit(base_url: str, ref: str) -> None:
-    """Materialize a baseline catalog commit for refs with empty history.
-
-    Creates a temporary namespace to force a commit on references that have
-    no existing commits. This ensures the reference exists in the catalog
-    and can be used for subsequent operations.
-
-    Args:
-        base_url: Nessie base URL.
-        ref: Reference name to bootstrap.
+    """Force a baseline commit on refs with empty history via a temporary namespace.
 
     Example:
         >>> _ensure_bootstrap_commit("http://localhost:19120", "main")
@@ -299,17 +224,11 @@ def _ensure_bootstrap_commit(base_url: str, ref: str) -> None:
 
 
 def init_branches() -> int:
-    """Ensure Nessie main/dev branches exist.
+    """Ensure Nessie main/dev branches exist with bootstrap commits.
 
-    Waits for Nessie service to be ready, then ensures both 'main' and 'dev'
-    branches exist with bootstrap commits. Creates 'dev' from 'main' if
-    it doesn't exist.
-
-    This function is designed to be called from Docker entrypoints and
-    service initialization scripts.
-
-    Returns:
-        int: Exit code (0 for success, non-zero for errors).
+    Waits for Nessie to become ready, creating 'dev' from 'main' when
+    missing. Deliberately best-effort for service entrypoints: failures log
+    a warning and still return 0 so startup never blocks on a slow Nessie.
 
     Example:
         >>> exit_code = init_branches()
@@ -317,6 +236,9 @@ def init_branches() -> int:
         0
 
     """
+    # Initialization is deliberately best-effort: every failure path below logs
+    # a warning and returns 0 so a slow or half-ready Nessie never fails the
+    # surrounding service startup.
     base_url = _resolve_nessie_url()
     trees_url = f"{base_url}/api/v1/trees"
     logger.info(
@@ -440,19 +362,10 @@ def init_branches() -> int:
 
 
 def main() -> int:
-    """Run the Nessie hooks CLI entrypoint.
-
-    Parses command line arguments and dispatches to appropriate
-    hook functions.
-
-    Returns:
-        int: Process exit code.
+    """Run the Nessie hooks CLI entrypoint; currently supports only init-branches.
 
     Example:
         $ python -m phlo_nessie.hooks init-branches
-
-    Commands:
-        init-branches: Initialize main and dev branches.
 
     """
     parser = argparse.ArgumentParser(description="Phlo Nessie hooks")

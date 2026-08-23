@@ -23,19 +23,7 @@ from phlo.plugins.base import CatalogPlugin, PluginMetadata
 
 
 def _nessie_iceberg_rest_uri() -> str:
-    """Build the Nessie Iceberg REST URI from environment settings.
-
-    Constructs the URI using NESSIE_HOST and NESSIE_PORT environment variables,
-    with sensible defaults if not set.
-
-    Returns:
-        str: Full Nessie Iceberg REST catalog URI.
-
-    Example:
-        >>> uri = _nessie_iceberg_rest_uri()
-        'http://nessie:19120/iceberg'
-
-    """
+    """Build the Nessie Iceberg REST URI from NESSIE_HOST and NESSIE_PORT."""
     host = os.environ.get("NESSIE_HOST", "nessie")
     port = os.environ.get("NESSIE_PORT", "19120")
     return f"http://{host}:{port}/iceberg"
@@ -44,14 +32,8 @@ def _nessie_iceberg_rest_uri() -> str:
 def _base_iceberg_catalog_properties(*, prefix: str | None = None) -> dict[str, str]:
     """Build shared Trino Iceberg catalog properties for a Nessie backend.
 
-    Configures Trino connector properties for Iceberg REST catalog backed by
-    Nessie. Includes S3/MinIO configuration for warehouse storage.
-
-    Args:
-        prefix: Optional catalog prefix for namespacing (e.g., 'dev' for dev branch).
-
-    Returns:
-        dict[str, str]: Trino catalog configuration properties.
+    Configures the Iceberg REST connector plus S3/MinIO warehouse storage;
+    an optional prefix namespaces the catalog (for example "dev").
 
     Example:
         >>> props = _base_iceberg_catalog_properties()
@@ -78,16 +60,7 @@ def _base_iceberg_catalog_properties(*, prefix: str | None = None) -> dict[str, 
 
 
 class TrinoNessieIcebergCatalogPlugin(CatalogPlugin):
-    """Main Trino catalog backed by Nessie Iceberg REST.
-
-    This plugin provides the primary production catalog for Trino queries
-    against Iceberg tables stored in Nessie. Uses the default Nessie reference
-    (usually 'main').
-
-    Attributes:
-        metadata: Plugin identity and description.
-        targets: List of target systems (['trino']).
-        catalog_name: Trino catalog name ('iceberg').
+    """Main Trino catalog backed by Nessie Iceberg REST on the default reference.
 
     Example:
         >>> plugin = TrinoNessieIcebergCatalogPlugin()
@@ -98,12 +71,7 @@ class TrinoNessieIcebergCatalogPlugin(CatalogPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for catalog registration.
-
-        Returns:
-            PluginMetadata: Name, version, description, and tags.
-
-        """
+        """Return plugin metadata for catalog registration."""
         return PluginMetadata(
             name="iceberg",
             version="0.1.0",
@@ -113,45 +81,21 @@ class TrinoNessieIcebergCatalogPlugin(CatalogPlugin):
 
     @property
     def targets(self) -> list[str]:
-        """Return target systems for this plugin.
-
-        Returns:
-            list[str]: ['trino'] indicating Trino compatibility.
-
-        """
+        """Return the target systems for this plugin."""
         return ["trino"]
 
     @property
     def catalog_name(self) -> str:
-        """Return the Trino catalog name.
-
-        Returns:
-            str: 'iceberg' - the catalog name in Trino.
-
-        """
+        """Return the Trino catalog name."""
         return "iceberg"
 
     def get_properties(self) -> dict[str, str]:
-        """Return Trino catalog configuration properties.
-
-        Returns:
-            dict[str, str]: Properties for Trino Iceberg connector.
-
-        """
+        """Return Trino Iceberg connector configuration properties."""
         return _base_iceberg_catalog_properties()
 
 
 class TrinoNessieIcebergDevCatalogPlugin(CatalogPlugin):
-    """Dev Trino catalog backed by the Nessie dev ref.
-
-    This plugin provides a separate catalog for Trino queries against the
-    'dev' branch in Nessie. Useful for development and testing without
-    affecting production data.
-
-    Attributes:
-        metadata: Plugin identity and description.
-        targets: List of target systems (['trino']).
-        catalog_name: Trino catalog name ('iceberg_dev').
+    """Dev Trino catalog backed by the Nessie dev ref, isolated from production data.
 
     Example:
         >>> plugin = TrinoNessieIcebergDevCatalogPlugin()
@@ -163,12 +107,7 @@ class TrinoNessieIcebergDevCatalogPlugin(CatalogPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for catalog registration.
-
-        Returns:
-            PluginMetadata: Name, version, description, and tags.
-
-        """
+        """Return plugin metadata for catalog registration."""
         return PluginMetadata(
             name="iceberg_dev",
             version="0.1.0",
@@ -178,30 +117,14 @@ class TrinoNessieIcebergDevCatalogPlugin(CatalogPlugin):
 
     @property
     def targets(self) -> list[str]:
-        """Return target systems for this plugin.
-
-        Returns:
-            list[str]: ['trino'] indicating Trino compatibility.
-
-        """
+        """Return the target systems for this plugin."""
         return ["trino"]
 
     @property
     def catalog_name(self) -> str:
-        """Return the Trino catalog name.
-
-        Returns:
-            str: 'iceberg_dev' - the catalog name in Trino.
-
-        """
+        """Return the Trino catalog name."""
         return "iceberg_dev"
 
     def get_properties(self) -> dict[str, str]:
-        """Return Trino catalog configuration properties with dev prefix.
-
-        Returns:
-            dict[str, str]: Properties for Trino Iceberg connector,
-                including 'iceberg.rest-catalog.prefix' set to 'dev'.
-
-        """
+        """Return Trino Iceberg connector properties with the dev prefix."""
         return _base_iceberg_catalog_properties(prefix="dev")

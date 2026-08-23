@@ -1,3 +1,6 @@
+/**
+ * Status pill with a dot colored via the data-state attribute.
+ */
 import type {
   ObservatoryHealthState,
   ObservatoryServiceStatus,

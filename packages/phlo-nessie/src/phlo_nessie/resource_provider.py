@@ -13,6 +13,9 @@ Example:
 Classes:
     NessieResourceProvider: Expose Nessie as capability provider.
 
+
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported
+directly; exposes Nessie as a capability resource provider.
 """
 
 from __future__ import annotations
@@ -32,29 +35,19 @@ NESSIE_COMPATIBILITY_METADATA = {
 
 class NessieResourceProvider(ResourceProviderPlugin):
     """Expose Nessie as a capability-native catalog/versioning provider.
-
     This plugin registers Nessie with the Phlo capability system, exposing
     it as a catalog, catalog scanner, and versioning resource for other
     components to discover and use.
-
-    Attributes:
-        metadata: Plugin identity and description.
 
     Example:
         >>> provider = NessieResourceProvider()
         >>> catalogs = provider.get_catalogs()
         >>> scanners = provider.get_catalog_scanners()
-
     """
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for the Nessie resource provider.
-
-        Returns:
-            PluginMetadata: Plugin identity, version, and description.
-
-        """
+        """Return plugin metadata for the Nessie resource provider."""
         return PluginMetadata(
             name="nessie",
             version="0.1.0",
@@ -62,22 +55,11 @@ class NessieResourceProvider(ResourceProviderPlugin):
         )
 
     def get_resources(self) -> list[ResourceSpec]:
-        """Expose the raw Nessie client as a runtime resource.
-
-        Returns:
-            list[ResourceSpec]: Nessie catalog versioning resource.
-
-        """
+        """Expose the raw Nessie client as a runtime resource."""
         return [ResourceSpec(name="catalog_versioning", resource=NessieResource())]
 
     def get_catalogs(self) -> list[CatalogSpec]:
-        """Expose Nessie as a catalog capability.
-
-        Returns:
-            list[CatalogSpec]: Nessie catalog specification with
-                capability support flags (refs, snapshots, promote).
-
-        """
+        """Expose Nessie as a catalog capability."""
         support = CapabilitySupport(
             supports_refs=True,
             supports_snapshots=False,
@@ -93,12 +75,7 @@ class NessieResourceProvider(ResourceProviderPlugin):
         ]
 
     def get_catalog_scanners(self) -> list[CatalogScannerSpec]:
-        """Expose Nessie table scanning as a capability.
-
-        Returns:
-            list[CatalogScannerSpec]: Nessie table scanner specification.
-
-        """
+        """Expose Nessie table scanning as a capability."""
         return [
             CatalogScannerSpec(
                 name="nessie",

@@ -216,16 +216,8 @@ _LAZY_MODULE_EXPORTS = {
 
 
 def __getattr__(name):
-    """Lazily expose discovery symbols to avoid import cycles.
-
-    Args:
-        name: Attribute name requested from this module.
-
-    Returns:
-        Resolved symbol from `phlo.plugins.discovery`.
-
-    Raises:
-        AttributeError: If the attribute is not a supported lazy export.
+    """Lazily expose discovery symbols to avoid import cycles; raises
+    AttributeError for names that are not supported lazy exports.
     """
     if name == "discovery":
         return importlib.import_module("phlo.plugins.discovery")

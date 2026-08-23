@@ -1,4 +1,9 @@
-"""Runtime tests for service identity and correlation propagation."""
+"""Runtime tests for service identity and correlation propagation.
+
+Verifies that the request correlation id lands in request state, that
+downstream service headers carry the caller's principal and correlation id,
+and that Trino headers carry user, role, catalog/schema, and correlation id.
+"""
 
 from __future__ import annotations
 

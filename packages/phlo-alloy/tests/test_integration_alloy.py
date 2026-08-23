@@ -1,4 +1,8 @@
-"""Integration tests for phlo-alloy."""
+"""Integration tests for phlo-alloy plugin registration.
+
+Pins the plugin metadata name and verifies the service definition loads as
+a mapping, so registry wiring cannot silently break.
+"""
 
 import pytest
 

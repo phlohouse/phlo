@@ -1,3 +1,6 @@
+/**
+ * Separator primitive wrapping the Base UI separator with shared styling.
+ */
 import { Separator as SeparatorPrimitive } from '@base-ui/react/separator'
 
 import { cn } from '@/lib/utils'

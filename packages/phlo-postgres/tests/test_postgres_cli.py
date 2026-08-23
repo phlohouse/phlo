@@ -1,4 +1,9 @@
-"""Tests for PostgreSQL CLI commands."""
+"""Tests for PostgreSQL CLI commands.
+
+Commands shell out through the compose project, so every test stubs the
+container-backend availability check and fakes subprocess results instead of
+talking to a real backend.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""Shared test helpers to avoid duplication across test files."""
+"""Shared test helpers to avoid duplication across test files.
+
+Centralizes plugin metadata and service-plugin construction used by multiple
+suites.
+"""
 
 from __future__ import annotations
 

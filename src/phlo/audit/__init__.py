@@ -6,10 +6,12 @@ contract for authorization decisions, authentication events, and privileged
 mutations.
 
 Exports:
+    AUDIT_SCHEMA_VERSION: Version of the canonical audit event schema.
     CanonicalAuditEvent: The canonical audit event dataclass.
     AuditEventType: Types of audit events.
     AuditDecision: Decision outcomes.
     AuditOutcome: Execution outcomes.
+    AuditPersistenceError: Raised when durable audit persistence fails.
     AuditEventEmitter: Emitter for audit events.
     AuditEventSink: Base class for audit sinks.
     LoggingAuditSink: Default logging-based sink.

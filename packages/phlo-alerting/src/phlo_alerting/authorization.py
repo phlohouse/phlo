@@ -1,4 +1,10 @@
-"""phlo_alerting CLI authorization table."""
+"""CLI authorization table for the phlo-alerting surface.
+
+Alerting is read-only: every declared command (list, status, test) is a
+read; no command maps away from the default "alerting" action/resource
+prefixes. The adapter is built once at import time and served through
+get_alerting_adapter().
+"""
 
 from __future__ import annotations
 
@@ -24,4 +30,5 @@ AlertingSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_alerting_adapter() -> CliSurfaceAdapter:
+    """Return the shared AlertingSurfaceAdapter instance for this surface."""
     return AlertingSurfaceAdapter.get_instance()

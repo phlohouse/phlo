@@ -1,3 +1,4 @@
+/** Tests for push branch validation: feature branches pass, protected or unsafe refs are refused. */
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { validatePushBranch } from './push.ts'

@@ -1,4 +1,9 @@
-"""Tests for dbt manifest lineage import helpers."""
+"""Tests for dbt manifest lineage import helpers.
+
+Covers edge extraction from manifest nodes, persistence of assets and columns
+into the sink, the skip path when no sink is configured, and the same-name
+heuristic used to derive column-level lineage.
+"""
 
 from __future__ import annotations
 

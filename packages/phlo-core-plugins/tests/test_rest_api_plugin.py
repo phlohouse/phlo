@@ -1,4 +1,8 @@
-"""Tests for REST API plugin."""
+"""Tests for the REST API source plugin.
+
+Uses a stubbed ``requests.get`` to verify record extraction from top-level
+list payloads and from nested payloads addressed via ``records_path``.
+"""
 
 from phlo_core.sources.rest_api import RestAPIPlugin
 
@@ -7,12 +11,7 @@ class DummyResponse:
     """Simple response test double for requests.get."""
 
     def __init__(self, payload):
-        """Initialize the response with a JSON payload.
-
-        Args:
-            payload: JSON-serializable data returned by ``json()``.
-
-        """
+        """Store the JSON-serializable payload returned by ``json()``."""
         self._payload = payload
 
     def raise_for_status(self):

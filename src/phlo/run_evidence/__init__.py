@@ -1,4 +1,10 @@
-"""Durable, provider-neutral pipeline run evidence."""
+"""Durable, provider-neutral pipeline run evidence.
+
+Public surface for the evidence subsystem: versioned run models, hook
+emission with safe lifecycle handling, run reconciliation against
+required-evidence profiles, report building, and SQLite/Postgres stores
+with idempotency-conflict semantics.
+"""
 
 from phlo.run_evidence.emit import emit_lifecycle_safely, emit_observation
 from phlo.run_evidence.hooks import CoreRunEvidenceHookProvider

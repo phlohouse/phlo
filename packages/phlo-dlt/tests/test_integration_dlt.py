@@ -1,4 +1,9 @@
-"""Integration tests for phlo-dlt using shared infrastructure."""
+"""Integration tests for phlo-dlt using shared infrastructure.
+
+Runs real ingestion through dlt -> parquet -> pyiceberg against the shared
+MinIO-backed Iceberg catalog fixture, with the catalog getter patched to a
+test-scoped catalog.
+"""
 
 from unittest.mock import patch
 
@@ -33,15 +38,7 @@ def test_phlo_ingestion_execution_real(tmp_path, iceberg_catalog):
     # 1. Define the asset
     # 1. Define the source (Just a plain python function now!)
     def my_source(partition_date: str):
-        """Yield fixture rows for a partition.
-
-        Args:
-            partition_date: Partition date for the ingestion run.
-
-        Yields:
-            dict[str, object]: Source row payloads.
-
-        """
+        """Yield fixture rows for the given partition date."""
 
         yield {"id": 1, "name": "foo"}
         yield {"id": 2, "name": "bar"}
@@ -52,11 +49,9 @@ def test_phlo_ingestion_execution_real(tmp_path, iceberg_catalog):
 
     iceberg_resource = IcebergResource()
 
-    # 3. Patch the catalog usage
-    # We must patch BOTH resource.get_catalog and tables.get_catalog because they import it separately.
-    # 3. Use the new Executor directly (Orchestrator Agnostic)
-    # We patch both resource and tables get_catalog as before
-    # We patch both resource and tables get_catalog as before
+    # 3. Use the executor directly (orchestrator-agnostic). Each module
+    # (resource, tables, catalog) imports get_catalog separately, so every
+    # binding must be patched for the fixture catalog to take effect.
     with (
         patch("phlo_iceberg.resource.get_catalog", return_value=iceberg_catalog),
         patch("phlo_iceberg.tables.get_catalog", return_value=iceberg_catalog),

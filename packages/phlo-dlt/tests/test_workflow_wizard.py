@@ -1,3 +1,9 @@
+"""Tests the dlt REST API source contribution to the workflow wizard.
+
+Verifies that phlo-dlt registers a source-stage wizard contribution with the
+expected browser payload fields and apply capability.
+"""
+
 from phlo.capabilities import WorkflowContributionMode
 from phlo_dlt.plugin import get_workflow_wizard_contributions
 

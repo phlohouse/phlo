@@ -1,4 +1,12 @@
-"""Unit tests for the bundled-stack contract harness utilities."""
+"""Unit tests for the bundled-stack contract harness utilities.
+
+Covers the contract enablement flag, port resolution with duplicate
+avoidance and generated project identity in env updates, partitioned
+materialization, .env.local secret merging, cleanup semantics (kept
+stacks skipped unless forced), run-status reads from the Dagster
+metadata DB, MinIO credential resolution, optional package installs,
+and frontend health checks. All subprocesses and HTTP are faked.
+"""
 
 from __future__ import annotations
 

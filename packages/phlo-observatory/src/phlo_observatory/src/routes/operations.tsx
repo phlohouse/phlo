@@ -1,3 +1,7 @@
+/**
+ * /operations route. Operation records with detail drill-down, a dependency
+ * graph on the flow canvas, operation actions, and linked quality checks.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   CheckCircle2,

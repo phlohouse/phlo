@@ -22,17 +22,9 @@ from pathlib import Path
 
 
 def build_dbt_project(project_name: str) -> str:
-    """Build dbt_project.yml content for a scaffolded project.
+    """Render dbt_project.yml content with Phlo-compatible defaults.
 
-    Generates a standard dbt_project.yml configuration with Phlo-compatible
-    defaults, including proper paths, materialization settings, and SSL flags.
-
-    Args:
-        project_name: User-provided project name. Will be sanitized (hyphens
-            converted to underscores) for use in dbt configuration.
-
-    Returns:
-        dbt project YAML content as a string, ready to write to dbt_project.yml.
+    Hyphens in the project name become underscores for dbt configuration.
 
     Example:
         >>> content = build_dbt_project("my-analytics")
@@ -66,14 +58,7 @@ models:
 
 
 def build_sqlfluff_config() -> str:
-    """Build SQLFluff configuration content for Trino + dbt templating.
-
-    Generates a comprehensive SQLFluff configuration optimized for dbt projects
-    using Trino as the query engine. Includes settings for Jinja templating,
-    indentation, capitalization, and aliasing rules.
-
-    Returns:
-        SQLFluff configuration text as a string, ready to write to .sqlfluff.
+    """Build SQLFluff config tuned for Trino + dbt Jinja templating.
 
     Example:
         >>> config = build_sqlfluff_config()
@@ -116,21 +101,10 @@ aliasing = explicit
 
 
 def write_dbt_scaffold(project_name: str, transforms_dir: Path, project_dir: Path) -> None:
-    """Write dbt project and sqlfluff config files for a new project.
+    """Write dbt_project.yml into ``transforms_dir`` and .sqlfluff into ``project_dir``.
 
-    Creates the necessary directory structure and configuration files for a new
-    dbt project integrated with Phlo. This includes:
-    - dbt_project.yml in the transforms directory
-    - .sqlfluff in the project root for SQL linting
-
-    Args:
-        project_name: Name of the dbt project to create.
-        transforms_dir: Directory where dbt_project.yml will be written.
-            Created if it doesn't exist.
-        project_dir: Project root directory where .sqlfluff will be written.
-
-    Raises:
-        OSError: If directory creation or file writing fails.
+    Creates the transforms directory when missing; OSError propagates when
+    directory creation or file writing fails.
 
     Example:
         >>> from pathlib import Path

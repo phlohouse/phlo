@@ -1,4 +1,9 @@
-"""Tests for RBAC sync controller."""
+"""Tests for RBAC sync controller.
+
+Drives SyncController with fake loaders and compilers to pin plan, sync,
+verify, and revert behavior: dry-run applies nothing, apply errors are
+reported rather than raised, and unknown backends are skipped.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,6 @@
+"""Regression tests for core phlo helpers: schema normalization, SQL
+building, connection URLs, partition comparison, SLA/freshness rules."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

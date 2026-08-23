@@ -1,4 +1,9 @@
-"""Regression tests for contract metadata helpers."""
+"""Regression tests for contract metadata helpers.
+
+Pins normalize/serialize behavior for consumer and SLA metadata: string
+consumers are wrapped into Consumer records, and serialization emits plain
+JSON-ready dicts or None when metadata is absent.
+"""
 
 from __future__ import annotations
 

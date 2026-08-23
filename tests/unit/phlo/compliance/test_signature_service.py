@@ -1,4 +1,8 @@
-"""Tests for signature service."""
+"""Tests for the signature service.
+
+Covers default and custom critical-action configuration, signature request
+construction, record creation, and step-up authentication challenges.
+"""
 
 from __future__ import annotations
 

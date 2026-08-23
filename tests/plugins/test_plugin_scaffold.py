@@ -1,4 +1,9 @@
-"""Tests for plugin package scaffolding templates."""
+"""Tests for plugin package scaffolding templates.
+
+Verifies generated plugin projects carry the right capability-spec imports per
+type, README lookup guidance for internal types, rejection of unknown plugin
+types, and the service plugin project layout.
+"""
 
 from __future__ import annotations
 

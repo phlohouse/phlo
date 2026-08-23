@@ -1,4 +1,8 @@
-"""Tests for RBAC models and configuration."""
+"""Tests for RBAC models and configuration.
+
+Validates role and policy config parsing, canonicalization into CanonicalRBAC,
+and policy-rule semantics.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,7 @@
-"""Integration tests for phlo-superset."""
+"""Integration tests for phlo-superset.
+
+Covers plugin initialization and service definition loading.
+"""
 
 import pytest
 

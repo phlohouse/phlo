@@ -1,4 +1,8 @@
-"""Unit tests for the local non-versioned profile harness."""
+"""Unit tests for the local non-versioned profile harness.
+
+Rows ingested into a scratch DuckDB database must be queryable without any
+versioned dbt project scaffolding.
+"""
 
 from __future__ import annotations
 

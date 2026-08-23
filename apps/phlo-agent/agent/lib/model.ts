@@ -1,3 +1,7 @@
+// Model selection for the phlo agent. Sessions run on a cheap text model and
+// upgrade to the vision model only when the current turn carries visual parts.
+// Visuals left over from earlier turns are stripped by middleware instead of
+// keeping the whole session on the more expensive vision model.
 import type { LanguageModel, LanguageModelMiddleware, ModelMessage } from 'ai'
 import { gateway, wrapLanguageModel } from 'ai'
 
@@ -21,6 +25,8 @@ function hasVisualParts(messages: readonly ModelMessage[]): boolean {
   return messages.some(messageHasVisualParts)
 }
 
+// Index of the last user message: the start of the turn currently being
+// answered. Returns -1 when the history contains no user message.
 function currentTurnStart(messages: readonly ModelMessage[]): number {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.role === 'user') return index
@@ -28,6 +34,10 @@ function currentTurnStart(messages: readonly ModelMessage[]): number {
   return -1
 }
 
+/**
+ * Pick the model from the current turn's messages only. Earlier turns may
+ * contain visuals, but a text-only turn does not justify the vision model.
+ */
 export function modelForMessages(messages: readonly ModelMessage[]): string {
   const start = currentTurnStart(messages)
   const currentTurn = start === -1 ? messages : messages.slice(start)
@@ -39,6 +49,9 @@ type ProviderPrompt = StepParams['prompt']
 
 const REMOVED_VISUAL = '[image removed from history; ask for it again if it is still needed]'
 
+// Rewrite every visual part into a text placeholder, including items nested
+// inside tool-result content arrays, so the outgoing prompt carries no visual
+// parts at all.
 function stubVisualPrompt(prompt: ProviderPrompt): ProviderPrompt {
   return prompt.map((message) => {
     if (message.role === 'user') {
@@ -75,6 +88,13 @@ const stubVisualPartsMiddleware: LanguageModelMiddleware = {
   transformParams: ({ params }) =>
     Promise.resolve({ ...params, prompt: stubVisualPrompt(params.prompt) }),
 }
+
+/**
+ * Model for one generation step. A turn that itself carries visuals gets
+ * VISION_MODEL directly. Otherwise the text model is returned, wrapped in
+ * middleware when any earlier message still holds visual parts, since those
+ * must be replaced with placeholders before the text model sees the prompt.
+ */
 
 export function modelForStep(messages: readonly ModelMessage[]): string | LanguageModel {
   const model = modelForMessages(messages)

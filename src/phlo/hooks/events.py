@@ -56,12 +56,7 @@ EVENT_VERSION = "1.0"
 
 
 def _utc_now() -> datetime:
-    """Return the current UTC timestamp.
-
-    Returns:
-        datetime: Current time in UTC timezone.
-
-    """
+    """Return the current UTC timestamp."""
     return datetime.now(UTC)
 
 
@@ -69,20 +64,10 @@ def _utc_now() -> datetime:
 class HookCorrelation:
     """Shared correlation fields for cross-signal observability.
 
-    Correlation fields enable distributed tracing and request tracking across
-    multiple events and services. These fields are propagated through the
-    event chain to maintain observability context.
-
-    Attributes:
-        request_id: Unique identifier for the originating request.
-        trace_id: OpenTelemetry trace identifier for distributed tracing.
-        span_id: OpenTelemetry span identifier within the trace.
-        trace_flags: OpenTelemetry trace flags (sampling decisions).
-        run_id: Dagster run identifier for pipeline runs.
-        asset_key: Dagster asset key for asset materializations.
-        job_name: Dagster job name for pipeline definitions.
-        partition_key: Dagster partition key for partitioned runs.
-        check_name: Quality check name for quality events.
+    These fields are propagated through the event chain so distributed
+    tracing and request tracking survive across services: request_id,
+    OpenTelemetry trace_id/span_id/trace_flags, Dagster run_id/asset_key/
+    job_name/partition_key, and the quality check_name.
 
     Example:
         ```python
@@ -113,22 +98,9 @@ class HookCorrelation:
 
 @dataclass(kw_only=True)
 class HookEvent:
-    """Base event payload shared by all hook events.
-
-    This is the foundational event class that all other event types inherit from.
-    It provides the common structure for event routing, versioning, and
-    correlation tracking.
-
-    Attributes:
-        event_type: Event type identifier used for routing (e.g., "ingestion.start").
-        version: Event schema version for forward/backward compatibility.
-        timestamp: UTC timestamp when the event was created.
-        tags: Optional key-value tags for event categorization and filtering.
-        correlation: Correlation context for distributed tracing and observability.
-
-    Note:
-        All events are immutable dataclasses created with ``kw_only=True`` to
-        ensure explicit field naming and prevent positional argument errors.
+    """Base event payload shared by all hook events, providing routing,
+    schema versioning, and correlation tracking. All events are immutable
+    dataclasses created with kw_only=True to force explicit field naming.
 
     Example:
         ```python
@@ -154,20 +126,10 @@ class HookEvent:
 
 @dataclass(kw_only=True)
 class ServiceLifecycleEvent(HookEvent):
-    """Lifecycle event emitted around service start/stop phases.
-
-    These events track the lifecycle of Phlo-managed services (PostgreSQL,
-    MinIO, Trino, etc.) as they are started, stopped, or undergo configuration
-    changes.
-
-    Attributes:
-        service_name: Name of the service being managed.
-        project_name: Name of the project context.
-        project_root: Root directory of the project.
-        container_name: Docker container name if applicable.
-        phase: Lifecycle phase ("start", "stop", "configure", etc.).
-        status: Current status of the phase ("started", "completed", "failed").
-        metadata: Additional service-specific information.
+    """Lifecycle event emitted around service start/stop phases for
+    Phlo-managed services (PostgreSQL, MinIO, Trino, ...). Carries the
+    service/project identity, container name, phase, status, and
+    service-specific metadata.
 
     Event Types:
         - ``service.start``: Service is starting
@@ -200,22 +162,9 @@ class ServiceLifecycleEvent(HookEvent):
 
 @dataclass(kw_only=True)
 class IngestionEvent(HookEvent):
-    """Event emitted for data ingestion lifecycle stages.
-
-    These events track the progress of data ingestion operations from sources
-    to the lakehouse. They are emitted at the start and end of ingestion runs,
-    capturing metrics, status, and any errors that occur.
-
-    Attributes:
-        asset_key: Dagster asset key for the ingested table (e.g., "raw.users").
-        table_name: Target table name in the lakehouse.
-        group_name: Ingestion group classification (e.g., "raw", "staging").
-        partition_key: Optional partition identifier for partitioned assets.
-        run_id: Unique identifier for this ingestion run.
-        branch_name: Git branch name for branch-based ingestion.
-        status: Final status of the ingestion ("success", "failed", etc.).
-        metrics: Performance metrics (rows_processed, bytes_written, duration).
-        error: Error message if ingestion failed.
+    """Event emitted at the start and end of ingestion runs from sources into
+    the lakehouse, capturing status, performance metrics (rows processed,
+    bytes written, duration), and errors.
 
     Event Types:
         - ``ingestion.start``: Ingestion operation is beginning
@@ -262,22 +211,9 @@ class IngestionEvent(HookEvent):
 
 @dataclass(kw_only=True)
 class TransformEvent(HookEvent):
-    """Event emitted for dbt transformation lifecycle stages.
-
-    These events track the execution of dbt models and transformations,
-    capturing information about which models were run, their status, and
+    """Event emitted for dbt transformation runs, recording the tool, project
+    directory, target environment, executed model names, final status, and
     performance metrics.
-
-    Attributes:
-        tool: Transformation tool name (typically "dbt").
-        project_dir: Path to the dbt project directory.
-        target: dbt target environment (dev, prod, etc.).
-        partition_key: Optional partition identifier for partitioned runs.
-        asset_key: Dagster asset key if triggered by asset materialization.
-        model_names: List of dbt models executed in this run.
-        status: Final status ("success", "failed", "error", etc.).
-        metrics: Performance metrics (execution_time, rows_affected, etc.).
-        error: Error message if transformation failed.
 
     Event Types:
         - ``transform.start``: Transformation run is beginning
@@ -325,39 +261,11 @@ class PublishEvent(HookEvent):
 
 @dataclass(kw_only=True)
 class QualityResultEvent(HookEvent):
-    """Event emitted with data quality check outcomes.
-
-    These events report the results of data quality validation checks,
-    including pass/fail status, severity level, and metadata about the check.
-
-    Attributes:
-        asset_key: Dagster asset key for the checked dataset.
-        check_name: Name of the quality check that was executed.
-        passed: Boolean indicating if the check passed (True) or failed (False).
-        severity: Severity level if check failed ("warning", "error", "critical").
-        check_type: Type of quality check ("null", "range", "unique", etc.).
-        partition_key: Optional partition identifier for partitioned checks.
-        metadata: Additional check-specific results and context.
+    """Event emitted with data quality check outcomes: pass/fail status,
+    severity level when failed, check type, and check-specific metadata.
 
     Event Types:
         - ``quality.result``: Quality check completed with results
-
-    Example:
-        ```python
-        from phlo.hooks.events import QualityResultEvent
-
-        # Failed quality check
-        event = QualityResultEvent(
-            event_type="quality.result",
-            asset_key="raw.users",
-            check_name="null_check_email",
-            passed=False,
-            severity="error",
-            check_type="null",
-            metadata={"failed_rows": 15, "total_rows": 1000}
-        )
-        ```
-
     """
 
     asset_key: str

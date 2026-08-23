@@ -17,6 +17,8 @@ Example:
     >>> print(dsn)
     trino://trino:10005/iceberg
 
+Part of the phlo-trino package's configuration layer, built on the shared phlo.config base,
+cache, and network host-resolution helpers.
 """
 
 from __future__ import annotations
@@ -32,17 +34,7 @@ from phlo.config.network import resolve_host
 
 
 def build_trino_dsn(host: str, port: int, catalog: str) -> str:
-    """Build a Trino DSN string.
-
-    Args:
-        host: Trino hostname.
-        port: Trino HTTP port.
-        catalog: Trino catalog name.
-
-    Returns:
-        DSN string for Trino connections.
-
-    """
+    """Build a Trino DSN string in the form ``trino://<host>:<port>/<catalog>``."""
     return f"trino://{host}:{port}/{catalog}"
 
 
@@ -65,21 +57,11 @@ class TrinoSettings(BaseConfig):
         object.__setattr__(self, "trino_port", port)
 
     def trino_connection_string(self) -> str:
-        """Return the Trino DSN for current settings.
-
-        Returns:
-            DSN string derived from configured host, port, and catalog.
-
-        """
+        """Return the Trino DSN for current settings."""
         return build_trino_dsn(self.trino_host, self.trino_port, self.trino_catalog)
 
 
 @project_root_cached
 def get_settings(project_root: Path) -> TrinoSettings:
-    """Return cached Trino settings.
-
-    Returns:
-        Trino settings instance.
-
-    """
+    """Return cached Trino settings."""
     return TrinoSettings()

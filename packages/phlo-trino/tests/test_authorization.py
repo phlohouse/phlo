@@ -1,4 +1,10 @@
-"""Tests for Trino CLI authorization adapter."""
+"""Tests for the Trino CLI authorization surface.
+
+Covers CliPrincipalResolver environment fallbacks (service account, human
+subject, dev mode, anonymous default) and TrinoCliSurfaceAdapter policy:
+reads allow without enforcement, unknown commands deny closed, and mutation
+commands (query and raw shell) always route through enforcement.
+"""
 
 from __future__ import annotations
 

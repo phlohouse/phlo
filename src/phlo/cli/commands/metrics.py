@@ -1,4 +1,13 @@
-"""Core metrics CLI commands."""
+"""Core metrics CLI commands.
+
+Exposes pipeline and per-asset metric summaries from the shared
+metrics collector, plus export to JSON, CSV, or Prometheus text.
+Every command accepts --json for stable machine-readable output;
+period strings (24h/7d/2w) are parsed to hours with a documented
+fallback for unknown suffixes.
+Imported by the phlo CLI main (src/phlo/cli/main.py) to expose metric commands.
+Surfaces phlo.metrics collector data and phlo.capabilities.maintenance rendering.
+"""
 
 from __future__ import annotations
 
@@ -177,6 +186,11 @@ def metrics_export(export_format: str, output: Path, period: str, output_json: b
 
 
 def _parse_period(period_str: str) -> int:
+    """Parse a period suffix like ``24h``, ``7d``, or ``2w`` into hours.
+
+    Unparsable or unrecognized values fall back to 24 hours instead of
+    failing the command.
+    """
     raw_period = period_str
     period_str = period_str.strip()
     fallback_hours = 24

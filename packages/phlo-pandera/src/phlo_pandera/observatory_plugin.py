@@ -21,6 +21,9 @@ See Also:
     - Observatory extension system documentation
     - ``phlo_observatory`` package for the base extension framework
 
+
+    Pandera observatory extension, loaded via the phlo.plugins.observatory entry point at startup.
+    Builds on the phlo.plugins.observatory extension interfaces.
 """
 
 from __future__ import annotations
@@ -39,19 +42,11 @@ from phlo.plugins.observatory import (
 
 
 class PanderaObservatoryExtension(ObservatoryExtensionPlugin):
-    """Observatory extension metadata for Quality UI pages.
+    """Observatory extension exposing the Quality UI pages.
 
-    This class provides the metadata and asset configuration needed to integrate
-    the Phlo Quality Framework with the Observatory web UI. It exposes a "Quality"
-    navigation item and references the static assets for quality dashboards.
-
-    The extension is automatically discovered by the Observatory plugin system
-    through the ``phlo.observatory.extensions`` entry point.
-
-    Attributes:
-        metadata: Plugin metadata (name, version, description).
-        manifest: Extension manifest defining UI navigation and compatibility.
-        asset_root: Path to packaged static assets.
+    Provides the metadata, manifest, and static assets for the quality
+    dashboards. Discovered automatically via the
+    ``phlo.observatory.extensions`` entry point; not instantiated directly.
 
     Example:
         The extension is typically not instantiated directly. Instead, it's
@@ -69,13 +64,7 @@ class PanderaObservatoryExtension(ObservatoryExtensionPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for the quality observatory extension.
-
-        Provides identification information used during plugin registration
-        and display in the Observatory UI.
-
-        Returns:
-            PluginMetadata with name="quality", version, and description.
+        """Return plugin metadata identifying the quality extension.
 
         Example:
             ```python
@@ -94,14 +83,7 @@ class PanderaObservatoryExtension(ObservatoryExtensionPlugin):
 
     @property
     def manifest(self) -> ObservatoryExtensionManifest:
-        """Build the observatory extension manifest for quality navigation.
-
-        Creates the extension manifest that defines the navigation structure
-        and compatibility requirements for the quality UI extension.
-
-        Returns:
-            ObservatoryExtensionManifest with navigation items and version
-            compatibility information.
+        """Build the manifest defining quality navigation and compatibility.
 
         Example:
             ```python
@@ -123,14 +105,7 @@ class PanderaObservatoryExtension(ObservatoryExtensionPlugin):
 
     @property
     def asset_root(self) -> Traversable:
-        """Return the packaged root directory for extension static assets.
-
-        Provides a filesystem-like handle to the observatory asset directory
-        containing HTML, JavaScript, and CSS files for the quality UI.
-
-        Returns:
-            Traversable path to the observatory_assets directory within the
-            phlo_pandera package.
+        """Return the packaged directory holding the quality UI static assets.
 
         Example:
             ```python

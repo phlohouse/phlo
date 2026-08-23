@@ -1,3 +1,6 @@
+/**
+ * Tests cached resource loading and invalidation semantics in liveResource.
+ */
 import { describe, expect, test } from 'vitest'
 
 import {

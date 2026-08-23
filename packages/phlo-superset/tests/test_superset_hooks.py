@@ -1,4 +1,9 @@
-"""Tests for Superset hooks configuration."""
+"""Tests for Superset hooks configuration.
+
+Pins the precedence rules: explicit env config wins, then query-engine
+capability metadata, then settings defaults. URI resolution failure or missing
+admin credentials never raises — the hook logs and skips registration.
+"""
 
 from __future__ import annotations
 

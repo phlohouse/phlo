@@ -18,6 +18,9 @@ Example:
     >>> from phlo.plugins import discover_plugins
     >>> plugins = discover_plugins()
 
+
+    Trino plugin module; its resource and service plugins register via phlo plugin entry points.
+    Builds on phlo.capabilities.specs, the phlo.plugins interfaces, and phlo_trino internals.
 """
 
 from __future__ import annotations
@@ -61,12 +64,7 @@ class TrinoResourceProvider(ResourceProviderPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for Trino resource registration.
-
-        Returns:
-            Plugin metadata used by plugin discovery.
-
-        """
+        """Return plugin metadata used by plugin discovery."""
         return PluginMetadata(
             name="trino",
             version="0.1.0",
@@ -75,21 +73,11 @@ class TrinoResourceProvider(ResourceProviderPlugin):
         )
 
     def get_resources(self) -> list[ResourceSpec]:
-        """Return Trino resources exposed by this plugin.
-
-        Returns:
-            Resource specifications for Trino integrations.
-
-        """
+        """Return the Trino resource specification."""
         return [ResourceSpec(name="trino", resource=TrinoResource())]
 
     def get_query_engines(self) -> list[QueryEngineSpec]:
-        """Return Trino query-engine capability specs.
-
-        Returns:
-            Query engine capability specifications for Trino.
-
-        """
+        """Return the Trino query-engine capability specification."""
         return [
             QueryEngineSpec(
                 name="trino",
@@ -123,12 +111,7 @@ class TrinoResourceProvider(ResourceProviderPlugin):
         ]
 
     def get_governance_backends(self) -> list[GovernanceBackendSpec]:
-        """Return Trino governance backend specs.
-
-        Returns:
-            Governance backend specifications for Trino SQL grants.
-
-        """
+        """Return the Trino governance backend specification for SQL grants."""
         return [
             GovernanceBackendSpec(
                 name="trino",

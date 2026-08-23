@@ -1,4 +1,9 @@
-"""Schema migration planning primitives."""
+"""Schema migration planning primitives.
+
+Public surface re-exports change classification and migration planning from
+phlo.schema_migration.planning plus instruction resolution from
+phlo.schema_migration.instructions; no behaviour is defined here.
+"""
 
 from phlo.schema_migration.instructions import (
     MigrationInstructionError,

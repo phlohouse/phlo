@@ -1,4 +1,11 @@
-"""Project-root-aware caches for configuration entry points."""
+"""Project-root-aware caches for configuration entry points.
+
+``project_root_cached`` keys an lru_cache on the resolved project root and
+keeps the context var active while the factory runs, so nested config objects
+resolve their env files against the same root. ``cache_clear`` and
+``cache_info`` are re-exposed for deliberate invalidation by tests and
+long-running processes.
+"""
 
 from __future__ import annotations
 
@@ -17,9 +24,13 @@ class ProjectRootCached(Protocol[T]):
 
     def __call__(self, project_root: Path | str | None = None) -> T: ...
 
-    def cache_clear(self) -> None: ...
+    def cache_clear(self) -> None:
+        """Clear the underlying cache."""
+        ...
 
-    def cache_info(self) -> Any: ...
+    def cache_info(self) -> Any:
+        """Return the underlying cache statistics."""
+        ...
 
 
 def project_root_cached(factory: Callable[[Path], T]) -> ProjectRootCached[T]:
@@ -34,6 +45,9 @@ def project_root_cached(factory: Callable[[Path], T]) -> ProjectRootCached[T]:
     @wraps(factory)
     def get_cached(project_root: Path | str | None = None) -> T:
         root = resolve_project_root(project_root)
+        # The context var must be active while the factory runs: nested
+        # BaseConfig instances resolve their env files through
+        # resolve_project_root(None) and must land on this same root.
         with use_project_root(root):
             return cached(root)
 

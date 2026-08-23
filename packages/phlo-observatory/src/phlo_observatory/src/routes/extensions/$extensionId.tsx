@@ -1,3 +1,7 @@
+/**
+ * Extension detail route. Fetches one extension's detail directly, without
+ * the shared cache, and lists its contributed routes and nav entries.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Navigation, Plug, Route as RouteIcon, Settings } from 'lucide-react'
 import { useEffect, useState } from 'react'

@@ -1,3 +1,7 @@
+/**
+ * /queries route. Read-only SQL console with tabbed scratch queries, saved
+ * queries, and execution history persisted to browser-local activity state.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Database, History, Play, Plus, Save, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'

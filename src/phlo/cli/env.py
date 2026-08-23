@@ -50,6 +50,10 @@ def export_env(include_secrets: bool, output: Path | None, _format: str) -> None
         phlo env export
         phlo env export --include-secrets
         phlo env export --output env.full
+
+    With ``--include-secrets`` the output embeds real values from
+    ``.phlo/.env.local``; do not write it to a committed location.
+
     """
     config = _load_project_config()
     env_overrides = _get_env_overrides(config)

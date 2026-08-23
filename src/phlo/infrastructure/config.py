@@ -164,7 +164,11 @@ def get_project_name_from_config(project_root: Path | None = None) -> str | None
 
 
 def get_capability_defaults_from_config(project_root: Path | None = None) -> dict[str, str]:
-    """Return capability defaults declared in phlo.yaml."""
+    """Return capability defaults declared in phlo.yaml.
+
+    Entries whose key or value is missing, empty, or not a string are dropped
+    silently rather than raising.
+    """
     project_config = load_project_config(project_root)
     capabilities = project_config.get("capabilities", {})
     if not isinstance(capabilities, dict):
@@ -192,11 +196,8 @@ def get_authentication_config(project_root: Path | None = None) -> dict[str, Any
             trusted_proxies:
               - 127.0.0.1/32
 
-    Returns:
-        Mapping when configured, otherwise {}.
-
-    Raises:
-        ValueError: If the configured authentication block is not a mapping.
+    Returns {} when unconfigured; raises ValueError when the block is not a
+    mapping.
     """
     if project_root is None:
         project_root = _default_project_root()
@@ -221,11 +222,9 @@ def get_regulated_config(project_root: Path | None = None) -> bool | None:
 
         regulated: true
 
-    Returns:
-        True or False when explicitly configured, otherwise None.
-
-    Raises:
-        ValueError: If the configured value is not a boolean.
+    Returns True/False when configured, otherwise None. Falls back to the
+    deprecated ``regulated_mode`` key with a DeprecationWarning; raises
+    ValueError when the value is not a boolean.
     """
     if project_root is None:
         project_root = _default_project_root()
@@ -280,11 +279,8 @@ def get_authentication_provider_config(project_root: Path | None = None) -> str 
         authentication:
           provider: proxy
 
-    Returns:
-        Provider name when configured, otherwise None.
-
-    Raises:
-        ValueError: If the configured provider is empty or invalid.
+    Returns None when unconfigured; raises ValueError when the provider is
+    empty or invalid.
     """
     if project_root is None:
         project_root = _default_project_root()

@@ -82,16 +82,9 @@ _VALID_TABLE_NAME = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]
 
 
 def _validate_table_name(table_name: str) -> str:
-    """Validate fully-qualified table names before SQL interpolation.
+    """Validate a fully-qualified table name before SQL interpolation.
 
-    Args:
-        table_name: Table name to validate.
-
-    Returns:
-        Validated table name.
-
-    Raises:
-        ValueError: If table name is invalid.
+    Raises ValueError when the table name is invalid.
 
     """
     if not _VALID_TABLE_NAME.fullmatch(table_name):
@@ -107,14 +100,7 @@ def _load_iceberg_stats() -> Any:
 def _load_optimize_query_engine() -> QueryEngine:
     """Resolve the query engine used for maintenance OPTIMIZE operations.
 
-    Args:
-        None
-
-    Returns:
-        QueryEngine provider.
-
-    Raises:
-        RuntimeError: If query_engine:trino capability is not available.
+    Raises RuntimeError when the query_engine:trino capability is unavailable.
 
     """
     resolution = resolve_capability("query_engine", "trino")
@@ -133,13 +119,7 @@ def _evaluate_namespace(
 ) -> list[TableAction]:
     """Evaluate all tables in a namespace against a policy.
 
-    Args:
-        policy: Namespace policy configuration.
-        get_table_stats: Function to get table statistics.
-        context: Dagster sensor evaluation context.
-
-    Returns:
-        List of TableActions that have at least one action flagged.
+    Returns the TableActions with at least one action flagged.
 
     """
     actions: list[TableAction] = []
@@ -292,6 +272,8 @@ def optimize_tables_job():
 
 
 expire_snapshots_job: dg.JobDefinition | None = None
+# expire_snapshots_job lives behind an optional dependency (phlo-iceberg).
+# Import it lazily and degrade to optimize-only maintenance when absent.
 try:
     candidate_job = getattr(
         import_module("phlo_dagster.iceberg_maintenance"), "expire_snapshots_job", None
@@ -317,18 +299,7 @@ if expire_snapshots_job is not None:
     default_status=dg.DefaultSensorStatus.STOPPED,
 )
 def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
-    """Evaluate tables against maintenance policies, yield RunRequests as needed.
-
-    Args:
-        context: Dagster sensor evaluation context.
-
-    Returns:
-        Generator of RunRequest objects for triggered maintenance jobs.
-
-    Raises:
-        No explicit exceptions raised. Logs warnings on failures.
-
-    """
+    """Evaluate tables against maintenance policies and yield RunRequests as needed."""
     cursor_key = context.cursor or datetime.now(timezone.utc).isoformat()
     policy_path = os.environ.get("PHLO_MAINTENANCE_POLICY_PATH", _DEFAULT_POLICY_PATH)
 
@@ -361,6 +332,8 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
                 namespace=policy.namespace,
                 table_count=len(expire_tables),
             )
+            # The cursor timestamp in the run key deduplicates re-evaluations
+            # within one tick while allowing a fresh trigger on the next tick.
             yield dg.RunRequest(
                 run_key=f"expire_{policy.namespace}_{cursor_key}",
                 job_name="expire_snapshots_job",
@@ -408,19 +381,10 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
 
 
 def get_policy_maintenance_definitions() -> dg.Definitions:
-    """Get Dagster definitions for policy-driven maintenance.
+    """Return Dagster definitions for policy-driven maintenance.
 
-    Returns definitions including the policy sensor and optimize job,
-    to be merged into a project's main definitions.
-
-    Args:
-        None
-
-    Returns:
-        Dagster Definitions containing policy maintenance jobs and sensors.
-
-    Raises:
-        No explicit exceptions raised. Logs warnings if expire job unavailable.
+    Includes the policy sensor and optimize job, for merging into a project's
+    main definitions. Logs a warning when the expire job is unavailable.
 
     """
     jobs: list[dg.JobDefinition] = [optimize_tables_job]

@@ -44,18 +44,10 @@ def resolve_compliance_features(
 ) -> ComplianceFeatures:
     """Resolve which compliance features are active.
 
-    Args:
-        regulated: Whether regulated mode is active. If None, reads from is_regulated().
-        compliance_config: Optional compliance config block from phlo.yaml.
-            Shape: {
-                "tamper_evident_audit": bool,
-                "electronic_signatures": bool,
-                "system_manifest": bool,
-                "access_governance": bool,
-            }
-
-    Returns:
-        ComplianceFeatures with each feature's enabled status.
+    regulated falls back to is_regulated() when None; compliance_config is an
+    optional phlo.yaml block whose boolean keys (tamper_evident_audit,
+    electronic_signatures, system_manifest, access_governance) override the
+    regulated-mode defaults.
     """
     if regulated is None:
         from phlo.security.mode import is_regulated

@@ -25,10 +25,6 @@ def export_jsonl(
 
     Each line is a JSON object with the sealed record metadata
     and the original event data.
-
-    Args:
-        records: List of sealed audit records to export.
-        output_path: Path to write the JSONL file.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -52,19 +48,7 @@ def verify_and_export(
     before: int | None = None,
     hmac_key: bytes | None = None,
 ) -> dict[str, Any]:
-    """Verify chain integrity and export records.
-
-    Args:
-        store: The AuditStore to query.
-        surface: Surface to export.
-        output_dir: Directory to write output files.
-        after: Optional sequence number lower bound.
-        before: Optional sequence number upper bound.
-        hmac_key: Secret key for HMAC verification. Uses env default if not provided.
-
-    Returns:
-        Verification result and file paths.
-    """
+    """Verify chain integrity and export records."""
     records = store.query(surface, after=after, before=before, limit=100000)
     verification = store.verify_chain(surface, hmac_key=hmac_key)
 

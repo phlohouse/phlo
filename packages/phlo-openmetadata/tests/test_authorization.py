@@ -1,4 +1,8 @@
-"""Tests for OpenMetadata authorization module."""
+"""Tests for OpenMetadata authorization module.
+
+Covers the OpenMetadata surface adapter, the read/mutation command maps
+(asserted disjoint), and mutation enforcement behavior.
+"""
 
 from __future__ import annotations
 

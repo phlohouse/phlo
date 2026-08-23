@@ -1,3 +1,8 @@
+/**
+ * Source-level regression test for the publishing route: promoted dataset
+ * readiness must come from one bulk request, never per-dataset profiles or
+ * Promise.all fan-out.
+ */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 

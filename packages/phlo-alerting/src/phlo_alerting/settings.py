@@ -29,6 +29,7 @@ Environment Variables:
     PHLO_ALERT_EMAIL_SMTP_PASSWORD: SMTP password.
     PHLO_ALERT_EMAIL_RECIPIENTS: Comma-separated list of email recipients.
 
+Builds on phlo.config.base and phlo.config.cache for project-root-cached settings access.
 """
 
 from __future__ import annotations
@@ -48,16 +49,8 @@ class AlertingSettings(BaseConfig):
     from environment variables with "PHLO_ALERT_" prefix. Provides
     type-safe access to alerting configuration with validation.
 
-    Attributes:
-        phlo_alert_slack_webhook: Slack incoming webhook URL for posting alerts.
-        phlo_alert_slack_channel: Optional default channel override (e.g., "#alerts").
-        phlo_alert_pagerduty_key: PagerDuty Events API v2 integration key.
-        phlo_alert_email_smtp_host: SMTP server hostname for email alerts.
-        phlo_alert_email_smtp_port: SMTP server port, defaults to 587.
-        phlo_alert_email_smtp_user: SMTP authentication username.
-        phlo_alert_email_smtp_password: SMTP authentication password.
-        phlo_alert_email_recipients: List of email addresses to receive alerts.
-
+    Field values load from ``PHLO_ALERT_*`` environment variables; see the
+    module docstring for the full variable list.
     Examples:
         >>> settings = AlertingSettings()
         >>> settings.phlo_alert_email_smtp_port
@@ -92,12 +85,7 @@ def get_settings(project_root: Path) -> AlertingSettings:
     Settings are cached per resolved project root, with up to 16 entries,
     and reused across the application lifecycle.
 
-    Args:
-        project_root: Resolved project root used for cache selection.
-
-    Returns:
-        AlertingSettings instance with loaded configuration.
-
+    Settings are parsed from ``PHLO_ALERT_*`` environment variables.
     Examples:
         >>> settings1 = get_settings()
         >>> settings2 = get_settings()

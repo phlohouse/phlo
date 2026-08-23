@@ -1,4 +1,10 @@
-"""Typed MCP response models for Phlo tool contracts."""
+"""Typed MCP response models for Phlo tool contracts.
+
+Read tools answer through ToolEnvelope and guarded write tools through
+WriteToolEnvelope, both reporting failures as structured ErrorPayload instead
+of raw HTTP exceptions. ToolContract and PromptContract back tool
+self-introspection, including the scope a tool requires.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""Tests for ClickHouse service plugin."""
+"""Tests for the ClickHouse service plugin.
+
+Covers service definition metadata, pinned image digests, and CLI guards that
+reject commands without an initialized .phlo directory or authorized SQL.
+"""
 
 from click.testing import CliRunner
 from subprocess import CompletedProcess

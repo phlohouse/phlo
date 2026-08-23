@@ -1,4 +1,8 @@
-"""Tests for ClickStack service plugin."""
+"""Tests for the ClickStack service plugin.
+
+Covers service definition metadata, pinned upstream images, and CLI rejection
+of commands without an initialized .phlo directory.
+"""
 
 from click.testing import CliRunner
 

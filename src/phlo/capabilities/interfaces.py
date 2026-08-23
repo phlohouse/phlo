@@ -1,4 +1,12 @@
-"""Runtime capability interfaces used by capability providers."""
+"""Runtime capability interfaces used by capability providers.
+
+Declares the Protocol contracts every provider-backed capability must satisfy
+(table stores, versioned catalogs, governance, authn/authz, orchestration,
+query engines, maintenance, lineage sinks) plus the neutral dataclasses
+exchanged across them.
+Imported by phlo-api (observatory lineage), phlo-dagster (framework definitions),
+and phlo-delta; builds its object inventory on phlo.capabilities.inventory.
+"""
 
 from __future__ import annotations
 
@@ -617,6 +625,7 @@ class AccessPolicy:
         row_filter: str | None = None,
         data_masking: dict[str, str] | None = None,
     ) -> None:
+        """Define which principal may act on which tables, with optional masking and filters."""
         self.policy_id = policy_id
         self.principal = principal
         self.table_pattern = table_pattern
@@ -849,6 +858,7 @@ class RequestContext:
         path: str | None = None,
         remote_addr: str | None = None,
     ):
+        """Copy the request mappings defensively so later mutation cannot alias callers."""
         self.headers = dict(headers) if headers else {}
         self.cookies = dict(cookies) if cookies else {}
         self.query_params = dict(query_params) if query_params else {}

@@ -1,14 +1,9 @@
 """Schema-aware type mapping utilities for Trino to Pandas conversion.
 
-Provides centralized Trino-to-Pandas type mappings and schema-aware
-data loading to eliminate manual type conversion boilerplate.
-
-Constants:
-    TRINO_TO_PANDAS_TYPES: Mapping of Trino types to Pandas dtypes.
-
-Functions:
-    trino_type_to_pandas: Convert Trino data type to Pandas dtype.
-    apply_schema_types: Apply Pandera schema types to a DataFrame.
+Provides centralized Trino-to-Pandas type mappings and schema-aware data
+loading: TRINO_TO_PANDAS_TYPES holds the dtype table, trino_type_to_pandas
+resolves a Trino type to its Pandas dtype, and apply_schema_types coerces a
+DataFrame using a Pandera schema's type hints, eliminating manual conversion.
 
 Example:
     >>> from phlo_trino.type_mapping import trino_type_to_pandas
@@ -63,12 +58,6 @@ TRINO_TO_PANDAS_TYPES: dict[str, str] = {
 def trino_type_to_pandas(trino_type: str) -> str:
     """Convert a Trino data type to the corresponding Pandas dtype.
 
-    Args:
-        trino_type: Trino column type (e.g., "bigint", "varchar", "timestamp")
-
-    Returns:
-        Pandas dtype string (e.g., "int64", "string", "datetime64[ns]")
-
     Examples:
         >>> trino_type_to_pandas("bigint")
         'int64'
@@ -76,7 +65,6 @@ def trino_type_to_pandas(trino_type: str) -> str:
         'string'
         >>> trino_type_to_pandas("timestamp")
         'datetime64[ns]'
-
     """
     # Normalize: lowercase and strip parameters like varchar(255)
     normalized = trino_type.lower().strip()
@@ -95,13 +83,6 @@ def apply_schema_types(
     This eliminates manual type conversion code in quality checks.
     Uses the schema's type hints to coerce DataFrame columns.
 
-    Args:
-        df: DataFrame to apply types to
-        schema_class: Pandera DataFrameModel class with type annotations
-
-    Returns:
-        DataFrame with types coerced according to schema
-
     Example:
         from phlo_trino.type_mapping import apply_schema_types
         from workflows.schemas.orders import FactOrders
@@ -109,7 +90,6 @@ def apply_schema_types(
         df = trino.query("SELECT * FROM gold.fct_orders")
         df = apply_schema_types(df, FactOrders)
         # Types are now correct for validation
-
     """
     import types
     from typing import get_args, get_origin, get_type_hints
@@ -138,6 +118,8 @@ def apply_schema_types(
             elif type_hint is bool:
                 df[col_name] = df[col_name].astype("boolean")
             # datetime types are usually handled by Pandera coerce=True
+        # Coercion is best-effort: a failed conversion leaves the column
+        # unchanged instead of failing the load.
         except Exception:
             logger.debug("type_coercion_skipped", column=col_name, target_type=type_hint.__name__)
 

@@ -1,4 +1,8 @@
-"""Tests for duplicate Dagster asset diagnostics."""
+"""Tests for duplicate Dagster asset diagnostics.
+
+Also guards laziness: importing the adapter must not eagerly build framework
+definitions or trigger plugin discovery.
+"""
 
 from __future__ import annotations
 

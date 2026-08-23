@@ -44,15 +44,7 @@ logger = get_logger(__name__)
 
 
 def _normalize_select_patterns(select: Iterable[str]) -> list[str]:
-    """Normalize CLI selection values into glob patterns.
-
-    Args:
-        select: Raw ``--select`` values.
-
-    Returns:
-        Flattened, trimmed pattern list.
-
-    """
+    """Normalize raw ``--select`` values into a flattened, trimmed list of glob patterns."""
     patterns: list[str] = []
     for raw in select:
         for part in raw.split(","):
@@ -63,16 +55,7 @@ def _normalize_select_patterns(select: Iterable[str]) -> list[str]:
 
 
 def _select_models(model_names: list[str], patterns: list[str]) -> list[str]:
-    """Filter model names using glob patterns.
-
-    Args:
-        model_names: Available model names.
-        patterns: Glob patterns to match.
-
-    Returns:
-        Selected model names preserving input order.
-
-    """
+    """Filter model names using glob patterns, preserving input order."""
     if not patterns:
         return model_names
 
@@ -84,17 +67,9 @@ def _select_models(model_names: list[str], patterns: list[str]) -> list[str]:
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
-    """Load a YAML mapping from disk.
+    """Load a YAML mapping from disk; a missing file yields an empty mapping.
 
-    Args:
-        path: YAML file path.
-
-    Returns:
-        Parsed mapping, or an empty mapping if file is missing.
-
-    Raises:
-        ValueError: If root YAML value is not a mapping.
-
+    Raises: ValueError when the root YAML value is not a mapping.
     """
     if not path.exists():
         return {}
@@ -106,30 +81,14 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def _dump_yaml(data: dict[str, Any]) -> str:
-    """Serialize configuration mapping to YAML text.
-
-    Args:
-        data: Mapping to serialize.
-
-    Returns:
-        YAML string.
-
-    """
+    """Serialize a configuration mapping to YAML text."""
     return yaml.safe_dump(data, sort_keys=False)
 
 
 def _load_manifest_models(manifest_path: Path) -> dict[str, dict[str, Any]]:
-    """Load dbt models from a manifest file.
+    """Load dbt models from ``manifest.json``, keyed by model name.
 
-    Args:
-        manifest_path: Path to ``manifest.json``.
-
-    Returns:
-        Model metadata keyed by model name.
-
-    Raises:
-        click.ClickException: If file read or JSON parsing fails.
-
+    Raises: click.ClickException when file read or JSON parsing fails.
     """
     try:
         manifest = json.loads(manifest_path.read_text())
@@ -171,25 +130,12 @@ def scaffold_publishing_config(
     description: str,
     logical_refs: bool = False,
 ) -> dict[str, Any]:
-    """Merge scaffolded publishing config into an existing mapping.
+    """Merge scaffolded publishing config for model_names into existing_config and
+    return the updated mapping. source_key, physical_schema, group, asset_name,
+    and description shape the generated entry; logical_refs stores dbt-style
+    logical references instead of physical schema.table strings.
 
-    Args:
-        existing_config: Existing publishing configuration.
-        model_names: dbt model names to include.
-        source_key: Source key under ``publishing``.
-        physical_schema: Physical source schema for table mapping values.
-        group: Dagster group name for generated entry.
-        asset_name: Asset name for generated entry.
-        description: Human-readable entry description.
-        logical_refs: Store dbt-style logical references instead of physical
-            schema.table strings in the generated table mapping.
-
-    Returns:
-        Updated publishing configuration mapping.
-
-    Raises:
-        ValueError: If existing config shape is invalid.
-
+    Raises: ValueError when the existing config shape is invalid.
     """
     config: dict[str, Any] = dict(existing_config)
     publishing = config.get("publishing", {})

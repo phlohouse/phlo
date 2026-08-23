@@ -1,4 +1,12 @@
-"""Helpers for schema-migration contract export and scaffold generation."""
+"""Helpers for schema-migration contract export and scaffold generation.
+
+Owns the on-disk contract layout (.phlo/contracts) and deterministic
+operation ids hashed from plan content. Contract JSON and scaffold YAML are
+written atomically via temp-file rename and never overwrite an existing
+file without force.
+
+CLI command module building on phlo.schema_migration instructions.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,7 @@
+/**
+ * Tests Trino v2 server wrappers (table preview, query execution) against
+ * mocked phlo-api responses.
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { apiGet, apiPost } = vi.hoisted(() => ({

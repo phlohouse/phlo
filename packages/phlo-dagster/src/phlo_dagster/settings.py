@@ -38,6 +38,9 @@ Example:
         PHLO_DAGSTER_PORT=3000
         PHLO_WORKFLOWS_PATH=./custom_workflows
 
+
+        Settings for the phlo_dagster workflows package, built on the shared phlo.config base/cache helpers.
+        Loaded within phlo_dagster by framework and CLI-log code through get_settings().
 """
 
 from __future__ import annotations
@@ -73,18 +76,7 @@ class DagsterSettings(BaseConfig):
 
     @model_validator(mode="after")
     def validate_executor_flags(self) -> "DagsterSettings":
-        """Validate mutually exclusive executor override flags.
-
-        Args:
-            None (operates on self).
-
-        Returns:
-            Validated settings instance.
-
-        Raises:
-            ValueError: If both force flags are set simultaneously.
-
-        """
+        """Reject settings where both executor force flags are set."""
         if self.phlo_force_in_process_executor and self.phlo_force_multiprocess_executor:
             raise ValueError(
                 "phlo_force_in_process_executor and phlo_force_multiprocess_executor "

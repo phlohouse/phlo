@@ -11,6 +11,9 @@ Example:
     >>> print(conn_str)
     postgresql://phlo:phlo@postgres:5432/phlo
 
+
+    Settings for the PostgreSQL service, built on the shared phlo.config base/cache/network helpers.
+    Loaded lazily via get_settings(); phlo_sling pulls its Postgres connection settings at runtime.
 """
 
 from __future__ import annotations
@@ -27,20 +30,13 @@ from phlo.config.network import resolve_host
 
 
 class PostgresSettings(BaseConfig):
-    """PostgreSQL database connection and schema configuration.
+    """PostgreSQL database connection and schema configuration managed with
+    Pydantic validation.
 
-    Configuration class that manages PostgreSQL connection parameters using
-    Pydantic validation. Supports environment variable overrides and provides
-    utilities for building connection strings.
-
-    Attributes:
-        postgres_host: Database server hostname. Can be resolved via environment
-            variables and supports special host resolution rules.
-        postgres_port: Database server port number.
-        postgres_user: Authentication username.
-        postgres_password: Authentication password (URL-encoded in connection strings).
-        postgres_db: Default database name to connect to.
-        postgres_mart_schema: Schema name for published data mart tables.
+    Supports environment variable overrides and provides utilities for building
+    connection strings. Fields cover the host (with special resolution rules),
+    port, user, password (URL-encoded in connection strings), default database,
+    and the schema for published mart tables.
 
     Example:
         >>> settings = PostgresSettings()
@@ -69,18 +65,10 @@ class PostgresSettings(BaseConfig):
     )
 
     def model_post_init(self, __context: Any) -> None:
-        """Post-initialization hook for host and port resolution.
-
-        Resolves the postgres_host and postgres_port values using phlo's
-        network resolution system. This allows for dynamic host resolution
-        based on environment variables (e.g., POSTGRES_PORT for test overrides).
-
-        Args:
-            __context: Pydantic model context (unused but required by signature).
-
-        Note:
-            Uses object.__setattr__ to bypass Pydantic's frozen model behavior.
-            This ensures the resolved values are stored after initial validation.
+        """Resolve host and port after initialization via phlo's network
+        resolution system, honoring environment overrides such as POSTGRES_PORT;
+        values are stored through object.__setattr__ to bypass Pydantic's
+        frozen-model behavior.
 
         """
         host, port = resolve_host(
@@ -90,18 +78,11 @@ class PostgresSettings(BaseConfig):
         object.__setattr__(self, "postgres_port", port)
 
     def get_postgres_connection_string(self, include_db: bool = True) -> str:
-        """Build a PostgreSQL connection URI from current settings.
+        """Build a URL-encoded PostgreSQL connection URI suitable for SQLAlchemy,
+        psycopg2, or other database libraries.
 
-        Constructs a properly URL-encoded PostgreSQL connection string suitable
-        for use with SQLAlchemy, psycopg2, or other database libraries.
-
-        Args:
-            include_db: Whether to include the database name in the connection
-                string. Set to False when connecting to the server to create
-                the database, or when the database name is specified separately.
-
-        Returns:
-            str: URL-encoded PostgreSQL connection string.
+        Pass ``include_db=False`` to omit the database name, for example when
+        creating the database or specifying it separately.
 
         Example:
             >>> settings = PostgresSettings()
@@ -128,18 +109,10 @@ class PostgresSettings(BaseConfig):
 def get_settings(project_root: Path) -> PostgresSettings:
     """Return cached PostgreSQL settings for the selected project root.
 
-    Settings are cached per resolved project root, with up to 16 entries,
-    to avoid repeated parsing while isolating project configuration.
-
-    Args:
-        project_root: Resolved project root used for cache selection.
-
-    Returns:
-        PostgresSettings: Cached settings instance.
-
-    Note:
-        Calls for the same project root return the same settings object.
-        Call ``get_settings.cache_clear()`` after changing configuration.
+    Settings are cached per resolved project root, with up to 16 entries, to avoid
+    repeated parsing while isolating project configuration; calls for the same root
+    return the same instance. Call ``get_settings.cache_clear()`` after changing
+    configuration.
 
     Example:
         >>> settings1 = get_settings()

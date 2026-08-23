@@ -1,4 +1,10 @@
-"""Generic event-ledger helpers."""
+"""Generic event-ledger helpers.
+
+Normalizes raw rows into EventRecord values and derives quality signals
+from them: latest event per entity, adjacent state-transition counts,
+observation lag, and missing or duplicate sequence numbers. Pure
+functions; no I/O and no dependency on any orchestrator.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,7 @@
+/**
+ * /apis route. Browses API contracts alongside running services, with the
+ * selection mirrored into the ?apiId query parameter.
+ */
 import { createFileRoute } from '@tanstack/react-router'
 import { Braces, Radio, Route as RouteIcon, Server } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'

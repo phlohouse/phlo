@@ -1,3 +1,9 @@
+"""Tests publishing-config scaffolding idempotence.
+
+Re-scaffolding must preserve user-customized fields (description, tables,
+dependencies) and only append entries for models not yet present.
+"""
+
 from __future__ import annotations
 
 import json
@@ -9,13 +15,7 @@ from phlo_dbt.cli_publishing import scaffold_publishing_config
 
 
 def _write_manifest(path: Path, model_names: list[str]) -> None:
-    """Write a minimal dbt manifest containing model nodes.
-
-    Args:
-        path: Manifest file path.
-        model_names: Model names to include as dbt nodes.
-
-    """
+    """Write a minimal dbt manifest containing model_names as model nodes."""
 
     nodes = {}
     for name in model_names:
@@ -71,13 +71,7 @@ def test_scaffold_publishing_config_can_emit_logical_refs() -> None:
 
 
 def test_scaffold_command_writes_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify scaffold CLI writes filtered publishing config.
-
-    Args:
-        tmp_path: Temporary directory fixture.
-        monkeypatch: Pytest monkeypatch fixture.
-
-    """
+    """Verify scaffold CLI writes filtered publishing config."""
 
     from click.testing import CliRunner
 

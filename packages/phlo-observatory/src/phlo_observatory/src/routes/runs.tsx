@@ -1,3 +1,7 @@
+/**
+ * /runs route. Run list sorted by status and recency; when the API returns
+ * no native runs it falls back to runs recovered from operation records.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   Activity,

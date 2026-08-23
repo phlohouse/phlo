@@ -1,3 +1,6 @@
+"""Tests for plugin metadata serialization, including capability
+support flags in the dict payload."""
+
 from __future__ import annotations
 
 from phlo.capabilities import CapabilitySupport

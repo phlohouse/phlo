@@ -1,3 +1,9 @@
+"""Tests dbt-test to Dagster asset-check translation.
+
+Same-type tests and relationships attached to one model must map to distinct,
+stable asset check names so specs and run results refer to the same identity.
+"""
+
 from __future__ import annotations
 
 from phlo_dbt.asset_checks import (

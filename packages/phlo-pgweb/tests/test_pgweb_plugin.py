@@ -1,4 +1,8 @@
-"""Tests for Pgweb service plugin."""
+"""Tests for the pgweb service plugin.
+
+Verifies the service definition uses a pinned upstream image with no local
+build or bundled files, and that plugin metadata advertises the postgres tag.
+"""
 
 from phlo_pgweb.plugin import PgwebServicePlugin
 

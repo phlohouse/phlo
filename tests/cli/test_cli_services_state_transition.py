@@ -1,3 +1,9 @@
+"""Tests for enabled/disabled service state transitions across lifecycle commands.
+
+Drives remove, add, list, and start in one flow to prove the enabled/disabled
+config and the generated compose file stay mutually consistent at every step.
+"""
+
 from __future__ import annotations
 
 import json

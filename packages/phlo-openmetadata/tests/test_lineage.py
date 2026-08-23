@@ -1,4 +1,9 @@
-"""Tests for lineage extraction and publishing."""
+"""Tests for lineage extraction and publishing.
+
+Covers building OpenMetadataLineageGraph from a dbt manifest and Iceberg
+tables, publish edge construction including skip-on-error behavior, impact
+analysis, JSON/DOT/Mermaid export, and FQN normalization.
+"""
 
 from unittest.mock import Mock
 

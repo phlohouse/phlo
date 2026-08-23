@@ -12,6 +12,9 @@ Example:
     >>> resource.execute("SELECT 1")
     [[1]]
 
+
+Re-exported as ClickHouseResource from the phlo_clickhouse package root; builds
+on the capability contracts in phlo.capabilities.
 """
 
 from __future__ import annotations
@@ -43,16 +46,9 @@ CLICKHOUSE_QUERY_ENGINE_SUPPORT = CapabilitySupport(
 class ClickHouseResource:
     """Resource wrapper for ClickHouse connections and query execution.
 
-    Manages ClickHouse database connections and provides methods for
-    executing queries, managing tables, and ingesting data.
-
-    Attributes:
-        host: ClickHouse server hostname. Uses settings default if None.
-        port: ClickHouse HTTP port. Uses settings default if None.
-        user: ClickHouse username. Uses settings default if None.
-        password: ClickHouse password. Uses settings default if None.
-        database: Default database name. Uses settings default if None.
-        secure: Whether to use TLS/SSL connection. Uses settings default if None.
+    Manages database connections, query execution, table management, and
+    data ingestion. Every connection field falls back to the configured
+    settings when left as None.
 
     Example:
         >>> resource = ClickHouseResource(host="localhost", database="test")
@@ -68,22 +64,12 @@ class ClickHouseResource:
     secure: bool | None = None
 
     def _settings(self):
-        """Return ClickHouse settings from configuration.
-
-        Returns:
-            ClickHouseSettings instance with configured defaults.
-
-        """
+        """Return the ClickHouseSettings instance with configured defaults."""
         return get_clickhouse_settings()
 
     def get_client(self) -> "Client":
-        """Create and return a ClickHouse database client.
-
-        Establishes a connection to ClickHouse using configured or default
-        connection parameters.
-
-        Returns:
-            ClickHouse client instance ready for query execution.
+        """Return a connected ClickHouse client built from the resource fields
+        or settings defaults.
 
         Example:
             >>> resource = ClickHouseResource()
@@ -102,17 +88,8 @@ class ClickHouseResource:
         )
 
     def execute(self, sql: str, params: Iterable[object] | None = None) -> list[list[Any]]:
-        """Execute a SQL query and return results.
-
-        Runs a SELECT query against ClickHouse and returns the result rows.
-        The client connection is automatically closed after execution.
-
-        Args:
-            sql: SQL query string to execute.
-            params: Optional iterable of query parameters for substitution.
-
-        Returns:
-            List of result rows, where each row is a list of column values.
+        """Run a SQL query and return its rows, each a list of column values;
+        the connection is closed afterwards.
 
         Example:
             >>> resource = ClickHouseResource()
@@ -129,16 +106,8 @@ class ClickHouseResource:
             client.close()
 
     def command(self, sql: str) -> Any:
-        """Execute a command (DDL/DML) that returns a single value or None.
-
-        Executes statements like CREATE TABLE, INSERT, ALTER, etc.
-        The client connection is automatically closed after execution.
-
-        Args:
-            sql: SQL command string to execute.
-
-        Returns:
-            Single value result for commands that return data, or None.
+        """Execute a DDL/DML statement (CREATE TABLE, INSERT, ALTER, ...) that
+        returns a single value or None; the connection is closed afterwards.
 
         Example:
             >>> resource = ClickHouseResource()
@@ -157,17 +126,9 @@ class ClickHouseResource:
         timeout: float = 60.0,
         interval: float = 1.0,
     ) -> None:
-        """Wait for ClickHouse server to become ready for queries.
-
-        Polls the ClickHouse server with a simple health check query until
-        it responds successfully or the timeout is reached.
-
-        Args:
-            timeout: Maximum time to wait in seconds. Defaults to 60.0.
-            interval: Time between retry attempts in seconds. Defaults to 1.0.
-
-        Raises:
-            TimeoutError: If ClickHouse is not ready within the timeout period.
+        """Poll with a health-check query until ClickHouse responds, retrying
+        every interval seconds. Raises TimeoutError if not ready within
+        timeout seconds (default 60.0).
 
         Example:
             >>> resource = ClickHouseResource()
@@ -205,16 +166,8 @@ class ClickHouseResource:
         raise TimeoutError(f"ClickHouse not ready after {timeout:.1f}s") from last_error
 
     def _escape_identifier(self, name: str) -> str:
-        """Escape a ClickHouse identifier with backticks.
-
-        Escapes database names, table names, or column names for safe use
-        in SQL queries. Handles existing backticks by doubling them.
-
-        Args:
-            name: Identifier string to escape.
-
-        Returns:
-            Escaped identifier wrapped in backticks.
+        """Wrap an identifier in backticks, doubling any embedded backticks,
+        for safe use in SQL statements.
 
         Example:
             >>> resource = ClickHouseResource()
@@ -232,19 +185,8 @@ class ClickHouseResource:
         partition_spec: Any = None,
         override_ref: str | None = None,
     ) -> Any:
-        """Ensure a destination table exists, creating it if necessary.
-
-        Creates a ClickHouse table with the specified schema if it doesn't
-        already exist. Supports optional partitioning.
-
-        Args:
-            table_name: Name of the table to create.
-            schema: Schema definition (Pandera schema or similar).
-            partition_spec: Optional list of (column_name, type) tuples for partitioning.
-            override_ref: Optional reference override (not implemented).
-
-        Returns:
-            Result of the CREATE TABLE command.
+        """Create the destination table if it does not exist, with optional
+        partitioning from (column_name, type) tuples.
 
         Example:
             >>> from pandera import Schema, Column, Int64
@@ -276,17 +218,8 @@ class ClickHouseResource:
         data_path: str | Path,
         override_ref: str | None = None,
     ) -> dict[str, int]:
-        """Append Parquet file data to a ClickHouse table.
-
-        Reads a Parquet file and inserts all rows into the specified table.
-
-        Args:
-            table_name: Target table name for data insertion.
-            data_path: Path to the Parquet file to load.
-            override_ref: Optional reference override (not implemented).
-
-        Returns:
-            Dictionary with "rows_inserted" count.
+        """Read a Parquet file and insert all of its rows into the table.
+        Returns the inserted row count.
 
         Example:
             >>> resource = ClickHouseResource()
@@ -322,19 +255,10 @@ class ClickHouseResource:
         unique_key: str,
         override_ref: str | None = None,
     ) -> dict[str, int]:
-        """Merge Parquet file data into a ClickHouse table using upsert logic.
-
-        Implements a merge/upsert operation: deletes existing rows with matching
-        unique keys, then inserts new data from the Parquet file.
-
-        Args:
-            table_name: Target table name for data merge.
-            data_path: Path to the Parquet file containing new data.
-            unique_key: Column name to use as the unique identifier for matching.
-            override_ref: Optional reference override (not implemented).
-
-        Returns:
-            Dictionary with "rows_inserted" and "rows_deleted" counts.
+        """Upsert Parquet data: delete existing rows whose unique_key matches
+        the incoming data, then insert it. Returns inserted and deleted row
+        counts. The delete is a background mutation, so readers may
+        transiently see both versions of a key.
 
         Example:
             >>> resource = ClickHouseResource()
@@ -357,6 +281,10 @@ class ClickHouseResource:
         row_count = len(df)
 
         unique_keys = df[unique_key].tolist()
+        # ALTER TABLE ... DELETE is a background mutation and returns before
+        # affected rows are actually removed (mutations_sync is left unset).
+        # The insert below therefore races the delete: readers may transiently
+        # observe both the old and the new version of a key.
         if unique_keys:
             keys_str = ", ".join(f"'{k}'" for k in unique_keys)
             delete_sql = f"ALTER TABLE {database}.{table} DELETE WHERE {key} IN ({keys_str})"
@@ -371,19 +299,9 @@ class ClickHouseResource:
         return {"rows_inserted": row_count, "rows_deleted": len(unique_keys)}
 
     def _schema_to_columns(self, schema: Any) -> str:
-        """Convert a schema definition to ClickHouse column definitions.
-
-        Supports Pandera schemas (with 'columns' attribute) or dataclass-like
-        schemas (with 'fields' attribute).
-
-        Args:
-            schema: Schema object with either 'columns' or 'fields' attribute.
-
-        Returns:
-            Comma-separated string of "name type" column definitions.
-
-        Raises:
-            TypeError: If the schema type is not supported.
+        """Render a Pandera-style schema ('columns' attribute) or dataclass-like
+        schema ('fields' attribute) as comma-separated "name type" column
+        definitions. Raises TypeError for unsupported schema types.
 
         Example:
             >>> from pandera import Schema, Column, Int64, String
@@ -417,15 +335,8 @@ class ClickHouseResource:
         )
 
     def _pandas_type_to_clickhouse(self, dtype: Any) -> str:
-        """Convert a pandas dtype to ClickHouse type string.
-
-        Maps common pandas data types to their ClickHouse equivalents.
-
-        Args:
-            dtype: Pandas dtype object to convert.
-
-        Returns:
-            ClickHouse type name as a string.
+        """Map a pandas dtype to its ClickHouse type name, falling back to
+        "String" for unrecognized dtypes.
 
         Example:
             >>> import pandas as pd
@@ -451,15 +362,8 @@ class ClickHouseResource:
         return "String"
 
     def _python_type_to_clickhouse(self, py_type: Any) -> str:
-        """Convert a Python type to ClickHouse type string.
-
-        Maps Python built-in types to their ClickHouse equivalents.
-
-        Args:
-            py_type: Python type to convert.
-
-        Returns:
-            ClickHouse type name as a string. Defaults to "String" for unknown types.
+        """Map a Python built-in type to its ClickHouse type name, defaulting
+        to "String" for unknown types.
 
         Example:
             >>> resource = ClickHouseResource()

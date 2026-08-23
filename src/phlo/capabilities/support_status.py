@@ -2,6 +2,8 @@
 
 This module only reads package resources and installed distribution metadata; it
 does not contact a registry or alter the environment.
+
+Imported by the phlo CLI support command to render local support status.
 """
 
 from __future__ import annotations

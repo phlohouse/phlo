@@ -1,4 +1,12 @@
-"""Capability resolver for runtime provider selection."""
+"""Capability resolver for runtime provider selection.
+
+Resolution is deterministic and never raises: an explicit name wins, then
+runtime/env/config overrides, and an unnamed request only resolves when
+exactly one provider is installed — otherwise it returns None so callers can
+surface guidance. Also reports unsatisfied plugin capability requirements.
+Imported by phlo core (capabilities package, migrations executor) and phlo-dagster to resolve
+runtime capability providers deterministically.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,6 @@
+"""Tests for Docker/Podman backend selection and compose command
+construction, including env file wiring and timeouts."""
+
 from __future__ import annotations
 
 from pathlib import Path

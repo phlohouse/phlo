@@ -1,4 +1,11 @@
-"""Tests for audit correlation ID propagation."""
+"""Tests for audit correlation ID propagation.
+
+Covers CanonicalAuditEvent correlation fields and their defaults, the
+enforce() path forwarding (or omitting) the caller's correlation ID to
+the audit emitter, and EnforcementContext lifecycle: lazy component
+initialization stays incomplete until eager init, and a failed eager
+init must not publish a broken singleton.
+"""
 
 from __future__ import annotations
 

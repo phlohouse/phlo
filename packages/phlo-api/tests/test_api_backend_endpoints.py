@@ -1,4 +1,9 @@
-"""Tests for capability-backed API backend endpoints."""
+"""Tests for capability-backed API backend endpoints.
+
+Uses a stubbed authenticated viewer client; no real backends run. The
+key guarantee under test: one failing provider is reported unhealthy
+instead of breaking discovery for every other backend.
+"""
 
 from __future__ import annotations
 

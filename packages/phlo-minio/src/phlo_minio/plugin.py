@@ -35,6 +35,9 @@ See Also:
     phlo_minio.settings: Configuration management for MinIO connections.
     phlo.plugins: Phlo plugin framework interfaces.
 
+
+    MinIO plugin module; its resource and service plugins register via phlo plugin entry points.
+    Builds on phlo.capabilities, the phlo.plugins interfaces, and phlo_minio.settings.
 """
 
 from __future__ import annotations
@@ -114,18 +117,8 @@ class MinioObjectStoreProvider:
     """
 
     def to_sling_connection(self) -> dict[str, Any]:
-        """Return a Sling-compatible S3 connection definition.
-
-        Generates a connection dictionary compatible with the Sling
-        data replication tool and similar S3-based systems.
-
-        Returns:
-            dict[str, Any]: Connection configuration with:
-                - type: Always "s3"
-                - endpoint: Full HTTP endpoint URL
-                - access_key_id: MinIO root user
-                - secret_access_key: MinIO root password
-                - region: S3 region identifier
+        """Return a Sling-compatible S3 connection definition (type, endpoint,
+        root credentials, region) built from MinIO settings.
 
         Examples:
             Sling connection:
@@ -167,10 +160,6 @@ class MinioObjectStoreProvider:
                 >>> # List objects
                 >>> response = s3.list_objects_v2(Bucket='my-bucket', Prefix='data/')
                 >>> print([obj['Key'] for obj in response.get('Contents', [])])
-
-        Implementation:
-            Loads settings via get_settings() and constructs endpoint:
-                endpoint = f"http://{settings.minio_endpoint()}"
 
         """
         from phlo_minio.settings import get_settings
@@ -222,8 +211,9 @@ class MinioResourceProvider(ResourceProviderPlugin):
             >>> print(conn['endpoint'])
             'http://minio:10001'
 
-    Attributes:
-        metadata: PluginMetadata with provider identification and tags.
+    The provider exposes an ObjectStoreSpec for S3 operations plus metadata
+    for capability discovery. See phlo.capabilities.ObjectStoreSpec and
+    MinioObjectStoreProvider for the underlying implementation.
 
     See Also:
         phlo.capabilities.ObjectStoreSpec: Object storage capability spec.
@@ -242,14 +232,8 @@ class MinioResourceProvider(ResourceProviderPlugin):
         )
 
     def get_resources(self) -> list[ResourceSpec]:
-        """Return resource specifications exposed by this provider.
-
-        Currently returns an empty list as MinIO does not expose
-        traditional resources through this provider. Object storage
-        is provided via get_object_stores().
-
-        Returns:
-            list[ResourceSpec]: Empty list (no resources exposed).
+        """Return an empty list — MinIO exposes no traditional resources;
+        object storage is provided via get_object_stores().
 
         Examples:
             Check resources:
@@ -258,26 +242,12 @@ class MinioResourceProvider(ResourceProviderPlugin):
                 >>> len(resources)
                 0
 
-        Note:
-            This method is required by the ResourceProviderPlugin interface.
-            Use get_object_stores() for MinIO storage capabilities.
-
         """
         return []
 
     def get_object_stores(self) -> list[ObjectStoreSpec]:
-        """Return object storage capability specifications.
-
-        Returns a list of ObjectStoreSpec instances representing the
-        MinIO object storage capability. Each spec includes the provider
-        instance and metadata for capability discovery.
-
-        Returns:
-            list[ObjectStoreSpec]: List containing one ObjectStoreSpec
-                for the MinIO instance with:
-                - name: "minio"
-                - provider: MinioObjectStoreProvider instance
-                - metadata: Storage type, endpoint, and S3 configuration
+        """Return the MinIO ObjectStoreSpec with its provider instance and
+        storage metadata (type, storage_system, endpoint).
 
         Examples:
             Get object stores:
@@ -327,15 +297,6 @@ class MinioResourceProvider(ResourceProviderPlugin):
                 ...         }
                 ...     }
                 ... }
-
-        Implementation:
-            Creates ObjectStoreSpec with MinioObjectStoreProvider:
-                provider = MinioObjectStoreProvider()
-                return [ObjectStoreSpec(
-                    name="minio",
-                    provider=provider,
-                    metadata={...}
-                )]
 
         """
         provider = MinioObjectStoreProvider()

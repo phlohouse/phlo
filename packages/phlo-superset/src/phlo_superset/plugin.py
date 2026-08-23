@@ -1,4 +1,11 @@
-"""Superset service plugin registration."""
+"""Superset service plugin registration.
+
+Declares the Superset BI service through the shared service plugin factory;
+behavior lives in the generic plugin machinery.
+
+Loaded through the phlo plugin entry-point mechanism at startup rather than
+imported directly.
+"""
 
 from __future__ import annotations
 

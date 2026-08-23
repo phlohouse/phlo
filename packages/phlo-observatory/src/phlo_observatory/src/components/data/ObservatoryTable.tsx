@@ -1,3 +1,8 @@
+/**
+ * TanStack table over raw query rows: virtualized rendering, optional
+ * sorting, column pinning, and per-column widths estimated from header and
+ * type lengths. Shared by query results and row journey views.
+ */
 import {
   flexRender,
   getCoreRowModel,

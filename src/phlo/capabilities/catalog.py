@@ -1,4 +1,11 @@
-"""Shared catalog storage for capability registrations."""
+"""Shared catalog storage for capability registrations.
+
+CapabilityFamily is plain keyed dict storage; CapabilityFamilyDefinition layers
+on the family's spec type, key function, and optional provider-method hook so
+specs can be harvested straight off provider instances.
+
+Imported within the capabilities package as its specification catalog.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +19,8 @@ KeyT = TypeVar("KeyT", bound=Hashable)
 
 
 class NamedSpec(Protocol):
+    """Protocol for specs addressable by a string name."""
+
     name: str
 
 
@@ -26,16 +35,20 @@ class CapabilityFamily(Generic[SpecT, KeyT]):
     _items: dict[KeyT, SpecT] = field(default_factory=dict)
 
     def register(self, spec: SpecT) -> None:
+        """Store spec under its family key, replacing any existing entry."""
         self._items[self.key(spec)] = spec
 
     def list(self) -> builtins.list[SpecT]:
+        """Return registered specs in registration order."""
         return builtins.list(self._items.values())
 
     def clear(self) -> None:
+        """Remove all registered specs."""
         self._items.clear()
 
 
 def named_family() -> CapabilityFamily[NamedSpecT, str]:
+    """Create a capability family keyed by each spec's name attribute."""
     return CapabilityFamily(key=lambda spec: spec.name)
 
 

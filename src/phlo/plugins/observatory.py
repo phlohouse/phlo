@@ -1,4 +1,10 @@
-"""Core contracts and discovery helpers for Observatory extensions."""
+"""Core contracts and discovery helpers for Observatory extensions.
+
+Defines the pydantic manifest contract (routes, slots, nav items, settings
+panels) and the plugin base class for Observatory UI extensions. Discovery
+walks the phlo.plugins.observatory entry-point group and honors the
+allow/deny list in settings.
+"""
 
 from __future__ import annotations
 

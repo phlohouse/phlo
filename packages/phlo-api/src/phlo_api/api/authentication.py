@@ -64,19 +64,9 @@ def _configured_authentication_provider_name() -> str | None:
 def get_authentication_provider() -> AuthenticationProvider | None:
     """Resolve the authentication provider capability.
 
-    Returns None if no provider is configured. Raises when multiple providers
-    are installed without explicit selection.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        AuthenticationProvider instance, or None if not configured.
-
-    Raises:
-        RuntimeError: If the configured provider is not registered, or if multiple
-            providers are available without explicit selection.
-
+    Returns None if no provider is configured. Raises RuntimeError when the
+    configured provider is not registered or multiple providers are installed
+    without explicit selection.
     """
     provider_name = _configured_authentication_provider_name()
     result = resolve_capability("authentication_provider", provider_name)
@@ -102,18 +92,7 @@ def get_authentication_provider() -> AuthenticationProvider | None:
 
 
 def require_authentication_provider() -> AuthenticationProvider:
-    """Resolve the authentication provider or raise if not available.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        AuthenticationProvider instance.
-
-    Raises:
-        RuntimeError: If no authentication provider is configured.
-
-    """
+    """Resolve the authentication provider or raise if not available."""
     provider = get_authentication_provider()
     if provider is None:
         raise RuntimeError("Authentication provider not configured")
@@ -123,18 +102,8 @@ def require_authentication_provider() -> AuthenticationProvider:
 def create_request_context(request: Request) -> RequestContext:
     """Create a RequestContext from a FastAPI request.
 
-    Extracts headers, cookies, query params, and connection metadata from
-    the incoming request for use by authentication providers.
-
-    Args:
-        request: The FastAPI request object.
-
-    Returns:
-        RequestContext populated with request metadata.
-
-    Raises:
-        None: No exceptions raised directly.
-
+    Extracts headers, cookies, query params, and connection metadata for use
+    by authentication providers.
     """
     headers_dict: dict[str, str] = {}
     for key, value in request.headers.items():
@@ -159,18 +128,8 @@ _AUTH_RESULT_CACHE_KEY = "_phlo_auth_result"
 def authenticate_request(request: Request) -> AuthResult:
     """Authenticate a request using the configured authentication provider.
 
-    Returns an AuthResult that indicates whether authentication succeeded.
-    Caches the result in request.state to avoid duplicate authentication.
-
-    Args:
-        request: The FastAPI request object.
-
-    Returns:
-        AuthResult with authentication status and principal (if successful).
-
-    Raises:
-        None: No exceptions raised directly.
-
+    Results are cached in request.state so repeated calls within one request
+    authenticate at most once.
     """
     if hasattr(request.state, _AUTH_RESULT_CACHE_KEY):
         return request.state[_AUTH_RESULT_CACHE_KEY]
@@ -193,18 +152,8 @@ def authenticate_request(request: Request) -> AuthResult:
 def get_request_principal(request: Request) -> AuthPrincipal | None:
     """Get the authenticated principal from the request.
 
-    Returns None if no authentication provider is configured or authentication failed.
-    Caches the result in request.state to avoid duplicate authentication.
-
-    Args:
-        request: The FastAPI request object.
-
-    Returns:
-        AuthPrincipal if authenticated, None otherwise.
-
-    Raises:
-        None: No exceptions raised directly.
-
+    Returns None when no provider is configured or authentication fails.
+    Cached in request.state like authenticate_request().
     """
     if hasattr(request.state, _AUTH_PRINCIPAL_CACHE_KEY):
         return request.state[_AUTH_PRINCIPAL_CACHE_KEY]
@@ -223,18 +172,7 @@ def get_request_principal(request: Request) -> AuthPrincipal | None:
 def require_principal(request: Request) -> AuthPrincipal:
     """Get the authenticated principal from the request or raise 401.
 
-    Raises HTTPException 401 if authentication failed or no provider is configured.
-    Uses cached result from request.state if available.
-
-    Args:
-        request: The FastAPI request object.
-
-    Returns:
-        AuthPrincipal if authentication succeeds.
-
-    Raises:
-        HTTPException: 401 if authentication fails or provider unavailable.
-
+    Uses the cached result from request.state when available.
     """
     if hasattr(request.state, _AUTH_PRINCIPAL_CACHE_KEY):
         cached = request.state[_AUTH_PRINCIPAL_CACHE_KEY]
@@ -285,18 +223,7 @@ def require_principal(request: Request) -> AuthPrincipal:
 def optional_authenticate(request: Request) -> AuthPrincipal | None:
     """Attempt to authenticate a request, returning None if not authenticated.
 
-    Unlike require_principal, this does not raise on authentication failure.
-    Useful for routes that have different behavior for authenticated vs anonymous.
-
-    Args:
-        request: The FastAPI request object.
-
-    Returns:
-        AuthPrincipal if authentication succeeds, None otherwise.
-
-    Raises:
-        None: No exceptions raised directly.
-
+    Unlike require_principal, this does not raise on failure.
     """
     provider = get_authentication_provider()
     if provider is None:
@@ -312,21 +239,7 @@ def optional_authenticate(request: Request) -> AuthPrincipal | None:
 
 
 def get_capabilities_metadata() -> dict[str, Any]:
-    """Get metadata about available authentication capabilities.
-
-    Returns a dictionary with available providers, current provider setting,
-    and environment variable information.
-
-    Args:
-        None: No arguments required.
-
-    Returns:
-        Dictionary with authentication capability metadata.
-
-    Raises:
-        None: No exceptions raised directly.
-
-    """
+    """Get metadata about available authentication capabilities."""
     available_providers = list_capabilities("authentication_provider")
     current_provider = os.environ.get(_AUTHENTICATION_PROVIDER_ENV)
 

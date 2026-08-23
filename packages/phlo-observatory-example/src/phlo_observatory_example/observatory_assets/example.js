@@ -1,3 +1,8 @@
+/**
+ * Example observatory extension. Registers a route under /extensions/example,
+ * dashboard and hub slot widgets, and a settings panel that exercises the
+ * host-provided settings API.
+ */
 export function registerRoutes({ createRoute, rootRoute }) {
   return createRoute({
     getParentRoute: () => rootRoute,

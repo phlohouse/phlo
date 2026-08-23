@@ -1,4 +1,8 @@
-"""Tests for quality check synchronization to OpenMetadata."""
+"""Tests for synchronizing quality checks into OpenMetadata.
+
+Covers mapping each phlo-pandera check type onto an OpenMetadata column or
+table test definition with its parameters rendered into the expected form.
+"""
 
 from datetime import datetime
 from unittest.mock import Mock

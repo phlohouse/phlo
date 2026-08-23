@@ -1,4 +1,8 @@
-"""Common utility functions for Phlo."""
+"""Common utility functions for Phlo.
+
+compact_dict() drops None-valued keys; dedupe_preserve_order() keeps first
+occurrences in input order.
+"""
 
 from __future__ import annotations
 

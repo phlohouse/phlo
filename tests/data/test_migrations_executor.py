@@ -1,4 +1,9 @@
-"""Regression tests for migration executor edge cases."""
+"""Regression tests for migration executor edge cases.
+
+Covers dry-run override semantics, column-mapping collapse rejection,
+quality-validation plumbing, overwrite support checks, temp-file cleanup
+on write failure, stable event correlation, and multi-store guidance.
+"""
 
 from __future__ import annotations
 

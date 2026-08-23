@@ -1,4 +1,13 @@
-"""Attempt-scoped, provider-neutral run report projection."""
+"""Attempt-scoped, provider-neutral projection of durable run evidence.
+
+build_run_report projects exactly one store-read snapshot into typed report
+rows. Payloads are redacted, error text reduced to fingerprints, resource
+identities taken only from producer data, and terminal outcomes fail closed on
+any ambiguity instead of electing a winner.
+
+Imported by the observatory run-report API and re-exported through phlo.run_evidence; the
+system's canonical run-report builder, layering reconciliation and redaction primitives.
+"""
 
 from __future__ import annotations
 
@@ -30,7 +39,9 @@ _SAFE_CATALOG_METADATA = frozenset(
 class RunReportStore(Protocol):
     """Read capability required to project one consistent attempt snapshot."""
 
-    def read_run_attempt(self, project_id: str, run_id: str, attempt: int) -> dict[str, Any]: ...
+    def read_run_attempt(self, project_id: str, run_id: str, attempt: int) -> dict[str, Any]:
+        """Return the durable evidence payload for exactly one project/run/attempt."""
+        ...
 
 
 class RunReportNotFound(LookupError):
@@ -281,6 +292,7 @@ def _resource_identity(
 
 
 def _fingerprint(value: Any) -> str | None:
+    # Error text never reaches reports; only its SHA-256 fingerprint does.
     if value is None:
         return None
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
@@ -359,6 +371,9 @@ def _resource(row: dict[str, Any]) -> ReportResource:
 def _terminal_outcome(
     events: list[dict[str, Any]], decisions: list[dict[str, Any]]
 ) -> tuple[TerminalOutcome | None, str | None]:
+    # Terminal outcome fails closed: any malformed terminal status, or any
+    # disagreement between terminal sources, suppresses the outcome entirely
+    # instead of electing a winner.
     candidates: list[tuple[str, str, str, str | None]] = []
     invalid = False
     for event in events:

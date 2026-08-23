@@ -1,4 +1,10 @@
-"""Tests for Sling connection auto-discovery."""
+"""Tests for Sling connection auto-discovery.
+
+Auto-connections resolve from phlo-iceberg settings and the active
+object_store capability, and never guess when discovery is disabled or more
+than one object store exists. Exported connections become JSON-string env
+vars for the Sling CLI.
+"""
 
 import json
 from types import SimpleNamespace

@@ -1,4 +1,13 @@
-"""Core hook sink that records correlated lifecycle events."""
+"""Core hook sink that records correlated lifecycle events.
+
+CoreRunEvidenceHookProvider translates lifecycle hook events into rows
+in the run-evidence store. Persistence is observational: failures are
+logged, never raised, and events without a complete (project_id,
+run_id) correlation are intentionally skipped rather than persisted
+under partial keys.
+Imported by the phlo hooks bus and the phlo.run_evidence package as the core sink that records
+lifecycle events through phlo.plugins.hooks.
+"""
 
 from __future__ import annotations
 
@@ -59,6 +68,7 @@ class CoreRunEvidenceHookProvider:
         self._store = store
 
     def get_hooks(self) -> list[HookRegistration]:
+        """Register the lifecycle-event hook that persists run evidence with log-only failures."""
         return [
             HookRegistration(
                 hook_name="core_run_evidence",

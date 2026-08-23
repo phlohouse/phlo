@@ -1,4 +1,9 @@
-"""Migration spec parsing and validation."""
+"""Migration spec parsing and validation.
+
+Parses YAML migration specs into typed MigrationSpec values; every field
+violation raises MigrationSpecError with the offending key, so callers see
+one failure mode for malformed specs.
+"""
 
 from __future__ import annotations
 
@@ -43,6 +48,8 @@ def load_migration_spec(path: Path) -> MigrationSpec:
         query=_optional_str(source_raw.get("query")),
         table=_optional_str(source_raw.get("table")),
         path=_optional_str(source_raw.get("path")),
+        # Keys not consumed above are adapter-specific; they pass through to
+        # source.options verbatim for the resolved source adapter to interpret.
         options={
             key: value
             for key, value in source_raw.items()

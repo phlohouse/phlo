@@ -1,3 +1,11 @@
+"""Template registry merging built-in templates with plugin-provided ones.
+
+Plugin providers load through the phlo.project_templates entry-point group;
+load failures and duplicate template names raise TemplateDiscoveryError so
+conflicts surface at discovery time. Results are sorted by name for stable
+listing.
+"""
+
 from __future__ import annotations
 
 import importlib.util
@@ -29,6 +37,7 @@ def _provider_templates() -> Iterable[ProjectTemplate]:
 
 
 def list_templates() -> tuple[ProjectTemplate, ...]:
+    """Merge built-in and provider templates, sorted by name."""
     templates = (*_builtin_templates(), *_provider_templates())
     names = [template.metadata.name for template in templates]
     duplicates = sorted(name for name in set(names) if names.count(name) > 1)
@@ -40,6 +49,7 @@ def list_templates() -> tuple[ProjectTemplate, ...]:
 
 
 def get_template(name: str) -> ProjectTemplate:
+    """Return the named project template or raise KeyError."""
     for template in list_templates():
         if template.metadata.name == name:
             return template
@@ -47,6 +57,7 @@ def get_template(name: str) -> ProjectTemplate:
 
 
 def missing_required_packages(template: ProjectTemplate) -> tuple[str, ...]:
+    """Return required packages whose import names are not importable."""
     missing: list[str] = []
     for package in template.metadata.required_packages:
         import_name = package.replace("-", "_")

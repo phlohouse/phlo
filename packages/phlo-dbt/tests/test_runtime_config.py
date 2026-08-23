@@ -1,3 +1,10 @@
+"""Tests dbt profile generation from runtime configuration.
+
+DbtRuntimeConfig must render a Trino (or engine-specific) profile payload and
+the resolve/write helpers must produce a profiles.yaml the dbt CLI can target,
+including target-name resolution and environment overrides.
+"""
+
 from __future__ import annotations
 
 import socket

@@ -1,4 +1,9 @@
-"""Tests for ClickHouse authorization module."""
+"""Tests for ClickHouse authorization module.
+
+Covers principal resolution from environment variables (service account,
+human subject, dev-mode fallback) and command classification into read and
+mutation sets with their resource/action mappings.
+"""
 
 from __future__ import annotations
 

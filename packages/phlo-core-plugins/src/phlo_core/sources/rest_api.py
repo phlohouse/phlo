@@ -56,20 +56,9 @@ from phlo.plugins import PluginMetadata, SourceConnectorPlugin
 class RestAPIPlugin(SourceConnectorPlugin):
     """Generic REST API source connector for fetching data from HTTP endpoints.
 
-    This plugin provides a flexible interface for connecting to REST APIs and
-    extracting data. It handles HTTP request configuration, response parsing,
-    and error handling automatically.
-
-    The connector supports:
-        - Custom HTTP headers for authentication and content negotiation
-        - Query parameters for filtering and pagination
-        - Configurable request timeouts
-        - Dot-notation path extraction for nested JSON responses
-        - Both list and single-object response formats
-
-    Attributes:
-        metadata: PluginMetadata containing name, version, description,
-            author, and tags for this plugin.
+    Handles request configuration, response parsing, and error handling;
+    supports custom headers, query parameters, timeouts, dot-notation path
+    extraction from nested JSON, and list or single-object responses.
 
     Example:
         Basic usage with a simple API::
@@ -101,14 +90,7 @@ class RestAPIPlugin(SourceConnectorPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for the REST API source connector.
-
-        Returns:
-            PluginMetadata: Metadata including name ("rest_api"),
-                version ("0.1.0"), description ("Generic REST API source connector"),
-                author ("Phlo Team"), and tags (["source", "api"]).
-
-        """
+        """Return plugin metadata for the REST API source connector."""
         return PluginMetadata(
             name="rest_api",
             version="0.1.0",
@@ -118,35 +100,16 @@ class RestAPIPlugin(SourceConnectorPlugin):
         )
 
     def fetch_data(self, config: dict[str, Any]):
-        """Fetch records from a REST API endpoint.
+        """GET the configured URL and yield each record from the JSON response.
 
-        Makes an HTTP GET request to the configured URL and yields records
-        extracted from the response. Handles request configuration, error
-        checking, and response parsing automatically.
+        Config keys: ``url`` (required), ``headers``, ``params``, ``timeout``
+        (default 30), ``verify_tls`` (passed to requests as ``verify``), and
+        ``records_path`` (dot-separated path to the records; omit when the
+        response is a list or a single record object).
 
-        Args:
-            config: Source configuration dictionary containing:
-                - url (str, required): The API endpoint URL to fetch from.
-                - headers (dict, optional): HTTP headers to include in the request.
-                    Defaults to empty dict.
-                - params (dict, optional): Query parameters to append to the URL.
-                    Defaults to empty dict.
-                - timeout (int, optional): Request timeout in seconds.
-                    Defaults to 30.
-                - records_path (str, optional): Dot-separated path to the records
-                    within the JSON response. If not provided, assumes the response
-                    is either a list of records or a single record object.
-
-        Yields:
-            dict[str, Any]: Individual record dictionaries extracted from
-            the response payload. Each yielded item represents one record
-            ready for processing.
-
-        Raises:
-            requests.RequestException: If the HTTP request fails or returns
-                a non-2xx status code.
-            ValueError: If the records_path is specified but not found in
-                the response, or if the payload format is unsupported.
+        Raises requests.RequestException on request failure and ValueError
+        when ``records_path`` cannot be traversed or the payload shape is
+        unsupported.
 
         Example:
             Fetch data with authentication::
@@ -189,20 +152,7 @@ class RestAPIPlugin(SourceConnectorPlugin):
             yield record
 
     def get_schema(self, config: dict[str, Any]) -> dict[str, str] | None:
-        """Retrieve optional static schema from configuration.
-
-        Extracts and returns a schema mapping if one was provided in the
-        configuration. This allows users to optionally specify expected
-        column names and types alongside the source configuration.
-
-        Args:
-            config: Source configuration dictionary that may include a
-                "schema" key mapping column names to type strings.
-
-        Returns:
-            dict[str, str] | None: Schema mapping dictionary if present in
-            config, where keys are column names and values are type strings.
-            Returns None if no schema was configured.
+        """Return the optional ``schema`` column-to-type mapping from config, or None.
 
         Example:
             Get schema from config::
@@ -229,54 +179,22 @@ class RestAPIPlugin(SourceConnectorPlugin):
 
 
 def _extract_records(payload: Any, records_path: str | None) -> list[dict[str, Any]]:
-    """Extract record objects from a JSON response payload.
+    """Normalize a JSON payload into a list of record dicts, following ``records_path``.
 
-    Parses the JSON response and extracts records based on an optional
-    dot-notation path. Supports both list responses (multiple records)
-    and object responses (single record).
-
-    Args:
-        payload: Parsed JSON response payload from the API. This should be
-            the result of calling ``response.json()`` on a requests response.
-        records_path: Dot-separated path to the list or object records in
-            the payload (e.g., "data.users" or "response.items"). If None,
-            the payload itself is expected to be either a list of records
-            or a single record object.
-
-    Returns:
-        list[dict[str, Any]]: Normalized list of record dictionaries.
-        If the payload contained a single object, it is wrapped in a list.
-        If the payload contained a list, it is returned as-is.
-
-    Raises:
-        ValueError: If records_path is specified but the path cannot be
-            traversed in the payload, or if the final payload shape is
-            neither a list nor a dictionary.
+    A single object payload is wrapped in a list; a list is returned as-is.
+    Raises ValueError when the path cannot be traversed or the final shape is
+    neither list nor dict.
 
     Example:
         Extract from list response::
 
             payload = [{"id": 1}, {"id": 2}]
             records = _extract_records(payload, None)
-            # Returns: [{"id": 1}, {"id": 2}]
 
-        Extract from nested response::
+        Extract nested records::
 
-            payload = {"data": {"users": [{"id": 1}, {"id": 2}]}}
+            payload = {"data": {"users": [{"id": 1}]}}
             records = _extract_records(payload, "data.users")
-            # Returns: [{"id": 1}, {"id": 2}]
-
-        Extract single object::
-
-            payload = {"id": 1, "name": "test"}
-            records = _extract_records(payload, None)
-            # Returns: [{"id": 1, "name": "test"}]
-
-        Path not found::
-
-            payload = {"data": {}}
-            records = _extract_records(payload, "data.missing")
-            # Raises: ValueError
 
     """
     if records_path:

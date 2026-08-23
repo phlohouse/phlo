@@ -69,20 +69,7 @@ class ActivityMonitor:
         roles: tuple[str, ...] | None = None,
         result: str = "success",
     ) -> AccessActivity:
-        """Record an access activity.
-
-        Args:
-            principal_subject: Subject performing the access.
-            principal_type: Type of principal.
-            action: Action being performed.
-            resource_type: Type of resource.
-            resource_id: ID of the resource.
-            roles: Current roles of the principal.
-            result: Result of the access attempt.
-
-        Returns:
-            The recorded AccessActivity.
-        """
+        """Record an access attempt and file it under the principal's history."""
         activity = AccessActivity(
             activity_id=self._generate_id(),
             principal_subject=principal_subject,
@@ -105,15 +92,7 @@ class ActivityMonitor:
         principal_subject: str,
         roles: tuple[str, ...],
     ) -> list[SeparationOfDutiesViolation]:
-        """Check for SoD violations based on current roles.
-
-        Args:
-            principal_subject: Subject being checked.
-            roles: Current roles to check.
-
-        Returns:
-            List of violations (empty if none).
-        """
+        """Check a subject's current roles against SoD policies, accumulating violations."""
         from phlo.compliance.governance.types import check_separation_of_duties
 
         violations = check_separation_of_duties(
@@ -130,15 +109,7 @@ class ActivityMonitor:
         principal_subject: str,
         limit: int | None = None,
     ) -> list[AccessActivity]:
-        """Get activities for a principal.
-
-        Args:
-            principal_subject: Subject to get activities for.
-            limit: Maximum number of activities to return.
-
-        Returns:
-            List of activities, most recent first.
-        """
+        """Return a principal's activities, most recent first, optionally bounded."""
         activities = self._activities.get(principal_subject, [])
         sorted_activities = sorted(
             activities,
@@ -150,14 +121,7 @@ class ActivityMonitor:
         return sorted_activities
 
     def get_summary(self, principal_subject: str) -> ActivitySummary:
-        """Get activity summary for a principal.
-
-        Args:
-            principal_subject: Subject to summarize.
-
-        Returns:
-            ActivitySummary for the principal.
-        """
+        """Summarize a principal's recorded activity and detected violations."""
         activities = self._activities.get(principal_subject, [])
 
         if not activities:
@@ -185,11 +149,7 @@ class ActivityMonitor:
         )
 
     def get_all_violations(self) -> list[SeparationOfDutiesViolation]:
-        """Get all detected SoD violations.
-
-        Returns:
-            List of all violations.
-        """
+        """Return every SoD violation detected by this monitor so far."""
         return list(self._violations)
 
     def _generate_id(self) -> str:
@@ -207,22 +167,7 @@ def record_enforcement_activity(
     roles: tuple[str, ...],
     result: str,
 ) -> AccessActivity:
-    """Record activity from an enforcement result.
-
-    Convenience function to record activity from enforcement context.
-
-    Args:
-        principal_subject: Subject performing the access.
-        principal_type: Type of principal.
-        action: Action being performed.
-        resource_type: Type of resource.
-        resource_id: ID of the resource.
-        roles: Current roles of the principal.
-        result: Result from enforcement.
-
-    Returns:
-        The recorded AccessActivity.
-    """
+    """Record enforcement-driven access activity on the shared default monitor."""
     monitor = _get_default_monitor()
     return monitor.record_activity(
         principal_subject=principal_subject,

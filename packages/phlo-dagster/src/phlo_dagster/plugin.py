@@ -34,6 +34,9 @@ Example:
             - postgres
             - trino
 
+
+Loaded through the phlo plugin entry-point mechanism at startup rather than
+imported directly.
 """
 
 from __future__ import annotations

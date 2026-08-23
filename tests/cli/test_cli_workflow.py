@@ -1,4 +1,8 @@
-"""Tests for workflow CLI commands."""
+"""Tests for the workflow CLI commands.
+
+Covers non-interactive `workflow create` scaffolding and actionable
+`workflow check` failures, including missing validators and dependencies.
+"""
 
 import json
 from pathlib import Path
@@ -123,20 +127,7 @@ def test_workflow_create_invokes_scaffold(monkeypatch) -> None:
         fields: list[str] | None,
         source_kind: str,
     ) -> list[str]:
-        """Captures scaffold arguments and returns mocked output paths.
-
-        Args:
-            domain: Domain passed from CLI option.
-            table_name: Table name passed from CLI option.
-            unique_key: Unique key passed from CLI option.
-            cron: Cron schedule passed from CLI option.
-            api_base_url: Optional API base URL from CLI option.
-            fields: Optional field spec list from CLI option.
-            source_kind: Source template style from CLI option.
-
-        Returns:
-            list[str]: Relative paths representing scaffolded files.
-        """
+        """Captures scaffold arguments and returns mocked output paths."""
         calls.update(
             {
                 "domain": domain,
@@ -558,11 +549,7 @@ def test_workflow_check_wraps_schema_validation_failures(monkeypatch, tmp_path) 
 
 
 def test_init_with_absolute_path_uses_directory_name_for_project_metadata(tmp_path: Path) -> None:
-    """Uses directory basename, not full absolute path, for project name.
-
-    Args:
-        tmp_path: Temporary filesystem root for the test.
-    """
+    """Uses directory basename, not full absolute path, for project name."""
     project_dir = tmp_path / "my-lakehouse"
 
     runner = CliRunner()

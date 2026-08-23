@@ -1,4 +1,10 @@
-"""Stop command for stopping services."""
+"""Stop command for stopping services.
+
+Stops compose-project services (optionally removing volumes) or native
+dev processes, emits service-lifecycle events, and reports containers
+left running under the project. Mutation is authorization-gated; a
+failed leftover-container check only warns, it never fails the stop.
+"""
 
 from pathlib import Path
 from uuid import uuid4
@@ -175,6 +181,9 @@ def stop_cmd(
         )
 
     compose_profiles = profile
+    # Enable every discovered profile for a full stop: compose only operates
+    # on services whose profile is active, so without these flags `down`
+    # would leave profile-scoped services running.
     if not services_list and not profile:
         compose_profiles = tuple(sorted(ServiceDiscovery().get_available_profiles()))
 

@@ -1,4 +1,9 @@
-"""Tests for Alloy service plugin."""
+"""Tests for the Alloy observability service plugin.
+
+Locks the shipped service definition: immutable upstream image digest, a
+writable storage path for the non-root runtime, and a plain startup
+dependency on Loki with no custom health probe.
+"""
 
 from phlo_alloy.plugin import AlloyServicePlugin
 

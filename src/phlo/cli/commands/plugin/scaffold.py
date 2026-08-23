@@ -1,4 +1,10 @@
-"""Plugin package scaffolding — template strings and file-writing logic."""
+"""Plugin package scaffolding — template strings and file-writing logic.
+
+Each plugin type maps to a base class, an entry-point group, and a
+method-stub template; create_plugin_package renders those into a new
+package (init, plugin module, test, pyproject, README). Purely
+generative: it writes files and never registers the plugin itself.
+"""
 
 from __future__ import annotations
 

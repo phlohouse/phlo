@@ -1,4 +1,11 @@
-"""Tests for schema migration core primitives, classification, and hook events."""
+"""Tests for schema migration core primitives, classification, and hook events.
+
+Covers the frozen FieldSpec/NormalizedSchema/SchemaChange value
+objects, default additive-vs-breaking change classification with
+worst-classification merging, registry registration of migrators and
+extractors, protocol conformance checks, and SchemaMigrationEvent
+emission. The capability registry is reset after every test.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,6 @@
+"""Integration tests for `phlo schema generate`: dry-run rendering of
+inferred Pandera schemas from ingestion assets and existing source tables."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,13 +14,7 @@ pytestmark = pytest.mark.integration
 
 
 def _write(path: Path, content: str) -> None:
-    """Write text to a file, creating parent directories as needed.
-
-    Args:
-        path: File path to write.
-        content: File contents to write.
-
-    """
+    """Write text to a file, creating parent directories as needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
 

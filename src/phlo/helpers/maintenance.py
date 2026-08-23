@@ -1,4 +1,9 @@
-"""Maintenance policy helpers for lakehouse tables."""
+"""Maintenance policy helpers for lakehouse tables.
+
+Policy defaults drive recommendations computed from table stats (compaction,
+snapshot expiry, orphan cleanup); optimize_table runs only the operations the
+supplied table_store actually exposes.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,7 @@
+/**
+ * Index route. The loader fetches the overview snapshot before render and
+ * passes it to the shared OverviewRoute component as initial data.
+ */
 import { createFileRoute } from '@tanstack/react-router'
 
 import {

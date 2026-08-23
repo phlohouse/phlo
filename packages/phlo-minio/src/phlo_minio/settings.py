@@ -18,6 +18,8 @@ Examples:
         ...     minio_root_password="secretpass"
         ... )
 
+
+Package-local settings module built on the shared phlo.config base and caching machinery.
 """
 
 from __future__ import annotations
@@ -33,19 +35,12 @@ from phlo.config.network import resolve_host
 
 
 class MinioSettings(BaseConfig):
-    """Configuration class for MinIO S3-compatible storage.
+    """Configuration for MinIO S3-compatible storage.
 
-    Provides settings for MinIO connection including host, credentials,
-    ports, and S3 region configuration. Supports environment-based
-    host resolution for Docker Compose and local development.
-
-    Attributes:
-        minio_host: MinIO service hostname (default: "minio").
-        minio_root_user: Root username for MinIO authentication.
-        minio_root_password: Root password for MinIO authentication.
-        minio_api_port: Port for S3 API operations.
-        minio_console_port: Port for MinIO web console.
-        s3_region: AWS S3-compatible region identifier.
+    Covers host, credentials, ports, and S3 region. ``model_post_init``
+    resolves the host and API port from environment variables when
+    available, enabling Docker Compose service discovery and local
+    development overrides.
 
     Examples:
         Default configuration:
@@ -65,11 +60,6 @@ class MinioSettings(BaseConfig):
             >>> settings = MinioSettings()
             >>> print(settings.minio_api_port)  # Resolved from env
             9001
-
-    Note:
-        The model_post_init method automatically resolves host and port
-        from environment variables when available.
-
     """
 
     minio_host: str = Field(default="minio", description="MinIO service hostname")
@@ -82,12 +72,10 @@ class MinioSettings(BaseConfig):
     def model_post_init(self, __context: Any) -> None:
         """Resolve host and port from environment variables if available.
 
-        Updates the minio_host and minio_api_port attributes based on
-        environment configuration. This enables Docker Compose service
-        discovery and local development overrides.
-
-        Args:
-            __context: Pydantic internal context (unused).
+        Updates ``minio_host`` and ``minio_api_port`` via
+        ``phlo.config.network.resolve_host`` so Docker Compose service
+        discovery and local development overrides work without code
+        changes. ``__context`` is Pydantic's unused internal context.
 
         Examples:
             Automatic host resolution:
@@ -95,12 +83,6 @@ class MinioSettings(BaseConfig):
                 >>> settings = MinioSettings()
                 >>> settings.minio_host  # Resolved to 'localhost'
                 'localhost'
-
-        Note:
-            Uses phlo.config.network.resolve_host for environment-based
-            resolution. The port_env_var parameter enables port override
-            via MINIO_API_PORT environment variable.
-
         """
         host, port = resolve_host(
             self.minio_host, self.minio_api_port, port_env_var="MINIO_API_PORT"
@@ -111,8 +93,7 @@ class MinioSettings(BaseConfig):
     def minio_endpoint(self) -> str:
         """Return the MinIO API endpoint as host:port string.
 
-        Returns:
-            str: Formatted endpoint string (e.g., "minio:10001").
+        Suitable for S3 client configuration such as ``endpoint_url``.
 
         Examples:
             Default endpoint:
@@ -125,7 +106,6 @@ class MinioSettings(BaseConfig):
                 >>> settings.minio_endpoint()
                 'localhost:9000'
 
-        Use Case:
             Use this endpoint for S3 client configuration:
                 >>> import boto3
                 >>> s3 = boto3.client(
@@ -134,7 +114,6 @@ class MinioSettings(BaseConfig):
                 ...     aws_access_key_id=settings.minio_root_user,
                 ...     aws_secret_access_key=settings.minio_root_password
                 ... )
-
         """
         return f"{self.minio_host}:{self.minio_api_port}"
 
@@ -143,14 +122,10 @@ class MinioSettings(BaseConfig):
 def get_settings(project_root: Path) -> MinioSettings:
     """Return cached MinIO settings for the selected project root.
 
-    Settings are cached per resolved project root, with up to 16 entries,
-    avoiding repeated environment resolution and configuration loading.
-
-    Args:
-        project_root: Resolved project root used for cache selection.
-
-    Returns:
-        MinioSettings: Cached settings instance.
+    Settings are cached per resolved project root (up to 16 entries),
+    avoiding repeated environment resolution and configuration loading;
+    call ``get_settings.cache_clear()`` to refresh after configuration
+    changes.
 
     Examples:
         Same-root cache reuse:
@@ -173,10 +148,5 @@ def get_settings(project_root: Path) -> MinioSettings:
             ...     'aws_secret_access_key': settings.minio_root_password,
             ...     'region_name': settings.s3_region
             ... }
-
-    Warning:
-        Settings are cached per project root. To refresh settings after
-        configuration changes, call ``get_settings.cache_clear()``.
-
     """
     return MinioSettings()

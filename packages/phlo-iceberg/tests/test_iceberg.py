@@ -85,15 +85,7 @@ class TestIcebergCatalogUnitTests:
         mock_table3.__str__ = MagicMock(return_value="bronze.entries")
 
         def mock_list_tables(namespace):
-            """Return mocked tables for the provided namespace.
-
-            Args:
-                namespace: Namespace name to list.
-
-            Returns:
-                List of mocked table objects for that namespace.
-
-            """
+            """Return mocked table objects for the provided namespace."""
             if namespace == "raw":
                 return [mock_table1, mock_table2]
             elif namespace == "bronze":

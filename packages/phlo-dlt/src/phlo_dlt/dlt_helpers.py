@@ -58,13 +58,9 @@ WAP_TAG_KEY = "phlo/wap_branch"
 
 
 def generate_row_id() -> str:
-    """Return a globally unique row identifier for ingestion metadata.
+    """Return a globally unique ULID string for ingestion metadata.
 
-    Generates a ULID (Universally Unique Lexicographically Sortable Identifier)
-    for tracking individual rows through the ingestion pipeline.
-
-    Returns:
-        str: ULID string representation.
+    The identifier tracks individual rows through the ingestion pipeline.
 
     Example:
         ```python
@@ -82,16 +78,10 @@ def generate_row_id() -> str:
 
 
 def get_branch_from_context(context: Any) -> str:
-    """Return the target ref from canonical runtime routing.
+    """Return the table-store branch resolved from the runtime context.
 
-    Resolves the appropriate table store branch from the runtime context,
-    defaulting to "main" if no specific routing is configured.
-
-    Args:
-        context: Runtime context or compatible object with capability routing.
-
-    Returns:
-        str: Resolved branch name (e.g., "main", "feature-branch").
+    Uses canonical runtime routing via capability support, defaulting to
+    "main" when no specific routing is configured.
 
     Example:
         ```python
@@ -113,19 +103,12 @@ def get_branch_from_context(context: Any) -> str:
 
 
 def get_write_branch_from_context(context: Any, *, strict_validation: bool) -> str:
-    """Return the effective write ref for the current ingestion run.
+    """Return the branch writes should target for the current ingestion run.
 
-    When strict validation is enabled and the runtime carries an isolated WAP
-    (Write-Audit-Publish) branch tag, writes should land there first so promotion
-    remains explicit. This supports the WAP pattern where data is written to
-    an isolated branch, validated, then promoted to the main branch.
-
-    Args:
-        context: Runtime context or compatible object with tags.
-        strict_validation: Whether strict validation (and thus WAP) is enabled.
-
-    Returns:
-        str: The branch to write to - either the WAP branch or the target branch.
+    With strict_validation enabled, a WAP (Write-Audit-Publish) branch tag
+    on the runtime context takes precedence so data lands on an isolated
+    branch first and promotion stays explicit; otherwise the routed target
+    branch is returned.
 
     Example:
         ```python
@@ -156,21 +139,11 @@ def inject_metadata_columns(
 ) -> Path:
     """Append Phlo metadata columns to a staged parquet file.
 
-    Injects four metadata columns into a Parquet file to enable lineage
-    tracking and auditing:
-    - _phlo_row_id: Unique ULID per row
-    - _phlo_ingested_at: UTC timestamp
-    - _phlo_partition_date: Partition date
-    - _phlo_run_id: Orchestrator run ID
-
-    Args:
-        parquet_path: Absolute path to the parquet file to mutate.
-        partition_date: Partition date associated with this ingestion run (YYYY-MM-DD).
-        run_id: Orchestrator run identifier.
-        context: Optional Dagster context used for structured logging.
-
-    Returns:
-        Path: The same parquet path after metadata columns are written.
+    Rewrites the file in place with four lineage columns: _phlo_row_id
+    (unique ULID per row), _phlo_ingested_at (UTC timestamp),
+    _phlo_partition_date, and _phlo_run_id. Returns the same path after
+    the columns are written. The optional Dagster context is used for
+    structured logging.
 
     Example:
         ```python
@@ -236,24 +209,13 @@ def validate_with_pandera(
     column_mapping: dict[str, str] | None = None,
     strict: bool = False,
 ) -> bool:
-    """Validate extracted records against a Pandera schema.
+    """Validate extracted records against a Pandera DataFrameModel schema.
 
-    Validates a list of dictionaries (records) against a Pandera DataFrameModel
-    schema. Supports column name remapping and datetime coercion.
-
-    Args:
-        context: Dagster context used for logging validation outcomes.
-        data: Extracted records to validate (list of dicts).
-        schema_class: Pandera DataFrameModel defining validation rules.
-        column_mapping: Optional source-to-schema column rename mapping.
-            Keys are source column names, values are schema column names.
-        strict: Whether to re-raise schema errors instead of returning False.
-
-    Returns:
-        bool: True when validation passes, False when it fails in non-strict mode.
-
-    Raises:
-        pandera.errors.SchemaErrors: If strict=True and validation fails.
+    Builds a DataFrame from the record dicts, applies the optional
+    source-to-schema column rename mapping, coerces datetime columns, and
+    validates lazily. Returns True on success; on failure returns False,
+    or re-raises pandera.errors.SchemaErrors when strict is True. The
+    Dagster context is used for logging validation outcomes.
 
     Example:
         ```python
@@ -324,17 +286,10 @@ def setup_dlt_pipeline(
     pipeline_name: str,
     dataset_name: str,
 ) -> tuple[Any, Path]:
-    """Create a filesystem-backed DLT pipeline.
+    """Create a DLT pipeline with a filesystem destination under /tmp/phlo/dlt.
 
-    Configures a DLT pipeline with filesystem destination for staging
-    extracted data to Parquet files before table store loading.
-
-    Args:
-        pipeline_name: DLT pipeline identifier (unique per run).
-        dataset_name: Target dataset name for staged output.
-
-    Returns:
-        tuple[Any, Path]: Tuple of (pipeline, pipeline_working_directory).
+    The pipeline stages extracted data as Parquet files before table store
+    loading. Returns the pipeline and its working directory.
 
     Example:
         ```python
@@ -368,22 +323,12 @@ def stage_to_parquet(
     dlt_source: Any,
     local_staging_root: Path,
 ) -> tuple[list[Path], float]:
-    """Run DLT extraction and locate the staged parquet output.
+    """Run DLT extraction and return the staged parquet paths and elapsed time.
 
-    Executes the DLT pipeline to extract data from the source and stage
-    it as Parquet files. Returns the paths and timing information.
-
-    Args:
-        context: Dagster context for logs and progress tracking.
-        pipeline: Configured DLT pipeline object.
-        dlt_source: DLT source/resource object to execute.
-        local_staging_root: Root directory used to resolve relative parquet paths.
-
-    Returns:
-        tuple[list[Path], float]: Tuple of (parquet_paths, elapsed_seconds).
-
-    Raises:
-        RuntimeError: If DLT returns no load info or no parquet files.
+    Executes the pipeline against the DLT source, failing with RuntimeError
+    when DLT returns no load info, reports failed loader jobs, or produces
+    no parquet files. Relative output paths are resolved against
+    local_staging_root. The Dagster context is used for progress logging.
 
     Example:
         ```python
@@ -404,6 +349,8 @@ def stage_to_parquet(
     )
 
     load_info: LoadInfo = pipeline.run(dlt_source, loader_file_format="parquet")
+    # Best-effort diagnostic hook: stash the load info on the pipeline for
+    # later inspection. Failure is ignored because it must never break staging.
     try:
         setattr(pipeline, "_phlo_last_load_info", load_info)
     except Exception:
@@ -473,29 +420,14 @@ def merge_to_table_store(
     merge_strategy: str = "merge",
     merge_config: dict[str, Any] | None = None,
 ) -> dict[str, int]:
-    """Write staged parquet data into the configured table store via append or merge.
+    """Write staged parquet data into the table store via append or merge.
 
-    Loads staged Parquet files into the table store using either append or
-    merge (upsert) strategy. Handles schema derivation, table creation,
-    and merge metrics.
-
-    Args:
-        context: Dagster context used for progress logging.
-        table_store: Table store capability used for table operations.
-        table_config: Table configuration including schema, partitioning, and keys.
-        parquet_paths: Paths to staged parquet data.
-        branch_name: Nessie branch to write into.
-        merge_strategy: Write strategy ("append" or "merge").
-        merge_config: Reserved merge configuration payload.
-
-    Returns:
-        dict[str, int]: Merge metrics with keys:
-            - "rows_inserted": Number of rows written
-            - "rows_deleted": Number of rows replaced (merge only)
-
-    Raises:
-        PhloConfigError: If no schema is available or table_store cannot derive schema.
-        ValueError: If merge_strategy is not "append" or "merge".
+    Ensures the destination table exists (deriving its schema from
+    table_config when necessary), coerces each parquet file to the table
+    schema, then appends or upserts per merge_strategy on branch_name.
+    Returns metrics with rows_inserted and rows_deleted. Raises
+    PhloConfigError when no schema is available or derivable, and
+    ValueError for a merge_strategy other than "append" or "merge".
 
     Example:
         ```python
@@ -558,16 +490,11 @@ def merge_to_table_store(
     )
 
     def _coerce_parquet_to_table_schema(parquet_file: Path) -> Path:
-        """Coerce Parquet file columns to match table schema.
+        """Coerce a Parquet file's columns to match the target table schema.
 
-        Internal helper that reads a Parquet file and projects its columns
-        to match the target table schema, handling type coercion.
-
-        Args:
-            parquet_file: Path to the Parquet file to coerce.
-
-        Returns:
-            Path: Path to the coerced Parquet file (in temp directory).
+        Projects the file onto the schema's columns, casting types (with a
+        string round-trip fallback) and filling missing columns with nulls.
+        Returns the path of the coerced file in a temp directory.
 
         """
         import tempfile
@@ -626,6 +553,8 @@ def merge_to_table_store(
                 try:
                     casted = pc.cast(col, target_type)
                 except Exception:
+                    # Direct cast failed; route through string, which Arrow
+                    # accepts from any column, then re-cast to the target.
                     logger.warning(
                         "dlt_merge_schema_cast_fallback",
                         table_name=table_name,

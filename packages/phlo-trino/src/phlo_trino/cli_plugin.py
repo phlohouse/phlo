@@ -1,4 +1,11 @@
-"""Trino CLI plugin registration."""
+"""Trino CLI plugin registration.
+
+Exposes the trino command group as a cli-command plugin so the phlo-trino
+package contributes its commands through plugin discovery rather than a
+core-CLI import.
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported directly.
+Contributes the phlo_trino.cli trino command group through phlo.plugins.base.
+"""
 
 from __future__ import annotations
 

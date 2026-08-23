@@ -1,3 +1,7 @@
+/**
+ * Tooltip provider and primitives built on Base UI tooltip; the provider
+ * defaults to 350ms open and 80ms close delays.
+ */
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 
 import { cn } from '@/lib/utils'

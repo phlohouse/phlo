@@ -1,4 +1,9 @@
-"""Validate the source, distribution, and PyPI identities of a Phlo release."""
+"""Validate the source, distribution, and PyPI identities of a Phlo release.
+
+Hashes sdist/wheel artifacts, cross-checks project name and version across
+pyproject metadata, packaged metadata, and PyPI listings, verifies remote
+sdist content hashes, then emits the resulting publish plan.
+"""
 
 from __future__ import annotations
 
@@ -60,6 +65,7 @@ def _project(path: Path, root: Path) -> Project:
 
 
 def source_projects(root: Path) -> list[Project]:
+    """Collect every source project under the root and reject duplicate names."""
     projects = [_project(root / "pyproject.toml", root)]
     projects.extend(_project(path, root) for path in sorted(root.glob("packages/*/pyproject.toml")))
     names = [project.name for project in projects]
@@ -69,6 +75,7 @@ def source_projects(root: Path) -> list[Project]:
 
 
 def validate_source(root: Path, tag: str) -> dict[str, object]:
+    """Check the tag and support manifest against source project versions."""
     projects = source_projects(root)
     root_project = next(project for project in projects if project.source == "pyproject.toml")
     if tag != f"v{root_project.version}":
@@ -156,6 +163,7 @@ def _validate_packaged_support(path: Path, kind: str, expected: bytes) -> None:
 
 
 def artifacts_for(root: Path, artifact_paths: list[Path]) -> list[Artifact]:
+    """Match built wheels and sdists against source projects and return validated artifacts."""
     expected = {project.name: project for project in source_projects(root)}
     support = (root / "registry/support/v1.json").read_bytes()
     artifacts: list[Artifact] = []
@@ -203,6 +211,9 @@ def _sha256(path: Path) -> str:
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
+# Digest the sdist's logical content rather than the archive bytes: gzip
+# timestamps and member ordering differ between rebuilds of an identical
+# source tree, so only this normalized hash is stable across builds.
 def _sdist_content_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with tarfile.open(path, "r:*") as archive:
@@ -264,6 +275,7 @@ def _remote_sdist_content_sha256(url: str, expected_hash: str) -> str:
 
 
 def publish_plan(artifacts: list[Artifact]) -> tuple[list[Artifact], list[str]]:
+    """Split artifacts into uploads and PyPI conflicts."""
     remote: dict[tuple[str, str], dict[str, tuple[str, bool, str]]] = {}
     upload: list[Artifact] = []
     conflicts: list[str] = []
@@ -276,6 +288,9 @@ def publish_plan(artifacts: list[Artifact]) -> tuple[list[Artifact], list[str]]:
         if published is None:
             upload.append(artifact)
             continue
+        # PyPI refuses any re-upload under an already-used filename, so an
+        # existing file is accepted as published when it is byte-identical
+        # (wheel) or has identical normalized content (sdist).
         actual_hash, yanked, url = published
         if yanked:
             conflicts.append(f"{artifact.project} {artifact.filename} is yanked on PyPI")
@@ -306,6 +321,7 @@ def _write_json(path: Path | None, value: object) -> None:
 
 
 def main() -> None:
+    """Run the release identity CLI subcommand."""
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
     source = subparsers.add_parser("source")

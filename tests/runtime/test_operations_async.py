@@ -1,4 +1,9 @@
-"""Tests for async operation contracts and compatibility adapters."""
+"""Tests for async operation contracts and compatibility adapters.
+
+Covers bidirectional sync/async adapters for ingesters and transformers
+and that sync-facing async adapters reject calls from a running event loop
+instead of blocking it.
+"""
 
 from __future__ import annotations
 

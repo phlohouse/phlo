@@ -1,4 +1,9 @@
-"""Regression tests for data migration CLI commands."""
+"""Regression tests for data migration CLI commands.
+
+Drives validate/run/list/status against temporary specs and history tables,
+including dry-run overrides, clean errors for bad YAML and a missing codemod
+dependency, and decorators-2026-05 codemod check/write behavior.
+"""
 
 from __future__ import annotations
 

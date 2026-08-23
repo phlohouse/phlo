@@ -1,3 +1,7 @@
+/**
+ * Server functions reading and writing per-extension settings through phlo-api
+ * on behalf of authenticated Observatory users.
+ */
 import { createServerFn } from '@tanstack/react-start'
 import type { Register, ValidateSerializableInput } from '@tanstack/router-core'
 

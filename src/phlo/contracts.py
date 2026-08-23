@@ -1,4 +1,9 @@
-"""Contract metadata models shared across ingestion and quality APIs."""
+"""Contract metadata models shared across ingestion and quality APIs.
+
+SLA and Consumer are frozen value objects exchanged inside capability
+metadata payloads; the serialize_* helpers convert them to plain dicts
+and normalize_consumers accepts bare strings as name-only consumers.
+"""
 
 from __future__ import annotations
 

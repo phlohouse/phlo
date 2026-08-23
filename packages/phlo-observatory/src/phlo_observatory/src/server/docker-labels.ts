@@ -22,6 +22,8 @@ export function matchesComposeProject(
   labels: string | undefined,
   composeProject: string | null,
 ): boolean {
+  // A null composeProject disables filtering: every container matches, so
+  // callers outside a compose deployment still see the full container list.
   if (!composeProject) {
     return true
   }

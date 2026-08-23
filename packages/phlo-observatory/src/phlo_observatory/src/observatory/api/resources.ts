@@ -1,3 +1,15 @@
+/**
+ * Observatory resource access layer.
+ *
+ * One endpoint surface, two transports: during SSR the getters call phlo-api
+ * server-side via @/server/phlo-api; in the browser the `*Direct` variants hit
+ * phlo-api directly using a base URL injected into the page
+ * (window.__PHLO_API_BROWSER_URL__ or the phlo-api-browser-url meta tag).
+ *
+ * Every getter returns {data, error} and never throws: transport failures are
+ * reported as error strings so pages can render a degraded state instead of
+ * failing the request.
+ */
 import { createMiddleware, createServerFn } from '@tanstack/react-start'
 
 import type {
@@ -47,6 +59,9 @@ import { apiGet, apiPost } from '@/server/phlo-api'
 
 const Observatory_API_PREFIX = '/api/observatory'
 
+// Only forward well-formed Bearer headers to phlo-api; anything else is
+// dropped (undefined) rather than rejected, so unauthenticated report views
+// still render their error states server-side.
 function bearerAuthorization(value: string | null): string | undefined {
   if (value === null) return undefined
   return /^Bearer\s+\S+$/i.test(value) ? value : undefined
@@ -445,6 +460,9 @@ export const getObservatoryRunReport = createServerFn()
       )
       return { data, error: null }
     } catch (error) {
+      // phlo-api failures arrive as plain Errors whose message embeds the HTTP
+      // status ("phlo-api error: 404 ...", produced by @/server/phlo-api), so
+      // classification has to recover the status from that text.
       const status = Number(
         error instanceof Error
           ? error.message.match(/^phlo-api error: (401|403|404)\b/)?.[1]

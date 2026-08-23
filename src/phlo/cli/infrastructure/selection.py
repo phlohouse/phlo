@@ -1,3 +1,11 @@
+"""Resolve the final service set to install from defaults and CLI overrides.
+
+Selection order is stable: defaults first, then explicitly enabled names in
+CLI order, then profile services in discovery order. Explicitly disabled
+names are removed from every source, and duplicates across sources are
+deduplicated by name.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
@@ -12,16 +20,11 @@ def select_services_to_install(
     enabled_names: Iterable[str],
     disabled_names: Iterable[str],
 ) -> list[ServiceDefinition]:
-    """Resolve final service selection from defaults and CLI overrides.
+    """Resolve final service selection from defaults and CLI enable/disable overrides.
 
-    Args:
-        all_services: Mapping of all discovered services by name.
-        default_services: Services enabled by default.
-        enabled_names: Explicitly enabled service names.
-        disabled_names: Explicitly disabled service names.
-
-    Returns:
-        Ordered list of services selected for installation.
+    Order is stable: defaults first, then explicitly enabled names in CLI
+    order, then profile services in discovery order; names are deduplicated
+    across sources and `disabled_names` wins.
     """
     disabled = set(disabled_names)
     services_to_install: list[ServiceDefinition] = [

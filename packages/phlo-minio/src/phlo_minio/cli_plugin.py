@@ -1,4 +1,11 @@
-"""Minio CLI plugin registration."""
+"""MinIO CLI plugin registration.
+
+Declares the plugin-neutral CLI command plugin that exposes the minio
+command group to the Phlo CLI.
+
+Loaded through the phlo plugin entry-point mechanism at startup rather than
+imported directly.
+"""
 
 from __future__ import annotations
 

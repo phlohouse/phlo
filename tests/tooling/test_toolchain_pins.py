@@ -1,4 +1,9 @@
-"""Contracts for the repository's pinned validation toolchain."""
+"""Contracts for the repository's pinned validation toolchain.
+
+Every setup-uv step must match the repo pin, release.yml must reference the
+immutable ReleaseX revision exactly twice, and relx.toml must derive workspace
+versions transactionally.
+"""
 
 import re
 import tomllib

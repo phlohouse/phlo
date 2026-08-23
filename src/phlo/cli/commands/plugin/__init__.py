@@ -1,4 +1,8 @@
-"""Plugin management commands."""
+"""Plugin management commands.
+
+Assembles the `phlo plugin` group from its sibling modules (list, info,
+check, search, install, update, create) and exports it for CLI wiring.
+"""
 
 from __future__ import annotations
 

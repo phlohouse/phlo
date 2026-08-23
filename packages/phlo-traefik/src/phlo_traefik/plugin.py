@@ -1,4 +1,10 @@
-"""Traefik service plugin registration."""
+"""Traefik service plugin registration.
+
+TraefikServicePlugin is built via service_plugin_class so discovery offers
+traefik as a managed reverse-proxy service.
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported directly.
+Registers the traefik reverse-proxy service through the phlo.plugins factory.
+"""
 
 from __future__ import annotations
 

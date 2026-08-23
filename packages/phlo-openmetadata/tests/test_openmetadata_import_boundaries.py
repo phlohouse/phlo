@@ -1,4 +1,8 @@
-"""Import boundary tests for phlo-openmetadata optional peers."""
+"""Import boundary checks for phlo-openmetadata optional peers.
+
+Reloads package modules to prove they import cleanly without the optional peer
+packages installed.
+"""
 
 from __future__ import annotations
 

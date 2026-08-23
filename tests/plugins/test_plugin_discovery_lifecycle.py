@@ -1,4 +1,8 @@
-"""Regression tests for plugin lifecycle hooks during discovery registration."""
+"""Regression tests for plugin lifecycle hooks during discovery registration.
+
+Uses entry-point stubs with observable initialize/cleanup events to lock the
+replacement ordering and rollback guarantees of lifecycle-aware registration.
+"""
 
 from __future__ import annotations
 

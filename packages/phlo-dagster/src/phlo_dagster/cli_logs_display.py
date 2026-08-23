@@ -49,17 +49,7 @@ def _tail_logs(
 ) -> None:
     """Tail logs in real-time (follow mode).
 
-    Args:
-        filters: Filter criteria.
-        full: Whether to show full messages.
-        output_json: JSON output format.
-
-    Returns:
-        None
-
-    Raises:
-        KeyboardInterrupt: When user stops tailing.
-
+    Raises: KeyboardInterrupt when user stops tailing.
     """
     from phlo_dagster.cli_logs import _get_logs
 
@@ -78,12 +68,7 @@ def _tail_logs(
     seen_logs = set()
 
     def generate_logs_table():
-        """Build a table for newly fetched log entries.
-
-        Returns:
-            Rich renderable containing log rows or an empty-state message.
-
-        """
+        """Build a table for newly fetched log entries."""
         nonlocal last_fetch_time
 
         # Fetch new logs
@@ -152,17 +137,7 @@ def _display_logs(
     full: bool = False,
     output_json: bool = False,
 ) -> None:
-    """Display logs in formatted output.
-
-    Args:
-        logs_data: List of log dictionaries.
-        full: Whether to show full messages.
-        output_json: JSON output format.
-
-    Returns:
-        None
-
-    """
+    """Display logs in formatted output."""
     if not logs_data:
         logger.info("dagster_logs_display_no_results", output_json=output_json)
         if output_json:
@@ -232,15 +207,7 @@ def _display_logs(
 
 
 def _is_json(text: str) -> bool:
-    """Check if text is valid JSON.
-
-    Args:
-        text: String to check.
-
-    Returns:
-        True if valid JSON, False otherwise.
-
-    """
+    """Check if text is valid JSON."""
     try:
         json.loads(text)
         return True

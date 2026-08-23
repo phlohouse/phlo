@@ -1,4 +1,13 @@
-"""Plugin entry-point discovery and loading."""
+"""Plugin entry-point discovery and loading.
+
+Scans entry-point groups by plugin type, applies the configured
+blacklist/whitelist, and validates each loaded object against its
+expected type. In strict mode load failures raise PluginDiscoveryError;
+otherwise they are recorded to the failure sink or logged.
+
+Imported by the phlo.plugins.discovery internals: the package __init__,
+auto-discovery, service loading, and the manifest resolver.
+"""
 
 from __future__ import annotations
 
@@ -56,7 +65,17 @@ def discover_plugins(
     failure_sink: list[dict[str, str]] | None = None,
     strict: bool = False,
 ) -> dict[str, list[Plugin]]:
-    """Discover installed Phlo plugins from entry points."""
+    """Discover installed Phlo plugins from entry points.
+
+    Per-entry-point failures are isolated: a plugin that fails to load, is
+    blacklisted, or has the wrong type never aborts the scan. In strict mode
+    the first failure raises :class:`PluginDiscoveryError`; otherwise the error
+    is logged at ``failure_level`` and, when ``failure_sink`` is given, also
+    appended there for callers to surface. With ``auto_register=True`` each
+    successfully loaded plugin is initialized immediately via
+    :func:`register_plugin_with_lifecycle` (replace=True), so registration and
+    initialization happen per family as discovery proceeds.
+    """
     settings = get_settings()
 
     with suppress_log_routing():

@@ -1,4 +1,10 @@
-"""Postgrest CLI plugin registration."""
+"""Postgrest CLI plugin registration.
+
+Declares the PostgREST CLI command plugin through the shared CLI plugin
+factory; registration metadata only.
+
+Loaded through the phlo plugins.cli entry point at startup rather than imported directly.
+"""
 
 from __future__ import annotations
 

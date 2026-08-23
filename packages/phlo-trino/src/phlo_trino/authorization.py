@@ -1,4 +1,8 @@
-"""phlo_trino CLI authorization table."""
+"""Authorization surface table for the phlo-trino CLI.
+
+Declares the trino query commands as mutations on dataset resources; the shared
+CLI surface adapter enforces these mappings.
+"""
 
 from __future__ import annotations
 
@@ -24,4 +28,5 @@ TrinoCliSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_trino_cli_adapter() -> CliSurfaceAdapter:
+    """Return the shared Trino CLI surface adapter instance."""
     return TrinoCliSurfaceAdapter.get_instance()

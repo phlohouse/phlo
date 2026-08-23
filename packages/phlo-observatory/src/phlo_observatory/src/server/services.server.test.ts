@@ -1,3 +1,7 @@
+/**
+ * Tests service-status helpers: container state mapping and Docker
+ * status-line fallbacks.
+ */
 import { describe, expect, it } from 'vitest'
 
 import {

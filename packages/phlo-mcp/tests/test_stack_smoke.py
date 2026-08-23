@@ -1,4 +1,9 @@
-"""Pytest wrapper for the live phlo-mcp stack smoke script."""
+"""Pytest wrapper for the live phlo-mcp stack smoke script.
+
+Locates the bundled smoke stack spec and asserts durable-asset seeding,
+project-root argument handling, and non-conflicting default ports that still
+respect user overrides.
+"""
 
 from __future__ import annotations
 

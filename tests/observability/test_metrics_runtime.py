@@ -1,4 +1,10 @@
-"""Core metrics runtime tests."""
+"""Core metrics runtime tests.
+
+Covers MetricsCollector initialization and caching, default metric shapes,
+asset-run queries against Postgres, table-name resolution from
+materialization metadata, and Iceberg table stats handling including
+malformed responses, missing dependencies, and catalog resolution.
+"""
 
 from __future__ import annotations
 

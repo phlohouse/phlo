@@ -1,4 +1,10 @@
-"""phlo_pandera CLI authorization table."""
+"""CLI authorization table for the phlo-pandera surface.
+
+Pandera is read-only: schema diff/generate/list/show/validate and the
+workflow validation commands are all reads, with no per-command
+overrides. The adapter is built once at import time and served through
+get_pandera_adapter().
+"""
 
 from __future__ import annotations
 
@@ -34,4 +40,5 @@ PanderaSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_pandera_adapter() -> CliSurfaceAdapter:
+    """Return the shared read-only authorization adapter for the phlo-pandera surface."""
     return PanderaSurfaceAdapter.get_instance()

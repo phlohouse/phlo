@@ -67,23 +67,9 @@ def inject_row_ids_to_table(
     adds the column and populates it with UUID values for all existing rows.
     This provides stable row identifiers for lineage and auditing.
 
-    Args:
-        trino_connection: Open Trino connection used for DDL and DML statements.
-            Must support cursor() method and execute() operations.
-        catalog: Trino catalog name (e.g., "iceberg").
-        schema: Trino schema name (e.g., "marts", "silver").
-        table: Target table name to modify.
-        context: Optional runtime context with a logger (e.g., Dagster context).
-            Used for structured logging during execution.
-
-    Returns:
-        Result metadata dictionary containing:
-            - rows_updated: Number of rows that received new IDs
-            - skipped: Boolean indicating if column already existed
-
-    Raises:
-        Exception: Any database errors during DDL or DML operations.
-
+    The optional ``context`` supplies a logger for structured logging.
+    Returns ``{"rows_updated": ..., "skipped": bool}``; database errors
+    during DDL or DML propagate to the caller.
     Example:
         >>> import trino
         >>> conn = trino.dbapi.connect(host="trino", port=8080, catalog="iceberg")
@@ -183,15 +169,8 @@ def inject_row_ids_for_dbt_run(
     - mrt_* -> marts
     - others -> silver
 
-    Args:
-        trino_connection: Open Trino connection for table operations.
-        run_results: Parsed dbt run_results.json payload containing execution results.
-        catalog: Trino catalog name (default: "iceberg").
-        context: Optional runtime context with logger for structured logging.
-
-    Returns:
-        Mapping of model names to their injection results. Each entry contains
-        either the injection result dict or an error message if injection failed.
+    Returns a mapping of model names to injection result dicts, where failed
+    injections carry an ``"error"`` message instead of row counts.
 
     Example:
         >>> import json

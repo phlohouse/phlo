@@ -99,18 +99,7 @@ class IngestionEnginePlugin(DagsterExtensionPlugin, ABC):
     """
 
     def __init_subclass__(cls, **kwargs: object) -> None:
-        """Warn on subclassing to signal deprecation.
-
-        Args:
-            **kwargs: Keyword arguments forwarded to type.__init_subclass__.
-
-        Returns:
-            None
-
-        Raises:
-            No explicit exceptions raised.
-
-        """
+        """Warn on subclassing to signal deprecation."""
         super().__init_subclass__(**kwargs)
         warnings.warn(
             "IngestionEnginePlugin is deprecated; use capability specs instead.",

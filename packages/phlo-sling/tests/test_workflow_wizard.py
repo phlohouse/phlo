@@ -1,3 +1,9 @@
+"""Tests the sling replication source contribution to the workflow wizard.
+
+Verifies that phlo-sling registers a source-stage wizard contribution with
+the expected browser payload fields and apply capability.
+"""
+
 from phlo.capabilities import WorkflowContributionMode
 from phlo_sling.plugin import get_workflow_wizard_contributions
 

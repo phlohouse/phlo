@@ -1,4 +1,10 @@
-"""Partition key and partition-scope helpers."""
+"""Partition key and partition-scope helpers.
+
+Partition keys are ISO daily dates (YYYY-MM-DD) with timezone-aware derivation;
+PartitionScope expresses an explicit range, a rolling window, or full-table
+coverage, and expected_partitions() reconciles a desired range against
+existing keys.
+"""
 
 from __future__ import annotations
 

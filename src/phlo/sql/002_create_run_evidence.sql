@@ -1,4 +1,7 @@
--- Run-evidence schema version 1. PostgreSQL is the production dialect.
+-- Run-evidence schema version 1. PostgreSQL is the production dialect; the
+-- *_sqlite.sql sibling mirrors it for local SQLite stores. Migrations are
+-- applied in numeric order by phlo.run_evidence.store, and every statement is
+-- idempotent so a partially applied version can be retried.
 CREATE SCHEMA IF NOT EXISTS phlo;
 
 CREATE TABLE IF NOT EXISTS phlo.run_evidence_schema_version (
@@ -6,6 +9,7 @@ CREATE TABLE IF NOT EXISTS phlo.run_evidence_schema_version (
     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- One row per run. run_id is unique within a project, not globally.
 CREATE TABLE IF NOT EXISTS phlo.pipeline_run (
     project_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
@@ -45,6 +49,8 @@ CREATE TABLE IF NOT EXISTS phlo.run_event (
     payload JSONB NOT NULL,
     payload_checksum TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Makes event ingestion idempotent: a producer may redeliver an event
+    -- without creating duplicates.
     UNIQUE (project_id, producer, event_id),
     FOREIGN KEY (project_id, run_id) REFERENCES phlo.pipeline_run(project_id, run_id)
 );
@@ -160,6 +166,8 @@ CREATE TABLE IF NOT EXISTS phlo.run_quality_result (
     record_checksum TEXT NOT NULL,
     PRIMARY KEY (project_id, run_id, quality_result_id),
     FOREIGN KEY (project_id, run_id) REFERENCES phlo.pipeline_run(project_id, run_id),
+    -- Deferred so a quality result can be written before the stage or failure
+    -- artifact rows it references, within the same transaction.
     FOREIGN KEY (project_id, run_id, stage_id)
         REFERENCES phlo.run_stage(project_id, run_id, stage_id)
         DEFERRABLE INITIALLY DEFERRED,

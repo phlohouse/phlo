@@ -1,3 +1,10 @@
+"""Tests for start preflight and service selection planning.
+
+Verifies the selection plan honours defaults, profiles, and explicit
+requests while rejecting disabled or unknown service names, and that the
+start preflight plan carries the compose inputs and resolved backend.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

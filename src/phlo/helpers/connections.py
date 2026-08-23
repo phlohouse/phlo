@@ -1,4 +1,10 @@
-"""Connection resolution and representation helpers."""
+"""Connection resolution and representation helpers.
+
+Normalizes connections from URLs or capability metadata into immutable
+ConnectionConfig values and converts them to the dialects of external
+tools (Sling env, SQLAlchemy URL, dbt profile target). Redaction of
+secrets happens at every representation boundary.
+"""
 
 from __future__ import annotations
 

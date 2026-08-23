@@ -159,16 +159,10 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     """Resolve top-level exports without importing optional packages eagerly.
 
-    Args:
-        name: Attribute name requested from the phlo package.
-
-    Returns:
-        The requested attribute or module.
-
-    Raises:
-        AttributeError: If the attribute is not exported by this module.
+    Raises: AttributeError when the attribute is not exported by this module.
 
     """
+
     if name in _SUBMODULE_EXPORTS:
         module = import_module(f"{__name__}.{name}")
         globals()[name] = module

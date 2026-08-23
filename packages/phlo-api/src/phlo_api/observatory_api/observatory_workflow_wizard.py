@@ -1,4 +1,12 @@
-"""Provider-neutral Observatory workflow wizard helpers."""
+"""Provider-neutral Observatory workflow wizard helpers.
+
+Builds stage-by-stage workflow proposals from user selections and applies
+them within the project workflow root. Proposals are generated and stored
+server-side, HMAC-signed with a per-project integrity key so the browser can
+only apply actions this process previously issued; state I/O opens paths
+relative to O_NOFOLLOW directory descriptors and lands via temp-file plus
+rename, never exposing partially written records.
+"""
 
 from __future__ import annotations
 
@@ -33,6 +41,17 @@ try:
     import fcntl as _fcntl
 except ImportError:  # pragma: no cover - POSIX is used in production
     pass
+
+# DESIGN
+# ------
+#
+# Proposals are generated and stored server-side and HMAC-signed with a
+# per-project integrity key, so the browser can only apply actions for a
+# proposal this process previously issued. All state I/O opens paths relative
+# to directory descriptors opened with O_NOFOLLOW, and files land via
+# temp-file + rename, so a hostile project tree cannot redirect writes or
+# observe partially written records.
+
 
 STAGES = ["source", "transform", "quality", "publish"]
 _ALLOWED_PROJECT_ROOTS = ("workflows", "tests")
@@ -546,6 +565,9 @@ def apply_workflow_action(
             }
             _write_state_json(project_root, "applied", f"{proposal_id}.json", applied)
 
+        # Every completed file is journaled to the applied record as it lands.
+        # A crash mid-apply leaves status "applying"; a retry resumes from the
+        # journal, re-applying only what is still missing.
         written_files = list(applied.get("written_files") or [])
         for preview, _ in targets:
             outcome = _apply_workflow_file(
@@ -669,6 +691,9 @@ def _open_workflow_parent_fd(project_root: Path, relative_path: str) -> tuple[in
         or ".." in parts
     ):
         raise HTTPException(status_code=400, detail="Invalid workflow file path.")
+    # Walk the path one component at a time relative to directory descriptors:
+    # a symlink swapped in at any depth fails the O_NOFOLLOW open instead of
+    # being followed outside the project root.
     directory_fd = -1
     try:
         directory_fd = os.open(project_root.resolve(), _STATE_DIRECTORY_FLAGS)

@@ -1,3 +1,6 @@
+"""Tests the lineage CLI: asset name resolution against lineage graph
+nodes and the show-lineage output."""
+
 from click.testing import CliRunner
 from phlo_lineage.cli_lineage import _resolve_asset_name, lineage_group, show_lineage
 from phlo_lineage.graph import LineageGraph

@@ -1,4 +1,9 @@
-"""Tests for Sling plugin classes."""
+"""Tests for the Sling plugin classes.
+
+Checks that both providers register under the name "sling" and that the
+ingestion provider hands out callable decorator and asset-retriever
+entry points.
+"""
 
 from phlo_sling.plugin import SlingAssetProvider, SlingIngestionProvider
 

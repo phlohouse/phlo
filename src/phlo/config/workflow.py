@@ -1,4 +1,9 @@
-"""Workflow settings loaded from ``phlo.yaml`` and local environment overrides."""
+"""Workflow settings loaded from ``phlo.yaml`` and local environment overrides.
+
+Per namespace, settings layer shared ``settings``, then ``settings.<namespace>``,
+then ``workflows.<namespace>.settings`` with later layers winning; non-mapping
+blocks raise WorkflowSettingsError.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +23,10 @@ class WorkflowSettingsError(ValueError):
 
 
 def _settings_defaults(project_config: dict[str, Any], namespace: str | None) -> dict[str, Any]:
+    # Precedence within committed config, later layers winning: shared
+    # ``settings``, then ``settings.<namespace>``, then
+    # ``workflows.<namespace>.settings``. Non-mapping values in the shared
+    # block are kept; namespace blocks replace them by key.
     settings_config = project_config.get("settings", {})
     if settings_config is None:
         settings_config = {}
@@ -86,6 +95,9 @@ def _env_overrides(
                     f"phlo_settings__{normalized_namespace}__{field_name}",
                 ]
             )
+        # Candidates are ordered least to most qualified, and later matches
+        # overwrite earlier ones: the fully qualified
+        # phlo_settings__<namespace>__<field> spelling wins when present.
         for candidate in candidates:
             if candidate in normalized_env:
                 overrides[field_name] = normalized_env[candidate]
@@ -139,6 +151,9 @@ def workflow_settings(
     Local values from ``.phlo/.env``, ``.phlo/.env.local``, and OS environment
     variables override committed defaults.
     """
+    # Imported inside the function on purpose: phlo.infrastructure.config
+    # imports phlo.config.cache, whose package __init__ imports this module,
+    # so an eager import here is circular.
     from phlo.infrastructure.config import load_project_config
 
     root = project_root or Path.cwd()

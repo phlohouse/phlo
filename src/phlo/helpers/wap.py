@@ -1,4 +1,10 @@
-"""Write-audit-publish helper primitives."""
+"""Write-audit-publish helper primitives.
+
+Derives deterministic per-run staging branch names and drives a versioned
+catalog capability through the WAP cycle: ensure a branch off the target
+ref, then publish (merge) only when all checks pass. Catalog providers
+lacking branch or merge support raise PhloConfigError.
+"""
 
 from __future__ import annotations
 

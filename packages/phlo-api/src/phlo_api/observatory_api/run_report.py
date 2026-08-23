@@ -1,4 +1,8 @@
-"""Authenticated durable run-report endpoint."""
+"""Authenticated durable run-report endpoint.
+
+Serves the evidence projection for one exact run attempt; an unknown
+project/run/attempt combination is always a 404, never a partial report.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,10 @@
-"""Packaging boundary checks for the root phlo package."""
+"""Packaging boundary checks for the root phlo package.
+
+The root package must not depend on provider runtime stacks (dagster, pandas,
+pandera, db drivers, libcst) — those ship as optional runtime/codemods extras
+— and must never import them at module import time outside the explicitly
+allow-listed paths.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,10 @@
-"""Transactional durable state for project-scoped Observatory collections."""
+"""Transactional durable state for project-scoped Observatory collections.
+
+Collections live in durable state namespaced by a hashed project root, so
+different projects never share records. A schema_version mismatch or unreadable
+state raises StorageCorruptionError instead of degrading to empty data; legacy
+JSON files are imported into the store exactly once on first load.
+"""
 
 from __future__ import annotations
 
@@ -56,7 +62,14 @@ def _mutate_collection(
     result_items: list[dict[str, Any]] = []
 
     def apply(current: dict[str, Any] | None) -> dict[str, Any]:
+        """Seed items from the legacy JSON on the first transaction pass, apply the
+        mutation, and return the wrapped durable payload.
+        """
         nonlocal result_items
+        # current is None only while the namespace has never been persisted; seed
+        # from the legacy JSON file on that first pass. Once this transaction
+        # commits, every later load finds the durable record and never reads the
+        # legacy file again, making the import exactly-once.
         items = (
             _items_from_state(current, collection)
             if current is not None

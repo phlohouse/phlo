@@ -1,14 +1,9 @@
 """Partition scoping utilities for SQL quality checks.
 
-This module provides utilities for applying partition-based scoping to SQL queries
-used in quality checks. It supports:
-
-1. **Explicit partition keys**: Apply partition filter when partition key is known
-2. **Rolling windows**: Apply date range filter for recent data
-3. **Full table scans**: Option to disable partitioning for historical analysis
-
-The partition scoping integrates with Dagster's partition mechanism, automatically
-applying the correct filters based on the execution context.
+Apply partition-based scoping to SQL queries used in quality checks via explicit
+partition keys, rolling date windows, or full-table scans (partition filtering
+disabled). Scoping integrates with Dagster's partition mechanism, applying the
+correct filter based on the execution context.
 
 Example:
     ```python
@@ -45,9 +40,8 @@ Example:
     # Result: SELECT * FROM events (unchanged)
     ```
 
-See Also:
-    - ``decorator.py``: Uses partition scoping in ``@phlo_pandera``
-    - ``checks.py``: Quality checks that operate on partitioned data
+Used by ``decorator.py`` (via ``@phlo_pandera``) and by the quality checks in
+``checks.py`` that operate on partitioned data.
 
 """
 
@@ -61,19 +55,12 @@ from datetime import date, timedelta
 class PartitionScope:
     """Partition filter scope for SQL quality checks.
 
-    Defines how a quality check query should be scoped to specific data partitions.
-    The scope can target an explicit partition key, a rolling time window, or
-    the full table.
-
-    Attributes:
-        partition_key: Explicit partition key to target, typically in YYYY-MM-DD
-            format. When provided, the check is scoped to this specific partition.
-        partition_column: Column name used for partition filtering in WHERE clauses.
-            Default is "_phlo_partition_date".
-        rolling_window_days: Optional rolling lookback window in days. When set
-            and partition_key is None, filters to the last N days of data.
-        full_table: If True, skip all partition filtering and scan the full table.
-            Useful for historical analysis or small dimension tables.
+    Defines how a quality check query is scoped to data partitions: an explicit
+    ``partition_key`` (typically YYYY-MM-DD) targets a single partition of
+    ``partition_column`` (default "_phlo_partition_date"); otherwise, when
+    ``rolling_window_days`` is set and no key is given, the query filters to the
+    last N days of data. ``full_table=True`` skips all partition filtering,
+    useful for historical analysis or small dimension tables.
 
     Example:
         ```python
@@ -111,18 +98,9 @@ class PartitionScope:
 def get_partition_key(context: object) -> str | None:
     """Extract a partition key from a Dagster-like execution context.
 
-    Attempts to retrieve the partition key from standard context attributes:
-    1. ``context.partition_key``
-    2. ``context.asset_partition_key``
-
-    Args:
-        context: Context object exposing partition key attributes, typically
-            a Dagster OpExecutionContext or similar.
-
-    Returns:
-        Partition key value when available (typically YYYY-MM-DD format),
-        otherwise None.
-
+    Tries ``context.partition_key``, then ``context.asset_partition_key``;
+    returns the first non-empty string value (typically YYYY-MM-DD), otherwise
+    None.
     Example:
         ```python
         # In a Dagster asset
@@ -150,17 +128,10 @@ def get_partition_key(context: object) -> str | None:
 def apply_partition_scope(sql: str, *, scope: PartitionScope) -> str:
     """Apply partition scope predicates to a SQL statement.
 
-    Appends WHERE clauses to a SQL query based on the partition scope
-    configuration. Handles both explicit partition keys and rolling windows.
-
-    Args:
-        sql: Base SQL statement to scope. Should be a SELECT query.
-        scope: Partition filtering configuration defining the scope rules.
-
-    Returns:
-        SQL statement with appended partition predicates when required.
-        Returns the original SQL if scope.full_table is True or no scoping
-        rules are configured.
+    Appends WHERE clauses per the scope: an equality filter for
+    ``scope.partition_key``, or a date-range filter when ``rolling_window_days``
+    is set. Returns the original SQL unchanged when ``scope.full_table`` is True
+    or no scoping rules are configured.
 
     Example:
         ```python
@@ -205,13 +176,7 @@ def apply_partition_scope(sql: str, *, scope: PartitionScope) -> str:
 def _date_literal(value: str) -> str:
     """Format a SQL date literal.
 
-    Converts an ISO date string to a SQL DATE literal expression.
-
-    Args:
-        value: ISO date string (YYYY-MM-DD format).
-
-    Returns:
-        SQL date literal expression (e.g., "DATE '2024-01-15'").
+    Converts an ISO date string (YYYY-MM-DD) to a SQL DATE literal expression.
 
     Example:
         ```python
@@ -227,16 +192,8 @@ def _date_literal(value: str) -> str:
 def _append_where(sql: str, condition: str) -> str:
     """Append a condition to SQL with WHERE or AND.
 
-    Intelligently appends a predicate to a SQL query. If the query already
-    contains a WHERE clause, the condition is appended with AND. Otherwise,
-    a new WHERE clause is added.
-
-    Args:
-        sql: Base SQL statement (typically a SELECT query).
-        condition: SQL predicate expression to append.
-
-    Returns:
-        SQL statement with the condition properly appended.
+    Appends ``condition`` with AND when the query already contains a WHERE
+    clause, otherwise opens a new WHERE clause.
 
     Example:
         ```python
@@ -251,6 +208,9 @@ def _append_where(sql: str, condition: str) -> str:
 
     """
 
+    # Detection is a substring match and the condition is always appended at
+    # the end, so base queries must not keep WHERE after ORDER BY/LIMIT or
+    # contain "where" inside a string literal.
     if "where" in sql.lower():
         return f"{sql}\nAND {condition}"
     return f"{sql}\nWHERE {condition}"

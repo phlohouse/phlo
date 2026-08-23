@@ -1,4 +1,9 @@
-"""Utility functions for CLI services that can be safely imported by plugins."""
+"""Utility functions for CLI services that can be safely imported by plugins.
+
+Deliberately dependency-light (yaml + logging only). Missing or malformed
+env/config files never raise: they log a warning and fall back to defaults
+derived from the current directory name.
+"""
 
 from collections.abc import Mapping
 from pathlib import Path

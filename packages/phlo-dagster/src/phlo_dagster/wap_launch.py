@@ -1,4 +1,12 @@
-"""Pre-launch Write-Audit-Publish coordination for Dagster runs."""
+"""Pre-launch Write-Audit-Publish coordination for Dagster runs.
+
+Prepares an isolated WAP branch and tags before Dagster starts work, then keeps
+content-addressed launch manifests and lifecycle reports under .phlo/wap-reports
+so promotion binds to the exact audited launch.
+
+Part of phlo-dagster's WAP tooling alongside wap_sensors: runs on the launch path before
+Dagster work begins.
+"""
 
 from __future__ import annotations
 
@@ -71,6 +79,8 @@ def _write_launch_manifest(
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
             path.write_text(serialized, encoding="utf-8")
+            # Read-only so a later launch cannot silently rewrite a binding
+            # that promotion verifies by digest.
             path.chmod(0o444)
     except OSError:
         logger.warning(

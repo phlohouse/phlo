@@ -1,4 +1,14 @@
-"""Default maintenance read-model implementation."""
+"""Default maintenance read-model implementation.
+
+Builds a provider-neutral maintenance status from telemetry events and
+renders it as Prometheus exposition. Defines the shared operation lifecycle
+states, precondition/execution errors with failure-phase classification,
+and SAFE_MIN_RETENTION_HOURS as the floor destructive retention requests
+must respect (providers reject, not clamp).
+
+Imported by phlo.capabilities (re-exported via its __init__) and by observability;
+surfaces maintenance status to the CLI metrics command.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +23,8 @@ from phlo.capabilities.telemetry import get_telemetry_path, iter_telemetry_event
 from phlo.logging import get_logger
 
 MAINTENANCE_COMPLETE_EVENT = "iceberg.maintenance.complete"
+# Floor for destructive retention operations: providers must reject snapshot
+# expiry or orphan cleanup requesting less retention than this, not clamp it.
 SAFE_MIN_RETENTION_HOURS = 7 * 24
 logger = get_logger(__name__)
 
@@ -92,6 +104,8 @@ class MaintenanceOperationResult:
 
 @dataclass(frozen=True)
 class MaintenanceOperationStatus:
+    """Latest outcome of one maintenance operation."""
+
     operation: str
     namespace: str
     ref: str
@@ -111,6 +125,8 @@ class MaintenanceOperationStatus:
 
 @dataclass(frozen=True)
 class MaintenanceStatusSnapshot:
+    """Point-in-time view of the latest maintenance operations."""
+
     last_updated: datetime
     operations: list[MaintenanceOperationStatus]
 
@@ -179,9 +195,11 @@ class DefaultMaintenanceReadModel:
     """Default maintenance read model backed by telemetry events."""
 
     def load_maintenance_status(self):
+        """Load the latest maintenance status snapshot."""
         return load_maintenance_status()
 
     def render_maintenance_prometheus(self) -> str:
+        """Render maintenance status in Prometheus exposition format."""
         return render_maintenance_prometheus()
 
 

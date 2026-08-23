@@ -45,13 +45,6 @@ class RawDataOutput(BaseModel):
     Captures the status and metadata of raw data ingestion operations,
     including file counts and paths.
 
-    Attributes:
-        status: Status of the raw data ingestion - "available" if data was
-            successfully ingested, "no_data" if no data was found.
-        path: Path to the raw data directory (local or S3/MinIO path).
-        file_count: Total number of parquet files found. Default 0.
-        files: List of file names (up to 10 for display purposes).
-
     Example:
         ```python
         # Successful ingestion
@@ -70,7 +63,6 @@ class RawDataOutput(BaseModel):
             files=[],
         )
         ```
-
     """
 
     status: str = Field(
@@ -99,10 +91,6 @@ class TablePublishStats(BaseModel):
     Captures row and column counts for tables published from Trino to Postgres
     or other destinations.
 
-    Attributes:
-        row_count: Number of rows in the published table. Must be >= 0.
-        column_count: Number of columns in the published table. Must be >= 0.
-
     Example:
         ```python
         stats = TablePublishStats(
@@ -110,7 +98,6 @@ class TablePublishStats(BaseModel):
             column_count=15,
         )
         ```
-
     """
 
     row_count: int = Field(
@@ -131,9 +118,6 @@ class PublishPostgresOutput(BaseModel):
     Aggregates TablePublishStats for multiple tables published in a single
     operation.
 
-    Attributes:
-        tables: Dictionary mapping table names to their publishing statistics.
-
     Example:
         ```python
         from phlo_pandera.schemas import PublishPostgresOutput, TablePublishStats
@@ -145,7 +129,6 @@ class PublishPostgresOutput(BaseModel):
             }
         )
         ```
-
     """
 
     tables: dict[str, TablePublishStats] = Field(

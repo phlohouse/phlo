@@ -1,4 +1,8 @@
-"""Tests for strict validation mode in validate_with_pandera."""
+"""Tests for strict validation mode in validate_with_pandera.
+
+Strict mode raises pandera SchemaErrors on invalid data; non-strict mode
+(the backwards-compatible default) returns False instead.
+"""
 
 from __future__ import annotations
 

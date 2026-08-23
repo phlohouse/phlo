@@ -1,4 +1,10 @@
-"""Tests for Sling CLI commands."""
+"""Tests for Sling CLI commands.
+
+Covers ad-hoc runs (target objects derived from streams, the configured
+default mode, explicit objects required for wildcard streams), connection
+discovery via sling conns discover, and that subprocess failures surface as
+actionable errors without leaking raw Sling stderr.
+"""
 
 from __future__ import annotations
 

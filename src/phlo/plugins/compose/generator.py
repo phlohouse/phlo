@@ -59,20 +59,10 @@ class ComposeGenerator:
         env_values: Mapping[str, Any] | None = None,
         deployment_profile: Literal["development", "production"] = "development",
     ) -> str:
-        """Generate docker-compose.yml content.
-
-        Args:
-            services: List of services to include.
-            output_dir: Target directory (for resolving relative paths).
-            dev_mode: If True, add phlo source mounts for dev services.
-            service_dev_mode: If True, apply service-specific `dev:` overrides.
-            phlo_src_path: Path to phlo source (relative to project root).
-            user_overrides: Dict of service name to ServiceOverride config from phlo.yaml.
-            env_values: Effective project environment values used for conditional service settings.
-            deployment_profile: Deployment posture for generated service bindings.
-
-        Returns:
-            Docker compose YAML content as string.
+        """Generate docker-compose.yml content for the given services.
+        dev_mode adds Phlo source mounts for dev services and
+        service_dev_mode applies per-service ``dev:`` overrides; neither is
+        allowed with the "production" deployment profile.
         """
         if deployment_profile == "production" and (dev_mode or service_dev_mode):
             raise ValueError(
@@ -149,7 +139,14 @@ class ComposeGenerator:
         return self._require_production_credentials(value)
 
     def _require_production_credentials(self, value: Any) -> Any:
-        """Replace bundled credential fallbacks with Compose required-variable syntax."""
+        """Replace bundled credential fallbacks with Compose required-variable syntax.
+
+        Rewrites happen in place on the generated config. Two shapes carry
+        credentials: dict/list entries keyed or assigned by variable name, and
+        string interpolation with a bundled default (``${VAR:-default}``). Both
+        are converted to ``${VAR:?...}`` so Compose fails the stack instead of
+        silently starting with a known default password.
+        """
         if isinstance(value, dict):
             for key, nested_value in value.items():
                 if key in _PRODUCTION_CREDENTIAL_DEFAULTS:
@@ -213,16 +210,9 @@ class ComposeGenerator:
         user_override: dict[str, Any] | None = None,
         env_values: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Build docker-compose service configuration.
-
-        Args:
-            service: Service definition from package/core.
-            output_dir: Output directory for relative paths.
-            dev_mode: Whether to add Phlo source mounts for dev workflows.
-            service_dev_mode: Whether to apply service-specific `dev:` runtime overrides.
-            phlo_src_path: Path to phlo source.
-            user_override: User overrides from phlo.yaml services section.
-            env_values: Effective project environment values for conditional settings.
+        """Build the docker-compose configuration for one service, applying
+        optional user overrides from phlo.yaml and conditional settings from
+        effective environment values.
         """
         config: dict[str, Any] = {}
         user_override = user_override or {}
@@ -590,14 +580,8 @@ class ComposeGenerator:
         services: list[ServiceDefinition],
         output_dir: Path,
     ) -> list[str]:
-        """Copy additional files required by services.
-
-        Args:
-            services: List of services.
-            output_dir: Target .phlo directory.
-
-        Returns:
-            List of copied file paths.
+        """Copy each service's additional files into the .phlo output
+        directory, returning the copied paths relative to it.
         """
         copied: list[str] = []
 

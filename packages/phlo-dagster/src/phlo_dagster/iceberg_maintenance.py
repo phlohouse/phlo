@@ -146,6 +146,9 @@ def _run_retention_resource_operation(
     if config.dry_run:
         return plan
     before_revision = cast(int | str | None, plan.get("before_revision"))
+    # Execute only if the catalog is still at the revision observed during
+    # planning; a moved revision makes the provider refuse rather than delete
+    # against a stale plan.
     if operation == "expire_snapshots":
         common["executor"] = _load_snapshot_expiry_executor()
     return method(
@@ -163,15 +166,8 @@ def expire_table_snapshots(
 ) -> dict[str, Any]:
     """Plan snapshot expiry and execute only with guarded, non-atomic evidence.
 
-    Args:
-        context: Dagster operation execution context.
-        config: Maintenance configuration.
-
-    Returns:
-        Summary dict with processed tables, snapshot candidates, zero deletions, and errors.
-
-    Raises:
-        No explicit exceptions raised. Logs warnings on table failures.
+    Returns a summary dict with processed tables, snapshot candidates, zero
+    deletions, and errors; per-table failures are logged as warnings.
 
     """
     tables_processed = 0
@@ -281,16 +277,7 @@ def cleanup_orphan_files(
     Dry-run mode reports candidates from the configured object-store listing.
     Execute mode returns a structured unsupported result because the blessed
     Trino procedure cannot bind the submitted deletion set to that plan.
-
-    Args:
-        context: Dagster operation execution context.
-        config: Maintenance configuration.
-
-    Returns:
-        Results dict with tables_processed, total_orphan_files, dry_run, errors.
-
-    Raises:
-        No explicit exceptions raised. Logs warnings on table failures.
+    Per-table failures are logged as warnings.
 
     """
     _validate_orphan_dry_run_compatibility(config)
@@ -445,15 +432,8 @@ def collect_table_stats(
 ) -> dict[str, Any]:
     """Collect statistics for all tables in the specified namespace.
 
-    Args:
-        context: Dagster operation execution context.
-        config: Maintenance configuration.
-
-    Returns:
-        Results dict with tables, total_size_mb, total_records, errors.
-
-    Raises:
-        No explicit exceptions raised. Logs warnings on table failures.
+    Returns a results dict with tables, total_size_mb, total_records, and
+    errors; per-table failures are logged as warnings.
 
     """
     tables: list[dict[str, Any]] = []
@@ -534,18 +514,7 @@ def collect_table_stats(
     ),
 )
 def iceberg_maintenance_job():
-    """Plan retention operations, then collect table statistics.
-
-    Args:
-        None
-
-    Returns:
-        None
-
-    Raises:
-        No explicit exceptions raised.
-
-    """
+    """Plan retention operations, then collect table statistics."""
     expire_table_snapshots()
     cleanup_orphan_files()
     collect_table_stats()
@@ -555,18 +524,7 @@ def iceberg_maintenance_job():
     description="Plan Iceberg snapshot expiry; execution requires an explicit plan token",
 )
 def expire_snapshots_job():
-    """Job that plans snapshot expiry and accepts guarded execution requests.
-
-    Args:
-        None
-
-    Returns:
-        None
-
-    Raises:
-        No explicit exceptions raised.
-
-    """
+    """Job that plans snapshot expiry and accepts guarded execution requests."""
     expire_table_snapshots()
 
 
@@ -574,18 +532,7 @@ def expire_snapshots_job():
     description="Discover Iceberg orphan files; destructive execution is refused",
 )
 def orphan_cleanup_job():
-    """Job that only discovers orphan files and refuses deletion.
-
-    Args:
-        None
-
-    Returns:
-        None
-
-    Raises:
-        No explicit exceptions raised.
-
-    """
+    """Job that only discovers orphan files and refuses deletion."""
     cleanup_orphan_files()
 
 
@@ -593,18 +540,7 @@ def orphan_cleanup_job():
     description="Collect statistics for all Iceberg tables",
 )
 def table_stats_job():
-    """Job that only collects table statistics.
-
-    Args:
-        None
-
-    Returns:
-        None
-
-    Raises:
-        No explicit exceptions raised.
-
-    """
+    """Job that only collects table statistics."""
     collect_table_stats()
 
 
@@ -618,20 +554,7 @@ iceberg_maintenance_schedule = dg.ScheduleDefinition(
 
 
 def get_maintenance_definitions() -> dg.Definitions:
-    """Get Dagster definitions for Iceberg maintenance.
-
-    Returns definitions that can be merged into a project's main definitions.
-
-    Args:
-        None
-
-    Returns:
-        Dagster Definitions containing maintenance jobs and schedules.
-
-    Raises:
-        No explicit exceptions raised.
-
-    """
+    """Return Dagster definitions for Iceberg maintenance, for merging into a project."""
     logger.info(
         "dagster_iceberg_maintenance_definitions_built",
         job_count=4,

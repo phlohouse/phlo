@@ -1,3 +1,7 @@
+/**
+ * Tests SQL guardrails: statement splitting, read-only enforcement, limit
+ * injection, and unsafe-query rejection.
+ */
 import { describe, expect, it } from 'vitest'
 
 import {

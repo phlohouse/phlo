@@ -16,9 +16,10 @@ from phlo_alerting.manager import Alert, AlertSeverity, get_alert_manager
 class AlertManagerSink:
     """Expose phlo-alerting through the neutral alert-sink capability.
 
-        This class implements the alert sink interface expected by the Phlo
+    This class implements the alert sink interface expected by the Phlo
     capability system. It translates external alert calls into the internal
-    Alert format and routes them through the shared AlertManager.
+    Alert format and routes them through the shared AlertManager. The class
+    is stateless and delegates entirely to AlertManager.
 
     Examples:
             >>> sink = AlertManagerSink()
@@ -27,9 +28,6 @@ class AlertManagerSink:
             ...     message="This is a test",
             ...     severity="error"
             ... )
-
-    Attributes:
-            None; this class is stateless and delegates to AlertManager.
 
     """
 
@@ -45,25 +43,12 @@ class AlertManagerSink:
     ) -> bool:
         """Send one alert through the shared alert manager.
 
-                This method creates an Alert object from the provided parameters
-                and routes it through the global AlertManager to all configured
-        destinations.
-
-        Args:
-                    title: Short alert title or summary.
-                    message: Detailed alert message or description.
-                    severity: Alert severity level as string (info, warning, error, critical).
-                        Defaults to "error" if not provided or invalid.
-                    asset_name: Optional name of the asset that triggered the alert.
-                    run_id: Optional run identifier for correlation.
-                    error_message: Optional detailed error message or stack trace.
-
-        Returns:
-                    True if the alert was sent successfully to at least one destination,
-                    False otherwise.
-
-        Raises:
-                    None; exceptions from individual destinations are logged but not raised.
+        Creates an Alert object from the provided parameters and routes it
+        through the global AlertManager to all configured destinations.
+        severity is a string level (info, warning, error, critical) that
+        defaults to "error" when missing or invalid. Returns True when the
+        alert reached at least one destination and False otherwise;
+        exceptions from individual destinations are logged but not raised.
 
         Examples:
                     >>> sink = AlertManagerSink()
@@ -93,16 +78,9 @@ class AlertManagerSink:
 def _coerce_alert_severity(severity: str | None) -> AlertSeverity:
     """Normalize string severity into the alerting enum.
 
-    Converts string severity values into AlertSeverity enum values.
-    Handles case insensitivity and provides fallback to ERROR for
-    invalid or missing values.
-
-    Args:
-        severity: String severity value or None.
-
-    Returns:
-        AlertSeverity enum value matching the input, or AlertSeverity.ERROR
-        if the input is None, empty, or invalid.
+    Converts string severity values into AlertSeverity enum values, handling
+    case insensitivity and falling back to ERROR when the input is None,
+    empty, or invalid.
 
     Examples:
         >>> _coerce_alert_severity("warning")

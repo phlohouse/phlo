@@ -1,3 +1,8 @@
+/**
+ * /services route. Stack service dashboard: start/stop/restart actions,
+ * package installs, and per-service detail fetched directly after
+ * mutations so stale cached state is never shown.
+ */
 import { createFileRoute } from '@tanstack/react-router'
 import {
   Download,

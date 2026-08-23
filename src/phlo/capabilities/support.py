@@ -1,4 +1,12 @@
-"""Structured capability support metadata."""
+"""Structured capability support metadata.
+
+CapabilitySupport lets providers advertise optional behaviour without forcing
+every implementation to fake advanced semantics; coerce_capability_support
+normalises raw payloads or returns all-False defaults.
+
+Shared foundation of phlo.capabilities: resolver, specs, runtime, and plugin base all import it.
+Defines the CapabilitySupport contract and imports nothing else from phlo.
+"""
 
 from __future__ import annotations
 
@@ -36,14 +44,7 @@ class CapabilitySupport:
 def coerce_capability_support(
     value: CapabilitySupport | Mapping[str, Any] | None,
 ) -> CapabilitySupport:
-    """Normalize raw support metadata into ``CapabilitySupport``.
-
-    Args:
-        value: Existing support object, mapping payload, or ``None``.
-
-    Returns:
-        Normalized ``CapabilitySupport`` instance.
-    """
+    """Normalize raw support metadata into ``CapabilitySupport``."""
     if isinstance(value, CapabilitySupport):
         return value
     if value is None:

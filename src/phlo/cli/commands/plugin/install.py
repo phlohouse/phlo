@@ -1,4 +1,9 @@
-"""Plugin install command."""
+"""Plugin install command.
+
+Resolves a plugin name against the registry to a pinned package spec, installs
+it with pip, and reports the result. Treated as a mutation: the whole command
+sits behind require_mutation_authorization.
+"""
 
 from __future__ import annotations
 

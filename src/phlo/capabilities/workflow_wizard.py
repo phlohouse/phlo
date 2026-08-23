@@ -1,4 +1,12 @@
-"""Provider-neutral workflow wizard contracts."""
+"""Provider-neutral workflow wizard contracts.
+
+Dataclasses describing wizard stages, contributions, fields, proposals, and
+apply actions, with to_browser_dict() serializers that strip sensitive keys
+(_SENSITIVE_KEY_PARTS) before anything reaches the browser. Also provides
+proposal request validation and file-conflict detection against disk state.
+Surfaced through the phlo.capabilities package root and exercised by plugin
+contract tests; defines browser-safe wizard contracts with no phlo imports.
+"""
 
 from __future__ import annotations
 
@@ -72,6 +80,7 @@ class WorkflowWizardField:
     secret: bool = False
 
     def to_browser_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable rendering of this field for the browser."""
         return {
             "name": self.name,
             "label": self.label,
@@ -102,6 +111,7 @@ class WorkflowWizardContribution:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_browser_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable rendering of this contribution, including its fields."""
         return {
             "id": self.id,
             "package": self.package,
@@ -136,10 +146,12 @@ class WorkflowProposalRequest:
     ] = field(default_factory=dict)
 
     def selection_for(self, stage: str) -> WorkflowStageSelection | None:
+        """Return the first selection for a stage, or None when the stage has none."""
         selections = self.selections_for(stage)
         return selections[0] if selections else None
 
     def selections_for(self, stage: str) -> list[WorkflowStageSelection]:
+        """Return the stage's selections coerced to WorkflowStageSelection; empty when unset."""
         raw = self.selections.get(stage)
         if raw is None:
             return []
@@ -166,6 +178,7 @@ class WorkflowFilePreview:
     mode: WorkflowFileMode = "create"
 
     def to_browser_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable rendering of this file preview."""
         return {"path": self.path, "content": self.content, "mode": self.mode}
 
 
@@ -184,6 +197,7 @@ class WorkflowApplyAction:
     expected_evidence: list[str] = field(default_factory=list)
 
     def to_browser_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable rendering of this apply action."""
         return {
             "id": self.id,
             "label": self.label,
@@ -214,6 +228,7 @@ class WorkflowProposal:
     actions: list[WorkflowApplyAction] = field(default_factory=list)
 
     def to_browser_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable rendering of this proposal, including files and actions."""
         return {
             "workflow_name": self.workflow_name,
             "domain": self.domain,

@@ -1,3 +1,9 @@
+/**
+ * Sandbox definition: a Vercel-backed sandbox bootstrapped with the phlo repo
+ * clone, git identity, uv/Python, and pinned tooling. A versioned revalidation
+ * key invalidates stale snapshots when bootstrap inputs change, and each
+ * session re-points the clone at origin/main for a clean checkout.
+ */
 import {
   agentBrowserRevalidationKey,
   installAgentBrowser,
@@ -17,6 +23,9 @@ export default defineSandbox({
       deleteEvicted: true,
     },
   }),
+  // Snapshots are reused only while this key is unchanged; bumping any
+  // embedded version (template, pinned tool versions) invalidates previously
+  // captured sandboxes so the next bootstrap starts from fresh inputs.
   revalidationKey: () =>
     `phlo:${SANDBOX_TEMPLATE_VERSION}:before-and-after-${BEFORE_AFTER_VERSION}:${agentBrowserRevalidationKey()}`,
   async bootstrap({ use }) {
@@ -48,6 +57,10 @@ export default defineSandbox({
       command: `npm install --global @vercel/before-and-after@${BEFORE_AFTER_VERSION}`,
     })
   },
+
+  // Re-point the clone at origin/main at the start of every session so each
+  // one begins from a clean, up-to-date checkout instead of whatever the last
+  // session left on disk.
   async onSession({ use }) {
     const sandbox = await use()
     await sandbox.run({

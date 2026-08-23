@@ -1,4 +1,9 @@
-"""Exec command for running a process inside a service container."""
+"""Run the ``phlo services exec`` command.
+
+Runs an arbitrary command inside a running service container via the compose
+backend. Treated as a mutation: the command passes through mutation
+authorization before any container is touched.
+"""
 
 from __future__ import annotations
 
@@ -66,6 +71,8 @@ def exec_cmd(
         backend_name=backend_name,
     )
     cmd.append("exec")
+    # Without a caller-side terminal, disable the compose pseudo-TTY so piped
+    # stdin and captured output work instead of failing on TTY allocation.
     if not tty:
         cmd.append("-T")
     cmd.append(service_name)

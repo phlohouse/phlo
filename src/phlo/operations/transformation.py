@@ -1,4 +1,9 @@
-"""Transformation operation contracts."""
+"""Transformation operation contracts.
+
+Sync and async transformer base classes share one result type and a minimal
+logger protocol, so orchestration code drives dbt-style engines without
+depending on any concrete implementation.
+"""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -38,12 +43,7 @@ class BaseTransformer(Generic[ContextT], ABC):
     """Base contract for transformation engines."""
 
     def __init__(self, context: ContextT, logger: Logger):
-        """Initialize a transformer.
-
-        Args:
-            context: Engine-specific execution context.
-            logger: Logger used for execution output.
-        """
+        """Store the execution ``context`` and output ``logger``."""
         self.context = context
         self.logger = logger
 
@@ -53,15 +53,8 @@ class BaseTransformer(Generic[ContextT], ABC):
         partition_key: str | None = None,
         parameters: dict[str, Any] | None = None,
     ) -> TransformationResult:
-        """Run transformations for an optional partition.
-
-        Args:
-            partition_key: Partition key for partition-scoped runs.
-            parameters: Backend-specific runtime parameters.
-
-        Returns:
-            Transformation execution result metadata.
-        """
+        """Run transformations for ``partition_key`` (None for a full run)
+        with backend-specific ``parameters``; return the execution result."""
         ...
 
 
@@ -69,12 +62,7 @@ class AsyncTransformer(Generic[ContextT], ABC):
     """Async contract for transformation engines."""
 
     def __init__(self, context: ContextT, logger: Logger):
-        """Initialize an async transformer.
-
-        Args:
-            context: Engine-specific execution context.
-            logger: Logger used for execution output.
-        """
+        """Store the execution ``context`` and output ``logger``."""
         self.context = context
         self.logger = logger
 
@@ -84,13 +72,7 @@ class AsyncTransformer(Generic[ContextT], ABC):
         partition_key: str | None = None,
         parameters: dict[str, Any] | None = None,
     ) -> TransformationResult:
-        """Run transformations for an optional partition asynchronously.
-
-        Args:
-            partition_key: Partition key for partition-scoped runs.
-            parameters: Backend-specific runtime parameters.
-
-        Returns:
-            Transformation execution result metadata.
-        """
+        """Asynchronously run transformations for ``partition_key`` (None
+        for a full run) with backend-specific ``parameters``; return the
+        execution result."""
         ...

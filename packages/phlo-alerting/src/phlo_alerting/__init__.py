@@ -16,12 +16,6 @@ Examples:
         ... )
         >>> manager.send(alert)
 
-Attributes:
-    AlertManager: Central manager for alert destinations and deduplication.
-    Alert: Data class representing an alert payload.
-    AlertSeverity: Enum defining alert severity levels.
-    AlertingSettings: Configuration class for alert destinations.
-
 """
 
 from phlo_alerting.manager import (

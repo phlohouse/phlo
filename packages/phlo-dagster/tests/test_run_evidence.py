@@ -1,3 +1,6 @@
+"""Verify DagsterRunEvidenceSource resolves runs from the Dagster instance,
+including paginated event-record fetching, into the shared evidence store."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace

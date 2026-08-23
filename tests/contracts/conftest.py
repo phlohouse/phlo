@@ -1,4 +1,10 @@
-"""Fixtures for profile-level contract tests."""
+"""Fixtures for profile-level contract tests.
+
+Bundled-stack sessions boot the real stack only when explicitly enabled via
+environment and force cleanup only when the session has no failures;
+non-versioned profile harnesses skip cleanly when their dependencies are
+missing.
+"""
 
 from __future__ import annotations
 

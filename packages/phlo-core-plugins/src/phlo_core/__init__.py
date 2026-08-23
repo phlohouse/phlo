@@ -1,17 +1,6 @@
-"""Core plugins for Phlo.
-
-This package provides the foundational set of plugins bundled with Phlo,
-including quality check plugins and source connector plugins. These plugins
-are automatically available when Phlo is installed.
-
-Quality Checks:
-    - NullCheckPlugin: Validates column completeness by checking for null values.
-    - UniquenessCheckPlugin: Validates primary key uniqueness.
-    - FreshnessCheckPlugin: Validates data freshness based on timestamps.
-    - SchemaCheckPlugin: Validates column presence and data types.
-
-Source Connectors:
-    - RestAPIPlugin: Generic REST API connector for fetching data.
+"""Core plugins for Phlo: quality checks (null, uniqueness, freshness, schema)
+and the generic REST API source connector, bundled and automatically available
+with Phlo.
 
 Example:
     To use these plugins in your Phlo project::
@@ -20,9 +9,6 @@ Example:
 
         null_check = NullCheckPlugin()
         rest_source = RestAPIPlugin()
-
-Attributes:
-    __version__: The version string for the phlo-core-plugins package.
 
 """
 

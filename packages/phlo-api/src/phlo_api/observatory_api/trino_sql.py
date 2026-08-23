@@ -48,15 +48,7 @@ _FORBIDDEN_READ_ONLY_PATTERN = re.compile(rf"\b({'|'.join(_FORBIDDEN_READ_ONLY_K
 def quote_identifier(identifier: str) -> str:
     """Quote an SQL identifier safely for Trino.
 
-    Args:
-        identifier: The SQL identifier to quote.
-
-    Returns:
-        Quoted identifier string with double quotes.
-
-    Raises:
-        ValueError: If identifier is empty or contains NUL bytes.
-
+    Raises: ValueError if identifier is empty or contains NUL bytes.
     """
     if not identifier:
         raise ValueError("Identifier cannot be empty")
@@ -69,17 +61,7 @@ def quote_identifier(identifier: str) -> str:
 def qualify_table_name(catalog: str, schema: str, table: str) -> str:
     """Build a fully qualified table name with proper quoting.
 
-    Args:
-        catalog: Catalog name.
-        schema: Schema name.
-        table: Table name.
-
-    Returns:
-        Fully qualified and quoted table name string.
-
-    Raises:
-        ValueError: If any identifier is invalid.
-
+    Raises: ValueError if any identifier is invalid.
     """
     return f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(table)}"
 
@@ -87,15 +69,7 @@ def qualify_table_name(catalog: str, schema: str, table: str) -> str:
 def is_probably_qualified_table(table: str) -> bool:
     """Check if a table name appears to be fully qualified.
 
-    Args:
-        table: Table name string to check.
-
-    Returns:
-        True if table name contains at least 2 dots or starts with a quote.
-
-    Raises:
-        None: No exceptions raised directly.
-
+    No exceptions raised directly.
     """
     return table.count(".") >= 2 or table.startswith('"')
 
@@ -103,15 +77,7 @@ def is_probably_qualified_table(table: str) -> bool:
 def sql_literal(value: object) -> str:
     """Convert a Python value to a safe SQL literal.
 
-    Args:
-        value: Python value to convert (bool, int, float, str, or None).
-
-    Returns:
-        SQL literal string representation.
-
-    Raises:
-        ValueError: If value is None, non-finite float, or unsupported type.
-
+    Raises: ValueError if value is None, non-finite float, or unsupported type.
     """
     if value is None:
         raise ValueError("Use IS NULL for null filters")
@@ -135,15 +101,7 @@ def strip_sql_literals_and_comments(query: str) -> str:
     This is used to prepare a query for keyword analysis by removing
     variable content that might contain forbidden keywords.
 
-    Args:
-        query: SQL query string to process.
-
-    Returns:
-        Query string with literals and comments replaced by spaces.
-
-    Raises:
-        None: No exceptions raised directly.
-
+    No exceptions raised directly.
     """
     out: list[str] = []
     i = 0
@@ -152,7 +110,9 @@ def strip_sql_literals_and_comments(query: str) -> str:
     in_line_comment = False
     in_block_comment = False
     length = len(query)
-
+    # Elided characters become spaces rather than being dropped, so code on
+    # either side of a literal or comment can never fuse into a token that
+    # looks like (or hides) a forbidden keyword during the later scan.
     while i < length:
         ch = query[i]
         nxt = query[i + 1] if i + 1 < length else ""
@@ -234,15 +194,7 @@ def validate_read_only_query(query: str) -> str | None:
     Checks for forbidden keywords (INSERT, UPDATE, DELETE, etc.) and
     ensures only a single statement is present.
 
-    Args:
-        query: SQL query string to validate.
-
-    Returns:
-        Error message string if validation fails, None if query is valid.
-
-    Raises:
-        None: No exceptions raised directly.
-
+    No exceptions raised directly.
     """
     cleaned = strip_sql_literals_and_comments(query)
     trimmed = cleaned.strip()

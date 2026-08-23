@@ -38,17 +38,21 @@ class RecoveryDrillError(RuntimeError):
 
 @dataclass(frozen=True)
 class Stack:
+    """An isolated docker compose project and scratch directory for one drill run."""
+
     project: str
     directory: Path
 
     @property
     def compose_file(self) -> Path:
+        """Return the path of the stack's generated compose.yaml."""
         return self.directory / "compose.yaml"
 
 
 def run(
     command: list[str], *, input: bytes | None = None, timeout: int = 180
 ) -> subprocess.CompletedProcess[bytes]:
+    """Run a command; timeouts, spawn failures, and nonzero exits raise RecoveryDrillError."""
     try:
         completed = subprocess.run(command, input=input, capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -69,6 +73,7 @@ def run(
 
 
 def compose_yaml(stack: Stack) -> str:
+    """Render the compose file defining Postgres, MinIO, and Nessie on a shared network."""
     return f"""services:
   postgres:
     image: {POSTGRES_IMAGE}
@@ -121,6 +126,7 @@ volumes:
 def compose(
     stack: Stack, *args: str, input: bytes | None = None, timeout: int = 180
 ) -> subprocess.CompletedProcess[bytes]:
+    """Run a docker compose subcommand against this stack's project and compose file."""
     return run(
         ["docker", "compose", "-p", stack.project, "-f", str(stack.compose_file), *args],
         input=input,
@@ -129,6 +135,7 @@ def compose(
 
 
 def published_port(stack: Stack, service: str, container_port: int) -> int:
+    """Resolve the loopback host port Docker published for a service's container port."""
     output = (
         compose(stack, "port", service, str(container_port), timeout=30).stdout.decode().strip()
     )
@@ -144,6 +151,7 @@ def published_port(stack: Stack, service: str, container_port: int) -> int:
 
 
 def wait_for(url: str, *, name: str, timeout: int = 120) -> None:
+    """Poll a URL until it responds with a status below 400 or raise RecoveryDrillError."""
     deadline = time.monotonic() + timeout
     last_error = "not attempted"
     while time.monotonic() < deadline:
@@ -158,6 +166,7 @@ def wait_for(url: str, *, name: str, timeout: int = 120) -> None:
 
 
 def wait_for_postgres(stack: Stack, *, timeout: int = 120) -> None:
+    """Poll pg_isready until Postgres accepts connections or the timeout expires."""
     deadline = time.monotonic() + timeout
     last_error = "not attempted"
     while time.monotonic() < deadline:
@@ -173,6 +182,7 @@ def wait_for_postgres(stack: Stack, *, timeout: int = 120) -> None:
 
 
 def start(stack: Stack, *, with_nessie: bool) -> None:
+    """Start the requested services and block until each is healthy."""
     services = ["postgres", "minio"] + (["nessie"] if with_nessie else [])
     compose(stack, "up", "-d", *services, timeout=300)
     wait_for_postgres(stack)
@@ -191,6 +201,7 @@ def start(stack: Stack, *, with_nessie: bool) -> None:
 def mc(
     stack: Stack, command: str, *, mounts: list[tuple[Path, str]] = (), timeout: int = 180
 ) -> subprocess.CompletedProcess[bytes]:
+    """Run an mc shell command in a container joined to the stack's compose network."""
     host_user = ["--user", f"{os.getuid()}:{os.getgid()}"] if os.name == "posix" else []
     args = [
         "docker",
@@ -209,6 +220,7 @@ def mc(
 
 
 def prepare_bucket(stack: Stack, probe: Path, key: str) -> None:
+    """Create the lake bucket and copy the probe file into it under key."""
     mc(
         stack,
         f"mc alias set source http://minio:9000 minio minio123 >/dev/null && mc mb --ignore-existing source/lake >/dev/null && mc cp /backup/{probe.name} source/lake/{key} >/dev/null",
@@ -217,6 +229,7 @@ def prepare_bucket(stack: Stack, probe: Path, key: str) -> None:
 
 
 def mirror_bucket(source: Stack, backup_dir: Path) -> None:
+    """Mirror the source stack's lake objects into backup_dir/lake."""
     (backup_dir / "lake").mkdir(parents=True, exist_ok=True)
     mc(
         source,
@@ -227,6 +240,7 @@ def mirror_bucket(source: Stack, backup_dir: Path) -> None:
 
 
 def restore_bucket(target: Stack, backup_dir: Path) -> None:
+    """Recreate the target lake bucket and overwrite its contents from backup_dir/lake."""
     mc(
         target,
         "mc alias set target http://minio:9000 minio minio123 >/dev/null && mc mb --ignore-existing target/lake >/dev/null && mc mirror --overwrite /backup/lake target/lake >/dev/null",
@@ -236,6 +250,7 @@ def restore_bucket(target: Stack, backup_dir: Path) -> None:
 
 
 def object_checksum(stack: Stack, key: str) -> str:
+    """Return the sha256 hex digest of the lake object stored under key."""
     command = f"mc alias set target http://minio:9000 minio minio123 >/dev/null && mc cat target/lake/{key} | sha256sum"
     return mc(stack, command).stdout.decode().split()[0]
 
@@ -269,10 +284,12 @@ def nessie_admin(stack: Stack, backup_dir: Path, *args: str) -> None:
 
 
 def export_nessie(stack: Stack, backup_dir: Path) -> None:
+    """Export the Nessie repository to nessie.zip inside backup_dir."""
     nessie_admin(stack, backup_dir, "export", "--path", "/backup/nessie.zip")
 
 
 def import_nessie(stack: Stack, backup_dir: Path) -> None:
+    """Import nessie.zip into the target, erasing its current Nessie state first."""
     nessie_admin(
         stack,
         backup_dir,
@@ -284,6 +301,7 @@ def import_nessie(stack: Stack, backup_dir: Path) -> None:
 
 
 def helper_source() -> str:
+    """Return the in-network helper script that creates or verifies an Iceberg fixture table."""
     return """import json, sys
 import pyarrow as pa
 from pyiceberg.catalog import load_catalog
@@ -308,6 +326,7 @@ else: raise RuntimeError("unsupported recovery helper action")
 
 
 def prepare_helper(directory: Path) -> None:
+    """Write the locked requirements export and helper script into directory."""
     run(
         [
             "uv",
@@ -327,6 +346,7 @@ def prepare_helper(directory: Path) -> None:
 
 
 def helper(stack: Stack, directory: Path, request: dict[str, str]) -> dict[str, Any]:
+    """Run the Iceberg helper container and return its final JSON output as a dict."""
     request_path = directory / "request.json"
     request_path.write_text(json.dumps(request, sort_keys=True), encoding="utf-8")
     result = run(
@@ -352,6 +372,7 @@ def helper(stack: Stack, directory: Path, request: dict[str, str]) -> dict[str, 
 
 
 def create_fixture(stack: Stack, token: str, helper_dir: Path) -> dict[str, Any]:
+    """Create an Iceberg table and matching run evidence, returning fixture identifiers."""
     table_name = f"recovery_{token}.rows"
     result = helper(
         stack,
@@ -417,6 +438,7 @@ def create_fixture(stack: Stack, token: str, helper_dir: Path) -> dict[str, Any]
 def verify_fixture(
     stack: Stack, fixture: dict[str, Any], expected_checksum: str, key: str, helper_dir: Path
 ) -> None:
+    """Compare restored snapshot, rows, object checksum, and evidence against the fixture."""
     from phlo.run_evidence import PostgresRunEvidenceStore
 
     result = helper(
@@ -435,6 +457,7 @@ def verify_fixture(
 
 
 def verify_evidence(store: Any, fixture: dict[str, Any]) -> None:
+    """Assert the stored pipeline run, resources, and catalog changes match the fixture."""
     project_id, run_id, snapshot_id = fixture["project_id"], "fixture", fixture["snapshot_id"]
     run_evidence = store.get_run(project_id, run_id)
     if (
@@ -476,6 +499,7 @@ def verify_evidence(store: Any, fixture: dict[str, Any]) -> None:
 
 
 def sha256_file(path: Path) -> str:
+    """Hash a file in 1 MiB blocks and return the hex digest."""
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
@@ -484,6 +508,7 @@ def sha256_file(path: Path) -> str:
 
 
 def sha256_tree(root: Path) -> str:
+    """Digest every file under root in sorted path order, rejecting symlinks and specials."""
     digest = hashlib.sha256(b"phlo-recovery-tree-v1\0")
     paths = sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
     for path in paths:
@@ -501,6 +526,7 @@ def sha256_tree(root: Path) -> str:
 
 
 def write_manifest(backup_dir: Path, fixture: dict[str, Any], checksum: str) -> None:
+    """Record artifact digests, the fixture, and probe checksum in manifest.json."""
     artifacts = {
         "postgres.sql": {"sha256": sha256_file(backup_dir / "postgres.sql")},
         "nessie.zip": {"sha256": sha256_file(backup_dir / "nessie.zip")},
@@ -516,6 +542,7 @@ def write_manifest(backup_dir: Path, fixture: dict[str, Any], checksum: str) -> 
 
 
 def read_manifest(backup_dir: Path) -> dict[str, Any]:
+    """Load the backup manifest, validate its shape, and verify artifact digests."""
     try:
         payload = json.loads((backup_dir / "manifest.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -552,6 +579,7 @@ def read_manifest(backup_dir: Path) -> dict[str, Any]:
 
 
 def restore_recovery_set(target: Stack, backup_dir: Path) -> dict[str, Any]:
+    """Restore lake, Postgres, and Nessie from a verified backup and return the manifest."""
     manifest = read_manifest(backup_dir)
     restore_bucket(target, backup_dir)
     compose(
@@ -574,6 +602,7 @@ def restore_recovery_set(target: Stack, backup_dir: Path) -> dict[str, Any]:
 
 
 def cleanup(stack: Stack) -> RecoveryDrillError | None:
+    """Tear down a stack's containers and volumes, returning any failure instead of raising."""
     if not stack.compose_file.exists():
         return None
     try:
@@ -584,6 +613,7 @@ def cleanup(stack: Stack) -> RecoveryDrillError | None:
 
 
 def cleanup_all(stacks: tuple[Stack, ...]) -> RecoveryDrillError | None:
+    """Tear down every stack, aggregating individual failures into one error."""
     failures = [f"{stack.project}: {error}" for stack in stacks if (error := cleanup(stack))]
     if failures:
         return RecoveryDrillError(
@@ -593,17 +623,22 @@ def cleanup_all(stacks: tuple[Stack, ...]) -> RecoveryDrillError | None:
 
 
 def owned_directory(path: Path, token: str) -> None:
+    """Create a new directory stamped with this run's owner marker."""
     path.mkdir(parents=True, exist_ok=False)
     (path / OWNER_MARKER).write_text(json.dumps({"token": token}), encoding="utf-8")
 
 
+# Delete only when the marker proves this run created the directory; anything
+# else (foreign data, a marker from another run) is left in place.
 def remove_owned(path: Path, token: str) -> None:
+    """Delete a directory only when its owner marker matches this run's token."""
     marker = path / OWNER_MARKER
     if marker.exists() and json.loads(marker.read_text(encoding="utf-8")).get("token") == token:
         shutil.rmtree(path)
 
 
 def drill(root: Path, *, keep_artifacts: bool = False) -> dict[str, float]:
+    """Execute the full backup-and-restore scenario and return backup/restore durations."""
     token = uuid4().hex[:12]
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -677,6 +712,7 @@ def drill(root: Path, *, keep_artifacts: bool = False) -> dict[str, float]:
 
 
 def main() -> int:
+    """Parse CLI arguments, run the drill, and return the process exit code."""
     parser = argparse.ArgumentParser(
         description="Run an isolated Phlo backup and recovery continuity drill."
     )

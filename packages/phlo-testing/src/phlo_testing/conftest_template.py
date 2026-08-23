@@ -84,8 +84,8 @@ def project_root() -> Path:
 def get_conftest_template() -> str:
     """Get the conftest.py template content.
 
-    Returns:
-        String content for conftest.py that can be written to a file.
+    Returns the string content for conftest.py that can be written to a
+    file.
 
     Example:
         >>> template = get_conftest_template()

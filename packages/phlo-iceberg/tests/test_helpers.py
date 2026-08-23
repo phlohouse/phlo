@@ -1,3 +1,6 @@
+"""Tests for phlo_iceberg.helpers: identity partitioning, schema loading,
+and table maintenance recommendations."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest

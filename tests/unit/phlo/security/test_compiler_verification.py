@@ -1,4 +1,8 @@
-"""Tests for compiled RBAC verification in startup validation."""
+"""Tests for compiled RBAC verification in startup validation.
+
+Missing compilers, unloadable RBAC config, and drift between compiled policy
+and backend state are recorded as warnings on the validation report.
+"""
 
 from __future__ import annotations
 

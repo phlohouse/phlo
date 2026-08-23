@@ -284,7 +284,6 @@ def setup_test_catalog(
     from pyiceberg.schema import Schema
     from pyiceberg.types import DoubleType, IntegerType, NestedField, StringType
 
-    # Create sample table
     schema = Schema(
         NestedField(field_id=1, name="id", type=IntegerType(), required=True),
         NestedField(field_id=2, name="name", type=StringType(), required=True),
@@ -426,15 +425,8 @@ def session_catalog() -> Iterator[MockIcebergCatalog]:
 
 def create_partition_dates(start: str, end: str, step_days: int = 1) -> list[str]:
     """
-    Create list of partition dates for parametrized tests.
-
-    Args:
-        start: Start date (ISO format)
-        end: End date (ISO format)
-        step_days: Days between partitions
-
-    Returns:
-        List of date strings
+    Create partition dates from start to end (inclusive) stepping step_days
+    apart, for parametrized tests.
 
     Example:
         >>> dates = create_partition_dates("2024-01-01", "2024-01-31", step_days=7)
@@ -457,12 +449,6 @@ def create_partition_dates(start: str, end: str, step_days: int = 1) -> list[str
 @pytest.fixture
 def conftest_template() -> str:
     """
-    Get template for conftest.py file.
-
-    Provides a ready-to-use conftest.py for new test directories.
-
-    Returns:
-        String content for conftest.py
-
+    Provide a ready-to-use conftest.py template for new test directories.
     """
     return get_conftest_template()

@@ -1,4 +1,10 @@
-"""Tests for dbt manifest parser and syncer."""
+"""Tests for the dbt manifest parser and OpenMetadata syncer.
+
+Covers load failure semantics (missing manifest raises, missing catalog is
+treated as empty), table extraction merging catalog column types into
+manifest-documented columns, tag and freshness propagation, and sync
+statistics including per-model filtering.
+"""
 
 import json
 import tempfile

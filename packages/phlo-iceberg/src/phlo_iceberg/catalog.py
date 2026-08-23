@@ -58,19 +58,11 @@ def _is_namespace_already_exists_error(exc: BaseException) -> bool:
 
 @lru_cache(maxsize=16)
 def get_catalog(ref: str = "main"):
-    """Get a configured PyIceberg REST catalog instance (cached).
+    """Get a configured PyIceberg REST catalog instance for a Nessie ref (cached).
 
-    Uses LRU cache to avoid creating multiple catalog connections. The cache
-    stores up to 16 catalog instances keyed by reference name.
-
-    Args:
-        ref: Nessie branch or tag reference (default: ``main``).
-
-    Returns:
-        Catalog: Configured PyIceberg catalog instance.
-
-    Raises:
-        Exception: Re-raises any PyIceberg connection errors.
+    Up to 16 instances are cached by reference name; call
+    :func:`reset_catalog_cache` first to force fresh connections. PyIceberg
+    connection errors are logged, then re-raised.
 
     Example:
         Get catalog for different branches::
@@ -80,10 +72,6 @@ def get_catalog(ref: str = "main"):
 
             # Access tables through catalog
             table = main_catalog.load_table("raw.events")
-
-    Note:
-        This function is cached. To force fresh connections,
-        use :func:`reset_catalog_cache` first.
 
     """
     logger.debug(
@@ -128,20 +116,9 @@ def reset_catalog_cache() -> None:
 
 
 def list_tables(namespace: str | None = None, ref: str = "main") -> list[str]:
-    """List tables in a specific namespace or across all namespaces.
+    """List fully qualified table names in one namespace or across all of them.
 
-    Retrieves fully qualified table identifiers from the catalog.
-
-    Args:
-        namespace: Namespace name to filter by. If None, lists tables
-            across all namespaces.
-        ref: Nessie branch/tag reference (default: ``main``).
-
-    Returns:
-        list[str]: List of fully qualified table names (``namespace.table`` format).
-
-    Raises:
-        Exception: Re-raises any catalog access errors.
+    Catalog access errors are logged, then re-raised.
 
     Example:
         List tables in specific namespace::
@@ -195,28 +172,16 @@ def list_tables(namespace: str | None = None, ref: str = "main") -> list[str]:
 
 
 def create_namespace(namespace: str, ref: str = "main") -> None:
-    """Create a namespace in the catalog if it doesn't already exist.
+    """Create a namespace in the catalog; idempotent when it already exists.
 
-    Namespaces in Iceberg are analogous to schemas or databases. This function
-    is idempotent - it silently succeeds if the namespace already exists.
-
-    Args:
-        namespace: Namespace name to create.
-        ref: Nessie branch/tag reference (default: ``main``).
-
-    Returns:
-        None: Always returns None. Errors are logged but not raised for
-            existing namespaces.
+    An existing namespace logs a warning instead of raising, so repeated
+    calls are safe. Namespaces are the Iceberg analogue of schemas.
 
     Example:
         Create namespace for staging tables::
 
             create_namespace("staging", ref="main")
             create_namespace("staging_temp", ref="dev")
-
-    Note:
-        If the namespace already exists, a warning is logged but no exception
-        is raised. This makes the function safe for repeated calls.
 
     """
     logger.info(

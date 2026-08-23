@@ -1,4 +1,8 @@
-"""List plugin command."""
+"""Run the ``phlo plugin list`` command.
+
+Collects installed plugins and optionally registry entries, rendering them as
+a table or as JSON; discovery failures exit nonzero.
+"""
 
 from __future__ import annotations
 

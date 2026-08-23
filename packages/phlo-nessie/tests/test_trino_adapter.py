@@ -1,4 +1,8 @@
-"""Tests for Nessie's optional Trino catalog adapter."""
+"""Tests for Nessie's optional Trino catalog adapter.
+
+Verifies the Nessie-backed catalog properties emitted for the main catalog
+and that the dev catalog plugin pins the Trino prefix to the dev ref.
+"""
 
 from phlo_nessie.adapters.trino import (
     TrinoNessieIcebergCatalogPlugin,

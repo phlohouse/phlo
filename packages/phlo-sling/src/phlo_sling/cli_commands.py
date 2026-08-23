@@ -70,18 +70,7 @@ def run_command(
     YAML configuration file or specify source/target/stream parameters
     for ad-hoc execution.
 
-    Args:
-        replication: Path to a Sling replication YAML file.
-        source: Source connection name (for ad-hoc runs).
-        target: Target connection name (for ad-hoc runs).
-        stream: Source stream identifier (e.g., "public.users").
-        target_object: Target object/table name.
-        mode: Replication mode override.
-
-    Raises:
-        click.UsageError: If neither replication file nor source/stream
-            parameters are provided.
-
+    Raises: click.UsageError if neither replication file nor source/stream parameters are provided.
     """
     from sling import Replication, Sling
 
@@ -118,10 +107,6 @@ def conns_command(auto: bool) -> None:
     Shows auto-discovered connections from Phlo capability metadata and any
     connections from explicit env.yaml files. This helps verify that Phlo
     packages are properly configured and connections are available.
-
-    Args:
-        auto: Whether to include auto-discovered Phlo connections.
-
     """
     if auto:
         from phlo_sling.connections import resolve_phlo_connections
@@ -163,14 +148,7 @@ def discover_command(connection: str, schema: str | None, output_format: str) ->
     stream_name in @phlo_sling_replication decorators. This is useful
     for exploring source databases before defining replications.
 
-    Args:
-        connection: Connection name to discover streams from.
-        schema: Optional schema name filter (uses pattern matching).
-        output_format: Output format - "table" or "json".
-
-    Raises:
-        click.ClickException: If discovery fails.
-
+    Raises: click.ClickException if discovery fails.
     """
     apply_sling_connection_env()
 
@@ -208,16 +186,7 @@ def _resolve_target_object(stream: str, target_object: str | None) -> str:
     Determines the target object name from the stream or explicit parameter.
     Rejects wildcards without explicit target specification.
 
-    Args:
-        stream: Source stream identifier.
-        target_object: Optional explicit target object name.
-
-    Returns:
-        Resolved target object name.
-
-    Raises:
-        click.UsageError: If stream contains wildcard without explicit target.
-
+    Raises: click.UsageError if stream contains wildcard without explicit target.
     """
     if target_object:
         return target_object
@@ -232,12 +201,7 @@ def _get_sling_binary() -> str:
     Checks for an override in settings first, then falls back to the
     bundled binary from the sling package.
 
-    Returns:
-        Path to the Sling binary executable.
-
-    Raises:
-        ImportError: If sling package is not installed.
-
+    Raises: ImportError if sling package is not installed.
     """
     settings = get_settings()
     if settings.sling_binary_path:
@@ -254,15 +218,7 @@ def _run_sling_cli_command(args: list[str]) -> subprocess.CompletedProcess[str]:
     Runs a Sling CLI command with the specified arguments and captures
     stdout/stderr.
 
-    Args:
-        args: List of command arguments (not including binary path).
-
-    Returns:
-        CompletedProcess with stdout and stderr captured.
-
-    Raises:
-        subprocess.CalledProcessError: If the command exits non-zero.
-
+    Raises: subprocess.CalledProcessError if the command exits non-zero.
     """
     return subprocess.run(
         [_get_sling_binary(), *args],
@@ -277,13 +233,6 @@ def _parse_discovery_output(output: str) -> list[dict[str, str]]:
 
     Converts the ASCII table output from Sling's discover command into
     a list of dictionaries suitable for JSON serialization.
-
-    Args:
-        output: Raw ASCII table output from Sling discover.
-
-    Returns:
-        List of dictionaries with normalized column headers as keys.
-
     """
     lines = [line.rstrip() for line in output.splitlines() if line.strip()]
     table_lines = [line for line in lines if "|" in line]
@@ -296,6 +245,7 @@ def _parse_discovery_output(output: str) -> list[dict[str, str]]:
         values = [part.strip() for part in line.split("|")]
         if len(values) != len(headers):
             continue
+        # Skip the ASCII table's dash-only separator rows.
         if all(set(value) <= {"-"} for value in values):
             continue
         rows.append(dict(zip(headers, values, strict=True)))
@@ -308,12 +258,5 @@ def _normalize_column_name(value: str) -> str:
 
     Converts column headers from Sling's table format to snake_case
     suitable for JSON keys.
-
-    Args:
-        value: Raw column header string.
-
-    Returns:
-        Normalized snake_case column name.
-
     """
     return value.strip().lower().replace(" ", "_")

@@ -1,4 +1,10 @@
-"""Tests for PostgreSQL CLI authorization adapter."""
+"""Tests for the PostgreSQL CLI authorization surface.
+
+Covers CliPrincipalResolver environment fallbacks (service account, human
+subject, dev mode, anonymous default) and PostgresCliSurfaceAdapter policy:
+reads allow without enforcement, unknown commands deny closed, and mutation
+commands (query/dump/restore/vacuum/shell) always route through enforcement.
+"""
 
 from __future__ import annotations
 

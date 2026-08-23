@@ -1,4 +1,7 @@
--- Run-evidence schema version 1. PostgreSQL is the production dialect.
+-- Run-evidence schema version 1, SQLite form of 002_create_run_evidence.sql.
+-- PostgreSQL remains the production dialect; this variant backs local SQLite
+-- stores (PHLO_RUN_EVIDENCE_SQLITE_PATH). Applied by phlo.run_evidence.store
+-- in numeric migration order.
 
 
 CREATE TABLE IF NOT EXISTS run_evidence_schema_version (
@@ -45,6 +48,8 @@ CREATE TABLE IF NOT EXISTS run_event (
     payload TEXT NOT NULL,
     payload_checksum TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Makes event ingestion idempotent: a producer may redeliver an event
+    -- without creating duplicates.
     UNIQUE (project_id, producer, event_id),
     FOREIGN KEY (project_id, run_id) REFERENCES pipeline_run(project_id, run_id)
 );

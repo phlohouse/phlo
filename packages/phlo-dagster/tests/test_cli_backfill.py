@@ -1,4 +1,11 @@
-"""Tests for the phlo backfill CLI command."""
+"""Tests for the phlo backfill CLI command.
+
+Covers partition date generation/validation, write-audit-publish backfills
+that create a branch per partition and wait for promotion before starting
+the next, persisted state for failed partitions and timed-out runs,
+lifecycle polling (transient retries, failure rejection), and state file
+management.
+"""
 
 import json
 from types import SimpleNamespace

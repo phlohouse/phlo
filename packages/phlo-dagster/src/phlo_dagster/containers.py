@@ -38,14 +38,7 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class DagsterContainerCandidates:
-    """Candidate Dagster webserver container names.
-
-    Attributes:
-        configured: Name resolved from infrastructure config.
-        new: Current compose naming pattern candidate.
-        legacy: Legacy compose naming pattern candidate.
-
-    """
+    """Candidate Dagster webserver container names."""
 
     configured: str
     new: str
@@ -55,16 +48,7 @@ class DagsterContainerCandidates:
 def dagster_container_candidates(
     project_name: str, configured_name: str | None
 ) -> DagsterContainerCandidates:
-    """Build candidate container names for a project.
-
-    Args:
-        project_name: Compose project name.
-        configured_name: Optional configured container name override.
-
-    Returns:
-        Ordered candidate names for Dagster webserver discovery.
-
-    """
+    """Build ordered webserver container-name candidates for a compose project."""
 
     configured = configured_name or ""
     new = f"{project_name}-dagster-1"
@@ -73,46 +57,18 @@ def dagster_container_candidates(
 
 
 def _resolve_container_name(service_name: str, project_name: str) -> str:
-    """Resolve container name for a service from infrastructure settings.
-
-    Args:
-        service_name: Service identifier in infrastructure config.
-        project_name: Compose project name.
-
-    Returns:
-        Configured or derived container name for the service.
-
-    """
+    """Resolve the configured or derived container name for an infrastructure service."""
 
     return resolve_container_name(service_name, project_name)
 
 
 def _list_running_containers(project_name: str) -> list[str]:
-    """List running compose container names for a project.
-
-    Args:
-        project_name: Compose project name.
-
-    Returns:
-        List of running container names.
-
-    """
+    """Return the names of a project's currently running compose containers."""
     return list_running_containers(project_name)
 
 
 def find_dagster_container(project_name: str) -> str:
-    """Find the running Dagster webserver container for a project.
-
-    Args:
-        project_name: Compose project name.
-
-    Returns:
-        Selected Dagster container name.
-
-    Raises:
-        RuntimeError: If no matching Dagster webserver container is running.
-
-    """
+    """Find the running Dagster webserver container; RuntimeError when none matches."""
 
     logger.info(
         "dagster_container_lookup_started",

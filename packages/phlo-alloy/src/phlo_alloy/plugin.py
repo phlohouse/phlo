@@ -1,4 +1,11 @@
-"""Alloy service plugin registration."""
+"""Registers the Alloy service plugin.
+
+Built declaratively via service_plugin_class(): the module declares plugin
+metadata only, with no behaviour of its own.
+
+Loaded through the phlo plugin entry-point mechanism at startup rather than
+imported directly; built declaratively on the factories in phlo.plugins.
+"""
 
 from __future__ import annotations
 

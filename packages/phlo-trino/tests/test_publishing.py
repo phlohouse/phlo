@@ -1,4 +1,10 @@
-"""Tests for Trino publishing helpers."""
+"""Tests for Trino publishing helpers.
+
+Covers table-reference candidate ordering with fallback from
+catalog-qualified to schema-qualified names, retry rules keyed on
+table-not-found introspection errors only, publish-target default
+resolution, and correlation propagation onto publish and lineage events.
+"""
 
 from __future__ import annotations
 
@@ -18,12 +24,7 @@ class _FakeCursor:
     """Test cursor double that replays canned Trino responses."""
 
     def __init__(self, trino: "_FakeTrino") -> None:
-        """Initialize the fake cursor.
-
-        Args:
-            trino: Parent fake Trino client.
-
-        """
+        """Initialize the fake cursor with its parent client."""
         self._trino = trino
         self._rows: list[tuple[object, ...]] = []
 
@@ -32,23 +33,11 @@ class _FakeCursor:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
-        """Close the context manager.
-
-        Args:
-            exc_type: Exception type raised in the context block.
-            exc: Exception instance raised in the context block.
-            tb: Traceback raised in the context block.
-
-        """
+        """Close the context manager; arguments are ignored."""
         return None
 
     def execute(self, query: str) -> None:
-        """Execute a fake query and store returned rows.
-
-        Args:
-            query: SQL query text used as response lookup key.
-
-        """
+        """Record and resolve a fake query, raising when the response is an exception."""
         self._trino.queries.append(query)
         response = self._trino.get_response(query)
         if isinstance(response, Exception):
@@ -68,13 +57,7 @@ class _FakeTrino:
         responses: dict[str, object],
         sequence_responses: dict[str, list[object]] | None = None,
     ) -> None:
-        """Initialize the fake Trino client.
-
-        Args:
-            responses: Static response map by SQL query.
-            sequence_responses: Queued responses consumed per repeated query.
-
-        """
+        """Initialize static and queued query responses."""
         self.responses = responses
         self.sequence_responses = {
             query: list(values) for query, values in (sequence_responses or {}).items()
@@ -82,15 +65,7 @@ class _FakeTrino:
         self.queries: list[str] = []
 
     def get_response(self, query: str) -> object:
-        """Resolve the next configured response for a query.
-
-        Args:
-            query: SQL query text.
-
-        Returns:
-            The next queued response when configured, otherwise static response.
-
-        """
+        """Return the next queued response for a query, else its static response."""
         queued = self.sequence_responses.get(query)
         if queued:
             return queued.pop(0)

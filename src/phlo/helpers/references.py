@@ -1,4 +1,10 @@
-"""Reference-data contract helpers."""
+"""Reference-data contract helpers.
+
+ReferenceContract describes a reference table: its composite key fields,
+required fields, and optional effective-dating columns. Helpers detect
+duplicate reference keys, fact keys absent from the reference, rows missing
+required fields, and summarize overall fact coverage.
+"""
 
 from __future__ import annotations
 

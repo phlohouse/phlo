@@ -1,4 +1,10 @@
-"""Tests for PanderaSchemaExtractor."""
+"""Tests for PanderaSchemaExtractor.
+
+Extraction maps dtype annotations to canonical dtype strings, honours
+Field(nullable=...) nullability, unwraps pandera Series[T] annotations,
+and skips dunder/class Config attributes. Unsupported dtypes raise
+ValueError; the extractor satisfies the SchemaExtractor protocol.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,10 @@
-"""Tests for extracted Observatory read models."""
+"""Tests for extracted Observatory read models.
+
+Covers ReadModelCache semantics (TTL reuse, per-key single-flight sharing,
+SQLite persistence and invalidation, unpersistable values) plus the
+service-status helpers: docker status derivation, project-scoped container
+lookups, saved-query SQL validation, and search result ranking.
+"""
 
 from __future__ import annotations
 

@@ -15,6 +15,8 @@ Example:
     >>> print(schemas)
     ['public', 'marts', 'staging']
 
+Run as a standalone module (python -m phlo_postgrest.hooks) for schema auto-configuration rather
+than imported directly; builds on phlo.infrastructure.config and phlo.logging.
 """
 
 from __future__ import annotations
@@ -33,15 +35,9 @@ logger = get_logger(__name__)
 def _get_config_file() -> Path:
     """Return the PostgREST configuration file path.
 
-    Locates the PostgREST configuration within the project's .phlo directory
-    at the standard location .phlo/postgrest/conf/postgrest.conf.
-
-    Returns:
-        Path: Absolute path to postgrest.conf.
-
-    Note:
-        The file may not exist yet if PostgREST hasn't been initialized.
-
+    Locates PostgREST configuration within the project's .phlo directory at
+    .phlo/postgrest/conf/postgrest.conf; the file may not exist yet if
+    PostgREST hasn't been initialized.
     """
     phlo_dir = Path.cwd() / ".phlo"
     return phlo_dir / "postgrest" / "conf" / "postgrest.conf"
@@ -50,21 +46,13 @@ def _get_config_file() -> Path:
 def _read_config_values(config_file: Path) -> dict[str, str]:
     """Parse PostgREST configuration file into key-value pairs.
 
-    Reads and parses the PostgREST configuration file, extracting
-    configuration directives while handling comments and quoted values.
-
-    Args:
-        config_file: Path to the postgrest.conf file.
-
-    Returns:
-        dict[str, str]: Mapping of configuration keys to their values.
-        Returns empty dict if file doesn't exist.
+    Extracts configuration directives while handling comments and quoted
+    values; returns an empty dict when the file doesn't exist.
 
     Example:
         >>> config = _read_config_values(Path("postgrest.conf"))
         >>> config.get("db-uri")
         'postgres://user:pass@localhost/db'
-
     """
     values: dict[str, str] = {}
     if not config_file.exists():
@@ -96,16 +84,9 @@ def _parse_db_uri(db_uri: str) -> dict[str, str]:
     Extracts username, password, and database name from a PostgreSQL
     connection URI, handling URL-encoded characters.
 
-    Args:
-        db_uri: PostgreSQL connection URI (e.g., 'postgres://user:pass@host/db').
-
-    Returns:
-        dict[str, str]: Dictionary with 'username', 'password', 'database' keys.
-
     Example:
         >>> _parse_db_uri("postgres://lake:secret@localhost/lakehouse")
         {'username': 'lake', 'password': 'secret', 'database': 'lakehouse'}
-
     """
     parsed = urlparse(db_uri)
     username = unquote(parsed.username or "")
@@ -121,19 +102,12 @@ def _parse_db_uri(db_uri: str) -> dict[str, str]:
 def _resolve_container_name(service_name: str) -> str:
     """Resolve Docker container name using infrastructure configuration.
 
-    Determines the actual container name based on Phlo's infrastructure
-    configuration or falls back to the default naming pattern.
-
-    Args:
-        service_name: Name of the service (e.g., 'postgres', 'postgrest').
-
-    Returns:
-        str: Resolved container name for Docker commands.
+    Uses Phlo's infrastructure configuration when the service is defined,
+    falling back to the default naming pattern otherwise.
 
     Example:
         >>> _resolve_container_name("postgres")
         'phlo-postgres-1'
-
     """
     project_name = get_project_name_from_config() or Path.cwd().name
     infra = load_infrastructure_config()
@@ -146,18 +120,12 @@ def _resolve_container_name(service_name: str) -> str:
 def _discover_schemas_via_docker(db_uri: str) -> list[str]:
     """Discover database schemas by querying PostgreSQL container.
 
-    Executes psql inside the PostgreSQL Docker container to discover
-    all user schemas containing tables, excluding system schemas.
+    Executes psql inside the PostgreSQL Docker container to discover all user
+    schemas containing tables, excluding system schemas; returns a sorted list
+    of schema names.
 
-    Args:
-        db_uri: Database connection URI from PostgREST configuration.
-
-    Returns:
-        list[str]: Sorted list of schema names containing user tables.
-
-    Raises:
-        ValueError: If db_uri lacks username or database components.
-        RuntimeError: If psql command fails or returns error.
+    Raises: ValueError when db_uri lacks username or database components;
+    RuntimeError when the psql command fails or returns an error.
 
     Example:
         >>> schemas = _discover_schemas_via_docker(
@@ -165,7 +133,6 @@ def _discover_schemas_via_docker(db_uri: str) -> list[str]:
         ... )
         >>> print(schemas)
         ['marts', 'public', 'staging']
-
     """
     db_parts = _parse_db_uri(db_uri)
     if not db_parts["username"] or not db_parts["database"]:
@@ -319,22 +286,17 @@ def reload_schema() -> None:
 def discover_schemas() -> list[str]:
     """Discover all user schemas containing tables.
 
-    Reads PostgREST configuration to obtain database connection details,
-    then queries the database to find all non-system schemas with tables.
+    Reads PostgREST configuration to obtain database connection details, then
+    queries the database for all non-system schemas with tables.
 
-    Returns:
-        list[str]: Sorted list of schema names.
-
-    Raises:
-        FileNotFoundError: If PostgREST configuration file is missing.
-        ValueError: If db-uri is not configured in PostgREST config.
+    Raises: FileNotFoundError when the PostgREST configuration file is missing;
+    ValueError when db-uri is not configured in PostgREST config.
 
     Example:
         >>> from phlo_postgrest.hooks import discover_schemas
         >>> schemas = discover_schemas()
         >>> print(schemas)
         ['marts', 'public']
-
     """
     db_uri = _get_db_uri()
     return _discover_schemas_via_docker(db_uri)
@@ -343,19 +305,13 @@ def discover_schemas() -> list[str]:
 def configure_schemas() -> None:
     """Auto-configure PostgREST to expose all discovered schemas.
 
-    Discovers user schemas from the database, updates the PostgREST
-    configuration file with the db-schemas directive, and restarts the
-    PostgREST container to apply changes.
+    Discovers user schemas from the database (prioritizing 'marts' when
+    present), rewrites the db-schemas directive in postgrest.conf, restarts
+    the PostgREST container to apply changes, and waits for it to become
+    healthy.
 
-    Workflow:
-        1. Discover schemas using discover_schemas()
-        2. Prioritize 'marts' schema if present
-        3. Update postgrest.conf with db-schemas value
-        4. Restart PostgREST container
-
-    Raises:
-        FileNotFoundError: If PostgREST configuration is missing.
-        RuntimeError: If container restart fails.
+    Raises: FileNotFoundError when the PostgREST configuration is missing;
+    RuntimeError when the container restart fails.
 
     Example:
         >>> from phlo_postgrest.hooks import configure_schemas
@@ -364,7 +320,6 @@ def configure_schemas() -> None:
         Discovered schemas: marts,public,staging
         Updated .phlo/postgrest/conf/postgrest.conf
         PostgREST restarted successfully
-
     """
     logger.info("Discovering user schemas for PostgREST...")
 
@@ -383,18 +338,17 @@ def configure_schemas() -> None:
     schemas_str = ",".join(schemas)
     logger.info("Discovered schemas: %s", schemas_str)
 
-    # Update PostgREST config file
     config_file = _get_config_file()
 
     if not config_file.exists():
         logger.warning("Config file not found at %s", config_file)
         return
 
-    # Read existing config
     content = config_file.read_text()
     lines = content.splitlines()
 
-    # Update db-schemas line
+    # Rewrite db-schemas in place, inserting the directive after db-anon-role
+    # when the config does not have one yet.
     updated = False
     new_lines = []
     for line in lines:
@@ -430,6 +384,8 @@ def configure_schemas() -> None:
             _wait_for_healthy(container_name, timeout=30)
         else:
             logger.warning("Failed to restart PostgREST: %s", result.stderr)
+            # Restart failed, but the running container can still pick up new
+            # tables in already-exposed schemas via a schema-cache reload.
             try:
                 reload_schema()
             except Exception as e:
@@ -445,20 +401,13 @@ def configure_schemas() -> None:
 def _wait_for_healthy(container_name: str, timeout: int = 30) -> None:
     """Wait for a Docker container to reach healthy status.
 
-    Polls the container's health status via Docker inspect until
-    it becomes healthy or the timeout expires.
-
-    Args:
-        container_name: Name of the container to check.
-        timeout: Maximum seconds to wait (default: 30).
-
-    Note:
-        If container lacks healthcheck, waits briefly and returns.
-        Logs warnings on timeout but does not raise exceptions.
+    Polls the container's health via Docker inspect until healthy or `timeout`
+    (default 30 seconds) expires. Containers without a healthcheck are treated
+    as ready after a brief wait; timeouts are logged as warnings without
+    raising exceptions.
 
     Example:
         >>> _wait_for_healthy("phlo-postgrest-1", timeout=60)
-
     """
     import time
 
@@ -476,7 +425,8 @@ def _wait_for_healthy(container_name: str, timeout: int = 30) -> None:
                 logger.info("PostgREST container is healthy")
                 return
             if status in ("unhealthy", ""):
-                # No health check or unhealthy, just wait a bit
+                # Empty status means no healthcheck is defined; treat both as
+                # ready instead of blocking configuration on container health.
                 time.sleep(2)
                 logger.info("PostgREST container ready (no healthcheck)")
                 return

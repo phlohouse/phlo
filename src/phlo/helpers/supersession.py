@@ -1,4 +1,10 @@
-"""Helpers for corrected, superseded, and latest-view records."""
+"""Helpers for corrected, superseded, and latest-view records.
+
+Rows carry a truthy "invalidated" marker that hides them from latest
+views unless explicitly included. latest_records picks one row per
+business key by order_field comparison (later wins); correction_chain
+follows corrects_record_id links forward from an original ID.
+"""
 
 from __future__ import annotations
 

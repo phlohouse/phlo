@@ -1,4 +1,10 @@
-"""Bundled-stack ingest and transform contract checks."""
+"""Bundled-stack ingest and transform contract checks.
+
+Integration-marked: requires the live bundled stack. Verifies that
+ingestion and dbt transforms share routing end to end — a mart built
+over an ingested partition must contain exactly as many rows as the
+raw table it reads through Trino.
+"""
 
 from __future__ import annotations
 

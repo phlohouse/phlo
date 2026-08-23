@@ -70,10 +70,6 @@ class DagsterGraphQLAuthorizationMiddleware:
     This middleware integrates with Dagster's GraphQL execution pipeline
     to apply authorization decisions before operations execute.
 
-    Attributes:
-        surface_name: The regulated surface identifier (dagster-webserver).
-        strict_mode: If True, deny requests without valid auth in regulated mode.
-
     Example:
         Adding middleware to Dagster workspace::
 
@@ -89,12 +85,7 @@ class DagsterGraphQLAuthorizationMiddleware:
         surface_name: str = "dagster-webserver",
         strict_mode: bool = True,
     ) -> None:
-        """Initialize the middleware.
-
-        Args:
-            surface_name: Name of the regulated surface for audit events.
-            strict_mode: If True, deny requests without valid auth in regulated mode.
-        """
+        """Set the surface name; strict mode is mandatory, so passing False raises."""
         if not strict_mode:
             raise ValueError("Dagster GraphQL authorization is mandatory and cannot fail open")
         self.surface_name = surface_name
@@ -108,16 +99,10 @@ class DagsterGraphQLAuthorizationMiddleware:
         info: Any,
         **kwargs: Any,
     ) -> Any:
-        """Resolve a GraphQL field, enforcing auth before execution.
+        """Resolve a GraphQL field after enforcing authorization on root operations.
 
-        Args:
-            next_fn: The next resolver in the chain.
-            root: The parent object (usually None for field resolution).
-            info: GraphQL execution info containing context.
-            **kwargs: Field arguments.
-
-        Returns:
-            Result from next_fn if authorized, GraphQLError if denied.
+        Non-root fields pass through untouched; a denied root operation
+        raises GraphQLError before reaching the resolver.
         """
         regulated = is_regulated()
         try:
@@ -152,6 +137,8 @@ class DagsterGraphQLAuthorizationMiddleware:
         except GraphQLError:
             raise
         except Exception:
+            # Fail closed: a middleware crash must never let the resolver run
+            # unenforced, so convert any unexpected error into an auth failure.
             logger.exception("dagster_authorization_middleware_error")
             raise GraphQLError(
                 "Authorization check failed",
@@ -270,24 +257,18 @@ class DagsterGraphQLAuthorizationMiddleware:
         self,
         mutation_field_name: str | None,
     ) -> tuple[str, str | None]:
-        """Extract resource type and ID from the GraphQL selection.
-
-        Returns:
-            Tuple of (resource_type, resource_id or None).
-        """
+        """Return the mutation's classified resource type with a null resource id."""
         if not mutation_field_name:
             raise GraphQLError("Unclassified GraphQL operation")
         spec = resolve_graphql_operation("mutation", mutation_field_name)
         return spec.resource_type, None
 
     def _extract_principal(self, info: Any) -> AuthPrincipal | None:
-        """Extract the authenticated principal from request headers.
+        """Extract the authenticated principal from request headers or websocket auth.
 
-        Args:
-            info: GraphQL execution info containing request context.
-
-        Returns:
-            AuthPrincipal if authenticated, None otherwise.
+        Prefers the middleware-authenticated ASGI scope principal, then the
+        graphql-ws connection_init token, then bearer/service tokens and
+        forwarded access-token headers.
         """
         context = getattr(info, "context", None)
         if context is None:
@@ -370,14 +351,7 @@ class DagsterGraphQLAuthorizationMiddleware:
         return payload if isinstance(payload, dict) else {}
 
     def _create_decision_context(self, info: Any) -> DecisionContext:
-        """Create a DecisionContext from GraphQL execution info.
-
-        Args:
-            info: GraphQL execution info.
-
-        Returns:
-            DecisionContext with request metadata.
-        """
+        """Build a DecisionContext with request id, client IP, and operation metadata."""
         context = getattr(info, "context", None)
 
         request_id: str | None = None
@@ -413,15 +387,7 @@ class DagsterGraphQLAuthorizationMiddleware:
         info: Any,
         kwargs: dict[str, Any],
     ):
-        """Authorize a GraphQL mutation.
-
-        Args:
-            info: GraphQL execution info.
-            kwargs: Field resolver arguments.
-
-        Returns:
-            EnforcementResult from core enforcement.
-        """
+        """Authorize a GraphQL mutation through core enforcement."""
         return self._authorize_field(info, kwargs)
 
     def _authorize_field(self, info: Any, kwargs: dict[str, Any]):
@@ -587,14 +553,7 @@ class DagsterGraphQLAuthorizationMiddleware:
         return str(value)
 
     def _map_operation_to_action(self, mutation_field_name: str | None) -> str:
-        """Map a GraphQL mutation field name to a canonical action.
-
-        Args:
-            mutation_field_name: Name of the GraphQL mutation field.
-
-        Returns:
-            Canonical action string.
-        """
+        """Return the canonical action for a classified mutation field name."""
         if not mutation_field_name:
             raise GraphQLError("Unclassified GraphQL operation")
         return resolve_graphql_operation("mutation", mutation_field_name).action

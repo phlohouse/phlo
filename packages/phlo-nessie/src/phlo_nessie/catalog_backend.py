@@ -1,16 +1,11 @@
 """Nessie-owned PyIceberg catalog helpers.
 
-This module provides utilities for loading and configuring PyIceberg catalogs
-backed by Nessie. It handles S3 configuration, warehouse paths, and reference
-branch management.
+Builds PyIceberg catalog configuration for the Nessie REST catalog with
+S3/MinIO storage and loads cached catalog instances per reference.
 
 Example:
     >>> from phlo_nessie.catalog_backend import load_pyiceberg_catalog
     >>> catalog = load_pyiceberg_catalog(ref="main")
-
-Functions:
-    load_pyiceberg_catalog: Load a cached PyIceberg catalog instance.
-    _pyiceberg_catalog_config: Build configuration dictionary for PyIceberg.
 
 """
 
@@ -28,16 +23,8 @@ logger = get_logger(__name__)
 
 
 def _pyiceberg_catalog_config(ref: str) -> dict[str, Any]:
-    """Build PyIceberg catalog configuration for Nessie backend.
-
-    Constructs the configuration dictionary required by PyIceberg to connect
-    to Nessie REST catalog with S3/MinIO storage backend.
-
-    Args:
-        ref: Nessie reference (branch/tag) to use as catalog prefix.
-
-    Returns:
-        dict[str, Any]: PyIceberg catalog configuration dictionary.
+    """Build the PyIceberg REST-catalog configuration dict connecting to Nessie
+    for a given reference.
 
     Example:
         >>> config = _pyiceberg_catalog_config("main")
@@ -66,28 +53,14 @@ def _pyiceberg_catalog_config(ref: str) -> dict[str, Any]:
 
 @lru_cache(maxsize=16)
 def load_pyiceberg_catalog(ref: str = "main"):
-    """Load the PyIceberg catalog using Nessie-owned catalog settings.
+    """Load (and cache) the PyIceberg catalog instance for a Nessie reference.
 
-    Returns a cached PyIceberg catalog instance configured to connect to
-    the Nessie REST catalog for the specified reference. Uses LRU cache
-    to avoid redundant catalog initialization.
-
-    Args:
-        ref: Nessie reference (branch or tag) to use. Defaults to "main".
-
-    Returns:
-        Catalog: PyIceberg catalog instance for the specified reference.
-
-    Raises:
-        RuntimeError: If PyIceberg is not installed.
+    Raises RuntimeError when PyIceberg is not installed. At most 16 catalogs
+    are cached; least recently used entries are evicted.
 
     Example:
         >>> catalog = load_pyiceberg_catalog("main")
         >>> tables = catalog.list_tables("raw")
-
-    Note:
-        Maximum of 16 cached catalogs are retained. Least recently used
-        entries are evicted when cache is full.
 
     """
     try:

@@ -35,6 +35,11 @@ GRANT CREATE TABLE ON SCHEMA iceberg.stage TO ROLE phlo_dagster_writer;
 -- ============================================================================
 -- Run against the phlo metadata database as superuser
 
+-- Passwords below are placeholders; rotate them before real use.
+-- Note that ALTER DEFAULT PRIVILEGES affects only objects created later by
+-- the role running this script (the migration superuser), not objects created
+-- by these service roles themselves.
+
 -- phlo-api service role
 CREATE ROLE phlo_api_service LOGIN PASSWORD 'changeme_api';
 GRANT CONNECT ON DATABASE phlo TO phlo_api_service;

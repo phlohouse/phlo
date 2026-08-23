@@ -1,4 +1,9 @@
-"""Unit tests for phlo-observatory import surface."""
+"""Unit tests for the phlo-observatory import surface.
+
+Locks the public import contract: neutral settings re-export through both the
+package root and the settings service module, the plugin module imports, and
+no app module is exposed.
+"""
 
 import importlib
 

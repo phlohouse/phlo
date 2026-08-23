@@ -1,3 +1,13 @@
+"""Phlo doctor: diagnose the local environment and running services.
+
+Runs grouped probes (container backend, project config, plugin
+discovery, ports, live services) that each yield a DiagnosticResult with
+ok/warn/fail/skip status and an optional fix hint; individual probe
+failures are captured, never fatal. Output renders as a table or JSON,
+and diagnostics run with stdout silenced to keep CLI output clean.
+Imported by the phlo CLI main entry point and exposed to phlo-api's authoring endpoints.
+"""
+
 from __future__ import annotations
 
 import json
@@ -34,6 +44,8 @@ def _get_service_discovery_class() -> Any:
 
 
 class DiagnosticStatus(StrEnum):
+    """Severity level of a diagnostic outcome."""
+
     OK = "ok"
     WARN = "warn"
     FAIL = "fail"
@@ -42,6 +54,8 @@ class DiagnosticStatus(StrEnum):
 
 @dataclass(frozen=True)
 class DiagnosticResult:
+    """A single diagnostic outcome, optionally with a fix hint and detail payload."""
+
     id: str
     group: str
     status: DiagnosticStatus
@@ -50,6 +64,7 @@ class DiagnosticResult:
     details: dict[str, Any] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable dict describing this result."""
         payload: dict[str, Any] = {
             "id": self.id,
             "group": self.group,
@@ -64,6 +79,7 @@ class DiagnosticResult:
 
 
 def summarize(results: list[DiagnosticResult]) -> dict[str, int]:
+    """Count diagnostic results per status."""
     return {
         status.value: sum(1 for result in results if result.status == status)
         for status in DiagnosticStatus
@@ -71,6 +87,7 @@ def summarize(results: list[DiagnosticResult]) -> dict[str, int]:
 
 
 def render_json(results: list[DiagnosticResult]) -> str:
+    """Render diagnostics as an indented JSON document with a summary."""
     return json.dumps(
         {
             "summary": summarize(results),
@@ -82,6 +99,7 @@ def render_json(results: list[DiagnosticResult]) -> str:
 
 
 def render_terminal(results: list[DiagnosticResult]) -> str:
+    """Render diagnostics as human-readable terminal text."""
     lines = ["Phlo Doctor", ""]
     groups = list(dict.fromkeys(result.group for result in results))
     for group in groups:
@@ -280,6 +298,7 @@ def _check_podman_backend(*, verbose: bool) -> list[DiagnosticResult]:
 
 
 def check_environment(*, verbose: bool = False) -> list[DiagnosticResult]:
+    """Check the Python version and container backend availability."""
     results: list[DiagnosticResult] = [
         DiagnosticResult(
             "doctor.bootstrap", "Environment", DiagnosticStatus.OK, "Doctor command loaded"
@@ -362,6 +381,7 @@ def check_environment(*, verbose: bool = False) -> list[DiagnosticResult]:
 
 
 def check_project(*, verbose: bool = False) -> list[DiagnosticResult]:
+    """Check project configuration, compose file, and env files."""
     results: list[DiagnosticResult] = []
     project_file = Path.cwd() / "phlo.yaml"
     if not project_file.exists():
@@ -469,6 +489,7 @@ def _collect_service_plugin_failures() -> list[dict[str, str]]:
 
 
 def check_discovery(*, verbose: bool = False) -> list[DiagnosticResult]:
+    """Check plugin entry-point loading and service discovery."""
     results: list[DiagnosticResult] = []
     try:
         failures = _collect_service_plugin_failures()
@@ -570,6 +591,7 @@ def _collect_port_mappings() -> list[PortMapping]:
 
 
 def check_ports(*, verbose: bool = False) -> list[DiagnosticResult]:
+    """Check configured service ports for running-service conflicts."""
     try:
         mappings = _collect_port_mappings()
     except Exception as exc:
@@ -611,6 +633,7 @@ def check_ports(*, verbose: bool = False) -> list[DiagnosticResult]:
 
 
 def check_live_services(*, verbose: bool = False) -> list[DiagnosticResult]:
+    """Check that the generated compose file for live services exists."""
     compose_file = Path.cwd() / ".phlo" / "docker-compose.yml"
     if not compose_file.exists():
         return [
@@ -633,6 +656,7 @@ def check_live_services(*, verbose: bool = False) -> list[DiagnosticResult]:
 
 
 def run_diagnostics(*, verbose: bool = False) -> list[DiagnosticResult]:
+    """Run every diagnostic check and return the combined results."""
     return [
         *check_environment(verbose=verbose),
         *check_project(verbose=verbose),
@@ -644,6 +668,12 @@ def run_diagnostics(*, verbose: bool = False) -> list[DiagnosticResult]:
 
 @contextmanager
 def _silence_stdout() -> Iterator[None]:
+    """Silence every stdout channel while diagnostics run.
+
+    Probes and plugin imports can emit output through three layers: the fd 1
+    descriptor (subprocesses and C extensions), logging handler streams, and
+    `sys.stdout`. Each is redirected separately and restored on exit.
+    """
     saved_stdout_fd: int | None = None
     saved_handler_streams: list[tuple[Callable[[Any], Any], Any]] = []
     with Path(os.devnull).open("w") as devnull, StringIO() as stdout_buffer:
@@ -688,7 +718,10 @@ def _run_diagnostics_quietly(*, verbose: bool = False) -> list[DiagnosticResult]
 @click.option("--json", "output_json", is_flag=True, help="Output diagnostics as JSON.")
 @click.option("--verbose", is_flag=True, help="Include exception details where available.")
 def doctor_cmd(output_json: bool, verbose: bool) -> None:
-    """Diagnose local Phlo setup and service health."""
+    """Diagnose local Phlo setup and service health.
+
+    Exits with status 1 when any diagnostic reports a failure.
+    """
     results = _run_diagnostics_quietly(verbose=verbose)
     click.echo(render_json(results) if output_json else render_terminal(results))
     if any(result.status == DiagnosticStatus.FAIL for result in results):

@@ -57,7 +57,7 @@ class PhloErrorCode(Enum):
     VALIDATION_FAILED = "PHLO-004"
     MISSING_SCHEMA = "PHLO-005"
 
-    # Runtime and Integration Errors (PHLO-100 to PHLO-199)
+    # Runtime and Integration Errors (PHLO-006 to PHLO-008)
     INGESTION_FAILED = "PHLO-006"
     TABLE_NOT_FOUND = "PHLO-007"
     INFRASTRUCTURE_ERROR = "PHLO-008"
@@ -105,13 +105,8 @@ class PhloError(Exception):
         cause: Exception | None = None,
     ):
         """
-        Initialize PhloError.
-
-        Args:
-            message: Clear description of what went wrong
-            code: Error code from PhloErrorCode enum
-            suggestions: List of suggested actions to resolve the error
-            cause: Original exception that caused this error (if wrapping)
+        Initialize PhloError; formats the message with code, suggestions,
+        cause, and a documentation link.
         """
         self.code = code
         self.suggestions = suggestions or []
@@ -160,13 +155,7 @@ class PhloDiscoveryError(PhloError):
         suggestions: list[str] | None = None,
         cause: Exception | None = None,
     ):
-        """Initialize a discovery error.
-
-        Args:
-            message: Description of the discovery failure.
-            suggestions: Optional remediation suggestions.
-            cause: Optional underlying exception.
-        """
+        """Initialize a discovery error."""
         super().__init__(
             message=message,
             code=PhloErrorCode.ASSET_NOT_DISCOVERED,
@@ -184,13 +173,7 @@ class PhloValidationError(PhloError):
         suggestions: list[str] | None = None,
         cause: Exception | None = None,
     ):
-        """Initialize a validation error.
-
-        Args:
-            message: Description of the validation failure.
-            suggestions: Optional remediation suggestions.
-            cause: Optional underlying exception.
-        """
+        """Initialize a validation error."""
         super().__init__(
             message=message,
             code=PhloErrorCode.VALIDATION_FAILED,
@@ -203,12 +186,7 @@ class PhloConfigError(PhloError):
     """Raised when decorator configuration is invalid."""
 
     def __init__(self, message: str, suggestions: list[str] | None = None):
-        """Initialize a configuration error.
-
-        Args:
-            message: Description of the configuration issue.
-            suggestions: Optional remediation suggestions.
-        """
+        """Initialize a configuration error."""
         super().__init__(
             message=message,
             code=PhloErrorCode.MISSING_SCHEMA,
@@ -225,13 +203,7 @@ class PhloIngestionError(PhloError):
         suggestions: list[str] | None = None,
         cause: Exception | None = None,
     ):
-        """Initialize an ingestion error.
-
-        Args:
-            message: Description of the ingestion failure.
-            suggestions: Optional remediation suggestions.
-            cause: Optional underlying exception.
-        """
+        """Initialize an ingestion error."""
         super().__init__(
             message=message,
             code=PhloErrorCode.INGESTION_FAILED,
@@ -244,12 +216,7 @@ class PhloTableError(PhloError):
     """Raised when Iceberg table operations fail."""
 
     def __init__(self, message: str, suggestions: list[str] | None = None):
-        """Initialize a table operation error.
-
-        Args:
-            message: Description of the table operation issue.
-            suggestions: Optional remediation suggestions.
-        """
+        """Initialize a table operation error."""
         super().__init__(
             message=message,
             code=PhloErrorCode.TABLE_NOT_FOUND,
@@ -266,13 +233,7 @@ class PhloInfrastructureError(PhloError):
         suggestions: list[str] | None = None,
         cause: Exception | None = None,
     ):
-        """Initialize an infrastructure error.
-
-        Args:
-            message: Description of the infrastructure failure.
-            suggestions: Optional remediation suggestions.
-            cause: Optional underlying exception.
-        """
+        """Initialize an infrastructure error."""
         super().__init__(
             message=message,
             code=PhloErrorCode.INFRASTRUCTURE_ERROR,
@@ -307,12 +268,7 @@ class SchemaConversionError(PhloError):
     """Raised when Pandera schema cannot be converted to PyIceberg."""
 
     def __init__(self, message: str, suggestions: list[str] | None = None):
-        """Initialize a schema conversion error.
-
-        Args:
-            message: Description of the conversion issue.
-            suggestions: Optional remediation suggestions.
-        """
+        """Initialize a schema conversion error."""
         super().__init__(
             message=message,
             code=PhloErrorCode.SCHEMA_CONVERSION_ERROR,
@@ -329,13 +285,7 @@ class DLTPipelineError(PhloError):
         suggestions: list[str] | None = None,
         cause: Exception | None = None,
     ):
-        """Initialize a DLT pipeline error.
-
-        Args:
-            message: Description of the pipeline failure.
-            suggestions: Optional remediation suggestions.
-            cause: Optional underlying exception.
-        """
+        """Initialize a DLT pipeline error."""
         super().__init__(
             message=message,
             code=PhloErrorCode.DLT_PIPELINE_FAILED,
@@ -353,13 +303,7 @@ class IcebergCatalogError(PhloError):
         suggestions: list[str] | None = None,
         cause: Exception | None = None,
     ):
-        """Initialize an Iceberg catalog error.
-
-        Args:
-            message: Description of the catalog operation failure.
-            suggestions: Optional remediation suggestions.
-            cause: Optional underlying exception.
-        """
+        """Initialize an Iceberg catalog error."""
         super().__init__(
             message=message,
             code=PhloErrorCode.ICEBERG_CATALOG_ERROR,
@@ -376,18 +320,11 @@ def suggest_similar_field_names(
     valid_fields: list[str],
     max_suggestions: int = 3,
 ) -> list[str]:
-    """
-    Generate "Did you mean?" suggestions for field name typos.
+    """Generate "Did you mean?" suggestions for field name typos.
 
-    Uses fuzzy matching to suggest similar field names.
-
-    Args:
-        invalid_field: The invalid field name provided by user
-        valid_fields: List of valid field names from schema
-        max_suggestions: Maximum number of suggestions to return
-
-    Returns:
-        List of suggested field names
+    Uses fuzzy matching against valid_fields, returning at most
+    max_suggestions; falls back to listing all valid fields when nothing
+    is close enough.
     """
     from difflib import get_close_matches
 

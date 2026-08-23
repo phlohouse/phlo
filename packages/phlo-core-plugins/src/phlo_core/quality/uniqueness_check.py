@@ -52,9 +52,7 @@ class UniquenessCheckPlugin(QualityCheckPlugin[Any]):
         - Ensuring natural key uniqueness
         - Validating composite keys across multiple columns
 
-    Attributes:
-        metadata: PluginMetadata containing name, version, description,
-            author, and tags for this plugin.
+    The metadata attribute carries the plugin's PluginMetadata.
 
     Example:
         Strict uniqueness check for primary keys::
@@ -85,14 +83,7 @@ class UniquenessCheckPlugin(QualityCheckPlugin[Any]):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for the uniqueness-check plugin.
-
-        Returns:
-            PluginMetadata: Metadata including name ("uniqueness_check"),
-                version ("0.1.0"), description ("Uniqueness validation for primary keys"),
-                author ("Phlo Team"), and tags (["quality", "uniqueness"]).
-
-        """
+        """Return PluginMetadata for the uniqueness-check plugin."""
         return PluginMetadata(
             name="uniqueness_check",
             version="0.1.0",
@@ -102,28 +93,11 @@ class UniquenessCheckPlugin(QualityCheckPlugin[Any]):
         )
 
     def create_check(self, *args: Any, **kwargs: Any) -> Any:
-        """Create a uniqueness check instance.
-
-        Creates and returns a configured UniqueCheck instance from phlo_pandera
-        that validates uniqueness constraints on specified columns.
-
-        Args:
-            columns: List of column names that must contain unique values.
-                For composite uniqueness, provide multiple column names.
-                The check validates that the combination of values across
-                these columns is unique.
-            allow_threshold: Maximum allowed ratio of duplicate rows as a
-                float between 0.0 and 1.0. Defaults to 0.0 (strict uniqueness,
-                no duplicates allowed). A threshold of 0.05 allows up to 5%
-                of rows to be duplicates.
-
-        Returns:
-            Any: Configured UniqueCheck instance ready to validate data.
-            The returned object can be used with Pandera schemas or called
-            directly with DataFrames.
-
-        Raises:
-            ValueError: If allow_threshold is not between 0.0 and 1.0.
+        """Create a configured UniqueCheck (from phlo_pandera) that validates
+        uniqueness of columns — one column for simple checks, several for
+        composite keys. allow_threshold (default 0.0) is the tolerated
+        duplicate-row ratio between 0.0 and 1.0; TypeError for malformed
+        arguments.
 
         Example:
             Strict uniqueness check on single column::

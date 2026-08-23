@@ -16,6 +16,9 @@ Example:
     >>> transform_provider = DbtTransformationProvider()
     >>> cli_plugin = transform_provider.get_cli_plugin()
 
+
+    dbt plugin module; its asset and transformation providers register via phlo plugin entry points.
+    Builds on phlo.capabilities.specs and the phlo.plugins.base plugin interfaces.
 """
 
 from __future__ import annotations
@@ -219,12 +222,7 @@ class DbtAssetProvider(AssetProviderPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata.
-
-        Returns:
-            Metadata describing the dbt asset provider plugin.
-
-        """
+        """Return plugin metadata describing the dbt asset provider."""
         return PluginMetadata(
             name="dbt",
             version="0.1.0",
@@ -232,12 +230,7 @@ class DbtAssetProvider(AssetProviderPlugin):
         )
 
     def get_assets(self) -> Iterable[AssetSpec]:
-        """Return dbt-derived asset specifications.
-
-        Returns:
-            Iterable of dbt asset specifications.
-
-        """
+        """Return dbt-derived asset specifications."""
         return build_dbt_asset_specs()
 
 
@@ -272,12 +265,7 @@ class DbtTransformationProvider(TransformationProviderPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata.
-
-        Returns:
-            Metadata describing the dbt transformation provider plugin.
-
-        """
+        """Return plugin metadata describing the dbt transformation provider."""
         return PluginMetadata(
             name="dbt",
             version="0.1.0",
@@ -285,21 +273,11 @@ class DbtTransformationProvider(TransformationProviderPlugin):
         )
 
     def get_asset_retriever(self):
-        """Return a function to retrieve transformation asset specs.
-
-        Returns:
-            Callable that returns dbt asset specifications.
-
-        """
+        """Return a callable that yields dbt transformation asset specs."""
         return build_dbt_asset_specs
 
     def get_cli_plugin(self):
-        """Return the CLI plugin for dbt commands.
-
-        Returns:
-            DbtCliPlugin instance for dbt CLI command integration.
-
-        """
+        """Return the CLI plugin exposing dbt commands."""
         from phlo_dbt.cli_plugin import DbtCliPlugin
 
         return DbtCliPlugin

@@ -1,4 +1,9 @@
-"""Tests for `phlo materialize` CLI command behavior."""
+"""Behavioral tests for the `phlo materialize` CLI command.
+
+Uses fake container backends and patched runtime waits to cover WAP-enabled
+launches, contract-refresh defaults, and actionable failure reporting without
+live services.
+"""
 
 from subprocess import PIPE, STDOUT
 from unittest.mock import patch

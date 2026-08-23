@@ -1,4 +1,12 @@
-"""Shared Observatory read model cache helpers."""
+"""Shared TTL cache backing Observatory read model queries.
+
+Entries are keyed by project and read model name; loads are single-flight
+per key so concurrent callers share one loader run instead of stampeding
+it. clear() bumps a generation counter so an in-flight load never
+republishes state the caller asked to forget. When db_path is configured,
+values also persist to SQLite with wall-clock expiry as a cross-process
+fallback source.
+"""
 
 from __future__ import annotations
 
@@ -27,10 +35,15 @@ class ReadModelCache:
     _generation: int = 0
 
     def cached(self, name: str, ttl_seconds: float, loader: Callable[[], Any]) -> Any:
+        """Return the cached value for ``name`` when within ``ttl_seconds``,
+        otherwise run ``loader`` single-flight and repopulate the entry."""
         project = self.project_key()
         key = (project, name)
         epoch_now = time.time()
 
+        # Single-flight per key: exactly one caller claims the key and runs the
+        # loader while the rest block on its event, then re-enter the loop to
+        # pick up the published value instead of stampeding the loader.
         while True:
             with self._lock:
                 cached = self._values.get(key)
@@ -52,8 +65,18 @@ class ReadModelCache:
                 value = loader()
                 expires_at = time.time() + ttl_seconds
             with self._lock:
+                # clear() bumps _generation under the lock. If invalidation ran
+                # while this load was in flight, drop the result instead of
+                # republishing state the caller asked to forget. Waiters wake,
+                # find nothing published, and reload for themselves.
                 if generation == self._generation:
-                    self._values[key] = (time.monotonic() + max(0, expires_at - time.time()), value)
+                    # Expiry lives as wall clock time in SQLite but as a
+                    # monotonic deadline here, so wall-clock adjustments cannot
+                    # extend or cut short in-memory entries.
+                    self._values[key] = (
+                        time.monotonic() + max(0, expires_at - time.time()),
+                        value,
+                    )
                     if stored is None:
                         self._store(project, name, expires_at, value)
             return value
@@ -63,6 +86,8 @@ class ReadModelCache:
                 in_flight.set()
 
     def clear(self) -> None:
+        """Drop in-memory entries, bump the generation counter, and clear
+        any SQLite persistence so stale values cannot resurface."""
         with self._lock:
             self._generation += 1
             self._values.clear()
@@ -114,6 +139,9 @@ class ReadModelCache:
                     (project, name),
                 )
                 return None
+            # An unreadable payload (schema drift, partial write) is a miss, not
+            # an error: drop the row so the next cached() call reloads from the
+            # source instead of failing every request on this key.
             try:
                 return expires_at, _deserialize_value(row[1])
             except (TypeError, ValueError, json.JSONDecodeError):
@@ -127,6 +155,8 @@ class ReadModelCache:
         connection = self._connect()
         if connection is None:
             return
+        # A value JSON cannot represent is simply not persisted; it still lives
+        # in the in-memory layer for this process.
         try:
             payload = _serialize_value(value)
         except (TypeError, ValueError):

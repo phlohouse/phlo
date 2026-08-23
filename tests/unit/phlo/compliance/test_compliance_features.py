@@ -1,4 +1,10 @@
-"""Tests for compliance feature resolution."""
+"""Tests for compliance feature resolution.
+
+Verifies ComplianceFeatures is frozen with all features defaulting to
+false, that regulated mode enables everything unless compliance_config
+overrides individual features, and that empty or None config acts as no
+override.
+"""
 
 from __future__ import annotations
 

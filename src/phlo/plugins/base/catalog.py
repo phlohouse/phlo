@@ -56,19 +56,11 @@ class CatalogPlugin(Plugin, ABC):
     @property
     @abstractmethod
     def catalog_name(self) -> str:
-        """Return the catalog name.
-
-        This becomes the catalog identifier in the engine.
-        """
+        """Return the catalog identifier used by the engine."""
 
     @abstractmethod
     def get_properties(self) -> dict[str, Any]:
-        """Return catalog configuration as key-value pairs.
-
-        Returns:
-            Dictionary of config key -> value
-
-        """
+        """Return catalog configuration as a key-to-value dictionary."""
 
     def supports_target(self, target: str) -> bool:
         """Return True if the catalog supports the requested engine target."""

@@ -1,4 +1,9 @@
-"""Provider-neutral Iceberg compaction operation contract tests."""
+"""Provider-neutral contract tests for Iceberg table compaction.
+
+Pins dry-run planning, executor identity passing, ref overrides, and
+fail-closed outcome handling where any failure reports outcome unknown and is
+not retry-safe.
+"""
 
 from types import SimpleNamespace
 from typing import Any, cast
@@ -48,6 +53,9 @@ def test_execute_passes_snapshot_and_operation_identity_to_executor(monkeypatch)
             (42, {"file_count": 1, "snapshot_count": 3, "total_size_mb": 4.0}),
         ],
     )
+    # compact() reads metadata three times: before execution, immediately
+    # before submitting to the executor (the snapshot must still be 41), and
+    # after execution (advanced to 42 by the compaction).
     executor = MagicMock()
     executor.compact_table.return_value = {
         "catalog": "iceberg",

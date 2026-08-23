@@ -1,3 +1,7 @@
+/**
+ * Tests the observatory API middleware: request context propagation and
+ * serializable-payload validation when proxying calls to phlo-api.
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type ServerFnBuilderMock = {

@@ -98,13 +98,8 @@ class SeparationOfDutiesPolicy:
         self.severity = severity
 
     def check_violation(self, roles: tuple[str, ...]) -> SeparationOfDutiesViolation | None:
-        """Check if the given roles violate this SoD policy.
-
-        Args:
-            roles: The roles to check.
-
-        Returns:
-            SeparationOfDutiesViolation if violated, None otherwise.
+        """Return a SeparationOfDutiesViolation when two or more conflicting
+        roles are present, None otherwise.
         """
         conflicting = set(self.conflicting_roles) & set(roles)
         if len(conflicting) >= 2:
@@ -153,15 +148,8 @@ def check_separation_of_duties(
     roles: tuple[str, ...],
     policies: list[SeparationOfDutiesPolicy] | None = None,
 ) -> list[SeparationOfDutiesViolation]:
-    """Check for separation of duties violations.
-
-    Args:
-        principal_subject: The principal being checked.
-        roles: The principal's current roles.
-        policies: Optional SoD policies. Uses defaults if not provided.
-
-    Returns:
-        List of violations (empty if none).
+    """Check a principal's roles against SoD policies (defaults when none
+    are given) and return the violations, empty if none.
     """
     if policies is None:
         policies = DEFAULT_SOD_POLICIES

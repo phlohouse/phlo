@@ -1,4 +1,11 @@
-"""Tests for infrastructure configuration."""
+"""Tests for infrastructure configuration.
+
+Exercises the phlo.yaml schema and its loaders: typed ServiceConfig
+validation, default fallbacks for missing or empty files (invalid YAML
+raises), WAP policy loading that fails closed on typos and insecure
+remote endpoints, regulated-mode key precedence with deprecation
+aliasing, and path-traversal rejection of PHLO_PROJECT_PATH.
+"""
 
 import tempfile
 from pathlib import Path

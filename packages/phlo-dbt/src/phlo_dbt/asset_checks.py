@@ -35,18 +35,14 @@ logger = get_logger(__name__)
 class _CheckContract:
     """Minimal check metadata contract used for dbt test outputs.
 
-    Internal dataclass for normalizing dbt test result data before converting
-    to Phlo CheckResult objects. Provides a consistent interface for test
-    metadata including failure counts, SQL queries, and sample data.
-
-    Attributes:
-        source: Source identifier (always "dbt" for dbt tests).
-        failed_count: Number of rows that failed the test.
-        partition_key: Optional partition identifier for the test run.
-        total_count: Optional total row count tested.
-        query_or_sql: Compiled SQL query used for the test.
-        repro_sql: Reproducible SQL for debugging (with LIMIT).
-        sample: Sample failed rows for diagnostics.
+    Internal dataclass for normalizing dbt test result data before converting to
+    Phlo CheckResult objects. Provides a consistent interface for test metadata
+    including failure counts, SQL queries, and sample data. ``source`` identifies
+    the origin (always "dbt" for dbt tests); ``failed_count`` counts rows that
+    failed the test; ``partition_key`` optionally identifies the test run's
+    partition alongside the optional ``total_count``; ``query_or_sql`` carries the
+    compiled SQL used for the test; ``repro_sql`` is reproducible SQL for
+    debugging (with LIMIT); ``sample`` holds sample failed rows for diagnostics.
 
     Example:
         >>> contract = _CheckContract(
@@ -56,7 +52,6 @@ class _CheckContract:
         ...     query_or_sql="SELECT * FROM table WHERE condition"
         ... )
         >>> metadata = contract.to_metadata()
-
     """
 
     source: str
@@ -70,13 +65,9 @@ class _CheckContract:
     def to_metadata(self) -> dict[str, Any]:
         """Export contract fields as metadata dict.
 
-        Converts the check contract into a metadata dictionary suitable
-        for inclusion in Phlo CheckResult objects. Only includes non-None
-        values to keep metadata clean.
-
-        Returns:
-            Dictionary with check metadata, excluding None values.
-
+        Converts the check contract into a metadata dictionary suitable for inclusion
+        in Phlo CheckResult objects. Only includes non-None values to keep metadata
+        clean.
         """
         metadata: dict[str, Any] = {
             "source": self.source,
@@ -110,7 +101,13 @@ def _dbt_check_name(test_type: str, target: str, identity: str) -> str:
 
 
 def _severity_for_dbt_test(*, test_type: str | None, tags: Iterable[str] | None) -> str:
-    """Map dbt test metadata to severity."""
+    """Map dbt test metadata to a Phlo severity label.
+
+    Explicit tags take precedence over test-type defaults: ``blocking`` forces
+    ``error`` and ``warn``/``anomaly`` forces ``warn``. Without tags, structural
+    integrity tests (not_null, unique, relationships) default to ``error`` and
+    every other test type warns.
+    """
     warn_tags = {"warn", "anomaly"}
     blocking_tags = {"blocking"}
     blocking_test_types = {"not_null", "unique", "relationships"}
@@ -137,20 +134,13 @@ def extract_dbt_asset_checks(
 
     Extracts test results from dbt run_results.json and manifest.json files,
     converting them into Phlo CheckResult objects. Handles various test types,
-    severity mapping, and SQL extraction for quality reporting.
-
-    Args:
-        run_results: Parsed dbt run results payload from run_results.json.
-        manifest: Parsed dbt manifest payload from manifest.json.
-        translator: Translator used to resolve target asset keys from dbt nodes.
-        partition_key: Optional partition key for emitted checks (e.g., "2024-01-01").
-        max_sql_chars: Maximum SQL length to include in metadata (default: 100,000).
-
-    Returns:
-        List of CheckResult objects derived from dbt test nodes.
-
-    Raises:
-        Exception: May raise exceptions during asset key translation (logged, not propagated).
+    severity mapping, and SQL extraction for quality reporting. ``run_results``
+    and ``manifest`` are the parsed dbt payloads, ``translator`` resolves target
+    asset keys from dbt nodes, ``partition_key`` optionally tags emitted checks
+    (e.g., "2024-01-01"), and ``max_sql_chars`` bounds the SQL length included in
+    metadata (default 100,000). Exceptions during asset key translation may occur
+    but are logged, not propagated. Returns CheckResult objects derived from dbt
+    test nodes.
 
     Example:
         >>> import json
@@ -170,7 +160,6 @@ def extract_dbt_asset_checks(
         >>> passed = sum(1 for c in checks if c.passed)
         >>> failed = len(checks) - passed
         >>> print(f"Tests: {passed} passed, {failed} failed")
-
     """
     checks: list[CheckResult] = []
     result_entries = run_results.get("results", []) or []
@@ -259,17 +248,11 @@ def dbt_asset_check_specs(
 ) -> list[AssetCheckSpec]:
     """Build Dagster-declarable check specs for dbt tests in a manifest.
 
-    The dbt asset runner emits the corresponding ``CheckResult`` values after
-    each build.  Declaring these specs during discovery lets orchestrators
-    accept those runtime results as native asset-check events.
-
-    Args:
-        manifest: Parsed dbt manifest payload.
-        translator: Translator used to resolve target asset keys from dbt nodes.
-
-    Returns:
-        Check specifications for dbt tests with resolvable target assets.
-
+    The dbt asset runner emits the corresponding ``CheckResult`` values after each
+    build. Declaring these specs during discovery lets orchestrators accept those
+    runtime results as native asset-check events. ``manifest`` is the parsed dbt
+    manifest payload and ``translator`` resolves target asset keys from dbt nodes.
+    Returns check specifications for dbt tests with resolvable target assets.
     """
     nodes = _manifest_nodes(manifest)
     if not isinstance(nodes, Mapping):
@@ -417,15 +400,8 @@ def _resolve_dbt_test(
 
 
 def _first_str(values: Iterable[object], prefix: str | None = None) -> str | None:
-    """Return the first string entry, optionally filtered by prefix.
-
-    Args:
-        values: Candidate values to inspect.
-        prefix: Optional required string prefix.
-
-    Returns:
-        First matching string, or ``None``.
-
+    """Return the first string entry in ``values``, optionally filtered by
+    ``prefix``; ``None`` when nothing matches.
     """
     for value in values:
         if not isinstance(value, str):
@@ -439,13 +415,8 @@ def _first_str(values: Iterable[object], prefix: str | None = None) -> str | Non
 def _dbt_test_type(test_props: Mapping[str, Any], *, fallback_unique_id: str) -> str:
     """Infer the dbt test type label from node properties.
 
-    Args:
-        test_props: dbt test node properties.
-        fallback_unique_id: Unique id used as a fallback source.
-
-    Returns:
-        Normalized dbt test type string.
-
+    Returns the normalized test type string from ``test_props``, falling back to
+    ``fallback_unique_id`` when no explicit type is present.
     """
     test_metadata = test_props.get("test_metadata")
     if isinstance(test_metadata, Mapping):
@@ -459,15 +430,7 @@ def _dbt_test_type(test_props: Mapping[str, Any], *, fallback_unique_id: str) ->
 
 
 def _dbt_tags(test_props: Mapping[str, Any]) -> set[str]:
-    """Extract normalized non-empty dbt tags.
-
-    Args:
-        test_props: dbt test node properties.
-
-    Returns:
-        Unique trimmed tag values.
-
-    """
+    """Extract unique, trimmed, non-empty dbt tags from ``test_props``."""
     tags = test_props.get("tags")
     if not isinstance(tags, list):
         return set()
@@ -479,14 +442,8 @@ def _dbt_tags(test_props: Mapping[str, Any]) -> set[str]:
 
 
 def _dbt_compiled_sql(test_props: Mapping[str, Any]) -> str | None:
-    """Return compiled SQL text from known dbt node keys.
-
-    Args:
-        test_props: dbt test node properties.
-
-    Returns:
-        Compiled SQL text when available, otherwise ``None``.
-
+    """Return compiled SQL text from known dbt node keys in ``test_props``, or
+    ``None`` when unavailable.
     """
     for key in ("compiled_code", "compiled_sql", "raw_code"):
         value = test_props.get(key)
@@ -496,16 +453,7 @@ def _dbt_compiled_sql(test_props: Mapping[str, Any]) -> str | None:
 
 
 def _sample_for_result(result: Mapping[str, Any], *, passed: bool) -> list[dict[str, Any]]:
-    """Build sample metadata for failed dbt tests.
-
-    Args:
-        result: dbt result entry.
-        passed: Whether the test passed.
-
-    Returns:
-        Sample metadata rows for quality diagnostics.
-
-    """
+    """Build sample metadata rows for quality diagnostics from a dbt ``result`` entry."""
     if passed:
         return []
     sample: dict[str, Any] = {}
@@ -521,13 +469,8 @@ def _sample_for_result(result: Mapping[str, Any], *, passed: bool) -> list[dict[
 def _truncate(value: str | None, *, max_chars: int) -> str | None:
     """Trim long strings to a bounded size.
 
-    Args:
-        value: Candidate value to truncate.
-        max_chars: Maximum output length.
-
-    Returns:
-        Original value when short enough; truncated value otherwise.
-
+    Returns ``value`` unchanged when short enough, truncated to fit ``max_chars``
+    otherwise.
     """
     if value is None:
         return None
@@ -539,12 +482,7 @@ def _truncate(value: str | None, *, max_chars: int) -> str | None:
 def _repro_sql_from_sql(sql: str | None) -> str | None:
     """Create a reproducible SQL snippet for debugging failed checks.
 
-    Args:
-        sql: Compiled SQL string.
-
-    Returns:
-        SQL with a row limit appended when missing, or ``None``.
-
+    Appends a row limit to ``sql`` when missing; returns ``None`` when no SQL.
     """
     if sql is None:
         return None
@@ -558,15 +496,7 @@ def _repro_sql_from_sql(sql: str | None) -> str | None:
 
 
 def _int_or_none(value: object) -> int | None:
-    """Safely coerce a value to ``int``.
-
-    Args:
-        value: Candidate value.
-
-    Returns:
-        Parsed integer value, or ``None`` when coercion fails.
-
-    """
+    """Safely coerce ``value`` to ``int``, returning ``None`` when coercion fails."""
     if value is None:
         return None
     if isinstance(value, bool):

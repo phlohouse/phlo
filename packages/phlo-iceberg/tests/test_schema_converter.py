@@ -1,4 +1,10 @@
-"""Tests for Iceberg schema conversion utilities."""
+"""Tests for Iceberg schema conversion utilities.
+
+Pins the Pandera-to-PyIceberg type mapping (including the Decimal
+fallback), nullable-to-required inversion, description-to-doc transfer,
+sequential field IDs, and the reserved DLT/Phlo metadata fields injected
+at fixed IDs unless disabled.
+"""
 
 from datetime import date, datetime
 from decimal import Decimal

@@ -1,4 +1,12 @@
-"""Tests for phlo-api authentication helpers."""
+"""Tests for phlo-api authentication helpers and service definition.
+
+Covers provider resolution precedence: a provider registered via phlo.yaml
+capabilities wins unless an env-configured provider is set, conflicting
+registrations are rejected, and the declared authentication method must
+match the provider. Also asserts contract properties of the packaged API
+service (forward-auth middleware, no docker socket mount, portable build
+context, no unauthenticated Traefik route).
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,10 @@
-"""Derived governance surface from existing Phlo declarations."""
+"""Derived governance surface from existing Phlo declarations.
+
+Folds every registered flow, contract, access-policy, and observability
+declaration into one immutable GovernanceSurface of GovernedTable entries,
+emitting GovernanceWarnings for inconsistencies instead of failing the
+build. Merged values are deep-copied into JSON-serializable form.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +23,8 @@ from phlo.flow import (
 
 @dataclass(frozen=True, slots=True)
 class GovernanceWarning:
+    """Validation warning raised while deriving the governance surface."""
+
     table: str
     code: str
     message: str
@@ -33,14 +41,18 @@ class GovernanceWarning:
 
 @dataclass(frozen=True, slots=True)
 class AccessPolicyReadModel:
+    """Serialized access policy attached to a governed table."""
+
     key: str
     roles: tuple[str, ...]
+
     pii_columns: tuple[str, ...]
     policy: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_spec(cls, spec: AccessPolicySpec) -> AccessPolicyReadModel:
+        """Build a read model from an access policy specification."""
         return cls(
             key=spec.key,
             roles=tuple(spec.roles),
@@ -61,6 +73,8 @@ class AccessPolicyReadModel:
 
 @dataclass(frozen=True, slots=True)
 class GovernanceObservability:
+    """Observability signals collected for a governed table."""
+
     freshness_hours: int | None = None
     row_count_change: dict[str, float] = field(default_factory=dict)
     checks: tuple[str, ...] = ()
@@ -75,6 +89,8 @@ class GovernanceObservability:
 
 @dataclass(frozen=True, slots=True)
 class GovernedTable:
+    """Governance metadata for a single table."""
+
     table: str
     owner: str | None = None
     lifecycle: str | None = None
@@ -105,6 +121,8 @@ class GovernedTable:
 
 @dataclass(frozen=True, slots=True)
 class GovernanceSurface:
+    """Aggregated governance view over all registered table declarations."""
+
     tables: dict[str, GovernedTable]
     warnings: tuple[GovernanceWarning, ...] = ()
 
@@ -113,6 +131,7 @@ class GovernanceSurface:
         return len(self.warnings)
 
     def table(self, table_name: str) -> GovernedTable:
+        """Return the governed table registered under ``table_name``."""
         return self.tables[table_name]
 
     def to_read_model(self) -> dict[str, Any]:
@@ -123,6 +142,7 @@ class GovernanceSurface:
         }
 
     def to_check_result(self) -> dict[str, Any]:
+        """Return a pass/fail summary suitable for governance checks."""
         return {
             "ok": self.warning_count == 0,
             "warning_count": self.warning_count,
@@ -200,6 +220,8 @@ class _TableBuilder:
             pii=self.pii,
             published=self.published,
             audience=tuple(sorted(self.audience)),
+            # Dict consumers have no natural ordering; repr provides a stable
+            # total order so repeated builds yield identical output.
             consumers=tuple(sorted((_copy_json_like(item) for item in self.consumers), key=repr)),
             sla=_copy_json_like(self.sla),
             access_policies=tuple(sorted(self.access_policies, key=lambda item: item.key)),
@@ -209,6 +231,13 @@ class _TableBuilder:
 
 
 def build_governance_surface() -> GovernanceSurface:
+    """Build the governance surface from all registered declarations.
+
+    Sources are applied in a fixed order: contracts, publish metadata,
+    observe metadata, then access policies. Scalar fields keep their first
+    non-empty value, so whichever source declares a field earliest wins;
+    list-valued fields accumulate with deduplication instead.
+    """
     builders: dict[str, _TableBuilder] = {}
 
     for spec in get_contract_specs():
@@ -227,6 +256,10 @@ def build_governance_surface() -> GovernanceSurface:
                 [check.name for check in asset.checks],
             )
 
+    # Access policies may reference tables that never declare a contract,
+    # publish, or observe asset. Track those before applying any policy so
+    # validation can flag them: carrying a policy alone does not count as
+    # declaring the table.
     access_only_tables: set[str] = set()
     for spec in get_access_policies():
         builder = _builder(builders, spec.table)
@@ -323,6 +356,12 @@ def _merge_dict_lists(
 
 
 def _copy_json_like(value: Any) -> Any:
+    """Deep-copy a JSON-like value into JSON-serializable form.
+
+    Mapping keys become strings, sequences become lists, and sets become
+    lists ordered by repr, since set elements may not define a comparison
+    that sorted() can use directly.
+    """
     if isinstance(value, dict):
         return {str(key): _copy_json_like(item) for key, item in value.items()}
     if isinstance(value, list | tuple):

@@ -27,6 +27,9 @@ See Also:
     phlo.plugins.observatory for the extension plugin interface.
     phlo_lineage.graph for graph construction logic.
 
+
+Loaded through the Observatory extension entry points at UI startup rather
+than imported directly by other phlo modules.
 """
 
 from __future__ import annotations
@@ -51,20 +54,9 @@ class LineageObservatoryExtension(ObservatoryExtensionPlugin):
     def metadata(self) -> PluginMetadata:
         """Return plugin metadata for extension discovery.
 
-                Provides identifying information for the Observatory plugin system
-        to recognize and load this extension.
-
-        Returns:
-                    PluginMetadata with extension identity:
-                        - name: "lineage"
-                        - version: "0.1.0"
-                        - description: Brief description of the extension
-
-                Discovery:
-                    This metadata is used by the Observatory plugin loader to:
-                    - Identify the extension uniquely
-                    - Display extension information in the UI
-                    - Check for duplicate or conflicting extensions
+        Provides identity (``lineage`` v0.1.0) that the Observatory plugin loader
+        uses to uniquely identify this extension, display its information in the UI,
+        and detect duplicate or conflicting extensions.
 
         Example:
                     >>> ext = LineageObservatoryExtension()
@@ -81,27 +73,13 @@ class LineageObservatoryExtension(ObservatoryExtensionPlugin):
 
     @property
     def manifest(self) -> ObservatoryExtensionManifest:
-        """Return Observatory extension manifest configuration.
+        """Return the Observatory extension manifest for this extension.
 
-                Defines the extension's UI integration points, version compatibility
-        requirements, and navigation structure within Observatory.
-
-        Returns:
-                    ObservatoryExtensionManifest containing:
-                        - name: Extension identifier
-                        - version: Extension version
-                        - compat: Compatibility requirements (observatory_min version)
-                        - ui: UI configuration including navigation items
-
-                Manifest Contents:
-                    - name: "lineage" (must match metadata.name)
-                    - version: "0.1.0"
-                    - compat.observatory_min: "0.1.0" (minimum Observatory version)
-                    - ui.nav: [NavItem(title="Lineage", to="/lineage")]
-
-                Compatibility:
-                    The extension requires Observatory core version >= 0.1.0.
-                    Loading in incompatible versions will raise a warning.
+        Declares the extension's UI integration points and version compatibility:
+        name ``lineage`` v0.1.0 (matching metadata.name), requiring Observatory core
+        >= 0.1.0 (loading in incompatible versions raises a warning), with a single
+        navigation item "Lineage" pointing to "/lineage". See
+        ObservatoryExtensionManifest for the full manifest schema.
 
         Example:
                     >>> ext = LineageObservatoryExtension()
@@ -109,9 +87,6 @@ class LineageObservatoryExtension(ObservatoryExtensionPlugin):
                     >>> print(f"Requires Observatory >= {manifest.compat.observatory_min}")
                     >>> for item in manifest.ui.nav:
                     ...     print(f"Nav: {item.title} -> {item.to}")
-
-        See Also:
-                    ObservatoryExtensionManifest for full manifest schema.
 
         """
         return ObservatoryExtensionManifest(
@@ -125,25 +100,13 @@ class LineageObservatoryExtension(ObservatoryExtensionPlugin):
 
     @property
     def asset_root(self) -> Traversable:
-        """Return the static asset directory for the extension.
+        """Return the static asset directory bundled with the extension.
 
-                Provides access to bundled static assets (JavaScript, CSS, images)
-        that are served by the Observatory web server for the lineage UI.
-
-        Returns:
-                    Traversable pointing to the package directory containing
-                    static assets at: phlo_lineage/observatory_assets/
-
-                Asset Types:
-                    The directory typically contains:
-                    - JavaScript files for interactive lineage graph visualization
-                    - CSS stylesheets for lineage-specific styling
-                    - Image assets for icons and visual elements
-                    - HTML templates for the lineage graph view
-
-                Serving:
-                    Observatory serves these assets at a URL path derived from
-                    the extension name (e.g., /extensions/lineage/assets/).
+        Points at phlo_lineage/observatory_assets, which holds the JavaScript,
+        CSS, images, and HTML templates served by Observatory at a URL derived from
+        the extension name (e.g. /extensions/lineage/assets/). Uses
+        importlib.resources so it works correctly in both development and installed
+        wheel contexts.
 
         Example:
                     >>> ext = LineageObservatoryExtension()
@@ -151,10 +114,6 @@ class LineageObservatoryExtension(ObservatoryExtensionPlugin):
                     >>> # List asset files
                     >>> for path in assets.iterdir():
                     ...     print(f"Asset: {path.name}")
-
-        Note:
-                    Uses importlib.resources for safe package resource access.
-                    Works correctly in both development and installed (wheel) contexts.
 
         """
         return resources.files("phlo_lineage").joinpath("observatory_assets")

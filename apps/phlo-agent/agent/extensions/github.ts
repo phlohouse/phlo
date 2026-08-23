@@ -1,3 +1,9 @@
+/**
+ * GitHub tool extension gated by approval policies: scheduled write sessions
+ * must be the scheduler app with autonomous writes enabled and phlohouse/phlo
+ * targets, and issue-triage labelling is further restricted to the triggering
+ * issue's webhook session and the triage label allowlist.
+ */
 import githubExtension from '@github-tools/eve-extension'
 import type { ApprovalContext, ApprovalStatus } from 'eve/tools'
 import { GITHUB_CONNECTOR } from '../lib/github/credentials'
@@ -19,6 +25,13 @@ function targetsPhlo(input: unknown): boolean {
   return owner === 'phlohouse' && repo === 'phlo'
 }
 
+/**
+ * Approval policy for write tools invoked by scheduled runs. Only the
+ * scheduler app identity may proceed, autonomous writes must be enabled
+ * globally, and targets are restricted to phlohouse/phlo. Returning
+ * 'not-applicable' lets the call run without prompting; 'user-approval' blocks
+ * until a human approves, and 'denied' refuses outright.
+ */
 function scheduledWrite(ctx: ApprovalContext): ApprovalStatus {
   if (!isScheduleAppAuth(ctx.session.auth.current)) return requireUserApproval()
   if (!autonomousWritesEnabled()) {
@@ -33,6 +46,12 @@ function scheduledWrite(ctx: ApprovalContext): ApprovalStatus {
   return 'not-applicable'
 }
 
+/**
+ * Approval policy for addLabels during issue triage. Scheduled sessions fall
+ * back to the scheduler policy; webhook sessions pass only when they belong to
+ * the exact issue being relabelled and the labels satisfy the triage
+ * allowlist.
+ */
 function issueTriageWrite(ctx: ApprovalContext): ApprovalStatus {
   if (isScheduleAppAuth(ctx.session.auth.current)) return scheduledWrite(ctx)
   if (!autonomousWritesEnabled()) {
@@ -83,6 +102,8 @@ export default githubExtension({
     addLabels: issueTriageWrite,
     createIssue: scheduledWrite,
     createPullRequest: (ctx: ApprovalContext): ApprovalStatus => {
+      // Scheduled runs may open drafts only; every other pull request needs a
+      // human approval.
       const input = ctx.toolInput as { draft?: unknown } | undefined
       if (isScheduleAppAuth(ctx.session.auth.current) && input?.draft === true) {
         return scheduledWrite(ctx)

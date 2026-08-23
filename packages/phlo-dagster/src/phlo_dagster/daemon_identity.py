@@ -53,15 +53,10 @@ def create_daemon_principal(
 ) -> AuthPrincipal:
     """Create an AuthPrincipal for the Dagster daemon.
 
-    Args:
-        trigger_kind: What caused the run — "schedule", "sensor",
-            "auto_materialize", or "retry".
-        trigger_name: Name of the schedule/sensor/asset that triggered it.
-        initiating_user: Subject of the human who configured the trigger,
-            if known (e.g., from schedule metadata).
-
-    Returns:
-        AuthPrincipal with principal_type="platform".
+    ``trigger_kind`` is what caused the run ("schedule", "sensor",
+    "auto_materialize", or "retry") and ``trigger_name`` names the
+    schedule/sensor/asset; ``initiating_user`` records the human who
+    configured the trigger when known.
     """
     attributes: dict[str, str] = {
         "authentication_source": "daemon",
@@ -86,16 +81,8 @@ def build_run_tags(
 ) -> dict[str, str]:
     """Build Dagster run tags for principal propagation.
 
-    These tags travel with the run through Dagster's run storage and are
-    visible in the UI, logs, and downstream steps.
-
-    Args:
-        trigger_kind: "schedule", "sensor", "auto_materialize", or "retry".
-        trigger_name: Name of the schedule/sensor/asset.
-        initiating_user: Human who configured the trigger, if known.
-
-    Returns:
-        Dict of tag key → value suitable for Dagster run tags.
+    Tags travel with the run through Dagster's run storage and stay visible
+    in the UI, logs, and downstream steps.
     """
     tags: dict[str, str] = {
         PHLO_PRINCIPAL_TAG: DAEMON_SUBJECT,
@@ -122,17 +109,8 @@ def authorize_daemon_run(
     If enforcement denies the run, raises RuntimeError. The daemon should
     catch this and skip the run with an error log.
 
-    In non-regulated mode, this is a no-op.
-
-    Args:
-        trigger_kind: "schedule", "sensor", "auto_materialize", or "retry".
-        trigger_name: Name of the schedule/sensor/asset.
-        asset_selection: List of asset keys being materialized, if known.
-        run_id: Dagster run ID if already assigned.
-        initiating_user: Human who configured the trigger, if known.
-
-    Raises:
-        RuntimeError: If enforcement denies the run.
+    In non-regulated mode this is a no-op. Raises: RuntimeError when
+    enforcement denies the run.
     """
     if not is_regulated():
         return
@@ -210,6 +188,8 @@ class PhloQueuedRunCoordinator(QueuedRunCoordinator):
     """Queued run coordinator that audits daemon-initiated Dagster runs."""
 
     def submit_run(self, context: SubmitRunContext):
+        """Authorize daemon-initiated runs before enqueueing them, stamping
+        principal-propagation tags on regulated runs."""
         dagster_run = context.dagster_run
         trigger = _infer_daemon_trigger(dagster_run.tags)
 

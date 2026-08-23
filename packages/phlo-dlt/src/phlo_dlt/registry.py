@@ -57,18 +57,10 @@ class TableConfig:
     Immutable dataclass that stores all configuration needed for a DLT
     ingestion table, including name, schemas, keys, and partitioning.
 
-    Attributes:
-        table_name: Physical target table name (without namespace).
-        table_schema: Optional explicit table-store schema object.
-            If None, will be derived from validation_schema.
-        validation_schema: Optional Pandera DataFrameModel used for validation.
-        unique_key: Column used as unique key for merge semantics.
-        group_name: Dagster group name for generated assets.
-        partition_spec: Optional table-store partition transform specification.
-            Format: list of (column, transform) tuples, e.g., [("date", "day")]
-
-    Properties:
-        full_table_name: Fully-qualified name with namespace prefix.
+    A None `table_schema` is derived from `validation_schema`; the optional
+    `partition_spec` holds (column, transform) tuples such as
+    [("created_at", "day")]. The `full_table_name` property prefixes the
+    configured default namespace.
 
     Example:
         ```python
@@ -100,9 +92,6 @@ class TableConfig:
 
         Combines the configured default namespace with the table name
         to create a fully-qualified identifier for the table store.
-
-        Returns:
-            str: Namespace-prefixed table name (e.g., "raw.users").
 
         Example:
             ```python

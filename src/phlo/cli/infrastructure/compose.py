@@ -1,3 +1,10 @@
+"""Build docker/podman compose commands for a Phlo project's selected backend.
+
+Single seam between CLI commands and the container backend: the backend is
+chosen per project (with an optional CLI override) and supplies the base
+compose tokens, so callers never hardcode docker or podman.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -15,14 +22,8 @@ def compose_base_cmd(
 ) -> list[str]:
     """Build the base compose command for a Phlo project.
 
-    Args:
-        phlo_dir: Directory containing compose and environment files.
-        project_name: Compose project name.
-        profiles: Optional compose profile names to enable.
-        backend_name: Optional container backend override.
-
-    Returns:
-        Base command tokens for compose invocation.
+    The backend is selected per project unless overridden; profiles enable
+    named compose profile groups.
     """
     backend = select_project_container_backend(cli_backend=backend_name)
     return backend.compose_base_cmd(

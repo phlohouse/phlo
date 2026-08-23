@@ -100,14 +100,9 @@ def evaluate_table(
 ) -> TableAction:
     """Evaluate table stats against policy thresholds.
 
-    Args:
-        table_name: Fully qualified table name.
-        stats: Table statistics dict (keys: snapshot_count, total_size_mb, file_count).
-        policy: Namespace policy with optional expire/optimize thresholds.
-
-    Returns:
-        TableAction indicating which maintenance operations to run.
-
+    ``stats`` carries snapshot_count, total_size_mb, and file_count keys;
+    ``policy`` holds optional expire/optimize thresholds per namespace. Returns
+    a TableAction describing which maintenance operations to run.
     """
     expire = False
     optimize = False
@@ -148,13 +143,6 @@ def load_policies(path: str | Path) -> list[NamespacePolicy]:
           - namespace: curated
             expire:
               snapshot_count_gt: 10
-
-    Args:
-        path: Path to the YAML policy file.
-
-    Returns:
-        List of parsed namespace policies.
-
     """
     try:
         import yaml

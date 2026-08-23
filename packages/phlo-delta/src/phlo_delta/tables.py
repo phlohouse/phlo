@@ -44,11 +44,8 @@ DeltaTable = Any
 def _load_deltalake() -> tuple[type[Any], Any]:
     """Load optional deltalake runtime symbols on demand.
 
-    Lazily imports the DeltaTable class and write_deltalake function
-    from the deltalake package to avoid import-time dependencies.
-
-    Returns:
-        tuple[type[Any], Any]: Tuple containing (DeltaTable class, write_deltalake function).
+    Lazily imports deltalake to avoid import-time dependencies and returns
+    the (DeltaTable class, write_deltalake function) pair.
 
     Example:
         DeltaTable, write_deltalake = _load_deltalake()
@@ -62,17 +59,8 @@ def _load_deltalake() -> tuple[type[Any], Any]:
 def _resolve_table_uri(table_name: str) -> str:
     """Build a full S3 URI for a Delta table from namespace.table format.
 
-    Constructs the complete S3 path by combining the configured warehouse
-    path with the namespace and table name.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-
-    Returns:
-        str: S3 URI for the Delta table.
-
-    Raises:
-        ValueError: If table_name is not in namespace.table format.
+    Combines the configured warehouse path with the namespace and table name.
+    Raises ValueError when table_name is not in namespace.table format.
 
     Example:
         uri = _resolve_table_uri("raw.events")
@@ -92,14 +80,8 @@ def _default_storage_options(
 ) -> dict[str, str]:
     """Return storage options, falling back to settings if not provided.
 
-    Uses provided storage options or retrieves defaults from DeltaSettings.
-
-    Args:
-        storage_options: Optional S3 storage options override.
-
-    Returns:
-        dict[str, str]: Storage options dictionary with AWS credentials,
-            endpoint URL, and other S3 configuration.
+    Uses the provided S3 options verbatim; otherwise returns the settings
+    defaults (AWS credentials, endpoint URL, and other S3 configuration).
 
     Example:
         opts = _default_storage_options()  # Uses settings
@@ -112,19 +94,10 @@ def _default_storage_options(
 
 
 def _read_parquet(data_path: str | Path) -> pa.Table:
-    """Read parquet data from a file or directory.
+    """Read parquet data from a file or directory into a PyArrow Table.
 
-    Loads parquet data into a PyArrow Table, supporting both single files
-    and directories containing multiple parquet files.
-
-    Args:
-        data_path: Path to parquet file or directory.
-
-    Returns:
-        pa.Table: PyArrow table containing the parquet data.
-
-    Raises:
-        Exception: If reading the parquet data fails.
+    Supports both single parquet files and directories of parquet files.
+    Raises whatever error the parquet reader produces when reading fails.
 
     Example:
         table = _read_parquet("/data/events.parquet")
@@ -145,20 +118,11 @@ def ensure_table(
 ) -> DeltaTable:
     """Ensure a Delta table exists, creating it if necessary.
 
-    Checks if the table exists and returns it, or creates a new empty
-    table with the specified schema if it does not exist.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        schema: PyArrow schema for the table.
-        partition_columns: Optional columns to partition by.
-        storage_options: S3 storage options override.
-
-    Returns:
-        DeltaTable: Existing or newly created Delta table.
-
-    Raises:
-        Exception: If table creation fails.
+    Returns the existing table, or creates a new empty table with the given
+    schema and optional partition columns. The create path uses mode="error",
+    so if another process creates the same table concurrently, this call
+    fails instead of committing a second, possibly divergent initial version.
+    Raises an exception if loading or creating the table fails.
 
     Example:
         schema = pa.schema([("id", pa.string()), ("value", pa.int64())])
@@ -169,6 +133,10 @@ def ensure_table(
     opts = _default_storage_options(storage_options)
     delta_table_cls, write_deltalake = _load_deltalake()
 
+    # Open before creating: any load failure is treated as "table missing". The
+    # create path then uses mode="error", so if another process creates the same
+    # table concurrently, this call fails instead of committing a second,
+    # possibly divergent initial version.
     try:
         dt = delta_table_cls(table_uri, storage_options=opts)
         logger.info(
@@ -179,7 +147,6 @@ def ensure_table(
         return dt
     except Exception:
         pass
-
     logger.info(
         "delta_table_creating",
         table_name=table_name,
@@ -214,20 +181,10 @@ def append_to_table(
 ) -> dict[str, int]:
     """Append parquet data to a Delta table.
 
-    Reads parquet data from the specified path and appends it to the
-    existing table. Creates the table if it does not exist.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        data_path: Path to parquet input data (file or directory).
-        storage_options: S3 storage options override.
-
-    Returns:
-        dict[str, int]: Write statistics from the append operation,
-            including rows_inserted (rows_deleted is always 0 for append).
-
-    Raises:
-        Exception: If reading parquet or writing to Delta fails.
+    Reads parquet from data_path and appends it to the existing table,
+    creating the table if it does not exist. Returns write statistics with
+    rows_inserted (rows_deleted is always 0 for append). Raises an exception
+    if reading parquet or writing to Delta fails.
 
     Example:
         result = append_to_table("raw.events", "/data/new_events.parquet")
@@ -287,26 +244,14 @@ def merge_to_table(
     unique_key: str,
     storage_options: dict[str, str] | None = None,
 ) -> dict[str, int]:
-    """Merge (upsert) parquet data into a Delta table with deduplication.
+    """Merge (upsert) parquet data into a Delta table by unique_key.
 
-    Performs a merge operation that updates existing rows matching the
-    unique key and inserts new rows. This implements an upsert pattern.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        data_path: Path to parquet input data.
-        unique_key: Column used to match existing rows (must exist in data).
-        storage_options: S3 storage options override.
-
-    Returns:
-        dict[str, int]: Write statistics from the merge operation:
-            - rows_inserted: Number of new rows added
-            - rows_updated: Number of existing rows modified
-            - rows_deleted: Number of rows deleted (usually 0)
-
-    Raises:
-        ValueError: If the unique_key column is not found in the data.
-        Exception: If the merge operation fails.
+    Updates existing rows matching unique_key and inserts rows not present
+    in the target. Rows absent from the source are swallowed, not deleted,
+    so rows_deleted reports Delta's counter and stays 0 under this strategy.
+    Returns rows_inserted, rows_updated, and rows_deleted counts. Raises
+    ValueError when unique_key is missing from the data columns, or an
+    exception if the merge operation fails.
 
     Example:
         result = merge_to_table(
@@ -393,20 +338,10 @@ def overwrite_table(
 ) -> dict[str, int]:
     """Overwrite a Delta table with parquet data.
 
-    Replaces all existing data in the table with the new parquet data.
-    The old data is logically replaced but remains accessible via time travel.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        data_path: Path to parquet input data.
-        storage_options: S3 storage options override.
-
-    Returns:
-        dict[str, int]: Write statistics from the overwrite operation,
-            including rows_inserted (rows_deleted is always 0 for overwrite).
-
-    Raises:
-        Exception: If reading parquet or writing to Delta fails.
+    Replaces all existing data with the new parquet data; the old data
+    remains accessible via time travel. Returns write statistics with
+    rows_inserted (rows_deleted is always 0 for overwrite). Raises an
+    exception if reading parquet or writing to Delta fails.
 
     Example:
         result = overwrite_table("raw.events", "/data/full_refresh.parquet")
@@ -467,20 +402,10 @@ def delete_rows_from_table(
 ) -> dict[str, int]:
     """Delete rows matching a predicate expression from a Delta table.
 
-    Removes rows that match the specified SQL predicate condition.
-    This operation is atomic and creates a new table version.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        predicate: SQL filter expression (e.g. ``"status = 'inactive'"``).
-        storage_options: S3 storage options override.
-
-    Returns:
-        dict[str, int]: Delete statistics. rows_deleted is always -1
-            because Delta does not return a count from predicate deletes.
-
-    Raises:
-        Exception: If the delete operation fails.
+    Atomically removes rows matching the SQL predicate and creates a new
+    table version. Returns {"rows_deleted": -1} because Delta does not
+    return a count from predicate deletes. Raises an exception if the
+    delete operation fails.
 
     Example:
         result = delete_rows_from_table(
@@ -527,15 +452,9 @@ def expire_snapshots(
 ) -> dict[str, Any]:
     """No-op for Delta Lake — snapshot expiration is handled by vacuum.
 
-    Delta Lake does not support explicit snapshot expiration. Old versions
-    are automatically managed by the vacuum operation.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        **_kwargs: Ignored compatibility arguments.
-
-    Returns:
-        dict: Info dict indicating no-op with explanatory note.
+    Delta Lake does not support explicit snapshot expiration; old versions
+    are managed by vacuum. Returns an info dict with deleted_snapshots=0
+    and an explanatory note.
 
     Example:
         result = expire_snapshots("raw.events")
@@ -559,21 +478,11 @@ def remove_orphan_files(
 ) -> dict[str, Any]:
     """Remove old files using Delta vacuum.
 
-    Deletes data files that are no longer referenced by the table and
-    are older than the retention period. Default retention is 7 days.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        retain_hours: Retention period in hours (default 168 = 7 days).
-        storage_options: S3 storage options override.
-
-    Returns:
-        dict: Vacuum results including:
-            - files_removed: Count of files deleted
-            - removed_files: List of removed file paths (up to 100)
-
-    Raises:
-        Exception: If the vacuum operation fails.
+    Deletes data files no longer referenced by the table and older than
+    retain_hours (default 168 = 7 days); enforce_retention_duration is
+    disabled so the requested window is honored exactly. Returns a dict
+    with files_removed count and removed_files paths capped at 100 entries.
+    Raises an exception if the vacuum operation fails.
 
     Example:
         result = remove_orphan_files("raw.events", retain_hours=72)
@@ -592,6 +501,9 @@ def remove_orphan_files(
 
     try:
         dt = delta_table_cls(table_uri, storage_options=opts)
+        # Bypasses Delta's built-in 7-day minimum retention so the caller's
+        # retain_hours is honored exactly; without this flag shorter windows
+        # are silently widened to the default.
         removed = dt.vacuum(retention_hours=retain_hours, enforce_retention_duration=False)
     except Exception as exc:
         logger.error(
@@ -620,26 +532,9 @@ def get_table_stats(
 ) -> dict[str, Any]:
     """Get statistics about a Delta table.
 
-    Retrieves metadata and statistics about the table including file count,
-    total size, version, and partition information.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        storage_options: S3 storage options override.
-
-    Returns:
-        dict: Table statistics including:
-            - table_name: Name of the table
-            - version: Current table version
-            - file_count: Number of data files
-            - total_size_bytes: Total size in bytes
-            - total_size_mb: Total size in megabytes
-            - table_uri: Full S3 URI of the table
-            - description: Table description metadata
-            - partition_columns: List of partition columns
-
-    Raises:
-        Exception: If the table cannot be accessed.
+    Retrieves metadata including table_name, version, file_count,
+    total_size_bytes, total_size_mb, table_uri, description, and
+    partition_columns. Raises an exception if the table cannot be accessed.
 
     Example:
         stats = get_table_stats("raw.events")
@@ -677,23 +572,10 @@ def list_table_versions(
 ) -> list[dict[str, Any]]:
     """List recent versions of a Delta table.
 
-    Retrieves the version history showing all table modifications over time.
-    This enables time travel and audit capabilities.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        limit: Maximum number of versions to return (default: 10).
-        storage_options: S3 storage options override.
-
-    Returns:
-        list[dict]: Version history dicts, most recent first. Each dict contains:
-            - version: Version number
-            - timestamp: ISO timestamp of the operation
-            - operation: Type of operation (e.g., "WRITE", "MERGE")
-            - operation_parameters: Dict of operation-specific parameters
-
-    Raises:
-        Exception: If the table cannot be accessed.
+    Returns up to limit history dicts (most recent first) with version,
+    timestamp, operation (e.g. "WRITE", "MERGE"), and operation_parameters
+    keys, enabling time travel and audit. Raises an exception if the table
+    cannot be accessed.
 
     Example:
         versions = list_table_versions("raw.events", limit=5)
@@ -728,20 +610,10 @@ def rollback_table_to_version(
 ) -> dict[str, Any]:
     """Roll back a Delta table to a previous version.
 
-    Restores the table to a specific historical version using Delta's
-    time travel restore capability. This creates a new version that
-    matches the specified historical version.
-
-    Args:
-        table_name: Fully qualified table name (namespace.table).
-        version: Target version number to restore to.
-        storage_options: S3 storage options override.
-
-    Returns:
-        dict: Contains rolled_back_to version number.
-
-    Raises:
-        Exception: If the rollback operation fails.
+    Restores the table to the given historical version via Delta time travel
+    restore, creating a new version that matches the target. Returns a dict
+    with rolled_back_to set to the restored version number. Raises an
+    exception if the rollback operation fails.
 
     Example:
         result = rollback_table_to_version("raw.events", version=42)

@@ -1,4 +1,8 @@
-"""Tests for ergonomic dbt helper utilities."""
+"""Tests for ergonomic dbt helper utilities.
+
+Covers selector normalization, manifest model selection, qualified table
+extraction, partition variable building, and compiler wrapping.
+"""
 
 from __future__ import annotations
 

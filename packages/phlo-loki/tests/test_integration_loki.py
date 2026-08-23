@@ -1,4 +1,8 @@
-"""Integration tests for phlo-loki."""
+"""Integration smoke tests for the phlo-loki plugin.
+
+Marked integration: instantiate the plugin and load its service definition to
+confirm both resolve without error.
+"""
 
 import pytest
 

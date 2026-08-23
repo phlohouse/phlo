@@ -1,4 +1,9 @@
-"""PostgREST generated service contracts."""
+"""PostgREST generated service contracts.
+
+Locks the service definition to a pinned upstream image, project Postgres
+credentials in PGRST_DB_URI (never a template fallback password), the bundled
+config mount, and the pgrep-based healthcheck.
+"""
 
 from phlo_postgrest.plugin import PostgrestServicePlugin
 

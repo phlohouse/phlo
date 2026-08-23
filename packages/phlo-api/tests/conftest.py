@@ -1,4 +1,8 @@
-"""Test-module import path for API-local helpers."""
+"""Test-module import path for API-local helpers.
+
+Also forces every test onto the non-durable memory observatory settings store
+and resets it around each test.
+"""
 
 from __future__ import annotations
 

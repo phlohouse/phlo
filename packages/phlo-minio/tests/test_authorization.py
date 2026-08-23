@@ -1,4 +1,8 @@
-"""Tests for MinIO CLI authorization adapter."""
+"""Tests for the MinIO CLI authorization adapter.
+
+Covers principal resolution, command classification, and surface adapter
+wiring through mocked backends.
+"""
 
 from __future__ import annotations
 

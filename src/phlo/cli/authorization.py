@@ -255,6 +255,7 @@ class CliSurfaceAdapter:
 
     @classmethod
     def get_instance(cls) -> CliSurfaceAdapter:
+        """Return the process-wide singleton adapter, creating it on first use."""
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -263,13 +264,16 @@ class CliSurfaceAdapter:
 
     @property
     def surface_name(self) -> str:
+        """Return the regulated surface identifier for this adapter."""
         return self.surface_name_value
 
     @property
     def framework_type(self) -> str:
+        """Return the framework type this adapter registers under."""
         return self.framework_type_value
 
     def list_operations(self) -> list[SurfaceOperation]:
+        """Describe every mutation command as a regulatable surface operation."""
         operations: list[SurfaceOperation] = []
         for command in self.mutation_commands:
             resource_type = self.command_resource_map.get(command, self.default_resource_type)
@@ -286,20 +290,18 @@ class CliSurfaceAdapter:
         return operations
 
     def is_active(self, runtime: Any) -> bool:
+        """Return True; the CLI surface is always active."""
         return True
 
     def install(self, runtime: Any) -> None:
-        pass
+        """No-op; the CLI needs no runtime installation."""
 
     def enforce_mutation(self, command: str, resource_id: str | None = None) -> EnforcementResult:
         """Enforce authorization for a mutation command.
 
-        Args:
-            command: Full command path (e.g., "services.start")
-            resource_id: Optional resource identifier
-
-        Returns:
-            EnforcementResult: allow, deny, or error
+        Non-mutation commands are allowed without enforcement; the command is
+        mapped to its action/resource and checked against the resolved
+        principal. Returns an allow, deny, or error EnforcementResult.
         """
         if command not in self.mutation_commands:
             return EnforcementResult.allow()
@@ -345,11 +347,9 @@ class CliSurfaceAdapter:
     def check_command_authorization(self, command_path: str) -> EnforcementResult:
         """Check if a command is authorized to run.
 
-        Args:
-            command_path: Dot-separated command path (e.g., "services.start")
-
-        Returns:
-            EnforcementResult with decision
+        Read commands pass without enforcement and mutation commands go through
+        full enforcement. Commands missing from both tables are denied, so a
+        newly added command cannot skip authorization by not being registered.
         """
         if command_path in self.read_commands:
             return EnforcementResult.allow()

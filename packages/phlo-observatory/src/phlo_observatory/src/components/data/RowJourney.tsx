@@ -1,3 +1,8 @@
+/**
+ * React Flow trace of one row's journey: places the row's source stage at the
+ * center with upstream and downstream assets around it, and shows per-node
+ * detail (compiled SQL, quality checks, stage rows) beneath the canvas.
+ */
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 
 import { Background, Controls, MarkerType, ReactFlow } from '@xyflow/react'

@@ -118,6 +118,7 @@ def service_plugin_class(
 
         @property
         def metadata(self) -> PluginMetadata:
+            """Return the static metadata captured when the class was declared."""
             return metadata
 
     DeclarativeYamlServicePlugin.__name__ = class_name

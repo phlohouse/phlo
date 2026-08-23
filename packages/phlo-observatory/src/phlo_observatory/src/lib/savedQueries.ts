@@ -43,6 +43,9 @@ function getEmptyQueriesStore(): SavedQueriesStore {
   return { version: 1, queries: [] }
 }
 
+// An unreadable or schema-invalid store resets to empty instead of throwing,
+// so callers cannot distinguish "no saved queries" from corrupted data.
+// The versioned schema exists to keep this migration path open.
 function loadQueriesStore(): SavedQueriesStore {
   if (typeof window === 'undefined') return getEmptyQueriesStore()
 

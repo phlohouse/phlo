@@ -1,4 +1,9 @@
-"""Tests for Dagster alerting sensor utilities."""
+"""Tests for Dagster alerting sensor utilities.
+
+send_alert must resolve the alert sink lazily through the plugin system
+and pass severities through untouched; the sink itself owns coercion of
+missing or invalid values to ERROR.
+"""
 
 from __future__ import annotations
 

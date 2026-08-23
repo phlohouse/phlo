@@ -1,4 +1,11 @@
-"""Dlt CLI plugin registration."""
+"""Register the dlt CLI command group as a phlo CLI plugin.
+
+DltCliPlugin is built via cli_command_plugin_class so plugin discovery exposes
+the dlt commands through the phlo CLI.
+
+Loaded through the phlo plugin entry-point mechanism at startup rather than
+imported directly.
+"""
 
 from __future__ import annotations
 

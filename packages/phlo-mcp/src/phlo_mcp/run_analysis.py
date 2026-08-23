@@ -1,4 +1,10 @@
-"""Helpers for materialization and run-level observability analysis."""
+"""Helpers for materialization and run-level observability analysis.
+
+Pure functions over log entries and OTEL span rows: they summarize correlated
+logs and render best-effort trace/span trees as text. Missing or malformed
+fields degrade to "unknown" placeholders instead of raising, so a partial
+telemetry stream still yields a usable summary.
+"""
 
 from __future__ import annotations
 

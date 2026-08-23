@@ -1,4 +1,13 @@
-"""Provider-neutral reconciliation of durable pipeline-run evidence."""
+"""Provider-neutral reconciliation of durable pipeline-run evidence.
+
+Evaluates run state from explicit provider observations plus durable store
+records only; a provider outage raises RunEvidenceUnavailable so no run
+state is ever changed on missing evidence. Evidence degradation uses max
+precedence (missing/expired/redacted override complete), and the reconciler
+commits decisions through one transactional store call.
+Imported across the phlo.run_evidence package (store, report) as its reconciliation core.
+Builds on phlo.run_evidence.models and redaction helpers.
+"""
 
 from __future__ import annotations
 
@@ -32,6 +41,9 @@ NONTERMINAL_STATUSES = frozenset(
     {"queued", "not_started", "starting", "started", "running", "canceling"}
 )
 DEFAULT_CLOCK_SKEW = timedelta(seconds=60)
+# Ranks evidence degradation severity; _strongest_evidence_state takes the max.
+# COMPLETE and INCOMPLETE tie at 0 because neither is a degradation: only
+# missing, expired, or redacted records override an otherwise complete verdict.
 EVIDENCE_STATE_PRECEDENCE = {
     EvidenceCompleteness.COMPLETE: 0,
     EvidenceCompleteness.INCOMPLETE: 0,
@@ -186,6 +198,7 @@ class RunEvidenceSource(Protocol):
 
 
 def normalize_status(status: str | None) -> str | None:
+    """Normalize a provider status alias to the canonical status vocabulary."""
     if status is None:
         return None
     value = status.strip().lower()
@@ -261,6 +274,8 @@ def _record_status(family: str, row: dict[str, Any]) -> str | None:
 
 
 def _latest_heartbeat(observation: RunObservation, events: list[dict[str, Any]]) -> datetime | None:
+    # Heartbeats come from the provider observation only; stored events never
+    # supply one. The parameter keeps call sites uniform across evidence kinds.
     del events
     return observation.heartbeat_at
 
@@ -303,6 +318,8 @@ def evaluate_reconciliation(
     successful_terminal = status in {"success", "no_data"} or (
         status not in TERMINAL_STATUSES and successful_event
     )
+    # A no-data tag alone does not change the outcome; it only downgrades a
+    # successful termination to "no_data".
     no_data = tagged_no_data and successful_terminal
     missing: list[str] = []
     if status == "success" and no_data:
@@ -388,6 +405,12 @@ def evaluate_reconciliation(
             )
         }
         matching_stage_ids = {row.get("stage_id") for row in matching_stages}
+        # An event satisfies a requirement when its type matches and it is
+        # attributed to one of the matching stages. An unattributed event is
+        # accepted only when exactly one stage matches, so it can never be
+        # claimed by the wrong stage. An event without a status inherits the
+        # single matching stage's status when that status alone satisfies the
+        # requirement.
         for event_type in requirement.required_event_types:
             if (
                 not any(
@@ -683,6 +706,9 @@ class RunReconciler:
         *,
         now: datetime | None = None,
     ) -> ReconciliationDecision:
+        """Observe the provider run and reconcile it through the transactional store.
+
+        Raises: RunEvidenceUnavailable when the provider cannot be queried."""
         observation = self.source.observe_run(project_id, run_id)
         if observation is None:
             raise RunEvidenceUnavailable(

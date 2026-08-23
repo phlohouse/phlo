@@ -1,3 +1,7 @@
+/**
+ * Theme mode resolution and persistence for the shell: resolves 'system'
+ * against prefers-color-scheme and reads/writes the stored mode.
+ */
 export type ObservatoryThemeMode = 'system' | 'light' | 'dark'
 export type ObservatoryResolvedTheme = 'light' | 'dark'
 

@@ -40,20 +40,18 @@ def _port_from_env(port_env_var: str | None, default: int) -> int:
 def resolve_host(host: str, port: int, *, port_env_var: str | None = None) -> tuple[str, int]:
     """Resolve a service hostname, falling back to localhost if DNS fails.
 
-    Args:
-        host: Service hostname (may be a Docker-internal name).
-        port: Default port for the service.
-        port_env_var: Optional environment variable that holds the host-exposed port.
-
-    Returns:
-        ``(host, port)`` tuple, resolved to ``localhost`` when the original
-        hostname cannot be reached from the current environment.
-
+    Returns an ``(host, port)`` tuple resolved to ``localhost`` when the original
+    hostname cannot be reached from the current environment. ``port_env_var``
+    optionally supplies the host-exposed port.
     """
     if host in _LOCALHOST:
         return host, port
 
     try:
+        # DNS resolution doubles as the container-detection probe: a
+        # hostname that only exists inside the Docker network fails to
+        # resolve on the host, which is the signal to rewrite to localhost
+        # with the exposed port.
         socket.gethostbyname(host)
         return host, port
     except socket.gaierror:
@@ -68,16 +66,10 @@ def resolve_host(host: str, port: int, *, port_env_var: str | None = None) -> tu
 
 
 def resolve_url(url: str, *, port_env_var: str | None = None) -> str:
-    """Resolve a service URL, falling back to localhost if the hostname is unreachable.
+    """Resolve a service URL, falling back to localhost if the host is unreachable.
 
-    Args:
-        url: Full URL that may reference a Docker-internal hostname.
-        port_env_var: Optional environment variable for the host-exposed port.
-
-    Returns:
-        Resolved URL with ``localhost`` substituted when the original host
-        cannot be resolved.
-
+    ``port_env_var`` optionally supplies the host-exposed port used in the
+    substituted URL.
     """
     if not url:
         return url

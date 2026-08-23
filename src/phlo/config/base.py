@@ -13,14 +13,10 @@ from phlo.config.env import project_env_files, resolve_project_root, use_project
 class BaseConfig(BaseSettings):
     """Base configuration class with common settings for all config domains.
 
-    This class provides a standardized foundation for all Phlo configuration
-    classes. It handles environment variable loading from `.phlo/.env` and
-    `.phlo/.env.local` files with case-insensitive matching.
-
-    Attributes:
-        model_config: Pydantic settings configuration with case-insensitive
-            matching and extra field ignoring. Project env files are selected
-            per instance by ``_project_root``.
+    Standardized foundation for all Phlo configuration classes: loads
+    environment variables from `.phlo/.env` and `.phlo/.env.local` with
+    case-insensitive matching, ignoring extra fields. Project env files
+    are selected per instance via ``_project_root``.
 
     Example:
         ```python

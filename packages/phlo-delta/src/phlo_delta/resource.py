@@ -11,6 +11,8 @@ Example:
     table = resource.get_table("raw.events")
     resource.append_parquet("raw.events", "/data/events.parquet")
 
+Table-store adapter boundary: implements the TableStoreSupport contract from
+phlo.capabilities.interfaces; no repository module imports it directly.
 """
 
 from __future__ import annotations
@@ -42,29 +44,18 @@ logger = get_logger(__name__)
 
 
 def _load_delta_table() -> type[Any]:
-    """Load the optional DeltaTable runtime only when needed.
-
-    Lazily imports the DeltaTable class from the deltalake package
-    to avoid import-time dependencies.
-
-    Returns:
-        type[Any]: The DeltaTable class.
-
+    """Load the optional DeltaTable runtime lazily to avoid an import-time
+    dependency on deltalake.
     """
     return cast(Any, importlib.import_module("deltalake")).DeltaTable
 
 
 def _resolve_delta_ref(override_ref: str | None) -> None:
-    """Validate the requested override ref for Delta operations.
+    """Validate the override ref for Delta operations: accept ``None``/``main``
+    for table-store interface compatibility and reject branch-like overrides,
+    since Delta tables in Phlo are not branch-aware.
 
-    Delta tables in Phlo are not branch-aware. Accept the default ``main`` ref
-    for table-store interface compatibility and reject any branch-like override.
-
-    Args:
-        override_ref: Optional branch reference to validate.
-
-    Raises:
-        PhloConfigError: If an unsupported override_ref is provided.
+    Raises PhloConfigError when an unsupported override_ref is provided.
 
     Example:
         _resolve_delta_ref(None)  # OK
@@ -87,20 +78,12 @@ def _resolve_delta_ref(override_ref: str | None) -> None:
 def _partition_columns_from_spec(
     partition_spec: Sequence[tuple[str, str] | str] | None,
 ) -> list[str] | None:
-    """Convert shared partition_spec tuples into Delta partition columns.
+    """Convert shared partition_spec tuples into Delta partition columns;
+    returns None when there is no partitioning.
 
     Delta Lake only supports identity partitioning here, so transforms such as
-    ``day`` or ``bucket`` must be rejected explicitly.
-
-    Args:
-        partition_spec: Partition specification, either as column names or
-            (column, transform) tuples.
-
-    Returns:
-        list[str] | None: List of partition column names, or None if no partitioning.
-
-    Raises:
-        PhloConfigError: If invalid partition spec format or unsupported transforms.
+    ``day`` or ``bucket`` must be rejected explicitly. Raises PhloConfigError
+    on invalid spec format or unsupported transforms.
 
     Example:
         cols = _partition_columns_from_spec([("date", "identity")])
@@ -148,13 +131,7 @@ def _partition_columns_from_spec(
 
 @dataclass
 class DeltaResource:
-    """Resource wrapper for Delta Lake table storage.
-
-    This class provides the primary interface for Delta Lake table operations
-    within the Phlo framework, implementing the table store protocol.
-
-    Attributes:
-        None: This dataclass has no fields, only methods.
+    """Resource wrapper implementing the Phlo table-store protocol for Delta Lake.
 
     Example:
         resource = DeltaResource()
@@ -175,13 +152,7 @@ class DeltaResource:
         )
 
     def table_uri(self, table_name: str) -> str:
-        """Construct the full S3 path for a Delta table.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-
-        Returns:
-            str: S3 URI for the Delta table.
+        """Construct the full S3 URI for a fully qualified table name.
 
         Example:
             uri = resource.table_uri("raw.events")
@@ -193,13 +164,7 @@ class DeltaResource:
         return _resolve_table_uri(table_name)
 
     def get_table(self, table_name: str) -> Any:
-        """Return a DeltaTable handle for the given table.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-
-        Returns:
-            DeltaTable: Configured Delta table instance.
+        """Return a configured DeltaTable handle for a fully qualified table name.
 
         Example:
             table = resource.get_table("raw.events")
@@ -217,16 +182,8 @@ class DeltaResource:
     def schema_from_validation_schema(
         self, validation_schema: type[DataFrameModel] | type[Any]
     ) -> pa.Schema:
-        """Build a PyArrow schema from a validation model for ingestion flows.
-
-        Converts a Pandera DataFrameModel to a PyArrow schema suitable for
+        """Convert a Pandera DataFrameModel into a PyArrow schema suitable for
         Delta Lake table creation.
-
-        Args:
-            validation_schema: Pandera DataFrameModel subclass defining the schema.
-
-        Returns:
-            pa.Schema: PyArrow schema equivalent to the validation model.
 
         Example:
             from my_schemas import EventSchema
@@ -244,21 +201,9 @@ class DeltaResource:
         partition_spec: Sequence[tuple[str, str] | str] | None = None,
         override_ref: str | None = None,
     ) -> Any:
-        """Ensure a table exists and return its handle.
+        """Create the table if missing and return its DeltaTable handle.
 
-        Creates the table if it does not exist, or returns the existing table.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-            schema: PyArrow table schema.
-            partition_spec: Optional shared partition specification.
-            override_ref: Optional branch override for interface compatibility.
-
-        Returns:
-            DeltaTable: Existing or newly created Delta table.
-
-        Raises:
-            PhloConfigError: If an unsupported override_ref is provided.
+        Raises PhloConfigError when an unsupported override_ref is provided.
 
         Example:
             table = resource.ensure_table(
@@ -281,22 +226,11 @@ class DeltaResource:
         data_path: str,
         override_ref: str | None = None,
     ) -> dict[str, int]:
-        """Append parquet data into a Delta table.
+        """Append parquet data from data_path into the table and return write
+        statistics (rows_inserted, rows_deleted).
 
-        Reads parquet data from the specified path and appends it to the table.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-            data_path: Path to parquet input data.
-            override_ref: Optional branch override for interface compatibility.
-
-        Returns:
-            dict[str, int]: Write statistics from the append operation,
-                including rows_inserted and rows_deleted.
-
-        Raises:
-            PhloConfigError: If an unsupported override_ref is provided.
-            Exception: If the append operation fails.
+        Raises PhloConfigError when an unsupported override_ref is provided;
+        append failures propagate after logging.
 
         Example:
             result = resource.append_parquet("raw.events", "/data/events.parquet")
@@ -336,24 +270,11 @@ class DeltaResource:
         unique_key: str,
         override_ref: str | None = None,
     ) -> dict[str, int]:
-        """Merge parquet data into a Delta table using a unique key.
+        """Upsert parquet data into the table keyed by unique_key and return
+        write statistics (rows_inserted, rows_updated, rows_deleted).
 
-        Performs an upsert operation: updates existing rows matching the unique key
-        and inserts new rows.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-            data_path: Path to parquet input data.
-            unique_key: Column used to match existing rows.
-            override_ref: Optional branch override for interface compatibility.
-
-        Returns:
-            dict[str, int]: Write statistics from the merge operation,
-                including rows_inserted, rows_updated, and rows_deleted.
-
-        Raises:
-            PhloConfigError: If an unsupported override_ref is provided.
-            Exception: If the merge operation fails.
+        Raises PhloConfigError when an unsupported override_ref is provided;
+        merge failures propagate after logging.
 
         Example:
             result = resource.merge_parquet(
@@ -401,21 +322,11 @@ class DeltaResource:
         data_path: str,
         override_ref: str | None = None,
     ) -> dict[str, int]:
-        """Overwrite a Delta table with staged parquet data.
+        """Replace all table data with parquet from data_path and return write
+        statistics.
 
-        Replaces all existing data in the table with the new parquet data.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-            data_path: Path to parquet input data.
-            override_ref: Optional branch override for interface compatibility.
-
-        Returns:
-            dict[str, int]: Write statistics from the overwrite operation.
-
-        Raises:
-            PhloConfigError: If an unsupported override_ref is provided.
-            Exception: If the overwrite operation fails.
+        Raises PhloConfigError when an unsupported override_ref is provided;
+        overwrite failures propagate after logging.
 
         Example:
             result = resource.overwrite_parquet(
@@ -457,22 +368,11 @@ class DeltaResource:
         predicate: str,
         override_ref: str | None = None,
     ) -> dict[str, int]:
-        """Delete rows matching a predicate expression.
+        """Delete rows matching a SQL predicate; rows_deleted is -1 because
+        predicate deletes do not return a count.
 
-        Removes rows from the table that match the specified SQL predicate.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-            predicate: Filter expression (e.g. ``"status = 'inactive'"``).
-            override_ref: Optional branch override for interface compatibility.
-
-        Returns:
-            dict[str, int]: Delete statistics (rows_deleted is -1 as Delta
-                does not return a count from predicate deletes).
-
-        Raises:
-            PhloConfigError: If an unsupported override_ref is provided.
-            Exception: If the delete operation fails.
+        Raises PhloConfigError when an unsupported override_ref is provided;
+        delete failures propagate after logging.
 
         Example:
             result = resource.delete_rows(
@@ -506,16 +406,7 @@ class DeltaResource:
         return result
 
     def compact(self, *, table_name: str) -> dict[str, object]:
-        """Compact small files in a table using Delta OPTIMIZE.
-
-        Runs the Delta OPTIMIZE command to coalesce small files into larger ones,
-        improving query performance.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-
-        Returns:
-            dict[str, object]: Compaction results from the optimize operation.
+        """Coalesce small files into larger ones via Delta OPTIMIZE.
 
         Example:
             result = resource.compact(table_name="raw.events")
@@ -535,17 +426,8 @@ class DeltaResource:
         return {"compaction": result}
 
     def list_snapshots(self, *, table_name: str, limit: int = 10) -> list[dict]:
-        """List recent table versions (Delta equivalent of snapshots).
-
-        Retrieves the version history of the table, showing all changes over time.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-            limit: Maximum number of versions to return (default: 10).
-
-        Returns:
-            list[dict]: Version metadata dicts, most recent first.
-                Each dict contains version, timestamp, operation, and parameters.
+        """Return version-history metadata dicts (version, timestamp, operation,
+        parameters), most recent first.
 
         Example:
             versions = resource.list_snapshots(table_name="raw.events", limit=5)
@@ -556,20 +438,9 @@ class DeltaResource:
         return list_table_versions(table_name=table_name, limit=limit)
 
     def rollback_to_snapshot(self, *, table_name: str, snapshot_id: int | str) -> dict:
-        """Roll back a table to a previous version.
-
-        Restores the table to a specific historical version using Delta's
-        time travel capabilities.
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-            snapshot_id: Target version number to restore to.
-
-        Returns:
-            dict: Contains ``rolled_back_to`` version number.
-
-        Raises:
-            Exception: If the rollback operation fails.
+        """Restore a table to a historical version via time travel, returning
+        ``{"rolled_back_to": <version>}``; rollback failures propagate after
+        logging.
 
         Example:
             result = resource.rollback_to_snapshot(
@@ -603,20 +474,9 @@ class DeltaResource:
         return result
 
     def vacuum(self, *, table_name: str, retain_hours: int = 168) -> dict:
-        """Remove old files via Delta vacuum.
-
-        Deletes old data files that are no longer needed, based on the retention
-        period. Default retention is 7 days (168 hours).
-
-        Args:
-            table_name: Fully qualified table name (namespace.table).
-            retain_hours: Retention period in hours (default 168 = 7 days).
-
-        Returns:
-            dict: Vacuum results including files_removed count and removed_files list.
-
-        Raises:
-            Exception: If the vacuum operation fails.
+        """Delete data files no longer needed past retain_hours (default 7 days),
+        returning files_removed count and removed_files list; vacuum failures
+        propagate after logging.
 
         Example:
             result = resource.vacuum(table_name="raw.events", retain_hours=72)

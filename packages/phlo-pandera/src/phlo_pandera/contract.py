@@ -74,19 +74,8 @@ PANDERA_CONTRACT_CHECK_NAME = "pandera_contract"
 
 
 def dbt_check_name(test_type: str, target: str) -> str:
-    """Build a canonical Dagster-safe check name for a dbt test.
-
-    Constructs check names in the format ``dbt__<test_type>__<target>``,
-    sanitizing the components to ensure compatibility with Dagster's naming
-    constraints.
-
-    Args:
-        test_type: dbt test type (e.g., ``not_null``, ``unique``, ``accepted_values``).
-        target: Target model/column identifier for the test (e.g., ``orders.status``).
-
-    Returns:
-        Canonical check name in ``dbt__<test_type>__<target>`` format,
-        with special characters replaced for Dagster compatibility.
+    """Build a canonical ``dbt__<test_type>__<target>`` check name, sanitizing
+    the components for Dagster naming constraints.
 
     Example:
         ```python
@@ -102,17 +91,9 @@ def dbt_check_name(test_type: str, target: str) -> str:
 
 
 def _sanitize_dagster_name(value: str) -> str:
-    """Normalize a string into a Dagster-safe identifier segment.
-
-    Replaces non-alphanumeric characters with underscores and collapses
-    consecutive underscores to produce a clean identifier.
-
-    Args:
-        value: Raw identifier value that may contain special characters.
-
-    Returns:
-        Lower-risk identifier containing only alphanumerics and single
-        underscores. Returns "unknown" if the result would be empty.
+    """Normalize a raw string into a Dagster-safe identifier segment:
+    non-alphanumerics become underscores and runs collapse to one; an empty
+    result becomes "unknown".
 
     Example:
         ```python
@@ -134,23 +115,9 @@ def _sanitize_dagster_name(value: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class QualityCheckContract:
-    """Canonical metadata payload for quality checks.
-
-    This dataclass provides a standardized structure for quality check results
-    that can be serialized to metadata and consumed by downstream systems like
-    the Observatory UI or alerting systems.
-
-    Using ``frozen=True`` and ``slots=True`` provides immutability and memory
-    efficiency for these frequently created objects.
-
-    Attributes:
-        source: Check source type (``pandera``, ``dbt``, or ``phlo``).
-        failed_count: Number of observed failures during check execution.
-        partition_key: Optional partition key for scoped checks (YYYY-MM-DD format).
-        total_count: Optional total evaluated count (rows, tests, etc.).
-        query_or_sql: Optional query or SQL used for evaluation.
-        repro_sql: Optional reproduction SQL snippet for debugging.
-        sample: Optional failure samples, trimmed to 20 items on export.
+    """Canonical metadata payload for quality checks, consumable by
+    downstream systems such as the Observatory UI or alerting. Frozen and
+    slotted for immutability and cheap creation.
 
     Example:
         ```python
@@ -180,15 +147,8 @@ class QualityCheckContract:
     sample: list[Any] | None = None
 
     def to_metadata(self) -> dict[str, Any]:
-        """Export contract fields as a metadata dictionary.
-
-        Converts the contract dataclass into a dictionary with standardized
-        keys for consumption by Dagster metadata and downstream systems.
-        Automatically limits samples to 20 items.
-
-        Returns:
-            Dictionary containing all non-None contract fields using the
-            quality-check contract key naming convention.
+        """Export all non-None contract fields as a metadata dictionary with
+        standardized keys; samples are trimmed to 20 items on export.
 
         Example:
             ```python
@@ -225,14 +185,5 @@ class QualityCheckContract:
         return metadata
 
     def to_dagster_metadata(self) -> dict[str, Any]:
-        """Backwards-compatible alias for metadata consumers.
-
-        This method provides compatibility with older code that expects
-        the ``to_dagster_metadata`` method name. It simply delegates to
-        ``to_metadata()``.
-
-        Returns:
-            Dictionary from ``to_metadata()``.
-
-        """
+        """Backwards-compatible alias delegating to to_metadata()."""
         return self.to_metadata()

@@ -135,26 +135,11 @@ def status(
     stale: bool,
     output_json: bool,
 ) -> None:
-    """Show current state of assets, jobs, and services.
-
-    Displays:
-    - Asset materialization status and freshness
-    - Service health (Dagster, Trino, MinIO, Nessie)
-    - Color-coded status indicators
-
-    Args:
-        assets: If True, show assets only.
-        services: If True, show services only.
-        group: Filter assets by group name.
-        stale: If True, show only stale assets.
-        output_json: If True, output as JSON.
-
-    Returns:
-        None
-
-    Raises:
-        No explicit exceptions raised. Logs warnings on query failures.
-
+    """Show current state of assets, jobs, and services: asset
+    materialization status and freshness, service health (Dagster, Trino,
+    MinIO, Nessie), with color-coded indicators. Options narrow the view to
+    assets or services, filter by group or staleness, and emit JSON for
+    scripting; query failures are logged as warnings.
     """
     if not output_json:
         console.print("\n[bold blue]📊 Status Report[/bold blue]\n")
@@ -218,11 +203,8 @@ def _get_asset_status(
     stale: bool = False,
 ) -> list[dict[str, Any]]:
     """
-    Get asset status from Dagster GraphQL API.
-
-    Returns:
-        List of asset status dicts with name, last_run, status, freshness
-
+    Query the Dagster GraphQL API for asset status dicts with name,
+    last_run, status, and freshness.
     """
     assets: list[dict[str, Any]] = []
     logger.debug(
@@ -317,6 +299,8 @@ def _get_asset_status(
 
 def _get_asset_last_run(asset_name: str) -> dict[str, Any] | None:
     """Get last run info for an asset."""
+    # Not wired up yet: always returns no run data, so every asset is
+    # reported as never_run/stale regardless of actual materializations.
     return None
 
 

@@ -1,3 +1,10 @@
+"""Tests the Observatory operation journal and durable-state storage.
+
+Focuses on contended writes: forced-concurrent saved-query and journal
+appends must both survive via the durable-state lock, and corrupt backing
+files surface as StorageCorruptionError instead of silent data loss.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -44,6 +51,8 @@ def use_memory_settings_store(monkeypatch) -> None:
 def test_forced_concurrent_writes_preserve_saved_queries_and_journal_records(
     tmp_path: Path,
 ) -> None:
+    # Release all four writers at once so the durable-state lock is genuinely
+    # contended rather than hit sequentially.
     barrier = Barrier(4)
     failures: list[BaseException] = []
 

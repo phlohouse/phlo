@@ -1,4 +1,9 @@
-"""Tests for Dagster daemon platform principal."""
+"""Tests for Dagster daemon platform principal.
+
+Covers daemon principal construction, run-tag stamping, trigger inference from
+Dagster run tags, authorization that is enforced only in regulated mode, and
+principal detection from request headers for queued runs.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""Tests for OpenMetadata hook plugin guards."""
+"""Tests for OpenMetadata hook plugin guards.
+
+Sync must degrade gracefully: when derived client settings are missing or
+raise, _get_client returns None instead of failing the hook.
+"""
 
 from __future__ import annotations
 

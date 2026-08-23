@@ -89,17 +89,9 @@ class BreakGlassManager:
     ) -> BreakGlassRequest:
         """Create a new break-glass request.
 
-        Args:
-            principal_subject: Subject requesting emergency access.
-            principal_type: Type of principal.
-            resource_type: Type of resource being accessed.
-            resource_id: ID of the resource.
-            action: Action being requested.
-            justification: Business justification for urgent access.
-            urgency: Urgency level (high, critical).
-
-        Returns:
-            BreakGlassRequest instance.
+        Records the requesting principal, target resource and action,
+        business justification, and urgency level ("high" or "critical").
+        Returns the created BreakGlassRequest.
         """
         request = BreakGlassRequest(
             principal_subject=principal_subject,
@@ -122,17 +114,10 @@ class BreakGlassManager:
     ) -> BreakGlassApproval:
         """Approve a break-glass request.
 
-        Args:
-            request_id: ID of the request to approve.
-            approved_by: Subject approving the request.
-            validity_hours: Hours until expiration (default from config).
-            conditions: Optional conditions on the approval.
-
-        Returns:
-            BreakGlassApproval details.
-
-        Raises:
-            ValueError: If request not found or not pending.
+        Records approved_by and an expiration after validity_hours hours
+        (defaulting to the configured default), with optional conditions.
+        Returns the BreakGlassApproval details. Raises ValueError when the
+        request is not found or not pending.
         """
         if request_id not in self._requests:
             raise ValueError(f"Request not found: {request_id}")
@@ -159,15 +144,9 @@ class BreakGlassManager:
         )
 
     def deny(self, request_id: str, denied_by: str, reason: str) -> None:
-        """Deny a break-glass request.
+        """Deny a break-glass request on behalf of denied_by with a reason.
 
-        Args:
-            request_id: ID of the request to deny.
-            denied_by: Subject denying the request.
-            reason: Reason for denial.
-
-        Raises:
-            ValueError: If request not found or not pending.
+        Raises ValueError when the request is not found or not pending.
         """
         if request_id not in self._requests:
             raise ValueError(f"Request not found: {request_id}")
@@ -184,15 +163,10 @@ class BreakGlassManager:
         revoked_by: str,
         reason: str,
     ) -> None:
-        """Revoke an approved break-glass request.
+        """Revoke an approved break-glass request on behalf of revoked_by
+        with a reason.
 
-        Args:
-            request_id: ID of the request to revoke.
-            revoked_by: Subject revoking the request.
-            reason: Reason for revocation.
-
-        Raises:
-            ValueError: If request not found or not approved.
+        Raises ValueError when the request is not found or not approved.
         """
         if request_id not in self._requests:
             raise ValueError(f"Request not found: {request_id}")
@@ -208,22 +182,15 @@ class BreakGlassManager:
     def get_request(self, request_id: str) -> BreakGlassRequest | None:
         """Get a break-glass request by ID.
 
-        Args:
-            request_id: ID of the request.
-
-        Returns:
-            BreakGlassRequest or None if not found.
+        Returns the BreakGlassRequest, or None when not found.
         """
         return self._requests.get(request_id)
 
     def is_valid(self, request_id: str) -> bool:
         """Check if an approved request is still valid.
 
-        Args:
-            request_id: ID of the request.
-
-        Returns:
-            True if approved and not expired.
+        Returns True only when the request exists, is approved, and has
+        not expired.
         """
         request = self._requests.get(request_id)
         if request is None or request.status != BreakGlassStatus.APPROVED:
@@ -237,15 +204,8 @@ class BreakGlassManager:
 
 
 def create_emergency_review(request: BreakGlassRequest) -> AccessReview:
-    """Create an AccessReview from a break-glass request.
-
-    Creates a post-hoc access review for audit purposes.
-
-    Args:
-        request: The break-glass request.
-
-    Returns:
-        AccessReview instance.
+    """Create a post-hoc emergency AccessReview from a break-glass request
+    for audit purposes.
     """
     from phlo.compliance.governance.types import (
         AccessReview,

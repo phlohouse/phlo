@@ -92,6 +92,7 @@ class EnforcementResult:
 
     @classmethod
     def allow(cls) -> EnforcementResult:
+        """Build a permit result with no diagnostic detail."""
         return cls(variant="allow")
 
     @classmethod
@@ -101,6 +102,7 @@ class EnforcementResult:
         policy_id: str | None = None,
         explanation: str | None = None,
     ) -> EnforcementResult:
+        """Build a denial carrying reason_code, optional policy_id, and explanation."""
         return cls(
             variant="deny",
             reason_code=reason_code,
@@ -114,10 +116,12 @@ class EnforcementResult:
         reason_code: str,
         explanation: str | None = None,
     ) -> EnforcementResult:
+        """Build a result for enforcement failures, where the action was never decided."""
         return cls(variant="error", reason_code=reason_code, explanation=explanation)
 
     @property
     def allowed(self) -> bool:
+        """Return True only for the allow variant."""
         return self.variant == "allow"
 
     def __repr__(self) -> str:

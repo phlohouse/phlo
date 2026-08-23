@@ -1,3 +1,10 @@
+"""Tests that the support status JSON payload keeps its stable contract.
+
+Locks the JSON keys and status values, the exit codes (1 for incompatible,
+2 for indeterminate when the manifest cannot load), and that a compatible
+alpha release still reports production_ready as False.
+"""
+
 from __future__ import annotations
 
 import json

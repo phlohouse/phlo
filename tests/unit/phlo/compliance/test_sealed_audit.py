@@ -1,4 +1,10 @@
-"""Tests for tamper-evident audit sealing."""
+"""Tests for tamper-evident audit sealing.
+
+SealedAuditRecord hashes chain over sequence number and previous hash;
+regulated mode requires an explicit PHLO_AUDIT_HMAC_KEY and never falls back
+to the dev key. The in-memory store verifies the chain on read and reports
+mismatches instead of silently returning tampered records.
+"""
 
 from __future__ import annotations
 

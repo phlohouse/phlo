@@ -392,6 +392,10 @@ def iceberg_catalog(configured_minio_object_store, monkeypatch):
         except OSError:
             pytest.skip(f"MinIO endpoint not reachable at {endpoint}")
 
+        # Settings and catalogs are lru_cached and derived from the
+        # environment, so clear them after setting env vars or the fixture's
+        # credentials never reach the catalog. Reset again on teardown to
+        # avoid leaking a cached catalog into unrelated tests.
         reset_catalog_cache()
         get_iceberg_settings.cache_clear()
         get_nessie_settings.cache_clear()

@@ -1,4 +1,9 @@
-"""phlo_clickhouse CLI authorization table."""
+"""CLI authorization table for the phlo-clickhouse surface.
+
+clickhouse.query is a mutation on the "dataset" resource (action
+dataset.write); clickhouse.status is read-only. The adapter is built
+once at import time and served through get_adapter().
+"""
 
 from __future__ import annotations
 
@@ -24,4 +29,5 @@ ClickHouseSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_adapter() -> CliSurfaceAdapter:
+    """Return the shared phlo-clickhouse CLI authorization adapter instance."""
     return ClickHouseSurfaceAdapter.get_instance()

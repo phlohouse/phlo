@@ -1,4 +1,9 @@
-"""Tests for oauth2-proxy service plugin."""
+"""Tests for the oauth2-proxy service plugin.
+
+Pins the auth-category, proxy-profile service definition with a
+digest-pinned upstream image and no Traefik public-route label; the
+distroless image must not claim an in-container health check.
+"""
 
 from phlo_oauth2_proxy.plugin import Oauth2ProxyServicePlugin
 

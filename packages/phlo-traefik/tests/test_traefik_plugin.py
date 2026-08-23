@@ -1,4 +1,8 @@
-"""Tests for Traefik service plugin."""
+"""Tests for Traefik service plugin.
+
+Validates service-definition defaults (name, proxy profile) and plugin
+metadata tags.
+"""
 
 from phlo_traefik.plugin import TraefikServicePlugin
 

@@ -1,4 +1,11 @@
-"""Tests for plugin CLI commands."""
+"""Tests for plugin CLI commands.
+
+Exercises list/info/search/install/update against an isolated plugin
+registry with stub providers, and the generated-container check command in
+depth: bounded tool output, exact vulnerability waivers, disposable image
+lifecycle (never clobbering pre-existing tags), remote digest scanning,
+and pip/uv fallbacks for installs.
+"""
 
 import json
 import sys
@@ -83,11 +90,7 @@ class DummyCliCommand(CliCommandPlugin):
 
 @pytest.fixture
 def setup_registry():
-    """Provide an isolated plugin registry for each test.
-
-    Yields:
-        PluginRegistry: Cleared global registry with dummy plugins registered.
-    """
+    """Yield the global registry cleared and seeded with dummy plugins."""
     registry = get_global_registry()
     registry.clear()
     registry.register("source_connector", DummySource(), replace=True)
@@ -1321,14 +1324,7 @@ def test_plugin_list_all_json(setup_registry, monkeypatch):
     ]
 
     def mock_collect_registry_plugins(plugin_type: str) -> list[dict]:
-        """Convert mocked registry plugins to CLI payload dictionaries.
-
-        Args:
-            plugin_type: Requested plugin type.
-
-        Returns:
-            list[dict]: Serialized registry plugins for the CLI response.
-        """
+        """Return the mocked registry plugins serialized as CLI payload dicts."""
         from phlo.cli.commands.plugin.utils import registry_plugin_to_dict
 
         return [registry_plugin_to_dict(p) for p in registry_plugins]

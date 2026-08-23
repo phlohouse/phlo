@@ -1,4 +1,8 @@
-"""Unit tests for row-level lineage store."""
+"""Unit tests for the row-level lineage store.
+
+Mocks the backing connection to exercise row-id generation, batch recording,
+URL resolution, and asset-level lineage lookups in isolation.
+"""
 
 import socket
 from unittest.mock import MagicMock, patch

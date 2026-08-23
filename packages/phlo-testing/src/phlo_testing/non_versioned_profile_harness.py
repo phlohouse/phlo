@@ -42,12 +42,7 @@ from phlo.logging import get_logger
 
 
 def _find_dbt_executable() -> str | None:
-    """Find the dbt executable in the system PATH.
-
-    Returns:
-        Path to dbt executable or None if not found.
-
-    """
+    """Find the dbt executable on PATH, or return None when absent."""
     candidate = Path(sys.executable).parent / "dbt"
     if candidate.exists():
         return str(candidate)
@@ -55,15 +50,7 @@ def _find_dbt_executable() -> str | None:
 
 
 def _is_missing_duckdb_adapter(output: str) -> bool:
-    """Check if dbt output indicates missing DuckDB adapter.
-
-    Args:
-        output: dbt command output to check.
-
-    Returns:
-        True if output indicates DuckDB adapter is missing.
-
-    """
+    """Return True when dbt output indicates the DuckDB adapter is missing."""
     normalized = output.lower()
     patterns = (
         "could not find adapter type duckdb",
@@ -76,16 +63,7 @@ def _is_missing_duckdb_adapter(output: str) -> bool:
 
 
 def _assert_duckdb_adapter_available(dbt_executable: str, project_dir: Path) -> None:
-    """Verify dbt-duckdb adapter is installed and working.
-
-    Args:
-        dbt_executable: Path to dbt executable.
-        project_dir: dbt project directory.
-
-    Raises:
-        RuntimeError: If dbt-duckdb adapter is not installed or debug fails.
-
-    """
+    """Fail with RuntimeError when the dbt-duckdb adapter is missing or broken."""
     env = {**os.environ, "DBT_PROFILES_DIR": str(project_dir)}
     result = subprocess.run(
         [dbt_executable, "debug", "--profiles-dir", str(project_dir)],
@@ -107,14 +85,9 @@ def _assert_duckdb_adapter_available(dbt_executable: str, project_dir: Path) -> 
 class NonVersionedProfileHarness:
     """Local DuckDB-backed harness for a non-versioned profile.
 
-    Provides methods to ingest data, run dbt transforms, and query results
-    using DuckDB as the backend.
-
-    Attributes:
-        project_dir: Path to the temporary dbt project directory.
-        duckdb_path: Path to the DuckDB database file.
-        dbt_executable: Path to the dbt executable.
-
+    Ingests data, runs dbt transforms, and queries results using DuckDB as the
+    backend. ``project_dir`` is the temporary dbt project directory,
+    ``duckdb_path`` the database file, and ``dbt_executable`` the dbt binary.
     """
 
     project_dir: Path
@@ -124,13 +97,8 @@ class NonVersionedProfileHarness:
     def ingest_rows(self, table_name: str, rows: list[dict[str, Any]]) -> None:
         """Create or replace a raw DuckDB table from row dictionaries.
 
-        Args:
-            table_name: Schema-qualified table name (e.g., "raw.posts").
-            rows: List of dictionaries representing rows.
-
-        Raises:
-            ValueError: If table_name is not schema-qualified.
-
+        ``table_name`` must be schema-qualified (e.g. ``raw.posts``); raise ValueError
+        otherwise.
         """
         if "." not in table_name:
             raise ValueError("Expected schema-qualified table name like 'raw.posts'")
@@ -148,15 +116,7 @@ class NonVersionedProfileHarness:
             connection.close()
 
     def query(self, query: str) -> list[tuple[Any, ...]]:
-        """Execute a DuckDB SQL query against the local profile database.
-
-        Args:
-            query: SQL query string.
-
-        Returns:
-            List of result tuples.
-
-        """
+        """Execute a DuckDB SQL query and return the result rows as tuples."""
         connection = duckdb.connect(str(self.duckdb_path))
         try:
             return connection.execute(query).fetchall()
@@ -164,27 +124,14 @@ class NonVersionedProfileHarness:
             connection.close()
 
     def query_scalar(self, query: str) -> Any:
-        """Execute a SQL query and return the first scalar value.
-
-        Args:
-            query: SQL query string.
-
-        Returns:
-            First column of first row, or None if no results.
-
-        """
+        """Execute a SQL query and return the first value, or None when empty."""
         rows = self.query(query)
         if not rows:
             return None
         return rows[0][0]
 
     def run_transform(self) -> Any:
-        """Run the dbt transform project against the local DuckDB profile.
-
-        Returns:
-            dbt run result.
-
-        """
+        """Run the dbt transform project against the local DuckDB profile."""
         from phlo_dbt.transformer import DbtTransformer
 
         transformer = DbtTransformer(
@@ -209,18 +156,9 @@ def bootstrap_non_versioned_profile_harness(
 ) -> NonVersionedProfileHarness:
     """Create a local DuckDB-backed dbt project for non-versioned profile tests.
 
-    Sets up a temporary dbt project with DuckDB as the backend, including
-    default source and model configurations.
-
-    Args:
-        project_dir: Optional project directory path. If None, creates a temp directory.
-
-    Returns:
-        NonVersionedProfileHarness ready for testing.
-
-    Raises:
-        RuntimeError: If dbt CLI is not available or dbt-duckdb adapter is missing.
-
+    Sets up a temporary dbt project with DuckDB as the backend, including default
+    source and model configurations. Raise RuntimeError when the dbt CLI is not
+    available or the dbt-duckdb adapter is missing.
     """
     target_project_dir = project_dir or Path(tempfile.mkdtemp(prefix="phlo-non-versioned-"))
     dbt_executable = _find_dbt_executable()

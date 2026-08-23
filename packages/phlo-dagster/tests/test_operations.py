@@ -1,4 +1,10 @@
-"""Tests for the Dagster operation capability adapter."""
+"""Tests for the Dagster operation capability adapter.
+
+Covers the GraphQL request shapes sent to Dagster (asset selection, run
+status, partition dimensions), explicit user token usage, error surfacing
+from HTTP 500 responses, and write-ahead-publish tag survival across
+launch retries without duplicate runs.
+"""
 
 from __future__ import annotations
 

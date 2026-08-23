@@ -1,4 +1,8 @@
-"""Integration tests for phlo-prometheus."""
+"""Integration tests for phlo-prometheus.
+
+Smoke-level: the plugin instantiates and its packaged service definition
+loads as a dict. Runs under the integration marker only.
+"""
 
 import pytest
 

@@ -1,3 +1,6 @@
+"""Tests for project env file precedence (.phlo/.env.local over .env
+over phlo.yaml and the OS environment) and host/URL resolution."""
+
 from __future__ import annotations
 
 import socket

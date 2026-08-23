@@ -1,4 +1,9 @@
-"""Tests for provider-neutral Iceberg mutation evidence semantics."""
+"""Tests for provider-neutral Iceberg mutation evidence semantics.
+
+A successful mutation keeps its provider success even when readback evidence is
+absent, evidence sink failures are contained instead of propagated, and emitted
+errors are bounded so provider PII is never retained.
+"""
 
 from phlo_iceberg import evidence
 

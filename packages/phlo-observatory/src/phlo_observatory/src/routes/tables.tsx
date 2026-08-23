@@ -1,3 +1,8 @@
+/**
+ * /tables route. Table explorer with row preview (capped at 100 rows),
+ * column metadata, an inline query console with saved queries, and asset
+ * lineage on the flow canvas.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   Columns3,

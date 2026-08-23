@@ -1,4 +1,10 @@
-"""Logs command for viewing service logs."""
+"""Logs command for viewing service logs.
+
+A thin pass-through to the container backend's compose logs: service
+selection, tailing, time windows, and formatting options map directly
+to compose flags. Requires an available container backend and an
+initialized compose project before any output is produced.
+"""
 
 import click
 

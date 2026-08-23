@@ -44,18 +44,10 @@ logger = get_logger(__name__)
 
 class EmailAlertDestination(AlertDestination):
     """Send alerts via email using SMTP.
-
         Concrete implementation of AlertDestination that delivers alerts
     to email recipients via SMTP. Supports TLS encryption and
     authentication. Formats alerts as both plain text and HTML with
     severity-based color coding.
-
-    Attributes:
-            smtp_host: SMTP server hostname.
-            smtp_port: SMTP server port number.
-            smtp_user: SMTP authentication username (optional).
-            smtp_password: SMTP authentication password (optional).
-            recipients: List of email addresses to receive alerts.
 
     Examples:
             >>> dest = EmailAlertDestination(
@@ -65,7 +57,6 @@ class EmailAlertDestination(AlertDestination):
             ... )
             >>> isinstance(dest, AlertDestination)
             True
-
     """
 
     def __init__(
@@ -77,24 +68,11 @@ class EmailAlertDestination(AlertDestination):
         recipients: Optional[list[str]] = None,
     ):
         """Initialize email destination.
-
         Creates an EmailAlertDestination instance with SMTP configuration.
         The destination is ready to send alerts once initialized, though
         actual SMTP connections are established per-send.
 
-        Args:
-            smtp_host: SMTP server hostname (e.g., "smtp.gmail.com").
-            smtp_port: SMTP server port, defaults to 587 for TLS.
-            smtp_user: SMTP username for authentication (optional).
-            smtp_password: SMTP password for authentication (optional).
-            recipients: List of email addresses to send alerts to.
-
-        Returns:
-            None
-
-        Raises:
-            None; validation occurs during send().
-
+        Raises: None; validation occurs during send().
         Examples:
             >>> dest = EmailAlertDestination(
             ...     smtp_host="smtp.example.com",
@@ -102,7 +80,6 @@ class EmailAlertDestination(AlertDestination):
             ...     smtp_user="alerts@example.com",
             ...     recipients=["team@example.com"]
             ... )
-
         """
         self.smtp_host = smtp_host
         self.smtp_port = smtp_port
@@ -112,20 +89,11 @@ class EmailAlertDestination(AlertDestination):
 
     def send(self, alert: Alert) -> bool:
         """Send alert via email.
-
                 Connects to the SMTP server, authenticates if credentials are
         provided, and sends the alert as a multipart email (plain text + HTML).
         Uses TLS encryption via STARTTLS.
 
-        Args:
-                    alert: Alert object containing notification details.
-
-        Returns:
-                    True if email was sent successfully, False otherwise.
-
-        Raises:
-                    None; SMTP errors are caught and logged.
-
+        Raises: None; SMTP errors are caught and logged.
         Examples:
                     >>> from phlo_alerting.manager import Alert, AlertSeverity
                     >>> alert = Alert(
@@ -136,7 +104,6 @@ class EmailAlertDestination(AlertDestination):
                     >>> result = dest.send(alert)
                     >>> isinstance(result, bool)
                     True
-
         """
         if not self.recipients:
             logger.warning("No email recipients configured")
@@ -178,15 +145,8 @@ class EmailAlertDestination(AlertDestination):
 
     def _build_text(self, alert: Alert) -> str:
         """Build plain text email content.
-
         Constructs a human-readable plain text representation of the alert
         suitable for email clients that don't support HTML.
-
-        Args:
-            alert: Alert object to format.
-
-        Returns:
-            Plain text email content as a string.
 
         Examples:
             >>> from phlo_alerting.manager import Alert, AlertSeverity
@@ -201,7 +161,6 @@ class EmailAlertDestination(AlertDestination):
             True
             >>> "Asset: test_asset" in text
             True
-
         """
         content = f"""
 Phlo Alert Notification
@@ -228,16 +187,9 @@ Message:
 
     def _build_html(self, alert: Alert) -> str:
         """Build HTML email content.
-
                 Constructs an HTML representation of the alert with severity-based
         color coding and structured layout. Uses inline styles for email client
         compatibility.
-
-        Args:
-                    alert: Alert object to format.
-
-        Returns:
-                    HTML email content as a string.
 
         Examples:
                     >>> from phlo_alerting.manager import Alert, AlertSeverity
@@ -247,7 +199,6 @@ Message:
                     True
                     >>> "#cc0000" in html  # Critical severity color
                     True
-
         """
         severity_color = {
             AlertSeverity.INFO: "#36a64f",

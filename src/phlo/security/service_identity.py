@@ -218,14 +218,7 @@ def _legacy_service_tokens_allowed() -> bool:
 def create_service_token(service_id: str) -> str:
     """Create a short-lived HMAC service token with a nonce.
 
-    Args:
-        service_id: Name of the service (e.g., "phlo-api").
-
-    Returns:
-        Token string suitable for Bearer authorization.
-
-    Raises:
-        RuntimeError: If PHLO_SERVICE_SECRET is not set.
+    Raises: RuntimeError if PHLO_SERVICE_SECRET is not set.
     """
     if not _legacy_service_tokens_allowed():
         raise RuntimeError("Shared service tokens are development-only; use scoped service tokens")
@@ -245,15 +238,7 @@ def validate_service_token(
     token: str,
     max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS,
 ) -> str | None:
-    """Validate an HMAC service token.
-
-    Args:
-        token: Token string in format "service_id:timestamp:nonce:hmac".
-        max_age_seconds: Maximum token age in seconds (default 5 minutes).
-
-    Returns:
-        service_id if valid, None if invalid.
-    """
+    """Validate an HMAC service token."""
     if not _legacy_service_tokens_allowed():
         return None
     secret = os.environ.get(PHLO_SERVICE_SECRET_ENV)
@@ -291,16 +276,7 @@ def build_service_headers(
 ) -> dict[str, str]:
     """Build HTTP headers for an authenticated service-to-service call.
 
-    Args:
-        service_id: Name of the calling service.
-        initiator: Originating user principal, if applicable.
-        correlation_id: Request/run ID for audit correlation.
-
-    Returns:
-        Dict of header name → value.
-
-    Raises:
-        RuntimeError: If PHLO_SERVICE_SECRET is not set.
+    Raises: RuntimeError if PHLO_SERVICE_SECRET is not set.
     """
     token = create_service_token(service_id)
     headers: dict[str, str] = {

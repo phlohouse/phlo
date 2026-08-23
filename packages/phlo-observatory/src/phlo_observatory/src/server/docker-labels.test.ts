@@ -1,3 +1,7 @@
+/**
+ * Tests Docker Compose label parsing and project matching used by service
+ * discovery.
+ */
 import { describe, expect, it } from 'vitest'
 
 import { getComposeLabelValue, matchesComposeProject } from './docker-labels'

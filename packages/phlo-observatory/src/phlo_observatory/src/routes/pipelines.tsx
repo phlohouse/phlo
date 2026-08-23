@@ -1,3 +1,7 @@
+/**
+ * /pipelines route. Dataset pipeline list ordered by freshness severity,
+ * with the selection mirrored into ?pipelineId.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   Activity,

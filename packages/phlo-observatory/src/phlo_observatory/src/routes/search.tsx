@@ -1,3 +1,7 @@
+/**
+ * /search route. Debounced full-text search against the Observatory API;
+ * the current query is kept in the URL so results survive a reload.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Search as SearchIcon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'

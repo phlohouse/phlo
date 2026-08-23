@@ -1,4 +1,9 @@
-"""phlo_dlt CLI authorization table."""
+"""CLI authorization table for the phlo-dlt surface.
+
+workflow.create is the only declared command, a mutation on the
+"project" resource (action project.create). The adapter is constructed
+at import time and obtained via get_dlt_adapter().
+"""
 
 from __future__ import annotations
 
@@ -24,4 +29,5 @@ DltSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_dlt_adapter() -> CliSurfaceAdapter:
+    """Return the shared phlo-dlt CLI authorization adapter instance."""
     return DltSurfaceAdapter.get_instance()

@@ -1,4 +1,8 @@
-"""Governance read models derived from Phlo declarations."""
+"""Governance read models derived from Phlo declarations.
+
+Re-exports the governance surface built by phlo.governance.surface: read
+only, no mutation of declarations happens here.
+"""
 
 from phlo.governance.surface import (
     GovernanceSurface,

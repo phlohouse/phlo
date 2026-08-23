@@ -1,3 +1,7 @@
+/**
+ * /ingestion route. Operational queue joining datasets with their pipelines,
+ * surfacing candidates and freshness/readiness failures.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { AlertCircle, CheckCircle2, Import, Workflow } from 'lucide-react'
 import { useMemo } from 'react'

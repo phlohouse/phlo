@@ -1,4 +1,13 @@
-"""Capability discovery for asset and resource providers."""
+"""Capability discovery for asset and resource providers.
+
+discover_capabilities() registers built-in authentication, authorization,
+and observability providers first, then auto-registers discovered
+plugins and converts each provider's specs into capability registrations.
+A provider that raises for missing required config is an expected
+deployment shape: it is logged as a warning without a traceback and
+does not abort discovery of other providers.
+Imported by the phlo-api backend and phlo-dagster framework to populate the capability registry.
+"""
 
 from __future__ import annotations
 
@@ -77,6 +86,9 @@ def _register_capabilities_for_plugin_type(registry: Any, plugin_type: str) -> i
                 for spec in specs:
                     register_capability(family, spec)
         except Exception as exc:
+            # A resource provider that raises about missing required config is
+            # an expected deployment shape, not a defect: keep the warning but
+            # skip the traceback.
             missing_optional_config = (
                 plugin_type == "resource_provider" and "must be provided" in str(exc)
             )

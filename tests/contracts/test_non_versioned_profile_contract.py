@@ -1,4 +1,9 @@
-"""Smoke entry point for the non-versioned profile harness."""
+"""Smoke entry point for the non-versioned profile harness.
+
+Integration-marked check that the harness materializes a runnable local
+dbt project (dbt_project.yml, profiles.yml, DuckDB file) inside its project
+directory.
+"""
 
 from __future__ import annotations
 

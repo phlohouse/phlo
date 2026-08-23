@@ -226,6 +226,9 @@ async function loadNativeProcesses(): Promise<
   }
 }
 
+// Resolve the compose project once and memoize it. Inside the Observatory
+// container, Docker sets HOSTNAME to the container id, which lets us inspect
+// our own labels to discover the project without extra configuration.
 async function getComposeProjectName(): Promise<string | null> {
   if (composeProjectCache !== undefined) {
     return composeProjectCache
@@ -601,6 +604,9 @@ function parsePorts(
   return ports
 }
 
+// Ranking used when one compose service runs multiple containers: the highest
+// priority status represents the service (running beats unhealthy beats
+// starting beats stopped).
 function statusPriority(status: DockerContainerStatus['status']): number {
   switch (status) {
     case 'running':

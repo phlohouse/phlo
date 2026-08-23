@@ -1,4 +1,11 @@
-"""Tests for Dagster middleware service identity and correlation handling."""
+"""Tests for Dagster middleware service identity and correlation handling.
+
+Covers principal extraction from verified OIDC tokens or regulated-mode
+service tokens, fail-closed rejection of unsigned or forged identities,
+mutation authorization carrying correlation IDs, least-privilege action
+mapping for destructive GraphQL operations, and independent bulk-target
+authorization that stops before the handler on denial.
+"""
 
 from __future__ import annotations
 

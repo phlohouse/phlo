@@ -1,3 +1,7 @@
+/**
+ * Server functions reading and persisting Observatory settings; payloads are
+ * validated against the shared settings schema before hitting phlo-api.
+ */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import type { Register, ValidateSerializableInput } from '@tanstack/router-core'

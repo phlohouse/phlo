@@ -149,12 +149,7 @@ class LoggingSettings:
 
     @classmethod
     def from_settings(cls) -> LoggingSettings:
-        """Build logging settings from global application settings.
-
-        Returns:
-            LoggingSettings: Logging settings resolved from app configuration.
-
-        """
+        """Build logging settings resolved from global application settings."""
         settings = get_settings()
         return cls(
             level=settings.phlo_log_level,
@@ -166,6 +161,8 @@ class LoggingSettings:
         )
 
 
+# Configuration runs once per process; force=True re-runs it, first detaching
+# handlers this module attached previously so they are not duplicated.
 def setup_logging(settings: LoggingSettings | None = None, *, force: bool = False) -> None:
     """Configure structlog + stdlib logging with configurable output and routing."""
     global _LOGGING_CONFIGURED
@@ -285,14 +282,8 @@ def get_logger(
 
 
 def log_event(logger: Any, level: str, event: str, **fields: Any) -> None:
-    """Log structured fields when supported, else fallback to a plain message.
-
-    Args:
-        logger: Logger instance (structlog or stdlib-like).
-        level: Log level method name (for example ``"info"``).
-        event: Event/message string.
-        **fields: Optional structured fields to attach.
-
+    """Log structured fields when the logger accepts kwargs, else fall back to a
+    plain message with the fields appended as ``key=value`` text.
     """
     log_method = getattr(logger, level)
     try:
@@ -339,26 +330,21 @@ class LogRouterHandler(logging.Handler):
     """Route log records to the hook bus as LogEvent payloads."""
 
     def __init__(self, *, service_name: str, level: int = logging.NOTSET) -> None:
-        """Initialize a router handler for hook-bus log forwarding.
-
-        Args:
-            service_name: Default service name for emitted log events.
-            level: Minimum log level accepted by this handler.
-
+        """Initialize a router handler for hook-bus log forwarding with the
+        given default service name and minimum accepted level.
         """
         super().__init__(level=level)
         self._service_name = service_name
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Emit a log record to the hook bus as a structured log event.
-
-        Args:
-            record: Standard library log record to route.
-
+        """Emit a log record to the hook bus as a structured log event, skipping
+        records produced while routing is already active.
         """
         if _ROUTER_ACTIVE.get():
             return
         token = _ROUTER_ACTIVE.set(True)
+        # Routing is marked active while emitting so log records produced by
+        # hook-bus subscribers cannot re-enter this handler and recurse.
         try:
             event = _record_to_event(record, self._service_name)
             if event is None:
@@ -396,15 +382,8 @@ class PhloConsoleRenderer:
 
 
 def _record_to_event(record: logging.LogRecord, default_service: str) -> LogEvent | None:
-    """Convert a log record into a hook `LogEvent`.
-
-    Args:
-        record: Log record to transform.
-        default_service: Service name used when record extras omit one.
-
-    Returns:
-        LogEvent | None: Converted event, or `None` when no message is available.
-
+    """Convert a log record into a hook `LogEvent`, using ``default_service``
+    when the record extras omit one. Returns `None` when no message is available.
     """
     message, extra = _extract_message_and_extra(record)
     if message is None:
@@ -448,14 +427,8 @@ def _record_to_event(record: logging.LogRecord, default_service: str) -> LogEven
 def _extract_message_and_extra(
     record: logging.LogRecord,
 ) -> tuple[str | None, dict[str, Any]]:
-    """Extract message text and custom extra fields from a log record.
-
-    Args:
-        record: Log record to inspect.
-
-    Returns:
-        tuple[str | None, dict[str, Any]]: Normalized message and extra fields.
-
+    """Extract normalized message text and custom extra fields (everything not
+    a standard log record attribute) from a log record.
     """
     extra = {
         key: value
@@ -490,15 +463,8 @@ def _extract_message_and_extra(
 
 
 def _build_metadata(record: logging.LogRecord, extra: dict[str, Any]) -> dict[str, Any]:
-    """Build metadata payload for a `LogEvent`.
-
-    Args:
-        record: Source log record.
-        extra: Additional structured fields from record extras.
-
-    Returns:
-        dict[str, Any]: Metadata dictionary merged with record context.
-
+    """Build metadata payload for a `LogEvent`: record extras merged with the
+    record's source context (module, function, line, pathname, process).
     """
     metadata = {
         **extra,
@@ -542,15 +508,8 @@ def _build_file_handler(
     template: str,
     formatter: logging.Formatter,
 ) -> logging.Handler | None:
-    """Create a file handler from a template path.
-
-    Args:
-        template: Log path template with date/time placeholders.
-        formatter: Formatter applied to the file handler.
-
-    Returns:
-        logging.Handler | None: Configured file handler, or `None` on template errors.
-
+    """Create a file handler from a template path, or return `None` when the
+    template cannot be rendered.
     """
     path = _render_log_file_path(template)
     if path is None:
@@ -561,14 +520,10 @@ def _build_file_handler(
 
 
 def _render_log_file_path(template: str) -> Path | None:
-    """Render and prepare an absolute log file path from a template.
-
-    Args:
-        template: Path template that may include date/time placeholders.
-
-    Returns:
-        Path | None: Resolved path with parent directory created, or `None` if invalid.
-
+    """Render an absolute log file path from a template with date/time
+    placeholders, creating its parent directory. Returns `None` when the
+    template contains an unknown placeholder; relative paths resolve against
+    the project root.
     """
     now = datetime.now(UTC)
     tokens = {
@@ -604,14 +559,8 @@ def _render_log_file_path(template: str) -> Path | None:
 
 
 def _pop_tags(extra: dict[str, Any]) -> dict[str, str]:
-    """Extract normalized string tags from record extras.
-
-    Args:
-        extra: Extra fields dictionary to consume.
-
-    Returns:
-        dict[str, str]: Tag dictionary with string keys and values.
-
+    """Extract and remove the string-valued ``tags`` mapping from record extras,
+    returning an empty dict when absent or not a mapping.
     """
     tags_value = extra.pop("tags", None)
     if isinstance(tags_value, Mapping):
@@ -620,16 +569,7 @@ def _pop_tags(extra: dict[str, Any]) -> dict[str, str]:
 
 
 def _pop_value(extra: dict[str, Any], key: str) -> str | None:
-    """Pop and stringify a value from extras.
-
-    Args:
-        extra: Extra fields dictionary to consume.
-        key: Field name to remove.
-
-    Returns:
-        str | None: Stringified value or `None` when absent.
-
-    """
+    """Remove a field from extras and return it stringified, or `None` when absent."""
     value = extra.pop(key, None)
     if value is None:
         return None
@@ -682,34 +622,22 @@ def _coerce_optional_string(value: Any) -> str | None:
 
 
 def _coerce_log_level(level: str) -> int:
-    """Resolve a log level name to a stdlib numeric level.
-
-    Args:
-        level: Log level name.
-
-    Returns:
-        int: Numeric logging level.
-
+    """Resolve a log level name to a stdlib numeric level, defaulting to INFO
+    for unknown names.
     """
     return logging.getLevelNamesMapping().get(level.upper(), logging.INFO)
 
 
 def _mark_phlo_handler(handler: logging.Handler) -> None:
-    """Mark a handler as managed by Phlo logging setup.
-
-    Args:
-        handler: Logging handler to mark.
-
+    """Mark a handler as managed by Phlo logging setup so later reconfiguration
+    can find and detach it.
     """
     setattr(handler, "_phlo_handler", True)  # noqa: B010
 
 
 def _remove_phlo_handlers(root: logging.Logger) -> None:
-    """Remove handlers previously attached by Phlo from a logger.
-
-    Args:
-        root: Logger from which managed handlers are removed.
-
+    """Remove handlers previously attached by Phlo from a logger, identified by
+    their management marker.
     """
     for handler in list(root.handlers):
         if getattr(handler, "_phlo_handler", False):

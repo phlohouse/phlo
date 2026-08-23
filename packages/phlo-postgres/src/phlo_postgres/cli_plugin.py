@@ -1,4 +1,11 @@
-"""Postgres CLI plugin registration."""
+"""Postgres CLI plugin registration.
+
+Exposes the postgres command group as a cli-command plugin so the
+phlo-postgres package contributes its commands through plugin discovery
+rather than a core-CLI import.
+Loaded through the phlo plugin entry-point mechanism at startup rather than
+imported directly; exposes the command group from phlo_postgres.cli.
+"""
 
 from __future__ import annotations
 

@@ -13,9 +13,6 @@ Example:
         pip install -e /path/to/phlo-observatory-example
         phlo services start
 
-Attributes:
-    __version__: Package version string.
-
 """
 
 __version__ = "0.1.0"

@@ -16,13 +16,8 @@ Examples:
         >>> print(plugin.metadata.name)
         'minio'
 
-Attributes:
-    __version__: Package version string.
-
-Note:
-    MinIO runs on ports 10001 (API) and 10002 (Console) by default.
-    Default credentials: minio / minio123
-
+MinIO runs on ports 10001 (API) and 10002 (Console) by default;
+default credentials: minio / minio123.
 """
 
 from phlo_minio.plugin import MinioServicePlugin

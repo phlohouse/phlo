@@ -1,4 +1,8 @@
-"""Semantic layer interfaces for downstream model providers."""
+"""Semantic layer interfaces for downstream model providers.
+
+Providers expose named SemanticModel entries; list_models and get_model are
+the whole contract, leaving storage and SQL generation to implementations.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,10 @@
+"""Data models for phlo project templates.
+
+TemplateMetadata describes a template's contract (required packages, generated
+paths, next steps); TemplateRenderContext carries the target directory and
+force flag; ProjectTemplate is the Protocol each template implements.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

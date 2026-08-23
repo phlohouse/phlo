@@ -74,16 +74,9 @@ from typing import Any
 def phlo_ingestion(*args: Any, **kwargs: Any) -> Callable[..., Any]:
     """Lazily resolve and forward to the ingestion decorator factory.
 
-    This function provides a lazy-loading mechanism for the actual
-    ``phlo_ingestion`` decorator from ``phlo_dlt.decorator``. It avoids
-    eager imports to prevent circular dependencies during plugin discovery.
-
-    Args:
-        *args: Positional arguments passed to the actual decorator.
-        **kwargs: Keyword arguments passed to the actual decorator.
-
-    Returns:
-        Callable[..., Any]: The configured ingestion decorator.
+    Lazy loading avoids eager imports and circular dependencies during
+    plugin discovery; all arguments are forwarded to
+    :func:`phlo_dlt.decorator.phlo_ingestion`.
 
     Example:
         ```python
@@ -94,9 +87,6 @@ def phlo_ingestion(*args: Any, **kwargs: Any) -> Callable[..., Any]:
             return fetch_events(partition_date)
         ```
 
-    See Also:
-        :func:`phlo_dlt.decorator.phlo_ingestion`: The actual decorator implementation.
-
     """
     from phlo_dlt.decorator import phlo_ingestion as _phlo_ingestion
 
@@ -106,12 +96,8 @@ def phlo_ingestion(*args: Any, **kwargs: Any) -> Callable[..., Any]:
 def get_ingestion_assets() -> list[Any]:
     """Lazily resolve and return registered ingestion assets.
 
-    This function retrieves all ingestion assets that have been registered
-    via the ``@phlo_ingestion`` decorator. Assets are collected in a
+    Collects assets registered via the ``@phlo_ingestion`` decorator in a
     global registry during module import.
-
-    Returns:
-        list[Any]: List of registered asset specifications.
 
     Example:
         ```python
@@ -121,10 +107,6 @@ def get_ingestion_assets() -> list[Any]:
         for asset in assets:
             print(f"Asset: {asset.key}")
         ```
-
-    See Also:
-        :func:`phlo_dlt.decorator.get_ingestion_assets`: The actual implementation.
-        :func:`phlo_ingestion`: Decorator that registers assets.
 
     """
     from phlo_dlt.decorator import get_ingestion_assets as _get_ingestion_assets

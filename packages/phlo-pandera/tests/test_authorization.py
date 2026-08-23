@@ -1,4 +1,9 @@
-"""Tests for Pandera authorization module."""
+"""Tests for the Pandera authorization surface adapter.
+
+Pandera is a passive CLI surface: it declares no operations, is always active,
+and every pandera command is classified as read-only, so READ_COMMANDS must
+cover all commands and mutations stay empty.
+"""
 
 from __future__ import annotations
 

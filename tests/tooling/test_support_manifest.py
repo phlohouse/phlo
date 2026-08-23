@@ -1,4 +1,11 @@
-"""Tests for the machine-readable v1 support boundary."""
+"""Tests for the machine-readable v1 support boundary.
+
+The checked-in registry/support/v1.json manifest must validate against
+the repository inventory, stay byte-identical to the packaged copy, and
+enforce its rules: release-set metadata derived from package sources,
+v1-only schema compatibility, maturity-gated promotions, and no
+deletions of required capabilities still referenced elsewhere.
+"""
 
 from __future__ import annotations
 
@@ -34,6 +41,10 @@ def _package(manifest: dict[str, object], name: str) -> dict[str, object]:
     return entry
 
 
+# Build a disposable mirror of the repository layout so the validator can be
+# run against mutated manifests: symlinks keep inventory and classifier reads
+# pointed at the real workspace, while docs/ is copied so evidence checks
+# never touch the live tree.
 def _linked_repo(tmp_path: Path) -> Path:
     for name in (".github", "packages", "registry", "src"):
         (tmp_path / name).symlink_to(ROOT / name, target_is_directory=True)

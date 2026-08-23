@@ -1,4 +1,10 @@
-"""Trusted package installation endpoint for Observatory."""
+"""Trusted package installation endpoint for Observatory.
+
+Only packages listed in the trusted Phlo registry may be installed; anything
+else is rejected with a 400 before any subprocess runs. The pinned spec is
+only honored when it names the registry's own package, and on success import
+caches are invalidated so the new distribution is immediately visible.
+"""
 
 from __future__ import annotations
 
@@ -57,6 +63,9 @@ def _trusted_registry_service_packages() -> dict[str, dict[str, Any]]:
         return {}
 
     packages: dict[str, dict[str, Any]] = {}
+    # Index each plugin under every accepted spelling (plugin name, distribution
+    # name, distribution name without the "phlo-" prefix) so requests using any
+    # of them resolve to the same trusted entry.
     for name, payload in plugins.items():
         if not isinstance(payload, Mapping):
             continue
@@ -89,6 +98,8 @@ def _run_python_package_install(package_spec: str) -> tuple[bool, str]:
     if uv is not None:
         project_root = _uv_project_root()
         if project_root is not None:
+            # Inside a uv project, add to pyproject/lockfile and install into the
+            # active environment so the dependency survives regeneration.
             command = [uv, "add", "--active", package_spec]
             cwd = project_root
         else:
@@ -141,6 +152,9 @@ def _install_python_package(
     registry_name = str(registry_entry["name"])
     package_name = str(registry_entry["package"])
     package_spec, _display_name = resolve_install_target(registry_name)
+    # The resolver's answer is only trusted when it names the registry's own
+    # package; otherwise fall back to installing exactly what the registry
+    # pinned, so an unvetted spec can never be substituted.
     if not package_spec.startswith(package_name):
         package_spec = package_name
         version = str(registry_entry.get("version") or "").strip()
@@ -166,6 +180,8 @@ def _install_python_package(
             services=[registry_name],
         )
 
+    # New distributions are on disk but unknown to the running interpreter until
+    # the import path caches are refreshed.
     importlib.invalidate_caches()
     _clear_read_model_cache()
     installed_services = [

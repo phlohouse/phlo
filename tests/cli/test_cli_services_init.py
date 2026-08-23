@@ -1,3 +1,9 @@
+"""Tests for "phlo services init" and Compose generation.
+
+Covers credential validation, dev versus production profile boundaries, environment
+file generation with secret preservation, and service selection by default and profile.
+"""
+
 from __future__ import annotations
 
 import os
@@ -239,6 +245,9 @@ def test_conditional_environment_list_is_not_mutated_between_renders(tmp_path) -
     )
     generator = ComposeGenerator(cast(ServiceDiscovery, FakeDiscovery()))
 
+    # Render the same definition three times (enabled -> disabled -> enabled):
+    # if the generator mutated the shared compose list, leakage would surface
+    # in one of the later passes.
     enabled = yaml.safe_load(
         generator.generate_compose(
             [service], output_dir=tmp_path, env_values={"ENABLE_CONDITIONAL": "true"}

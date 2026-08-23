@@ -69,25 +69,15 @@ console = Console()
 def _resolve_asset_name(graph, asset_name: str) -> tuple[str | None, list[str]]:
     """Resolve a user-provided asset name to a known graph asset key.
 
-    Implements a multi-stage resolution strategy for flexible asset naming:
+    Multi-stage resolution strategy:
     1. Exact match on asset_name
     2. Normalized match ("/" replaced with ".")
-    3. Suffix matching on path segments (handles partial paths)
+    3. "dlt_" prefix stripping ("dlt_orders" matches raw table "orders")
+    4. Suffix matching on path segments (handles partial paths)
 
-    Args:
-        graph: LineageGraph instance to search.
-        asset_name: User-provided asset identifier (may be partial).
-
-    Returns:
-        Tuple of (resolved_name, matches):
-        - resolved_name: The matched asset key, or None if ambiguous/no match
-        - matches: List of candidate asset keys (for disambiguation hints)
-
-    Resolution Logic:
-        - Exact match: "orders" matches asset "orders"
-        - Normalized: "bronze/orders" matches "bronze.orders"
-        - Suffix: "stg_orders" matches "silver.stg_orders"
-        - Multiple suffix matches → ambiguous (return None with candidates)
+    Returns a (resolved_name, matches) tuple: resolved_name is None when the
+    name is ambiguous or unmatched; matches lists candidate keys for
+    disambiguation hints. Matching is case-sensitive.
 
     Example:
         >>> graph = LineageGraph()
@@ -102,8 +92,7 @@ def _resolve_asset_name(graph, asset_name: str) -> tuple[str | None, list[str]]:
         >>> print(matches)  # ["bronze.raw_orders", "silver.stg_orders"]
 
     Note:
-        This is an internal helper function. Resolution is case-sensitive.
-
+        This is an internal helper function.
     """
     if asset_name in graph.assets:
         return asset_name, [asset_name]
@@ -186,15 +175,9 @@ def show_lineage(asset_name: str, direction: str, depth: Optional[int]) -> None:
     """Display asset dependencies in ASCII tree format.
 
     Shows upstream dependencies (sources) and/or downstream dependents
-    (assets that depend on this one) in a visual tree structure.
-
-    Args:
-        asset_name: Asset to display lineage for. Supports fuzzy matching.
-        direction: Which relationships to show:
-            - upstream: Show only dependencies (what this asset depends on)
-            - downstream: Show only dependents (what depends on this asset)
-            - both: Show both directions (default)
-        depth: Maximum traversal depth. Unlimited if not specified.
+    (assets that depend on this one) in a visual tree structure. direction
+    selects upstream only, downstream only, or both (default); depth caps
+    traversal depth when given.
 
     Fuzzy Matching:
         The asset_name argument supports partial matching:
@@ -219,7 +202,6 @@ def show_lineage(asset_name: str, direction: str, depth: Optional[int]) -> None:
     Exit Codes:
         0: Success
         1: Asset not found or ambiguous
-
     """
     graph = get_lineage_graph()
 
@@ -272,15 +254,9 @@ def show_lineage(asset_name: str, direction: str, depth: Optional[int]) -> None:
 def export_lineage(asset_name: str, format: str, output: Path) -> None:
     """Export lineage to external visualization formats.
 
-    Generates lineage diagrams in formats suitable for external tools:
-    - dot: Graphviz format (render to PNG/SVG/PDF)
-    - mermaid: Markdown-native diagrams (GitHub/GitLab/Notion)
-    - json: Machine-readable serialization
-
-    Args:
-        asset_name: Asset to export lineage for (fuzzy matching supported).
-        format: Output format (dot, mermaid, json).
-        output: Path to write the exported file.
+    Generates lineage diagrams suitable for external tools: dot renders via
+    Graphviz, mermaid embeds in markdown, and json gives machine-readable
+    serialization.
 
     Format Details:
         dot:
@@ -312,7 +288,6 @@ def export_lineage(asset_name: str, format: str, output: Path) -> None:
     Exit Codes:
         0: Success
         1: Empty graph or unknown format
-
     """
     graph = get_lineage_graph()
 
@@ -358,9 +333,6 @@ def analyze_impact(asset_name: str) -> None:
     - Incident scope evaluation
     - Change management workflows
 
-    Args:
-        asset_name: Asset to analyze for downstream impact.
-
     Metrics Reported:
         - Directly Affected: Assets with direct dependency (depth=1)
         - Indirectly Affected: Transitively dependent assets
@@ -379,7 +351,6 @@ def analyze_impact(asset_name: str) -> None:
     Exit Codes:
         0: Analysis complete (regardless of impact level)
         1: Asset not found
-
     """
     graph = get_lineage_graph()
 
@@ -505,21 +476,13 @@ def column_group():
 def import_dbt(manifest: Path) -> None:
     """Import column lineage from a dbt manifest.json file.
 
-    Extracts column-level lineage from dbt's compiled manifest using same-name
-    heuristics. For each model, it compares column names with upstream models
-    and creates lineage mappings for matching names.
+    Extracts column-level lineage from dbt's compiled manifest (the
+    target/manifest.json produced by dbt compile or build) using same-name
+    heuristics: for each model, columns sharing a name with columns of models
+    listed in depends_on.nodes get lineage mappings.
 
-    Args:
-        manifest: Path to dbt's manifest.json file (typically at
-            target/manifest.json after dbt compile or build).
-
-    Heuristic Method:
-        A column is considered to have lineage from an upstream model if:
-        1. The column exists in both the model and upstream model
-        2. The upstream model is listed in the model's depends_on.nodes
-
-        This is a naming-based heuristic, not SQL parsing. Column renames
-        are not detected.
+    This is a naming-based heuristic, not SQL parsing; column renames are
+    not detected.
 
     Requirements:
         - dbt must have been compiled (dbt compile or dbt build)
@@ -536,7 +499,6 @@ def import_dbt(manifest: Path) -> None:
 
     See Also:
         phlo_lineage.dbt_column_lineage for extraction logic.
-
     """
     enforce_surface_mutation_authorization("lineage.column.import-dbt", get_lineage_adapter)
     from phlo_lineage.dbt_column_lineage import extract_column_lineage
@@ -568,13 +530,7 @@ def column_upstream(asset: str, column: str | None) -> None:
     """Show upstream column lineage for an asset.
 
     Queries the lineage database for columns that feed into the specified
-    asset. Shows which source columns from upstream assets map to columns
-    in this asset.
-
-    Args:
-        asset: Fully qualified asset name (e.g., "silver.stg_orders").
-        column: Optional column name to filter results. If provided, only
-            lineage for this specific column is shown.
+    fully qualified asset; column optionally restricts output to one column.
 
     Output Format:
         Results are displayed as a Rich table with columns:
@@ -594,7 +550,6 @@ def column_upstream(asset: str, column: str | None) -> None:
     Exit Codes:
         0: Success (or no results found - not an error)
         1: Database not configured
-
     """
     from phlo_lineage.store import LineageStore, resolve_lineage_db_url_with_postgres_fallback
 
@@ -635,14 +590,8 @@ def column_upstream(asset: str, column: str | None) -> None:
 def column_downstream(asset: str, column: str | None) -> None:
     """Show downstream column lineage for an asset.
 
-    Queries the lineage database for columns derived from the specified asset.
-    Shows which columns in downstream assets are mapped from columns in this
-    asset.
-
-    Args:
-        asset: Fully qualified asset name (e.g., "bronze.dlt_orders").
-        column: Optional column name to filter results. If provided, only
-            lineage for this specific column is shown.
+    Queries the lineage database for columns derived from the specified
+    fully qualified asset; column optionally restricts output to one column.
 
     Output Format:
         Results are displayed as a Rich table with columns:
@@ -662,7 +611,6 @@ def column_downstream(asset: str, column: str | None) -> None:
     Exit Codes:
         0: Success (or no results found - not an error)
         1: Database not configured
-
     """
     from phlo_lineage.store import LineageStore, resolve_lineage_db_url_with_postgres_fallback
 

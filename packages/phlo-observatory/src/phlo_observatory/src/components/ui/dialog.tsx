@@ -1,3 +1,6 @@
+/**
+ * Dialog primitives built on Base UI dialog with shared styling.
+ */
 'use client'
 
 import * as React from 'react'

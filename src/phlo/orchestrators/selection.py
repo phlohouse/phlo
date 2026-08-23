@@ -1,4 +1,9 @@
-"""Select the active orchestrator adapter."""
+"""Select the active orchestrator adapter.
+
+Resolves the adapter name (explicit argument, else PHLO_ORCHESTRATOR, else
+"dagster") from the global registry after auto-discovery; unknown names raise
+PhloConfigError with install suggestions.
+"""
 
 from __future__ import annotations
 

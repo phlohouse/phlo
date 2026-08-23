@@ -1,4 +1,9 @@
-"""Tests for OpenMetadata settings."""
+"""Tests for OpenMetadata settings.
+
+Pins local-development defaults, the localhost fallback when the configured
+host is unresolvable, and the precedence rule: explicitly configured database
+and service type win over values resolved from the query-engine capability.
+"""
 
 import socket
 from unittest.mock import Mock, patch

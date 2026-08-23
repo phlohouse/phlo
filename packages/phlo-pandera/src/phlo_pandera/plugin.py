@@ -43,6 +43,9 @@ See Also:
     - ``checks.py``: Core quality check classes
     - ``reconciliation.py``: Cross-table reconciliation checks
 
+
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported
+directly; contributes the Pandera quality and schema-discovery providers.
 """
 
 from __future__ import annotations
@@ -146,9 +149,6 @@ class PanderaQualityProvider(QualityProviderPlugin):
     The plugin is automatically discovered by Phlo's plugin system via the
     ``phlo.quality_providers`` entry point.
 
-    Attributes:
-        metadata: Plugin identification information (name, version, description).
-
     Example:
         The plugin is typically accessed through the plugin system:
 
@@ -170,15 +170,7 @@ class PanderaQualityProvider(QualityProviderPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata.
-
-        Provides identification information used during plugin registration
-        and discovery.
-
-        Returns:
-            PluginMetadata with name="pandera", version, and description.
-
-        """
+        """Return plugin metadata used during registration and discovery."""
         return PluginMetadata(
             name="pandera",
             version="0.1.0",
@@ -186,13 +178,8 @@ class PanderaQualityProvider(QualityProviderPlugin):
         )
 
     def get_decorator(self) -> Callable:
-        """Return the @phlo_pandera decorator.
-
-        Returns the main decorator used for defining quality checks in a
-        declarative manner.
-
-        Returns:
-            The ``phlo_pandera`` decorator function.
+        """Return the @phlo_pandera decorator, the main entry point for
+        defining quality checks declaratively.
 
         Example:
             ```python
@@ -210,15 +197,9 @@ class PanderaQualityProvider(QualityProviderPlugin):
         return phlo_pandera
 
     def get_check_classes(self) -> dict[str, type]:
-        """Return built-in check classes.
-
-        Returns a dictionary mapping check type names to their corresponding
-        class implementations.
-
-        Returns:
-            Dictionary of check class names to types, including:
-            - null, range, freshness, unique, count
-            - schema, pattern, quality_check (base class)
+        """Return built-in check classes as a name-to-class mapping covering
+        null, range, freshness, unique, count, schema, pattern, and the
+        quality_check base class.
 
         Example:
             ```python
@@ -255,11 +236,9 @@ class PanderaQualityProvider(QualityProviderPlugin):
     def get_schema_extractor(self) -> Any:
         """Return Pandera schema extractor.
 
-        Returns the schema extractor class used to convert Pandera DataFrameModel
-        schemas into normalized schemas for storage provider integration.
-
-        Returns:
-            PanderaSchemaExtractor class (not an instance).
+        Returns the extractor class (not an instance) used to convert
+        Pandera DataFrameModel schemas into normalized schemas for storage
+        provider integration.
 
         Example:
             ```python
@@ -331,17 +310,10 @@ from phlo_pandera.schemas import PhloSchema
     def get_reconciliation_checks(self) -> dict[str, type] | None:
         """Return reconciliation check classes.
 
-        Returns a dictionary mapping reconciliation check type names to their
-        corresponding class implementations. These checks validate data
-        consistency across tables.
-
-        Returns:
-            Dictionary of reconciliation check names to types, including:
-            - reconciliation (row count parity)
-            - aggregate_consistency
-            - key_parity
-            - multi_aggregate
-            - checksum
+        Returns a name-to-class mapping of checks that validate data
+        consistency across tables: reconciliation (row count parity),
+        aggregate_consistency, aggregate_spec, key_parity, multi_aggregate,
+        and checksum.
 
         Example:
             ```python
@@ -418,11 +390,14 @@ class PanderaWorkflowValidator:
     """Validate workflow and schema files with Pandera's existing CLI helpers."""
 
     def validate_workflow_file(self, path: Path) -> None:
+        """Validate a workflow file's quality checks, failing when the file
+        does not define a workflow."""
         from phlo_pandera.cli_validate import validate_workflow_file
 
         validate_workflow_file(path, require_workflow=True)
 
     def validate_schema_file(self, path: Path) -> None:
+        """Validate that a schema file parses as a Pandera schema module."""
         from phlo_pandera.cli_schema_utils import validate_schema_file
 
         validate_schema_file(path)
@@ -432,11 +407,14 @@ class PanderaSchemaDiscoveryProvider:
     """Discover and normalize Pandera schemas for schema migration commands."""
 
     def extract(self, native_schema: Any) -> Any:
+        """Extract and normalize a Pandera schema into Phlo's schema form."""
         from phlo_pandera.schema_extractor import PanderaSchemaExtractor
 
         return PanderaSchemaExtractor().extract(native_schema)
 
     def discover_schemas(self) -> dict[str, Any]:
+        """Return discovered Pandera schemas by name, merging registry entries
+        with schemas found under project search paths."""
         from phlo_pandera.cli_schema_utils import discover_pandera_schemas
 
         schemas = discover_pandera_schemas()

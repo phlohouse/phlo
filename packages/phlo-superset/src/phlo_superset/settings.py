@@ -10,6 +10,9 @@ Example:
     >>> print(f"Superset available at port {settings.superset_port}")
     'Superset available at port 10007'
 
+
+    Settings for the Superset BI service, built on the shared phlo.config base/cache helpers.
+    Loaded within phlo_superset (hooks and package init) through get_settings().
 """
 
 from __future__ import annotations
@@ -25,21 +28,9 @@ from phlo.config.cache import project_root_cached
 class SupersetSettings(BaseConfig):
     """Configuration settings for Apache Superset integration.
 
-    This class defines all configurable parameters for the Superset service
-    including network ports, authentication credentials, and administrative
-    settings. Values can be overridden via environment variables.
-
-    Attributes:
-        superset_port: Port number for the Superset web UI (default: 10007).
-        superset_admin_user: Username for the default admin account.
-        superset_admin_password: Password for the default admin account.
-        superset_admin_email: Email address for the default admin account.
-
-    Environment Variables:
-        SUPERSET_PORT: Overrides superset_port.
-        SUPERSET_ADMIN_USER: Overrides superset_admin_user.
-        SUPERSET_ADMIN_PASSWORD: Overrides superset_admin_password.
-        SUPERSET_ADMIN_EMAIL: Overrides superset_admin_email.
+    Defines all configurable parameters for the Superset service including
+    network ports, authentication credentials, and administrative settings;
+    values can be overridden via SUPERSET_* environment variables.
 
     Example:
         >>> settings = SupersetSettings(superset_port=8088)

@@ -1,4 +1,10 @@
-"""Focused contracts for the container waiver and scan-policy helper."""
+"""Focused contracts for the container waiver and scan-policy helper.
+
+Validates waiver rules (expiry, length, duplicates), the allow-only-waived-
+unfixed-findings policy, affected-image selection from changed paths, rescan
+manifest completeness, upstream runtime inventory provenance, and that image
+candidate upgrades require a Pareto improvement.
+"""
 
 from __future__ import annotations
 

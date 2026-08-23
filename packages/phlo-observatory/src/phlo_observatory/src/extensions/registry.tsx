@@ -1,3 +1,10 @@
+/**
+ * Extension registry for the Observatory UI.
+ *
+ * Loads extension manifests (bundled at build time or served by phlo-api)
+ * and lets each module register routes, slot components, and settings
+ * sections through a shared React context.
+ */
 import {
   createContext,
   use,

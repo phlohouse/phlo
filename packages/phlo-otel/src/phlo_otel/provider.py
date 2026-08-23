@@ -77,18 +77,10 @@ PACKAGE_NAME = "phlo-otel"
 def _build_resource_attributes() -> dict[str, str]:
     """Build OTel resource attributes for Phlo process metadata.
 
-    Constructs resource attributes from environment variables and Phlo settings,
-    following the OpenTelemetry resource semantic conventions.
-
-    The following precedence is used:
-    1. OTEL_* environment variables
-    2. Phlo configuration settings
-    3. Package defaults
-
-    Returns:
-        dict[str, str]: Mapping of resource attribute names to values.
-        Includes service.name, service.namespace, service.version,
-        service.instance.id, deployment.environment, and phlo-specific attributes.
+    Attributes follow the OpenTelemetry resource semantic conventions with
+    precedence OTEL_* environment variables over Phlo settings over package
+    defaults. Includes service.name, service.namespace, service.version,
+    service.instance.id, deployment.environment, and phlo-specific keys.
 
     Example:
         >>> attrs = _build_resource_attributes()
@@ -123,12 +115,7 @@ def _build_resource_attributes() -> dict[str, str]:
 def _logs_export_enabled() -> bool:
     """Return whether OTLP log export is enabled for this process.
 
-    Checks OTEL_LOGS_EXPORTER and OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
-    environment variables to determine if log export should be enabled.
-
-    Returns:
-        bool: True if OTLP log export is enabled, False otherwise.
-
+    Considers OTEL_LOGS_EXPORTER and the log signal endpoint variable.
     """
     return _signal_export_enabled(
         exporter_env="OTEL_LOGS_EXPORTER",
@@ -140,12 +127,7 @@ def _logs_export_enabled() -> bool:
 def _traces_export_enabled() -> bool:
     """Return whether OTLP trace export is enabled for this process.
 
-    Checks OTEL_TRACES_EXPORTER and OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-    environment variables to determine if trace export should be enabled.
-
-    Returns:
-        bool: True if OTLP trace export is enabled, False otherwise.
-
+    Considers OTEL_TRACES_EXPORTER and the trace signal endpoint variable.
     """
     return _signal_export_enabled(
         exporter_env="OTEL_TRACES_EXPORTER",
@@ -157,12 +139,7 @@ def _traces_export_enabled() -> bool:
 def _metrics_export_enabled() -> bool:
     """Return whether OTLP metrics export is enabled for this process.
 
-    Checks OTEL_METRICS_EXPORTER and OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
-    environment variables to determine if metrics export should be enabled.
-
-    Returns:
-        bool: True if OTLP metrics export is enabled, False otherwise.
-
+    Considers OTEL_METRICS_EXPORTER and the metrics signal endpoint variable.
     """
     return _signal_export_enabled(
         exporter_env="OTEL_METRICS_EXPORTER",
@@ -179,23 +156,10 @@ def _signal_export_enabled(
 ) -> bool:
     """Return whether an OTLP signal should be exported.
 
-    Generic function to check if a specific OTLP signal (traces, metrics, logs)
-    should be exported based on environment configuration.
-
-    Args:
-        exporter_env: Name of the environment variable for the exporter setting
-            (e.g., "OTEL_TRACES_EXPORTER").
-        signal_endpoint_env: Name of the environment variable for the signal-specific
-            endpoint (e.g., "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").
-        default_enabled: Default value if neither environment variable is set.
-            Defaults to True.
-
-    Returns:
-        bool: True if the signal export is enabled, False otherwise.
-
-    Note:
-        If the exporter environment variable is explicitly set to "none" or empty,
-        export is disabled regardless of endpoint configuration.
+    ``exporter_env`` names the exporter setting (e.g. "OTEL_TRACES_EXPORTER")
+    and ``signal_endpoint_env`` the signal-specific endpoint; both fall back
+    to ``default_enabled`` when unset. An exporter explicitly set to "none"
+    or empty disables export regardless of endpoint configuration.
 
     """
     exporter = os.environ.get(exporter_env)
@@ -209,19 +173,10 @@ def _signal_export_enabled(
 def _ensure_initialized() -> None:
     """Set up global TracerProvider and MeterProvider once.
 
-    Idempotent initialization of OpenTelemetry SDK components. Creates and configures
-    the TracerProvider, MeterProvider, and LoggerProvider based on environment
-    settings. Uses lazy initialization pattern - only runs once even if called
-    multiple times.
-
-    Providers are registered globally and will be flushed on process exit via
-    the atexit handler registered with shutdown_otel().
-
-    Side Effects:
-        - Sets global _initialized flag to True
-        - Configures opentelemetry.trace global tracer provider
-        - Configures opentelemetry.metrics global meter provider
-        - Logs initialization event with service metadata
+    Idempotent: configures TracerProvider, MeterProvider, and LoggerProvider
+    from environment settings on the first call only. Providers register
+    globally and flush on process exit via the registered shutdown_otel()
+    atexit handler.
     """
     global _initialized, _logger_provider, _meter_provider, _tracer_provider
     if _initialized:
@@ -262,20 +217,12 @@ def _ensure_initialized() -> None:
 def get_tracer() -> Tracer:
     """Return the Phlo OTel tracer.
 
-    Returns a tracer instance for creating spans. If tracing is not enabled,
-    returns a no-op tracer that creates non-recording spans.
-
-    The tracer is lazily initialized - the first call will set up the
-    TracerProvider if tracing is enabled.
-
-    Returns:
-        Tracer: OpenTelemetry tracer instance configured for Phlo instrumentation.
+    Returns a no-op tracer when tracing is disabled; otherwise lazily
+    initializes the global TracerProvider on first call.
 
     Example:
-        >>> tracer = get_tracer()
         >>> with tracer.start_as_current_span("operation") as span:
         ...     span.set_attribute("key", "value")
-
     """
     if not _traces_export_enabled():
         return trace.get_tracer(INSTRUMENTATION_NAME, INSTRUMENTATION_VERSION)
@@ -286,20 +233,13 @@ def get_tracer() -> Tracer:
 def get_meter() -> Meter:
     """Return the Phlo OTel meter.
 
-    Returns a meter instance for creating and recording metrics. If metrics
-    export is not enabled, returns a no-op meter that discards all recordings.
-
-    The meter is lazily initialized - the first call will set up the
-    MeterProvider if metrics export is enabled.
-
-    Returns:
-        Meter: OpenTelemetry meter instance configured for Phlo instrumentation.
+    Returns a no-op meter when metrics export is disabled; otherwise lazily
+    initializes the global MeterProvider on first call.
 
     Example:
         >>> meter = get_meter()
         >>> counter = meter.create_counter("events")
         >>> counter.add(1, {"type": "ingestion"})
-
     """
     if not _metrics_export_enabled():
         return metrics.get_meter(INSTRUMENTATION_NAME, INSTRUMENTATION_VERSION)
@@ -310,15 +250,8 @@ def get_meter() -> Meter:
 def get_log_emitter() -> Any:
     """Return the Phlo OTel log emitter.
 
-    Returns a logger instance for emitting structured log records to OTel.
-    If log export is not enabled, returns None.
-
-    The log emitter is lazily initialized - the first call will set up the
-    LoggerProvider if log export is enabled.
-
-    Returns:
-        Logger | None: OpenTelemetry logger instance if log export is enabled,
-            None otherwise.
+    Returns None when log export is disabled; otherwise lazily initializes
+    the LoggerProvider on first call.
 
     Example:
         >>> emitter = get_log_emitter()
@@ -329,7 +262,6 @@ def get_log_emitter() -> Any:
         ...         body="Processing complete",
         ...     )
         ...     emitter.emit(log_record)
-
     """
     _ensure_initialized()
     if _logger_provider is None:
@@ -340,22 +272,9 @@ def get_log_emitter() -> Any:
 def shutdown_otel() -> None:
     """Flush and stop OTel providers created by this module.
 
-    Gracefully shuts down all initialized OpenTelemetry providers, flushing
-    any pending telemetry data before shutdown. This function is automatically
-    registered with atexit and will be called on normal process termination.
-
-    After shutdown, all cached providers are cleared and the initialization
-    state is reset, allowing re-initialization if needed.
-
-    Side Effects:
-        - Flushes pending spans, metrics, and logs
-        - Shuts down TracerProvider, MeterProvider, and LoggerProvider
-        - Clears internal provider references
-        - Resets _initialized flag to False
-
-    Note:
-        This function is safe to call multiple times. Subsequent calls are no-ops
-        if providers are already shut down.
+    Registered with atexit so normal process termination flushes pending
+    spans, metrics, and logs before shutdown. Clears cached providers and
+    resets the initialization flag afterwards; safe to call repeatedly.
 
     """
     global _initialized, _logger_provider, _meter_provider, _tracer_provider
@@ -376,22 +295,9 @@ def shutdown_otel() -> None:
 def _provider_needs_shutdown(provider: Any) -> bool:
     """Return whether an OTel provider still has active shutdown work.
 
-    Checks various internal state attributes of OpenTelemetry providers to
-    determine if they need to be shut down. Different provider implementations
-    use different internal attribute names for tracking shutdown state.
-
-    Args:
-        provider: OpenTelemetry provider instance (TracerProvider, MeterProvider,
-            or LoggerProvider).
-
-    Returns:
-        bool: True if the provider appears to be active and needs shutdown,
-            False if already shut down or in an unknown state.
-
-    Note:
-        This is an internal helper that inspects implementation-specific
-        attributes and may need updates if OTel SDK internals change.
-
+    Inspects implementation-internal attributes of OTel SDK providers, which
+    differ per provider; returns False only when the provider is visibly
+    already shut down.
     """
     if hasattr(provider, "_shutdown"):
         return not bool(getattr(provider, "_shutdown"))

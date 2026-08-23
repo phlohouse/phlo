@@ -65,16 +65,9 @@ class QualityCheckPlugin(Plugin, ABC, Generic[TQualityCheck]):
         This factory method creates instances of quality checks
         that can be used with @phlo_quality decorator.
 
-        Args:
-            **kwargs: Parameters for configuring the check
-
-        Returns:
-            QualityCheck instance
-
         Example:
             ```python
             def create_check(self, column: str, threshold: float) -> QualityCheck:
                 return CustomQualityCheck(column=column, threshold=threshold)
             ```
-
         """

@@ -1,3 +1,6 @@
+/**
+ * Dropdown menu primitives built on Base UI menu with shared styling.
+ */
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 
 import { cn } from '@/lib/utils'

@@ -44,6 +44,8 @@ Example:
             }
         )
 
+Builds on phlo.capabilities interfaces and the phlo_iceberg catalog/tables modules to expose
+Iceberg table operations as a Dagster-ready resource.
 """
 
 from collections.abc import Sequence
@@ -536,13 +538,11 @@ def _retention_state_evidence(plan: dict[str, Any]) -> dict[str, object]:
 class IcebergResource:
     """Resource wrapper for Iceberg REST catalog operations.
 
-    Provides a high-level interface for common Iceberg table operations
-    including data ingestion (append, merge, overwrite), snapshot management,
-    and schema conversion. Designed for use as a Dagster resource.
-
-    Attributes:
-        ref: Nessie branch/tag reference for all operations. Defaults to
-            the value from settings (typically ``main``).
+    High-level interface for common Iceberg table operations: data ingestion
+    (append, merge, overwrite), snapshot management, and schema conversion.
+    Designed for use as a Dagster resource. ``ref`` selects the Nessie
+    branch/tag for all operations and defaults to the settings value
+    (typically ``main``).
 
     Example:
         Basic resource usage::
@@ -594,11 +594,7 @@ class IcebergResource:
     def get_catalog(self, override_ref: str | None = None) -> Catalog:
         """Return an Iceberg catalog client for the active branch.
 
-        Args:
-            override_ref: Optional branch or tag to use instead of ``self.ref``.
-
-        Returns:
-            Catalog: Configured PyIceberg catalog instance.
+        Uses ``override_ref`` when given, otherwise ``self.ref``.
 
         Example:
             Access catalog directly::
@@ -644,19 +640,10 @@ class IcebergResource:
     def schema_from_validation_schema(
         self, validation_schema: type[DataFrameModel] | type[Any]
     ) -> Schema:
-        """Convert a Pandera validation model to an Iceberg schema.
+        """Convert a Pandera validation model to an equivalent Iceberg schema.
 
-        Useful for ingestion flows where data is validated using Pandera
-        models before being written to Iceberg.
-
-        Args:
-            validation_schema: Pandera DataFrameModel class to convert.
-
-        Returns:
-            Schema: Iceberg schema equivalent to the Pandera model.
-
-        Raises:
-            SchemaConversionError: If the Pandera schema cannot be converted.
+        Useful in ingestion flows that validate with Pandera before writing to
+        Iceberg. Raises SchemaConversionError when the model cannot be converted.
 
         Example:
             Convert Pandera model to Iceberg schema::
@@ -683,19 +670,10 @@ class IcebergResource:
         partition_spec: Sequence[tuple[str, str]] | None = None,
         override_ref: str | None = None,
     ) -> Table:
-        """Ensure a table exists and return its handle.
+        """Create the table if missing and return its handle.
 
-        Creates the table if it doesn't exist, otherwise returns the existing table.
-
-        Args:
-            table_name: Fully qualified table name (``namespace.table``).
-            schema: Iceberg table schema.
-            partition_spec: Optional list of ``(field, transform)`` partition rules.
-                Supported transforms: ``identity``, ``day``, ``hour``, ``month``, ``year``.
-            override_ref: Optional branch or tag to use instead of ``self.ref``.
-
-        Returns:
-            Table: Existing or newly created Iceberg table handle.
+        ``partition_spec`` takes ``(field, transform)`` pairs; supported
+        transforms are ``identity``, ``day``, ``hour``, ``month``, ``year``.
 
         Example:
             Ensure table with partitioning::
@@ -731,23 +709,11 @@ class IcebergResource:
         *,
         evidence_context: dict[str, Any] | None = None,
     ) -> dict[str, int]:
-        """Append Parquet data into an Iceberg table.
+        """Append Parquet data from ``data_path`` into the table.
 
-        Reads data from a Parquet file or directory and appends it to the
-        specified table. Automatically aligns schema and handles missing columns.
-
-        Args:
-            table_name: Fully qualified table name (``namespace.table``).
-            data_path: Path to Parquet input data (file or directory).
-            override_ref: Optional branch or tag to use instead of ``self.ref``.
-
-        Returns:
-            dict[str, int]: Write statistics from the append operation:
-                - ``rows_inserted``: Number of rows appended.
-                - ``rows_deleted``: Always 0.
-
-        Raises:
-            Exception: Re-raises any errors during append.
+        Aligns schema and handles missing columns automatically. Returns write
+        statistics: ``rows_inserted`` counts appended rows, ``rows_deleted`` is
+        always 0.
 
         Example:
             Simple append::
@@ -827,25 +793,11 @@ class IcebergResource:
         *,
         evidence_context: dict[str, Any] | None = None,
     ) -> dict[str, int]:
-        """Merge (upsert) Parquet data into an Iceberg table using a unique key.
+        """Merge (upsert) Parquet data into the table using ``unique_key``.
 
-        Deletes existing rows with matching unique key values, then inserts
-        the new data. This implements an upsert pattern useful for
-        idempotent data loads.
-
-        Args:
-            table_name: Fully qualified table name (``namespace.table``).
-            data_path: Path to Parquet input data (file or directory).
-            unique_key: Column name used to identify and match existing rows.
-            override_ref: Optional branch or tag to use instead of ``self.ref``.
-
-        Returns:
-            dict[str, int]: Write statistics from the merge operation:
-                - ``rows_deleted``: Approximate count of rows deleted.
-                - ``rows_inserted``: Number of rows inserted.
-
-        Raises:
-            Exception: Re-raises any errors during merge.
+        Deletes existing rows with matching key values, then inserts the new
+        data, making loads idempotent. Returns ``rows_deleted`` (approximate)
+        and ``rows_inserted``.
 
         Example:
             Upsert user data by ID::
@@ -931,24 +883,11 @@ class IcebergResource:
         override_ref: str | None = None,
         evidence_context: dict[str, Any] | None = None,
     ) -> dict[str, int]:
-        """Overwrite an Iceberg table with staged Parquet data.
+        """Overwrite the table with staged Parquet data in a new snapshot.
 
-        Replaces all existing data with the new data, creating a new snapshot.
-        Previous data remains accessible via snapshot history until snapshots
-        are expired.
-
-        Args:
-            table_name: Fully qualified table name (``namespace.table``).
-            data_path: Path to Parquet input data (file or directory).
-            override_ref: Optional branch or tag to use instead of ``self.ref``.
-
-        Returns:
-            dict[str, int]: Write statistics from the overwrite operation:
-                - ``rows_inserted``: Number of rows in replacement data.
-                - ``rows_deleted``: Always 0.
-
-        Raises:
-            Exception: Re-raises any errors during overwrite.
+        Previous data stays accessible through snapshot history until snapshots
+        are expired. Returns ``rows_inserted`` (replacement row count) and
+        ``rows_deleted`` (always 0).
 
         Example:
             Regenerate summary table::
@@ -1020,21 +959,10 @@ class IcebergResource:
         override_ref: str | None = None,
         evidence_context: dict[str, Any] | None = None,
     ) -> dict[str, int]:
-        """Delete rows matching a predicate expression.
+        """Delete rows matching a SQL-style ``predicate`` expression.
 
-        Uses Iceberg's delete operation with a SQL-style predicate expression.
-
-        Args:
-            table_name: Fully qualified table name (``namespace.table``).
-            predicate: Filter expression string (e.g., ``"status = 'inactive'"``).
-            override_ref: Optional branch or tag to use instead of ``self.ref``.
-
-        Returns:
-            dict[str, int]: Delete statistics:
-                - ``rows_deleted``: Always -1 (PyIceberg doesn't return count).
-
-        Raises:
-            Exception: Re-raises any errors during deletion.
+        Returns ``rows_deleted`` as -1 because PyIceberg does not report the
+        deleted row count.
 
         Example:
             Delete old records::
@@ -1119,34 +1047,13 @@ class IcebergResource:
     ) -> dict[str, object]:
         """Compact small files through the configured Trino Iceberg catalog.
 
-        A dry run reads Iceberg metadata and returns the snapshot token required
-        for an execute call. Execute mode takes an optimistic snapshot
-        precondition. The executor owns the provider boundary and must target
-        the requested ref. Execution is at-least-once: successful, no-op, and
-        precondition outcomes are retry-safe, while a provider error after
-        submission is reported as outcome-unknown and must be reconciled before
-        retrying.
-
-        Args:
-            table_name: Fully qualified table name (``namespace.table``).
-            override_ref: Optional branch or tag to use instead of ``self.ref``.
-            dry_run: Inspect the table and plan the operation without invoking Trino.
-            expected_revision: Provider-neutral revision token observed by the caller.
-            expected_snapshot_id: Snapshot observed by the caller. When omitted,
-                execute mode captures and rechecks the current snapshot itself. This
-                provider-specific alias is retained for compatibility.
-            operation_id: Optional caller-supplied correlation token. The current
-                contract is at-least-once and does not provide durable deduplication.
-            executor: Provider-neutral maintenance executor, such as the Trino
-                capability provider. It is not invoked during a dry run.
-
-        Returns:
-            A provider-neutral operation result with plan, execution, and failure
-            evidence.
-
-        Raises:
-            ValueError: If the table identifier is invalid.
-
+        A dry run reads metadata and returns the snapshot token required for an
+        execute call; execute mode takes an optimistic snapshot precondition and
+        the executor owns the provider boundary. Execution is at-least-once:
+        successful, no-op, and precondition outcomes are retry-safe, while a
+        provider error after submission is outcome-unknown and must be
+        reconciled before retrying. ``operation_id`` correlates calls but does
+        not deduplicate. Raises ValueError when the table identifier is invalid.
         """
         branch = override_ref or self.ref
         quoted_table_name = _validate_compaction_table_name(table_name)
@@ -1228,6 +1135,9 @@ class IcebergResource:
                 },
             )
 
+        # Re-read metadata after checking the caller's token: the table may
+        # have advanced between planning and this point, and only a fresh
+        # read closes that window.
         current_snapshot_id, current_stats = self._compaction_metadata(table_name, branch)
         if current_snapshot_id != expected:
             return _blocked_compaction_result(
@@ -1460,6 +1370,9 @@ class IcebergResource:
             )
         refs_available = True
         refs: dict[str, int] = {}
+        # Enumerating refs is best-effort: a catalog that cannot list them
+        # marks the evidence unavailable, which makes execute mode refuse
+        # rather than risk expiring a snapshot a branch still points at.
         try:
             for name, snapshot_ref in table.refs().items():
                 snapshot_id = getattr(snapshot_ref, "snapshot_id", None)
@@ -1509,6 +1422,8 @@ class IcebergResource:
                                 candidate_paths[path] = size
                             else:
                                 retained_paths.add(path)
+                # Data files shared with any retained snapshot stay out of
+                # affected_bytes; deleting them would corrupt surviving snapshots.
                 unreferenced = set(candidate_paths) - retained_paths
                 sizes = [candidate_paths[path] for path in unreferenced]
                 if any(size is None for size in sizes):
@@ -1743,6 +1658,7 @@ class IcebergResource:
         plan_token = str(plan["plan_token"])
 
         def block(code: str, message: str, *, retry_safe: bool = True) -> dict[str, object]:
+            """Build a blocked retention result for rejection code ``code``."""
             return self._retention_blocked(
                 operation=operation,
                 table_name=table_name,
@@ -2223,19 +2139,10 @@ class IcebergResource:
         )
 
     def list_snapshots(self, *, table_name: str, limit: int = 10) -> list[dict]:
-        """List recent table snapshots.
+        """List recent snapshots for the table, most recent first.
 
-        Retrieves snapshot metadata including operation type, timestamp, and
-        summary statistics. Results are sorted by timestamp (most recent first).
-
-        Args:
-            table_name: Fully qualified table name (``namespace.table``).
-            limit: Maximum number of snapshots to return (default: 10).
-
-        Returns:
-            list[dict]: Snapshot metadata dicts, most recent first. Each dict
-                contains ``snapshot_id``, ``timestamp_ms``, ``operation``, and
-                ``summary`` fields.
+        Each entry contains ``snapshot_id``, ``timestamp_ms``, ``operation``,
+        and ``summary``.
 
         Example:
             Review table history::
@@ -2257,20 +2164,8 @@ class IcebergResource:
         snapshot_id: int | str,
         evidence_context: dict[str, Any] | None = None,
     ) -> dict:
-        """Roll back a table to a previous snapshot.
-
-        Restores the table to a specific point in time using the snapshot ID by
-        repointing the current snapshot reference to that existing ancestor.
-
-        Args:
-            table_name: Fully qualified table name (``namespace.table``).
-            snapshot_id: Target snapshot ID (can be int or string).
-
-        Returns:
-            dict: Rollback result containing ``rolled_back_to`` snapshot ID.
-
-        Raises:
-            Exception: Re-raises any errors during rollback.
+        """Roll the table back to ``snapshot_id`` by repointing the current
+        snapshot reference to that existing ancestor.
 
         Example:
             Rollback after bad data load::
@@ -2351,23 +2246,11 @@ class IcebergResource:
         retain_hours: int = SAFE_MIN_RETENTION_HOURS,
         dry_run: bool = True,
     ) -> dict[str, object]:
-        """Plan both retention operations without bypassing their safety contract.
+        """Plan snapshot expiry and orphan-file cleanup without executing them.
 
-        Snapshot expiry and orphan deletion are separate provider procedures with
-        separate snapshot fences, so this convenience method deliberately remains
-        planning-only. Execute each returned plan independently with its own
-        confirmation token.
-
-        Args:
-            table_name: Fully qualified table name (``namespace.table``).
-            retain_hours: Retention period in hours (default: 168 = 7 days).
-                Snapshots newer than this will be retained.
-
-        Returns:
-            dict: Independent snapshot-expiry and orphan-cleanup plans.
-
-        Raises:
-            Exception: Re-raises any errors during maintenance.
+        The two procedures have separate safety fences, so execute each returned
+        plan independently with its own confirmation token. ``retain_hours``
+        sets the retention window (default 168 = 7 days).
 
         Example:
             Weekly maintenance::

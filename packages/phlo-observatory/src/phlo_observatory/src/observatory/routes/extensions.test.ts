@@ -1,3 +1,7 @@
+/**
+ * Verifies extension-contributed nav items and routes stay explicit and that
+ * legacy aliases are never applied.
+ */
 import { describe, expect, it } from 'vitest'
 
 import type { ObservatoryExtension } from '@/observatory/api/types'

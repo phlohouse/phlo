@@ -1,4 +1,9 @@
-"""Tests for Pandera parquet contract helpers."""
+"""Tests for Pandera parquet contract helpers.
+
+Contract evaluation combines parquet file sets before validating,
+backfills missing nullable columns using the schema's dtype (e.g.
+Int64, datetime64[ns]), and never mutates the input DataFrame.
+"""
 
 from __future__ import annotations
 

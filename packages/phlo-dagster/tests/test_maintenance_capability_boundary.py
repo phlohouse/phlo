@@ -1,4 +1,9 @@
-"""Guard Dagster maintenance from importing concrete provider resources."""
+"""Guard the provider-neutral boundary of Dagster maintenance flows.
+
+Retention ops resolve only table_store and neutral executor capabilities --
+never concrete providers like Trino -- against structural fakes of the
+retention contract.
+"""
 
 import ast
 from pathlib import Path

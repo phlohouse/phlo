@@ -1,4 +1,11 @@
-"""Init command for initializing Phlo infrastructure."""
+"""Init command for initializing Phlo infrastructure.
+
+Creates the .phlo project directory, selects services (expanding
+declared dependencies and setup companions), writes phlo.yaml and env
+files, and generates docker-compose via ComposeGenerator. Mutation is
+authorization-gated, re-init into a non-empty directory is refused, and
+production mode rejects default credentials.
+"""
 
 import os
 import sys

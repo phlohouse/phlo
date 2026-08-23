@@ -1,13 +1,8 @@
 """Observatory extension for Trino data explorer UI.
 
-This module provides an Observatory extension plugin for integrating
-Trino data exploration capabilities into the Phlo Observatory web UI.
+Integrates Trino data exploration into the Phlo Observatory web UI via the
+TrinoObservatoryExtension plugin.
 
-Classes:
-    TrinoObservatoryExtension: Extension for Trino data explorer.
-
-Constants:
-    VERSION: Extension version string.
 
 Example:
     The plugin is automatically discovered and loaded by Observatory:
@@ -16,6 +11,9 @@ Example:
     >>> print(ext.manifest.name)
     trino
 
+
+Loaded through the Observatory extension entry points at UI startup rather
+than imported directly by other phlo modules.
 """
 
 from __future__ import annotations
@@ -40,12 +38,7 @@ class TrinoObservatoryExtension(ObservatoryExtensionPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for Trino observatory integration.
-
-        Returns:
-            PluginMetadata: Plugin identity, version, and description.
-
-        """
+        """Return plugin identity, version, and description."""
         return PluginMetadata(
             name="trino",
             version=VERSION,
@@ -54,12 +47,7 @@ class TrinoObservatoryExtension(ObservatoryExtensionPlugin):
 
     @property
     def manifest(self) -> ObservatoryExtensionManifest:
-        """Return the observatory extension manifest for Trino.
-
-        Returns:
-            ObservatoryExtensionManifest: Manifest defining UI navigation and compatibility.
-
-        """
+        """Return the extension manifest defining UI navigation and compatibility."""
         return ObservatoryExtensionManifest(
             name="trino",
             version=VERSION,
@@ -71,10 +59,5 @@ class TrinoObservatoryExtension(ObservatoryExtensionPlugin):
 
     @property
     def asset_root(self) -> Traversable:
-        """Return the root directory containing extension frontend assets.
-
-        Returns:
-            Traversable: Package resource path for observatory static assets.
-
-        """
+        """Return the package resource path for observatory static assets."""
         return resources.files("phlo_trino").joinpath("observatory_assets")

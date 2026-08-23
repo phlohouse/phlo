@@ -1,4 +1,10 @@
-"""Tests for the core default observability capability provider."""
+"""Tests for the core default observability capability provider.
+
+Verifies that capability discovery registers the default providers, that the
+default observability and authorization backends expose their contracts,
+and deterministic service-status ordering with links resolved from service
+configuration.
+"""
 
 from __future__ import annotations
 

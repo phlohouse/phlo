@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Build a unique GHCR publication matrix from rendered Compose JSON."""
+"""Build a unique GHCR publication matrix from rendered Compose JSON.
+
+Emits one build target per unique published image; services sharing an image
+collapse into a single target. Built services must publish a ghcr.io/phlohouse
+image whose context and Dockerfile resolve inside the generated or source root,
+otherwise matrix construction fails.
+"""
 
 from __future__ import annotations
 
@@ -49,6 +55,7 @@ def publication_matrix(
         if resolved_paths is None:
             raise ValueError(f"built service {service_name!r} escapes publication roots")
         context_root, context_relative, dockerfile_relative = resolved_paths
+        # A digest-pinned reference still publishes under its repository tag.
         tag = image.split("@", 1)[0]
         target = {
             "service": service_name,
@@ -60,6 +67,9 @@ def publication_matrix(
             "build_args": build.get("args") or {},
         }
         existing = published.get(tag)
+        # Several services may publish the same tag only when their build
+        # definitions match exactly; otherwise the matrix would silently pick
+        # whichever service appeared first.
         if existing is None:
             published[tag] = target
             continue
@@ -83,6 +93,7 @@ def publication_matrix(
 
 
 def main() -> int:
+    """Parse CLI arguments, print the GitHub Actions matrix JSON, and exit 0."""
     parser = argparse.ArgumentParser()
     parser.add_argument("compose_json", type=Path)
     parser.add_argument("project_root", type=Path)

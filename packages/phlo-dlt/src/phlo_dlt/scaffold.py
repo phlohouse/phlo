@@ -72,16 +72,8 @@ from typing import Any, List, Optional
 def _to_snake_case(name: str) -> str:
     """Convert string to snake_case.
 
-    Transforms a string into snake_case format by:
-    1. Replacing spaces and hyphens with underscores
-    2. Inserting underscores between camelCase transitions
-    3. Converting to lowercase
-
-    Args:
-        name: Input string to convert.
-
-    Returns:
-        str: The snake_case version of the input.
+    Replaces spaces and hyphens with underscores, splits camelCase
+    transitions, and lowercases the result.
 
     Example:
         ```python
@@ -101,16 +93,8 @@ def _to_snake_case(name: str) -> str:
 def _to_pascal_case(name: str) -> str:
     """Convert string to PascalCase.
 
-    Transforms a string into PascalCase format by:
-    1. Splitting on underscores, spaces, or hyphens
-    2. Capitalizing each word
-    3. Joining without separators
-
-    Args:
-        name: Input string to convert.
-
-    Returns:
-        str: The PascalCase version of the input.
+    Splits on underscores, spaces, or hyphens, capitalizes each word, and
+    joins without separators.
 
     Example:
         ```python
@@ -130,13 +114,9 @@ def _to_pascal_case(name: str) -> str:
 class FieldSpec:
     """Structured representation of a scaffold field declaration.
 
-    Immutable dataclass representing a parsed field specification with
-    normalized name, type, and nullability information.
-
-    Attributes:
-        name: Normalized snake_case field name.
-        type_name: Primitive field type name (str, int, float, bool, datetime, date).
-        nullable: Whether the field is nullable (True for ? modifier).
+    Immutable parsed field specification with a normalized snake_case name,
+    a primitive type (str, int, float, bool, datetime, date), and
+    nullability (True for the ? modifier).
 
     Example:
         ```python
@@ -506,24 +486,10 @@ WHERE updated_at >= :partition_start
 def parse_field_specs(raw_specs: list[str] | None) -> list[FieldSpec]:
     """Parse raw CLI field specifications.
 
-    Parses field specifications from CLI input into structured FieldSpec objects.
-    Validates type names and normalizes field names to snake_case.
-
-    Args:
-        raw_specs: Field specs in ``name:type``, ``name:type?``, or ``name:type!`` form.
-            Examples: "user_id:str", "age:int?", "email:str!"
-
-    Returns:
-        list[FieldSpec]: Parsed and normalized field specs.
-
-    Raises:
-        ValueError: If any field spec format is invalid or type is not recognized.
-
-    Field Specification Format:
-        - ``name:type``: Required field (implicit)
-        - ``name:type?``: Nullable field
-        - ``name:type!``: Required field (explicit)
-        - Type must be one of: str, int, float, bool, datetime, date
+    Parses CLI specs in ``name:type``, ``name:type?`` (nullable), or
+    ``name:type!`` form into FieldSpec objects, normalizing names to
+    snake_case. Types must be str, int, float, bool, datetime, or date.
+    Raises ValueError for invalid format or unknown types.
 
     Example:
         ```python
@@ -583,35 +549,11 @@ def create_ingestion_workflow(
 ) -> List[str]:
     """Create ingestion workflow files.
 
-    Generates a complete ingestion workflow scaffold including:
-    1. Pandera schema definition file
-    2. DLT ingestion asset file
-    3. Unit test file
-
-    Creates files in workflows/ and tests/ directories relative to
-    the current working directory.
-
-    Args:
-        domain: Domain/category name (e.g., "weather", "stripe"). Used for
-            directory structure and group naming.
-        table_name: Target table name. Will be used for asset naming and
-            file naming.
-        unique_key: Column name to use for deduplication and merge operations.
-        cron: Cron schedule expression for automated runs.
-            Default: "0 */1 * * *" (hourly).
-        api_base_url: Optional REST API base URL for the data source.
-            If not provided, asset will raise RuntimeError until configured.
-        fields: List of additional field specifications in "name:type" format.
-            Example: ["temperature:float", "humidity:float?"]
-
-    Returns:
-        List[str]: Paths to created files (relative to project root):
-            - workflows/schemas/{domain}.py
-            - workflows/ingestion/{domain}/{table}.py
-            - tests/test_{domain}_{table}.py
-
-    Raises:
-        FileExistsError: If any of the target files already exist.
+    Generates a complete ingestion workflow scaffold: a Pandera schema
+    file, a DLT ingestion asset file, and a unit test, created relative to
+    the current working directory. ``api_base_url`` left unset produces an
+    asset that raises RuntimeError until configured. Returns the created
+    file paths; raises FileExistsError if any target already exists.
 
     Example:
         ```python

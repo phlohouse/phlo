@@ -1,3 +1,6 @@
+"""Tests phlo_iceberg.tables rollback: restoring a table to an ancestor
+snapshot restores its data as of that snapshot."""
+
 from __future__ import annotations
 
 import pyarrow as pa
@@ -53,6 +56,9 @@ def test_rollback_rejects_a_non_ancestor_without_mutation(tmp_path, monkeypatch)
     catalog, first_snapshot_id, original_second_id = _table_with_two_snapshots(
         tmp_path, monkeypatch
     )
+    # Roll back to the first snapshot, then append again: the original second
+    # snapshot now sits on a divergent branch and is no longer an ancestor of
+    # the table's current snapshot.
     table = catalog.load_table("raw.events")
     table.manage_snapshots().rollback_to_snapshot(first_snapshot_id).commit()
     table = catalog.load_table("raw.events")

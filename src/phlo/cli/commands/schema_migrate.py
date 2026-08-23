@@ -2,6 +2,9 @@
 
 Provides commands to diff, plan, apply, and inspect schema migrations
 between quality provider schemas and storage tables.
+
+Imported by phlo.cli.main and by phlo_dagster's schema-contract framework.
+Builds migrations on phlo.schema_migration planning and phlo.capabilities.discovery.
 """
 
 from __future__ import annotations
@@ -313,6 +316,8 @@ def _is_missing_table_error(exc: BaseException) -> bool:
     try:
         from pyiceberg.exceptions import NoSuchIdentifierError, NoSuchTableError
     except Exception:
+        # pyiceberg is an optional dependency; when its exceptions are
+        # unavailable, classify by exception name and message text instead.
         missing_error_types: tuple[type[BaseException], ...] = ()
     else:
         missing_error_types = (NoSuchIdentifierError, NoSuchTableError)
@@ -360,6 +365,9 @@ def refresh_contracts_for_selection(
 
     refreshed_count = 0
     for table in sorted(candidate_tables):
+        # Each table resolves against two candidate names: namespace-resolved
+        # first, then the bare name. The first candidate that exports cleanly
+        # wins; a missing table skips the candidate instead of failing.
         table_candidates = [table]
         if "." not in table:
             namespace_resolver = _resolve_namespace_resolver()

@@ -9,6 +9,8 @@ Example:
     provider = DeltaResourceProvider()
     resources = provider.get_resources()
 
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported directly.
+Registers Delta Lake table-store and schema-migration capabilities through phlo.capabilities.
 """
 
 from __future__ import annotations
@@ -21,13 +23,10 @@ from phlo_delta.schema_migrator import DeltaSchemaMigrator
 
 
 class DeltaResourceProvider(ResourceProviderPlugin):
-    """Resource provider plugin for Delta Lake access.
+    """Resource provider plugin exposing Delta Lake access to Phlo.
 
-    This plugin exposes Delta Lake resources to the Phlo framework,
-    providing table storage, schema migration, and time travel capabilities.
-
-    Attributes:
-        metadata: Plugin metadata including name, version, and capabilities.
+    Provides table storage, schema migration, and time travel capabilities
+    through the plugin's capability specs.
 
     Example:
         provider = DeltaResourceProvider()
@@ -37,13 +36,7 @@ class DeltaResourceProvider(ResourceProviderPlugin):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Get plugin metadata.
-
-        Returns:
-            PluginMetadata: Metadata for the Delta Lake resource plugin,
-                including name, version, description, and capability support.
-
-        """
+        """Report plugin identity with snapshots, schema evolution, and time travel support."""
         return PluginMetadata(
             name="delta",
             version="0.1.0",
@@ -56,23 +49,11 @@ class DeltaResourceProvider(ResourceProviderPlugin):
         )
 
     def get_resources(self) -> list[ResourceSpec]:
-        """Get resource specs exposed by this plugin.
-
-        Returns:
-            list[ResourceSpec]: Delta resource specifications containing
-                the DeltaResource instance.
-
-        """
+        """Expose a single "table_store" resource backed by DeltaResource."""
         return [ResourceSpec(name="table_store", resource=DeltaResource())]
 
     def get_table_stores(self) -> list[TableStoreSpec]:
-        """Get table-store capability specs exposed by this plugin.
-
-        Returns:
-            list[TableStoreSpec]: Delta table-store capability specifications
-                with snapshot, schema evolution, and time travel support.
-
-        """
+        """Expose the Delta table-store spec with snapshot, evolution, and time-travel support."""
         return [
             TableStoreSpec(
                 name="delta",
@@ -86,13 +67,7 @@ class DeltaResourceProvider(ResourceProviderPlugin):
         ]
 
     def get_schema_migrators(self) -> list[SchemaMigrationSpec]:
-        """Get schema-migrator capability specs exposed by this plugin.
-
-        Returns:
-            list[SchemaMigrationSpec]: Delta schema migrator specifications
-                with schema evolution support.
-
-        """
+        """Expose the Delta schema-migrator spec with schema-evolution support."""
         return [
             SchemaMigrationSpec(
                 name="delta",

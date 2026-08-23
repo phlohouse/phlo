@@ -1,4 +1,8 @@
-"""Tests for Hasura API backend capability registration."""
+"""Tests for Hasura API backend capability registration.
+
+Verifies that HasuraResourceProvider exposes exactly one "hasura" API
+backend, marked as GraphQL, with health-check and describe entry points.
+"""
 
 from __future__ import annotations
 

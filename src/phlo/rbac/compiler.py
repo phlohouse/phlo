@@ -78,11 +78,7 @@ class GovernanceCompiler(ABC):
     """
 
     def __init__(self, backend: GovernanceBackend | None = None):
-        """Initialize the compiler.
-
-        Args:
-            backend: Optional governance backend instance for apply/verify operations.
-        """
+        """Initialize the compiler with an optional backend for apply and verify."""
         self._backend = backend
 
     @property
@@ -92,14 +88,7 @@ class GovernanceCompiler(ABC):
 
     @abstractmethod
     def supports_action(self, action: str) -> bool:
-        """Check if this compiler supports the given canonical action.
-
-        Args:
-            action: Canonical action name (e.g., "dataset.read").
-
-        Returns:
-            True if the compiler can handle this action.
-        """
+        """Return True when this compiler handles the canonical action (e.g. "dataset.read")."""
 
     def policy_applicability(self, action: str, resource_type: str) -> str:
         """Return whether this backend can compile a policy pair."""
@@ -111,15 +100,7 @@ class GovernanceCompiler(ABC):
         rbac: CanonicalRBAC,
         context: CompilerContext,
     ) -> list[BackendArtifact]:
-        """Compile canonical RBAC into backend artifacts.
-
-        Args:
-            rbac: The canonical RBAC model.
-            context: Compilation context.
-
-        Returns:
-            List of compiled artifacts representing desired backend state.
-        """
+        """Compile the canonical RBAC model into artifacts describing desired backend state."""
 
     def plan(
         self,
@@ -217,14 +198,7 @@ class GovernanceCompiler(ABC):
         self,
         context: CompilerContext,
     ) -> list[BackendArtifact]:
-        """Read the current managed state from the backend.
-
-        Args:
-            context: Context for reading state.
-
-        Returns:
-            List of currently managed artifacts.
-        """
+        """Read the artifacts currently managed on the backend."""
 
     def _generate_revert_id(self) -> str:
         """Generate a unique revert ID."""
@@ -286,6 +260,9 @@ class GovernanceCompiler(ABC):
 class TrinoCompiler(GovernanceCompiler):
     """Compiler for Trino SQL grants."""
 
+    # Pairs Trino enforces as SQL grants. Pairs in SURFACE_ONLY_POLICY_PAIRS are
+    # valid canonical policies whose enforcement lives outside Trino SQL; compile()
+    # skips them instead of failing. Anything in neither set is rejected.
     TRINO_POLICY_PAIRS = frozenset(
         {
             ("dataset.read", "dataset"),
@@ -332,9 +309,11 @@ class TrinoCompiler(GovernanceCompiler):
 
     @property
     def backend_name(self) -> str:
+        """Return the Trino backend identifier."""
         return "trino"
 
     def supports_action(self, action: str) -> bool:
+        """Return True when the action has a Trino grant mapping."""
         return action in self.ACTION_MAPPING
 
     def policy_applicability(self, action: str, resource_type: str) -> str:
@@ -347,7 +326,11 @@ class TrinoCompiler(GovernanceCompiler):
         return "unsupported"
 
     def _encode_revert_id(self, artifact_name: str) -> str:
-        """Encode a Trino artifact name into a reversible revert ID."""
+        """Encode a Trino artifact name into a reversible revert ID.
+
+        Unlike the base class's random UUIDs this encoding is deterministic:
+        the same artifact name always yields the same revert ID.
+        """
         encoded = base64.urlsafe_b64encode(artifact_name.encode()).decode().rstrip("=")
         return f"{self.backend_name}:{encoded}"
 
@@ -393,6 +376,7 @@ class TrinoCompiler(GovernanceCompiler):
 
             for role_name in policy.principal_roles:
                 _validate_sql_identifier(role_name, "role_name")
+                # Canonical globs use "*", SQL LIKE patterns use "%".
                 resource_id = policy.resource_id_pattern.replace("*", "%")
                 _validate_sql_resource_pattern(resource_id, "resource_id")
                 _validate_sql_identifier(policy.resource_type, "resource_type")
@@ -631,6 +615,8 @@ class TrinoCompiler(GovernanceCompiler):
                         },
                     )
                 )
+        # A failed listing degrades to "no managed state": verify then reports
+        # every desired artifact as missing instead of raising to the caller.
         except Exception:
             pass
 
@@ -646,15 +632,7 @@ def get_compiler(
     backend_name: str,
     backend: GovernanceBackend | None = None,
 ) -> GovernanceCompiler | None:
-    """Get a compiler instance for the specified backend.
-
-    Args:
-        backend_name: Name of the backend.
-        backend: Optional governance backend instance.
-
-    Returns:
-        Compiler instance or None if not found.
-    """
+    """Return a compiler instance for backend_name, or None when unregistered."""
     compiler_class = COMPILER_REGISTRY.get(backend_name)
     if compiler_class is None:
         return None

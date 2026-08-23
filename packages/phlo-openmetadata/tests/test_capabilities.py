@@ -1,4 +1,9 @@
-"""Tests for OpenMetadata capability resolution helpers."""
+"""Tests for OpenMetadata capability resolution helpers.
+
+Helpers must resolve providers through the capability registry, read stable
+capability metadata rather than provider internals, and raise a clear
+RuntimeError when the required capability or metadata is missing.
+"""
 
 from unittest.mock import Mock, patch
 

@@ -1,4 +1,10 @@
-"""Contract tests for the extracted Observatory package-install slice."""
+"""Contract tests for the extracted Observatory package-install slice.
+
+Locks the route/OpenAPI contract of the /packages/install router against
+the full app operation set, and the install behavior: only trusted
+registry packages are accepted (unknown ones rejected before execution)
+and uv-managed projects install through `uv add`.
+"""
 
 from __future__ import annotations
 

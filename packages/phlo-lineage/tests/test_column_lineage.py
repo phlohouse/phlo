@@ -1,4 +1,10 @@
-"""Tests for column-level lineage."""
+"""Tests for column-level lineage.
+
+Covers the frozen ColumnLineage dataclass, dbt manifest column extraction
+(same-name columns map lineage; no columns or no overlap yield nothing),
+and store behaviour against a mocked psycopg2 connection: batch inserts and
+upstream-column queries.
+"""
 
 from __future__ import annotations
 

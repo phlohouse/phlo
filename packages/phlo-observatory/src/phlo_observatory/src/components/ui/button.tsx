@@ -1,3 +1,7 @@
+/**
+ * Button primitives wrapping the Base UI button, with cva variant and size
+ * styling.
+ */
 import { Button as ButtonPrimitive } from '@base-ui/react/button'
 import { cva } from 'class-variance-authority'
 import type { VariantProps } from 'class-variance-authority'

@@ -64,35 +64,13 @@ T = TypeVar("T")
 def dagster_logger(
     context: AssetExecutionContext | OpExecutionContext,
 ) -> structlog.stdlib.BoundLogger:
-    """Return a logger with Dagster correlation fields bound.
-
-    Args:
-        context: Dagster execution context.
-
-    Returns:
-        Bound logger with correlation fields.
-
-    """
+    """Return a structlog logger bound with the context's Dagster correlation fields."""
 
     return get_logger(context.__class__.__module__).bind(**get_correlation_fields(context))
 
 
 def get_correlation_fields(context: AssetExecutionContext | OpExecutionContext) -> dict[str, Any]:
-    """Extract correlation fields from Dagster context.
-
-    Returns fields for log correlation:
-    - run_id: Dagster run ID
-    - asset_key: Asset key path (if available)
-    - job_name: Job name
-    - partition_key: Partition key (if partitioned)
-
-    Args:
-        context: Dagster execution context.
-
-    Returns:
-        Dictionary of correlation fields.
-
-    """
+    """Extract run_id, asset_key, job_name, and partition_key from a Dagster context."""
 
     fields: dict[str, Any] = {
         "run_id": context.run_id,
@@ -114,18 +92,7 @@ def log_with_context(
     level: str = "info",
     **extra: Any,
 ) -> None:
-    """Log a message with Dagster correlation fields via context.log.
-
-    Args:
-        context: Dagster execution context.
-        message: Log message.
-        level: Log level (default: info).
-        **extra: Additional log fields.
-
-    Returns:
-        None
-
-    """
+    """Log a message through context.log at `level`, adding correlation and extra fields."""
 
     correlation = get_correlation_fields(context)
     all_extra = {**correlation, **extra}
@@ -137,34 +104,13 @@ def log_with_context(
 def with_asset_logging(
     func: Callable[..., T],
 ) -> Callable[..., T]:
-    """Decorator to add automatic start/end logging with correlation fields.
-
-    Args:
-        func: Function to wrap.
-
-    Returns:
-        Wrapped function with lifecycle logging.
-
-    """
+    """Wrap an asset function with start/end lifecycle logging and bound correlation fields."""
 
     @wraps(func)
     def wrapper(
         context: AssetExecutionContext | OpExecutionContext, *args: Any, **kwargs: Any
     ) -> T:
-        """Execute wrapped asset function with lifecycle logging.
-
-        Args:
-            context: Dagster execution context.
-            *args: Positional arguments for the wrapped function.
-            **kwargs: Keyword arguments for the wrapped function.
-
-        Returns:
-            Wrapped function result.
-
-        Raises:
-            Exception: Re-raises any exception from the wrapped function.
-
-        """
+        """Run the wrapped function, logging start, completion, and failure with correlation."""
         correlation = get_correlation_fields(context)
         bind_context(**correlation)
 

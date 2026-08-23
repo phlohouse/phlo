@@ -1,4 +1,8 @@
-"""Tests for agent-facing authoring API routes."""
+"""Tests for the agent-facing authoring API routes.
+
+Exercises template creation, listing, validation scoping, and project-write
+authorization against fake workflow scaffolds.
+"""
 
 from __future__ import annotations
 

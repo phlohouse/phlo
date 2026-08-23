@@ -1,4 +1,11 @@
-"""Tests for ClickStack CLI commands."""
+"""Tests for ClickStack CLI commands.
+
+Drives the query command through CliRunner with mocked subprocess calls to
+verify SQL executes inside the ClickStack container via the project's
+configured compose backend, that mutating statements pass through surface
+mutation authorization, and that missing input or timeouts surface as CLI
+errors.
+"""
 
 from __future__ import annotations
 

@@ -10,6 +10,8 @@ Example:
     >>> plugin.metadata.name
     'openmetadata'
 
+Loaded through the phlo plugin entry-point mechanism at startup rather than imported directly.
+Registers the openmetadata service and wizard contributions via phlo.capabilities.
 """
 
 from __future__ import annotations

@@ -1,4 +1,8 @@
-"""Tests for phlo-lineage resource provider."""
+"""Tests for phlo-lineage resource provider.
+
+Verifies lineage sink capability registration and that asset edges, column
+lineage, and row-journey reads are forwarded to the configured store.
+"""
 
 from unittest.mock import Mock, patch
 

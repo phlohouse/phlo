@@ -1,4 +1,9 @@
-"""Focused tests for the versioned run-evidence contract and sink."""
+"""Focused tests for the versioned run-evidence contract and sink.
+
+Exercises append idempotency, redaction and checksums, project/producer
+identity scoping, payload-conflict rollback, and report projections over a
+SQLite-backed store.
+"""
 
 from __future__ import annotations
 
@@ -945,6 +950,10 @@ def test_postgres_concurrent_duplicate_replay_does_not_apply_loser_run_metadata(
     entered = threading.Event()
     release = threading.Event()
 
+    # GatedStore pins the race window: the owner thread blocks inside its open
+    # transaction at the post-event parent-run update, so the loser's duplicate
+    # replay is guaranteed to commit while the owner's transaction is still
+    # pending. Without the gate the interleaving depends on thread timing.
     class GatedStore(PostgresRunEvidenceStore):
         def _upsert_run(self, cursor: object, run: PipelineRun) -> None:
             super()._upsert_run(cursor, run)

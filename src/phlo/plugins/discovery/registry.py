@@ -1,4 +1,12 @@
-"""Plugin registry for managing loaded plugins by canonical family."""
+"""Plugin registry for managing loaded plugins by canonical family.
+
+Plugins are keyed family:name; families must be canonical and names are
+unique within a family (replace=False rejects collisions). clear()
+invokes each plugin's cleanup exactly once. A process-wide singleton is
+exposed via get_global_registry, with reset_global_registry for tests.
+Core of the phlo.plugins.discovery package: imported by its lifecycle, query,
+service-loading, and manifest modules; hosts the global PluginRegistry singleton.
+"""
 
 from __future__ import annotations
 
@@ -39,6 +47,9 @@ class PluginRegistry:
                 "Use replace=True to overwrite."
             )
 
+        # Plugins are indexed twice: per family for typed lookup, and once in a
+        # flat map keyed "key_prefix:name" for iteration and __contains__. Both
+        # entries must move together in register/remove.
         plugin_dict[name] = plugin
         self._all_plugins[f"{definition.key_prefix}:{name}"] = plugin
         logger.debug("plugin_registered", plugin_type=family, plugin_name=name, replace=replace)
@@ -68,6 +79,8 @@ class PluginRegistry:
         total = len(self._all_plugins)
         cleaned = 0
         cleanup_failures = 0
+        # The same instance can appear in both its family map and _all_plugins;
+        # dedup by object identity so cleanup() runs at most once per instance.
         cleaned_plugin_ids: set[int] = set()
 
         for plugin_key, plugin in list(self._all_plugins.items()):

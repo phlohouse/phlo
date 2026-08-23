@@ -1,3 +1,8 @@
+/**
+ * /settings route. Local Observatory preferences, runtime settings,
+ * capabilities, dataset workflow configuration, and cache statistics;
+ * edits accumulate in a draft state until saved.
+ */
 import { createFileRoute } from '@tanstack/react-router'
 import {
   Database,

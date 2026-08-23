@@ -1,4 +1,8 @@
-"""Integration tests for phlo-testing."""
+"""Integration tests for phlo-testing.
+
+Smoke-level: the package must import and expose its mock fixtures and
+testing utilities; optional imports are tolerated when absent.
+"""
 
 import pytest
 

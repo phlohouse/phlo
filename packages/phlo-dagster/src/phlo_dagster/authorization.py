@@ -480,6 +480,8 @@ def _operation_index() -> dict[tuple[str, str], GraphQLOperationSpec]:
 
 _GRAPHQL_OPERATION_INDEX = _operation_index()
 
+# Root fields that exist only in some Dagster versions; excluded from the
+# extra-classification check so a version skew does not fail validation.
 _OPTIONAL_DAGSTER_FIELDS: dict[str, frozenset[str]] = {
     "query": frozenset(
         {
@@ -550,6 +552,7 @@ def validate_graphql_resource_bindings(schema: Any) -> None:
             visited: set[int] = set()
 
             def visit(graphql_type: Any) -> None:
+                """Collect field names reachable from a GraphQL type."""
                 while hasattr(graphql_type, "of_type"):
                     graphql_type = graphql_type.of_type
                 fields = getattr(graphql_type, "fields", None)

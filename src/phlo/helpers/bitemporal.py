@@ -1,4 +1,9 @@
-"""Bitemporal scope and SQL predicate helpers."""
+"""Bitemporal scope and SQL predicate helpers.
+
+Predicates treat NULL bounds as open-ended and use half-open interval
+semantics (``start <= t < end``), so rows valid from the beginning of time or
+still current match any timestamp inside their range.
+"""
 
 from __future__ import annotations
 

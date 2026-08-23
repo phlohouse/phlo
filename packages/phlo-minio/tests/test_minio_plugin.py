@@ -1,4 +1,10 @@
-"""Tests for MinIO service plugin."""
+"""Tests for the MinIO service plugin.
+
+Pins deployment invariants: data lives on a named volume (never a host
+bind-mount), upstream images are pinned by digest with no local builds, setup
+waits for mc readiness, and the plugin exposes an object_store capability
+backed by MinioResourceProvider.
+"""
 
 from phlo_minio.plugin import MinioResourceProvider, MinioServicePlugin, MinioSetupServicePlugin
 

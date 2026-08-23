@@ -1,3 +1,10 @@
+"""Tests service URL resolution for the Observatory API.
+
+Project .phlo/.env.local port overrides must win over built-in defaults and
+environment variables, with DNS lookups forced to fail so resolution cannot
+depend on host reachability.
+"""
+
 from __future__ import annotations
 
 import socket

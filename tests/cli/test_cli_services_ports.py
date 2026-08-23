@@ -1,3 +1,10 @@
+"""Tests for "phlo services ports".
+
+Port resolution prefers runtime container mappings over configured defaults, and
+conflict detection and Traefik routing follow the effective overrides from phlo.yaml
+and the shell environment.
+"""
+
 from __future__ import annotations
 
 import pytest
@@ -307,6 +314,8 @@ def test_get_service_ports_prefers_runtime_mapping_over_default() -> None:
     )
 
     ports = ports_module._get_service_ports(service, env, running_containers, show_all)
+    # Reporting precedence: a live runtime binding wins over the env-var
+    # override, which wins over the compose default.
     assert len(ports) == 1
     assert ports[0].host_port == 15432
     assert ports[0].source == "runtime"
@@ -321,6 +330,8 @@ def test_load_environment_merges_config_and_shell_overrides(
     (phlo_dir / ".env.local").write_text("MINIO_PORT=9001\n")
     monkeypatch.setenv("POSTGRES_PORT", "15432")
 
+    # Merge precedence: shell env beats .env.local, which beats .env;
+    # phlo.yaml env values only fill ports nothing else defines.
     env = ports_module._load_environment(
         phlo_dir,
         {"env": {"POSTGRES_PORT": 15431, "TRINO_PORT": 18080}},

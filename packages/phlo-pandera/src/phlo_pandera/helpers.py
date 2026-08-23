@@ -1,4 +1,9 @@
-"""Convenience factories for common Phlo Pandera quality checks."""
+"""Convenience factories for common Phlo Pandera quality checks.
+
+Derives null, uniqueness, freshness (from SLA metadata), and accepted-values
+checks from schema and contract metadata. Accepted-values checks are built
+as custom SQL with identifiers and literals safely quoted.
+"""
 
 from __future__ import annotations
 

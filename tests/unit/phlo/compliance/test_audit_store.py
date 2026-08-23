@@ -1,3 +1,6 @@
+"""Tests for PostgresAuditStore: schema DDL commit/rollback and sealed
+record handling with mocked connections."""
+
 from __future__ import annotations
 
 import json

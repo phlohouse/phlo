@@ -13,6 +13,9 @@ Example:
     >>> print(backends[0].name)
     'hasura'
 
+
+    Hasura resource provider, loaded via the phlo.plugins.resources entry point at startup.
+    Builds on phlo.capabilities and the phlo.plugins resource-provider interfaces.
 """
 
 from __future__ import annotations
@@ -29,9 +32,6 @@ class HasuraResourceProvider(ResourceProviderPlugin):
     This provider integrates Hasura with the Phlo capability system,
     allowing it to be discovered and used as a GraphQL API backend.
 
-    Attributes:
-        _metadata: Cached plugin metadata.
-
     Example:
         >>> provider = HasuraResourceProvider()
         >>> provider.metadata.name
@@ -46,19 +46,11 @@ class HasuraResourceProvider(ResourceProviderPlugin):
     def metadata(self) -> PluginMetadata:
         """Return plugin metadata for capability discovery.
 
-        Returns:
-            PluginMetadata containing:
-                - name: Provider identifier ('hasura')
-                - version: Provider version
-                - description: Brief description
-                - tags: Capability tags for filtering
-
         Example:
             >>> provider = HasuraResourceProvider()
             >>> meta = provider.metadata
             >>> print(meta.name, meta.tags)
             hasura ['api', 'graphql', 'bi']
-
         """
         return PluginMetadata(
             name="hasura",
@@ -68,26 +60,14 @@ class HasuraResourceProvider(ResourceProviderPlugin):
         )
 
     def get_resources(self) -> list:
-        """Return list of raw resources exposed by this provider.
-
-        This provider does not expose any raw resources directly.
-        Resources are accessed through the API backend interface.
-
-        Returns:
-            Empty list as no raw resources are provided.
-
+        """Return an empty list: this provider exposes no raw resources directly;
+        resources are accessed through the API backend interface.
         """
         return []
 
     def get_api_backends(self) -> list[ApiBackendSpec]:
-        """Expose Hasura as an API backend capability.
-
-        Returns Hasura API backend specifications that can be used
-        by other components requiring a GraphQL API backend.
-
-        Returns:
-            List containing the Hasura API backend specification with
-            name, provider instance, and metadata.
+        """Expose Hasura as an API backend capability consumable by components that
+        need a GraphQL API backend.
 
         Example:
             >>> provider = HasuraResourceProvider()
@@ -96,7 +76,6 @@ class HasuraResourceProvider(ResourceProviderPlugin):
             'hasura'
             >>> backends[0].metadata['backend_kind']
             'graphql'
-
         """
         return [
             ApiBackendSpec(

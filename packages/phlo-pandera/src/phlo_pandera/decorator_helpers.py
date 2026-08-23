@@ -1,17 +1,8 @@
 """Private helper functions for the @phlo_pandera decorator.
 
-This module contains internal implementation details for the ``@phlo_pandera``
-decorator. These functions are not part of the public API and may change
-without notice. Users should interact with the decorator through the public
-interface in ``decorator.py``.
-
-The helpers in this module handle:
-- Event emitter creation for quality results and telemetry
-- Data loading from Trino or DuckDB backends
-- Metadata building for check results
-- Failure estimation and sampling
-- Contract metadata generation
-- SQL reproduction helpers
+Internal implementation details for event emitter creation, Trino/DuckDB data
+loading, metadata building, failure estimation, contract metadata, and SQL
+reproduction. Not part of the public API; use ``decorator.py`` instead.
 
 Example:
     These functions are used internally by the decorator:
@@ -31,14 +22,6 @@ Example:
     # Load data from configured backend
     df = _load_data(runtime=context, query="SELECT * FROM bronze.customers", backend="trino")
     ```
-
-Note:
-    All functions in this module are prefixed with underscore to indicate
-    they are private implementation details.
-
-See Also:
-    - ``decorator.py``: Public ``@phlo_pandera`` decorator
-    - ``checks.py``: Quality check implementations that use these helpers
 
 """
 
@@ -66,21 +49,9 @@ def _make_emitters(
     source: str,
     backend: str,
 ) -> tuple[QualityResultEventEmitter, TelemetryEventEmitter]:
-    """Create quality-result and telemetry emitters for event publishing.
-
-    Sets up event emitters with proper correlation context for tracking
-    quality check results and telemetry metrics through the Phlo hooks system.
-
-    Args:
-        runtime: Runtime context containing run_id and resources.
-        asset_key: Asset identifier being checked.
-        partition_key_value: Partition key for partitioned assets, or None.
-        source: Source identifier (e.g., "phlo", "pandera").
-        backend: Backend identifier (e.g., "trino", "duckdb").
-
-    Returns:
-        Tuple of (quality_result_emitter, telemetry_emitter) configured with
-        the appropriate correlation context.
+    """Create quality-result and telemetry emitters wired with correlation
+    context so check results and telemetry metrics track through the hooks
+    system.
 
     Example:
         ```python
@@ -135,21 +106,10 @@ def _load_data(
     query: str,
     backend: str,
 ) -> Any:
-    """Resolve the backend resource and load data as a DataFrame.
+    """Resolve the backend resource and load query results as a DataFrame,
+    dispatching on the "trino"/"duckdb" backend name.
 
-    Dispatches to the appropriate backend-specific loader based on the
-    configured backend type. Supports "trino" and "duckdb" backends.
-
-    Args:
-        runtime: Runtime context with resources and logging.
-        query: SQL query to execute for data loading.
-        backend: Backend type ("trino" or "duckdb").
-
-    Returns:
-        DataFrame containing query results (pandas DataFrame).
-
-    Raises:
-        ValueError: If an unknown backend is specified.
+    Raises ValueError when an unknown backend is specified.
 
     Example:
         ```python
@@ -172,22 +132,10 @@ def _load_data(
 
 
 def _load_data_trino(context: RuntimeContext, query: str, trino: Any) -> Any:
-    """Load data from Trino into a pandas DataFrame.
+    """Execute a query via a Trino cursor and build a pandas DataFrame using
+    column names from cursor description metadata.
 
-    Executes the query using a Trino cursor, fetches all results, and
-    constructs a pandas DataFrame with proper column names from cursor
-    description metadata.
-
-    Args:
-        context: Runtime context for logging.
-        query: SQL query to execute.
-        trino: Trino resource/connection object.
-
-    Returns:
-        pandas DataFrame with query results.
-
-    Raises:
-        ValueError: If Trino returns no column metadata.
+    Raises ValueError when Trino returns no column metadata.
 
     Example:
         ```python
@@ -217,22 +165,10 @@ def _load_data_trino(context: RuntimeContext, query: str, trino: Any) -> Any:
 
 
 def _resolve_trino_resource(context: RuntimeContext) -> Any:
-    """Resolve Trino resource from context or create a default connection.
+    """Resolve a Trino resource from the context's resources or fall back to a
+    new default TrinoResource.
 
-    Attempts to find a Trino resource in multiple locations:
-    1. context.resources dictionary
-    2. context.resources attributes
-    3. context.get_resource("trino")
-    4. Creates a new TrinoResource if phlo_trino is available
-
-    Args:
-        context: Runtime context that may contain Trino resource.
-
-    Returns:
-        Trino resource object ready for query execution.
-
-    Raises:
-        ValueError: If no Trino resource can be found or created.
+    Raises ValueError when no resource can be found or created.
 
     Example:
         ```python
@@ -263,22 +199,10 @@ def _resolve_trino_resource(context: RuntimeContext) -> Any:
 
 
 def _resolve_duckdb_connection(context: RuntimeContext) -> Any:
-    """Resolve DuckDB connection from context or create a default connection.
+    """Resolve a DuckDB connection from the context's resources or fall back to
+    a new in-memory connection.
 
-    Attempts to find a DuckDB resource in multiple locations:
-    1. context.resources dictionary
-    2. context.resources attributes
-    3. context.get_resource("duckdb")
-    4. Creates a new in-memory DuckDB connection
-
-    Args:
-        context: Runtime context that may contain DuckDB resource.
-
-    Returns:
-        DuckDB connection object ready for query execution.
-
-    Raises:
-        ValueError: If no DuckDB connection can be found or created.
+    Raises ValueError when no connection can be found or created.
 
     Example:
         ```python
@@ -309,18 +233,8 @@ def _resolve_duckdb_connection(context: RuntimeContext) -> Any:
 
 
 def _load_data_duckdb(context: RuntimeContext, query: str, duckdb_conn: Any) -> Any:
-    """Load data from DuckDB into a pandas DataFrame.
-
-    Executes the query using DuckDB and returns results as a DataFrame.
-    DuckDB's fetchdf() method handles the conversion automatically.
-
-    Args:
-        context: Runtime context for logging.
-        query: SQL query to execute.
-        duckdb_conn: DuckDB connection object.
-
-    Returns:
-        pandas DataFrame with query results.
+    """Execute a query via DuckDB and return the results as a pandas DataFrame
+    (via fetchdf()).
 
     Example:
         ```python
@@ -339,22 +253,9 @@ def _load_data_duckdb(context: RuntimeContext, query: str, duckdb_conn: Any) -> 
 
 
 def _build_metadata(df: Any, check_results: List[QualityCheckResult]) -> dict[str, Any]:
-    """Build metadata dictionary for downstream consumers.
-
-    Aggregates check results into a comprehensive metadata dictionary suitable
-    for Dagster metadata and observability systems. Includes summary tables and
-    individual check metrics.
-
-    Args:
-        df: DataFrame that was validated (for row/column counts).
-        check_results: List of QualityCheckResult objects from executed checks.
-
-    Returns:
-        Dictionary with aggregated metadata including:
-        - Row and column counts
-        - Pass/fail counts
-        - Individual metric values
-        - Formatted summary table (Markdown)
+    """Aggregate check results into a metadata dictionary for Dagster metadata
+    and observability: row/column counts, pass/fail counts, individual metrics,
+    and a Markdown quality summary table.
 
     Example:
         ```python
@@ -408,24 +309,9 @@ def _build_metadata(df: Any, check_results: List[QualityCheckResult]) -> dict[st
 
 
 def _estimate_failed_count(check_results: List[QualityCheckResult]) -> int:
-    """Estimate total failed row count from check results.
-
-    Attempts to extract failure counts from result metadata using various
-    known keys. Falls back to counting failed checks if no row counts found.
-
-    Known metadata keys checked:
-    - "failed_rows"
-    - "failure_count"
-    - "duplicate_count"
-    - "out_of_range"
-    - "non_match_count"
-
-    Args:
-        check_results: List of QualityCheckResult objects.
-
-    Returns:
-        Estimated count of failed rows across all checks, or count of
-        failed checks if no row counts available.
+    """Estimate total failed rows from check-result metadata (failed_rows,
+    failure_count, duplicate_count, out_of_range, non_match_count), falling
+    back to counting failed checks when no row counts are available.
 
     Example:
         ```python
@@ -456,17 +342,8 @@ def _estimate_failed_count(check_results: List[QualityCheckResult]) -> int:
 
 
 def _collect_failure_sample(check_results: List[QualityCheckResult]) -> list[dict[str, Any]]:
-    """Collect sample failure rows from check results.
-
-    Aggregates sample rows from failed checks into a unified sample list,
-    limited to 20 rows total for metadata efficiency.
-
-    Args:
-        check_results: List of QualityCheckResult objects.
-
-    Returns:
-        List of sample failure dictionaries, each tagged with the check name
-        that produced it. Maximum 20 items.
+    """Collect sample failure rows from failed checks, capped at 20 items and
+    each tagged with its producing check name.
 
     Example:
         ```python
@@ -492,16 +369,7 @@ def _collect_failure_sample(check_results: List[QualityCheckResult]) -> list[dic
 
 
 def _contract_metadata(contract: QualityCheckContract) -> dict[str, Any]:
-    """Convert QualityCheckContract to metadata dictionary.
-
-    Extracts non-None fields from the contract into a flat metadata dictionary
-    suitable for Dagster metadata.
-
-    Args:
-        contract: QualityCheckContract instance.
-
-    Returns:
-        Dictionary with contract fields as metadata keys.
+    """Flatten a QualityCheckContract's non-None fields into a metadata dict.
 
     Example:
         ```python
@@ -530,16 +398,8 @@ def _contract_metadata(contract: QualityCheckContract) -> dict[str, Any]:
 
 
 def _repro_sql(query: str) -> str:
-    """Generate reproducible SQL snippet with safety limits.
-
-    Wraps a query in a subquery and adds a LIMIT clause to make it safe
-    for ad-hoc execution and debugging.
-
-    Args:
-        query: Original SQL query.
-
-    Returns:
-        SQL string wrapped with LIMIT 100 for safe reproduction.
+    """Wrap a query in a LIMIT 100 subquery so it is safe for ad-hoc
+    reproduction and debugging.
 
     Example:
         ```python

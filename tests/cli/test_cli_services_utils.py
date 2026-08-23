@@ -1,4 +1,10 @@
-"""Tests for service command utility helpers."""
+"""Tests for service command utility helpers.
+
+Covers lifecycle event emission with request correlation preserved,
+post-start hooks skipped when a "requires" dependency cannot be
+imported, native-process state cleaned up once its PID is gone, and
+compose regeneration writing docker-compose.yml plus .env/.env.local.
+"""
 
 from __future__ import annotations
 

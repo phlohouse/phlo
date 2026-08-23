@@ -1,4 +1,10 @@
-"""Local tracing utilities for phlo-mcp."""
+"""Local tracing utilities for phlo-mcp.
+
+Spans are exported as JSON lines to the file named by PHLO_MCP_TRACE_FILE
+using a SimpleSpanProcessor; tracing stays disabled when no file is
+configured. load_spans/render_trace_tree read that same file back for
+local debugging.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +32,7 @@ class JsonLineSpanExporter(SpanExporter):
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
+        """Append readable spans to the JSONL trace file and report success."""
         with self._path.open("a", encoding="utf-8") as handle:
             for span in spans:
                 parent_id = None
@@ -52,6 +59,7 @@ class JsonLineSpanExporter(SpanExporter):
         return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:
+        """No-op shutdown; spans are flushed by the simple span processor."""
         return None
 
 
@@ -61,6 +69,9 @@ def configure_tracing(
     """Configure local tracing if a trace file is configured."""
     global _CONFIGURED_PATH
     resolved_trace_file = trace_file or os.environ.get(_TRACE_FILE_ENV)
+    # Tracing is configured at most once per process. The global tracer provider
+    # cannot be swapped after installation, so a call with a different path keeps
+    # whichever file won the race rather than silently redirecting spans.
     if _CONFIGURED_PATH == resolved_trace_file:
         return resolved_trace_file
     if _CONFIGURED_PATH is not None and _CONFIGURED_PATH != resolved_trace_file:
@@ -84,6 +95,7 @@ def configure_tracing(
 
 
 def load_spans(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
+    """Load span dicts from a JSONL trace file, empty when missing."""
     trace_path = Path(path)
     if not trace_path.exists():
         return []

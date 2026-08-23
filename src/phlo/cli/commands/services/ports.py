@@ -1,4 +1,10 @@
-"""Ports command for showing service port mappings."""
+"""Ports command for showing service port mappings.
+
+Resolves effective host ports per service by preferring live Docker
+container mappings, then compose-configured ports, then env defaults, and
+augments them with Traefik routes when the proxy is running. Detects
+cross-service host-port conflicts and reports table or JSON output.
+"""
 
 import json
 import os
@@ -92,7 +98,11 @@ def _resolve_env_var(env_var: str | None, env: dict[str, str]) -> str | None:
 
 
 def _load_environment(phlo_dir: Path, config: dict[str, Any]) -> dict[str, str]:
-    """Load effective compose environment with standard Phlo precedence."""
+    """Load effective compose environment with standard Phlo precedence.
+
+    Precedence, lowest to highest: `.phlo/.env`, `.phlo/.env.local`,
+    `phlo.yaml` env overrides, then the current process environment.
+    """
     env: dict[str, str] = {}
 
     env_file = phlo_dir / ".env"
@@ -188,7 +198,12 @@ def _resolve_host_port(
     env: dict[str, str],
     running_containers: dict[str, Any],
 ) -> tuple[int | None, str, str | None]:
-    """Resolve the effective host port for a service/container port pair."""
+    """Resolve the effective host port for a service/container port pair.
+
+    Precedence: a live container mapping wins over an env-resolved value,
+    which wins over the statically declared compose port. The returned source
+    records which layer produced the result.
+    """
     resolved_host_port: int | None = None
     source = "default"
     resolved_env_var: str | None = None

@@ -38,13 +38,9 @@ class OpenMetadataCatalogProvider:
     for the phlo capability system. Handles lazy client initialization
     and configuration resolution.
 
-    Attributes:
-        _client: Cached OpenMetadataClient instance (initialized lazily).
-
     Example:
         >>> provider = OpenMetadataCatalogProvider()
         >>> provider.publish_quality_result(event=quality_event)
-
     """
 
     def __init__(self) -> None:
@@ -56,25 +52,11 @@ class OpenMetadataCatalogProvider:
         self._client: OpenMetadataClient | None = None
 
     def health_check(self) -> bool:
-        """Check OpenMetadata connectivity.
-
-        Returns:
-            bool: True if OpenMetadata is reachable, False otherwise.
-
-        """
+        """Check OpenMetadata connectivity."""
         return self._get_client().health_check()
 
     def upsert_table(self, *, namespace: str, table: Any) -> Any:
-        """Create or update a table entity in OpenMetadata.
-
-        Args:
-            namespace: Schema/namespace for the table.
-            table: Table object (typically OpenMetadataTable).
-
-        Returns:
-            Any: Response from OpenMetadata API.
-
-        """
+        """Create or update a table entity in OpenMetadata."""
         return self._get_client().create_or_update_table(schema_name=namespace, table=table)
 
     def publish_quality_result(self, *, event: Any) -> None:
@@ -82,13 +64,6 @@ class OpenMetadataCatalogProvider:
 
         Creates test definitions, test cases, and publishes results
         for quality checks.
-
-        Args:
-            event: QualityResultEvent containing check results.
-
-        Returns:
-            None
-
         """
         if not isinstance(event, QualityResultEvent):
             return
@@ -123,15 +98,7 @@ class OpenMetadataCatalogProvider:
         )
 
     def publish_lineage_edges(self, *, edges: list[tuple[str, str]]) -> None:
-        """Publish lineage edges into OpenMetadata.
-
-        Args:
-            edges: List of (from_fqn, to_fqn) tuples representing lineage.
-
-        Returns:
-            None
-
-        """
+        """Publish lineage edges into OpenMetadata."""
         client = self._get_client()
         for from_fqn, to_fqn in edges:
             client.create_lineage(from_fqn, to_fqn)
@@ -140,10 +107,6 @@ class OpenMetadataCatalogProvider:
         """Return the lazily initialized OpenMetadata client.
 
         Creates the client on first call using configured settings.
-
-        Returns:
-            OpenMetadataClient: Client instance.
-
         """
         if self._client is None:
             settings = get_openmetadata_settings()

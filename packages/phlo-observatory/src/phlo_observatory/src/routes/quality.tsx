@@ -1,3 +1,7 @@
+/**
+ * /quality route. Quality check matrix per dataset with check detail,
+ * dataset profile inspection, and run-check actions.
+ */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   AlertTriangle,

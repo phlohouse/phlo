@@ -20,18 +20,7 @@ logger = get_logger(__name__)
 
 
 def _import_object(ref: str) -> Any:
-    """Import an object from a "module:attr" reference.
-
-    Args:
-        ref: Reference string in format "module:attr" (e.g., "workflows.ingestion.github.user_events:user_events").
-
-    Returns:
-        The imported object.
-
-    Raises:
-        click.ClickException: If the reference format is invalid or object not found.
-
-    """
+    """Import the object at a "module:attr" reference; ClickException on bad ref or missing attr."""
     import importlib
 
     if ":" not in ref:
@@ -54,19 +43,9 @@ def _import_object(ref: str) -> Any:
 
 
 def _extract_source_callable(obj: Any) -> tuple[Callable[..., Any], dict[str, Any]]:
-    """Extract a callable and metadata from a @phlo_ingestion decorated object.
+    """Split a @phlo_ingestion object into its source builder callable and metadata.
 
-    Given a callable created via @phlo_ingestion, returns a source builder
-    function and best-effort metadata (table_name, unique_key, group).
-
-    Args:
-        obj: Callable object decorated with @phlo_ingestion.
-
-    Returns:
-        Tuple of (source_builder_callable, metadata_dict).
-
-    Raises:
-        click.ClickException: If object is not callable or has invalid signature.
+    Raises click.ClickException when the object is not a supported callable.
 
     """
     import inspect
@@ -91,44 +70,19 @@ def _extract_source_callable(obj: Any) -> tuple[Callable[..., Any], dict[str, An
 
 
 def _to_pascal_case(name: str) -> str:
-    """Convert a string to PascalCase.
-
-    Args:
-        name: Input string, may contain underscores or hyphens.
-
-    Returns:
-        PascalCase version of the input string.
-
-    """
+    """Convert an underscore- or hyphen-delimited string to PascalCase."""
     parts = [p for p in name.replace("-", "_").split("_") if p]
     return "".join(p[:1].upper() + p[1:] for p in parts)
 
 
 def _snake_case(name: str) -> str:
-    """Convert a string to snake_case.
-
-    Args:
-        name: Input string, may be PascalCase or camelCase.
-
-    Returns:
-        snake_case version of the input string.
-
-    """
+    """Convert a PascalCase or camelCase string to snake_case."""
     s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
     return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
 
 
 def _map_dlt_type(dlt_type: str) -> tuple[str, str | None]:
-    """Map DLT schema data_type strings to Python type annotations.
-
-    Args:
-        dlt_type: DLT data type string (e.g., "text", "bigint", "timestamp").
-
-    Returns:
-        Tuple of (annotation, import_stmt) where import_stmt is a full
-        'from x import y' line or None if no import needed.
-
-    """
+    """Map a DLT data type to (annotation, import statement); the import is None when unneeded."""
     normalized = dlt_type.lower()
     if normalized in {"text", "varchar", "char", "uuid"}:
         return "str", None
@@ -158,18 +112,7 @@ def _render_schema_module(
     columns: list[dict[str, Any]],
     unique_key: str | None,
 ) -> str:
-    """Render a Pandera schema module as a Python string.
-
-    Args:
-        domain: Domain name for the module docstring.
-        class_name: Name of the schema class to generate.
-        columns: List of column dictionaries with name, annotation, nullable.
-        unique_key: Optional unique key column name for Field constraints.
-
-    Returns:
-        Python source code for the schema module.
-
-    """
+    """Render a complete Pandera schema module (docstring, imports, class body) as source."""
     imports: set[str] = {"from __future__ import annotations", "from pandera.pandas import Field"}
     imports.add("from phlo_pandera.schemas import PhloSchema")
 
@@ -202,30 +145,12 @@ def _render_schema_module(
 
 
 def _ensure_parent_dir(path: Path) -> None:
-    """Ensure the parent directory exists, creating if necessary.
-
-    Args:
-        path: File path whose parent directory should exist.
-
-    Returns:
-        None.
-
-    """
+    """Create the parent directory of ``path`` when it does not exist."""
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _update_or_insert_class(content: str, class_name: str, class_block: str) -> str:
-    """Update an existing class definition or insert a new one.
-
-    Args:
-        content: Existing module content.
-        class_name: Name of the class to update or insert.
-        class_block: New class definition as a string.
-
-    Returns:
-        Updated module content with the class replaced or added.
-
-    """
+    """Replace the named class in module content, or append it when absent."""
     tree = ast.parse(content)
     for node in tree.body:
         if (
@@ -247,19 +172,7 @@ def _update_or_insert_class(content: str, class_name: str, class_block: str) -> 
 
 
 def _class_block_only(module_code: str, class_name: str) -> str:
-    """Extract a single class definition from a module.
-
-    Args:
-        module_code: Python module source code.
-        class_name: Name of the class to extract.
-
-    Returns:
-        Class definition as a string.
-
-    Raises:
-        ValueError: If the class is not found in the module.
-
-    """
+    """Extract one class definition as source; ValueError when it is absent."""
     tree = ast.parse(module_code)
     lines = module_code.splitlines(keepends=True)
     for node in tree.body:
@@ -274,19 +187,7 @@ def _class_block_only(module_code: str, class_name: str) -> str:
 
 
 def _ensure_imports_in_module(content: str, import_lines: list[str]) -> str:
-    """Ensure a set of import lines exists in the module content.
-
-    Insert import lines after any module docstring while keeping valid
-    Python import ordering (e.g., __future__ imports first).
-
-    Args:
-        content: Existing Python module content.
-        import_lines: List of import lines to ensure exist.
-
-    Returns:
-        Updated module content with imports added if not present.
-
-    """
+    """Insert missing import lines after any module docstring, keeping __future__ first."""
     if not import_lines:
         return content
 
@@ -375,27 +276,10 @@ def generate(
 ):
     """Generate Pandera schemas from a bounded DLT inference sample.
 
-    This runs a small DLT sample locally (filesystem destination) to infer schema,
-    then emits a PhloSchema-based DataFrameModel into your lakehouse code
-    (default: workflows/schemas/).
-
-    Args:
-        from_ref: Python reference to a callable or @phlo_ingestion asset (module:attr).
-        dry_run: If True, print generated schema without writing files.
-        domain: Domain name for output path and module docstring.
-        table_name: DLT table/resource name to generate (optional).
-        class_name: Schema class name (default: Raw<TableName>).
-        partition_date: Partition date passed to ingestion source (default: today).
-        max_records: Limit records extracted per DLT resource during inference.
-        out_path: Output schema file path (default: workflows/schemas/<domain>.py).
-        update: If True, update/insert class into existing module (non-destructive).
-        overwrite: If True, overwrite entire output module (destructive).
-
-    Returns:
-        None. Writes schema file or prints to stdout if dry_run.
-
-    Raises:
-        click.ClickException: On invalid input or conflicts (e.g., --update and --overwrite).
+    Runs a small DLT sample locally (filesystem destination) to infer the
+    schema, then emits a PhloSchema-based DataFrameModel into your lakehouse
+    code (default: workflows/schemas/). With --dry-run the schema is printed
+    instead of written.
 
     """
     import datetime as _dt

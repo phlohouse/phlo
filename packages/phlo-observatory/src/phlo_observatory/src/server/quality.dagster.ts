@@ -1,3 +1,11 @@
+/**
+ * Quality snapshot from Dagster.
+ *
+ * Queries Dagster's GraphQL API for asset check definitions and their recent
+ * executions, then normalizes both into the QualityCheck/RecentCheckExecution
+ * shapes used by the UI. Dagster never throws here: every failure mode
+ * (HTTP, GraphQL errors, timeouts) is returned as `{ error: string }`.
+ */
 import type {
   MetadataValue,
   QualityCheck,
@@ -114,6 +122,15 @@ export type QualitySnapshot = {
   recentExecutions: Array<RecentCheckExecution>
 }
 
+/**
+ * Build the full quality snapshot.
+ *
+ * Asset checks are listed first, then recent executions are fetched for every
+ * asset in parallel. Any single failure aborts the whole snapshot — partial
+ * results are never returned or cached. Checks with no recorded execution are
+ * omitted from all counts. Snapshots are cached per Dagster URL for
+ * CACHE_TTL_MS because the dashboard polls this on every render.
+ */
 export async function fetchQualitySnapshot(options?: {
   dagsterUrl?: string
   recentLimit?: number
@@ -354,6 +371,8 @@ function to_epoch_ms(value: string | number): number {
   }
   const asDateMs = Date.parse(trimmed)
   if (!Number.isNaN(asDateMs)) return asDateMs
+  // Unparsable timestamps collapse to epoch 0 (1970) rather than NaN so
+  // downstream sorting and ISO conversion stay total.
   return 0
 }
 

@@ -1,3 +1,8 @@
+/**
+ * Run attempt report route for
+ * /runs/$projectId/$runId/attempts/$attempt/report. The loader fetches the
+ * report; RunReportView also renders the pending state with a null result.
+ */
 import { createFileRoute } from '@tanstack/react-router'
 
 import { getObservatoryRunReport } from '@/observatory/api/resources'

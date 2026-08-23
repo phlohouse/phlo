@@ -1,4 +1,9 @@
-"""Tests for Sling replication decorator."""
+"""Tests for the Sling replication decorator.
+
+Verifies replication mode validation, the incremental update_key requirement,
+and that decorated replications register provider-neutral assets in the
+global registry until cleared.
+"""
 
 import pytest
 from types import SimpleNamespace

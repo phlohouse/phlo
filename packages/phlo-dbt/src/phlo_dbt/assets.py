@@ -64,17 +64,7 @@ def _raise_required_dbt_setup_error(
 
 
 def _asset_deps(unique_id: str, nodes: Mapping[str, Any], asset_keys: dict[str, str]) -> list[str]:
-    """Resolve upstream asset dependencies for a dbt node.
-
-    Args:
-        unique_id: dbt unique node identifier.
-        nodes: Manifest node mapping.
-        asset_keys: Mapping of dbt unique IDs to asset keys.
-
-    Returns:
-        Upstream asset keys for the node.
-
-    """
+    """Resolve the upstream asset keys for a dbt node from its manifest deps."""
     props = nodes.get(unique_id, {})
     depends_on = props.get("depends_on") or {}
     depends_nodes = depends_on.get("nodes") or []
@@ -97,18 +87,8 @@ def _run_dbt_model(
     manifest: Mapping[str, Any],
     translator: DbtSpecTranslator,
 ) -> list[MaterializeResult | CheckResult]:
-    """Execute a single dbt model and map result to materialization output.
-
-    Args:
-        model_name: dbt model name to execute.
-        project_dir: dbt project root.
-        profiles_dir: dbt profiles directory.
-        runtime: Asset runtime context.
-
-    Returns:
-        Materialization and test-check results for the model run.
-
-    """
+    """Execute a single dbt model and return its materialization result plus
+    test-check results."""
     target = resolve_dbt_target_name(runtime)
     partition_key = runtime.partition_key
     test_names = dbt_asset_check_names(manifest, asset_key=asset_key, translator=translator)
@@ -175,12 +155,7 @@ def _read_dbt_asset_checks(
 
 
 def build_dbt_asset_specs() -> list[AssetSpec]:
-    """Build asset specifications from dbt manifest metadata.
-
-    Returns:
-        Asset specs representing supported dbt nodes.
-
-    """
+    """Build asset specifications for supported dbt nodes from manifest metadata."""
     settings = get_settings()
 
     dbt_project_path = settings.dbt_project_path
@@ -274,19 +249,14 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
 
         checks = [check for check in check_specs if check.asset_key == asset_key]
 
+        # Bind the model name and asset key via default arguments: a plain
+        # closure would capture the loop variable by reference and every spec
+        # would end up running whichever node was processed last.
         def _runner(
             runtime: RuntimeContext, model=model_name, key=asset_key
         ) -> list[MaterializeResult | CheckResult]:
-            """Execute one dbt-backed asset run.
-
-            Args:
-                runtime: Asset runtime context.
-                model: Bound dbt model name for this spec.
-
-            Returns:
-                Materialization results for the selected dbt model.
-
-            """
+            """Execute one dbt-backed asset run and return materialization and
+            check results for the bound model."""
             return _run_dbt_model(
                 model_name=model,
                 asset_key=key,

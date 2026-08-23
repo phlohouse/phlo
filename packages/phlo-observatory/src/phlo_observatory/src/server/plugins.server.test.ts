@@ -1,3 +1,7 @@
+/**
+ * Tests plugin registry fetch caching and resolution of installed versus
+ * available plugin lists.
+ */
 import { describe, expect, it, vi } from 'vitest'
 
 import {

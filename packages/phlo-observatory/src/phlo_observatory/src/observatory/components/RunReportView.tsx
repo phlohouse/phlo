@@ -1,3 +1,8 @@
+/**
+ * Attempt-scoped run report page. Distinguishes loading, error (mapped from
+ * API error codes), and empty reports, otherwise rendering the report's
+ * lifecycle, stages, evidence, and artifact sections.
+ */
 import type {
   ObservatoryReportArtifact,
   ObservatoryReportCatalogChange,

@@ -37,22 +37,14 @@ from phlo.plugins import PluginMetadata, QualityCheckPlugin
 
 
 class FreshnessCheckPlugin(QualityCheckPlugin[Any]):
-    """Plugin for performing freshness validation on timestamped data.
+    """Create freshness checks that validate whether data is within an acceptable
+    age based on a timestamp column.
 
-    This plugin creates freshness check instances that validate whether data
-    is within an acceptable age based on a timestamp column. It compares
-    the maximum timestamp value in the data against a reference time (defaults
-    to current time) to ensure data is fresh enough for use.
-
-    The freshness check is particularly useful for:
-        - Monitoring data pipeline latency
-        - Ensuring dashboards show current data
-        - Detecting stale data sources
-        - Validating ETL job success
-
-    Attributes:
-        metadata: PluginMetadata containing name, version, description,
-            author, and tags for this plugin.
+    Each check compares the newest timestamp value in the data against a reference
+    time (current time by default) and fails when the data is older than the
+    configured threshold. Useful for monitoring pipeline latency, ensuring
+    dashboards show current data, detecting stale sources, and validating ETL job
+    success.
 
     Example:
         Basic freshness check with current time as reference::
@@ -80,14 +72,7 @@ class FreshnessCheckPlugin(QualityCheckPlugin[Any]):
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for the freshness-check plugin.
-
-        Returns:
-            PluginMetadata: Metadata including name ("freshness_check"),
-                version ("0.1.0"), description ("Freshness checks for timestamped data"),
-                author ("Phlo Team"), and tags (["quality", "freshness"]).
-
-        """
+        """Return plugin metadata for the freshness-check plugin."""
         return PluginMetadata(
             name="freshness_check",
             version="0.1.0",
@@ -101,26 +86,14 @@ class FreshnessCheckPlugin(QualityCheckPlugin[Any]):
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        """Create a freshness check instance.
+        """Create and return a configured FreshnessCheck from phlo_pandera that
+        validates data freshness based on timestamps.
 
-        Creates and returns a configured FreshnessCheck instance from phlo_pandera
-        that validates data freshness based on timestamps.
-
-        Args:
-            timestamp_column: Name of the timestamp column used for freshness
-                calculations. This column must exist in the data and contain
-                datetime values.
-            max_age_hours: Maximum allowed age of data in hours. If the data's
-                newest timestamp is older than this threshold relative to the
-                reference time, the check fails.
-            reference_time: Optional reference datetime for age evaluation.
-                If None, uses the current time. Useful for testing or when
-                validating against a specific point in time.
-
-        Returns:
-            Any: Configured FreshnessCheck instance ready to validate data.
-            The returned object can be used with Pandera schemas or called
-            directly with DataFrames.
+        The check fails when the newest ``timestamp_column`` value is older than
+        ``max_age_hours`` relative to ``reference_time`` (current time when omitted).
+        The returned object can be used with Pandera schemas or called directly with
+        DataFrames. Raises: TypeError when arguments are missing or of the wrong
+        type, or when unknown arguments are supplied.
 
         Example:
             Create a freshness check for recent data::

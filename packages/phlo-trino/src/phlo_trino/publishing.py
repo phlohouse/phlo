@@ -69,9 +69,7 @@ logger = get_logger(__name__)
 class TrinoPublishingSettings(BaseConfig):
     """Settings for Trino publish target defaults.
 
-    Attributes:
-        postgres_mart_schema: Default PostgreSQL schema for published marts.
-
+    postgres_mart_schema is the default PostgreSQL schema for published marts.
     """
 
     postgres_mart_schema: str = Field(default="marts", description="Default mart schema")
@@ -79,13 +77,7 @@ class TrinoPublishingSettings(BaseConfig):
 
 @dataclass(frozen=True)
 class TablePublishStats:
-    """Summary stats for a published table.
-
-    Attributes:
-        row_count: Number of rows copied to the target table.
-        column_count: Number of columns in the published table.
-
-    """
+    """Summary stats for a published table: its copied row count and column count."""
 
     row_count: int
     column_count: int
@@ -104,19 +96,10 @@ def publish_marts_to_target(
     """Copy analytical outputs into a structured publish target.
 
     Publishes multiple tables from Trino to a configured target system
-    (e.g., PostgreSQL) with automatic schema management.
-
-    Args:
-        context: Execution context with run_id and asset information.
-        trino: Trino resource for reading source data.
-        publish_target: Target wrapper or raw resource for destination.
-        tables_to_publish: Mapping of target_table -> source_table qualified names.
-        data_source: Identifier for the data source being published.
-        target_schema: Override schema name for target tables.
-        batch_size: Number of rows per batch during copy operation.
-
-    Returns:
-        Dictionary mapping target table names to their publish statistics.
+    (e.g., PostgreSQL) with automatic schema management. tables_to_publish maps
+    target table names to source Trino qualified names; batch_size controls the
+    number of rows per copy batch. Returns a dictionary mapping target table
+    names to their publish statistics.
 
     Example:
         >>> stats = publish_marts_to_target(
@@ -160,22 +143,12 @@ def publish_marts_to_postgres(
 
     Publishes tables with full event emission for observability, including
     start/completion/failure events, telemetry metrics, and lineage tracking.
-
-    Args:
-        context: Execution context with run_id and asset information.
-        trino: Trino resource for reading source data.
-        postgres: PostgreSQL resource for writing target data.
-        tables_to_publish: Mapping of target_table -> source_table qualified names.
-        data_source: Identifier for the data source being published.
-        target_schema: Override schema name for target tables (default: "marts").
-        batch_size: Number of rows per batch during copy operation.
-
-    Returns:
-        Dictionary mapping target table names to their publish statistics.
-
-    Raises:
-        RuntimeError: If table introspection fails after retries.
-        Exception: If publishing fails, emits failure event before raising.
+    tables_to_publish maps target table names to source Trino qualified names;
+    batch_size controls the number of rows per copy batch; target_schema
+    defaults to "marts". Returns a dictionary mapping target table names to
+    their publish statistics. Raises RuntimeError when table introspection
+    fails after retries; on publishing failure a failure event is emitted
+    before the exception is re-raised.
 
     Example:
         >>> stats = publish_marts_to_postgres(

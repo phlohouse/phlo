@@ -1,4 +1,9 @@
-"""Tests for dbt authorization module."""
+"""Tests for the dbt authorization module.
+
+Verifies the DbtSurfaceAdapter singleton, complete read/mutation command
+coverage without overlap, and enforcement: read commands skip authorization
+while mutation commands are denied unless policy allows them.
+"""
 
 from __future__ import annotations
 

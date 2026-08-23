@@ -1,4 +1,10 @@
-"""Contracts for the exact-SHA release-candidate gate."""
+"""Contracts for the exact-SHA release-candidate gate.
+
+Reads workflow and ruleset files as data and asserts the gate holds: the
+candidate aggregates every release-critical lane, reusable workflows cannot
+cancel each other, release tags bind to the exact candidate SHA, and manual
+publishing cannot bypass identity checks.
+"""
 
 from __future__ import annotations
 

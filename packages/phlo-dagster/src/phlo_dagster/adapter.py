@@ -74,30 +74,14 @@ logger = get_logger(__name__)
 
 
 def _asset_key_from_string(key: str) -> dg.AssetKey:
-    """Convert a dotted asset key string into a Dagster asset key.
-
-    Args:
-        key: Asset key in dotted or simple form.
-
-    Returns:
-        Dagster asset key object.
-
-    """
+    """Convert a dotted asset key string into a Dagster asset key."""
     if "." in key:
         return dg.AssetKey(key.split("."))
     return dg.AssetKey([key])
 
 
 def _metadata_value(value: Any) -> dg.MetadataValue:
-    """Convert a Python value into a Dagster metadata value.
-
-    Args:
-        value: Raw metadata value.
-
-    Returns:
-        Dagster metadata wrapper for the provided value.
-
-    """
+    """Convert a Python value into a Dagster metadata value."""
     if isinstance(value, dg.MetadataValue):
         return value
     if isinstance(value, dg.TableSchema):
@@ -117,15 +101,7 @@ def _metadata_value(value: Any) -> dg.MetadataValue:
 
 
 def _convert_metadata(metadata: dict[str, Any]) -> dict[str, dg.MetadataValue]:
-    """Normalize metadata keys and values for Dagster materializations.
-
-    Args:
-        metadata: Raw metadata mapping from capability results.
-
-    Returns:
-        Metadata mapping with Dagster-compatible values.
-
-    """
+    """Normalize metadata keys and values for Dagster materializations."""
     converted: dict[str, dg.MetadataValue] = {}
     for key, value in metadata.items():
         if key == "phlo/column_schema" and isinstance(value, list):
@@ -150,17 +126,10 @@ def _convert_metadata(metadata: dict[str, Any]) -> dict[str, dg.MetadataValue]:
 
 
 def _severity_from_string(value: str | None) -> dg.AssetCheckSeverity | None:
-    """Map a string severity label to Dagster severity.
-
-    Args:
-        value: Severity string from capability checks.
-
-    Returns:
-        Dagster severity if recognized, otherwise ``None``.
-
-    """
+    """Map a string severity label to a Dagster severity, or ``None`` if unrecognized."""
     if not value:
         return None
+    # Dagster has no INFO severity; informational checks surface as WARN.
     normalized = value.strip().lower()
     if normalized in {"info", "informational"}:
         return dg.AssetCheckSeverity.WARN
@@ -267,15 +236,7 @@ class DagsterRuntime(RuntimeContext):
         )
 
     def get_resource(self, name: str) -> Any:
-        """Return a named Dagster resource from execution context.
-
-        Args:
-            name: Resource name.
-
-        Returns:
-            Resolved resource object.
-
-        """
+        """Return a named Dagster resource from execution context."""
         return getattr(self.context.resources, name)
 
 
@@ -302,17 +263,7 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
         checks: Iterable[AssetCheckSpec],
         resources: Iterable[ResourceSpec],
     ) -> dg.Definitions:
-        """Build Dagster definitions from capability specs.
-
-        Args:
-            assets: Asset capability specs.
-            checks: Asset check capability specs.
-            resources: Resource capability specs.
-
-        Returns:
-            Dagster definitions bundle for assets, checks, and resources.
-
-        """
+        """Build Dagster definitions from asset, check, and resource capability specs."""
         assets_list = list(assets)
         checks_list = list(checks)
         resources_list = list(resources)
@@ -349,15 +300,9 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
         )
 
     def _build_asset(self, spec: AssetSpec) -> dg.AssetsDefinition:
-        """Create a Dagster asset definition from a capability asset spec.
-
-        Args:
-            spec: Asset capability spec.
-
-        Returns:
-            Dagster assets definition function.
-
-        """
+        """Create a Dagster asset definition from a capability asset spec."""
+        # Declarative checks (no callable) attach to the asset as check specs;
+        # checks with a fn become standalone definitions via _build_check.
         check_specs = [
             dg.AssetCheckSpec(
                 name=check.name,
@@ -423,15 +368,7 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             freshness_policy=freshness_policy,
         )
         def _asset_fn(context) -> Iterable[Any]:
-            """Execute capability asset logic and yield Dagster results.
-
-            Args:
-                context: Dagster execution context.
-
-            Yields:
-                Dagster materialization or asset check results.
-
-            """
+            """Execute capability asset logic and yield materializations or check results."""
             runtime = DagsterRuntime(
                 context, asset_capability_overrides=dict(spec.capability_overrides)
             )
@@ -443,6 +380,9 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
                     metadata = _convert_metadata(result.metadata)
                     if result.status:
                         metadata.setdefault("status", dg.MetadataValue.text(result.status))
+                    # An in-band failure status must surface as a real step
+                    # failure, not a successful materialization with bad
+                    # metadata, so retry policies and failure alerts apply.
                     status = str(result.status or "").lower()
                     if status in {"failure", "failed", "error"}:
                         logger.warning(
@@ -472,15 +412,7 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
         return _asset_fn
 
     def _build_check(self, spec: AssetCheckSpec) -> dg.AssetChecksDefinition:
-        """Create a Dagster asset check definition from a capability check spec.
-
-        Args:
-            spec: Asset check capability spec.
-
-        Returns:
-            Dagster asset check definition function.
-
-        """
+        """Create a Dagster asset check definition from a capability check spec."""
         asset_key = _asset_key_from_string(spec.asset_key)
         default_severity = _severity_from_string(spec.severity) or dg.AssetCheckSeverity.ERROR
 
@@ -491,15 +423,7 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             description=spec.description,
         )
         def _check_fn(context) -> dg.AssetCheckResult:
-            """Execute capability check logic and return Dagster check result.
-
-            Args:
-                context: Dagster execution context.
-
-            Returns:
-                Dagster asset check result.
-
-            """
+            """Execute capability check logic and return the Dagster check result."""
             runtime = DagsterRuntime(context)
             result = spec.fn(runtime) if spec.fn else None
             if result is None:

@@ -1,4 +1,10 @@
-"""Tests for CLI authorization module."""
+"""Tests for the CLI authorization module.
+
+Covers principal resolution from env, the core CLI surface adapter's
+command classification (no unclassified mutation commands), mutation
+enforcement with reason codes, and the require-mutation-authorization
+wrappers.
+"""
 
 from __future__ import annotations
 

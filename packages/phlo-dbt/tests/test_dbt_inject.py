@@ -1,4 +1,10 @@
-"""Unit tests for dbt row ID injection."""
+"""Unit tests for dbt row ID injection.
+
+Exercises _phlo_row_id injection against mocked connections: tables that
+already carry the column are skipped without ALTER TABLE, only successful
+dbt run results are processed, schemas are inferred from model name
+prefixes, and per-table errors are captured without failing the batch.
+"""
 
 from unittest.mock import MagicMock, patch
 
@@ -159,15 +165,7 @@ class TestInjectRowIdsForDbtRun:
         }
 
         def side_effect(**kwargs):
-            """Raise for one table to verify per-table error capture.
-
-            Args:
-                **kwargs: Inject helper keyword arguments.
-
-            Returns:
-                Mapping with updated row count for successful tables.
-
-            """
+            """Raise for one table to verify per-table error capture."""
             if kwargs["table"] == "stg_bad":
                 raise Exception("Connection failed")
             return {"rows_updated": 10}

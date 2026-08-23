@@ -1,4 +1,9 @@
-"""Terse flow authoring decorators for provider-neutral flow declarations."""
+"""Terse flow authoring decorators for provider-neutral flow declarations.
+
+publish(), observe(), backfill(), contract(), access(), and schedule() append
+specs to module-level registries; get_* accessors drain them and clear_*
+resets them. Declaration order at import time is the only ordering guarantee.
+"""
 
 from __future__ import annotations
 
@@ -119,6 +124,9 @@ def observe(
     def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         key = asset_key("observe", table)
         checks: list[AssetCheckSpec] = []
+        # These checks carry fn=None: they are declarative specs (thresholds in
+        # metadata/description) that the runtime adapter evaluates, not callables
+        # executed here. Both are advisory -- blocking=False, warning severity.
         if freshness_hours is not None:
             checks.append(
                 AssetCheckSpec(

@@ -1,3 +1,9 @@
+/**
+ * Observatory settings state. Hydrates from localStorage immediately, then
+ * reconciles with server settings and defaults: server values win unless the
+ * local copy is newer, in which case it is pushed back. Writes go to both
+ * stores; on server failure the fallback defaults are used.
+ */
 import {
   createContext,
   use,

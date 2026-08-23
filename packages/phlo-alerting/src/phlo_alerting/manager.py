@@ -42,15 +42,8 @@ logger = get_logger(__name__)
 class AlertSeverity(str, Enum):
     """Alert severity levels.
 
-    Defines the standard severity levels for alerts within the Phlo system.
-    These levels are used to determine visual styling, routing logic, and
-    escalation policies across different notification destinations.
-
-    Attributes:
-        INFO: Informational alerts for notable but non-urgent events.
-        WARNING: Warning alerts for issues requiring attention but not immediate action.
-        ERROR: Error alerts for failures or significant problems.
-        CRITICAL: Critical alerts for severe issues requiring immediate response.
+    Standard severity levels for Phlo alerts; they drive visual styling,
+    routing logic, and escalation policies across notification destinations.
 
     Examples:
         >>> AlertSeverity.INFO
@@ -72,17 +65,8 @@ class AlertSeverity(str, Enum):
 class Alert:
     """Alert payload data structure.
 
-    Represents a single alert with all relevant metadata for routing
-    and display across multiple notification destinations.
-
-    Attributes:
-        title: Short, human-readable alert title or summary.
-        message: Detailed alert description or context.
-        severity: Alert severity level, defaults to ERROR.
-        asset_name: Optional name of the asset triggering the alert.
-        run_id: Optional run identifier for correlation and debugging.
-        error_message: Optional detailed error message or stack trace.
-        timestamp: UTC timestamp when the alert was created.
+    Single alert with all metadata needed for routing and display across
+    notification destinations.
 
     Examples:
         >>> alert = Alert(
@@ -110,9 +94,6 @@ class Alert:
     def __post_init__(self) -> None:
         """Set default timestamp if not provided.
 
-        Automatically assigns the current UTC timestamp when an Alert
-        is created without an explicit timestamp value.
-
         Examples:
             >>> alert = Alert(title="Test", message="Test message")
             >>> alert.timestamp is not None
@@ -126,12 +107,9 @@ class Alert:
 class AlertDestination:
     """Base class for alert destinations.
 
-    Abstract base class defining the interface for all alert destinations.
-    Concrete implementations must override the send() method to provide
-    destination-specific alert delivery logic.
-
-    Attributes:
-        None; subclasses may define their own configuration attributes.
+    Abstract base defining the interface for all alert destinations;
+    concrete implementations override send() with destination-specific
+    delivery logic.
 
     Examples:
         >>> class ConsoleDestination(AlertDestination):
@@ -149,18 +127,9 @@ class AlertDestination:
     def send(self, alert: Alert) -> bool:
         """Send an alert to this destination.
 
-        Abstract method that must be implemented by all concrete destination
-        classes. Responsible for delivering the alert through the specific
-        channel (Slack, Email, etc.).
-
-        Args:
-            alert: Alert object containing all information to be sent.
-
-        Returns:
-            True if the alert was successfully delivered, False otherwise.
-
-        Raises:
-            NotImplementedError: If called on the base class directly.
+        Abstract; concrete destinations deliver through their channel.
+        Returns True if the alert was successfully delivered, False otherwise.
+        Raises: NotImplementedError when called on the base class directly.
 
         Examples:
             See subclass implementations in destinations/ directory.
@@ -170,16 +139,14 @@ class AlertDestination:
 
 
 class AlertManager:
-    """Manages alert destinations and deduplication.
+    """Manage alert destinations and deduplication.
 
-        Central manager for the alerting system. Maintains a registry of
-    destinations, handles deduplication to prevent alert spam, and routes
-    alerts to appropriate destinations based on configuration.
+    Central manager for the alerting system: maintains a registry of
+    destinations, deduplicates to prevent alert spam, and routes alerts
+    based on configuration.
 
-    Attributes:
-            destinations: Dictionary mapping destination names to AlertDestination instances.
-            _sent_alerts: Set of alert keys for deduplication tracking.
-            _dedup_window_minutes: Time window for deduplication in minutes.
+    Dedup keys are never expired, so duplicates are suppressed for the
+    manager's lifetime regardless of _dedup_window_minutes.
 
     Examples:
             >>> manager = AlertManager()
@@ -191,11 +158,7 @@ class AlertManager:
     """
 
     def __init__(self):
-        """Initialize alert manager.
-
-        Creates an empty AlertManager instance with no registered destinations.
-        Destinations are typically added later via register_destination() or
-        automatically via _register_default_destinations().
+        """Initialize an empty alert manager.
 
         Examples:
             >>> manager = AlertManager()
@@ -204,25 +167,15 @@ class AlertManager:
 
         """
         self.destinations: dict[str, AlertDestination] = {}
-        self._sent_alerts: set[str] = set()  # For deduplication
+        self._sent_alerts: set[str] = set()
         self._dedup_window_minutes = 60
 
     def register_destination(self, name: str, destination: AlertDestination) -> None:
-        """Register an alert destination.
+        """Register an alert destination under a unique name.
 
-        Adds a new destination to the manager's registry. Once registered,
-        the destination will receive all alerts sent through the manager
-        unless specific destinations are requested.
-
-        Args:
-            name: Unique identifier for this destination (e.g., "slack", "email").
-            destination: AlertDestination instance implementing the send() method.
-
-        Returns:
-            None
-
-        Raises:
-            None; overwrites existing destinations with the same name.
+        Once registered, the destination receives all alerts sent through the
+        manager unless specific destinations are requested. Registering an
+        existing name overwrites the previous destination.
 
         Examples:
             >>> from phlo_alerting.destinations.slack import SlackAlertDestination
@@ -237,23 +190,11 @@ class AlertManager:
         logger.info("alert_destination_registered", destination_name=name)
 
     def send(self, alert: Alert, destinations: Optional[list[str]] = None) -> bool:
-        """Send an alert to registered destinations.
+        """Send an alert to specified or all registered destinations.
 
-                Routes the alert to specified or all registered destinations.
-                Implements deduplication to prevent sending duplicate alerts within
-        the configured time window.
-
-        Args:
-                    alert: Alert object to be sent.
-                    destinations: Optional list of destination names to target.
-                        If None, sends to all registered destinations.
-
-        Returns:
-                    True if the alert was successfully sent to at least one destination,
-                    False if all destinations failed or alert was deduplicated.
-
-        Raises:
-                    None; individual destination failures are logged but don't raise.
+        Returns True if the alert was delivered to at least one destination;
+        False if all destinations failed or the alert was deduplicated.
+        Individual destination failures are logged but do not raise.
 
         Examples:
                     >>> manager = AlertManager()
@@ -298,16 +239,7 @@ class AlertManager:
         return sent
 
     def _get_alert_key(self, alert: Alert) -> str:
-        """Generate deduplication key for an alert.
-
-        Creates a unique key based on asset name, error message, and severity
-        to identify duplicate alerts for deduplication purposes.
-
-        Args:
-            alert: Alert object to generate key for.
-
-        Returns:
-            String key suitable for deduplication comparison.
+        """Build the dedup key from asset name, error message, and severity.
 
         Examples:
             >>> from phlo_alerting.manager import AlertManager, Alert, AlertSeverity
@@ -327,16 +259,10 @@ class AlertManager:
         return f"{alert.asset_name}:{alert.error_message}:{alert.severity.value}"
 
     def _is_duplicate(self, key: str) -> bool:
-        """Check if alert is a duplicate.
+        """Check whether an alert with this dedup key was already sent.
 
-        Determines whether an alert with the given key has already been
-        sent within the current deduplication window.
-
-        Args:
-            key: Deduplication key to check.
-
-        Returns:
-            True if the key exists in the sent alerts set, False otherwise.
+        Dedup keys never expire, so duplicates stay suppressed for the
+        manager's lifetime.
 
         Examples:
             >>> manager = AlertManager()
@@ -355,14 +281,10 @@ _alert_manager: Optional[AlertManager] = None
 
 
 def get_alert_manager() -> AlertManager:
-    """Get or create global alert manager.
+    """Get or create the global alert manager singleton.
 
-    Returns the singleton AlertManager instance, creating it if necessary.
     On first creation, automatically registers default destinations based
     on environment configuration.
-
-    Returns:
-        The global AlertManager instance.
 
     Examples:
         >>> manager1 = get_alert_manager()
@@ -379,17 +301,10 @@ def get_alert_manager() -> AlertManager:
 
 
 def _register_default_destinations(manager: AlertManager) -> None:
-    """Register default alert destinations from config.
+    """Register default alert destinations from environment configuration.
 
-    Automatically configures alert destinations based on environment
-    variables. Supports Slack (PHLO_ALERT_SLACK_WEBHOOK), PagerDuty
+    Supports Slack (PHLO_ALERT_SLACK_WEBHOOK), PagerDuty
     (PHLO_ALERT_PAGERDUTY_KEY), and Email (PHLO_ALERT_EMAIL_*).
-
-    Args:
-        manager: AlertManager instance to register destinations with.
-
-    Returns:
-        None
 
     Examples:
         This function is called automatically by get_alert_manager() and

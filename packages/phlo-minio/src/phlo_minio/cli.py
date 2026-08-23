@@ -50,17 +50,8 @@ def _require_container_backend() -> None:
 
 def _mc_exec_base(*, tty: bool) -> list[str]:
     """Build the docker compose exec command base for MinIO client operations.
-
     Constructs a command list that will execute mc (MinIO Client) commands
     inside the running MinIO container via docker compose exec.
-
-    Args:
-        tty: Whether to allocate a TTY. Set True for interactive commands,
-            False for programmatic output capture.
-
-    Returns:
-        list[str]: Command list starting with docker compose exec,
-            ending with "minio", "mc" ready for subcommand arguments.
 
     Examples:
         Non-TTY for programmatic use:
@@ -78,7 +69,6 @@ def _mc_exec_base(*, tty: bool) -> list[str]:
             - ensure_phlo_dir: Locate .phlo directory
             - get_project_name: Get compose project name
             - compose_base_cmd: Build base docker compose command
-
     """
     phlo_dir = ensure_phlo_dir()
     project_name = get_project_name()
@@ -119,18 +109,11 @@ def _mc_with_local_alias(args: list[str]) -> list[str]:
 @click.pass_context
 def minio_group(ctx: click.Context, mc_args: tuple[str, ...]) -> None:
     """Run MinIO client (mc) commands inside the project service container.
-
     This is the main entry point for MinIO CLI operations. It handles
     common subcommands like 'ls' and 'admin info' with dedicated handlers,
     while passing other commands directly to the mc binary.
 
-    Args:
-        ctx: Click context object.
-        mc_args: Variable arguments passed to mc command.
-
-    Raises:
-        click.ClickException: If the mc command exits with non-zero status.
-
+    Raises: click.ClickException when if the mc command exits with non-zero status.
     Examples:
         List all buckets:
             $ phlo minio ls
@@ -155,7 +138,6 @@ def minio_group(ctx: click.Context, mc_args: tuple[str, ...]) -> None:
         The 'ls' and 'admin info' subcommands have dedicated handlers
         for better output formatting. All other commands are passed
         directly to mc inside the MinIO container.
-
     """
     if mc_args and mc_args[0] == "ls":
         minio_ls.main(
@@ -192,20 +174,10 @@ def minio_group(ctx: click.Context, mc_args: tuple[str, ...]) -> None:
 @click.option("--timeout", "timeout_seconds", default=30, show_default=True, type=int)
 def minio_ls(target: str, recursive: bool, as_json: bool, timeout_seconds: int) -> None:
     """List objects or buckets using the MinIO client.
-
     Lists S3 buckets or objects within a bucket using the mc ls command.
     Supports recursive listing and JSON output for programmatic use.
 
-    Args:
-        target: Target path to list (default: "local/" for all buckets).
-            Format: alias/bucket/path (e.g., "local/my-bucket/data/").
-        recursive: If True, list all objects recursively.
-        as_json: If True, output JSON lines instead of formatted text.
-        timeout_seconds: Command timeout in seconds.
-
-    Raises:
-        click.ClickException: If command fails or times out.
-
+    Raises: click.ClickException when if command fails or times out.
     Examples:
         List all buckets:
             $ phlo minio ls
@@ -236,7 +208,6 @@ def minio_ls(target: str, recursive: bool, as_json: bool, timeout_seconds: int) 
             $ phlo minio ls local/raw-data/invoices/ --recursive --json | \
                 jq 'select(.size > 1000000) | .key'
             # List all files larger than 1MB
-
     """
     _require_container_backend()
     mc_args = ["ls"]
@@ -283,19 +254,11 @@ def minio_ls(target: str, recursive: bool, as_json: bool, timeout_seconds: int) 
 @click.option("--timeout", "timeout_seconds", default=30, show_default=True, type=int)
 def minio_admin_info(target: str, as_json: bool, timeout_seconds: int) -> None:
     """Show MinIO server admin information.
-
     Retrieves administrative information about the MinIO server
     using the mc admin info command. Useful for monitoring server
     health, storage usage, and cluster status.
 
-    Args:
-        target: Target MinIO alias (default: "local/").
-        as_json: If True, output JSON instead of formatted text.
-        timeout_seconds: Command timeout in seconds.
-
-    Raises:
-        click.ClickException: If command fails or times out.
-
+    Raises: click.ClickException when if command fails or times out.
     Examples:
         Basic server info:
             $ phlo minio admin info
@@ -324,7 +287,6 @@ def minio_admin_info(target: str, as_json: bool, timeout_seconds: int) -> None:
 
     Note:
         Requires admin privileges on the MinIO server.
-
     """
     _require_container_backend()
     mc_args = ["admin", "info"]

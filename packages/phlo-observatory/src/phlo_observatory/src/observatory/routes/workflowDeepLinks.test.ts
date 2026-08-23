@@ -1,3 +1,7 @@
+/**
+ * Verifies each listed route is deep-linkable through its query parameter and
+ * renders without a preselected entity.
+ */
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 

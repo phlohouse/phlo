@@ -1,3 +1,8 @@
+/**
+ * /extensions route. Lists installed extensions and fetches the selected
+ * one's contributed routes and nav entries; parent layout for
+ * /extensions/$extensionId.
+ */
 import {
   Link,
   Outlet,

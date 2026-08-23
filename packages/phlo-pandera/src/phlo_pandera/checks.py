@@ -86,19 +86,10 @@ def extract_sample_rows(
 ) -> list[dict[str, Any]]:
     """Extract sample rows matching a condition for error reporting.
 
-    This helper function extracts a sample of rows that match a boolean mask,
-    limited to a maximum number of rows. It's used to provide concrete examples
-    of quality check failures for debugging and reporting purposes.
-
-    Args:
-        df: DataFrame to sample from.
-        mask: Boolean Series indicating which rows to extract.
-        columns: List of column names to include in the sample.
-        max_rows: Maximum number of rows to return (default: 20).
-
-    Returns:
-        List of dictionaries, each representing a sampled row with its index
-        and specified column values.
+    Returns up to ``max_rows`` rows selected by a boolean mask, each rendered
+    as a dict with a ``row_index`` entry plus values for the requested
+    columns. Used to give concrete examples of check failures when reporting
+    quality problems.
 
     Example:
         ```python
@@ -126,16 +117,9 @@ def extract_sample_rows(
 class QualityCheckResult:
     """Result from executing a quality check.
 
-    This dataclass encapsulates the outcome of a quality check execution,
-    including pass/fail status, metric values, and detailed metadata for
-    debugging and observability.
-
-    Attributes:
-        passed: Whether the quality check passed validation.
-        metric_name: Name of the quality metric being checked.
-        metric_value: Value of the quality metric (int, float, dict, or None).
-        metadata: Additional metadata about the check execution (default: empty dict).
-        failure_message: Human-readable failure message if check failed (default: None).
+    Captures pass/fail status, the metric name and value under measurement,
+    additional metadata for debugging and observability, and an optional
+    human-readable failure message set when the check failed.
 
     Example:
         ```python
@@ -204,40 +188,19 @@ class QualityCheck(ABC):
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
         """Execute the quality check on the given DataFrame.
 
-        This method must be implemented by all subclasses to perform the actual
-        validation logic. It receives a pandas DataFrame and an optional runtime
-        context, and must return a ``QualityCheckResult`` with the outcome.
-
-        Args:
-            df: DataFrame to validate, containing the data loaded from the
-                target table or query.
-            context: Runtime context for logging and resource access. May be
-                None in testing scenarios.
-
-        Returns:
-            QualityCheckResult containing pass/fail status, metric values,
-            metadata, and optional failure message.
-
-        Raises:
-            Exception: Subclasses may raise exceptions for unrecoverable errors,
-                though they should generally catch and return failed results.
-
+        Subclasses perform the actual validation here and must return a
+        ``QualityCheckResult`` describing the outcome. ``df`` holds the data
+        loaded from the target table or query; ``context`` supports logging and
+        resource access and may be None in testing scenarios. Prefer catching
+        unrecoverable errors and returning a failed result over raising.
         """
         pass
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """Human-readable name for this check.
-
-        This property should return a stable, unique identifier for the check
-        that can be used in logging, reporting, and metadata. It typically
-        includes the check type and configuration details.
-
-        Returns:
-            String identifier for this check instance.
-
-        """
+        """Return the stable, unique identifier for this check, used in
+        logging, reporting, and metadata."""
         pass
 
 
@@ -245,14 +208,9 @@ class QualityCheck(ABC):
 class NullCheck(QualityCheck):
     """Check that specified columns have no null values.
 
-    This check validates that one or more columns contain no null (NaN/None)
-    values, or that the percentage of null values does not exceed a configurable
-    threshold.
-
-    Attributes:
-        columns: List of column names that must not contain nulls.
-        allow_threshold: Maximum fraction of nulls allowed (0.0 = no nulls allowed,
-            0.05 = up to 5% nulls allowed). Defaults to 0.0.
+    Validates that one or more columns contain no NaN/None values, or that
+    the null fraction stays within ``allow_threshold`` (0.0 means none
+    allowed, 0.05 means up to 5%).
 
     Example:
         ```python
@@ -263,11 +221,8 @@ class NullCheck(QualityCheck):
         NullCheck(columns=["phone", "address"], allow_threshold=0.05)
         ```
 
-    Returns:
-        QualityCheckResult with:
-            - ``metric_name``: "null_check"
-            - ``metric_value``: Dict mapping column names to null counts
-            - ``metadata``: Includes null_counts, null_percentages, columns_checked
+    Reports metric name "null_check" with per-column null counts as the
+    metric value, plus null percentages in metadata.
 
     """
 
@@ -280,17 +235,9 @@ class NullCheck(QualityCheck):
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
         """Execute null check on DataFrame.
 
-        Iterates through all specified columns, checking for null values and
-        calculating null percentages. Returns detailed metadata about null
-        counts per column and sample rows containing nulls.
-
-        Args:
-            df: DataFrame containing the data to validate.
-            context: Runtime context (unused but required by interface).
-
-        Returns:
-            QualityCheckResult indicating whether all columns pass the null
-            check within the specified threshold.
+        Checks each specified column for nulls and records counts and
+        percentages; a missing column counts as a failure. Metadata includes
+        sample rows drawn from the first failing column.
 
         """
         null_counts = {}
@@ -315,6 +262,9 @@ class NullCheck(QualityCheck):
                     f"(threshold: {self.allow_threshold:.2%})"
                 )
 
+                # Sample only once, from the first failing column: the sample
+                # exists for debugging context, and per-column samples would
+                # bloat the result metadata.
                 if not sample_rows:
                     existing_columns = [c for c in self.columns if c in df.columns]
                     if existing_columns:
@@ -338,12 +288,7 @@ class NullCheck(QualityCheck):
 
     @property
     def name(self) -> str:
-        """Get the check name.
-
-        Returns:
-            Stable metric name for this null check, incorporating column names.
-
-        """
+        """Return the stable metric name for this null check."""
         return f"null_check_{'+'.join(self.columns)}"
 
 
@@ -351,16 +296,10 @@ class NullCheck(QualityCheck):
 class RangeCheck(QualityCheck):
     """Check that numeric column values are within specified range.
 
-    This check validates that all values in a numeric column fall within
-    an inclusive range defined by minimum and maximum values. It supports
-    optional thresholds that allow a percentage of out-of-range values.
-
-    Attributes:
-        column: Column name to validate.
-        min_value: Minimum allowed value (inclusive). None disables lower bound.
-        max_value: Maximum allowed value (inclusive). None disables upper bound.
-        allow_threshold: Maximum fraction of out-of-range values allowed
-            (0.0 = no violations allowed, 0.01 = 1% allowed). Defaults to 0.0.
+    Validates that all values in a numeric column fall within an inclusive
+    range defined by ``min_value``/``max_value`` (None disables a bound),
+    optionally tolerating a fraction of out-of-range values via
+    ``allow_threshold``.
 
     Example:
         ```python
@@ -374,11 +313,8 @@ class RangeCheck(QualityCheck):
         RangeCheck(column="age", min_value=0)
         ```
 
-    Returns:
-        QualityCheckResult with:
-            - ``metric_name``: "range_check"
-            - ``metric_value``: Dict with actual min, max, and out_of_range count
-            - ``metadata``: Includes expected bounds, actual bounds, violation count
+    Reports metric name "range_check" with the actual min/max and
+    out-of-range count as the metric value.
 
     """
 
@@ -397,17 +333,9 @@ class RangeCheck(QualityCheck):
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
         """Execute range check on DataFrame.
 
-        Validates that values in the specified column fall within the defined
-        range. Calculates actual min/max values and counts violations.
-
-        Args:
-            df: DataFrame containing the data to validate.
-            context: Runtime context (unused but required by interface).
-
-        Returns:
-            QualityCheckResult indicating whether the column values are within
-            range, with detailed statistics about violations.
-
+        Validates values in the target column against the configured bounds,
+        computing actual min/max and counting violations. An entirely null or
+        missing column fails with an explanatory message.
         """
         if self.column not in df.columns:
             return QualityCheckResult(
@@ -481,12 +409,7 @@ class RangeCheck(QualityCheck):
 
     @property
     def name(self) -> str:
-        """Get the check name.
-
-        Returns:
-            Stable metric name for this range check, incorporating column name.
-
-        """
+        """Return the stable metric name for this range check."""
         return f"range_check_{self.column}"
 
 
@@ -494,15 +417,10 @@ class RangeCheck(QualityCheck):
 class FreshnessCheck(QualityCheck):
     """Check that data is fresh (not stale).
 
-    This check validates that the most recent timestamp in a specified column
-    is within a maximum age threshold. It's useful for detecting stale data
-    or pipeline delays.
-
-    Attributes:
-        timestamp_column: Column name containing timestamps to check.
-        max_age_hours: Maximum age in hours for data to be considered fresh.
-        reference_time: Reference time to compare against. Defaults to the
-            current time (datetime.now()).
+    Validates that the most recent timestamp in ``timestamp_column`` is no
+    older than ``max_age_hours``. ``reference_time`` overrides the clock
+    used for the comparison (defaults to now). Useful for detecting stale
+    data or pipeline delays.
 
     Example:
         ```python
@@ -519,11 +437,8 @@ class FreshnessCheck(QualityCheck):
         )
         ```
 
-    Returns:
-        QualityCheckResult with:
-            - ``metric_name``: "freshness_check"
-            - ``metric_value``: Dict with max_age_hours
-            - ``metadata``: Includes max_timestamp, reference_time, age_hours
+    Reports metric name "freshness_check" with the observed age in hours,
+    and the max timestamp and reference time in metadata.
 
     """
 
@@ -539,16 +454,9 @@ class FreshnessCheck(QualityCheck):
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
         """Execute freshness check on DataFrame.
 
-        Converts the timestamp column to datetime, finds the most recent value,
-        and calculates its age relative to the reference time.
-
-        Args:
-            df: DataFrame containing the data to validate.
-            context: Runtime context (unused but required by interface).
-
-        Returns:
-            QualityCheckResult indicating whether the data is fresh within
-            the specified maximum age.
+        Converts the timestamp column to datetime, finds the most recent
+        value, and computes its age against the reference time. A column
+        with no parseable timestamps passes vacuously.
 
         """
         if self.timestamp_column not in df.columns:
@@ -559,7 +467,8 @@ class FreshnessCheck(QualityCheck):
                 failure_message=f"Column '{self.timestamp_column}' not found in DataFrame",
             )
 
-        # Convert to datetime if needed
+        # Coerce unparsable values to NaT; they drop out of the max() below
+        # instead of aborting the whole check.
         timestamp_data = pd.Series(pd.to_datetime(df[self.timestamp_column], errors="coerce"))
 
         if len(timestamp_data.dropna()) == 0:
@@ -573,7 +482,8 @@ class FreshnessCheck(QualityCheck):
         # Get most recent timestamp
         max_timestamp = timestamp_data.max()
 
-        # Calculate age
+        # Default the reference clock to the timestamps' own timezone so naive
+        # and tz-aware columns both compare without raising.
         reference = self.reference_time or datetime.now(tz=max_timestamp.tzinfo)
         age = reference - max_timestamp
         age_hours = age.total_seconds() / 3600
@@ -602,12 +512,7 @@ class FreshnessCheck(QualityCheck):
 
     @property
     def name(self) -> str:
-        """Get the check name.
-
-        Returns:
-            Stable metric name for this freshness check, incorporating timestamp column.
-
-        """
+        """Return the stable metric name for this freshness check."""
         return f"freshness_check_{self.timestamp_column}"
 
 
@@ -615,14 +520,9 @@ class FreshnessCheck(QualityCheck):
 class UniqueCheck(QualityCheck):
     """Check that specified columns have unique values (no duplicates).
 
-    This check validates that the combination of values across one or more
-    columns is unique across all rows. It supports threshold parameters that
-    allow a configurable percentage of duplicate rows.
-
-    Attributes:
-        columns: List of column names that must have unique combinations.
-        allow_threshold: Maximum fraction of duplicates allowed (0.0 = exact
-            uniqueness required, 0.05 = 5% duplicates allowed). Defaults to 0.0.
+    Validates that the combination of values across one or more columns is
+    unique across all rows, tolerating up to a fraction ``allow_threshold``
+    of duplicate rows.
 
     Example:
         ```python
@@ -636,11 +536,8 @@ class UniqueCheck(QualityCheck):
         UniqueCheck(columns=["event_id"], allow_threshold=0.005)
         ```
 
-    Returns:
-        QualityCheckResult with:
-            - ``metric_name``: "unique_check"
-            - ``metric_value``: Dict with duplicate_count
-            - ``metadata``: Includes duplicate_percentage, columns_checked, sample_rows
+    Reports metric name "unique_check" with the duplicate row count and
+    sample duplicate rows in metadata.
 
     """
 
@@ -653,17 +550,9 @@ class UniqueCheck(QualityCheck):
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
         """Execute uniqueness check on DataFrame.
 
-        Uses pandas ``duplicated()`` method to identify duplicate rows based
-        on the specified column combination. Calculates duplicate percentage
-        and provides sample duplicate rows for debugging.
-
-        Args:
-            df: DataFrame containing the data to validate.
-            context: Runtime context (unused but required by interface).
-
-        Returns:
-            QualityCheckResult indicating whether the columns have unique
-            values within the specified threshold.
+        Identifies duplicate rows over the configured column combination
+        with pandas ``duplicated()`` and computes the duplicate percentage;
+        missing columns fail the check.
 
         """
         missing_columns = [col for col in self.columns if col not in df.columns]
@@ -676,7 +565,9 @@ class UniqueCheck(QualityCheck):
                 failure_message=f"Columns not found: {', '.join(missing_columns)}",
             )
 
-        # Check for duplicates
+        # keep=False marks every row of a duplicated group, so duplicate_count
+        # is the number of rows involved in duplicates, not just the excess
+        # copies.
         duplicates = df.duplicated(subset=self.columns, keep=False)
         duplicate_count = duplicates.sum()
         duplicate_pct = duplicate_count / len(df) if len(df) > 0 else 0.0
@@ -710,12 +601,7 @@ class UniqueCheck(QualityCheck):
 
     @property
     def name(self) -> str:
-        """Get the check name.
-
-        Returns:
-            Stable metric name for this uniqueness check, incorporating column names.
-
-        """
+        """Return the stable metric name for this uniqueness check."""
         return f"unique_check_{'+'.join(self.columns)}"
 
 
@@ -723,13 +609,9 @@ class UniqueCheck(QualityCheck):
 class CountCheck(QualityCheck):
     """Check that row count meets expectations.
 
-    This check validates that the number of rows in a dataset falls within
-    expected bounds. It's useful for detecting empty datasets, unexpected
-    data volumes, or significant data loss.
-
-    Attributes:
-        min_rows: Minimum expected row count. None disables minimum check.
-        max_rows: Maximum expected row count. None disables maximum check.
+    Validates that the row count of a dataset falls within expected
+    bounds, catching empty datasets, unexpected volumes, or data loss.
+    ``min_rows``/``max_rows`` of None disable the respective bound.
 
     Example:
         ```python
@@ -746,11 +628,8 @@ class CountCheck(QualityCheck):
         CountCheck(min_rows=24, max_rows=24)
         ```
 
-    Returns:
-        QualityCheckResult with:
-            - ``metric_name``: "count_check"
-            - ``metric_value``: Dict with row_count
-            - ``metadata``: Includes min_rows, max_rows bounds
+    Reports metric name "count_check" with the row count as the metric
+    value.
 
     """
 
@@ -763,17 +642,8 @@ class CountCheck(QualityCheck):
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
         """Execute count check on DataFrame.
 
-        Counts total rows in the DataFrame and validates against configured
-        minimum and maximum bounds.
-
-        Args:
-            df: DataFrame containing the data to validate.
-            context: Runtime context (unused but required by interface).
-
-        Returns:
-            QualityCheckResult indicating whether the row count is within
-            the specified bounds.
-
+        Counts total rows and validates against the configured minimum and
+        maximum bounds.
         """
         row_count = len(df)
 
@@ -801,10 +671,5 @@ class CountCheck(QualityCheck):
 
     @property
     def name(self) -> str:
-        """Get the check name.
-
-        Returns:
-            Stable metric name for this count check.
-
-        """
+        """Return the stable metric name for this count check."""
         return "count_check"

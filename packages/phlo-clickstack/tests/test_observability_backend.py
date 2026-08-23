@@ -1,4 +1,9 @@
-"""Tests for ClickStack observability backend capability."""
+"""Tests for ClickStack observability backend capability.
+
+Covers spec defaults, host-port versus in-container query URL selection,
+trace span queries issued to the ClickStack HTTP API, and filter-aware query
+construction.
+"""
 
 from __future__ import annotations
 

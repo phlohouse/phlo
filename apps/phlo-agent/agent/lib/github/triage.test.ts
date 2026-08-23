@@ -1,3 +1,4 @@
+/** Tests for triage label validation: bounded, allowlisted, one label per category. */
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { issueTriageLabelsAllowed } from './triage.ts'

@@ -1,3 +1,11 @@
+"""Built-in project template: scaffolds a minimal starter Phlo project.
+
+MinimalTemplate is the base every other template composes. It writes
+phlo.yaml, pyproject.toml, a README, and a .env.example that lists
+secret variable names discovered from installed services — names only,
+never values.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,6 +19,11 @@ def _write_text(path: Path, content: str) -> None:
 
 
 def _build_env_example_content() -> str:
+    """Build `.env.example`: secret variable names only, never values.
+
+    The file documents which secrets each discovered service expects; real
+    values belong in the uncommitted `.phlo/.env.local`.
+    """
     from phlo.plugins.discovery import ServiceDiscovery
 
     lines = [
@@ -225,6 +238,8 @@ Use `lakehouse:read` for inspection, `lakehouse:operate` for materialize/retry/c
 
 
 class MinimalTemplate:
+    """Project template generating the smallest runnable Phlo project skeleton."""
+
     metadata = TemplateMetadata(
         name="minimal",
         description="Empty Phlo project",
@@ -242,6 +257,7 @@ class MinimalTemplate:
     )
 
     def render(self, context: TemplateRenderContext) -> None:
+        """Write the workflow/test package skeletons and common project files."""
         context.project_dir.mkdir(parents=True, exist_ok=True)
         workflows_dir = context.project_dir / "workflows"
         _write_text(workflows_dir / "__init__.py", '"""User workflows."""\n')

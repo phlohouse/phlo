@@ -1,4 +1,10 @@
-"""MCP server exposing curated Phlo observability tools."""
+"""MCP server exposing curated Phlo observability tools.
+
+Builds a FastMCP instance whose tools and resources delegate to one shared
+PhloApiClient; configuration comes from the environment, OpenTelemetry
+tracing is configured at creation, and package docs are read from
+docs/packages/ under the project root.
+"""
 
 from __future__ import annotations
 
@@ -212,6 +218,8 @@ def create_server(config: McpConfig | None = None) -> FastMCP:
             with (audit_dir / "operations.jsonl").open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
         except OSError:
+            # Audit logging is best-effort: a read-only or missing workspace
+            # must never fail the tool call that produced the record.
             return
 
     def _required_scope_for_tool(tool_name: str) -> str | None:
@@ -855,6 +863,9 @@ def create_server(config: McpConfig | None = None) -> FastMCP:
         payload = client.diff_schema(asset_key, from_run=from_run, to_run=to_run)
         return {"api_base_url": client.api_base_url, "asset_key": asset_key, "payload": payload}
 
+    # Write tools are registered only when both the flag is set and an API token
+    # exists: without a token every guarded call would run unauthenticated, so the
+    # tools stay unregistered rather than failing (or worse, succeeding) per call.
     if resolved.enable_write_tools and resolved.api_token:
 
         @mcp.tool()

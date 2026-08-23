@@ -40,12 +40,6 @@ def get_iceberg_catalog(ref: str = "main"):
     multiple CLI commands. The cache has no size limit (maxsize=None)
     since CLI processes are typically short-lived.
 
-    Args:
-        ref: Nessie branch or tag reference (default: ``main``).
-
-    Returns:
-        Catalog: PyIceberg catalog instance for the specified reference.
-
     Example:
         Use in CLI commands::
 

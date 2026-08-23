@@ -1,4 +1,8 @@
-"""phlo_nessie CLI authorization table."""
+"""Authorization table for the phlo-nessie CLI surface.
+
+Classifies branch and catalog commands as mutating or read-only and maps each
+onto catalog resources and actions for the shared CLI surface adapter.
+"""
 
 from __future__ import annotations
 
@@ -44,4 +48,5 @@ NessieCliSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_nessie_cli_adapter() -> CliSurfaceAdapter:
+    """Return the process-wide Nessie CLI authorization adapter instance."""
     return NessieCliSurfaceAdapter.get_instance()

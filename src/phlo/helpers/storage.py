@@ -1,4 +1,10 @@
-"""Object-store path and layout helpers."""
+"""Object-store path and layout helpers.
+
+Defines the canonical lakehouse layout (warehouse/stage/tmp/checkpoints prefixes
+on one bucket) and deterministic per-run stage paths. ensure_bucket_layout is
+best-effort: it reports False rather than raising when no object-store
+capability or setup method exists.
+"""
 
 from __future__ import annotations
 

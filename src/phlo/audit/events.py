@@ -153,11 +153,7 @@ class CanonicalAuditEvent:
     attributes: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert the audit event to a dictionary.
-
-        Returns:
-            Dictionary representation of the audit event.
-        """
+        """Serialize every field, converting actor_roles to a JSON-safe list."""
         result = asdict(self)
         # Convert tuples to lists for JSON serialization
         result["actor_roles"] = list(self.actor_roles)
@@ -185,30 +181,7 @@ class CanonicalAuditEvent:
         source_ip: str | None = None,
         outcome: str = "",
     ) -> CanonicalAuditEvent:
-        """Create an audit event from an authorization decision.
-
-        Args:
-            surface: Surface that generated the event.
-            actor_subject: Subject identifier.
-            actor_type: Type of actor.
-            actor_roles: Roles assigned to actor.
-            authentication_source: Source of authentication.
-            action: Canonical action.
-            resource_type: Canonical resource type.
-            resource_id: Resource identifier.
-            decision: Decision outcome (allow, deny, error, skip).
-            reason_code: Machine-readable reason.
-            policy_id: Policy ID if applicable.
-            explanation: Human-readable explanation.
-            request_id: Request correlation ID.
-            correlation_id: End-to-end correlation ID.
-            parent_correlation_id: Parent correlation ID when this event is part of a chain.
-            source_ip: Source IP address.
-            outcome: Execution outcome.
-
-        Returns:
-            CanonicalAuditEvent populated from the decision.
-        """
+        """Build an AUTHORIZATION event from a decision's actor, action, and outcome fields."""
         return cls(
             event_type=AuditEventType.AUTHORIZATION,
             surface=surface,
@@ -248,28 +221,20 @@ class AuditEventEmitter:
     """
 
     def __init__(self, surface: str) -> None:
-        """Initialize the audit event emitter.
-
-        Args:
-            surface: Name of the surface emitting events (e.g., "phlo-api").
-        """
+        """Record this surface's name, stamped onto emitted events that lack one."""
         self.surface = surface
         self._sinks: list[AuditEventSink] = []
 
     def add_sink(self, sink: AuditEventSink) -> None:
-        """Add an audit event sink.
-
-        Args:
-            sink: Sink to add for event delivery.
-        """
+        """Register a sink to receive subsequently emitted events."""
         self._sinks.append(sink)
 
     def emit(self, event: CanonicalAuditEvent, *, require_durable: bool = False) -> None:
-        """Emit an audit event to all configured sinks.
+        """Deliver the event to every configured sink, stamping the surface when unset.
 
-        Args:
-            event: The audit event to emit.
-            require_durable: Require a durable sink to persist the event.
+        Sink failures are logged and swallowed, but when `require_durable` is
+        set and no durable sink persists the event, AuditPersistenceError is
+        raised.
         """
         # Create a new event with the correct surface if not set
         if not event.surface:
@@ -287,6 +252,11 @@ class AuditEventEmitter:
             decision=event.decision,
         )
 
+        # Write to every sink even after an earlier sink fails, so one broken
+        # sink cannot drop events from healthy ones. Non-durable sinks are
+        # best-effort: their failures are logged and swallowed. A failure only
+        # escalates when durability was required and no durable sink persisted
+        # the event.
         durable_sink_seen = False
         durable_sink_succeeded = False
         durable_error: Exception | None = None
@@ -333,28 +303,11 @@ class AuditEventEmitter:
         outcome: str = "",
         require_durable: bool = False,
     ) -> None:
-        """Emit an authorization audit event.
+        """Build an authorization event from decision details and emit it.
 
-        Convenience method for emitting authorization events.
-
-        Args:
-            actor_subject: Subject identifier.
-            actor_type: Type of actor.
-            actor_roles: Roles assigned to actor.
-            authentication_source: Source of authentication.
-            action: Canonical action.
-            resource_type: Canonical resource type.
-            resource_id: Resource identifier.
-            decision: Decision outcome.
-            reason_code: Machine-readable reason.
-            policy_id: Policy ID if applicable.
-            explanation: Human-readable explanation.
-            request_id: Request correlation ID.
-            correlation_id: End-to-end correlation ID.
-            parent_correlation_id: Parent correlation ID when this event is part of a chain.
-            source_ip: Source IP address.
-            outcome: Execution outcome.
-            require_durable: Require a durable sink to persist the event.
+        Takes the same actor/action/decision fields as
+        CanonicalAuditEvent.from_authorization_decision; pass
+        `require_durable` to enforce durable persistence.
         """
         event = CanonicalAuditEvent.from_authorization_decision(
             surface=surface or self.surface,
@@ -394,25 +347,7 @@ class AuditEventEmitter:
         source_ip: str | None = None,
         outcome: str = "",
     ) -> None:
-        """Emit a mutation audit event.
-
-        Convenience method for emitting mutation events.
-
-        Args:
-            actor_subject: Subject identifier.
-            actor_type: Type of actor.
-            actor_roles: Roles assigned to actor.
-            authentication_source: Source of authentication.
-            action: Canonical action.
-            resource_type: Canonical resource type.
-            resource_id: Resource identifier.
-            target_state_before: State before mutation.
-            target_state_after: State after mutation.
-            change_reason: Reason for the change.
-            request_id: Request correlation ID.
-            source_ip: Source IP address.
-            outcome: Execution outcome.
-        """
+        """Emit a mutation audit event recording before/after state and change reason."""
         event = CanonicalAuditEvent(
             event_type=AuditEventType.MUTATION,
             surface=self.surface,
@@ -442,16 +377,11 @@ class AuditEventSink:
     """
 
     is_durable = False
+    # Sinks that guarantee durable persistence set this True; the emitter
+    # consults it when deciding whether a require_durable emit succeeded.
 
     def write(self, event: CanonicalAuditEvent) -> None:
-        """Write an audit event to the sink.
-
-        Args:
-            event: The audit event to write.
-
-        Raises:
-            NotImplementedError: If not implemented by subclass.
-        """
+        """Persist the event; the base implementation raises NotImplementedError."""
         raise NotImplementedError
 
 
@@ -463,19 +393,11 @@ class LoggingAuditSink(AuditEventSink):
     """
 
     def __init__(self, logger_name: str = "phlo.audit") -> None:
-        """Initialize the logging sink.
-
-        Args:
-            logger_name: Name of the logger to use.
-        """
+        """Create the sink backed by the named logger."""
         self._logger = get_logger(logger_name)
 
     def write(self, event: CanonicalAuditEvent) -> None:
-        """Write an audit event to the log.
-
-        Args:
-            event: The audit event to write.
-        """
+        """Log the event as a structured INFO entry under canonical_audit_event."""
         self._logger.info(
             "canonical_audit_event",
             **event.to_dict(),
@@ -483,16 +405,7 @@ class LoggingAuditSink(AuditEventSink):
 
 
 def create_default_emitter(surface: str) -> AuditEventEmitter:
-    """Create an audit event emitter with default configuration.
-
-    The default configuration includes a logging sink for audit events.
-
-    Args:
-        surface: Name of the surface emitting events.
-
-    Returns:
-        AuditEventEmitter with default sinks configured.
-    """
+    """Return an emitter preconfigured with the structured logging sink."""
     emitter = AuditEventEmitter(surface)
     emitter.add_sink(LoggingAuditSink())
     return emitter

@@ -31,6 +31,9 @@ class PhloAPIRegulatedSurfaceAdapter:
         """Return all regulated operations exposed by phlo-api."""
         from phlo_api.security_manifest import HTTP_ROUTE_DECLARATIONS, validate_manifest
 
+        # Before install() there is no runtime to validate against, so fall
+        # back to the static declarations; validated entries additionally carry
+        # the concrete method/path pairs observed on the live app.
         if self._installed_runtime is not None:
             specs = validate_manifest(self._installed_runtime)
         else:

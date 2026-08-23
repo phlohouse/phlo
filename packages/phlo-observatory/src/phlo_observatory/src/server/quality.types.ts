@@ -1,3 +1,7 @@
+/**
+ * Shared types for data-quality checks and their recent executions as
+ * surfaced by the Observatory.
+ */
 export type MetadataValue =
   | string
   | number

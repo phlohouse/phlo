@@ -77,6 +77,10 @@ from phlo.plugins.base.quality_provider import QualityProviderPlugin
 
 logger = get_logger(__name__)
 
+# These are type-checker declarations only. The names have no module-level
+# value until _load_quality_provider() binds them onto the module globals, so
+# touching them before that runs raises AttributeError (handled by
+# __getattr__ below).
 get_quality_checks: Callable[[], list[Any]] | None
 clear_quality_checks: Callable[[], None] | None
 QualityCheck: type | None
@@ -163,6 +167,9 @@ def _load_quality_provider() -> QualityProviderPlugin | None:
     global QualityCheckContract
     global dbt_check_name
 
+    # Every failure mode here -- discovery problems, a missing pandera
+    # provider, broken provider internals -- is surfaced as one actionable
+    # ModuleNotFoundError telling users what to install.
     try:
         from phlo.plugins.discovery import discover_plugins, get_global_registry
 
@@ -225,7 +232,8 @@ def _ensure_quality_provider_loaded() -> None:
 
     if _quality_provider_loaded:
         return
-
+    # The flag flips only after a successful load, so a failed attempt is
+    # retried on the next access instead of caching the failure forever.
     _load_quality_provider()
     _quality_provider_loaded = True
 

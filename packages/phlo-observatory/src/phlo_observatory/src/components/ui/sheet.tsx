@@ -1,3 +1,6 @@
+/**
+ * Side sheet (slide-over panel) primitives built on Base UI dialog.
+ */
 import * as React from 'react'
 import { Dialog as SheetPrimitive } from '@base-ui/react/dialog'
 

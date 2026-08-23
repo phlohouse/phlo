@@ -12,10 +12,6 @@ Example:
     >>> resource = ClickHouseResource()
     >>> resource.execute("SELECT 1")
     [[1]]
-
-Attributes:
-    __version__: Package version string.
-
 """
 
 from phlo_clickhouse.authorization import (

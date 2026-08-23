@@ -1,4 +1,10 @@
-"""Normalized schema construction helpers."""
+"""Normalized schema construction helpers.
+
+Builds NormalizedSchema values from plain mappings, pandas-like frames, or
+pyarrow schemas. Mapping form derives nullability from the required set;
+dataframe inference is all-nullable and rejects non-dataframe input with a
+PhloConfigError.
+"""
 
 from __future__ import annotations
 

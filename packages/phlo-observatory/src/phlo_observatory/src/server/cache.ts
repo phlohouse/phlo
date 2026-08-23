@@ -42,6 +42,9 @@ interface CacheStats {
   entriesByPrefix: Record<string, number>
 }
 
+// Process-local in-memory cache shared by all server functions in this
+// runtime. Entries expire lazily on read; when MAX_CACHE_ENTRIES is reached
+// the oldest entry (by creation time) is evicted before a new one is stored.
 class MetadataCache {
   private cache = new Map<string, CacheEntry<unknown>>()
   private hits = 0
@@ -286,6 +289,9 @@ export async function withCache<T>(
 
   const result = await fn()
 
+  // Cache only defined, non-error results: an undefined value or an
+  // `{ error: string }` payload is returned uncached so transient backend
+  // failures are retried on the next request.
   if (result !== undefined && !isErrorResult(result)) {
     metadataCache.set(key, result, ttlMs)
   }
@@ -298,6 +304,7 @@ export function getCacheStats(): CacheStats {
 }
 
 export function invalidateCache(keyOrPattern: string): number {
+  // A trailing '*' selects prefix matching; anything else must match exactly.
   if (keyOrPattern.endsWith('*')) {
     return metadataCache.invalidatePattern(keyOrPattern.slice(0, -1))
   }

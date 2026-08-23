@@ -1,4 +1,10 @@
-"""Tests for required durable audit delivery."""
+"""Tests for required durable audit delivery.
+
+Required events must reach at least one successful durable replica sink;
+logging-only and memory-backed sinks do not qualify, sink failure propagates
+(fail closed for allowed mutations), and development logging stays
+best-effort.
+"""
 
 from __future__ import annotations
 

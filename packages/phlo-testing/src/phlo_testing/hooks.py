@@ -11,6 +11,9 @@ Example:
     >>> bus.emit(sample_ingestion_event())
     >>> assert len(captured.events) == 1
 
+
+Contributes hook handlers through the phlo.plugins.hooks extension surface rather than
+direct import.
 """
 
 from __future__ import annotations
@@ -33,11 +36,8 @@ from phlo.plugins.hooks import HookFilter, HookRegistration
 
 
 class MockHookBus(HookBus):
-    """Hook bus that skips plugin discovery for tests.
-
-    A lightweight mock implementation of HookBus that bypasses plugin
-    discovery, allowing tests to register and emit events in isolation
-    without loading actual plugins.
+    """Hook bus that bypasses plugin discovery so tests can register and emit
+    events in isolation.
 
     Example:
         >>> bus = MockHookBus()
@@ -55,13 +55,7 @@ class MockHookBus(HookBus):
 
 @dataclass
 class CapturedEvents:
-    """Capture hook events in memory for assertions.
-
-    A container for collecting hook events emitted during test execution,
-    enabling verification of event sequences and properties.
-
-    Attributes:
-        events: List of captured HookEvent instances.
+    """Capture hook events in memory for assertions about event sequences.
 
     Example:
         >>> captured = CapturedEvents(events=[])
@@ -73,12 +67,7 @@ class CapturedEvents:
     events: list[HookEvent]
 
     def handler(self, event: HookEvent) -> None:
-        """Append a hook event to the captured list.
-
-        Args:
-            event: The HookEvent instance to append to the capture list.
-
-        """
+        """Append a hook event to the captured list."""
         self.events.append(event)
 
 
@@ -87,18 +76,8 @@ def capture_events(
     bus: HookBus,
     event_types: Iterable[str] | None = None,
 ) -> CapturedEvents:
-    """Register a hook handler that collects emitted events.
-
-    Creates and registers a capture handler on the provided hook bus,
-    optionally filtered to specific event types.
-
-    Args:
-        bus: The HookBus instance to register the capture handler on.
-        event_types: Optional iterable of event type strings to filter.
-            If None, captures all event types.
-
-    Returns:
-        A CapturedEvents instance containing the collected events.
+    """Register a capture handler on the hook bus, optionally filtered to
+    specific event types, and return the collected-events container.
 
     Example:
         >>> bus = MockHookBus()
@@ -124,13 +103,7 @@ def capture_events(
 
 
 def sample_ingestion_event() -> IngestionEvent:
-    """Return a sample ingestion event for tests.
-
-    Creates a pre-configured IngestionEvent representing a successful
-    data ingestion operation for testing hook handlers and event processing.
-
-    Returns:
-        An IngestionEvent with sample data.
+    """Return a pre-configured successful IngestionEvent for tests.
 
     Example:
         >>> event = sample_ingestion_event()
@@ -149,13 +122,7 @@ def sample_ingestion_event() -> IngestionEvent:
 
 
 def sample_quality_event() -> QualityResultEvent:
-    """Return a sample quality check event for tests.
-
-    Creates a pre-configured QualityResultEvent representing a passed
-    data quality check for testing hook handlers.
-
-    Returns:
-        A QualityResultEvent with sample data.
+    """Return a pre-configured passed QualityResultEvent for tests.
 
     Example:
         >>> event = sample_quality_event()
@@ -173,13 +140,7 @@ def sample_quality_event() -> QualityResultEvent:
 
 
 def sample_transform_event() -> TransformEvent:
-    """Return a sample transform event for tests.
-
-    Creates a pre-configured TransformEvent representing a successful
-    dbt transformation for testing hook handlers.
-
-    Returns:
-        A TransformEvent with sample data.
+    """Return a pre-configured successful dbt TransformEvent for tests.
 
     Example:
         >>> event = sample_transform_event()
@@ -195,13 +156,7 @@ def sample_transform_event() -> TransformEvent:
 
 
 def sample_publish_event() -> PublishEvent:
-    """Return a sample publish event for tests.
-
-    Creates a pre-configured PublishEvent representing a successful
-    data publication to Postgres for testing hook handlers.
-
-    Returns:
-        A PublishEvent with sample data.
+    """Return a pre-configured successful PublishEvent to Postgres for tests.
 
     Example:
         >>> event = sample_publish_event()
@@ -219,13 +174,7 @@ def sample_publish_event() -> PublishEvent:
 
 
 def sample_lineage_event() -> LineageEvent:
-    """Return a sample lineage event for tests.
-
-    Creates a pre-configured LineageEvent representing data lineage
-    between raw and marts tables for testing hook handlers.
-
-    Returns:
-        A LineageEvent with sample data.
+    """Return a pre-configured raw-to-marts LineageEvent for tests.
 
     Example:
         >>> event = sample_lineage_event()
@@ -240,13 +189,7 @@ def sample_lineage_event() -> LineageEvent:
 
 
 def sample_telemetry_event() -> TelemetryEvent:
-    """Return a sample telemetry event for tests.
-
-    Creates a pre-configured TelemetryEvent representing a metric
-    emission for testing hook handlers.
-
-    Returns:
-        A TelemetryEvent with sample data.
+    """Return a pre-configured TelemetryEvent metric for tests.
 
     Example:
         >>> event = sample_telemetry_event()
@@ -262,13 +205,7 @@ def sample_telemetry_event() -> TelemetryEvent:
 
 
 def sample_service_event() -> ServiceLifecycleEvent:
-    """Return a sample service lifecycle event for tests.
-
-    Creates a pre-configured ServiceLifecycleEvent representing a service
-    startup event for testing hook handlers.
-
-    Returns:
-        A ServiceLifecycleEvent with sample data.
+    """Return a pre-configured service startup ServiceLifecycleEvent for tests.
 
     Example:
         >>> event = sample_service_event()

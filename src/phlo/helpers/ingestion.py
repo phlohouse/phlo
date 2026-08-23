@@ -1,4 +1,9 @@
-"""General ingestion helper utilities."""
+"""General ingestion helper utilities.
+
+Source-agnostic building blocks: nested-record flattening, callback-driven
+paginated API iteration, CSV batch loading, and stable record fingerprints.
+pandas is imported lazily so non-dataframe callers never pay for it.
+"""
 
 from __future__ import annotations
 

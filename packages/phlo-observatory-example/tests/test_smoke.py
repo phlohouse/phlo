@@ -1,4 +1,8 @@
-"""Smoke tests for the example Observatory extension package."""
+"""Smoke tests for the example Observatory extension package.
+
+Checks that the extension manifest builds with expected fields and that static
+assets ship inside the package.
+"""
 
 from phlo.plugins.observatory import ObservatoryExtensionManifest
 from phlo_observatory_example.observatory_plugin import ExampleObservatoryExtension

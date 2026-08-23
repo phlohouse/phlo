@@ -1,4 +1,9 @@
-"""Provider-neutral Observatory API models."""
+"""Provider-neutral Pydantic models for the Observatory API.
+
+The Literal aliases here define the canonical status and state vocabularies;
+every provider backend maps its native states onto these models so
+Observatory renders one uniform surface.
+"""
 
 from __future__ import annotations
 

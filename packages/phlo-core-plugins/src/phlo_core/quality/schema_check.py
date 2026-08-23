@@ -35,7 +35,6 @@ from phlo.plugins import PluginMetadata, QualityCheckPlugin
 
 class SchemaCheckPlugin(QualityCheckPlugin[Any]):
     """Plugin for performing schema validation on data.
-
     This plugin creates schema check instances that validate data against
     expected column structures and data types. It supports both strict
     validation (fails immediately) and lazy validation (collects all errors).
@@ -45,10 +44,6 @@ class SchemaCheckPlugin(QualityCheckPlugin[Any]):
         - Ensuring correct data types before processing
         - Detecting schema drift in data pipelines
         - Enforcing contracts between data producers and consumers
-
-    Attributes:
-        metadata: PluginMetadata containing name, version, description,
-            author, and tags for this plugin.
 
     Example:
         Create and use a schema check::
@@ -64,19 +59,11 @@ class SchemaCheckPlugin(QualityCheckPlugin[Any]):
 
             check = plugin.create_check(schema=schema, lazy=True)
             result = check.validate(df)
-
     """
 
     @property
     def metadata(self) -> PluginMetadata:
-        """Return plugin metadata for the schema-check plugin.
-
-        Returns:
-            PluginMetadata: Metadata including name ("schema_check"),
-                version ("0.1.0"), description, author ("Phlo Team"),
-                and tags (["quality", "schema"]).
-
-        """
+        """Return plugin metadata for the schema-check plugin."""
         return PluginMetadata(
             name="schema_check",
             version="0.1.0",
@@ -87,24 +74,8 @@ class SchemaCheckPlugin(QualityCheckPlugin[Any]):
 
     def create_check(self, *args: Any, **kwargs: Any) -> Any:
         """Create a schema check instance.
-
         Creates and returns a configured SchemaCheck instance from phlo_pandera
         that validates data against the provided schema.
-
-        Args:
-            schema: Expected schema object for validation. This is typically
-                a Pandera DataFrameSchema or similar schema definition that
-                defines expected columns, types, and constraints.
-            lazy: Whether to collect all validation errors before failing.
-                When True, all validation errors are collected and reported
-                together. When False, validation fails on the first error.
-                Defaults to True.
-
-        Returns:
-            Any: Configured SchemaCheck instance ready to validate data.
-            The returned object has a ``validate()`` method that accepts
-            a DataFrame and returns the validated data or raises a
-            SchemaError if validation fails.
 
         Example:
             Create a schema check with lazy validation::
@@ -123,7 +94,6 @@ class SchemaCheckPlugin(QualityCheckPlugin[Any]):
             Create a schema check with strict validation::
 
                 strict_check = plugin.create_check(schema=schema, lazy=False)
-
         """
         if len(args) > 2 or set(kwargs) - {"schema", "lazy"}:
             raise TypeError("create_check accepts schema and lazy")

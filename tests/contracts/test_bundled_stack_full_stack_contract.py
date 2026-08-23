@@ -1,4 +1,9 @@
-"""Bundled-stack full-platform contract checks."""
+"""Bundled-stack full-platform contract checks.
+
+Single end-to-end integration pass over the bundled harness: materialise sample
+assets, verify API/observability/CLI surfaces plus Superset and OpenMetadata,
+then shut services down in stages.
+"""
 
 from __future__ import annotations
 

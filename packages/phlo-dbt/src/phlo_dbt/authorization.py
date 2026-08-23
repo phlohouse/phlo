@@ -1,4 +1,9 @@
-"""phlo_dbt CLI authorization table."""
+"""phlo_dbt CLI authorization table.
+
+Declares which dbt CLI commands mutate versus read and maps them to
+resource/action pairs. The adapter is built once by
+cli_surface_adapter_class and handed out as a singleton.
+"""
 
 from __future__ import annotations
 
@@ -27,4 +32,5 @@ DbtSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_dbt_adapter() -> CliSurfaceAdapter:
+    """Return the shared DbtSurfaceAdapter instance for this surface."""
     return DbtSurfaceAdapter.get_instance()

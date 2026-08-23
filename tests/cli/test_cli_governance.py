@@ -1,3 +1,11 @@
+"""Tests for the governance CLI commands, run against a cleared flow-declaration registry.
+
+Each test starts from an empty global flow-declaration registry and
+leaves nothing behind. Covers unsafe publishes failing with structured
+warnings, contract-governed publishes passing, read-model export, and
+clean errors for bad declaration modules.
+"""
+
 from __future__ import annotations
 
 import json
@@ -16,6 +24,8 @@ pytestmark = pytest.mark.core_regression
 
 @pytest.fixture(autouse=True)
 def _clear_flow_declarations() -> Iterator[None]:
+    # Decorator-declared flows accumulate in global registry state, so every
+    # test starts from an empty registry and leaves nothing behind.
     phlo.clear_flow_declarations()
     yield
     phlo.clear_flow_declarations()

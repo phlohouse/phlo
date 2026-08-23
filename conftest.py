@@ -46,6 +46,9 @@ _PHLO_TESTING_FIXTURE_MODULES = (
     "pandas",
 )
 
+# Load the shared fixture modules only when their heavy dependencies are
+# installed; otherwise collection would fail on environments that have only
+# the core package.
 pytest_plugins = (
     ("phlo_testing.fixtures",)
     if all(
@@ -57,6 +60,8 @@ pytest_plugins = (
 
 
 def _register_workspace_plugins() -> None:
+    # Best effort: workspaces without the phlo_dlt package installed must
+    # still be able to collect and run the rest of the suite.
     try:
         from phlo_dlt.plugin import DltAssetProvider
 
@@ -192,6 +197,8 @@ def minio_service():
     try:
         with MinioContainer("minio/minio:latest") as minio:
             yield minio
+    # A container that fails to start degrades to None exactly like the
+    # no-Docker path, so integration tests fall back to the local filesystem.
     except Exception:
         yield None
 

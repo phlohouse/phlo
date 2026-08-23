@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Derive container inventories, validate reports, and apply Phlo scan policy."""
+"""Derive container inventories, validate Trivy reports, and enforce Phlo scan policy.
+
+Waivers are temporary exceptions: each needs approval and expiry dates, may
+last at most 30 days, and only unfixed CRITICAL or HIGH findings may rely on
+one; findings with an available fix block publication regardless of waivers.
+"""
 
 from __future__ import annotations
 
@@ -69,6 +74,7 @@ def _date(value: Any, field: str) -> dt.date:
 
 
 def load_waivers(path: Path) -> list[dict[str, Any]]:
+    """Load the waiver register from YAML, raising ValueError on any structural violation."""
     try:
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
@@ -84,6 +90,7 @@ def load_waivers(path: Path) -> list[dict[str, Any]]:
 
 
 def validate_waivers(waivers: list[dict[str, Any]], today: dt.date | None = None) -> list[str]:
+    """Check each waiver against schema and policy rules; return a list of error messages."""
     today = today or dt.datetime.now(dt.UTC).date()
     errors: list[str] = []
     active_findings: set[tuple[str, str]] = set()
@@ -122,6 +129,7 @@ def validate_waivers(waivers: list[dict[str, Any]], today: dt.date | None = None
 
 
 def render_waivers(waivers: list[dict[str, Any]], today: dt.date | None = None) -> str:
+    """Render waivers grouped as active, expiring within 7 days, and expired."""
     today = today or dt.datetime.now(dt.UTC).date()
     groups: dict[str, list[dict[str, Any]]] = {"active": [], "expiring": [], "expired": []}
     for waiver in waivers:
@@ -187,9 +195,12 @@ def _image_default(value: str) -> str:
 
 
 def affected_images(changed: Iterable[str], root: Path) -> dict[str, list[dict[str, str]]]:
+    """Map changed paths to the generated service images CI must scan as GitHub matrix output."""
     paths = set(changed)
     service_files = sorted((root / "packages").glob("*/src/*/service.yaml"))
     targets: list[dict[str, str]] = []
+    # Shared infrastructure files do not map to one package, so any touch
+    # triggers a scan of every built image instead of the per-package filter.
     broad_change = any(path in BROAD_IMAGE_PATHS or path.startswith("security/") for path in paths)
     for service_file in service_files:
         service = yaml.safe_load(service_file.read_text(encoding="utf-8"))
@@ -368,6 +379,8 @@ def upstream_runtime_inventory(root: Path) -> dict[str, Any]:
         images.append(
             {
                 "reference": reference,
+                # Deterministic name derived from the reference keeps inventory,
+                # scan artifacts, and later comparisons linkable without a registry.
                 "report": hashlib.sha256(reference.encode()).hexdigest() + ".json",
                 "sources": sorted(
                     sources,
@@ -753,6 +766,8 @@ def compare_upstream_candidate_reports(
 
 
 def _waived(waivers: list[dict[str, Any]], image: str, vulnerability_id: str) -> bool:
+    # Waivers may name either the full digest-pinned reference, the bare
+    # repository@tag form with the digest stripped, or a tagged variant of it.
     image_name = image.split("@", 1)[0]
     for waiver in waivers:
         if str(waiver.get("vulnerability_id")) != vulnerability_id:
@@ -763,7 +778,11 @@ def _waived(waivers: list[dict[str, Any]], image: str, vulnerability_id: str) ->
     return False
 
 
+# A finding with an available fix always blocks, even under an active waiver:
+# upgrading supersedes waiving. Only unfixed findings consult the waiver
+# register; _waived documents the accepted image-name forms.
 def apply_policy(report: dict[str, Any], image: str, waivers: list[dict[str, Any]]) -> list[str]:
+    """Apply blocking-severity policy to one Trivy report, returning unwaived blocking findings."""
     errors: list[str] = []
     for result in report.get("Results", []) or []:
         for finding in result.get("Vulnerabilities", []) or []:
@@ -786,6 +805,7 @@ def apply_policy(report: dict[str, Any], image: str, waivers: list[dict[str, Any
 
 
 def main() -> int:
+    """Dispatch the container-security subcommands; return the process exit code."""
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     validate = sub.add_parser("validate-waivers")

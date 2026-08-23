@@ -1,4 +1,13 @@
-"""Redaction and canonical serialization for stored run evidence."""
+"""Redaction and canonical serialization for stored run evidence.
+
+Deep-redacts sensitive keys, row-data payloads, and credential-bearing
+text before anything is stored. canonical_json is the stable serialization
+underlying payload_checksum, and safe_error_summary keeps only an error
+type plus a text fingerprint — never exception message content.
+
+Imported by the run-evidence store/report/reconciliation siblings and by the
+evidence pipelines in phlo-dagster, phlo-dlt, and phlo-iceberg.
+"""
 
 from __future__ import annotations
 

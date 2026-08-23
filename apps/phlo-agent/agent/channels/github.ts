@@ -1,3 +1,8 @@
+// GitHub webhook channel: converts issue and pull-request events into agent
+// triage/review sessions. A handler returning a descriptor starts a session
+// with the given auth and prompt; returning null ignores the event. Only
+// freshly opened issues and PRs leaving draft state are picked up, and
+// bot-authored events are dropped.
 import {
   defaultGitHubAuth,
   githubChannel,

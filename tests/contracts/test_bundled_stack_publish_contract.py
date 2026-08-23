@@ -1,4 +1,8 @@
-"""Bundled-stack publish contract checks."""
+"""Bundled-stack publish contract checks.
+
+Asserts the bundled stack publishes committed marts only, exercised end-to-end
+through the bundled_stack_harness fixture.
+"""
 
 from __future__ import annotations
 

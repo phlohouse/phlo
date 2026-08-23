@@ -1,3 +1,8 @@
+/**
+ * /datasets route. Parent layout listing promoted datasets and candidates
+ * with owner, classification, publication, and readiness filters; the
+ * selected dataset's child route renders in the outlet.
+ */
 import {
   Link,
   Outlet,

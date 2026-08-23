@@ -1,4 +1,11 @@
-"""Shared schema migration planning over normalized schemas."""
+"""Shared schema migration planning over normalized schemas.
+
+Diffing is provider-neutral: dtype widening pairs are lossless, every
+other dtype change classifies as narrowing, and providers can override
+risk/recommendations per change via SchemaPlanningPolicy. Explicit
+renames must be injective and reference fields that exist on both
+sides; violations raise SchemaMigrationPlanningError.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +15,8 @@ from dataclasses import dataclass, field
 from phlo.capabilities.schema import default_classify_change, worst_classification
 from phlo.capabilities.specs import FieldSpec, NormalizedSchema, SchemaChange, SchemaMigrationPlan
 
+# Dtype transitions treated as lossless widening; every other dtype change is
+# classified as a narrowing change.
 _WIDEN_PAIRS = {
     ("int32", "int64"),
     ("float32", "float64"),
@@ -55,6 +64,8 @@ def plan_schema_migration(
     _validate_renames(renames, current_fields=current_fields, desired_fields=desired_fields)
 
     changes: list[SchemaChange] = []
+    # Renamed fields are emitted as explicit rename changes and excluded from
+    # the add/drop/mutation passes below so they never surface as drop+add.
     renamed_sources = set(renames)
     renamed_targets = set(renames.values())
 

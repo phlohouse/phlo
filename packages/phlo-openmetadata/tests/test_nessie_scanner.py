@@ -1,4 +1,10 @@
-"""Tests for Nessie table scanner."""
+"""Tests for Nessie table scanner.
+
+Covers namespace and table listing over the Nessie REST API, table
+metadata retrieval, conversion into OpenMetadata table models, sync with
+namespace include/exclude filtering, per-table failure accounting, and
+request error propagation.
+"""
 
 from unittest.mock import Mock, patch
 

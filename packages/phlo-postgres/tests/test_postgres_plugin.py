@@ -1,4 +1,9 @@
-"""Tests for Postgres service and resource plugins."""
+"""Tests for Postgres service and resource plugins.
+
+Pins digest-pinned upstream images for the server and exporter, the
+volume-setup guard that refuses pre-18 data layouts, and the resource
+provider's single postgres resource plus serving-role publish target.
+"""
 
 from phlo.capabilities import PublishTargetSpec
 from phlo_postgres.plugin import (

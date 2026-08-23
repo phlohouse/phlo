@@ -1,4 +1,9 @@
-"""Mechanical guard for API tests that call protected HTTP routes."""
+"""Mechanical guard for API tests that call protected HTTP routes.
+
+Parses sibling test modules with ast and fails when a direct TestClient call
+hits a manifest-listed route without auth headers, an explicit 401
+assertion, or an unregulated development-test opt-out.
+"""
 
 from __future__ import annotations
 
@@ -40,6 +45,8 @@ def _direct_test_client_calls(function: ast.AST) -> list[ast.Call]:
 
 
 def _is_explicit_development_test(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    # Opt-out for tests of unregulated (development-only) routes; the explicit
+    # 200 assertion shows the request is meant to succeed without auth headers.
     return "unregulated" in function.name and _contains_status_assertion(function, 200)
 
 

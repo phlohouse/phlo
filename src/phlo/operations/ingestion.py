@@ -1,3 +1,11 @@
+"""Ingestion engine contract implemented by backends and consumed by orchestrators.
+
+BaseIngester (sync) and AsyncIngester define the common run_ingestion()
+contract so backends such as DLT stay interchangeable under orchestrators
+such as Dagster. partition_key is None for unpartitioned runs; every
+execution returns an IngestionResult with row counts and metadata.
+"""
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -14,20 +22,11 @@ class IngestionResult:
 
 
 class BaseIngester(ABC):
-    """
-    Abstract base class for Phlo Ingestion Engines.
-
-    This ensures that different ingestion backends (DLT, Airbyte, Custom)
-    adhere to a common contract that Orchestrators (Dagster, Airflow) can consume.
-    """
+    """Abstract base class ensuring ingestion backends (DLT, Airbyte, custom)
+    share one contract that orchestrators can consume."""
 
     def __init__(self, context: Any, logger: Any):
-        """Store runtime context and logger for ingestion implementations.
-
-        Args:
-            context: Orchestrator-provided execution context.
-            logger: Logger used for ingestion diagnostics.
-        """
+        """Store the orchestrator-provided context and diagnostics logger."""
 
         self.context = context
         self.logger = logger
@@ -44,20 +43,11 @@ class BaseIngester(ABC):
 
 
 class AsyncIngester(ABC):
-    """
-    Async abstract base class for ingestion engines.
-
-    Implementations can be adopted incrementally while existing sync
-    ingestion engines continue using ``BaseIngester``.
-    """
+    """Async abstract base class for ingestion engines; adoptable incrementally
+    alongside sync ``BaseIngester`` implementations."""
 
     def __init__(self, context: Any, logger: Any):
-        """Store runtime context and logger for async ingestion implementations.
-
-        Args:
-            context: Orchestrator-provided execution context.
-            logger: Logger used for ingestion diagnostics.
-        """
+        """Store the orchestrator-provided context and diagnostics logger."""
 
         self.context = context
         self.logger = logger

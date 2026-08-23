@@ -1,4 +1,8 @@
-"""Unit tests for Trino SQL helper utilities."""
+"""Unit tests for Trino SQL helper utilities.
+
+Pins identifier quoting, literal rendering, table qualification, and read-only
+query validation contracts.
+"""
 
 from __future__ import annotations
 

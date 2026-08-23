@@ -1,4 +1,9 @@
-"""Contracts for the separately reported core-regression CI partition."""
+"""Contracts for the separately reported core-regression CI partition.
+
+The ``core_regression`` marker must select a nonempty, disjoint subset of the
+integration-excluded test suite, and ci.yml must run both partitions with
+their own steps.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,10 @@
-"""Render `.env` and `.env.local` content from discovered service definitions."""
+"""Render `.env` and `.env.local` content from discovered service definitions.
+
+Non-secret defaults go to `.env`; secrets and local overrides go to
+`.env.local` with freshly generated secret material for new variables.
+Values are normalized to strings (None becomes empty, bools become
+true/false) before rendering.
+"""
 
 import secrets
 from importlib.metadata import PackageNotFoundError, version
@@ -16,15 +22,7 @@ def _default_package_version(package: str) -> str:
 
 
 def normalize_env_value(value: Any) -> str:
-    """Convert an environment value to its serialized string form.
-
-    Args:
-        value: Raw value from defaults, overrides, or existing env content.
-
-    Returns:
-        String value ready for `.env` output. `None` becomes an empty string and
-        booleans are normalized to lowercase `true`/`false`.
-    """
+    """Serialize a value for `.env` output; None becomes empty, bools lowercase true/false."""
     if value is None:
         return ""
     if isinstance(value, bool):
@@ -33,14 +31,7 @@ def normalize_env_value(value: Any) -> str:
 
 
 def normalize_env_overrides(env_overrides: dict[str, Any]) -> dict[str, str]:
-    """Normalize override values into a string-only environment mapping.
-
-    Args:
-        env_overrides: Environment overrides loaded from project configuration.
-
-    Returns:
-        A new dictionary containing only string keys and normalized string values.
-    """
+    """Normalize project overrides into a new string-keyed, string-valued mapping."""
     normalized: dict[str, str] = {}
     for key, value in env_overrides.items():
         if not isinstance(key, str):
@@ -73,19 +64,7 @@ def render_env(
     existing_values: dict[str, str] | None,
     header_lines: list[str],
 ) -> str:
-    """Render environment file content for selected service variables.
-
-    Args:
-        services: Service definitions that contribute environment variables.
-        env_overrides: Optional project-level env overrides keyed by variable name.
-        include_secrets: Whether secret variables should be emitted.
-        include_non_secrets: Whether non-secret variables should be emitted.
-        existing_values: Existing local values to preserve for selected keys.
-        header_lines: Header lines prepended to the rendered output.
-
-    Returns:
-        Full environment file body with grouped sections and trailing newlines.
-    """
+    """Render environment file content for selected service variables."""
     lines = list(header_lines)
 
     overrides = normalize_env_overrides(env_overrides or {})
@@ -184,15 +163,7 @@ def generate_env(
     services: list[ServiceDefinition],
     env_overrides: dict[str, Any] | None = None,
 ) -> str:
-    """Generate .env file content (non-secret defaults).
-
-    Args:
-        services: List of services to include.
-        env_overrides: Optional env var overrides from phlo.yaml.
-
-    Returns:
-        Environment file content as string.
-    """
+    """Render non-secret defaults into `.env` content."""
     return render_env(
         services,
         env_overrides=env_overrides,
@@ -213,16 +184,7 @@ def generate_env_local(
     env_overrides: dict[str, Any] | None = None,
     existing_values: dict[str, str] | None = None,
 ) -> str:
-    """Generate .env.local file content (secrets and local overrides).
-
-    Args:
-        services: List of services to include.
-        env_overrides: Optional env var overrides from phlo.yaml.
-        existing_values: Existing .env.local values to preserve.
-
-    Returns:
-        Environment file content as string.
-    """
+    """Render secrets and local overrides into `.env.local` content, preserving existing values."""
     return render_env(
         services,
         env_overrides=env_overrides,

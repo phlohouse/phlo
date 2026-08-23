@@ -1,4 +1,10 @@
-"""Tests for RBAC compiler behavior."""
+"""Tests for RBAC compiler behavior.
+
+Covers the Trino policy compiler: privilege-to-action mapping, revert ids
+that round-trip to artifact names (invalid ones rejected), control-plane
+and deny-rule exclusion, and rejection of unsafe role names or wildcard
+patterns outside the final resource segment.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""Integration tests for phlo-hasura."""
+"""Integration tests for phlo-hasura.
+
+Runs under the integration marker: exercises real plugin initialization and
+the Hasura service definition end-to-end instead of with mocks.
+"""
 
 import pytest
 

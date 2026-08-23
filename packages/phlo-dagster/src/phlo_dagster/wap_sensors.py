@@ -41,6 +41,8 @@ Example:
         wap_defs = get_wap_definitions()
         defs = dg.Definitions.merge(your_defs, wap_defs)
 
+Builds on the phlo capability resolver, hooks bus, and run-evidence store to drive WAP
+promotion and cleanup sensors against versioned catalogs.
 """
 
 from __future__ import annotations
@@ -109,14 +111,8 @@ def _branch_hash(catalog: VersionedCatalog, branch: str) -> str | None:
 def _load_versioned_catalog() -> VersionedCatalog:
     """Resolve the active versioned catalog capability for WAP flows.
 
-    Args:
-        None
-
-    Returns:
-        VersionedCatalog provider instance.
-
-    Raises:
-        RuntimeError: If catalog capability is not available or doesn't support refs/promotion.
+    Raises RuntimeError when no catalog capability is available or it does
+    not support refs and promotion.
 
     """
     resolution = resolve_capability("catalog")
@@ -187,15 +183,7 @@ def _cleanup_owned_wap_branch(
 
 
 def _wap_branch_name(run_id: str) -> str:
-    """Derive the WAP branch name for a run.
-
-    Args:
-        run_id: Dagster run ID.
-
-    Returns:
-        WAP branch name string.
-
-    """
+    """Derive the WAP branch name for a Dagster run ID."""
     return f"{WAP_BRANCH_PREFIX}run-{run_id}"
 
 
@@ -599,16 +587,8 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
     are terminalized in their durable reports but retain their branches and
     optional query catalogs for audit until the cleanup sensor's retention
     policy applies. For successful runs, verifies that no asset checks failed,
-    then merges the branch to main and cleans up.
-
-    Args:
-        context: Dagster sensor evaluation context.
-
-    Returns:
-        None
-
-    Raises:
-        No explicit exceptions raised. Logs warnings on failures.
+    then merges the branch to main and cleans up. Failures are logged as
+    warnings.
 
     """
     instance = context.instance
@@ -623,6 +603,9 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
         except ValueError:
             cursor_ts = None
 
+    # Rewind the cursor slightly so runs updated between the query and the
+    # cursor commit are not skipped; a cold start (no cursor) looks back an
+    # hour instead of scanning all history.
     cutoff = (
         (cursor_ts - timedelta(minutes=5)) if cursor_ts else (evaluation_time - timedelta(hours=1))
     )
@@ -657,6 +640,8 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
             )
             continue
 
+        # Written only after the full promote-and-cleanup sequence succeeds,
+        # so its presence means later ticks must not reprocess this run.
         if run_tags.get("phlo/wap_promoted"):
             continue
 
@@ -998,16 +983,7 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
 
 
 def _all_checks_passed(instance: Any, run_id: str) -> bool:
-    """Return True if every asset check in the run passed (or none were executed).
-
-    Args:
-        instance: Dagster instance.
-        run_id: Dagster run ID.
-
-    Returns:
-        True if all checks passed or no checks executed.
-
-    """
+    """Return True if every asset check in the run passed (or none were executed)."""
     try:
         check_records = instance.get_records_for_run(
             run_id,
@@ -1029,7 +1005,7 @@ def _all_checks_passed(instance: Any, run_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Sensor 3: Branch cleanup
+# Sensor 2: Branch cleanup
 # ---------------------------------------------------------------------------
 
 
@@ -1053,15 +1029,6 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
     recorded when the matched run is active, absent, ambiguous, or conflicts on
     project/attempt metadata.  The logical run ID is the cleanup/report
     identity; the physical Dagster run ID is used only for status.
-
-    Args:
-        context: Dagster sensor evaluation context.
-
-    Returns:
-        None
-
-    Raises:
-        No explicit exceptions raised. Logs warnings on failures.
 
     """
     catalog = _load_versioned_catalog()
@@ -1220,17 +1187,7 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
 def get_wap_definitions() -> dg.Definitions:
     """Return Dagster definitions for the WAP lifecycle sensors.
 
-    Merge into your project definitions to enable automated
-    Write-Audit-Publish.
-
-    Args:
-        None
-
-    Returns:
-        Dagster Definitions containing WAP sensors.
-
-    Raises:
-        No explicit exceptions raised.
+    Merge into your project definitions to enable automated Write-Audit-Publish.
 
     """
     logger.info(

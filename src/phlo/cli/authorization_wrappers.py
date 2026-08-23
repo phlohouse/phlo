@@ -43,23 +43,13 @@ def require_mutation_authorization(
     resource_id: str | Callable[[Any], str] | None = None,
     when: Callable[[dict[str, Any]], bool] | None = None,
 ) -> Callable[[Callable[P, T]], Callable[P, T]]:
-    """Decorator that enforces authorization on a mutation command.
+    """Decorator that enforces authorization on a mutation Click command.
 
-    Use this decorator on Click command functions that perform mutations.
-    The decorator resolves the principal from the environment, enforces
-    through core, and raises click exception on denial.
-
-    Args:
-        command: Command path (e.g., "services.start")
-        when: Optional predicate over Click callback kwargs. If provided, authorization
-            is enforced only when the predicate returns true.
-        resource_id: Optional resource ID extractor. Can be:
-            - None: uses command as resource ID
-            - str: static resource ID
-            - Callable: function that receives the click.Context and returns resource ID
-
-    Returns:
-        Decorated command function
+    Resolves the principal from the environment and enforces through core,
+    exiting when denied. ``resource_id`` may be None (command as id), a static
+    string, or a callable receiving the click.Context. ``when`` optionally
+    gates enforcement on the callback kwargs; a broken predicate enforces
+    rather than bypasses authorization.
 
     Example:
         @click.command("start")
@@ -76,6 +66,7 @@ def require_mutation_authorization(
                 return fn(*args, **kwargs)
 
             if when is not None:
+                # A broken predicate enforces rather than bypasses authorization.
                 try:
                     should_enforce = when(dict(kwargs))
                 except Exception:
@@ -169,9 +160,11 @@ class MutationContext:
 
     @property
     def result(self) -> EnforcementResult | None:
+        """Return the enforcement result captured on entry, or None before entry."""
         return self._result
 
     def is_allowed(self) -> bool:
+        """Return True when enforcement ran and allowed the mutation."""
         return self._result is not None and self._result.allowed
 
 
@@ -180,13 +173,6 @@ def enforce_mutation_context(
     resource_id: str | None = None,
 ) -> MutationContext:
     """Create a mutation context for use in a with statement.
-
-    Args:
-        command: Command path (e.g., "services.start")
-        resource_id: Optional resource identifier
-
-    Returns:
-        MutationContext that can be used in a with statement
 
     Example:
         from phlo.cli.authorization import enforce_mutation_context
@@ -208,18 +194,9 @@ def emit_cli_audit_event(
     resource_id: str,
     reason_code: str | None = None,
 ) -> None:
-    """Emit a CLI-specific audit event for command execution.
+    """Emit a CLI audit event after an authorization decision ("allowed" or "denied").
 
-    This is called by command wrappers after authorization decisions
-    to emit audit events that capture CLI-specific context.
-
-    Args:
-        command: Full command path
-        decision: "allowed" or "denied"
-        subject: Principal subject
-        resource_type: Type of resource affected
-        resource_id: Specific resource identifier
-        reason_code: Optional denial reason code
+    Called by command wrappers; emission failures are logged, never raised.
     """
     try:
         ctx = EnforcementContext.get_instance()
@@ -242,7 +219,11 @@ def emit_cli_audit_event(
 
 
 def check_cli_surface_active() -> bool:
-    """Check if the CLI surface is active and regulated mode is enabled."""
+    """Check if the CLI surface is active and regulated mode is enabled.
+
+    Detection failure counts as not regulated, so commands run without
+    enforcement rather than being blocked by an unrelated error.
+    """
     try:
         from phlo.security.mode import is_regulated
 

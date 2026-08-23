@@ -1,4 +1,9 @@
-"""Tests for Iceberg maintenance telemetry helpers."""
+"""Tests for Iceberg maintenance telemetry helpers.
+
+Verifies that start/complete maintenance operations emit telemetry events
+whose correlation carries the Dagster run id and job name taken from the run
+context, with completion evidence attached to the payload.
+"""
 
 from __future__ import annotations
 

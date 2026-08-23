@@ -73,17 +73,7 @@ _DTYPE_MAP: dict[type, str] = {
 def _map_dtype(python_type: type) -> str:
     """Map a scalar Python type to a canonical dtype string.
 
-    Converts Python type annotations to canonical storage type strings
-    recognized by storage providers like Iceberg and Delta Lake.
-
-    Args:
-        python_type: Scalar Python type annotation.
-
-    Returns:
-        Canonical dtype string recognized by storage providers.
-
-    Raises:
-        ValueError: If the type has no known mapping.
+    Raise ValueError when the type has no known mapping.
 
     Example:
         ```python
@@ -91,7 +81,6 @@ def _map_dtype(python_type: type) -> str:
         _map_dtype(int)    # Returns: "int64"
         _map_dtype(float)  # Returns: "float64"
         ```
-
     """
     dtype = _DTYPE_MAP.get(python_type)
     if dtype is None:
@@ -102,23 +91,12 @@ def _map_dtype(python_type: type) -> str:
 def _unwrap_optional(tp: Any) -> type:
     """Unwrap Optional[T] / Union[T, None] to the inner type T.
 
-    Strips the Optional wrapper from type annotations to get the underlying
-    type for dtype mapping. Returns the type unchanged when it is not
-    an optional wrapper.
-
-    Args:
-        tp: Type annotation that may be wrapped in Optional.
-
-    Returns:
-        The inner type if Optional, otherwise the type unchanged.
-
     Example:
         ```python
         _unwrap_optional(Optional[str])  # Returns: str
         _unwrap_optional(str | None)   # Returns: str
         _unwrap_optional(int)          # Returns: int
         ```
-
     """
     origin = get_origin(tp)
     if origin is Union or isinstance(tp, types.UnionType):
@@ -188,18 +166,9 @@ class PanderaSchemaExtractor:
     def extract(self, native_schema: type[DataFrameModel]) -> NormalizedSchema:
         """Convert a Pandera DataFrameModel class into a NormalizedSchema.
 
-        Processes the class annotations and Pandera column metadata to produce
-        a normalized schema with FieldSpec entries for each annotated column.
-
-        Args:
-            native_schema: Pandera DataFrameModel subclass (the class itself,
-                not an instance).
-
-        Returns:
-            NormalizedSchema with one FieldSpec per annotated column.
-
-        Raises:
-            ValueError: If a type cannot be mapped to a canonical dtype.
+        Produces one FieldSpec per annotated column from class annotations and
+        Pandera column metadata. Raise ValueError when a type cannot be mapped to a
+        canonical dtype.
 
         Example:
             ```python
@@ -212,7 +181,6 @@ class PanderaSchemaExtractor:
             extractor = PanderaSchemaExtractor()
             normalized = extractor.extract(MySchema)
             ```
-
         """
         annotations = get_type_hints(native_schema)
         schema_obj = native_schema.to_schema()

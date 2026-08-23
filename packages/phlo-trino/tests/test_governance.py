@@ -1,4 +1,9 @@
-"""Tests for Trino governance SQL rendering."""
+"""Tests for Trino governance SQL rendering.
+
+Every statement must quote each qualified table name segment individually so
+GRANT, REVOKE, and SHOW GRANTS apply to exactly the parsed
+catalog.schema.table and nothing else.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,9 @@
-"""Tests for OpenMetadata REST API client."""
+"""Tests for the OpenMetadata REST API client.
+
+Covers the column and table dataclasses (dict rendering drops None values),
+and OpenMetadataClient behaviour against mocked HTTP requests, including
+table upserts and retry handling.
+"""
 
 from unittest.mock import Mock, patch
 

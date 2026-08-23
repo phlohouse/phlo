@@ -1,4 +1,9 @@
-"""Tests for DLT authorization module."""
+"""Tests for DLT authorization module.
+
+Covers the DLT surface adapter, the read/mutation command maps (asserted
+disjoint), and mutation enforcement behavior against a mocked enforcement
+backend.
+"""
 
 from __future__ import annotations
 

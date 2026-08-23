@@ -1,4 +1,9 @@
-"""Tests for backend compiler coverage of canonical actions."""
+"""Tests for backend compiler coverage of canonical actions.
+
+The compiler-backed action set must stay inside the canonical taxonomy,
+every compiled action must have at least one registered compiler, and
+Trino's mapping must cover exactly its declared actions.
+"""
 
 from __future__ import annotations
 

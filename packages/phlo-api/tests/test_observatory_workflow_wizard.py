@@ -1,3 +1,10 @@
+"""Tests the Observatory workflow wizard HTTP surface.
+
+Exercises the FastAPI app with an authenticated project:write token: listing
+package contributions, proposal validation (graph nodes, stages), file
+previews, and the write paths guarded behind project-write scope.
+"""
+
 from __future__ import annotations
 
 import json

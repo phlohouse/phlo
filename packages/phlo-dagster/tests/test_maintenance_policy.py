@@ -1,4 +1,11 @@
-"""Tests for automated table maintenance policies."""
+"""Tests for automated table maintenance policies.
+
+evaluate_table thresholds are strict inequalities against Iceberg table
+stats: expire fires above snapshot_count_gt, optimize below
+avg_file_size_mb_lt, with a zero file count skipping optimize rather
+than dividing. Also covers YAML policy loading (default ref "main")
+and the sensor/job Dagster definitions.
+"""
 
 from __future__ import annotations
 

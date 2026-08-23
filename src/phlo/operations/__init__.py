@@ -1,4 +1,8 @@
-"""Phlo operations: ingestion and transformation base classes."""
+"""Ingestion and transformation operation contracts for Phlo.
+
+Exposes sync and async ingester/transformer base classes plus adapters that
+bridge sync implementations into async pipelines and vice versa.
+"""
 
 from phlo.operations.adapters import (
     AsyncToSyncIngesterAdapter,

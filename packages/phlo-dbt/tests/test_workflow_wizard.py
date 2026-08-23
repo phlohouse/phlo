@@ -1,3 +1,10 @@
+"""Tests the dbt workflow wizard contribution.
+
+phlo_dbt.plugin must expose a single dbt.transform proposal-mode contribution
+whose fields cover the transform knobs (renames, casts, where, partition_by,
+metrics).
+"""
+
 from phlo.capabilities import WorkflowContributionMode
 from phlo_dbt.plugin import get_workflow_wizard_contributions
 

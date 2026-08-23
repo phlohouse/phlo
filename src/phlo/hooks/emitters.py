@@ -1,4 +1,10 @@
-"""Helper emitters for publishing hook events."""
+"""Helper emitters for publishing hook events.
+
+One context dataclass and emitter per event family: ingestion, transform,
+publish, quality results, lineage, telemetry, service lifecycle, and schema
+and data migrations. Correlation fields merge with the bound logging context
+first, then explicit base, then per-event overrides; only non-None wins.
+"""
 
 from __future__ import annotations
 
@@ -29,7 +35,10 @@ def _merge_correlation(
     base: HookCorrelation | None = None,
     overrides: dict[str, Any] | None = None,
 ) -> HookCorrelation:
-    """Merge bound, explicit, and event-specific correlation fields."""
+    """Merge correlation fields from three sources, lowest precedence first:
+    the bound context, the explicit base, then per-event overrides. A source
+    only replaces a field with a non-None value, so unset fields fall through.
+    """
     correlation = HookCorrelation(**vars(get_bound_correlation_context()))
     if base is not None:
         for key, value in vars(base).items():
@@ -80,6 +89,10 @@ class _ContextEmitterBase:
         """Return an explicit or deterministic identity for retryable events."""
         if explicit:
             return explicit
+        # Derive a stable identity from the run coordinates so retries of the
+        # same work produce the same event_id and downstream consumers can
+        # deduplicate. Tags are excluded from the hash: they annotate events
+        # but are not part of their identity.
         context = asdict(self._context)
         context.pop("tags", None)
         context.pop("correlation", None)
@@ -160,15 +173,7 @@ class IngestionEventEmitter(_ContextEmitterBase):
         error: str | None,
         event_id: str | None,
     ) -> None:
-        """Emit an ingestion event.
-
-        Args:
-            event_type: Event type identifier.
-            status: Lifecycle status value.
-            metrics: Optional metric payload.
-            error: Optional error message.
-
-        """
+        """Emit an ingestion event."""
         self._emit_event(
             IngestionEvent(
                 event_type=event_type,
@@ -246,15 +251,7 @@ class TransformEventEmitter(_ContextEmitterBase):
         error: str | None,
         event_id: str | None,
     ) -> None:
-        """Emit a transform event.
-
-        Args:
-            event_type: Event type identifier.
-            status: Lifecycle status value.
-            metrics: Optional metric payload.
-            error: Optional error message.
-
-        """
+        """Emit a transform event."""
         self._emit_event(
             TransformEvent(
                 event_type=event_type,
@@ -326,15 +323,7 @@ class PublishEventEmitter(_ContextEmitterBase):
         error: str | None,
         event_id: str | None,
     ) -> None:
-        """Emit a publish event.
-
-        Args:
-            event_type: Event type identifier.
-            status: Lifecycle status value.
-            metrics: Optional metric payload.
-            error: Optional error message.
-
-        """
+        """Emit a publish event."""
         self._emit_event(
             PublishEvent(
                 event_type=event_type,
@@ -434,6 +423,10 @@ class LineageEventEmitter(_ContextEmitterBase):
     ) -> None:
         """Emit a lineage edges event."""
         logical_operation_id = operation_id or self._context.operation_id or event_id
+        # Lineage edges carry no run coordinates of their own, so an operation
+        # id is required whenever emission happens inside a tracked run;
+        # without one each retry would mint a distinct event_id for the same
+        # edges.
         if logical_operation_id is None and self._context.correlation.run_id is not None:
             raise ValueError("lineage event requires operation_id or event_id for retry identity")
         logical_operation_id = logical_operation_id or "uncorrelated"
@@ -512,17 +505,7 @@ class TelemetryEventEmitter(_ContextEmitterBase):
         unit: str | None,
         payload: dict[str, Any] | None,
     ) -> None:
-        """Emit a telemetry event.
-
-        Args:
-            event_type: Event type identifier.
-            name: Metric or log name.
-            value: Optional metric or log value.
-            level: Optional log level for log events.
-            unit: Optional unit for the value.
-            payload: Optional event payload.
-
-        """
+        """Emit a telemetry event."""
         self._emit_event(
             TelemetryEvent(
                 event_type=event_type,
@@ -599,11 +582,8 @@ class SchemaMigrationEventEmitter(_ContextEmitterBase):
     ) -> None:
         """Emit a schema migration event.
 
-        Args:
-            status: Lifecycle status (planned, approved, applied, rejected).
-            classification: Worst classification across changes.
-            change_count: Number of schema changes in the plan.
-            changes: Optional list of change detail dicts.
+        ``status`` is one of planned, approved, applied, or rejected and
+        ``classification`` carries the worst classification across changes.
 
         """
         self._emit_event(

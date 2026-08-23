@@ -1,4 +1,10 @@
-"""Tests for the shared schema migration planner."""
+"""Tests for the shared schema migration planner.
+
+Covers neutral change detection and policy-driven classification overrides,
+plus rename instruction handling: explicit renames consume drop/add pairs
+while remaining type/nullability changes are still detected, and invalid,
+chained, duplicate, or cyclic renames raise.
+"""
 
 from __future__ import annotations
 

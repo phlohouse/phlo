@@ -1,3 +1,7 @@
+/**
+ * Human-readable labels for platform metadata keys and values rendered in
+ * Observatory detail views.
+ */
 type MetadataOwner = {
   metadata: Record<string, unknown>
 }
@@ -31,6 +35,8 @@ const valueLabels: Record<string, string> = {
 }
 
 const omittedMetadataKeys = new Set(['description'])
+// Credentials, hashes, and raw config/payload blobs never reach the metadata
+// panels: they are either sensitive or pure noise in the UI.
 const omittedMetadataKeyPatterns = [
   /(^|_)hash$/,
   /(^|_)checksum$/,

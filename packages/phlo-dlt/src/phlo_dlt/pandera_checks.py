@@ -69,16 +69,8 @@ def _pandas_datetime_engine() -> type[Any]:
 class PanderaContractEvaluation:
     """Result summary for Pandera schema contract evaluation.
 
-    This dataclass captures the outcome of validating data against a Pandera
-    schema, including pass/fail status, counts of failed/total records,
-    sample failure cases, and any error messages.
-
-    Attributes:
-        passed: Whether validation passed (True) or failed (False).
-        failed_count: Number of records that failed validation.
-        total_count: Total number of records evaluated.
-        sample: List of dicts containing up to 20 sample failure cases.
-        error: Error message if validation raised an exception, else None.
+    Captures pass/fail status, failed and total record counts, up to 20
+    sample failure cases, and the error message when validation raised.
 
     Example:
         ```python
@@ -104,16 +96,8 @@ class PanderaContractEvaluation:
 class PanderaContractValidationError(RuntimeError):
     """Raised when strict Pandera validation fails before a visible write.
 
-    This exception is raised when strict validation is enabled and the
-    Pandera contract check fails. It includes the evaluation details and
-    paths to the Parquet files that failed validation.
-
-    Attributes:
-        evaluation: Detailed evaluation result with failure information.
-        parquet_paths: Tuple of paths to the Parquet files that were validated.
-
-    Raises:
-        RuntimeError: Base class with message "Pandera contract validation failed".
+    Raised when strict validation is enabled and the contract check fails;
+    carries the evaluation details and the Parquet paths that were validated.
 
     Example:
         ```python
@@ -174,15 +158,8 @@ def evaluate_pandera_contract_parquet(
 ) -> PanderaContractEvaluation:
     """Load parquet data and validate it against a Pandera schema class.
 
-    Reads a Parquet file into a pandas DataFrame and validates it against
-    the provided Pandera schema class.
-
-    Args:
-        parquet_path: Path to the Parquet file to validate.
-        schema_class: Pandera DataFrameModel subclass defining validation rules.
-
-    Returns:
-        PanderaContractEvaluation: Result of the validation.
+    Reads the Parquet file into a DataFrame and validates it against
+    ``schema_class`` (a Pandera DataFrameModel subclass).
 
     Example:
         ```python
@@ -212,19 +189,9 @@ def evaluate_pandera_contract_parquet_files(
 ) -> PanderaContractEvaluation:
     """Load one or more parquet files and validate them as a single staged dataset.
 
-    Reads multiple Parquet files, concatenates them into a single DataFrame,
-    and validates against the provided schema. This is useful when DLT
-    produces multiple Parquet files for a single ingestion run.
-
-    Args:
-        parquet_paths: List of paths to Parquet files to validate.
-        schema_class: Pandera DataFrameModel subclass defining validation rules.
-
-    Returns:
-        PanderaContractEvaluation: Combined result of the validation.
-
-    Raises:
-        FileNotFoundError: If parquet_paths is empty.
+    Concatenates the files into a single DataFrame before validating, for
+    ingestion runs that produce multiple Parquet files. Raises
+    FileNotFoundError when ``parquet_paths`` is empty.
 
     Example:
         ```python
@@ -257,22 +224,10 @@ def evaluate_pandera_contract(
 ) -> PanderaContractEvaluation:
     """Validate a dataframe against a Pandera schema class.
 
-    Performs comprehensive validation of a pandas DataFrame against a
-    Pandera schema. Handles datetime coercion, nullable column defaults,
-    and provides detailed failure information.
-
-    Args:
-        df: pandas DataFrame to validate.
-        schema_class: Pandera DataFrameModel subclass defining validation rules.
-
-    Returns:
-        PanderaContractEvaluation: Detailed validation result.
-
-    Validation Steps:
-        1. Add null columns for missing nullable fields
-        2. Coerce datetime columns to proper type
-        3. Run Pandera validation
-        4. Capture any SchemaErrors or exceptions
+    Validates ``df`` against a Pandera DataFrameModel subclass. Before
+    validating, null columns are added for missing nullable fields and
+    string/object datetime columns are coerced; failures from either path
+    surface in the evaluation result.
 
     Example:
         ```python
@@ -297,6 +252,8 @@ def evaluate_pandera_contract(
             )
     else:
         validated_df = df
+    # Best-effort datetime coercion: only string/object columns are parsed and
+    # a failed parse is left untouched so Pandera reports it as a failure case.
 
     datetime_columns = [
         name
@@ -357,18 +314,9 @@ def pandera_contract_asset_check_result(
 ) -> CheckResult:
     """Build a normalized Phlo check result from Pandera evaluation output.
 
-    Converts a PanderaContractEvaluation into a Phlo CheckResult that can
-    be consumed by the Phlo orchestrator and displayed in the UI.
-
-    Args:
-        evaluation: The Pandera validation evaluation to convert.
-        partition_key: Optional partition key for the check context.
-        asset_key: Asset identifier (e.g., "dlt_users").
-        schema_class: Pandera schema class used for validation.
-        query_or_sql: Query string or SQL describing the data source.
-
-    Returns:
-        CheckResult: Normalized Phlo check result.
+    Converts an evaluation into a CheckResult for the orchestrator and UI,
+    tagging it with the asset key, partition key, schema name, source
+    query, counts, sample failures, and error severity on failure.
 
     Example:
         ```python
@@ -414,14 +362,8 @@ def serialize_pandera_contract_evaluation(
 ) -> dict[str, Any]:
     """Convert a Pandera contract evaluation to metadata-safe primitives.
 
-    Serializes the evaluation for storage in ingestion metadata, allowing
-    results to be passed between pipeline stages or stored for auditing.
-
-    Args:
-        evaluation: The evaluation to serialize.
-
-    Returns:
-        dict[str, Any]: Dictionary with primitive values suitable for metadata.
+    Serializes an evaluation to primitive values so results survive
+    storage in JSON/YAML metadata between pipeline stages.
 
     Example:
         ```python
@@ -448,16 +390,9 @@ def serialize_pandera_contract_evaluation(
 def deserialize_pandera_contract_evaluation(payload: Any) -> PanderaContractEvaluation | None:
     """Convert metadata payload back into a Pandera contract evaluation.
 
-    Deserializes an evaluation from metadata storage. Handles type coercion
-    and validation of the payload structure.
-
-    Args:
-        payload: Dictionary from metadata storage, typically from
-            :func:`serialize_pandera_contract_evaluation`.
-
-    Returns:
-        PanderaContractEvaluation | None: The deserialized evaluation, or None
-        if payload is not a valid dictionary.
+    Rebuilds an evaluation from a payload produced by
+    serialize_pandera_contract_evaluation, coercing types as needed;
+    returns None when ``payload`` is not a dictionary.
 
     Example:
         ```python

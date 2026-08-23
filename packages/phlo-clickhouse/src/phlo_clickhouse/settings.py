@@ -11,6 +11,9 @@ Example:
     >>> settings.clickhouse_host
     'clickhouse'
 
+
+    Service settings for ClickHouse, built on the shared phlo.config base/cache/network helpers.
+    Loaded within phlo_clickhouse by plugin and resource code through get_settings().
 """
 
 from __future__ import annotations
@@ -25,26 +28,8 @@ from phlo.config.network import resolve_host
 
 
 class ClickHouseSettings(BaseConfig):
-    """ClickHouse data plane configuration model.
-
-    Configuration class for ClickHouse connection parameters using Pydantic
-    for validation and default value management.
-
-    Attributes:
-        clickhouse_host: Hostname or IP address of the ClickHouse server.
-            Defaults to "clickhouse" for Docker Compose networking.
-        clickhouse_http_port: HTTP interface port for ClickHouse.
-            Defaults to 8123 (standard ClickHouse HTTP port).
-        clickhouse_native_port: Native protocol port for ClickHouse.
-            Defaults to 19000.
-        clickhouse_user: Username for ClickHouse authentication.
-            Defaults to "default".
-        clickhouse_password: Password for ClickHouse authentication.
-            Defaults to empty string for unauthenticated connections.
-        clickhouse_db: Default database to connect to.
-            Defaults to "default".
-        clickhouse_secure: Whether to use TLS/SSL for connections.
-            Defaults to False.
+    """ClickHouse data plane configuration model: connection parameters for
+    host, ports, authentication, database, and TLS.
 
     Example:
         >>> settings = ClickHouseSettings(
@@ -76,10 +61,7 @@ class ClickHouseSettings(BaseConfig):
         object.__setattr__(self, "clickhouse_http_port", port)
 
     def clickhouse_http_endpoint(self) -> str:
-        """Return host:port endpoint for ClickHouse HTTP interface.
-
-        Returns:
-            Formatted endpoint string "host:port" for HTTP connections.
+        """Return the "host:port" endpoint for the HTTP interface.
 
         Example:
             >>> settings = ClickHouseSettings(clickhouse_host="localhost", clickhouse_http_port=8123)
@@ -90,10 +72,7 @@ class ClickHouseSettings(BaseConfig):
         return f"{self.clickhouse_host}:{self.clickhouse_http_port}"
 
     def clickhouse_native_endpoint(self) -> str:
-        """Return host:port endpoint for ClickHouse native interface.
-
-        Returns:
-            Formatted endpoint string "host:port" for native protocol connections.
+        """Return the "host:port" endpoint for the native protocol interface.
 
         Example:
             >>> settings = ClickHouseSettings(clickhouse_host="localhost", clickhouse_native_port=9000)
@@ -106,16 +85,7 @@ class ClickHouseSettings(BaseConfig):
 
 @project_root_cached
 def get_settings(project_root: Path) -> ClickHouseSettings:
-    """Return cached ClickHouse settings for the selected project root.
-
-    Settings are cached per resolved project root, with up to 16 entries,
-    and reused across the application lifecycle.
-
-    Args:
-        project_root: Resolved project root used for cache selection.
-
-    Returns:
-        ClickHouseSettings instance with loaded configuration.
+    """Return the ClickHouseSettings instance cached per project root.
 
     Example:
         >>> settings = get_settings()

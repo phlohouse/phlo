@@ -1,3 +1,8 @@
+/**
+ * Observatory app shell: grouped sidebar navigation over capability pages,
+ * theme mode handling, recent-visit recording, and warm-up of cached
+ * resources. Extension-contributed nav items merge into the core groups.
+ */
 import { Link, useRouterState } from '@tanstack/react-router'
 import {
   Activity,

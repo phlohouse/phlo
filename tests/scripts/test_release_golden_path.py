@@ -1,4 +1,11 @@
-"""Focused tests for the release artifact golden-path harness."""
+"""Focused tests for the release artifact golden-path harness.
+
+Loads scripts/release_golden_path.py directly and pins its invariants:
+project-scoped compose commands with unique project names, per-OS
+virtualenv executable layouts, wheelhouse-based (non-editable) operator
+installs, fixture workflows, and WAP/materialization behavior including
+partition preservation and rejection of single-run WAP.
+"""
 
 import importlib.util
 import io

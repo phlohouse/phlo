@@ -54,17 +54,7 @@ def _schema_field_display(field) -> tuple[str, str, str]:
 def _get_iceberg_catalog(ref: str = "main"):
     """Load the PyIceberg catalog for the specified Nessie reference.
 
-    Returns a PyIceberg catalog instance configured to access tables
-    through the Nessie REST catalog for the given branch or tag.
-
-    Args:
-        ref: Nessie reference (branch or tag). Defaults to "main".
-
-    Returns:
-        Catalog: PyIceberg catalog instance.
-
-    Raises:
-        RuntimeError: If catalog backend or pyiceberg is not installed.
+    Raises: RuntimeError when the catalog backend or pyiceberg is not installed.
 
     Example:
         >>> catalog = _get_iceberg_catalog("main")

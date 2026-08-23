@@ -1,3 +1,8 @@
+/**
+ * Renders a DataPreviewResult as an ObservatoryTable with a row-count summary
+ * and CSV download. Row clicks hand the row and column types to onShowJourney
+ * when provided.
+ */
 import { Download } from 'lucide-react'
 import type { DataPreviewResult, DataRow } from '@/observatory/api/trino'
 import { Button } from '@/components/ui/button'

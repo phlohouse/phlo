@@ -48,6 +48,11 @@ function getQueriesSnapshot(): Array<SavedQuery> {
   return cachedQueries
 }
 
+/**
+ * Snapshot for server rendering. Must return the same shared reference every
+ * call: useSyncExternalStore re-renders endlessly when the server snapshot is
+ * a fresh object each time.
+ */
 function getServerSnapshot(): Array<SavedQuery> {
   return emptySavedQueries
 }

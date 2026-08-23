@@ -1,4 +1,8 @@
-"""Tests for low-level plugin entry-point loading helpers."""
+"""Tests for low-level plugin entry-point loading helpers.
+
+Stubbed entry points exercise settings-driven filtering (enabled, whitelist,
+blacklist), load failures, and registration against the global registry.
+"""
 
 from __future__ import annotations
 

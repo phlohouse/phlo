@@ -1,4 +1,11 @@
-"""Constants for plugin registry type configuration."""
+"""Constants for plugin discovery registry type configuration.
+
+Each entry maps a capability kind to its registry attribute name,
+singular slug, and human-readable label. The tuple shape is positional;
+consumers index into it rather than using named fields.
+
+Internal constants module for the plugin discovery registry.
+"""
 
 from __future__ import annotations
 

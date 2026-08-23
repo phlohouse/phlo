@@ -1,3 +1,6 @@
+"""Tests for ServiceManifest: definition/source-path pairing, resolver
+error handling, and service discovery from plugin manifests."""
+
 from pathlib import Path
 
 import pytest

@@ -1,3 +1,11 @@
+"""Tests for Dagster container lookup.
+
+Lookup order is fixed: configured container name first, then the new
+name, the legacy webserver name, and finally a regex match that always
+excludes the daemon container. No candidate resolving raises instead of
+returning a wrong container.
+"""
+
 from __future__ import annotations
 
 import pytest

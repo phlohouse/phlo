@@ -1,4 +1,8 @@
-"""Tests for Nessie settings environment resolution."""
+"""Environment alias resolution for Nessie settings.
+
+Ensures the default ref reads NESSIE_DEFAULT_REF while legacy Iceberg variables
+are ignored rather than silently honored.
+"""
 
 from phlo_nessie.settings import get_settings
 

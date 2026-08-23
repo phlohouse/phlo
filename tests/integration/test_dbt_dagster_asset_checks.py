@@ -1,4 +1,9 @@
-"""Cross-provider dbt-to-Dagster asset-check integration regression."""
+"""Cross-provider dbt-to-Dagster asset-check integration regression.
+
+A multi-model dbt project must emit only the checks owned by the selected
+asset, and check failure must fail the Dagster run. Parametrized over pass
+and fail outcomes.
+"""
 
 from __future__ import annotations
 

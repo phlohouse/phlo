@@ -1,4 +1,11 @@
-"""Pandera CLI plugin registration."""
+"""Register the Pandera CLI command group as a phlo CLI plugin.
+
+PanderaCliPlugin is built via cli_command_plugin_class so plugin discovery
+exposes the Pandera commands through the phlo CLI.
+
+Loaded through the phlo plugin entry-point mechanism at startup rather than
+imported directly.
+"""
 
 from __future__ import annotations
 

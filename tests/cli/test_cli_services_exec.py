@@ -1,3 +1,10 @@
+"""Tests for "phlo services exec": command construction passed through to compose.
+
+Asserts on the exact argv handed to compose rather than execution:
+everything after "--" is forwarded verbatim with -T when --no-tty is
+set. A missing command or uninitialized services fail fast with exit 1.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
