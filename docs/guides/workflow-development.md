@@ -1442,6 +1442,67 @@ def get_api_client():
 
 ---
 
+### Pattern 6: Contract Typing and DLT Staging
+
+Contracts are evaluated **after** DLT stages your data to Parquet. DLT
+normalizes ISO-8601 strings to timestamps during that staging, so a source
+field that arrives as `"2026-08-20T05:00:00Z"` reaches validation as a
+timestamp. Type temporal contract fields natively or validation will reject
+the normalized values:
+
+```python
+class ReadingSchema(pa.DataFrameModel):
+    event_time: Series[datetime]   # not Series[str]
+```
+
+Columns present in the staged data but missing from the contract are dropped
+before the table-store write. Phlo logs a `source_columns_dropped_by_contract`
+warning and records them in the run's `dropped_source_columns` metadata -
+add such fields to the contract (or remove them from the source) instead of
+letting them disappear.
+
+### Pattern 7: Unpartitioned Reference Sources
+
+Reference-style sources (small lookup tables merged wholesale) do not need a
+partition. Declare them with `partitioned=False` so runs never require a
+partition key; the source function receives an empty string for
+`partition_date`:
+
+```python
+@phlo_ingestion(
+    table_name="device_registry",
+    unique_key="device_id",
+    group="registry",
+    validation_schema=DeviceSchema,
+    partitioned=False,
+)
+def load_registry(partition_date: str):
+    del partition_date  # registry merges ignore partitions
+    ...
+```
+
+### Pattern 8: Blocking Domain Quality Checks
+
+Contract checks and dbt tests gate publication; plain helper functions in
+your quality modules do not - they only run when something calls them. To make
+a domain rule block an ingestion run, pass it via `quality_checks`. Each
+callable receives the staged dataframe, returns `None` on success or a
+violation description, and becomes a blocking asset check under
+`strict_validation=True`:
+
+```python
+def assert_paid_within_allowed(readings: pd.DataFrame) -> str | None:
+    if (readings.paid_amount > readings.allowed_amount).any():
+        return "paid amount exceeds allowed amount"
+    return None
+
+
+@phlo_ingestion(..., quality_checks=[assert_paid_within_allowed])
+def load_claims(partition_date: str): ...
+```
+
+---
+
 ## Next Steps
 
 🎉 **Congratulations!** You've built a complete data pipeline from scratch.

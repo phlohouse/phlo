@@ -48,13 +48,15 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
+import pandas as pd
 from phlo.capabilities import (
     AssetCheckSpec,
     AssetSpec,
+    CheckResult,
     MaterializeResult,
     PartitionSpec,
     RunResult,
@@ -63,10 +65,13 @@ from phlo.capabilities import (
     list_capabilities,
     resolve_capability,
 )
-from phlo.contracts import Consumer, SLA, normalize_consumers, serialize_consumers, serialize_sla
 from phlo.capabilities.runtime import RuntimeContext, routing_from_context
+from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_consumers, serialize_sla
 from phlo.exceptions import PhloConfigError
 from phlo.logging import log_event
+
+from phlo_dlt.contract_coverage import detect_dropped_source_columns
+from phlo_dlt.dlt_helpers import get_branch_from_context, get_write_branch_from_context
 from phlo_dlt.pandera_checks import (
     PANDERA_CONTRACT_CHECK_NAME,
     PanderaContractEvaluation,
@@ -76,8 +81,6 @@ from phlo_dlt.pandera_checks import (
     evaluate_pandera_contract_parquet_files,
     pandera_contract_asset_check_result,
 )
-
-from phlo_dlt.dlt_helpers import get_branch_from_context, get_write_branch_from_context
 from phlo_dlt.registry import TableConfig
 
 _INGESTION_ASSETS: list[AssetSpec] = []
@@ -289,6 +292,8 @@ def phlo_ingestion(
     consumers: list[Consumer | str] | None = None,
     sla: SLA | None = None,
     capabilities: dict[str, str] | None = None,
+    partitioned: bool = True,
+    quality_checks: Sequence[Callable[[pd.DataFrame], str | None]] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Register a function as a DLT-backed ingestion asset.
 
@@ -329,11 +334,19 @@ def phlo_ingestion(
           monitoring; `sla` carries additional freshness/quality alerting metadata.
         - `consumers` lists downstream consumers (strings or `Consumer` objects)
           for lineage and impact analysis; `owner` records the owning team.
+        - `partitioned=False` marks the asset as unpartitioned: the run does not
+          require a partition key, and the source function receives an empty
+          string. Use it for reference-style sources that ignore partitions.
+        - `quality_checks` lists callables invoked with the staged dataframe
+          after contract validation; returning a string registers a violation.
+          Each check becomes a blocking asset check under ``strict_validation``,
+          so domain rules can gate publication like contract checks do.
         - `capabilities` overrides providers per asset, e.g.
           ``{"table_store": "iceberg", "catalog": "nessie"}``.
 
     Raises: PhloConfigError when the schema is missing, `unique_key` is not found
-    in the schema, `merge_strategy` is invalid, or `merge_config` is malformed.
+    in the schema, `merge_strategy` is invalid, `merge_config` is malformed, or
+    a partitioned asset runs without a partition key.
 
     Example:
         Basic usage with REST API source:
@@ -455,21 +468,28 @@ def phlo_ingestion(
         system and executor.
 
         Side Effects:
-            - Creates AssetCheckSpec if validation is enabled
-            - Appends AssetSpec to ``_INGESTION_ASSETS`` registry
-            - Sets ``func._phlo_table_config`` attribute
-
+            - Creates AssetCheckSpec entries for validation and quality checks
         """
         check_specs: list[AssetCheckSpec] = []
         if validate and table_config.validation_schema is not None:
-            check_specs = [
+            check_specs.append(
                 AssetCheckSpec(
                     name=PANDERA_CONTRACT_CHECK_NAME,
                     asset_key=f"dlt_{table_config.table_name}",
                     blocking=bool(strict_validation),
                     description=f"Pandera schema contract for {table_config.table_name}",
                 )
-            ]
+            )
+        for index, quality_check in enumerate(quality_checks or ()):
+            check_name = getattr(quality_check, "__name__", None) or f"quality_{index}"
+            check_specs.append(
+                AssetCheckSpec(
+                    name=f"quality_{check_name}",
+                    asset_key=f"dlt_{table_config.table_name}",
+                    blocking=bool(strict_validation),
+                    description=f"Domain quality check {check_name} for {table_config.table_name}",
+                )
+            )
 
         def run(runtime: RuntimeContext) -> Iterator[RunResult]:
             """Execute one partitioned ingestion run for the wrapped source function.
@@ -517,12 +537,21 @@ def phlo_ingestion(
                 :func:`phlo_dlt.dlt_helpers.get_write_branch_from_context`: WAP handling
 
             """
-            partition_date = runtime.partition_key
-            if not partition_date:
-                raise PhloConfigError(
-                    message="Missing partition key for ingestion asset",
-                    suggestions=["Run the asset with a partition key (YYYY-MM-DD)."],
-                )
+            if partitioned:
+                partition_date = runtime.partition_key or ""
+                if not partition_date:
+                    raise PhloConfigError(
+                        message="Missing partition key for ingestion asset",
+                        suggestions=[
+                            "Run the asset with a partition key (YYYY-MM-DD).",
+                            "Or declare the asset with partitioned=False for "
+                            "reference-style sources.",
+                        ],
+                    )
+            else:
+                # Unpartitioned assets never read the runtime partition key:
+                # non-partitioned runs raise on access in the orchestrator.
+                partition_date = ""
 
             branch_name = get_branch_from_context(runtime)
             write_branch_name = get_write_branch_from_context(
@@ -611,21 +640,44 @@ def phlo_ingestion(
                         status="no_data",
                     )
                     return
-
+                dropped_source_columns: list[str] = []
+                parquet_paths_raw = result.metadata.get("parquet_paths")
+                if isinstance(parquet_paths_raw, list):
+                    parquet_paths = [Path(str(path)) for path in parquet_paths_raw]
+                else:
+                    parquet_path = result.metadata.get("parquet_path")
+                    parquet_paths = [Path(str(parquet_path))] if parquet_path else []
+                primary_parquet_path = parquet_paths[0] if parquet_paths else None
+                query_or_sql = (
+                    ",".join(f"parquet://{parquet_path}" for parquet_path in parquet_paths)
+                    if parquet_paths
+                    else "parquet://<missing>"
+                )
                 if validate and table_config.validation_schema is not None:
                     validation_schema = table_config.validation_schema
-                    parquet_paths_raw = result.metadata.get("parquet_paths")
-                    if isinstance(parquet_paths_raw, list):
-                        parquet_paths = [Path(str(path)) for path in parquet_paths_raw]
-                    else:
-                        parquet_path = result.metadata.get("parquet_path")
-                        parquet_paths = [Path(str(parquet_path))] if parquet_path else []
-                    primary_parquet_path = parquet_paths[0] if parquet_paths else None
-                    query_or_sql = (
-                        ",".join(f"parquet://{parquet_path}" for parquet_path in parquet_paths)
-                        if parquet_paths
-                        else "parquet://<missing>"
-                    )
+                    try:
+                        dropped_source_columns = detect_dropped_source_columns(
+                            parquet_paths,
+                            validation_schema,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - coverage must never break ingestion
+                        log_event(
+                            logger,
+                            "warning",
+                            "source_column_coverage_check_failed",
+                            table_name=table_config.full_table_name,
+                            error=str(exc),
+                        )
+                    if dropped_source_columns:
+                        log_event(
+                            logger,
+                            "warning",
+                            "source_columns_dropped_by_contract",
+                            table_name=table_config.full_table_name,
+                            dropped_columns=dropped_source_columns,
+                            hint="Add these columns to the validation_schema or remove them "
+                            "from the source; they will not be written to the table store.",
+                        )
                     log_event(
                         logger,
                         "info",
@@ -714,6 +766,44 @@ def phlo_ingestion(
                     if strict_validation and not evaluation.passed:
                         raise RuntimeError("Pandera contract validation failed")
 
+                for index, quality_check in enumerate(quality_checks or ()):
+                    check_name = getattr(quality_check, "__name__", None) or f"quality_{index}"
+                    violation: str | None = None
+                    if not parquet_paths:
+                        violation = "no staged parquet available for domain checks"
+                    else:
+                        try:
+                            staged_frame = pd.read_parquet(parquet_paths[0])
+                            violation = quality_check(staged_frame)
+                        except Exception as exc:  # noqa: BLE001 - violations must surface as checks
+                            violation = f"quality check raised: {exc}"
+                    passed = not violation
+                    yield CheckResult(
+                        passed=passed,
+                        check_name=f"quality_{check_name}",
+                        metadata={
+                            "source": "domain",
+                            "partition_key": partition_date,
+                            "violation": violation,
+                            "staged_parquet": query_or_sql,
+                        },
+                        severity=None if passed else "error",
+                        asset_key=f"dlt_{table_config.table_name}",
+                    )
+                    if not passed:
+                        log_event(
+                            logger,
+                            "warning",
+                            "domain_quality_check_failed",
+                            table_name=table_config.full_table_name,
+                            check=check_name,
+                            violation=violation,
+                        )
+                        if strict_validation:
+                            raise RuntimeError(
+                                f"Domain quality check failed: {check_name}: {violation}"
+                            )
+
                 yield MaterializeResult(
                     metadata={
                         "branch": branch_name,
@@ -724,8 +814,8 @@ def phlo_ingestion(
                         "unique_key": table_config.unique_key,
                         "table_name": table_config.full_table_name,
                         "table_store": table_store_name,
-                        "dlt_elapsed_seconds": result.metadata.get("dlt_elapsed_seconds", 0.0),
                         "total_elapsed_seconds": result.metadata.get("total_elapsed_seconds", 0.0),
+                        "dropped_source_columns": dropped_source_columns,
                     },
                     status=result.status,
                 )
@@ -773,7 +863,7 @@ def phlo_ingestion(
                 "consumers": serialize_consumers(normalized_consumers),
                 "sla": serialize_sla(sla),
             },
-            partitions=PartitionSpec(kind="daily"),
+            partitions=PartitionSpec(kind="daily") if partitioned else None,
             capability_overrides=dict(capabilities or {}),
             run=RunSpec(
                 fn=run,

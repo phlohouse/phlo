@@ -48,6 +48,7 @@ import sys
 import time
 import uuid
 from collections import deque
+from datetime import UTC, datetime
 from typing import Optional
 
 import click
@@ -112,6 +113,11 @@ def wait_for_dagster_runtime(
 @click.command(help="Materialize Dagster assets via the configured container backend.")
 @click.argument("asset_name", required=False)
 @click.option("-p", "--partition", help="Partition date (YYYY-MM-DD)")
+@click.option(
+    "--no-default-partition",
+    is_flag=True,
+    help="Do not default the partition to today when --partition is omitted",
+)
 @click.option("--select", help="Asset selector expression")
 @click.option(
     "--no-contract-refresh",
@@ -122,6 +128,7 @@ def wait_for_dagster_runtime(
 def materialize(
     asset_name: str | None,
     partition: Optional[str],
+    no_default_partition: bool,
     select: Optional[str],
     no_contract_refresh: bool,
     dry_run: bool,
@@ -129,13 +136,19 @@ def materialize(
     """Materialize Dagster assets via the configured container backend.
 
     select overrides asset_name; no_contract_refresh skips automatic schema
-    contract refresh; dry_run prints the command without executing.
+    contract refresh; dry_run prints the command without executing. When the
+    selected asset is partitioned, an omitted --partition defaults to today
+    (UTC) so ad-hoc runs never execute partitioned assets unpartitioned;
+    pass --no-default-partition to opt out.
 
     Raises: SystemExit on command failure or when the container backend is
     not found.
     """
     if not asset_name and not select:
         raise click.UsageError("Provide ASSET_NAME or --select.")
+    if partition is None and not no_default_partition:
+        partition = datetime.now(UTC).strftime("%Y-%m-%d")
+
     wap_config = load_wap_config()
     if wap_config.enabled:
         if not asset_name or select:

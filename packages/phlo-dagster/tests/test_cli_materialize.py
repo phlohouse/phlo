@@ -442,3 +442,31 @@ def test_materialize_dry_run_uses_configured_container_backend(
     assert result.exit_code == 0, result.output
     assert "podman exec" in result.output
     assert "docker exec" not in result.output
+
+
+@patch("phlo_dagster.cli_materialize.find_dagster_container", return_value="mock-container")
+@patch("phlo_dagster.cli_materialize.get_project_name", return_value="mock-project")
+def test_materialize_defaults_partition_to_today(mock_project, mock_container) -> None:
+    """Omitted --partition defaults to today so partitioned assets never run bare."""
+    from datetime import UTC, datetime
+
+    runner = CliRunner()
+    result = runner.invoke(materialize, ["dlt_orders", "--dry-run"])
+
+    assert result.exit_code == 0
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    assert f"--partition {today}" in result.output
+
+
+@patch("phlo_dagster.cli_materialize.find_dagster_container", return_value="mock-container")
+@patch("phlo_dagster.cli_materialize.get_project_name", return_value="mock-project")
+def test_materialize_can_skip_default_partition(mock_project, mock_container) -> None:
+    """--no-default-partition restores the bare, unpartitioned launch."""
+    runner = CliRunner()
+    result = runner.invoke(
+        materialize,
+        ["dlt_orders", "--dry-run", "--no-default-partition"],
+    )
+
+    assert result.exit_code == 0
+    assert "--partition" not in result.output
