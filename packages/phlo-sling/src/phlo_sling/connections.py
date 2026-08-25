@@ -19,6 +19,53 @@ from phlo_sling.settings import get_settings
 logger = get_logger(__name__)
 
 
+def _resolve_clickhouse_connection() -> dict[str, dict[str, Any]]:
+    """Resolve ClickHouse connection from phlo-clickhouse settings.
+
+    Builds a Sling-compatible connection (native protocol) from the installed
+    phlo-clickhouse package settings; returns {"PHLO_CLICKHOUSE": ...} or an
+    empty dict when phlo-clickhouse is not installed or configured.
+    """
+    try:
+        from phlo_clickhouse.settings import get_settings as get_ch_settings
+
+        ch = get_ch_settings()
+        return {
+            "PHLO_CLICKHOUSE": {
+                "type": "clickhouse",
+                "host": ch.clickhouse_host,
+                "port": ch.clickhouse_native_port,
+                "database": ch.clickhouse_db,
+                "user": ch.clickhouse_user,
+                "password": ch.clickhouse_password,
+            }
+        }
+    except (ImportError, Exception) as exc:
+        logger.debug("clickhouse_connection_skipped", error=str(exc))
+        return {}
+
+
+def _resolve_delta_connection() -> dict[str, dict[str, Any]]:
+    """Resolve a Delta Lake connection from phlo-delta settings.
+
+    Sling targets Delta via filesystem + warehouse location; returns
+    {"PHLO_DELTA": ...} or an empty dict when phlo-delta is not installed.
+    """
+    try:
+        from phlo_delta.settings import get_settings as get_delta_settings
+
+        delta = get_delta_settings()
+        return {
+            "PHLO_DELTA": {
+                "type": "filesystem",
+                "root_path": delta.delta_warehouse_path,
+            }
+        }
+    except (ImportError, Exception) as exc:
+        logger.debug("delta_connection_skipped", error=str(exc))
+        return {}
+
+
 def resolve_phlo_connections() -> dict[str, dict[str, Any]]:
     """Build Sling connection definitions from installed Phlo package settings.
 
@@ -43,6 +90,8 @@ def resolve_phlo_connections() -> dict[str, dict[str, Any]]:
     connections.update(_resolve_postgres_connection())
     connections.update(_resolve_iceberg_connection())
     connections.update(_resolve_s3_connection())
+    connections.update(_resolve_clickhouse_connection())
+    connections.update(_resolve_delta_connection())
 
     return connections
 

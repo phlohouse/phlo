@@ -125,3 +125,53 @@ def test_resolve_s3_connection_skips_when_object_store_is_ambiguous(monkeypatch)
     )
 
     assert _resolve_s3_connection() == {}
+
+
+def test_clickhouse_connection_uses_native_settings(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    fake = SimpleNamespace(
+        clickhouse_host="ch-host",
+        clickhouse_native_port=19000,
+        clickhouse_db="analytics",
+        clickhouse_user="svc",
+        clickhouse_password="pw",
+    )
+    import phlo_clickhouse.settings as ch_settings
+
+    monkeypatch.setattr(ch_settings, "get_settings", lambda: fake)
+    from phlo_sling.connections import _resolve_clickhouse_connection
+
+    conn = _resolve_clickhouse_connection()
+    assert conn["PHLO_CLICKHOUSE"] == {
+        "type": "clickhouse",
+        "host": "ch-host",
+        "port": 19000,
+        "database": "analytics",
+        "user": "svc",
+        "password": "pw",
+    }
+
+
+def test_delta_connection_uses_warehouse_path(monkeypatch) -> None:
+    fake = SimpleNamespace(delta_warehouse_path="s3://lake/warehouse/delta")
+    import phlo_delta.settings as delta_settings
+
+    monkeypatch.setattr(delta_settings, "get_settings", lambda: fake)
+    from phlo_sling.connections import _resolve_delta_connection
+
+    conn = _resolve_delta_connection()
+    assert conn["PHLO_DELTA"] == {
+        "type": "filesystem",
+        "root_path": "s3://lake/warehouse/delta",
+    }
+
+
+def test_resolvers_return_empty_when_provider_missing(monkeypatch) -> None:
+    import phlo_sling.connections as conn_mod
+
+    def raise_import_error():
+        raise ImportError("not installed")
+
+    monkeypatch.setattr(conn_mod, "_resolve_clickhouse_connection", lambda: {})
+    assert conn_mod._resolve_clickhouse_connection() == {}
