@@ -106,3 +106,5 @@ files:
     dest: trino/catalog/iceberg.properties
   - source: catalog/iceberg_dev.properties
     dest: trino/catalog/iceberg_dev.properties
+  - source: catalog/delta.properties
+    dest: trino/catalog/delta.properties

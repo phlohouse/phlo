@@ -167,3 +167,5 @@ compose:
 - [DuckDB Queries](../reference/duckdb-queries.md) - Ad-hoc analysis
 - [API Reference](../reference/phlo-api.md) - REST/GraphQL access
 - [dbt Development](../guides/dbt-development.md) - SQL transformations
+
+Delta Lake preview catalog: `catalog/delta.properties` ships alongside the iceberg catalogs (file metastore rooted at the Delta warehouse path).
