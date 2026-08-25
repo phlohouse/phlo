@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from phlo.capabilities import (
     CapabilitySupport,
     RefQueryCatalogManager,
@@ -30,8 +32,10 @@ from phlo.capabilities import (
     resolve_runtime_ref,
     routing_from_context,
 )
+from phlo.logging import get_logger
 from phlo_dbt.settings import get_settings as get_dbt_settings
-import yaml
+
+logger = get_logger(__name__)
 
 DEFAULT_DBT_TARGET = "dev"
 DBT_QUERY_ENGINE_SUPPORT = CapabilitySupport(supports_refs=True)
@@ -69,6 +73,7 @@ class DbtRuntimeConfig:
     threads: int = 2
     http_scheme: str = "http"
     method: str = "none"
+    password: str = ""
 
     def to_profile_payload(self) -> dict[str, Any]:
         """Return the config in dbt `profiles.yml` shape.
@@ -79,23 +84,40 @@ class DbtRuntimeConfig:
             >>> "phlo" in payload
             True
         """
+        output = (
+            self._clickhouse_output() if self.engine_type == "clickhouse" else self._trino_output()
+        )
         return {
             self.profile_name: {
                 "target": self.target_name,
-                "outputs": {
-                    self.target_name: {
-                        "type": self.engine_type,
-                        "method": self.method,
-                        "user": self.user,
-                        "host": self.host,
-                        "port": self.port,
-                        "catalog": self.catalog,
-                        "schema": self.schema,
-                        "http_scheme": self.http_scheme,
-                        "threads": self.threads,
-                    }
-                },
+                "outputs": {self.target_name: output},
             }
+        }
+
+    def _trino_output(self) -> dict[str, Any]:
+        """Trino connection block (default engine)."""
+        return {
+            "type": self.engine_type,
+            "method": self.method,
+            "user": self.user,
+            "host": self.host,
+            "port": self.port,
+            "catalog": self.catalog,
+            "schema": self.schema,
+            "http_scheme": self.http_scheme,
+            "threads": self.threads,
+        }
+
+    def _clickhouse_output(self) -> dict[str, Any]:
+        """ClickHouse connection block (dbt-clickhouse credentials shape)."""
+        return {
+            "type": self.engine_type,
+            "user": self.user,
+            "password": self.password,
+            "host": self.host,
+            "port": self.port,
+            "schema": self.schema,
+            "threads": self.threads,
         }
 
 
@@ -171,6 +193,7 @@ def resolve_dbt_runtime_config(
         profile_name=resolve_dbt_profile_name(settings.dbt_project_path),
         target_name=target_name,
         engine_type=settings.dbt_query_engine_type,
+        password=settings.dbt_query_password,
         user=settings.dbt_query_user,
         host=settings.dbt_query_host,
         port=settings.dbt_query_port,
@@ -228,9 +251,16 @@ def write_dbt_profile(
     profiles_dir: Path,
     *,
     filename: str = "profiles.yml",
+    force: bool = False,
 ) -> Path:
     """Write canonical `profiles.yml` to disk and return its path, creating the
     profiles directory if it does not exist.
+
+    When the target file already exists and declares a **different engine**
+    than the config would write, it is preserved untouched and the path is
+    returned unchanged - capability discovery must never clobber a
+    hand-tuned non-default profile (e.g. dbt-clickhouse). Callers that own
+    the file can pass ``force=True`` to overwrite regardless.
 
     Raises: OSError when directory creation or the file write fails.
 
@@ -241,6 +271,31 @@ def write_dbt_profile(
     """
     profiles_dir.mkdir(parents=True, exist_ok=True)
     profile_path = profiles_dir / filename
+
+    if not force and profile_path.exists():
+        try:
+            existing = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+            engines: set[str] = set()
+            if isinstance(existing, dict):
+                for profile in existing.values():
+                    outputs = profile.get("outputs", {}) if isinstance(profile, dict) else {}
+                    if not isinstance(outputs, dict):
+                        continue
+                    for output in outputs.values():
+                        if isinstance(output, dict) and output.get("type"):
+                            engines.add(str(output["type"]).lower())
+            requested = config.engine_type.lower()
+            if engines and requested not in engines:
+                logger.warning(
+                    "dbt_profile_engine_mismatch_preserved",
+                    path=str(profile_path),
+                    existing_engines=sorted(engines),
+                    requested_engine=requested,
+                )
+                return profile_path
+        except Exception:  # noqa: BLE001 - preservation is best-effort only
+            pass
+
     profile_path.write_text(render_dbt_profile_yaml(config), encoding="utf-8")
     return profile_path
 

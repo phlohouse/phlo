@@ -59,7 +59,7 @@ def test_dbt_runtime_config_to_profile_payload_uses_engine_type() -> None:
 
 
 def test_resolve_dbt_target_name_prefers_explicit_target() -> None:
-    runtime = SimpleNamespace(tags={"environment": "ci"})
+    runtime = SimpleNamespace(tags={"environment": "ci"}, dbt_query_password="")
 
     assert resolve_dbt_target_name(runtime, target="prod") == "prod"
 
@@ -70,6 +70,7 @@ def test_resolve_dbt_target_name_prefers_environment() -> None:
         partition_key=None,
         tags={"environment": "ci", "dbt_target": "legacy"},
         resources={},
+        dbt_query_password="",
     )
 
     assert resolve_dbt_target_name(runtime) == "ci"
@@ -81,6 +82,7 @@ def test_resolve_dbt_target_name_falls_back_to_legacy_tag() -> None:
         partition_key=None,
         tags={"dbt_target": "qa"},
         resources={},
+        dbt_query_password="",
     )
 
     assert resolve_dbt_target_name(runtime) == "qa"
@@ -92,6 +94,7 @@ def test_resolve_dbt_runtime_config_uses_ref_aware_catalog() -> None:
         partition_key=None,
         tags={"environment": "dev", "phlo/ref": "feature_orders"},
         resources={},
+        dbt_query_password="",
     )
 
     config = resolve_dbt_runtime_config(runtime)
@@ -110,6 +113,7 @@ def test_resolve_dbt_runtime_config_prefers_wap_branch_catalog() -> None:
             "phlo/ref": "feature_orders",
         },
         resources={},
+        dbt_query_password="",
     )
 
     config = resolve_dbt_runtime_config(runtime)
@@ -138,6 +142,7 @@ def test_resolve_dbt_runtime_config_provisions_wap_catalog_on_query_engine(
         partition_key=None,
         tags={"phlo/wap_branch": "pipeline-run-isolated"},
         resources={},
+        dbt_query_password="",
     )
     monkeypatch.setattr(
         runtime_config,
@@ -158,6 +163,7 @@ def test_resolve_dbt_runtime_config_ignores_blank_wap_branch() -> None:
         partition_key=None,
         tags={"phlo/wap_branch": "  ", "phlo/ref": "feature_orders"},
         resources={},
+        dbt_query_password="",
     )
 
     config = resolve_dbt_runtime_config(runtime)
@@ -194,6 +200,7 @@ def test_resolve_dbt_runtime_config_uses_project_profile_name(tmp_path, monkeypa
             dbt_query_threads=2,
             dbt_query_http_scheme="http",
             dbt_query_auth_method="none",
+            dbt_query_password="",
         ),
     )
 
@@ -252,6 +259,7 @@ def test_ensure_dbt_profile_uses_runtime_target_and_ref(tmp_path) -> None:
         partition_key=None,
         tags={"environment": "ci", "phlo/ref": "feature_orders"},
         resources={},
+        dbt_query_password="",
     )
 
     profile_path = ensure_dbt_profile(tmp_path / "profiles", runtime=runtime)

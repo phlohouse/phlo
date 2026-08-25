@@ -76,6 +76,10 @@ class DbtSettings(BaseConfig):
         default="trino",
         description="Query engine adapter used by dbt profiles",
     )
+    dbt_query_password: str = Field(
+        default="",
+        description="Query engine password for generated dbt profiles",
+    )
     dbt_query_host: str = Field(
         default="trino",
         description="Query engine host for generated dbt profiles",
