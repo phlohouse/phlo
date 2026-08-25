@@ -71,7 +71,7 @@ def _align_arrow_table_to_target_schema(arrow_table, target_schema, *, table_nam
     for field in target_schema:
         if field.name in arrow_column_names:
             continue
-        if not field.nullable:
+        if not field.nullable and not field.name.startswith(("_dlt_", "_phlo_")):
             raise ValueError(
                 f"Required target column '{field.name}' is missing from source data for {table_name}"
             )
@@ -312,8 +312,11 @@ def merge_to_table(
     """Merge (upsert) Parquet data into an Iceberg table with deduplication.
 
     Deletes existing rows matching ``unique_key`` before inserting new data;
-    duplicate keys within the source are logged as warnings. Raises ValueError
-    when the unique-key column is absent from the source data.
+    duplicate keys within the source are logged as warnings. Raises
+    ValueError when the unique-key column is absent from the source data.
+
+    Delete failures propagate (they no longer pass silently), preventing
+    the duplicate-row divergence reported in #777.
 
     Example:
         Upsert user data by ID::
@@ -326,11 +329,10 @@ def merge_to_table(
             print(f"Deleted ~{result['rows_deleted']} existing rows")
             print(f"Inserted {result['rows_inserted']} new rows")
 
-    Warning:
-        The ``rows_deleted`` count is an approximation because Iceberg's
-        delete operation doesn't return the actual number of rows deleted.
-        It represents the number of unique keys processed, not necessarily
-        the count of existing rows removed.
+    Note:
+        ``rows_deleted`` is an approximation: Iceberg's delete does not
+        return the actual number of rows removed, only the number of unique
+        keys processed.
     """
     source_path = str(data_path)
     source_row_count = 0
@@ -377,22 +379,6 @@ def merge_to_table(
                 table_name=table_name,
             )
 
-        batch_size = 1000
-        unique_values_list = list(unique_values_set)
-
-        for i in range(0, len(unique_values_list), batch_size):
-            batch = unique_values_list[i : i + batch_size]
-            from pyiceberg.expressions import In, Reference
-
-            delete_expr = In(term=Reference(unique_key), values=set(batch))
-            # A failed delete batch is ignored so the append still happens;
-            # the affected keys can then appear twice until the next merge.
-            try:
-                table.delete(delete_expr)
-                rows_deleted += len(batch)  # Approximation
-            except Exception:
-                pass
-
         iceberg_column_names = {field.name for field in table.schema().fields}
         arrow_column_names = set(arrow_table.schema.names)
         new_columns = arrow_column_names - iceberg_column_names
@@ -422,6 +408,22 @@ def merge_to_table(
             logger.warning(
                 "arrow_cast_to_target_schema_failed", table_name=table_name, error=str(e)
             )
+
+        # Delete matching keys before appending. Unlike earlier revisions,
+        # a failed delete now raises so the run fails closed rather than
+        # silently duplicating rows when the append lands (#777).
+        from pyiceberg.expressions import In, Reference
+
+        unique_values = arrow_table.column(unique_key).to_pylist()
+        unique_values_set = set(unique_values)
+        batch_size = 1000
+        unique_values_list = list(unique_values_set)
+
+        for i in range(0, len(unique_values_list), batch_size):
+            batch = unique_values_list[i : i + batch_size]
+            delete_expr = In(term=Reference(unique_key), values=set(batch))
+            table.delete(delete_expr)
+            rows_deleted += len(batch)  # Approximation
 
         table.append(arrow_table)
         rows_inserted = len(arrow_table)

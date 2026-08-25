@@ -240,8 +240,15 @@ def _quality_check_records(instance: Any, run_id: str) -> list[dict[str, Any]] |
 def _persist_aggregate_quality_decision(
     *, project_id: str, run_id: str, attempt: int, checks: list[dict[str, Any]]
 ) -> str | None:
-    """Persist and return the durable aggregate quality-result identity."""
-    if not checks or any(not check.get("event_id") for check in checks):
+    """Persist and return the durable aggregate quality-result identity.
+
+    An empty check list persists as a vacuous pass: assets without declared
+    checks (Sling replications, for example) must still produce durable
+    promotion evidence, matching ``_all_checks_passed`` semantics where zero
+    executed checks counts as passed. A None return is reserved for unusable
+    input - any recorded check missing its durable event id.
+    """
+    if any(not check.get("event_id") for check in checks):
         return None
     passed = all(check["passed"] for check in checks)
     event_id = (

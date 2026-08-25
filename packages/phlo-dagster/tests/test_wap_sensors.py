@@ -1337,3 +1337,66 @@ def test_quality_evidence_uses_decision_correct_aggregate(
     assert result["check_id"] == "wap.aggregate"
     assert result["passed"] == expected_passed
     assert metadata["quality_evidence"]["failed_check_ids"] == expected_failed
+
+
+def test_persist_aggregate_quality_decision_allows_empty_checks(monkeypatch, tmp_path) -> None:
+    """Check-free runs must still produce a durable decision via _quality_evidence.
+
+    Exercises the full _quality_evidence path (report read + check records +
+    aggregate persistence) against an empty check list, matching how Sling
+    replications reach the promotion sensor.
+    """
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    run_id = "run-empty-checks"
+    write_wap_report(run_id, status="branch_created")
+
+    instance = MagicMock()
+    instance.get_records_for_run.return_value = MagicMock(records=[])
+
+    quality_id, metadata = _quality_evidence(
+        run_id,
+        instance,
+        project_id="p",
+        attempt=1,
+        evidence_run_id=run_id,
+    )
+
+    assert quality_id is not None, "empty checks must produce durable evidence"
+
+
+def test_persist_aggregate_quality_decision_reflects_failures(monkeypatch, tmp_path) -> None:
+    """Failed checks produce a durable failed decision via _quality_evidence."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    run_id = "run-failed-checks"
+    write_wap_report(run_id, status="branch_created")
+
+    records = [
+        SimpleNamespace(
+            storage_id=storage_id,
+            event_log_entry=SimpleNamespace(
+                asset_check_evaluation=SimpleNamespace(
+                    passed=check_passed,
+                    severity="error",
+                )
+            ),
+        )
+        for storage_id, check_passed in [(1, True), (2, False)]
+    ]
+
+    instance = MagicMock()
+    instance.get_records_for_run.return_value = MagicMock(records=records)
+
+    from phlo_dagster.wap_sensors import _quality_check_records, _quality_evidence
+
+    checks = _quality_check_records(instance, run_id)
+    assert checks is not None
+    assert len(checks) == 2
+
+    quality_id, metadata = _quality_evidence(
+        run_id,
+        instance,
+        project_id="p",
+        attempt=1,
+        evidence_run_id=run_id,
+    )
+    assert quality_id is not None
