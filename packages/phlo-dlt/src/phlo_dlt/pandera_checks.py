@@ -345,6 +345,7 @@ def pandera_contract_asset_check_result(
     asset_key: str,
     schema_class: type[Any],
     query_or_sql: str,
+    blocking: bool = True,
 ) -> CheckResult:
     """Build a normalized Phlo check result from Pandera evaluation output.
 
@@ -372,6 +373,7 @@ def pandera_contract_asset_check_result(
     """
     metadata: dict[str, Any] = {
         "source": "pandera",
+        "blocking": blocking,
         "partition_key": partition_key,
         "failed_count": evaluation.failed_count,
         "total_count": evaluation.total_count,
@@ -386,7 +388,7 @@ def pandera_contract_asset_check_result(
         passed=evaluation.passed,
         check_name=PANDERA_CONTRACT_CHECK_NAME,
         metadata=metadata,
-        severity=None if evaluation.passed else "error",
+        severity=None if evaluation.passed else ("error" if blocking else "warn"),
         asset_key=asset_key,
     )
 

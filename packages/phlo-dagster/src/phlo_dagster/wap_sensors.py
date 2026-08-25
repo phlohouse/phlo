@@ -990,7 +990,12 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
 
 
 def _all_checks_passed(instance: Any, run_id: str) -> bool:
-    """Return True if every asset check in the run passed (or none were executed)."""
+    """Return True when no ERROR-severity asset check failed in the run.
+
+    Failed WARN-severity checks are non-blocking: recorded as durable
+    warning evidence but never gating promotion (zero executed checks also
+    counts as passed)."""
+
     try:
         check_records = instance.get_records_for_run(
             run_id,
@@ -1004,11 +1009,28 @@ def _all_checks_passed(instance: Any, run_id: str) -> bool:
         )
         return False
 
+    blocking_failure_seen = False
+    warning_failures = 0
     for record in check_records.records:
-        check_eval = record.event_log_entry.asset_check_evaluation
-        if check_eval is not None and not check_eval.passed:
-            return False
-    return True
+        entry = record.event_log_entry
+        check_eval = getattr(entry, "asset_check_evaluation", None)
+        if check_eval is None:
+            continue
+        if check_eval.passed:
+            continue
+        severity = str(getattr(check_eval, "severity", "") or "error").lower()
+        if severity == "warn":
+            warning_failures += 1
+            continue
+        blocking_failure_seen = True
+    # Failed WARN-severity checks are recorded as evidence but never gate
+    # promotion; only ERROR-severity failures block.
+    if warning_failures:
+        logger.info(
+            "wap_promotion_warn_check_failures_non_blocking",
+            warning_failures=warning_failures,
+        )
+    return not blocking_failure_seen
 
 
 # ---------------------------------------------------------------------------

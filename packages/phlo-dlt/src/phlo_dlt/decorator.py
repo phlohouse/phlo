@@ -627,6 +627,7 @@ def phlo_ingestion(
                             asset_key=f"dlt_{table_config.table_name}",
                             schema_class=table_config.validation_schema,
                             query_or_sql="status:no_data",
+                            blocking=bool(strict_validation),
                         )
                         yield check_result
                     yield MaterializeResult(
@@ -761,6 +762,7 @@ def phlo_ingestion(
                         asset_key=f"dlt_{table_config.table_name}",
                         schema_class=validation_schema,
                         query_or_sql=query_or_sql,
+                        blocking=bool(strict_validation),
                     )
                     yield check_result
                     if strict_validation and not evaluation.passed:
@@ -787,7 +789,7 @@ def phlo_ingestion(
                             "violation": violation,
                             "staged_parquet": query_or_sql,
                         },
-                        severity=None if passed else "error",
+                        severity=None if passed else ("error" if strict_validation else "warn"),
                         asset_key=f"dlt_{table_config.table_name}",
                     )
                     if not passed:
