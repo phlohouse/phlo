@@ -48,8 +48,13 @@ def _resolve_clickhouse_connection() -> dict[str, dict[str, Any]]:
 def _resolve_delta_connection() -> dict[str, dict[str, Any]]:
     """Resolve a Delta Lake connection from phlo-delta settings.
 
-    Sling targets Delta via filesystem + warehouse location; returns
-    {"PHLO_DELTA": ...} or an empty dict when phlo-delta is not installed.
+    Sling targets Delta via its native file target rooted at the warehouse;
+    returns {"PHLO_DELTA": ...} or an empty dict when phlo-delta is not
+    installed.
+
+    The type label must be ``file``: that is the connection type Sling
+    registers for filesystem roots, and an unregistered type makes Sling
+    drop the connection entirely (``could not find connection PHLO_DELTA``).
     """
     try:
         from phlo_delta.settings import get_settings as get_delta_settings
@@ -57,7 +62,7 @@ def _resolve_delta_connection() -> dict[str, dict[str, Any]]:
         delta = get_delta_settings()
         return {
             "PHLO_DELTA": {
-                "type": "filesystem",
+                "type": "file",
                 "root_path": delta.delta_warehouse_path,
             }
         }

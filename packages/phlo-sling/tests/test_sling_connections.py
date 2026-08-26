@@ -162,7 +162,7 @@ def test_delta_connection_uses_warehouse_path(monkeypatch) -> None:
 
     conn = _resolve_delta_connection()
     assert conn["PHLO_DELTA"] == {
-        "type": "filesystem",
+        "type": "file",
         "root_path": "s3://lake/warehouse/delta",
     }
 
