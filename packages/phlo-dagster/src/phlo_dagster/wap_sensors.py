@@ -212,6 +212,17 @@ def _read_wap_report(run_id: str) -> dict[str, Any] | None:
         return None
 
 
+def _severity_label(value: Any) -> str:
+    """Normalize a Dagster severity (enum or plain string) to lowercase text.
+
+    ``str(AssetCheckSeverity.WARN)`` yields ``"AssetCheckSeverity.WARN"``, not
+    ``"WARN"``, so enum values must be unwrapped via ``.value`` before any
+    comparison against the plain ``"warn"``/``"error"`` labels.
+    """
+    raw = getattr(value, "value", value)
+    return str(raw or "error").lower()
+
+
 def _quality_check_records(instance: Any, run_id: str) -> list[dict[str, Any]] | None:
     """Return durable check outcomes with severity and blocking classification.
 
@@ -237,7 +248,7 @@ def _quality_check_records(instance: Any, run_id: str) -> list[dict[str, Any]] |
             {
                 "event_id": f"dagster-quality:{storage_id}" if storage_id is not None else None,
                 "passed": bool(getattr(evaluation, "passed", False)),
-                "severity": str(getattr(evaluation, "severity", "") or "error").lower(),
+                "severity": _severity_label(getattr(evaluation, "severity", None)),
                 "blocking": bool(getattr(evaluation, "blocking", True)),
             }
         )
@@ -262,10 +273,10 @@ def _persist_aggregate_quality_decision(
     if any(not check.get("event_id") for check in checks):
         return None
     error_failures = [
-        c for c in checks if not c["passed"] and str(c.get("severity", "error")).lower() != "warn"
+        c for c in checks if not c["passed"] and _severity_label(c.get("severity")) != "warn"
     ]
     warn_failures = [
-        c for c in checks if not c["passed"] and str(c.get("severity", "error")).lower() == "warn"
+        c for c in checks if not c["passed"] and _severity_label(c.get("severity")) == "warn"
     ]
     passed = not error_failures
     severity = "error" if error_failures else ("warn" if warn_failures else None)
@@ -1049,8 +1060,7 @@ def _all_checks_passed(instance: Any, run_id: str) -> bool:
             continue
         if check_eval.passed:
             continue
-        severity = str(getattr(check_eval, "severity", "") or "error").lower()
-        if severity == "warn":
+        if _severity_label(getattr(check_eval, "severity", None)) == "warn":
             warning_failures += 1
             continue
         blocking_failure_seen = True

@@ -20,6 +20,7 @@ import pytest
 from phlo_dagster.wap_sensors import (
     _all_checks_passed,
     _cleanup_owned_wap_branch,
+    _quality_check_records,
     _quality_evidence,
     _project_identity_for_run,
     _verify_wap_launch_manifest,
@@ -1529,3 +1530,35 @@ def test_persist_aggregate_quality_decision_mixed_severity_rejects(monkeypatch, 
     assert evidence["decision"] == "rejected"
     assert len(evidence["failed_check_ids"]) == 1
     assert len(evidence["warned_check_ids"]) == 1
+
+
+def test_all_checks_passed_dagster_severity_enum_is_normalized():
+    """Real Dagster severity enums normalize before the warn comparison.
+
+    Regression: str(AssetCheckSeverity.WARN) is 'AssetCheckSeverity.WARN',
+    which never equals 'warn' and silently re-gated WARN failures.
+    """
+    import dagster as dg
+
+    instance = MagicMock()
+    instance.get_records_for_run.return_value = MagicMock(
+        records=[
+            _FakeRecord(passed=True),
+            _FakeRecord(passed=False, severity=dg.AssetCheckSeverity.WARN),
+        ]
+    )
+    assert _all_checks_passed(instance, "run-1") is True
+
+
+def test_quality_check_records_normalizes_severity_enum():
+    """_quality_check_records stores plain lowercase severity labels."""
+    import dagster as dg
+
+    instance = MagicMock()
+    instance.get_records_for_run.return_value = MagicMock(
+        records=[
+            _FakeRecord(passed=False, severity=dg.AssetCheckSeverity.WARN),
+        ]
+    )
+    checks = _quality_check_records(instance, "run-1")
+    assert checks[0]["severity"] == "warn"
