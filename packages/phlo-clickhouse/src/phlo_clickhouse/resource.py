@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 
 import clickhouse_connect
 import pandas as pd
+import pyarrow as pa
 
 from phlo.capabilities import CapabilitySupport
 from phlo.logging import get_logger
@@ -33,6 +34,7 @@ from phlo_clickhouse.settings import get_settings as get_clickhouse_settings
 
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client
+    from pandera.pandas import DataFrameModel
 
 logger = get_logger(__name__)
 
@@ -177,6 +179,29 @@ class ClickHouseResource:
         """
         return f"`{name.replace('`', '``')}`"
 
+    def _resolve_target(self, table_name: str) -> tuple[str, str]:
+        """Split a possibly namespace-qualified table name into escaped
+        ``(database, table)`` identifiers.
+
+        Ingestion assets address tables as ``<namespace>.<table>`` (for
+        example ``raw.platform_events``); the namespace selects the ClickHouse
+        database so tables land where dbt sources expect them. A bare name
+        falls back to the configured default database.
+
+        Example:
+            >>> resource._resolve_target("raw.platform_events")
+            ('`raw`', '`platform_events`')
+
+        """
+        settings = self._settings()
+        if "." in table_name:
+            namespace, _, table = table_name.partition(".")
+            database = namespace or settings.clickhouse_db
+        else:
+            database = settings.clickhouse_db
+            table = table_name
+        return self._escape_identifier(database), self._escape_identifier(table)
+
     def ensure_table(
         self,
         *,
@@ -188,17 +213,23 @@ class ClickHouseResource:
         """Create the destination table if it does not exist, with optional
         partitioning from (column_name, type) tuples.
 
+        The table name may carry a ``<database>.<table>`` namespace; the
+        database is created on demand so ingestion can land in namespaces
+        other than the configured default.
+
         Example:
             >>> from pandera import Schema, Column, Int64
             >>> class MySchema(Schema):
             ...     id = Column(Int64)
             >>> resource = ClickHouseResource()
-            >>> resource.ensure_table(table_name="my_table", schema=MySchema)
+            >>> resource.ensure_table(table_name="raw.my_table", schema=MySchema)
 
         """
-        settings = self._settings()
-        database = self._escape_identifier(self.database or settings.clickhouse_db)
-        table = self._escape_identifier(table_name)
+        database, table = self._resolve_target(table_name)
+        if "." in table_name:
+            # Ingestion namespaces may target databases that do not exist yet.
+            namespace = table_name.partition(".")[0]
+            self.command(f"CREATE DATABASE IF NOT EXISTS {self._escape_identifier(namespace)}")
 
         columns_def = self._schema_to_columns(schema)
 
@@ -231,9 +262,7 @@ class ClickHouseResource:
             1000
 
         """
-        settings = self._settings()
-        database = self._escape_identifier(self.database or settings.clickhouse_db)
-        table = self._escape_identifier(table_name)
+        database, table = self._resolve_target(table_name)
 
         data_path_str = str(data_path)
         df = pd.read_parquet(data_path_str)
@@ -271,9 +300,7 @@ class ClickHouseResource:
             (100, 100)
 
         """
-        settings = self._settings()
-        database = self._escape_identifier(self.database or settings.clickhouse_db)
-        table = self._escape_identifier(table_name)
+        database, table = self._resolve_target(table_name)
         key = self._escape_identifier(unique_key)
 
         data_path_str = str(data_path)
@@ -299,20 +326,27 @@ class ClickHouseResource:
         return {"rows_inserted": row_count, "rows_deleted": len(unique_keys)}
 
     def _schema_to_columns(self, schema: Any) -> str:
-        """Render a Pandera-style schema ('columns' attribute) or dataclass-like
-        schema ('fields' attribute) as comma-separated "name type" column
-        definitions. Raises TypeError for unsupported schema types.
+        """Render a schema as comma-separated "name type" column definitions.
+        Accepts Pandera-style schemas (``columns`` attribute), dataclass-like
+        schemas (``fields`` attribute), and pyarrow schemas - the form
+        produced by ``schema_from_validation_schema``. Raises TypeError for
+        unsupported schema types.
 
         Example:
-            >>> from pandera import Schema, Column, Int64, String
-            >>> class TestSchema(Schema):
-            ...     id = Column(Int64)
-            ...     name = Column(String)
+            >>> import pyarrow as pa
             >>> resource = ClickHouseResource()
-            >>> resource._schema_to_columns(TestSchema)
-            'id Int64, name String'
+            >>> resource._schema_to_columns(pa.schema([("id", pa.int64())]))
+            '`id` Int64'
 
         """
+        if isinstance(schema, pa.Schema):
+            columns = [
+                f"{self._escape_identifier(field.name)} "
+                f"{self._arrow_type_to_clickhouse(field.type)}"
+                for field in schema
+            ]
+            return ", ".join(columns)
+
         if hasattr(schema, "to_schema"):
             schema = schema.to_schema()
 
@@ -333,6 +367,62 @@ class ClickHouseResource:
         raise TypeError(
             f"Unsupported schema type: {type(schema).__name__}. Expected a schema with 'columns' or 'fields' attribute."
         )
+
+    def _arrow_type_to_clickhouse(self, arrow_type: Any) -> str:
+        """Map an arrow type to its ClickHouse type name, defaulting to
+        "String" for unrecognized types.
+
+        Example:
+            >>> import pyarrow as pa
+            >>> resource = ClickHouseResource()
+            >>> resource._arrow_type_to_clickhouse(pa.int64())
+            'Int64'
+
+        """
+        if pa.types.is_timestamp(arrow_type):
+            if arrow_type.tz is not None:
+                return "DateTime64(6, 'UTC')"
+            return "DateTime64(6)"
+        if pa.types.is_date(arrow_type):
+            return "Date"
+        type_map = {
+            pa.int8(): "Int8",
+            pa.int16(): "Int16",
+            pa.int32(): "Int32",
+            pa.int64(): "Int64",
+            pa.uint8(): "UInt8",
+            pa.uint16(): "UInt16",
+            pa.uint32(): "UInt32",
+            pa.uint64(): "UInt64",
+            pa.float32(): "Float32",
+            pa.float64(): "Float64",
+            pa.bool_(): "Bool",
+            pa.string(): "String",
+            pa.large_string(): "String",
+            pa.binary(): "String",
+        }
+        return type_map.get(arrow_type, "String")
+
+    def schema_from_validation_schema(
+        self, validation_schema: type[DataFrameModel] | type[Any]
+    ) -> pa.Schema:
+        """Convert a Pandera validation model to an arrow schema.
+
+        The ClickHouse table store consumes pyarrow schemas for both DDL
+        rendering and parquet coercion; reserved DLT and Phlo metadata columns
+        are appended so lineage columns land with the data. Raises
+        SchemaConversionError when the model cannot be converted.
+
+        Example:
+            Convert a Pandera model to an arrow schema::
+
+                resource = ClickHouseResource()
+                schema = resource.schema_from_validation_schema(UserSchema)
+
+        """
+        from phlo_clickhouse.schema_conversion import pandera_to_arrow
+
+        return pandera_to_arrow(validation_schema)
 
     def _pandas_type_to_clickhouse(self, dtype: Any) -> str:
         """Map a pandas dtype to its ClickHouse type name, falling back to
