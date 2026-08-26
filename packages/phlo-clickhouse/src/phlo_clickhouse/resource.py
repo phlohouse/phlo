@@ -283,11 +283,14 @@ class ClickHouseResource:
         data_path: str | Path,
         unique_key: str,
         override_ref: str | None = None,
+        deduplication_method: str | None = None,
+        deduplication_order_by: str | None = None,
     ) -> dict[str, int]:
         """Upsert Parquet data: delete existing rows whose unique_key matches
         the incoming data, then insert it. Returns inserted and deleted row
         counts. The delete is a background mutation, so readers may
-        transiently see both versions of a key.
+        transiently see both versions of a key. Batch-local duplicate keys
+        are deduplicated deterministically before the write.
 
         Example:
             >>> resource = ClickHouseResource()
@@ -304,7 +307,24 @@ class ClickHouseResource:
         key = self._escape_identifier(unique_key)
 
         data_path_str = str(data_path)
-        df = pd.read_parquet(data_path_str)
+
+        import pyarrow.parquet as pq
+
+        from phlo.helpers import deduplicate_arrow_by_unique_key
+
+        arrow_table = pq.read_table(data_path_str)
+        if unique_key not in arrow_table.schema.names:
+            raise ValueError(
+                f"Unique key '{unique_key}' not found in data. "
+                f"Available columns: {arrow_table.schema.names}"
+            )
+        arrow_table, _removed = deduplicate_arrow_by_unique_key(
+            arrow_table,
+            unique_key,
+            method=deduplication_method or "last",
+            order_by=deduplication_order_by,
+        )
+        df = arrow_table.to_pandas()
         row_count = len(df)
 
         unique_keys = df[unique_key].tolist()

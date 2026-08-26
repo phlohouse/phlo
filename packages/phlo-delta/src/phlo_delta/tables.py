@@ -32,6 +32,7 @@ from typing import Any, cast
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from phlo.helpers import deduplicate_arrow_by_unique_key
 from phlo.logging import get_logger
 from phlo_delta.settings import get_settings
 
@@ -243,15 +244,29 @@ def merge_to_table(
     data_path: str | Path,
     unique_key: str,
     storage_options: dict[str, str] | None = None,
+    *,
+    deduplication_method: str | None = None,
+    deduplication_order_by: str | None = None,
 ) -> dict[str, int]:
     """Merge (upsert) parquet data into a Delta table by unique_key.
 
     Updates existing rows matching unique_key and inserts rows not present
     in the target. Rows absent from the source are swallowed, not deleted,
     so rows_deleted reports Delta's counter and stays 0 under this strategy.
-    Returns rows_inserted, rows_updated, and rows_deleted counts. Raises
-    ValueError when unique_key is missing from the data columns, or an
-    exception if the merge operation fails.
+    Batch-local duplicate keys are deduplicated deterministically before
+    the merge executes. Returns rows_inserted, rows_updated, and rows_deleted
+    counts. Raises ValueError when unique_key is missing from the data
+    columns or an unsupported deduplication option is requested.
+
+    Args:
+        table_name: Fully qualified table name (namespace.table).
+        data_path: Path to parquet input data.
+        unique_key: Column used to match existing rows (must exist in data).
+        storage_options: S3 storage options override.
+        deduplication_method: Optional batch deduplication method
+            (``"first"`` or ``"last"``; default ``"last"``).
+        deduplication_order_by: Explicit ordering column used by
+            ``deduplication_method="last"`` to pick the winning row per key.
 
     Example:
         result = merge_to_table(
@@ -284,6 +299,13 @@ def merge_to_table(
                 f"Unique key '{unique_key}' not found in data. "
                 f"Available columns: {arrow_table.schema.names}"
             )
+
+        arrow_table, _removed = deduplicate_arrow_by_unique_key(
+            arrow_table,
+            unique_key,
+            method=deduplication_method or "last",
+            order_by=deduplication_order_by,
+        )
 
         dt = delta_table_cls(table_uri, storage_options=opts)
         merge_result = (

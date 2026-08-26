@@ -269,9 +269,15 @@ class DeltaResource:
         data_path: str,
         unique_key: str,
         override_ref: str | None = None,
+        *,
+        deduplication_method: str | None = None,
+        deduplication_order_by: str | None = None,
     ) -> dict[str, int]:
         """Upsert parquet data into the table keyed by unique_key and return
         write statistics (rows_inserted, rows_updated, rows_deleted).
+
+        Batch-local duplicate keys are deduplicated deterministically before
+        the merge executes (``deduplication_method``/``deduplication_order_by``).
 
         Raises PhloConfigError when an unsupported override_ref is provided;
         merge failures propagate after logging.
@@ -294,6 +300,8 @@ class DeltaResource:
                 table_name=table_name,
                 data_path=data_path,
                 unique_key=unique_key,
+                deduplication_method=deduplication_method,
+                deduplication_order_by=deduplication_order_by,
             )
         except Exception as exc:
             logger.error(

@@ -187,6 +187,7 @@ from phlo.helpers.supersession import (
 from phlo.helpers.tables import (
     TableName,
     append_parquet,
+    deduplicate_arrow_by_unique_key,
     empty_table,
     ensure_lakehouse_table,
     load_table_schema,
@@ -262,6 +263,7 @@ __all__ = [
     "crosswalk_lookup",
     "csv_batch_source",
     "default_object_store_layout",
+    "deduplicate_arrow_by_unique_key",
     "detect_crosswalk_collisions",
     "dry_run_backfill",
     "effective_join",

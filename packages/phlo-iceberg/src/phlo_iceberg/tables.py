@@ -46,6 +46,7 @@ from pyiceberg.schema import Schema
 from pyiceberg.table import Table
 
 from phlo.capabilities import SAFE_MIN_RETENTION_HOURS
+from phlo.helpers import deduplicate_arrow_by_unique_key
 from phlo.logging import get_logger
 from phlo_iceberg.catalog import create_namespace, get_catalog
 
@@ -308,15 +309,35 @@ def merge_to_table(
     data_path: str | Path,
     unique_key: str,
     ref: str = "main",
+    *,
+    deduplication: bool = True,
+    deduplication_method: str | None = None,
+    deduplication_order_by: str | None = None,
 ) -> dict[str, int]:
     """Merge (upsert) Parquet data into an Iceberg table with deduplication.
 
-    Deletes existing rows matching ``unique_key`` before inserting new data;
-    duplicate keys within the source are logged as warnings. Raises
-    ValueError when the unique-key column is absent from the source data.
+    Deletes existing rows matching ``unique_key`` before inserting new data.
+    Duplicate keys within the staged batch are first deduplicated
+    deterministically (controlled by the ``deduplication*`` arguments);
+    duplicates that cannot be resolved fail loudly instead of leaking into
+    the destination. Raises ValueError when the unique-key column is absent
+    from the source data.
 
     Delete failures propagate (they no longer pass silently), preventing
     the duplicate-row divergence reported in #777.
+
+    Args:
+        table_name: Fully qualified table name in ``namespace.table`` format.
+        data_path: Path to Parquet file or directory containing data files.
+        unique_key: Column name used to identify matching rows for deletion.
+        ref: Nessie branch/tag reference (default: ``main``).
+        deduplication: Whether to deduplicate rows sharing a unique key within
+            the staged batch before appending (default: True).
+        deduplication_method: ``"last"`` (default) or ``"first"``. ``"last"``
+            keeps the row with the greatest ``deduplication_order_by`` value per
+            key; Parquet row order is never used as a tiebreaker.
+        deduplication_order_by: Explicit ordering (version/timestamp) column
+            required by ``method="last"`` when duplicates are present.
 
     Example:
         Upsert user data by ID::
@@ -367,17 +388,37 @@ def merge_to_table(
                 f"Available columns: {arrow_table.schema.names}"
             )
 
+        effective_method = deduplication_method or "last"
+
+        if deduplication:
+            arrow_table, duplicates_removed = deduplicate_arrow_by_unique_key(
+                arrow_table,
+                unique_key,
+                method=effective_method,
+                order_by=deduplication_order_by,
+            )
+            if duplicates_removed:
+                logger.info(
+                    "iceberg_merge_batch_deduplicated",
+                    table_name=table_name,
+                    unique_key=unique_key,
+                    method=effective_method,
+                    order_by=deduplication_order_by,
+                    duplicates_removed=duplicates_removed,
+                )
+        else:
+            key_values = arrow_table.column(unique_key).to_pylist()
+            distinct_keys = set(key_values)
+            if len(distinct_keys) < len(key_values):
+                logger.warning(
+                    "source_duplicates_detected_after_deduplication",
+                    duplicates_count=len(key_values) - len(distinct_keys),
+                    unique_key=unique_key,
+                    table_name=table_name,
+                )
+
         unique_values = arrow_table.column(unique_key).to_pylist()
         unique_values_set = set(unique_values)
-
-        if len(unique_values_set) < len(unique_values):
-            duplicates_count = len(unique_values) - len(unique_values_set)
-            logger.warning(
-                "source_duplicates_detected_after_deduplication",
-                duplicates_count=duplicates_count,
-                unique_key=unique_key,
-                table_name=table_name,
-            )
 
         iceberg_column_names = {field.name for field in table.schema().fields}
         arrow_column_names = set(arrow_table.schema.names)

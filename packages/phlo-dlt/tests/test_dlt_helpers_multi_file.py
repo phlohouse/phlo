@@ -92,6 +92,62 @@ def test_merge_to_table_store_appends_all_files(tmp_path) -> None:
     assert len(append_calls) == 2
 
 
+def test_merge_to_table_store_forwards_deduplication_options(tmp_path) -> None:
+    parquet_path = tmp_path / "updates.parquet"
+    pd.DataFrame([{"event_id": "e1", "status": "sent"}]).to_parquet(parquet_path)
+
+    merge_calls: list[dict] = []
+
+    class TableStoreStub:
+        def ensure_table(self, **_kwargs):
+            return None
+
+        def merge_parquet(
+            self,
+            *,
+            table_name: str,
+            data_path: str,
+            unique_key: str,
+            override_ref: str | None = None,
+            **merge_options,
+        ):
+            merge_calls.append({"data_path": data_path, **merge_options})
+            return {"rows_inserted": 1, "rows_deleted": 1}
+
+    context = SimpleNamespace(log=SimpleNamespace(info=lambda *_args, **_kwargs: None))
+    metrics = merge_to_table_store(
+        context=context,
+        table_store=TableStoreStub(),
+        table_config=TableConfig(
+            table_name="events",
+            table_schema=Schema(
+                NestedField(field_id=1, name="event_id", field_type=StringType(), required=False)
+            ),
+            validation_schema=None,
+            unique_key="event_id",
+            group_name="raw",
+        ),
+        parquet_paths=[parquet_path],
+        branch_name="main",
+        merge_strategy="merge",
+        merge_config={
+            "deduplication": True,
+            "deduplication_method": "last",
+            "deduplication_order_by": "updated_at",
+        },
+    )
+
+    assert metrics == {"rows_inserted": 1, "rows_deleted": 1}
+    assert len(merge_calls) == 1
+    call = merge_calls[0]
+    # Data path points at the schema-coerced staging copy, not the source parquet.
+    assert call.pop("data_path").endswith("coerced.parquet")
+    assert call == {
+        "deduplication_method": "last",
+        "deduplication_order_by": "updated_at",
+    }
+
+
 def test_table_state_uses_only_the_neutral_observer_surface() -> None:
     class NonIcebergTableStore:
         def get_catalog(self, **_kwargs):  # pragma: no cover - boundary tripwire

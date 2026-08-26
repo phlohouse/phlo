@@ -165,7 +165,10 @@ def _validate_merge_config(
     """Validate merge strategy and merge configuration semantics.
 
     `merge_strategy` must be `append` or `merge`; when provided, `merge_config`
-    must be a dict whose `deduplication` flag requires a non-empty `unique_key`.
+    must be a dict of supported keys only: `deduplication` (bool, requires a
+    non-empty `unique_key` when true), `deduplication_method` (`first` or
+    `last`), and `deduplication_order_by` (ordering column name used by
+    `last`). Unknown keys or malformed values are rejected.
 
     Raises: PhloConfigError when the strategy or config values are invalid.
     """
@@ -182,6 +185,41 @@ def _validate_merge_config(
         raise PhloConfigError(
             message="merge_config must be a dict",
             suggestions=["Pass merge_config={'deduplication': True, ...}"],
+        )
+
+    supported_keys = ("deduplication", "deduplication_method", "deduplication_order_by")
+    unknown_keys = sorted(set(merge_config) - set(supported_keys))
+    if unknown_keys:
+        raise PhloConfigError(
+            message=f"Unsupported merge_config option(s): {', '.join(unknown_keys)}",
+            suggestions=[f"Use only supported keys: {', '.join(supported_keys)}"],
+        )
+
+    if "deduplication" in merge_config and not isinstance(merge_config["deduplication"], bool):
+        raise PhloConfigError(
+            message="merge_config['deduplication'] must be a boolean",
+            suggestions=["Use true or false for the deduplication option"],
+        )
+
+    supported_methods = ("first", "last")
+    method = merge_config.get("deduplication_method")
+    if method is not None and (not isinstance(method, str) or method not in supported_methods):
+        raise PhloConfigError(
+            message=f"Unsupported merge_config deduplication_method: {method!r}",
+            suggestions=[
+                f"Use one of: {', '.join(supported_methods)} "
+                "(optionally with deduplication_order_by set to an ordering column)"
+            ],
+        )
+
+    order_by = merge_config.get("deduplication_order_by")
+    if order_by is not None and not isinstance(order_by, str):
+        raise PhloConfigError(
+            message="merge_config['deduplication_order_by'] must be a column name string",
+            suggestions=[
+                'Use e.g. {"deduplication": true, "deduplication_method": "last", '
+                '"deduplication_order_by": "updated_at"}'
+            ],
         )
 
     if merge_config.get("deduplication") and not unique_key:

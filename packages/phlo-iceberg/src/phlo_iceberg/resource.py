@@ -792,12 +792,25 @@ class IcebergResource:
         override_ref: str | None = None,
         *,
         evidence_context: dict[str, Any] | None = None,
+        deduplication_method: str | None = None,
+        deduplication_order_by: str | None = None,
     ) -> dict[str, int]:
         """Merge (upsert) Parquet data into the table using ``unique_key``.
 
         Deletes existing rows with matching key values, then inserts the new
-        data, making loads idempotent. Returns ``rows_deleted`` (approximate)
-        and ``rows_inserted``.
+        data, making loads idempotent. Batch-local duplicate keys are
+        deduplicated deterministically before the merge executes. Returns
+        ``rows_deleted`` (approximate) and ``rows_inserted``.
+
+        Args:
+            table_name: Fully qualified table name (``namespace.table``).
+            data_path: Path to Parquet input data (file or directory).
+            unique_key: Column name used to identify and match existing rows.
+            override_ref: Optional branch or tag to use instead of ``self.ref``.
+            deduplication_method: Optional batch deduplication method
+                (``"first"`` or ``"last"``; default ``"last"``).
+            deduplication_order_by: Explicit ordering column used by
+                ``deduplication_method="last"`` to pick the winning row per key.
 
         Example:
             Upsert user data by ID::
@@ -830,6 +843,8 @@ class IcebergResource:
                 data_path=data_path,
                 unique_key=unique_key,
                 ref=branch,
+                deduplication_method=deduplication_method,
+                deduplication_order_by=deduplication_order_by,
             )
         except Exception as exc:
             logger.error(

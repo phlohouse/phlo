@@ -95,8 +95,17 @@ class TableStore(Protocol):
         data_path: str | Path,
         unique_key: str,
         override_ref: str | None = None,
+        deduplication_method: str | None = None,
+        deduplication_order_by: str | None = None,
     ) -> dict[str, int]:
-        """Merge staged parquet data into a destination table."""
+        """Merge staged parquet data into a destination table.
+
+        ``deduplication_method`` (``"first"``/``"last"``) and
+        ``deduplication_order_by`` control deterministic batch-local
+        deduplication of rows sharing ``unique_key``. Providers that cannot
+        honor an explicitly requested option must reject it loudly rather than
+        silently ignoring it.
+        """
 
     def overwrite_parquet(
         self,

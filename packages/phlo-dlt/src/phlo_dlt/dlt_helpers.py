@@ -593,12 +593,21 @@ def merge_to_table_store(
         context.log.info(
             f"Merging data to destination table on branch {branch_name} (idempotent upsert)..."
         )
+        dedup_kwargs: dict[str, Any] = {}
+        if bool(merge_config.get("deduplication", False)):
+            method = merge_config.get("deduplication_method")
+            order_by = merge_config.get("deduplication_order_by")
+            if method is not None:
+                dedup_kwargs["deduplication_method"] = str(method)
+            if order_by is not None:
+                dedup_kwargs["deduplication_order_by"] = str(order_by)
         for parquet_path in coerced_parquet_paths:
             file_metrics = table_store.merge_parquet(
                 table_name=table_name,
                 data_path=str(parquet_path),
                 unique_key=table_config.unique_key,
                 override_ref=branch_name,
+                **dedup_kwargs,
             )
             merge_metrics["rows_inserted"] += file_metrics.get("rows_inserted", 0)
             merge_metrics["rows_deleted"] += file_metrics.get("rows_deleted", 0)

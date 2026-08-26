@@ -50,6 +50,86 @@ def parse_table_name(name: str, *, default_namespace: str | None = None) -> Tabl
     )
 
 
+SUPPORTED_DEDUPLICATION_METHODS = ("first", "last")
+
+
+def deduplicate_arrow_by_unique_key(
+    arrow_table,
+    unique_key: str,
+    *,
+    method: str = "last",
+    order_by: str | None = None,
+):
+    """Deduplicate rows sharing the same unique-key value within one batch.
+
+    Applies deterministic, batch-local deduplication on a PyArrow Table so that
+    delete-then-append merge paths never leave duplicate keys behind.
+
+    Semantics:
+        - ``method="last"`` keeps, per key, the row with the greatest
+          ``order_by`` value. ``order_by`` must be provided; Parquet row order
+          is never used as an implicit tiebreaker.
+        - ``method="first"`` keeps the first occurrence of each key in input
+          order.
+        - Rows without duplicate keys are returned unchanged (identity on key).
+
+    Args:
+        arrow_table: PyArrow Table to deduplicate.
+        unique_key: Column identifying distinct entities.
+        method: Deduplication strategy, ``first`` or ``last``.
+        order_by: Column defining recency/version ordering. Required for
+            ``method="last"`` when duplicates are present.
+
+    Returns:
+        tuple: ``(deduplicated_table, duplicates_removed_count)``.
+
+    Raises:
+        ValueError: If the method is unsupported, or ``order_by`` is missing
+            or absent from the data where required.
+
+    """
+    if method not in SUPPORTED_DEDUPLICATION_METHODS:
+        raise ValueError(
+            f"Unsupported deduplication_method '{method}'. "
+            f"Supported methods: {', '.join(SUPPORTED_DEDUPLICATION_METHODS)}"
+        )
+    if order_by is not None and order_by not in arrow_table.schema.names:
+        raise ValueError(
+            f"Deduplication order column '{order_by}' not found in data. "
+            f"Available columns: {list(arrow_table.schema.names)}"
+        )
+
+    key_values = arrow_table.column(unique_key).to_pylist()
+    has_duplicates = len(set(key_values)) < len(key_values)
+    ordered_indices = list(range(len(key_values)))
+    if method == "last" and has_duplicates:
+        if order_by is None:
+            raise ValueError(
+                "deduplication_method='last' requires an explicit ordering column "
+                "(deduplication_order_by) because duplicate unique-key values were "
+                "found; Parquet row order is not a valid tiebreaker"
+            )
+        # Stable Python sort keeps Parquet row order as a deterministic
+        # tiebreaker between rows equal on the ordering column.
+        order_values = arrow_table.column(order_by).to_pylist()
+        ordered_indices = sorted(range(len(key_values)), key=lambda i: order_values[i])
+
+    winners: dict[object, int] = {}
+    for index in ordered_indices:
+        key = key_values[index]
+        if method == "last":
+            winners[key] = index
+        else:
+            winners.setdefault(key, index)
+
+    removed = len(key_values) - len(winners)
+    if removed == 0:
+        return arrow_table, 0
+
+    kept_indices = sorted(winners.values())
+    return arrow_table.take(kept_indices), removed
+
+
 def qualified_table_name(
     table: str,
     *,
