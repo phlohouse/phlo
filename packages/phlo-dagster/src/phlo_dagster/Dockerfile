@@ -8,7 +8,7 @@ WORKDIR /opt/phlo-build-context
 COPY . .
 RUN mkdir -p /opt/phlo-build-context/wheelhouse
 
-FROM python:3.12-slim
+FROM python:3.12-slim AS runtime
 
 WORKDIR /opt/dagster
 
@@ -22,6 +22,7 @@ ARG PHLO_WHEELHOUSE=""
 # No C/C++/Rust toolchain: every pinned Python dependency ships manylinux
 # wheels on glibc, so source builds are not expected in this image.
 RUN apt-get update \
+    && apt-get upgrade --no-install-recommends --yes \
     && apt-get install --yes --no-install-recommends \
         bash=5.2.37-2+b9 \
         ca-certificates=20250419 \

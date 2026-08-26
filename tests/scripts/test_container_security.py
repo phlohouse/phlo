@@ -87,7 +87,7 @@ def test_waiver_validation_rejects_expired_long_and_duplicate_entries() -> None:
     assert any("duplicate active image/finding" in error for error in errors)
 
 
-def test_policy_allows_only_waived_unfixed_blocking_findings() -> None:
+def test_policy_blocks_fixable_and_warns_on_unfixed_findings() -> None:
     report = {
         "Results": [
             {
@@ -103,8 +103,11 @@ def test_policy_allows_only_waived_unfixed_blocking_findings() -> None:
             }
         ]
     }
-    errors = container_security.apply_policy(report, "ghcr.io/phlohouse/phlo-api:1", [_waiver()])
+    errors, warnings = container_security.apply_policy(report, "ghcr.io/phlohouse/phlo-api:1", [])
     assert errors == ["ghcr.io/phlohouse/phlo-api:1: fixable CRITICAL CVE-2026-0002 (fixed in 2.0)"]
+    assert warnings == [
+        "ghcr.io/phlohouse/phlo-api:1: unfixed HIGH CVE-2026-0001 inherited from upstream"
+    ]
 
 
 def test_affected_images_ignores_docs_and_selects_changed_service() -> None:

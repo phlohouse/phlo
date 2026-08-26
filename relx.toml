@@ -82,34 +82,6 @@ search = "image: ghcr.io/phlohouse/{name}:{current_version}"
 replace = "image: ghcr.io/phlohouse/{name}:{next_version}"
 expected_matches = 1
 
-[[release.replacements]]
-files = ["packages/phlo-clickhouse/src/phlo_clickhouse/__init__.py"]
-packages = ["phlo-clickhouse"]
-search = "__version__ = \"{current_version}\""
-replace = "__version__ = \"{next_version}\""
-expected_matches = 1
-
-[[release.replacements]]
-files = ["packages/phlo-minio/src/phlo_minio/__init__.py"]
-packages = ["phlo-minio"]
-search = "__version__ = \"{current_version}\""
-replace = "__version__ = \"{next_version}\""
-expected_matches = 1
-
-[[release.replacements]]
-files = ["packages/phlo-nessie/src/phlo_nessie/__init__.py"]
-packages = ["phlo-nessie"]
-search = "__version__ = \"{current_version}\""
-replace = "__version__ = \"{next_version}\""
-expected_matches = 1
-
-[[release.replacements]]
-files = ["packages/phlo-pandera/src/phlo_pandera/__init__.py"]
-packages = ["phlo-pandera"]
-search = "__version__ = \"{current_version}\""
-replace = "__version__ = \"{next_version}\""
-expected_matches = 1
-
 [changelog]
 sections.feat = "Added"
 sections.fix = "Fixed"

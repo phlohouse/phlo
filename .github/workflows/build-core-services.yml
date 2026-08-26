@@ -119,6 +119,7 @@ jobs:
           echo 'has_targets=true' >> "$GITHUB_OUTPUT"
 
       - name: Upload generated build contexts
+        if: steps.matrix.outputs.has_targets == 'true'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: generated-service-build-contexts
@@ -207,6 +208,11 @@ jobs:
           build-args: ${{ steps.args.outputs.value }}
           platforms: ${{ matrix.architecture.platform }}
           outputs: type=image,name=${{ steps.image.outputs.repository }},push-by-digest=true,name-canonical=true,push=true
+          # The runtime stage re-resolves the base image and re-runs apk/apt
+          # security upgrades on every publish; cached layers would keep
+          # stale, vulnerable OS libraries alive indefinitely.
+          no-cache-filters: |
+            runtime
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

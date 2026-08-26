@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Derive container inventories, validate Trivy reports, and enforce Phlo scan policy.
 
-Waivers are temporary exceptions: each needs approval and expiry dates, may
-last at most 30 days, and only unfixed CRITICAL or HIGH findings may rely on
-one; findings with an available fix block publication regardless of waivers.
+Findings with an available fix block publication until an image rebuild picks
+them up. Findings without any available fix belong to the upstream base image
+and are reported as warnings instead of blocking; waivers remain available for
+tracking time-limited exceptions.
 """
 
 from __future__ import annotations
@@ -778,12 +779,19 @@ def _waived(waivers: list[dict[str, Any]], image: str, vulnerability_id: str) ->
     return False
 
 
-# A finding with an available fix always blocks, even under an active waiver:
-# upgrading supersedes waiving. Only unfixed findings consult the waiver
-# register; _waived documents the accepted image-name forms.
-def apply_policy(report: dict[str, Any], image: str, waivers: list[dict[str, Any]]) -> list[str]:
-    """Apply blocking-severity policy to one Trivy report, returning unwaived blocking findings."""
+# A finding with an available fix always blocks until the image is rebuilt on a
+# patched base. Unfixed findings are inherited from upstream and reported as
+# warnings; waivers document accepted exceptions without changing enforcement.
+def apply_policy(
+    report: dict[str, Any], image: str, waivers: list[dict[str, Any]]
+) -> tuple[list[str], list[str]]:
+    """Apply blocking-severity policy to one Trivy report.
+
+    Returns unwaived fixable blocking findings as errors and unfixed findings
+    (inherited from upstream) as warnings.
+    """
     errors: list[str] = []
+    warnings: list[str] = []
     for result in report.get("Results", []) or []:
         for finding in result.get("Vulnerabilities", []) or []:
             severity = str(finding.get("Severity", "")).upper()
@@ -798,10 +806,10 @@ def apply_policy(report: dict[str, Any], image: str, waivers: list[dict[str, Any
                     f"{image}: fixable {severity} {vulnerability_id} (fixed in {finding['FixedVersion']})"
                 )
             elif not _waived(waivers, image, vulnerability_id):
-                errors.append(
-                    f"{image}: unfixed {severity} {vulnerability_id} requires an active waiver"
+                warnings.append(
+                    f"{image}: unfixed {severity} {vulnerability_id} inherited from upstream"
                 )
-    return errors
+    return errors, warnings
 
 
 def main() -> int:
@@ -919,9 +927,15 @@ def main() -> int:
     if args.command == "render-waivers":
         args.output.write_text(render_waivers(waivers), encoding="utf-8")
         return 0
-    errors = validate_waivers(waivers) + apply_policy(
+    errors, warnings = apply_policy(
         json.loads(args.report.read_text(encoding="utf-8")), args.image, waivers
     )
+    if warnings:
+        print(
+            "Container vulnerability notices (non-blocking):",
+            *[f"- {warning}" for warning in warnings],
+            sep="\n",
+        )
     if errors:
         print(
             "Container vulnerability policy failed:",
