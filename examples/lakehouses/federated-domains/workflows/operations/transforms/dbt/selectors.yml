@@ -1,0 +1,11 @@
+selectors:
+  - name: nightly_operations
+    description: Full nightly build of the operations domain DAG.
+    definition:
+      method: tag
+      value: nightly
+  - name: incident_summary_tree
+    description: The reliability summary plus its tests.
+    definition:
+      method: fqn
+      value: incident_summary

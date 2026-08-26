@@ -1,0 +1,10 @@
+name: retail_files
+version: "1.0"
+config-version: 2
+profile: retail_files
+model-paths: ["models"]
+vars:
+  partition_date_str: "2025-01-01"
+models:
+  retail_files:
+    +materialized: table

@@ -1,0 +1,44 @@
+version: 2
+models:
+  - name: customer_dimension
+    description: Current-state customer row per snapshot history.
+    columns:
+      - name: customer_id
+        tests: [unique, not_null]
+      - name: email
+        tests: [not_null]
+      - name: segment
+        tests:
+          - accepted_values:
+              values: [consumer, business, enterprise]
+      - name: region
+        tests:
+          - accepted_values:
+              values: [north, south, east, west]
+
+  - name: order_lifecycle_facts
+    description: One row per replicated order with line and payment aggregates.
+    columns:
+      - name: order_id
+        tests: [unique, not_null]
+      - name: customer_id
+        tests:
+          - relationships:
+              to: ref('customer_dimension')
+              field: customer_id
+      - name: status
+        tests:
+          - accepted_values:
+              values: [pending, shipped, delivered, cancelled]
+
+  - name: daily_revenue_mart
+    description: Revenue per order date, currency, and lifecycle status.
+    columns:
+      - name: ordered_date
+        tests: [not_null]
+
+  - name: payment_reconciliation
+    description: Per-order payment variance evidence.
+    columns:
+      - name: order_id
+        tests: [unique, not_null]

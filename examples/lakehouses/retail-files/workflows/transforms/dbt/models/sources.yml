@@ -1,0 +1,25 @@
+version: 2
+sources:
+  - name: retail_raw
+    schema: raw
+    tables:
+      - name: raw_sales
+        identifier: retail_sales_lines
+        meta:
+          phlo_asset_key: dlt_retail_sales_lines
+      - name: raw_products
+        identifier: retail_products
+        meta:
+          phlo_asset_key: dlt_retail_products
+      - name: raw_inventory
+        identifier: retail_inventory
+        meta:
+          phlo_asset_key: dlt_retail_inventory
+      - name: raw_stores
+        identifier: retail_stores
+        meta:
+          phlo_asset_key: dlt_retail_stores
+      - name: raw_promotions
+        identifier: retail_promotions
+        meta:
+          phlo_asset_key: dlt_retail_promotions

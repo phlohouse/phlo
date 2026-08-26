@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phlo-logistics-control-tower-example"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "phlo[defaults]==0.14.0",
+    "phlo-dagster @ git+https://github.com/phlohouse/phlo.git@c74e78f95a#subdirectory=packages/phlo-dagster",
+    "phlo-dlt @ git+https://github.com/phlohouse/phlo.git@c74e78f95a#subdirectory=packages/phlo-dlt",
+    "phlo-dbt @ git+https://github.com/phlohouse/phlo.git@main#subdirectory=packages/phlo-dbt",
+    "phlo-iceberg @ git+https://github.com/phlohouse/phlo.git@c74e78f95a#subdirectory=packages/phlo-iceberg",
+    "phlo-trino @ git+https://github.com/phlohouse/phlo.git@c74e78f95a#subdirectory=packages/phlo-trino",
+    "dlt[filesystem]>=1.20,<2",
+    "pandas>=2.3,<3.1",
+    "pyarrow>=21,<26",
+    "phlo-sling @ git+https://github.com/phlohouse/phlo.git@main#subdirectory=packages/phlo-sling",
+    "psycopg2-binary>=2.9,<3.1",
+]
+
+[dependency-groups]
+dev = [
+    "dbt-trino>=1.10,<1.12",
+    "duckdb>=1.4,<1.6",
+    "phlo-pandera @ git+https://github.com/phlohouse/phlo.git@main#subdirectory=packages/phlo-pandera",
+    "pytest",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.uv]
+override-dependencies = ["phlo[defaults]==0.14.0"]
+
+[tool.setuptools.packages.find]
+include = ["scripts*", "workflows*"]

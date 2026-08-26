@@ -1,0 +1,17 @@
+name: delta_portability
+version: "1.0"
+config-version: 2
+profile: delta_portability
+
+# Pipeline-stage organization: one dbt project compiles models that live in
+# the ingest-adjacent stage folders normalize/, aggregate/, and publish/.
+# The SQL is provider-neutral: the only Delta-specific choice is the catalog
+# name in profiles/profiles.yml.
+model-paths:
+  - "../../normalize/models"
+  - "../../aggregate/models"
+  - "../../publish/models"
+
+models:
+  delta_portability:
+    +materialized: table

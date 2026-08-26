@@ -1,0 +1,81 @@
+version: 2
+
+sources:
+  - name: markets_raw
+    description: Raw tables merged by the market-data DLT ingestion assets.
+    schema: raw
+    tables:
+      - name: equities_bars
+        identifier: equities_bars
+        meta:
+          phlo_asset_key: dlt_equities_bars
+      - name: equity_corrections
+        identifier: equity_corrections
+        meta:
+          phlo_asset_key: dlt_equity_corrections
+      - name: fx_rates
+        identifier: fx_rates
+        meta:
+          phlo_asset_key: dlt_fx_rates
+      - name: security_master
+        identifier: security_master
+        meta:
+          phlo_asset_key: dlt_security_master
+      - name: trading_calendar
+        identifier: trading_calendar
+        meta:
+          phlo_asset_key: dlt_trading_calendar
+      - name: portfolio_holdings
+        identifier: portfolio_holdings
+        meta:
+          phlo_asset_key: dlt_portfolio_holdings
+
+models:
+  - name: stg_securities
+    columns:
+      - name: symbol
+        tests: [unique, not_null]
+  - name: stg_calendar
+    columns:
+      - name: calendar_key
+        tests: [unique, not_null]
+  - name: prices_normalized
+    description: Currency and timezone normalized closes with corrections overlaid.
+    columns:
+      - name: bar_id
+        tests: [unique, not_null]
+      - name: close_usd
+        tests: [not_null]
+      - name: session_date_local
+        tests: [not_null]
+  - name: daily_returns
+    columns:
+      - name: return_key
+        tests: [unique, not_null]
+      - name: daily_return
+        tests: [not_null]
+  - name: rolling_volatility
+    columns:
+      - name: vol_key
+        tests: [unique, not_null]
+      - name: realized_vol_5d
+        tests: [not_null]
+  - name: drawdown
+    columns:
+      - name: drawdown_key
+        tests: [unique, not_null]
+      - name: drawdown_pct
+        tests: [not_null]
+  - name: fx_cross_check
+    description: Warning-surface for EURGBP cross-rate tolerance breaches.
+    columns:
+      - name: check_key
+        tests: [unique, not_null]
+      - name: deviation_pct
+        tests: [not_null]
+  - name: portfolio_exposure
+    columns:
+      - name: exposure_key
+        tests: [unique, not_null]
+      - name: weight
+        tests: [not_null]

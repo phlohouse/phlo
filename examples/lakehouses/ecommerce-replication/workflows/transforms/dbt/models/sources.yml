@@ -1,0 +1,29 @@
+version: 2
+sources:
+  - name: commerce_raw
+    schema: raw
+    tables:
+      - name: raw_customers
+        identifier: commerce_customers
+        meta:
+          phlo_asset_key: sling_commerce_customers
+      - name: raw_orders
+        identifier: commerce_orders
+        meta:
+          phlo_asset_key: sling_commerce_orders
+      - name: raw_order_lines
+        identifier: commerce_order_lines
+        meta:
+          phlo_asset_key: sling_commerce_order_lines
+      - name: raw_payments
+        identifier: commerce_payments
+        meta:
+          phlo_asset_key: sling_commerce_payments
+      - name: raw_products
+        identifier: commerce_products
+        meta:
+          phlo_asset_key: sling_commerce_products
+      - name: raw_commerce_config
+        identifier: commerce_config
+        meta:
+          phlo_asset_key: sling_commerce_config

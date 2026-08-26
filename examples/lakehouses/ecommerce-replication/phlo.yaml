@@ -1,0 +1,25 @@
+name: ecommerce-replication
+description: PostgreSQL replication example exercising Sling full-refresh, incremental, and snapshot modes
+
+env:
+  PHLO_PROJECT: ecommerce-replication
+  COMMERCE_SOURCE_URL: postgresql://commerce:commerce@host.docker.internal:5436/commerce?sslmode=disable
+
+services:
+  dagster:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  dagster-daemon:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+
+wap:
+  enabled: true
+  job_name: commerce_wap_job
+  repository_location_name: phlo_dagster.framework.definitions
+  repository_name: __repository__

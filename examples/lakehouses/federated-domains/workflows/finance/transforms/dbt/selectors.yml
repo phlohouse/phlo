@@ -1,0 +1,11 @@
+selectors:
+  - name: nightly_finance
+    description: Full nightly build of the finance domain DAG.
+    definition:
+      method: tag
+      value: nightly
+  - name: invoice_aging_tree
+    description: The aging rollup plus its tests.
+    definition:
+      method: fqn
+      value: invoice_aging

@@ -1,0 +1,22 @@
+version: 2
+
+sources:
+  - name: operations_raw
+    description: Raw tables merged by the operations-domain DLT ingestion assets.
+    schema: raw
+    tables:
+      - name: operations_incidents
+        identifier: operations_incidents
+        meta:
+          phlo_asset_key: dlt_operations_incidents
+
+models:
+  - name: incident_summary
+    description: Incident counts, open load, and mean resolution per service and severity.
+    columns:
+      - name: service
+        tests: [not_null]
+      - name: severity
+        tests: [not_null]
+      - name: incident_count
+        tests: [not_null]

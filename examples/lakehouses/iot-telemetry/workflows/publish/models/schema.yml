@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: device_health_current
+    description: Newest hourly health row per device; the consumer-facing health product.
+    columns:
+      - name: device_id
+        tests: [unique, not_null]
+      - name: event_hour
+        tests: [not_null]
+  - name: site_daily_report
+    description: Published daily report per site with reference names and coverage.
+    columns:
+      - name: site_day_key
+        tests: [unique, not_null]
+      - name: site_name
+        tests: [not_null]
+      - name: completeness_ratio
+        tests: [not_null]

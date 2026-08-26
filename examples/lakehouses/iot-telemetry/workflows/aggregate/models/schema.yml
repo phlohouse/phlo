@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: device_health_hourly
+    description: Hourly per-device health over deduplicated readings.
+    columns:
+      - name: health_key
+        tests: [unique, not_null]
+      - name: reading_count
+        tests: [not_null]
+      - name: max_sequence_number
+        tests: [not_null]
+  - name: fleet_daily_summary
+    description: Daily per-site fleet coverage and condition.
+    columns:
+      - name: site_day_key
+        tests: [unique, not_null]
+      - name: completeness_ratio
+        tests: [not_null]

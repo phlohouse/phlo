@@ -1,0 +1,9 @@
+name: logistics_control_tower
+version: "1.0"
+config-version: 2
+profile: logistics_control_tower
+model-paths: ["models"]
+
+models:
+  logistics_control_tower:
+    +materialized: table

@@ -1,0 +1,38 @@
+version: 2
+
+models:
+  - name: stg_observations
+    description: Archive observations normalized to Celsius; pressure_hpa nullable post-drift.
+    columns:
+      - name: station_id
+        tests: [not_null]
+      - name: observed_at
+        tests: [not_null]
+      - name: temp_c
+        tests: [not_null]
+      - name: precip_mm
+        tests: [not_null]
+
+  - name: monthly_indicators
+    description: Station-month temperature means and precipitation totals.
+    columns:
+      - name: station_id
+        tests: [not_null]
+      - name: obs_month
+        tests: [not_null]
+      - name: avg_temp_c
+        tests: [not_null]
+      - name: precip_mm_total
+        tests: [not_null]
+
+  - name: annual_rollup
+    description: Station-year totals reconciled across grains, joined to demographics.
+    columns:
+      - name: station_id
+        tests: [not_null]
+      - name: census_year
+        tests: [not_null]
+      - name: precip_delta
+        tests: [not_null]
+      - name: region_population
+        tests: [not_null]

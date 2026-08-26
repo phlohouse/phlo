@@ -1,0 +1,9 @@
+name: wap_failure_lab
+version: "1.0"
+config-version: 2
+profile: wap_failure_lab
+model-paths: ["models"]
+
+models:
+  wap_failure_lab:
+    +materialized: table

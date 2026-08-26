@@ -1,0 +1,13 @@
+delta_portability:
+  target: dev
+  outputs:
+    dev:
+      type: trino
+      method: none
+      user: dagster
+      host: trino
+      port: 8080
+      catalog: delta
+      schema: raw
+      http_scheme: http
+      threads: 2

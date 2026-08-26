@@ -1,0 +1,10 @@
+.venv/
+.phlo/
+generated-data/
+workflows/*/transforms/dbt/target/
+workflows/*/transforms/dbt/logs/
+workflows/*/transforms/dbt/profiles/.user.yml
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+__pycache__/

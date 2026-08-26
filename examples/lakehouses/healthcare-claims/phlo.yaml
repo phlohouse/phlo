@@ -1,0 +1,16 @@
+name: healthcare-claims
+description: Regulated healthcare claims lakehouse with strict contracts, temporal eligibility, and privacy-gated publication
+
+env:
+  PHLO_PROJECT: healthcare-claims
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+
+wap:
+  enabled: true
+  job_name: claims_wap_job
+  repository_location_name: phlo_dagster.framework.definitions
+  repository_name: __repository__

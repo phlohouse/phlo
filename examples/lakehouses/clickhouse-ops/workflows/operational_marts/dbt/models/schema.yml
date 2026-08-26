@@ -1,0 +1,38 @@
+version: 2
+models:
+  - name: stg_platform_events_dedup
+    description: One version per platform event; read-time replay collapse.
+    columns:
+      - name: event_id
+        tests: [unique, not_null]
+      - name: tenant_id
+        tests: [not_null]
+  - name: stg_access_logs_dedup
+    description: One version per request; read-time replay collapse.
+    columns:
+      - name: request_id
+        tests: [unique, not_null]
+  - name: error_rate_hourly
+    description: Appended hourly error counts per tenant.
+    columns:
+      - name: event_hour
+        tests: [not_null]
+      - name: error_count
+        tests: [not_null]
+  - name: latency_p95_hourly
+    description: Appended hourly p95 duration via quantileExact.
+    columns:
+      - name: p95_duration_ms
+        tests: [not_null]
+  - name: throughput_hourly
+    description: Appended hourly request counts per tenant.
+    columns:
+      - name: request_count
+        tests: [not_null]
+  - name: tenant_usage_daily
+    description: Replacing daily aggregate per tenant.
+    columns:
+      - name: usage_date
+        tests: [not_null]
+      - name: tenant_id
+        tests: [not_null]

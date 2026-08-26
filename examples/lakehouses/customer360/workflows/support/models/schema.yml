@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: support_raw
+    description: Raw support tickets merged by DLT from the replay HTTP API.
+    schema: raw
+    tables:
+      - name: raw_tickets
+        identifier: support_tickets
+        meta:
+          phlo_asset_key: dlt_support_tickets
+
+models:
+  - name: stg_support_tickets
+    description: Tickets with canonical emails resolved; open tickets keep a null resolved_at.
+    columns:
+      - name: ticket_id
+        tests: [unique, not_null]
+      - name: canonical_email
+        tests: [not_null]

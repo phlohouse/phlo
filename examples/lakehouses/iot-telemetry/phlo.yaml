@@ -1,0 +1,16 @@
+name: iot-telemetry
+description: Production-shaped IoT telemetry lakehouse with hourly partitions and late-data repair
+
+env:
+  PHLO_PROJECT: iot-telemetry
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+
+wap:
+  enabled: true
+  job_name: iot_telemetry_wap_job
+  repository_location_name: phlo_dagster.framework.definitions
+  repository_name: __repository__

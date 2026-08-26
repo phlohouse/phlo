@@ -1,0 +1,36 @@
+name: delta-portability
+description: Delta Lake portability twin of the IoT telemetry example with explicit table_store routing and no versioned-catalog assumptions
+
+env:
+  PHLO_PROJECT: delta-portability
+  # Sling source for the regions lookup. The compose file in this directory
+  # runs PostgreSQL on host port 10732.
+  REGIONS_SOURCE_URL: postgresql://delta:delta@host.docker.internal:10732/delta?sslmode=disable
+  # REST replay endpoint serving the additive schema-evolution batch
+  # (firmware v2 telemetry). scripts/replay_server.py serves it on the host.
+  TELEMATICS_API_URL: http://host.docker.internal:8093/v1
+  # dbt runs on Trino against the dev-stack Delta catalog, which shares the
+  # S3 warehouse root (s3://lake/warehouse/delta) with phlo-delta's table
+  # store, so models see exactly the tables ingestion writes.
+  DBT_QUERY_CATALOG: delta
+
+services:
+  dagster:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  dagster-daemon:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+capabilities:
+  defaults:
+    # Provider-neutral workflow code; flipping this single value (and removing
+    # phlo-delta) converts the project back to the blessed Iceberg stack.
+    table_store: delta
+    query_engine: trino
+
+# Delta Lake registers supports_refs=false, so branch-first Write-Audit-Publish
+# launches are impossible on this data plane: there is no catalog to stage a
+# branch on and no promotion step. WAP stays disabled for the whole project.
+wap:
+  enabled: false

@@ -1,0 +1,8 @@
+name: ecommerce_replication
+version: "1.0"
+config-version: 2
+profile: ecommerce_replication
+model-paths: ["models"]
+models:
+  ecommerce_replication:
+    +materialized: table

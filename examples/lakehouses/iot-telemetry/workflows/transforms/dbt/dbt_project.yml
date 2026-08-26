@@ -1,0 +1,15 @@
+name: iot_telemetry
+version: "1.0"
+config-version: 2
+profile: iot_telemetry
+
+# Pipeline-stage organization: one dbt project compiles models that live in
+# the ingest-adjacent stage folders normalize/, aggregate/, and publish/.
+model-paths:
+  - "../../normalize/models"
+  - "../../aggregate/models"
+  - "../../publish/models"
+
+models:
+  iot_telemetry:
+    +materialized: table

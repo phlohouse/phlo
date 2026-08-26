@@ -1,0 +1,22 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Raw tables appended by the ingest-stage DLT assets.
+    schema: raw
+    tables:
+      - name: sensor_batches
+        identifier: sensor_batches
+        meta:
+          phlo_asset_key: dlt_sensor_batches
+
+models:
+  - name: batch_summary
+    description: Batch counts per sensor over published (promoted) rows only.
+    columns:
+      - name: sensor_id
+        tests: [unique, not_null]
+      - name: batch_count
+        tests: [not_null]
+      - name: distinct_batches
+        tests: [not_null]

@@ -1,0 +1,10 @@
+name: sales_domain
+version: "1.0"
+config-version: 2
+profile: sales_domain
+
+model-paths: ["models"]
+
+models:
+  sales_domain:
+    +materialized: table

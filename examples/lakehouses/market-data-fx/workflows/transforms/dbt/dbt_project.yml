@@ -1,0 +1,9 @@
+name: market_data_fx
+version: "1.0"
+config-version: 2
+profile: market_data_fx
+model-paths: ["models"]
+
+models:
+  market_data_fx:
+    +materialized: table

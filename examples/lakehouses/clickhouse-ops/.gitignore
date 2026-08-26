@@ -1,0 +1,9 @@
+.venv/
+.phlo/
+generated-data/
+workflows/operational_marts/dbt/target/
+workflows/operational_marts/dbt/logs/
+workflows/operational_marts/dbt/profiles/.user.yml
+.ruff_cache/
+.pytest_cache/
+*.egg-info/

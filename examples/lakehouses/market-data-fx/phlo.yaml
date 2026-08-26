@@ -1,0 +1,25 @@
+name: market-data-fx
+description: Production-shaped market data and FX lakehouse with replay API and trading-calendar awareness
+
+env:
+  PHLO_PROJECT: market-data-fx
+  MARKETS_API_URL: http://host.docker.internal:8092/v1
+
+services:
+  dagster:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  dagster-daemon:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+
+wap:
+  enabled: true
+  job_name: markets_wap_job
+  repository_location_name: phlo_dagster.framework.definitions
+  repository_name: __repository__

@@ -1,0 +1,11 @@
+selectors:
+  - name: nightly_sales
+    description: Full nightly build of the sales domain DAG.
+    definition:
+      method: tag
+      value: nightly
+  - name: deal_pipeline_tree
+    description: The pipeline rollup plus its tests.
+    definition:
+      method: fqn
+      value: deal_pipeline

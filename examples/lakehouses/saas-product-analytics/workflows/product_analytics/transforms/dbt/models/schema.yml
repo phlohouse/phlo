@@ -1,0 +1,33 @@
+version: 2
+models:
+  - name: flattened_events
+    columns:
+      - name: event_id
+        tests: [unique, not_null]
+      - name: event_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: [signup, project_created, feature_used, release_viewed]
+  - name: sessions
+    columns:
+      - name: session_started_at
+        tests: [not_null]
+      - name: event_count
+        tests: [not_null]
+  - name: activation
+    columns:
+      - name: account_id
+        tests: [unique, not_null]
+  - name: retention
+    columns:
+      - name: retained_accounts
+        tests: [not_null]
+  - name: feature_adoption
+    columns:
+      - name: feature
+        tests: [not_null]
+  - name: release_impact
+    columns:
+      - name: release
+        tests: [not_null]

@@ -1,0 +1,13 @@
+public_data_research:
+  target: dev
+  outputs:
+    dev:
+      type: trino
+      method: none
+      user: dagster
+      host: trino
+      port: 8080
+      catalog: iceberg
+      schema: raw
+      http_scheme: http
+      threads: 2

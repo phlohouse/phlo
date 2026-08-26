@@ -1,0 +1,26 @@
+name: logistics-control-tower
+description: Hybrid logistics lakehouse converging Sling PostgreSQL orders, DLT carrier APIs, and warehouse CSV scans on a canonical shipment state with SLA marts
+
+env:
+  PHLO_PROJECT: logistics-control-tower
+  LOGISTICS_SOURCE_URL: postgresql://logistics:logistics@host.docker.internal:10332/logistics?sslmode=disable
+  CARRIER_API_URL: http://host.docker.internal:8090/v1
+
+services:
+  dagster:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  dagster-daemon:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+
+wap:
+  enabled: true
+  job_name: logistics_control_tower_wap_job
+  repository_location_name: phlo_dagster.framework.definitions
+  repository_name: __repository__

@@ -1,0 +1,16 @@
+name: wap-failure-lab
+description: Write-Audit-Publish scenario lab covering branch lifecycle, blocking versus warning checks, retries, additive schema change, and concurrent runs
+
+env:
+  PHLO_PROJECT: wap-failure-lab
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+
+wap:
+  enabled: true
+  job_name: wap_failure_lab_wap_job
+  repository_location_name: phlo_dagster.framework.definitions
+  repository_name: __repository__

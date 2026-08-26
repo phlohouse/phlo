@@ -1,0 +1,16 @@
+name: retail-files
+description: Production-shaped file ingestion and retail analytics example
+
+env:
+  PHLO_PROJECT: retail-files
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+
+wap:
+  enabled: true
+  job_name: retail_wap_job
+  repository_location_name: phlo_dagster.framework.definitions
+  repository_name: __repository__

@@ -1,0 +1,10 @@
+name: operations_domain
+version: "1.0"
+config-version: 2
+profile: operations_domain
+
+model-paths: ["models"]
+
+models:
+  operations_domain:
+    +materialized: table

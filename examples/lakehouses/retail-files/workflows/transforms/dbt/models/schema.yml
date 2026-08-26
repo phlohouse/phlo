@@ -1,0 +1,46 @@
+version: 2
+models:
+  - name: sales_facts
+    columns:
+      - name: line_id
+        tests: [unique, not_null]
+      - name: product_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('product_dimension')
+                field: product_id
+      - name: store_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('store_dimension')
+                field: store_id
+      - name: net_amount
+        tests: [not_null]
+  - name: product_dimension
+    columns:
+      - name: product_id
+        tests: [unique, not_null]
+  - name: store_dimension
+    columns:
+      - name: store_id
+        tests: [unique, not_null]
+  - name: inventory_balances
+    columns:
+      - name: inventory_snapshot_id
+        tests: [unique, not_null]
+      - name: available_to_sell
+        tests: [not_null]
+  - name: daily_store_mart
+    columns:
+      - name: net_amount
+        tests: [not_null]
+  - name: product_category_performance
+    columns:
+      - name: net_sales
+        tests: [not_null]
+  - name: stockout_reorder
+    columns:
+      - name: reorder_required
+        tests: [not_null]

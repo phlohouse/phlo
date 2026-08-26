@@ -1,0 +1,13 @@
+version: 2
+sources:
+  - name: saas_raw
+    schema: raw
+    tables:
+      - name: events
+        identifier: saas_events
+        meta:
+          phlo_asset_key: dlt_saas_events
+      - name: account_plans
+        identifier: saas_account_plans
+        meta:
+          phlo_asset_key: dlt_saas_account_plans

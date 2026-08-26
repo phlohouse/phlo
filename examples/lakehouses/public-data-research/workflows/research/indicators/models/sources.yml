@@ -1,0 +1,23 @@
+version: 2
+
+sources:
+  - name: public_raw
+    description: Raw tables merged by the public-data-research DLT ingestion assets.
+    schema: raw
+    tables:
+      - name: places_registry
+        identifier: places_registry
+        meta:
+          phlo_asset_key: dlt_places_registry
+      - name: places_geo
+        identifier: places_geo
+        meta:
+          phlo_asset_key: dlt_places_geo
+      - name: weather_observations
+        identifier: weather_observations
+        meta:
+          phlo_asset_key: dlt_weather_observations
+      - name: region_demographics
+        identifier: region_demographics
+        meta:
+          phlo_asset_key: dlt_region_demographics

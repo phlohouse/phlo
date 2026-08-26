@@ -1,0 +1,37 @@
+version: 2
+sources:
+  - name: logistics_raw
+    schema: raw
+    tables:
+      - name: shipments_orders
+        identifier: shipments_orders
+        meta:
+          phlo_asset_key: sling_shipments_orders
+      - name: carrier_events_atlas
+        identifier: carrier_events_atlas
+        meta:
+          phlo_asset_key: dlt_carrier_events_atlas
+      - name: carrier_events_corsair
+        identifier: carrier_events_corsair
+        meta:
+          phlo_asset_key: dlt_carrier_events_corsair
+      - name: warehouse_scans
+        identifier: warehouse_scans
+        meta:
+          phlo_asset_key: dlt_warehouse_scans
+      - name: carrier_events
+        identifier: carrier_events
+        meta:
+          phlo_asset_key: carrier_events_unified
+      - name: sla_terms
+        identifier: sla_terms
+        meta:
+          phlo_asset_key: dlt_sla_terms
+      - name: order_current_state
+        identifier: order_current_state
+        meta:
+          phlo_asset_key: order_current_state
+      - name: control_tower_shipment_grid
+        identifier: control_tower_shipment_grid
+        meta:
+          phlo_asset_key: control_tower_shipment_grid

@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: canonical_shipment_state
+    description: One canonical state per shipment decided by event-time ordering.
+    columns:
+      - name: shipment_id
+        tests: [not_null, unique]
+      - name: canonical_state
+        tests: [not_null]
+      - name: contradiction_count
+        tests: [not_null]
+  - name: transit_duration
+    description: Pickup-to-delivery transit hours per delivered shipment.
+    columns:
+      - name: shipment_id
+        tests: [not_null, unique]
+      - name: transit_hours
+        tests: [not_null]
+  - name: sla_mart
+    description: Actual transit against contractual SLA hours with breach flags.
+    columns:
+      - name: shipment_id
+        tests: [not_null, unique]
+      - name: sla_breached
+        tests: [not_null]

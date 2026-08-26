@@ -1,0 +1,9 @@
+name: healthcare_claims
+version: "1.0"
+config-version: 2
+profile: healthcare_claims
+model-paths: ["models"]
+
+models:
+  healthcare_claims:
+    +materialized: table

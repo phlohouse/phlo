@@ -1,0 +1,3 @@
+sale_id,store_id,product_id,sold_at,quantity,unit_price
+S-100,store-1,SKU-1,2025-01-15T09:15:00Z,2,10.00
+S-101,store-1,SKU-2,2025-01-15T11:30:00Z,3,9.00

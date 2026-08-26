@@ -1,0 +1,4 @@
+[
+  {"product_id": "SKU-1", "product_name": "Canvas Tote", "category": "accessories", "unit_cost": 4.00},
+  {"product_id": "SKU-2", "product_name": "Travel Mug", "category": "drinkware", "unit_cost": 3.50}
+]

@@ -1,0 +1,8 @@
+name: clickhouse_ops
+version: "1.0"
+config-version: 2
+profile: clickhouse_ops
+model-paths: ["models"]
+models:
+  clickhouse_ops:
+    +materialized: table

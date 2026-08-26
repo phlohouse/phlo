@@ -1,0 +1,19 @@
+version: 2
+
+sources:
+  - name: claims_raw
+    description: Raw tables appended or merged by the domain DLT ingestion assets.
+    schema: raw
+    tables:
+      - name: claims
+        identifier: claims
+        meta:
+          phlo_asset_key: dlt_claims
+      - name: eligibility_periods
+        identifier: eligibility_periods
+        meta:
+          phlo_asset_key: dlt_eligibility_periods
+      - name: providers
+        identifier: providers
+        meta:
+          phlo_asset_key: dlt_providers

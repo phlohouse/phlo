@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: places
+    description: Normalized civic places with centroid geography from GeoJSON metadata.
+    columns:
+      - name: place_id
+        tests: [unique, not_null]
+      - name: place_name
+        tests: [not_null]
+      - name: region
+        tests: [not_null]
+      - name: population
+        tests: [not_null]

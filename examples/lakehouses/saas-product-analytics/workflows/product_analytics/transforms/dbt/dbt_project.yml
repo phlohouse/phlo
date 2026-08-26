@@ -1,0 +1,8 @@
+name: saas_product_analytics
+version: "1.0"
+config-version: 2
+profile: saas_product_analytics
+model-paths: ["models"]
+models:
+  saas_product_analytics:
+    +materialized: table

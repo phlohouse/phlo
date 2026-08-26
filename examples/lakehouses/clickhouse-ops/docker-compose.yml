@@ -1,0 +1,15 @@
+services:
+  chmeta-postgres:
+    image: postgres:16-alpine
+    container_name: chmeta-source-postgres
+    ports:
+      - "10832:5432"
+    environment:
+      POSTGRES_USER: chmeta
+      POSTGRES_PASSWORD: chmeta
+      POSTGRES_DB: chmeta
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chmeta -d chmeta"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

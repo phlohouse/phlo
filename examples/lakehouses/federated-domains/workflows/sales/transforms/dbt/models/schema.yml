@@ -1,0 +1,22 @@
+version: 2
+
+sources:
+  - name: sales_raw
+    description: Raw tables merged by the sales-domain DLT ingestion assets.
+    schema: raw
+    tables:
+      - name: sales_deals
+        identifier: sales_deals
+        meta:
+          phlo_asset_key: dlt_sales_deals
+
+models:
+  - name: deal_pipeline
+    description: Deal count and open pipeline value per CRM stage.
+    columns:
+      - name: stage
+        tests: [unique, not_null]
+      - name: deal_count
+        tests: [not_null]
+      - name: pipeline_value_usd
+        tests: [not_null]

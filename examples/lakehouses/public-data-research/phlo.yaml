@@ -1,0 +1,25 @@
+name: public-data-research
+description: Source-oriented public-data research lakehouse with civic API replay, ZIP/CSV weather archives, annual demographics, and reproducible subject-oriented research models
+
+env:
+  PHLO_PROJECT: public-data-research
+  CIVIC_API_URL: http://host.docker.internal:8094/v1
+
+services:
+  dagster:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  dagster-daemon:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+
+wap:
+  enabled: true
+  job_name: public_data_research_wap_job
+  repository_location_name: phlo_dagster.framework.definitions
+  repository_name: __repository__

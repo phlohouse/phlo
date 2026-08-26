@@ -1,0 +1,42 @@
+version: 2
+
+models:
+  - name: stg_providers
+    columns:
+      - name: provider_id
+        tests: [unique, not_null]
+  - name: stg_eligibility_periods
+    columns:
+      - name: eligibility_key
+        tests: [unique, not_null]
+  - name: claims_latest
+    description: Highest version per claim id from the append-only history.
+    columns:
+      - name: claim_id
+        tests: [unique, not_null]
+      - name: version
+        tests: [not_null]
+  - name: claim_codes
+    description: Normalized one-row-per-code array expansion.
+    columns:
+      - name: claim_code_key
+        tests: [unique, not_null]
+      - name: procedure_code
+        tests: [not_null]
+  - name: valid_claims
+    description: Latest claims whose service date falls within an active coverage period.
+    columns:
+      - name: claim_id
+        tests: [unique, not_null]
+  - name: provider_utilization_monthly
+    description: Curated utilization mart; aggregate-only with no member identifiers.
+    columns:
+      - name: utilization_key
+        tests: [unique, not_null]
+      - name: claim_count
+        tests: [not_null]
+  - name: claim_cost_summary
+    description: Curated monthly cost summary.
+    columns:
+      - name: summary_key
+        tests: [unique, not_null]

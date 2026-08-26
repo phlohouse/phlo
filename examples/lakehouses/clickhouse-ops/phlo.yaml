@@ -1,0 +1,44 @@
+name: clickhouse-ops
+description: Operational ClickHouse lakehouse with DLT event/log micro-batches, Sling tenant metadata, and dbt-clickhouse serving marts
+
+env:
+  PHLO_PROJECT: clickhouse-ops
+  CHMETA_SOURCE_URL: postgresql://chmeta:chmeta@host.docker.internal:10832/chmeta?sslmode=disable
+  # phlo-dbt regenerates profiles.yml from these settings whenever its hooks
+  # run; they keep the generated dbt profile pointed at ClickHouse.
+  DBT_QUERY_ENGINE_TYPE: clickhouse
+  DBT_QUERY_HOST: clickhouse
+  DBT_QUERY_PORT: "8123"
+  DBT_QUERY_USER: default
+  DBT_QUERY_SCHEMA: marts
+  DBT_PROJECT_DIR: workflows/operational_marts/dbt
+  # phlo-sling has no ClickHouse auto-connection yet; the accounts stream
+  # targets this explicit Sling connection instead (documented platform gap).
+  # The value must stay on one line: the services generator writes it
+  # verbatim into .phlo/.env.
+  PHLO_CLICKHOUSE_CONN: '{"type": "clickhouse", "host": "clickhouse", "port": 8123, "user": "default", "password": "", "database": "raw"}'
+
+services:
+  # ClickHouse is not a default dev-stack service; enable it for this project.
+  enabled:
+    - clickhouse
+  disabled: []
+  dagster:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  dagster-daemon:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+capabilities:
+  defaults:
+    # One provider (phlo-clickhouse) fills all three data plane roles.
+    table_store: clickhouse
+    query_engine: clickhouse
+    publish_target: clickhouse
+
+# ClickHouse registers supports_snapshots=false / supports_time_travel=false,
+# so WAP branch isolation and promotion do not exist on this data plane and
+# stay disabled for the whole project.
+wap:
+  enabled: false

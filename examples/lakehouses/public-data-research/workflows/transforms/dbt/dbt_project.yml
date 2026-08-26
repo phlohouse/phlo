@@ -1,0 +1,14 @@
+name: public_data_research
+version: "1.0"
+config-version: 2
+profile: public_data_research
+
+# Subject-oriented organization: one dbt project compiles models that live in
+# the research folders places/ and indicators/.
+model-paths:
+  - "../../research/places/models"
+  - "../../research/indicators/models"
+
+models:
+  public_data_research:
+    +materialized: table

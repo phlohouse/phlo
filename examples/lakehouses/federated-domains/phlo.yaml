@@ -1,0 +1,16 @@
+name: federated-domains
+description: Three independent domain lakehouses (sales, finance, operations) probing multi-project dbt federation
+
+env:
+  PHLO_PROJECT: federated-domains
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+
+wap:
+  enabled: true
+  job_name: federated_domains_wap_job
+  repository_location_name: phlo_dagster.framework.definitions
+  repository_name: __repository__

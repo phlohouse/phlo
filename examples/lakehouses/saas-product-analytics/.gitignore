@@ -1,0 +1,7 @@
+.venv/
+.phlo/
+generated-data/
+workflows/product_analytics/transforms/dbt/target/
+workflows/product_analytics/transforms/dbt/logs/
+workflows/product_analytics/transforms/dbt/profiles/.user.yml
+.amp/

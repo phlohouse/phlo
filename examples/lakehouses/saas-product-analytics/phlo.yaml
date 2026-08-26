@@ -1,0 +1,25 @@
+name: saas-product-analytics
+description: Production-shaped SaaS product analytics with deterministic API replay
+
+env:
+  PHLO_PROJECT: saas-product-analytics
+  SAAS_REPLAY_URL: http://host.docker.internal:8091/v1/events
+
+services:
+  dagster:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  dagster-daemon:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+
+wap:
+  enabled: true
+  job_name: product_analytics_wap_job
+  repository_location_name: phlo_dagster.framework.definitions
+  repository_name: __repository__

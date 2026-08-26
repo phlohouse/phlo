@@ -1,0 +1,10 @@
+name: finance_domain
+version: "1.0"
+config-version: 2
+profile: finance_domain
+
+model-paths: ["models"]
+
+models:
+  finance_domain:
+    +materialized: table

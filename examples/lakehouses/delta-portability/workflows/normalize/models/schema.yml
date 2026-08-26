@@ -1,0 +1,53 @@
+version: 2
+
+sources:
+  - name: delta_raw
+    description: Raw tables appended or merged by the ingest-stage DLT assets into Delta Lake.
+    schema: raw
+    tables:
+      - name: telemetry_readings
+        identifier: telemetry_readings
+        meta:
+          phlo_asset_key: dlt_telemetry_readings
+      - name: telemetry_corrections
+        identifier: telemetry_corrections
+        meta:
+          phlo_asset_key: dlt_telemetry_corrections
+      - name: delta_regions
+        identifier: delta_regions
+        meta:
+          phlo_asset_key: dlt_delta_regions
+      - name: device_registry
+        identifier: device_registry
+        meta:
+          phlo_asset_key: dlt_device_registry
+      - name: site_directory
+        identifier: site_directory
+        meta:
+          phlo_asset_key: dlt_site_directory
+
+models:
+  - name: stg_devices
+    columns:
+      - name: device_id
+        tests: [unique, not_null]
+      - name: site_id
+        tests: [not_null]
+  - name: stg_sites
+    columns:
+      - name: site_id
+        tests: [unique, not_null]
+  - name: stg_regions
+    description: Regions lookup replicated from PostgreSQL through Sling.
+    columns:
+      - name: region_code
+        tests: [unique, not_null]
+  - name: telemetry_dedup
+    description: One row per message with corrections overlaid; arrived_late flags stragglers.
+    columns:
+      - name: message_id
+        tests: [unique, not_null]
+      - name: event_hour
+        tests: [not_null]
+      - name: arrived_late
+        tests: [not_null]
