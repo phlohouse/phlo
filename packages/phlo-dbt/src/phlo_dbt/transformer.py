@@ -186,12 +186,25 @@ def ensure_dbt_manifest(dbt_project_path: Path, profiles_path: Path) -> bool:
         return True
 
     try:
+        # DBT_PROJECT_DIR doubles as phlo-dbt's own project-dir setting; when a
+        # project customizes it, the leaked value overrides dbt's default
+        # resolution relative to the (already correct) working directory and
+        # parse fails with "Path ... does not exist". Pass the project dir
+        # explicitly and strip the variable from the child environment.
         result = subprocess.run(
-            ["dbt", "parse", "--profiles-dir", str(profiles_path)],
+            [
+                "dbt",
+                "parse",
+                "--project-dir",
+                str(dbt_project_path),
+                "--profiles-dir",
+                str(profiles_path),
+            ],
             cwd=str(dbt_project_path),
             capture_output=True,
             text=True,
             timeout=60,
+            env={k: v for k, v in os.environ.items() if k != "DBT_PROJECT_DIR"},
         )
     except FileNotFoundError:
         return False
@@ -339,6 +352,9 @@ class DbtTransformer(BaseTransformer):
             command_name=self.dbt_executable,
             command_args=self._sanitize_command_args_for_logging(args),
         )
+        # DBT_PROJECT_DIR is phlo-dbt's own setting (see ensure_dbt_manifest);
+        # leaked into the child process it overrides dbt's project resolution.
+        full_env.pop("DBT_PROJECT_DIR", None)
 
         return subprocess.run(
             [self.dbt_executable] + args,

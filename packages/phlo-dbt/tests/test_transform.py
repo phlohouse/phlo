@@ -113,7 +113,10 @@ def test_ensure_dbt_manifest_uses_parse_for_discovery(monkeypatch, tmp_path: Pat
     monkeypatch.setattr("phlo_dbt.transformer.ensure_dbt_profile", lambda _profiles_dir: None)
 
     assert ensure_dbt_manifest(project_dir, profiles_dir) is True
-    assert captured == [["dbt", "parse", "--profiles-dir", str(profiles_dir)]]
+    assert captured[0][:2] == ["dbt", "parse"]
+    assert "--project-dir" in captured[0]
+    assert str(project_dir) in captured[0]
+    assert "--profiles-dir" in captured[0]
 
 
 @pytest.mark.parametrize(
@@ -451,3 +454,81 @@ def test_run_transform_falls_back_when_run_results_missing(tmp_path: Path) -> No
     assert result.tests_passed == -1
     assert result.tests_failed == -1
     assert result.metadata["counts_source"] == "summary_only_combined"
+
+
+def test_ensure_dbt_manifest_strips_colliding_project_dir_env(tmp_path, monkeypatch) -> None:
+    """DBT_PROJECT_DIR must not leak into the child dbt process.
+
+    The variable doubles as phlo-dbt's project-dir setting; when a project
+    customizes it, dbt resolves its default --project-dir from the leaked
+    value relative to the working directory and parse fails with
+    "Path ... does not exist".
+    """
+    import json
+
+    from phlo_dbt.transformer import ensure_dbt_manifest
+
+    project = tmp_path / "dbt"
+    (project / "target").mkdir(parents=True)
+    (project / "profiles").mkdir()
+
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["env"] = kwargs.get("env") or {}
+        manifest = project / "target" / "manifest.json"
+        manifest.write_text(json.dumps({"nodes": {}, "sources": {}}))
+        from types import SimpleNamespace
+
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr("phlo_dbt.transformer.subprocess.run", fake_run)
+    monkeypatch.setenv("DBT_PROJECT_DIR", "workflows/operational_marts/dbt")
+
+    assert ensure_dbt_manifest(project, project / "profiles") is True
+    assert "--project-dir" in captured["cmd"]
+    assert str(project) in captured["cmd"]
+    assert "DBT_PROJECT_DIR" not in captured["env"]
+
+
+def test_run_command_strips_colliding_project_dir_env(tmp_path) -> None:
+    """Runtime dbt invocations also drop the phlo-owned DBT_PROJECT_DIR."""
+
+    from phlo_dbt.transformer import DbtTransformer
+
+    project = tmp_path / "dbt"
+    project.mkdir()
+
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["env"] = kwargs.get("env") or {}
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    from phlo.logging import get_logger
+
+    transformer = DbtTransformer(
+        context=None,
+        logger=get_logger("test_dbt_transformer_run_command"),
+        project_dir=project,
+        profiles_dir=project / "profiles",
+    )
+    monkeypatch_env = {
+        "DBT_PROJECT_DIR": "workflows/operational_marts/dbt",
+        "PATH": "/custom/test-bin",
+    }
+
+    import phlo_dbt.transformer as mod
+
+    original_run = mod.subprocess.run
+    mod.subprocess.run = fake_run
+    try:
+        result = transformer._run_command(["build"], env=monkeypatch_env)
+    finally:
+        mod.subprocess.run = original_run
+
+    assert result.returncode == 0
+    assert "DBT_PROJECT_DIR" not in captured["env"]
+    assert captured["env"]["PATH"] == "/custom/test-bin"  # explicit env values are preserved
