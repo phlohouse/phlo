@@ -6,7 +6,9 @@ suites.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
+from unittest.mock import MagicMock
 
 from phlo.plugins import (
     PluginMetadata,
@@ -167,3 +169,40 @@ class RecordingBus:
 
     def emit(self, event: Any) -> None:
         self.events.append(event)
+
+
+@contextlib.contextmanager
+def stubbed_enforcement_context(
+    *,
+    allowed: bool = True,
+    reason_code: str | None = None,
+    emitter: Any | None = None,
+):
+    """Yield a real EnforcementContext wired to recording mocks.
+
+    The context resolves decisions through a stubbed authorization backend
+    and records audit emissions on ``emitter`` (a MagicMock by default);
+    singleton state is reset around the block so tests cannot leak wiring
+    into each other.
+    """
+    from types import SimpleNamespace
+
+    from phlo.security.enforcement import EnforcementContext
+
+    EnforcementContext._instance = None
+    backend = MagicMock()
+    backend.explain_decision.return_value = MagicMock(
+        allowed=allowed,
+        reason_code=reason_code,
+        policy_id=None,
+        explanation=None,
+    )
+    emitter = emitter if emitter is not None else MagicMock()
+    try:
+        context = EnforcementContext.get_instance()
+        context._authorization_backend = backend
+        context._audit_emitter = emitter
+        context._initialized = True
+        yield SimpleNamespace(context=context, backend=backend, emitter=emitter)
+    finally:
+        EnforcementContext.reset_instance()

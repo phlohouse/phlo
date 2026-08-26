@@ -11,6 +11,7 @@ import socket
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
 import yaml
 
 from phlo.plugins.compose import ComposeGenerator
@@ -34,6 +35,12 @@ def _write_project_env(tmp_path, content: str) -> None:
 
 def _raise_unresolvable(_host: str) -> str:
     raise socket.gaierror()
+
+
+@pytest.fixture(autouse=True)
+def _scrub_ambient_service_ports(monkeypatch):
+    for port_key in ("DAGSTER_PORT", "NESSIE_PORT", "LOKI_PORT", "TRINO_PORT"):
+        monkeypatch.delenv(port_key, raising=False)
 
 
 def test_observatory_api_urls_use_project_port_overrides(tmp_path, monkeypatch) -> None:
@@ -135,40 +142,17 @@ def test_merge_service_links_prefers_native_port() -> None:
 
 
 def test_api_profile_uses_the_shared_run_evidence_store() -> None:
-    service = (Path(__file__).resolve().parents[1] / "src" / "phlo_api" / "service.yaml").read_text(
-        encoding="utf-8"
+    service = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "src" / "phlo_api" / "service.yaml").read_text(
+            encoding="utf-8"
+        )
     )
 
-    assert "profile: api" in service
-    assert "PHLO_RUN_EVIDENCE_DB_URL:" in service
-    assert (
-        "postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:-phlo}"
-        "@postgres:5432/${POSTGRES_DB:-phlo}"
-    ) in service
-    assert "depends_on:\n    - postgres" in service
-
-
-def test_api_image_accepts_direct_and_generated_build_contexts() -> None:
-    dockerfile = (
-        Path(__file__).resolve().parents[1] / "src" / "phlo_api" / "Dockerfile"
-    ).read_text(encoding="utf-8")
-
-    assert (
-        "if [ -f entrypoint.sh ]; then entrypoint=entrypoint.sh; else entrypoint=phlo-api/entrypoint.sh; fi"
-        in dockerfile
-    )
-    assert (
-        'install -m 0755 "$entrypoint" /opt/phlo-build-context/phlo-api-entrypoint.sh' in dockerfile
-    )
-    assert (
-        "COPY --from=phlo-build-context /opt/phlo-build-context/phlo-api-entrypoint.sh "
-        "/usr/local/bin/phlo-api-entrypoint.sh"
-    ) in dockerfile
-    wheelhouse_branch = dockerfile.index('if [ -n "$PHLO_WHEELHOUSE" ]; then')
-    version_branch = dockerfile.index('elif [ -n "$PHLO_VERSION" ]; then')
-    assert wheelhouse_branch < version_branch
-    assert '"$PHLO_REQUIREMENT" "$PHLO_API_REQUIREMENT"' in dockerfile
-    assert dockerfile.count("--no-index --no-deps --reinstall --find-links") == 2
+    assert service["profile"] == "api"
+    evidence_db_url = service["compose"]["environment"]["PHLO_RUN_EVIDENCE_DB_URL"]
+    assert evidence_db_url.startswith("postgresql://")
+    assert "@postgres:5432/" in evidence_db_url
+    assert "postgres" in service["depends_on"]
 
 
 def test_non_dev_api_profile_compose_is_reachable_without_dev_mounts(tmp_path) -> None:
@@ -193,25 +177,27 @@ def test_non_dev_api_profile_compose_is_reachable_without_dev_mounts(tmp_path) -
     service = compose["services"]["phlo-api"]
 
     assert service["profiles"] == ["api"]
-    assert service["build"] == {
-        "context": ".",
-        "dockerfile": "phlo-api/Dockerfile",
-        "args": {
-            "PHLO_VERSION": "${PHLO_VERSION:-}",
-            "PHLO_API_VERSION": "${PHLO_API_VERSION:-}",
-            "PHLO_WHEELHOUSE": "${PHLO_WHEELHOUSE:-}",
-        },
-    }
-    assert service["ports"] == ["${PHLO_API_PORT:-4000}:4000"]
+
+    build = service["build"]
+    assert build["context"] == "."
+    assert build["dockerfile"] == "phlo-api/Dockerfile"
+    for arg in ("PHLO_VERSION", "PHLO_API_VERSION", "PHLO_WHEELHOUSE"):
+        assert build["args"].get(arg) == f"${{{arg}:-}}"
+
+    assert "${PHLO_API_PORT:-4000}:4000" in service["ports"]
     assert service["environment"]["PHLO_RUN_EVIDENCE_DB_URL"].endswith(
         "@postgres:5432/${POSTGRES_DB:-phlo}"
     )
-    assert service["depends_on"] == {"postgres": {"condition": "service_started"}}
+    assert "postgres" in service["depends_on"]
     assert "PHLO_DEV_MODE" not in service["environment"]
-    assert "/opt/phlo-dev:rw" not in "\n".join(service.get("volumes", []))
-    assert service["volumes"] == [
-        "../:/app:ro",
-        "./logs:/app/.phlo/logs",
-        "../.phlo/observatory:/app/.phlo/observatory",
-        "../.phlo/state:/app/.phlo/state",
-    ]
+    volumes = service["volumes"]
+    mount_targets = {volume.split(":")[1] for volume in volumes}
+    assert mount_targets >= {
+        "/app",
+        "/app/.phlo/logs",
+        "/app/.phlo/observatory",
+        "/app/.phlo/state",
+    }
+    app_mount = next(volume for volume in volumes if volume.split(":")[1] == "/app")
+    assert app_mount.endswith(":ro")
+    assert not any(volume.endswith(":rw") for volume in volumes)

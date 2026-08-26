@@ -7,6 +7,8 @@ default, declared ports render correctly, and long names align.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from click.testing import CliRunner
 
@@ -53,8 +55,9 @@ def test_services_list_uses_backend_container_listing(
 
     result = CliRunner().invoke(list_module.list_cmd, ["--json", "--backend", "podman"])
 
-    assert result.exit_code == 0
-    assert '"running": true' in result.output
+    entries = json.loads(result.output)
+    postgres_entry = next(item for item in entries if item["name"] == "postgres")
+    assert postgres_entry["running"] is True
 
 
 def test_services_list_shows_running_optional_services_by_default(

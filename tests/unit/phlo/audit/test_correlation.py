@@ -69,84 +69,48 @@ class TestCorrelationFields:
 
 
 class TestEnforceCorrelation:
-    def test_enforce_passes_correlation_to_audit(self, monkeypatch):
-        from unittest.mock import MagicMock
-
+    def test_enforce_passes_correlation_to_audit(self):
         from phlo.capabilities.interfaces import AuthPrincipal, ResourceRef
-        from phlo.security.enforcement import EnforcementContext, enforce
+        from phlo.security.enforcement import enforce
+        from tests.helpers import stubbed_enforcement_context
 
-        monkeypatch.setattr(EnforcementContext, "_instance", None)
+        with stubbed_enforcement_context() as stubs:
+            enforce(
+                principal=AuthPrincipal(
+                    subject="alice@example.com",
+                    principal_type="user",
+                    groups=(),
+                    attributes={"authentication_source": "proxy"},
+                ),
+                action="dataset.read",
+                resource=ResourceRef(resource_type="dataset", resource_id="orders"),
+                surface="phlo-api",
+                correlation_id="corr-abc-123",
+            )
 
-        mock_backend = MagicMock()
-        mock_backend.explain_decision.return_value = MagicMock(
-            allowed=True, reason_code=None, policy_id=None, explanation=None
-        )
+            call_kwargs = stubs.emitter.emit_authorization.call_args.kwargs
+            assert call_kwargs["correlation_id"] == "corr-abc-123"
 
-        mock_emitter = MagicMock()
-
-        ctx = EnforcementContext.get_instance()
-        ctx._authorization_backend = mock_backend
-        ctx._audit_emitter = mock_emitter
-        ctx._initialized = True
-
-        principal = AuthPrincipal(
-            subject="alice@example.com",
-            principal_type="user",
-            groups=(),
-            attributes={"authentication_source": "proxy"},
-        )
-
-        enforce(
-            principal=principal,
-            action="dataset.read",
-            resource=ResourceRef(resource_type="dataset", resource_id="orders"),
-            surface="phlo-api",
-            correlation_id="corr-abc-123",
-        )
-
-        call_kwargs = mock_emitter.emit_authorization.call_args.kwargs
-        assert call_kwargs["correlation_id"] == "corr-abc-123"
-
-        EnforcementContext.reset_instance()
-
-    def test_enforce_without_correlation_passes_none(self, monkeypatch):
-        from unittest.mock import MagicMock
-
+    def test_enforce_without_correlation_passes_none(self):
         from phlo.capabilities.interfaces import AuthPrincipal, ResourceRef
-        from phlo.security.enforcement import EnforcementContext, enforce
+        from phlo.security.enforcement import enforce
+        from tests.helpers import stubbed_enforcement_context
 
-        monkeypatch.setattr(EnforcementContext, "_instance", None)
+        with stubbed_enforcement_context() as stubs:
+            enforce(
+                principal=AuthPrincipal(
+                    subject="alice@example.com",
+                    principal_type="user",
+                    groups=(),
+                    attributes={"authentication_source": "proxy"},
+                ),
+                action="dataset.read",
+                resource=ResourceRef(resource_type="dataset", resource_id="orders"),
+                surface="phlo-api",
+            )
 
-        mock_backend = MagicMock()
-        mock_backend.explain_decision.return_value = MagicMock(
-            allowed=True, reason_code=None, policy_id=None, explanation=None
-        )
-
-        mock_emitter = MagicMock()
-
-        ctx = EnforcementContext.get_instance()
-        ctx._authorization_backend = mock_backend
-        ctx._audit_emitter = mock_emitter
-        ctx._initialized = True
-
-        principal = AuthPrincipal(
-            subject="alice@example.com",
-            principal_type="user",
-            groups=(),
-            attributes={"authentication_source": "proxy"},
-        )
-
-        enforce(
-            principal=principal,
-            action="dataset.read",
-            resource=ResourceRef(resource_type="dataset", resource_id="orders"),
-            surface="phlo-api",
-        )
-
-        call_kwargs = mock_emitter.emit_authorization.call_args.kwargs
-        assert call_kwargs["correlation_id"] is None
-
-        EnforcementContext.reset_instance()
+            call_kwargs = stubs.emitter.emit_authorization.call_args.kwargs
+            assert call_kwargs["correlation_id"] is None
 
 
 class TestEnforcementContextInitialization:

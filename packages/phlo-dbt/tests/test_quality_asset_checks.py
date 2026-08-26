@@ -20,8 +20,6 @@ from phlo_pandera.pandera_asset_checks import (
 )
 from phlo_pandera.schemas.base import PhloSchema
 
-pytestmark = pytest.mark.integration
-
 
 class DemoSchema(PhloSchema):
     """Minimal schema for validating test parquet payloads."""

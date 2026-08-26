@@ -1,80 +1,138 @@
-"""Contract tests for the required PostgreSQL concurrency CI gate.
+"""Structural contracts for the required PostgreSQL concurrency CI gate.
 
-Pins the ci.yml postgres-concurrency-gates job: its own attributable CI
-status gate, a Postgres 16 service, both required test DSNs with driver and
-connection checks, exactly the three live concurrency/upgrade selectors,
-and that the nightly golden-path schedule remains untouched.
+Parses the checked-in workflows instead of mirroring their text: CI must run
+the core regression lane through the ``core_regression`` marker filter, keep
+``postgres-concurrency-gates`` as a separately attributable required gate
+whose pytest invocation exercises the documented Postgres lock-contention
+guard suites under an exact pass-count guard, and keep the nightly cron
+trigger untouched.
 """
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
+CI_WORKFLOW = "ci.yml"
+NIGHTLY_WORKFLOW = "nightly.yml"
 
-SERVICE_DSN = "PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN"
-RUN_EVIDENCE_DSN = "PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN"
-SELECTORS = (
-    "tests/unit/phlo/security/test_service_identity.py::test_postgres_nonce_store_rejects_one_of_two_simultaneous_consumers",
-    "tests/observability/test_run_evidence.py::test_postgres_concurrent_duplicate_replay_does_not_apply_loser_run_metadata",
-    "tests/observability/test_run_evidence.py::test_true_v2_to_v3_upgrade_is_idempotent_and_compatible_postgres",
+CORE_REGRESSION_TARGET = "test-core-regression"
+CORE_REGRESSION_MARKER = "core_regression"
+GATE_JOB = "postgres-concurrency-gates"
+GATE_STEP = "Run PostgreSQL concurrency gates"
+GATE_DSN_ENV_VARS = (
+    "PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN",
+    "PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN",
 )
+EXPECTED_GUARD_PASSES = 3
+# Modules carrying the documented Postgres lock-contention guards: the nonce
+# compare-and-set store (src/phlo/security/service_identity.py) and the
+# serialized parent-run evidence upsert (src/phlo/run_evidence/store.py).
+GUARD_TEST_MODULES = (
+    "tests/unit/phlo/security/test_service_identity.py",
+    "tests/observability/test_run_evidence.py",
+)
+NIGHTLY_CRON = "0 3 * * *"
 
 
-def _workflow() -> str:
-    return CI_WORKFLOW.read_text(encoding="utf-8")
+def _parse_yaml(path: Path) -> dict[str, Any]:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def _top_level_block(workflow: str, key: str) -> str:
-    marker = f"  {key}:\n"
-    start = workflow.index(marker) + len(marker)
-    remainder = workflow[start:]
-    next_key = re.search(r"^  [a-z0-9_-]+:\n", remainder, re.MULTILINE)
-    end = next_key.start() if next_key else len(remainder)
-    return remainder[:end]
+def _steps(job: dict[str, Any]) -> list[dict[str, Any]]:
+    return [step for step in job.get("steps") or [] if isinstance(step, dict)]
 
 
-def test_required_postgres_gate_is_separately_attributable_and_gated() -> None:
-    workflow = _workflow()
-    job = _top_level_block(workflow, "postgres-concurrency-gates")
-    ci_status = _top_level_block(workflow, "ci-status")
-
-    assert "name: python / postgres concurrency gates" in job
-    assert "image: postgres:16-alpine" in job
-    assert "POSTGRES_USER: phlo_ci" in job
-    assert "POSTGRES_PASSWORD: phlo_ci_password" in job
-    assert "POSTGRES_DB: phlo_ci" in job
-    assert "      - postgres-concurrency-gates\n" in ci_status
-    assert "POSTGRES_CONCURRENCY_GATES: ${{ needs.postgres-concurrency-gates.result }}" in ci_status
-    assert '"${POSTGRES_CONCURRENCY_GATES}" \\' in ci_status
+def _step_named(job: dict[str, Any], name: str) -> dict[str, Any]:
+    matches = [step for step in _steps(job) if step.get("name") == name]
+    assert len(matches) == 1, f"expected exactly one step named {name!r}"
+    return matches[0]
 
 
-def test_postgres_gate_requires_both_dsns_driver_and_connection() -> None:
-    job = _top_level_block(_workflow(), "postgres-concurrency-gates")
-
-    for dsn_name in (SERVICE_DSN, RUN_EVIDENCE_DSN):
-        assert 'if [ -z "${!dsn_name:-}" ]' in job
-        assert dsn_name in job
-    assert "import psycopg2" in job
-    assert "psycopg2.connect(os.environ[name], connect_timeout=5)" in job
-    assert 'cursor.execute("SELECT 1")' in job
-
-
-def test_postgres_gate_runs_exactly_the_three_live_selectors() -> None:
-    job = _top_level_block(_workflow(), "postgres-concurrency-gates")
-
-    assert "uv run --locked pytest --import-mode=importlib" in job
-    for selector in SELECTORS:
-        assert job.count(selector) == 1
-    assert "PostgreSQL concurrency gate expected exactly 3 passed, 0 skipped" in job
-    assert re.search(r"PostgreSQL concurrency gates: \{passed\} passed, \{skipped\} skipped", job)
+def _make_recipe(target: str) -> str:
+    """Return the recipe body of a Makefile target."""
+    lines = (REPO_ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith(f"{target}:")]
+    assert len(starts) == 1, f"expected exactly one {target} target in the Makefile"
+    recipe: list[str] = []
+    for line in lines[starts[0] + 1 :]:
+        if not line.startswith("\t"):
+            break
+        recipe.append(line.removeprefix("\t"))
+    return "\n".join(recipe)
 
 
-def test_postgres_gate_does_not_replace_nightly_golden_path_scheduling() -> None:
-    nightly = (REPO_ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
+def test_core_regression_lane_selects_tests_through_the_marker_filter() -> None:
+    ci = _parse_yaml(WORKFLOW_ROOT / CI_WORKFLOW)
+    job = ci["jobs"]["python-core-tests"]
 
-    assert "release-golden-path:" in nightly
-    assert 'cron: "0 3 * * *"' in nightly
-    assert "workflow_dispatch:" in nightly
+    regression_step = _step_named(job, "Run core regression suite")
+    assert regression_step.get("id") == "core_regression"
+    assert regression_step.get("run") == f"make {CORE_REGRESSION_TARGET}"
+
+    recipe_tokens = _make_recipe(CORE_REGRESSION_TARGET).split()
+    marker_indexes = [index for index, token in enumerate(recipe_tokens) if token == "-m"]
+    assert any(recipe_tokens[index + 1] == CORE_REGRESSION_MARKER for index in marker_indexes), (
+        f"{CORE_REGRESSION_TARGET} must select tests via -m {CORE_REGRESSION_MARKER}"
+    )
+
+    general_run = _step_named(job, "Run core tests").get("run") or ""
+    marker_expression = re.search(r"""-m\s+(?P<quote>['"])(?P<expr>.*?)(?P=quote)""", general_run)
+    assert marker_expression, "general core lane must filter with a quoted -m expression"
+    expression_tokens = marker_expression.group("expr").split()
+    assert any(
+        expression_tokens[index] == "not" and expression_tokens[index + 1] == CORE_REGRESSION_MARKER
+        for index in range(len(expression_tokens) - 1)
+    ), "general core lane must exclude the core_regression marker"
+
+
+def test_postgres_gate_is_required_and_runs_the_lock_guard_suites() -> None:
+    ci = _parse_yaml(WORKFLOW_ROOT / CI_WORKFLOW)
+    jobs = ci["jobs"]
+    assert GATE_JOB in jobs, "postgres-concurrency-gates job must exist"
+    gate = jobs[GATE_JOB]
+
+    postgres_service = (gate.get("services") or {}).get("postgres") or {}
+    assert postgres_service.get("image") == "postgres:16-alpine"
+    for dsn_name in GATE_DSN_ENV_VARS:
+        assert dsn_name in (gate.get("env") or {})
+
+    status = jobs["ci-status"]
+    assert GATE_JOB in (status.get("needs") or [])
+    status_steps = [
+        step
+        for step in _steps(status)
+        if isinstance(step.get("env"), dict) and "POSTGRES_CONCURRENCY_GATES" in step["env"]
+    ]
+    assert len(status_steps) == 1, "ci-status must map the gate result exactly once"
+    assert status_steps[0]["env"]["POSTGRES_CONCURRENCY_GATES"] == (
+        f"${{{{ needs.{GATE_JOB}.result }}}}"
+    )
+    assert '"${POSTGRES_CONCURRENCY_GATES}"' in (status_steps[0].get("run") or "")
+
+    gate_script = _step_named(gate, GATE_STEP).get("run") or ""
+    assert "uv run --locked pytest" in gate_script
+    assert "--import-mode=importlib" in gate_script
+    for module in GUARD_TEST_MODULES:
+        assert gate_script.count(module) >= 1, f"gate must run {module}"
+    assert sum(gate_script.count(module) for module in GUARD_TEST_MODULES) == (
+        EXPECTED_GUARD_PASSES
+    ), "each selector must map to one expected passing guard test"
+    assert re.search(rf"passed\s*!=\s*{EXPECTED_GUARD_PASSES}\b", gate_script), (
+        "gate must hard-fail unless every guard test passed"
+    )
+    assert re.search(r"skipped\s*!=\s*0\b", gate_script), "gate must reject skipped guards"
+
+
+def test_nightly_keeps_its_scheduled_cron_trigger() -> None:
+    nightly = _parse_yaml(WORKFLOW_ROOT / NIGHTLY_WORKFLOW)
+    triggers = nightly.get(True) or nightly.get("on") or {}
+
+    schedules = [entry.get("cron") for entry in triggers.get("schedule") or []]
+    assert NIGHTLY_CRON in schedules, "nightly must keep its 03:00 UTC schedule"
+    assert "workflow_dispatch" in triggers

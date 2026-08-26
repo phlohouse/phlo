@@ -25,8 +25,6 @@ from phlo_dlt.registry import TableConfig
 from pyiceberg.schema import Schema
 from pyiceberg.types import NestedField, StringType
 
-pytestmark = pytest.mark.integration
-
 
 @pytest.fixture(autouse=True)
 def _clear_ingestion_registry() -> None:

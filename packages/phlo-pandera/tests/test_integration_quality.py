@@ -1,19 +1,10 @@
-"""Comprehensive integration tests for phlo-pandera.
+"""Functional tests for phlo-pandera quality evaluation.
 
-Per TEST_STRATEGY.md Level 2 (Functional):
-- Check Generation Logic: Test quality check creation
-- Check Execution: Run a check against a real dataset (Pandas/DuckDB)
+- Check generation logic: quality check contract creation and metadata.
+- Check execution: run checks against real Pandas datasets and Parquet files.
 """
 
 import pandas as pd
-import pytest
-
-pytestmark = pytest.mark.integration
-
-
-# =============================================================================
-# Pandera Contract Evaluation Tests
-# =============================================================================
 
 
 class TestPanderaContractEvaluation:
@@ -135,11 +126,10 @@ class TestQualityCheckContract:
         assert isinstance(metadata, dict)
 
     def test_pandera_contract_check_name(self):
-        """Test PANDERA_CONTRACT_CHECK_NAME constant."""
+        """The contract check name is a stable orchestration identifier."""
         from phlo_pandera.contract import PANDERA_CONTRACT_CHECK_NAME
 
-        assert PANDERA_CONTRACT_CHECK_NAME is not None
-        assert isinstance(PANDERA_CONTRACT_CHECK_NAME, str)
+        assert PANDERA_CONTRACT_CHECK_NAME == "pandera_contract"
 
 
 # =============================================================================
@@ -149,18 +139,6 @@ class TestQualityCheckContract:
 
 class TestQualityDecorator:
     """Test quality decorator functionality."""
-
-    def test_get_quality_checks_importable(self):
-        """Test get_quality_checks function is importable."""
-        from phlo_pandera.decorator import get_quality_checks
-
-        assert callable(get_quality_checks)
-
-    def test_decorator_module_has_expected_functions(self):
-        """Test decorator module has expected functions."""
-        from phlo_pandera import decorator
-
-        assert hasattr(decorator, "get_quality_checks")
 
     def test_provider_exposes_quality_check_base_class(self):
         """Provider check class map includes the base QualityCheck type."""
@@ -182,16 +160,11 @@ class TestQualitySeverity:
     """Test quality severity functionality."""
 
     def test_severity_for_pandera_contract(self):
-        """Test severity determination for Pandera contracts."""
+        """Contract severity is None on pass and error on failure."""
         from phlo_pandera.severity import severity_for_pandera_contract
 
-        # Passed check - no severity/warning
-        severity_for_pandera_contract(passed=True)
-        # May be None or a default value
-
-        # Failed check - should have severity
-        severity_for_pandera_contract(passed=False)
-        # Should indicate an error or warning
+        assert severity_for_pandera_contract(passed=True) is None
+        assert severity_for_pandera_contract(passed=False) == "error"
 
 
 # =============================================================================
@@ -202,9 +175,8 @@ class TestQualitySeverity:
 class TestParquetValidation:
     """Test Parquet file validation."""
 
-    def test_evaluate_parquet_file(self):
+    def test_evaluate_parquet_file(self, tmp_path):
         """Test evaluating a Pandera contract against a Parquet file."""
-        import tempfile
         from pathlib import Path
         from pandera.pandas import DataFrameModel
         from phlo_pandera.pandera_asset_checks import evaluate_pandera_contract_parquet
@@ -218,13 +190,12 @@ class TestParquetValidation:
         # Create test parquet file
         df = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            parquet_path = Path(tmpdir) / "test.parquet"
-            df.to_parquet(parquet_path)
+        parquet_path = Path(tmp_path) / "test.parquet"
+        df.to_parquet(parquet_path)
 
-            result = evaluate_pandera_contract_parquet(parquet_path, schema_class=TestSchema)
+        result = evaluate_pandera_contract_parquet(parquet_path, schema_class=TestSchema)
 
-            assert result.passed is True
+        assert result.passed is True
 
 
 # =============================================================================
@@ -274,75 +245,3 @@ class TestComplexSchemas:
 
         # Should handle nulls
         assert result.total_count == 3
-
-
-# =============================================================================
-# Reconciliation Tests
-# =============================================================================
-
-
-class TestReconciliation:
-    """Test data reconciliation functionality."""
-
-    def test_reconciliation_module_importable(self):
-        """Test reconciliation module is importable."""
-        from phlo_pandera import reconciliation
-
-        assert reconciliation is not None
-
-
-# =============================================================================
-# Checks Module Tests
-# =============================================================================
-
-
-class TestChecksModule:
-    """Test checks module functionality."""
-
-    def test_checks_module_importable(self):
-        """Test checks module is importable."""
-        from phlo_pandera import checks
-
-        assert checks is not None
-
-
-# =============================================================================
-# CLI Plugin Tests
-# =============================================================================
-
-
-class TestQualityCLIPlugin:
-    """Test quality CLI plugin."""
-
-    def test_cli_plugin_importable(self):
-        """Test CLI plugin is importable."""
-        from phlo_pandera.cli_plugin import PanderaCliPlugin
-
-        assert PanderaCliPlugin is not None
-
-
-# =============================================================================
-# Export Tests
-# =============================================================================
-
-
-class TestQualityExports:
-    """Test module exports."""
-
-    def test_module_importable(self):
-        """Test phlo_pandera module is importable."""
-        import phlo_pandera
-
-        assert phlo_pandera is not None
-
-    def test_pandera_asset_checks_importable(self):
-        """Test pandera_asset_checks module is importable."""
-        from phlo_pandera import pandera_asset_checks
-
-        assert pandera_asset_checks is not None
-
-    def test_contract_importable(self):
-        """Test contract module is importable."""
-        from phlo_pandera import contract
-
-        assert contract is not None

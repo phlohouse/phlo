@@ -10,7 +10,7 @@ import importlib
 import sys
 
 
-def test_openmetadata_modules_import_without_peer_packages() -> None:
+def test_openmetadata_modules_import_without_peer_packages(monkeypatch) -> None:
     """OpenMetadata generic modules should not import peer packages at import time."""
     peer_prefixes = ("phlo_nessie", "phlo_trino", "phlo_lineage")
     target_modules = (
@@ -21,7 +21,7 @@ def test_openmetadata_modules_import_without_peer_packages() -> None:
 
     for name in list(sys.modules):
         if name.startswith(peer_prefixes) or name in target_modules:
-            sys.modules.pop(name, None)
+            monkeypatch.delitem(sys.modules, name, raising=False)
 
     for module_name in target_modules:
         importlib.import_module(module_name)

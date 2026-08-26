@@ -10,8 +10,12 @@ context, no unauthenticated Traefik route).
 
 from __future__ import annotations
 
-import pytest
+from importlib.resources import files
 from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
 
 from phlo.capabilities import AuthenticationProviderSpec, clear_all_capabilities
 from phlo.capabilities.registry import register_capability
@@ -26,6 +30,12 @@ def teardown_function() -> None:
 
 def _write_phlo_config(tmp_path: Path, content: str) -> None:
     (tmp_path / "phlo.yaml").write_text(content)
+
+
+def _load_packaged_definition(name: str) -> dict[str, Any]:
+    definition_path = files("phlo_api") / name
+    with open(definition_path) as f:
+        return yaml.safe_load(f)
 
 
 class _DummyAuthenticationProvider:
@@ -116,55 +126,29 @@ def test_phlo_api_has_forward_auth_middleware() -> None:
     The middleware is defined in service-auth.yaml which is conditionally
     included when the proxy profile is active.
     """
-    import yaml
-    from importlib.resources import files
+    auth_labels = _load_packaged_definition("service-auth.yaml")["compose"]["labels"]
 
-    package_root = files("phlo_api")
-    auth_defn_path = package_root / "service-auth.yaml"
-
-    if not auth_defn_path.exists():
-        pytest.skip("service-auth.yaml not found - oauth2-proxy integration not configured")
-
-    with open(auth_defn_path) as f:
-        auth_defn = yaml.safe_load(f)
-
-    auth_labels = auth_defn.get("compose", {}).get("labels", {})
-
-    assert "traefik.http.routers.api.middlewares" in auth_labels
     assert auth_labels["traefik.http.routers.api.middlewares"] == "phlo-api-auth@docker"
-    assert "traefik.http.middlewares.phlo-api-auth.forwardauth.address" in auth_labels
     assert (
-        "/oauth2/auth" in auth_labels["traefik.http.middlewares.phlo-api-auth.forwardauth.address"]
-    )
-    assert (
-        "oauth2-proxy" in auth_labels["traefik.http.middlewares.phlo-api-auth.forwardauth.address"]
+        auth_labels["traefik.http.middlewares.phlo-api-auth.forwardauth.address"]
+        == "http://oauth2-proxy:4180/oauth2/auth"
     )
     assert (
         auth_labels["traefik.http.middlewares.phlo-api-auth.forwardauth.trustForwardHeader"]
         == "true"
     )
-    assert (
-        "X-Forwarded-User"
-        in auth_labels["traefik.http.middlewares.phlo-api-auth.forwardauth.authResponseHeaders"]
-    )
-    assert (
-        "X-Forwarded-Email"
-        in auth_labels["traefik.http.middlewares.phlo-api-auth.forwardauth.authResponseHeaders"]
-    )
-    assert (
-        "X-Forwarded-Groups"
-        in auth_labels["traefik.http.middlewares.phlo-api-auth.forwardauth.authResponseHeaders"]
-    )
+    response_headers = auth_labels[
+        "traefik.http.middlewares.phlo-api-auth.forwardauth.authResponseHeaders"
+    ].split(",")
+    assert response_headers == [
+        "X-Forwarded-User",
+        "X-Forwarded-Email",
+        "X-Forwarded-Groups",
+    ]
 
 
 def test_phlo_api_service_passes_clickstack_query_env() -> None:
-    import yaml
-    from importlib.resources import files
-
-    service_defn_path = files("phlo_api") / "service.yaml"
-
-    with open(service_defn_path) as f:
-        service_defn = yaml.safe_load(f)
+    service_defn = _load_packaged_definition("service.yaml")
 
     compose_env = service_defn["compose"]["environment"]
     dev_env = service_defn["dev"]["environment"]
@@ -176,49 +160,29 @@ def test_phlo_api_service_passes_clickstack_query_env() -> None:
 
 
 def test_phlo_api_service_does_not_mount_docker_socket_by_default() -> None:
-    import yaml
-    from importlib.resources import files
+    service_defn = _load_packaged_definition("service.yaml")
+    compose_config = service_defn["compose"]
 
-    service_defn_path = files("phlo_api") / "service.yaml"
-
-    with open(service_defn_path) as f:
-        service_defn = yaml.safe_load(f)
-
-    volumes = service_defn["compose"].get("volumes", [])
-    assert not any("/var/run/docker.sock" in volume for volume in volumes)
+    mounts = [*compose_config.get("volumes", []), *compose_config.get("devices", [])]
+    assert not any("/var/run/docker.sock" in str(mount) for mount in mounts)
 
 
 def test_phlo_api_service_build_context_is_package_portable() -> None:
-    import yaml
-    from importlib.resources import files
+    service_defn = _load_packaged_definition("service.yaml")
 
-    service_defn_path = files("phlo_api") / "service.yaml"
+    build_args = service_defn["build"]["args"]
+    assert service_defn["build"]["context"] == "."
+    assert service_defn["build"]["dockerfile"] == "phlo-api/Dockerfile"
+    assert build_args["PHLO_VERSION"] == "${PHLO_VERSION:-}"
+    assert build_args["PHLO_API_VERSION"] == "${PHLO_API_VERSION:-}"
+    assert build_args["PHLO_WHEELHOUSE"] == "${PHLO_WHEELHOUSE:-}"
 
-    with open(service_defn_path) as f:
-        service_defn = yaml.safe_load(f)
-
-    assert service_defn["build"] == {
-        "context": ".",
-        "dockerfile": "phlo-api/Dockerfile",
-        "args": {
-            "PHLO_VERSION": "${PHLO_VERSION:-}",
-            "PHLO_API_VERSION": "${PHLO_API_VERSION:-}",
-            "PHLO_WHEELHOUSE": "${PHLO_WHEELHOUSE:-}",
-        },
-    }
     assert service_defn["env_vars"]["PHLO_VERSION"]["package"] == "phlo"
     assert service_defn["env_vars"]["PHLO_API_VERSION"]["package"] == "phlo-api"
 
 
 def test_phlo_api_service_does_not_publish_unauthenticated_traefik_route() -> None:
-    import yaml
-    from importlib.resources import files
+    labels = _load_packaged_definition("service.yaml")["compose"].get("labels", {})
 
-    service_defn_path = files("phlo_api") / "service.yaml"
-
-    with open(service_defn_path) as f:
-        service_defn = yaml.safe_load(f)
-
-    labels = service_defn["compose"].get("labels", {})
     assert "traefik.http.routers.api.rule" not in labels
     assert "traefik.http.routers.api.entrypoints" not in labels

@@ -687,7 +687,20 @@ def test_no_stale_support_phrases_in_manifest_or_docs() -> None:
         ROOT / "registry" / "support" / "v1.json",
         ROOT / "packages" / "phlo-observatory" / "README.md",
     ]
+    # Dated point-in-time records (plans, handoffs, proposals, ADRs) preserve
+    # history; old paths and superseded claims there are records, not current
+    # support claims. Living operator docs stay scanned.
     for doc_file in (ROOT / "docs").rglob("*.md"):
+        relative = doc_file.relative_to(ROOT)
+        if relative.parts[:2] in (
+            ("docs", "plans"),
+            ("docs", "handoffs"),
+            ("docs", "architecture"),
+        ):
+            continue
+        head = doc_file.read_text(encoding="utf-8", errors="replace")[:512]
+        if any(line.startswith("Date:") for line in head.splitlines()):
+            continue
         check_paths.append(doc_file)
     for path in check_paths:
         text = path.read_text(encoding="utf-8")

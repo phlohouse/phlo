@@ -6,6 +6,7 @@ the authorization middleware applied in front of them.
 """
 
 from pathlib import Path
+import yaml
 import asyncio
 import time
 from types import SimpleNamespace
@@ -127,10 +128,11 @@ def test_regulated_webserver_discovers_project_capabilities_before_authorization
 
 def test_service_entrypoint_uses_secured_webserver_module() -> None:
     service_yaml = Path(__file__).parents[1] / "src" / "phlo_dagster" / "service.yaml"
-    text = service_yaml.read_text()
+    definition = yaml.safe_load(service_yaml.read_text())
+    command = definition["compose"]["command"]
 
-    assert '"phlo_dagster.webserver"' in text
-    assert '"dagster-webserver"' not in text.split("command:", 1)[1].split("ports:", 1)[0]
+    module_index = command.index("-m")
+    assert command[module_index + 1] == "phlo_dagster.webserver"
 
 
 def test_inherited_dagster_http_routes_are_classified_by_method_and_path() -> None:
@@ -343,11 +345,13 @@ def test_dagster_graphql_captured_logs_bind_log_key_to_one_run() -> None:
 
 def test_ordinary_generated_dagster_service_keeps_oidc_optional(monkeypatch) -> None:
     service_yaml = Path(__file__).parents[1] / "src" / "phlo_dagster" / "service.yaml"
-    text = service_yaml.read_text()
+    definition = yaml.safe_load(service_yaml.read_text())
 
     monkeypatch.delenv("PHLO_DAGSTER_OIDC_REQUIRED", raising=False)
     assert not PhloDagsterWebserver._oidc_required()
-    assert "PHLO_DAGSTER_OIDC_REQUIRED:-false" in text
+    assert definition["compose"]["environment"]["PHLO_DAGSTER_OIDC_REQUIRED"] == (
+        "${PHLO_DAGSTER_OIDC_REQUIRED:-false}"
+    )
 
 
 def test_regulated_dagster_startup_fails_without_complete_oidc(monkeypatch) -> None:

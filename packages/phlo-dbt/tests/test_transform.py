@@ -1,7 +1,4 @@
-"""Unit tests for dbt transform translator and runtime target resolution.
-
-These tests do not require a dbt manifest or running services.
-"""
+"""Unit tests for the dbt spec translator and DbtTransformer runtime behavior."""
 
 import json
 import subprocess
@@ -11,7 +8,6 @@ from types import SimpleNamespace
 import pytest
 from phlo.hooks.events import TelemetryEvent, TransformEvent
 from phlo.logging import get_logger
-from phlo_dbt.runtime_config import resolve_dbt_target_name
 from phlo_dbt.transformer import DbtTransformer, ensure_dbt_manifest
 from phlo_dbt.translator import DbtSpecTranslator
 
@@ -55,42 +51,6 @@ def test_custom_dbt_translator_asset_key_source_meta_override() -> None:
         }
     )
     assert asset_key == "external_orders"
-
-
-def test_resolve_dbt_target_name_prefers_canonical_environment() -> None:
-    """Canonical runtime routing should take precedence over legacy dbt tags."""
-    runtime = SimpleNamespace(
-        run_id="run-1",
-        partition_key="2025-01-01",
-        tags={"environment": "ci", "dbt_target": "legacy"},
-        resources={},
-    )
-
-    assert resolve_dbt_target_name(runtime) == "ci"
-
-
-def test_resolve_dbt_target_name_falls_back_to_legacy_tag() -> None:
-    """Legacy dbt_target tags should keep working when no environment is set."""
-    runtime = SimpleNamespace(
-        run_id="run-1",
-        partition_key=None,
-        tags={"dbt_target": "qa"},
-        resources={},
-    )
-
-    assert resolve_dbt_target_name(runtime) == "qa"
-
-
-def test_resolve_dbt_target_name_defaults_to_dev() -> None:
-    """Missing routing and legacy tags should preserve the existing dev default."""
-    runtime = SimpleNamespace(
-        run_id="run-1",
-        partition_key=None,
-        tags={},
-        resources={},
-    )
-
-    assert resolve_dbt_target_name(runtime) == "dev"
 
 
 def test_ensure_dbt_manifest_uses_parse_for_discovery(monkeypatch, tmp_path: Path) -> None:

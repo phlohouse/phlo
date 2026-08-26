@@ -1,64 +1,34 @@
 """Tests for the MinIO CLI authorization adapter.
 
-Covers principal resolution, command classification, and surface adapter
-wiring through mocked backends.
+Package-specific command-table coverage plus the shared surface-adapter
+contract from ``phlo_testing.authorization_surface``: reads skip enforcement,
+unknown commands deny closed, mutation commands honor policy allow/deny, and
+the shared ``CliPrincipalResolver`` environment fallbacks hold.
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-from phlo.cli.authorization import CliPrincipalResolver
+from phlo_testing.authorization_surface import (
+    assert_mutation_enforcement_allows_and_denies,
+    assert_read_commands_allow_without_enforcement,
+    assert_unknown_command_denied,
+    reset_surface_adapter_singleton,
+    run_cli_principal_resolver_contract,
+)
 from phlo_minio.authorization import (
     COMMAND_ACTION_MAP,
     COMMAND_RESOURCE_MAP,
+    FRAMEWORK_TYPE,
     MUTATION_COMMANDS,
     READ_COMMANDS,
     SURFACE_NAME,
-    FRAMEWORK_TYPE,
     MinioCliSurfaceAdapter,
 )
 
 
-class TestMinioCliPrincipalResolver:
-    """Tests for the shared CLI principal resolver."""
-
-    def test_resolve_service_account(self) -> None:
-        """Should resolve PHLO_SERVICE_ACCOUNT as service principal."""
-        with patch.dict("os.environ", {"PHLO_SERVICE_ACCOUNT": "ci-pipeline"}):
-            principal = CliPrincipalResolver.resolve()
-            assert principal.subject == "ci-pipeline"
-            assert principal.principal_type == "service"
-            assert "operators" in principal.groups
-
-    def test_resolve_human_principal(self) -> None:
-        """Should resolve PHLO_AUTH_SUBJECT as human principal."""
-        with patch.dict(
-            "os.environ",
-            {
-                "PHLO_AUTH_SUBJECT": "alice",
-                "PHLO_AUTH_TYPE": "user",
-                "PHLO_AUTH_GROUPS": "operators,admins",
-            },
-        ):
-            principal = CliPrincipalResolver.resolve()
-            assert principal.subject == "alice"
-            assert principal.principal_type == "user"
-            assert principal.groups == ("operators", "admins")
-
-    def test_resolve_dev_fallback(self) -> None:
-        """Should use dev fallback when PHLO_DEV_MODE set."""
-        with patch.dict("os.environ", {"PHLO_DEV_MODE": "true"}):
-            principal = CliPrincipalResolver.resolve()
-            assert principal.subject == "local:root"
-            assert principal.groups == ("admin",)
-
-    def test_resolve_anonymous_default(self) -> None:
-        """Should return anonymous principal when no auth env vars."""
-        principal = CliPrincipalResolver.resolve()
-        assert principal.subject == "anonymous"
-        assert principal.principal_type == "user"
-        assert principal.groups == ()
+def test_cli_principal_resolver_contract():
+    """The shared CLI principal resolver environment fallbacks hold."""
+    run_cli_principal_resolver_contract()
 
 
 class TestMinioCliSurfaceAdapter:
@@ -94,45 +64,20 @@ class TestMinioCliSurfaceAdapter:
         adapter = MinioCliSurfaceAdapter()
         assert adapter.is_active(None) is True
 
-    def test_read_commands_return_allow(self) -> None:
-        """Read commands should return allow without enforcement."""
-        adapter = MinioCliSurfaceAdapter()
-        for cmd in READ_COMMANDS:
-            result = adapter.check_command_authorization(cmd)
-            assert result.allowed is True
+    def test_read_commands_allow_without_enforcement(self) -> None:
+        """Read commands allow without touching the enforcement path."""
+        with reset_surface_adapter_singleton(MinioCliSurfaceAdapter):
+            assert_read_commands_allow_without_enforcement(MinioCliSurfaceAdapter())
 
-    def test_unknown_commands_return_deny(self) -> None:
-        """Unknown commands should return deny."""
-        adapter = MinioCliSurfaceAdapter()
-        result = adapter.check_command_authorization("minio.unknown")
-        assert result.allowed is False
-        assert result.reason_code == "unknown_command"
+    def test_unknown_command_denied_closed(self) -> None:
+        """Unclassified commands deny closed so new commands cannot skip auth."""
+        with reset_surface_adapter_singleton(MinioCliSurfaceAdapter):
+            assert_unknown_command_denied(MinioCliSurfaceAdapter(), "minio.unknown")
 
-    def test_mutation_commands_call_enforce(self) -> None:
-        """Mutation commands should call enforce."""
-        adapter = MinioCliSurfaceAdapter()
-
-        mock_result = MagicMock()
-        mock_result.variant = "allow"
-
-        with patch("phlo.cli.authorization.enforce", return_value=mock_result):
-            with patch.object(adapter, "_resolver"):
-                from phlo.capabilities.interfaces import AuthPrincipal
-
-                adapter._resolver.resolve = MagicMock(
-                    return_value=AuthPrincipal(
-                        subject="test",
-                        principal_type="user",
-                        issuer="test",
-                        groups=(),
-                        attributes={},
-                    )
-                )
-
-                result = adapter.check_command_authorization("minio")
-
-                if result.variant == "deny":
-                    pass
+    def test_minio_passthrough_mutation_honors_policy_decision(self) -> None:
+        """minio passthrough flows a policy allow through and blocks a policy deny."""
+        with reset_surface_adapter_singleton(MinioCliSurfaceAdapter):
+            assert_mutation_enforcement_allows_and_denies(MinioCliSurfaceAdapter(), "minio")
 
 
 class TestCommandClassification:

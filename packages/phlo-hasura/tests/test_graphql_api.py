@@ -51,10 +51,13 @@ class TestGraphQLAuthentication:
             GRAPHQL_ENDPOINT,
             json={"query": query},
         )
-        assert response.status_code in [200, 401, 403]
+        # An unauthenticated request must never receive a successful schema
+        # answer: either the transport rejects it or GraphQL returns errors.
         if response.status_code == 200:
             data = response.json()
-            assert "errors" in data or "data" in data
+            assert "errors" in data, "unauthenticated request succeeded"
+        else:
+            assert response.status_code in (401, 403)
 
     def test_graphql_with_admin_token(self, admin_headers):
         """Test GraphQL with admin secret."""
@@ -97,10 +100,11 @@ class TestGraphQLAuthentication:
             headers={"x-hasura-admin-secret": "invalid"},
             json={"query": query},
         )
-        assert response.status_code in [200, 401, 403]
+        # An invalid secret must never yield a successful schema answer.
         if response.status_code == 200:
-            data = response.json()
-            assert "errors" in data
+            assert "errors" in response.json(), "invalid secret succeeded"
+        else:
+            assert response.status_code in (401, 403)
 
 
 class TestGraphQLIntrospection:
@@ -228,6 +232,7 @@ class TestGraphQLErrorHandling:
             json={"query": ""},
         )
         assert response.status_code in [200, 400]
+        assert "errors" in response.json()
 
     def test_missing_query(self, admin_headers):
         """Test missing query field."""
@@ -237,6 +242,7 @@ class TestGraphQLErrorHandling:
             json={},
         )
         assert response.status_code in [200, 400]
+        assert "errors" in response.json()
 
 
 class TestGraphQLHealthCheck:
@@ -259,8 +265,5 @@ class TestGraphQLHealthCheck:
             headers={"x-hasura-admin-secret": HASURA_ADMIN_SECRET},
             json={"query": query},
         )
-        assert response.status_code in [200, 400]
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        assert response.status_code == 200
+        assert "__typename" in response.json()["data"]

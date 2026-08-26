@@ -1,9 +1,9 @@
 """Tests for lineage authorization module.
 
-Covers the LineageSurfaceAdapter surface contract (singleton instance,
-operation listing, framework type) and command classification: read
-commands are always allowed, unknown commands are denied, and mutation
-enforcement routes through the shared policy layer.
+Package-specific surface metadata, operation listing, and command-table
+classification; the shared adapter contract (read allow-through, unknown
+deny-closed, mutation policy allow/deny) delegates to
+``phlo_testing.authorization_surface``.
 """
 
 from __future__ import annotations
@@ -12,6 +12,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from phlo_testing.authorization_surface import (
+    assert_mutation_enforcement_allows_and_denies,
+    assert_read_commands_allow_without_enforcement,
+    assert_unknown_command_denied,
+    reset_surface_adapter_singleton,
+)
 from phlo_lineage.authorization import (
     COMMAND_ACTION_MAP,
     COMMAND_RESOURCE_MAP,
@@ -60,16 +66,10 @@ class TestLineageSurfaceAdapter:
         assert adapter1 is adapter2
 
     def test_read_commands_allowed(self):
-        adapter = LineageSurfaceAdapter()
-        for cmd in READ_COMMANDS:
-            result = adapter.check_command_authorization(cmd)
-            assert result.allowed, f"Read command {cmd} should be allowed"
+        assert_read_commands_allow_without_enforcement(LineageSurfaceAdapter())
 
     def test_unknown_command_denied(self):
-        adapter = LineageSurfaceAdapter()
-        result = adapter.check_command_authorization("lineage.unknown")
-        assert not result.allowed
-        assert result.reason_code == "unknown_command"
+        assert_unknown_command_denied(LineageSurfaceAdapter(), "lineage.unknown")
 
 
 class TestMutationCommandMaps:
@@ -106,31 +106,14 @@ class TestEnforcement:
 
     @pytest.fixture(autouse=True)
     def reset_singleton(self):
-        LineageSurfaceAdapter._instance = None
-        yield
-        LineageSurfaceAdapter._instance = None
+        with reset_surface_adapter_singleton(LineageSurfaceAdapter):
+            yield
 
-    def test_import_dbt_mutation_enforced(self):
-        """lineage.column.import-dbt goes through enforcement."""
-        adapter = LineageSurfaceAdapter()
-        with patch("phlo.security.enforcement.EnforcementContext") as mock_ctx:
-            mock_instance = MagicMock()
-            mock_ctx.get_instance.return_value = mock_instance
-            mock_instance.canonicalize.return_value = MagicMock(
-                subject="test-user",
-                principal_type="user",
-                roles=("admin",),
-                attributes={"authentication_source": "env"},
-            )
-            mock_instance.authorization_backend.explain_decision.return_value = MagicMock(
-                allowed=True,
-                reason_code=None,
-                policy_id=None,
-                explanation=None,
-            )
-
-            result = adapter.check_command_authorization("lineage.column.import-dbt")
-            assert result.allowed or not result.allowed
+    def test_import_dbt_mutation_honors_policy_decision(self):
+        """lineage.column.import-dbt honors both policy outcomes through enforcement."""
+        assert_mutation_enforcement_allows_and_denies(
+            LineageSurfaceAdapter(), "lineage.column.import-dbt"
+        )
 
     def test_read_commands_skip_enforcement(self):
         """Read commands do not go through enforcement."""

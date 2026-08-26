@@ -12,9 +12,6 @@ Covers the acceptance criteria from issue #626:
 
 from __future__ import annotations
 
-import ast
-import importlib
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -61,56 +58,6 @@ def _isolate(monkeypatch):
 # ---------------------------------------------------------------------------
 # Import boundary — core must not import provider packages or psycopg2
 # ---------------------------------------------------------------------------
-
-
-def _module_source(name: str) -> str:
-    mod = importlib.import_module(name)
-    return Path(mod.__file__).read_text()
-
-
-def test_core_observatory_settings_does_not_import_phlo_postgres() -> None:
-    """Core settings module must not import any provider package."""
-    tree = ast.parse(_module_source("phlo.plugins.observatory_settings"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                assert not alias.name.startswith("phlo_postgres"), (
-                    f"core imports provider package: {alias.name}"
-                )
-        elif isinstance(node, ast.ImportFrom):
-            assert node.module is None or not node.module.startswith("phlo_postgres"), (
-                f"core imports provider package: {node.module}"
-            )
-
-
-def test_core_observatory_settings_has_no_psycopg2_reference() -> None:
-    """Core settings module must not import or reference psycopg2 in code."""
-    tree = ast.parse(_module_source("phlo.plugins.observatory_settings"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                assert "psycopg2" not in alias.name, f"core imports psycopg2: {alias.name}"
-        elif isinstance(node, ast.ImportFrom):
-            assert node.module is None or "psycopg2" not in node.module, (
-                f"core imports psycopg2: {node.module}"
-            )
-
-
-def test_core_observatory_settings_has_no_sql_implementation() -> None:
-    """Core settings module must not contain SQL statements."""
-    source = _module_source("phlo.plugins.observatory_settings")
-    sql_keywords = ("CREATE TABLE", "INSERT INTO", "SELECT ", "ON CONFLICT", "DO UPDATE")
-    for keyword in sql_keywords:
-        assert keyword not in source, f"core source contains SQL: {keyword}"
-
-
-def test_core_observatory_settings_has_no_settings_service_class() -> None:
-    """Core settings module must not define a concrete SettingsService class."""
-    tree = ast.parse(_module_source("phlo.plugins.observatory_settings"))
-    class_defs = {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
-    assert "SettingsService" not in class_defs, (
-        "core defines concrete SettingsService — provider behavior must live in phlo-postgres"
-    )
 
 
 def test_core_plugins_init_does_not_reexport_settings_service() -> None:

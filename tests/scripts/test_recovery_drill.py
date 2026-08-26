@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 SCRIPT_PATH = Path(__file__).parents[2] / "scripts" / "recovery_drill.py"
 SPEC = importlib.util.spec_from_file_location("recovery_drill", SCRIPT_PATH)
@@ -23,18 +24,30 @@ SPEC.loader.exec_module(recovery_drill)
 def test_compose_uses_isolated_ports_and_supported_stack_images(tmp_path):
     stack = recovery_drill.Stack("owned-drill", tmp_path / "source")
 
-    compose = recovery_drill.compose_yaml(stack)
+    services = yaml.safe_load(recovery_drill.compose_yaml(stack))["services"]
 
-    assert "postgres:18-alpine" in compose
-    assert "minio/minio:RELEASE.2025-09-07T16-13-09Z" in compose
-    assert "ghcr.io/projectnessie/nessie:0.108.3" in compose
-    assert "postgres-data:/var/lib/postgresql" in compose
-    assert "127.0.0.1::5432" in compose
-    assert "condition: service_healthy" in compose
-    assert "jdbc:postgresql://postgres:5432/phlo?currentSchema=public" in compose
-    assert "nessie.catalog.warehouses.warehouse.location: s3://lake/warehouse" in compose
-    assert "nessie.catalog.service.s3.default-options.endpoint: http://minio:9000/" in compose
-    assert 'nessie.catalog.service.s3.default-options.path-style-access: "true"' in compose
+    assert services["postgres"]["image"] == recovery_drill.POSTGRES_IMAGE
+    assert services["minio"]["image"] == recovery_drill.MINIO_IMAGE
+    assert services["nessie"]["image"] == recovery_drill.NESSIE_IMAGE
+
+    expected_binds = {
+        "postgres": ["127.0.0.1::5432"],
+        "minio": ["127.0.0.1::9000"],
+        "nessie": ["127.0.0.1::19120"],
+    }
+    for service, ports in expected_binds.items():
+        assert services[service]["ports"] == ports
+
+    assert services["postgres"]["volumes"] == ["postgres-data:/var/lib/postgresql"]
+    assert services["nessie"]["depends_on"]["postgres"]["condition"] == "service_healthy"
+
+    nessie_env = services["nessie"]["environment"]
+    assert nessie_env["QUARKUS_DATASOURCE_JDBC_URL"] == (
+        "jdbc:postgresql://postgres:5432/phlo?currentSchema=public"
+    )
+    assert nessie_env["nessie.catalog.warehouses.warehouse.location"] == "s3://lake/warehouse"
+    assert nessie_env["nessie.catalog.service.s3.default-options.endpoint"] == "http://minio:9000/"
+    assert nessie_env["nessie.catalog.service.s3.default-options.path-style-access"] == "true"
     assert recovery_drill.MC_IMAGE.startswith("minio/mc@sha256:")
     assert recovery_drill.NESSIE_ADMIN_IMAGE.startswith(
         "ghcr.io/projectnessie/nessie-server-admin@sha256:"

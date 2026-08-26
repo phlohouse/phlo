@@ -83,9 +83,11 @@ class TestNessieTableScanner:
 
         nessie_scanner.list_tables_in_namespace(["bronze", "sub"])
 
-        # Check that namespace was joined with dots
-        call_args = mock_request.call_args
-        assert "/v1/namespaces/bronze.sub/tables" in str(call_args)
+        # Check that namespace was joined with dots in the request path
+        from urllib.parse import urlparse
+
+        request_url = mock_request.call_args.kwargs["url"]
+        assert urlparse(request_url).path == "/iceberg/v1/namespaces/bronze.sub/tables"
 
     @patch("phlo_nessie.catalog_scanner.requests.request")
     def test_get_table_metadata(self, mock_request, nessie_scanner):

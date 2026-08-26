@@ -258,48 +258,35 @@ class TestStatusCLI:
         assert result.exit_code == 0
 
     def test_status_json_output(self):
-        """Test JSON output format."""
+        """JSON output must parse and carry the required top-level keys."""
         runner = CliRunner()
         result = runner.invoke(status, ["--json"])
 
         assert result.exit_code == 0
-        # Output should be valid JSON
-        if result.output.strip():
-            try:
-                data = json.loads(result.output)
-                assert "timestamp" in data
-                assert "elapsed_seconds" in data
-            except json.JSONDecodeError as e:
-                pytest.fail(f"Output is not valid JSON: {e}\nOutput: {result.output}")
+        data = json.loads(result.output)
+        assert "timestamp" in data
+        assert "elapsed_seconds" in data
 
     def test_status_json_assets_only(self):
-        """Test JSON output with assets only."""
+        """Assets-only JSON must omit services and expose assets."""
         runner = CliRunner()
         result = runner.invoke(status, ["--assets", "--json"])
 
         assert result.exit_code == 0
-        if result.output.strip():
-            try:
-                data = json.loads(result.output)
-                assert "assets" in data
-                assert "services" not in data
-            except json.JSONDecodeError as e:
-                pytest.fail(f"Output is not valid JSON: {e}\nOutput: {result.output}")
+        data = json.loads(result.output)
+        assert "assets" in data
+        assert "services" not in data
 
     def test_status_json_with_group_filter(self):
-        """Test JSON output with group filter."""
+        """Group-filtered JSON only contains assets from that group."""
         runner = CliRunner()
         result = runner.invoke(status, ["--assets", "--group", "nightscout", "--json"])
 
         assert result.exit_code == 0
-        if result.output.strip():
-            try:
-                data = json.loads(result.output)
-                assert "assets" in data
-                if data["assets"]:
-                    assert all(a["group"] == "nightscout" for a in data["assets"])
-            except json.JSONDecodeError as e:
-                pytest.fail(f"Output is not valid JSON: {e}\nOutput: {result.output}")
+        data = json.loads(result.output)
+        assert "assets" in data
+        for asset in data["assets"]:
+            assert asset["group"] == "nightscout"
 
     def test_status_response_time(self):
         """Test that response time is reasonable."""
@@ -342,47 +329,36 @@ class TestStatusOutput:
         assert "Latency" in result.output
 
     def test_status_includes_timestamp_in_json(self):
-        """Test that JSON output includes timestamp."""
+        """JSON output timestamp must be ISO-8601 parseable."""
         runner = CliRunner()
         result = runner.invoke(status, ["--json"])
 
         assert result.exit_code == 0
-        if result.output.strip():
-            data = json.loads(result.output)
-            assert "timestamp" in data
-            try:
-                datetime.fromisoformat(data["timestamp"])
-            except ValueError:
-                pytest.fail("Timestamp is not in ISO format")
-
-
-class TestStatusFiltering:
-    """Tests for status filtering logic."""
+        data = json.loads(result.output)
+        datetime.fromisoformat(data["timestamp"])
 
     def test_group_filter_excludes_other_groups(self):
-        """Test that group filter excludes other groups."""
+        """Group filter excludes assets outside the requested group."""
         runner = CliRunner()
         result = runner.invoke(status, ["--assets", "--group", "nightscout", "--json"])
 
         assert result.exit_code == 0
-        if result.output.strip():
-            data = json.loads(result.output)
-            if data["assets"]:
-                assert all(a["group"] == "nightscout" for a in data["assets"])
+        data = json.loads(result.output)
+        for asset in data["assets"]:
+            assert asset["group"] == "nightscout"
 
     def test_stale_filter_shows_only_stale(self):
-        """Test that stale filter shows only stale assets."""
+        """Stale filter only returns stale assets."""
         runner = CliRunner()
         result = runner.invoke(status, ["--assets", "--stale", "--json"])
 
         assert result.exit_code == 0
-        if result.output.strip():
-            data = json.loads(result.output)
-            if data["assets"]:
-                assert all(a["is_stale"] for a in data["assets"])
+        data = json.loads(result.output)
+        for asset in data["assets"]:
+            assert asset["is_stale"]
 
     def test_combined_filters(self):
-        """Test combining multiple filters."""
+        """Combined group and staleness filters intersect."""
         runner = CliRunner()
         result = runner.invoke(
             status,
@@ -390,21 +366,19 @@ class TestStatusFiltering:
         )
 
         assert result.exit_code == 0
-        if result.output.strip():
-            data = json.loads(result.output)
-            if data["assets"]:
-                assert all(a["group"] == "nightscout" for a in data["assets"])
-                assert all(a["is_stale"] for a in data["assets"])
+        data = json.loads(result.output)
+        for asset in data["assets"]:
+            assert asset["group"] == "nightscout"
+            assert asset["is_stale"]
 
     def test_non_existent_group_returns_empty(self):
-        """Test that non-existent group returns empty results."""
+        """Unknown groups return an empty asset list."""
         runner = CliRunner()
         result = runner.invoke(status, ["--assets", "--group", "nonexistent", "--json"])
 
         assert result.exit_code == 0
-        if result.output.strip():
-            data = json.loads(result.output)
-            assert len(data["assets"]) == 0
+        data = json.loads(result.output)
+        assert data["assets"] == []
 
 
 class TestStatusEdgeCases:
@@ -454,10 +428,9 @@ class TestStatusEdgeCases:
         )
 
         assert result.exit_code == 0
-        if result.output.strip():
-            data = json.loads(result.output)
-            assert "assets" in data
-            assert "services" in data
+        data = json.loads(result.output)
+        assert "assets" in data
+        assert "services" in data
 
     def test_status_json_is_serializable(self):
         """Test that JSON output is fully serializable."""
@@ -465,10 +438,8 @@ class TestStatusEdgeCases:
         result = runner.invoke(status, ["--json"])
 
         assert result.exit_code == 0
-        if result.output.strip():
-            data = json.loads(result.output)
-            # Should be able to re-serialize
-            assert json.dumps(data)
+        data = json.loads(result.output)
+        assert json.dumps(data)
 
     def test_status_handles_missing_requests_library(self):
         """Test that status handles missing requests library gracefully."""

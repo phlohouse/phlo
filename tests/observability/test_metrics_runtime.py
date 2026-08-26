@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -25,13 +26,9 @@ from phlo.metrics import (
     get_metrics_collector,
 )
 
-pytestmark = pytest.mark.integration
 
-
-def test_metrics_collector_initializes() -> None:
-    collector = get_metrics_collector()
-    assert isinstance(collector, MetricsCollector)
-    assert collector._cache is not None
+def test_metrics_collector_is_a_process_singleton() -> None:
+    assert get_metrics_collector() is get_metrics_collector()
 
 
 def test_summary_metrics_defaults() -> None:
@@ -66,15 +63,41 @@ def test_run_metrics_creation() -> None:
     assert run.rows_processed == 1000
 
 
-def test_collector_caching() -> None:
+def test_collect_summary_computes_once_per_period_then_serves_from_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     collector = MetricsCollector()
-    collector._cache["summary_24h"] = SummaryMetrics(total_runs_24h=42)
-    result = collector.collect_summary(period_hours=24)
-    assert result.total_runs_24h == 42
+    prometheus_calls: list[int] = []
+    postgres_calls: list[int] = []
+
+    def _fake_prometheus(period_hours: int) -> SummaryMetrics:
+        prometheus_calls.append(period_hours)
+        return SummaryMetrics(total_runs_24h=7, failed_runs_24h=1)
+
+    monkeypatch.setattr(collector, "_collect_from_prometheus", _fake_prometheus)
+    monkeypatch.setattr(
+        collector,
+        "_collect_from_postgres",
+        lambda period_hours: postgres_calls.append(period_hours) or {"rows_processed": 55},
+    )
+
+    first = collector.collect_summary(period_hours=24)
+    second = collector.collect_summary(period_hours=24)
+
+    assert prometheus_calls == [24]
+    assert postgres_calls == [24]
+    assert first.total_runs_24h == 7
+    assert first.total_rows_processed_24h == 55
+    assert second == first
 
 
-def test_core_telemetry_hook_provider_records_telemetry() -> None:
+def test_core_telemetry_hook_provider_records_telemetry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     provider = CoreTelemetryHookProvider()
+    sink = tmp_path / "telemetry.jsonl"
+    monkeypatch.setattr(provider._recorder, "path", sink)
+
     provider._handle_telemetry(
         TelemetryEvent(
             event_type="telemetry.metric",
@@ -82,6 +105,21 @@ def test_core_telemetry_hook_provider_records_telemetry() -> None:
             value=1,
         )
     )
+
+    records = [json.loads(line) for line in sink.read_text().splitlines()]
+    assert [record["name"] for record in records] == ["test.metric"]
+
+
+def test_core_telemetry_hook_provider_ignores_non_telemetry_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = CoreTelemetryHookProvider()
+    sink = tmp_path / "telemetry.jsonl"
+    monkeypatch.setattr(provider._recorder, "path", sink)
+
+    provider._handle_telemetry({"event_type": "telemetry.log"})
+
+    assert not sink.exists()
 
 
 def test_get_asset_runs_from_postgres_success(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -18,12 +18,78 @@ Publishes PostgreSQL resource and publish-target specs through phlo.capabilities
 
 from __future__ import annotations
 
+import shlex
+from typing import Any
+
 from phlo.capabilities import PublishTargetSpec, ResourceSpec, SettingsStoreSpec
-from phlo.plugins import PluginMetadata, ResourceProviderPlugin, service_plugin_class
+from phlo.plugins import (
+    PackageYamlServicePlugin,
+    PluginMetadata,
+    ResourceProviderPlugin,
+    service_plugin_class,
+)
 
 from phlo_postgres.publish_target import PostgresPublishTarget
 from phlo_postgres.resource import PostgresResource
 from phlo_postgres.settings_store import get_settings_stores
+
+
+POSTGRES_DATA_DIR = "/var/lib/postgresql"
+
+_PRE_18_VOLUME_MESSAGE = (
+    "PostgreSQL 16 data volume detected. Back it up with PostgreSQL 16, "
+    "then restore it into a new PostgreSQL 18 volume before starting Phlo."
+)
+
+
+def pre_18_volume_guard(data_dir: str = POSTGRES_DATA_DIR) -> str:
+    """Return the shell conditional that refuses pre-18 PostgreSQL data volumes.
+
+    Data directories written by PostgreSQL 16 or earlier carry a PG_VERSION
+    file; starting Phlo against one would use an incompatible on-disk layout.
+    The guard prints remediation guidance to stderr and exits 1 before the
+    volume is touched.
+    """
+    pg_version_file = shlex.quote(f"{data_dir}/PG_VERSION")
+    return f"if [ -f {pg_version_file} ]; then echo '{_PRE_18_VOLUME_MESSAGE}' >&2; exit 1; fi"
+
+
+def volume_setup_command(data_dir: str = POSTGRES_DATA_DIR) -> str:
+    """Return the /bin/sh -c payload that initializes the data volume.
+
+    Runs the pre-18 guard first, then fixes ownership for the postgres user
+    (uid/gid 70) so the server can use the volume.
+    """
+    quoted_dir = shlex.quote(data_dir)
+    return (
+        f'-c "{pre_18_volume_guard(data_dir)} && mkdir -p {quoted_dir}'
+        f" && chown -R 70:70 {quoted_dir} && chmod 700 {quoted_dir}"
+        " && echo 'Postgres data volume ownership initialized'\""
+    )
+
+
+class PostgresVolumeSetupServicePlugin(PackageYamlServicePlugin):
+    """Initializes the PostgreSQL data volume before the server starts."""
+
+    _service_definition_file = "volume_setup.yaml"
+
+    @property
+    def metadata(self) -> PluginMetadata:
+        """Return the static metadata for the volume-setup service."""
+        return PluginMetadata(
+            name="postgres-volume-setup",
+            version="0.1.0",
+            description="Initialize PostgreSQL data volume permissions",
+            author="Phlo Team",
+            tags=["core", "database", "postgres"],
+        )
+
+    @property
+    def service_definition(self) -> dict[str, Any]:
+        """Return the packaged definition with the guard command injected."""
+        definition = super().service_definition
+        definition["compose"]["command"] = volume_setup_command()
+        return definition
 
 
 PostgresServicePlugin = service_plugin_class(
@@ -44,17 +110,6 @@ PostgresExporterServicePlugin = service_plugin_class(
     author="Phlo Team",
     tags=["observability", "metrics", "postgres"],
     service_definition_file="exporter_service.yaml",
-)
-
-
-PostgresVolumeSetupServicePlugin = service_plugin_class(
-    "PostgresVolumeSetupServicePlugin",
-    name="postgres-volume-setup",
-    version="0.1.0",
-    description="Initialize PostgreSQL data volume permissions",
-    author="Phlo Team",
-    tags=["core", "database", "postgres"],
-    service_definition_file="volume_setup.yaml",
 )
 
 

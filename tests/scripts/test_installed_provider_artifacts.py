@@ -21,13 +21,13 @@ SPEC.loader.exec_module(HARNESS)
 
 def test_workspace_inventory_contains_root_and_every_provider() -> None:
     packages = HARNESS.workspace_packages(REPO_ROOT)
+    package_dirs = [path.parent for path in (REPO_ROOT / "packages").glob("*/pyproject.toml")]
 
     assert packages[0].name == "phlo"
-    assert len(packages) == 35
-    assert {package.name for package in packages} == {
-        path.parent.name.replace("phlo-", "phlo-")
-        for path in (REPO_ROOT / "packages").glob("*/pyproject.toml")
-    } | {"phlo"}
+    assert len(packages) == len(package_dirs) + 1
+    assert {package.name for package in packages} == {"phlo"} | {
+        package_dir.name for package_dir in package_dirs
+    }
 
 
 def test_external_environment_removes_workspace_import_fallbacks(monkeypatch) -> None:

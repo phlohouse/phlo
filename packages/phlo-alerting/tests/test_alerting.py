@@ -1,8 +1,12 @@
 """Unit tests for phlo-alerting.
 
 Covers alert construction and severity mapping plus AlertManager delivery,
-deduplication, and targeted destination routing against in-memory stubs.
+deduplication, targeted destination routing against in-memory stubs, the
+global manager accessor, and the package-root export surface.
 """
+
+import phlo_alerting
+from phlo_alerting import get_alert_manager
 
 from phlo_alerting.manager import Alert, AlertManager, AlertDestination, AlertSeverity
 from phlo_alerting.hooks_plugin import (
@@ -36,6 +40,8 @@ def test_alert_defaults():
 def test_alert_severity_values():
     """Verifies enum values for alert severity constants."""
     assert AlertSeverity.INFO.value == "info"
+    assert AlertSeverity.WARNING.value == "warning"
+    assert AlertSeverity.ERROR.value == "error"
     assert AlertSeverity.CRITICAL.value == "critical"
 
 
@@ -107,3 +113,19 @@ def test_alerting_settings_defaults():
     assert settings.phlo_alert_email_smtp_port == 587
     assert settings.phlo_alert_email_recipients == []
     assert settings.phlo_alert_slack_webhook is None
+
+
+def test_get_alert_manager_returns_singleton():
+    """Verifies the package-root accessor returns the global AlertManager."""
+    manager = get_alert_manager()
+
+    assert isinstance(manager, AlertManager)
+    assert get_alert_manager() is manager
+
+
+def test_package_exports_public_surface():
+    """Verifies phlo_alerting re-exports its public API at the package root."""
+    assert hasattr(phlo_alerting, "Alert")
+    assert hasattr(phlo_alerting, "AlertManager")
+    assert hasattr(phlo_alerting, "AlertSeverity")
+    assert hasattr(phlo_alerting, "get_alert_manager")

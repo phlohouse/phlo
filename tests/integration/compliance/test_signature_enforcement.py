@@ -64,6 +64,25 @@ class TestSignatureEnforcement:
         assert result.signature_hash != ""
         assert result.meaning == SignatureMeaning.APPROVED
 
+    def test_critical_action_without_signature_is_blocked(self) -> None:
+        """Unsigned critical actions trip the enforcement gate without emitting events."""
+        events_emitted: list[CanonicalAuditEvent] = []
+
+        class MockAuditEmitter:
+            def emit(self, event: CanonicalAuditEvent) -> None:
+                events_emitted.append(event)
+
+        service = SignatureService(
+            config=SignatureServiceConfig(
+                critical_actions=frozenset(["dataset.publish", "config.update"])
+            ),
+            audit_emitter=MockAuditEmitter(),
+        )
+
+        assert service.require_signature("dataset.publish", "dataset") is True
+        assert service.require_signature("config.update", "config") is True
+        assert events_emitted == []
+
     def test_non_critical_action_no_signature_required(self) -> None:
         """Non-critical actions do not require a signature."""
         service = SignatureService(

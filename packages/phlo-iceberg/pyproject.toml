@@ -43,9 +43,6 @@ text = "Iceberg/Nessie catalog capability plugin for Phlo."
 line-length = 100
 target-version = "py311"
 
-[tool.ruff.lint.per-file-ignores]
-"tests/test_resources.py" = ["E402"]
-
 [tool.setuptools.package-dir]
 "" = "src"
 

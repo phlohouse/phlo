@@ -61,7 +61,8 @@ def test_release_golden_path_is_required_candidate_evidence() -> None:
 
 
 def test_nightly_release_golden_path_keeps_dispatch_and_schedule() -> None:
-    nightly = (WORKFLOW_ROOT / "nightly.yml").read_text(encoding="utf-8")
+    nightly = yaml.safe_load((WORKFLOW_ROOT / "nightly.yml").read_text(encoding="utf-8"))
+    triggers = nightly.get("on") or nightly[True]
 
-    assert "  workflow_dispatch:\n" in nightly
-    assert '    - cron: "0 3 * * *"' in nightly
+    assert "workflow_dispatch" in triggers
+    assert {"cron": "0 3 * * *"} in triggers["schedule"]

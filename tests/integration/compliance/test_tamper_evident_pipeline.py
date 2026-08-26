@@ -9,7 +9,6 @@ Verifies the full tamper-evident audit chain:
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -165,7 +164,7 @@ class TestTamperEvidentPipeline:
                         f"Chain broken at {i} for {surface}"
                     )
 
-    def test_verify_and_export_workflow(self) -> None:
+    def test_verify_and_export_workflow(self, tmp_path) -> None:
         """Chain verification and export workflow works correctly."""
         from phlo.compliance.audit.export import verify_and_export
 
@@ -191,12 +190,11 @@ class TestTamperEvidentPipeline:
             )
             sink.write(event)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            result = verify_and_export(store, surface, output_dir)
+        output_dir = Path(tmp_path)
+        result = verify_and_export(store, surface, output_dir)
 
-            assert result["record_count"] == 5
-            assert result["verification"].valid is True
+        assert result["record_count"] == 5
+        assert result["verification"].valid is True
 
     def test_regulated_mode_enables_tamper_evident_sink(self) -> None:
         """In regulated mode, tamper-evident sink is used."""

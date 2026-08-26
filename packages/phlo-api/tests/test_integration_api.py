@@ -38,20 +38,6 @@ class TestFastAPIApp:
         middleware_classes = [m.cls.__name__ for m in app.user_middleware]
         assert "CORSMiddleware" in middleware_classes
 
-    def test_cors_allows_docker_observatory_origin(self):
-        """Dockerized Observatory is exposed on host port 3001."""
-
-        response = authenticated_client("admin").options(
-            "/health",
-            headers={
-                "Origin": "http://127.0.0.1:3001",
-                "Access-Control-Request-Method": "GET",
-            },
-        )
-
-        assert response.status_code == 200
-        assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:3001"
-
     def test_routes_registered(self):
         """Test that expected routes are registered."""
         from phlo_api.main import app

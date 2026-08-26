@@ -9,7 +9,10 @@ import zipfile
 from pathlib import Path
 from shutil import which
 
+import pytest
 
+
+@pytest.mark.integration
 def test_wheel_includes_the_bundled_support_manifest(tmp_path: Path) -> None:
     """The support command must not depend on the repository registry at runtime."""
     import subprocess

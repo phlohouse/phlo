@@ -2,8 +2,8 @@
 
 entry_points_for_group must work across importlib.metadata shapes:
 modern select()-only collections, mapping-like legacy collections, and
-the group= keyword form. Also guards that audit-flagged workspace
-plugins stay present in installed entry points.
+the group= keyword form. Workspace-plugin discoverability is asserted by
+test_plugin_system.py::test_workspace_entry_point_plugins_are_discoverable.
 """
 
 from __future__ import annotations
@@ -62,22 +62,3 @@ def test_entry_points_for_group_supports_legacy_mapping(
     )
 
     assert list(entry_points_for_group("phlo.plugins.services")) == expected
-
-
-@pytest.mark.parametrize(
-    ("group", "expected_names"),
-    [
-        ("phlo.plugins.cli", {"alerts", "minio", "openmetadata", "sling"}),
-        ("phlo.plugins.services", {"loki", "minio", "openmetadata"}),
-        ("phlo.plugins.hooks", {"alerting", "openmetadata"}),
-        ("phlo.plugins.ingestion_providers", {"sling"}),
-    ],
-)
-def test_workspace_entry_points_include_audit_flagged_plugins(
-    group: str,
-    expected_names: set[str],
-) -> None:
-    """Audit-flagged workspace plugins should still be present in installed entry points."""
-    names = {entry_point.name for entry_point in entry_points_for_group(group)}
-
-    assert expected_names <= names

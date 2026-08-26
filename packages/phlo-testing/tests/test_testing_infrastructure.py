@@ -364,21 +364,19 @@ class TestLocalTestMode:
             assert mode.table_store is not None
             assert mode.trino is not None
 
-    def test_fixture_recording(self):
+    def test_fixture_recording(self, tmp_path):
         """Test recording and loading fixtures."""
-        import tempfile
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fixture_dir = Path(tmpdir)
+        fixture_dir = Path(tmp_path)
 
-            with local_test_mode(fixture_dir=fixture_dir) as mode:
-                data = {"id": 1, "name": "Alice"}
-                mode.record_fixture("test_data", data)
+        with local_test_mode(fixture_dir=fixture_dir) as mode:
+            data = {"id": 1, "name": "Alice"}
+            mode.record_fixture("test_data", data)
 
-            # Load fixture
-            with local_test_mode(fixture_dir=fixture_dir) as mode:
-                loaded = mode.load_fixture("test_data")
-                assert loaded["id"] == 1
+        # Load fixture
+        with local_test_mode(fixture_dir=fixture_dir) as mode:
+            loaded = mode.load_fixture("test_data")
+            assert loaded["id"] == 1
 
     def test_get_resource(self):
         """Test getting resources from local mode."""
@@ -404,48 +402,44 @@ class TestLocalTestMode:
 class TestFixtureRecorder:
     """Test fixture recording functionality."""
 
-    def test_record_dlt_source(self):
+    def test_record_dlt_source(self, tmp_path):
         """Test recording DLT source data."""
-        import tempfile
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            recorder = FixtureRecorder(fixture_dir=Path(tmpdir))
+        recorder = FixtureRecorder(fixture_dir=Path(tmp_path))
 
-            # Record a DLT source
-            def fake_source():
-                """Yield fixture rows for recording tests."""
-                yield {"id": 1, "name": "Alice"}
-                yield {"id": 2, "name": "Bob"}
+        # Record a DLT source
+        def fake_source():
+            """Yield fixture rows for recording tests."""
+            yield {"id": 1, "name": "Alice"}
+            yield {"id": 2, "name": "Bob"}
 
-            data = recorder.record_dlt_source("users", fake_source)
+        data = recorder.record_dlt_source("users", fake_source)
 
-            assert len(data) == 2
-            assert data[0]["name"] == "Alice"
+        assert len(data) == 2
+        assert data[0]["name"] == "Alice"
 
-            # Fixture should be saved
-            fixtures = recorder.list_fixtures()
-            assert "users_dlt" in fixtures
+        # Fixture should be saved
+        fixtures = recorder.list_fixtures()
+        assert "users_dlt" in fixtures
 
-    def test_load_dlt_fixture(self):
+    def test_load_dlt_fixture(self, tmp_path):
         """Test loading recorded DLT fixture."""
-        import tempfile
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            recorder = FixtureRecorder(fixture_dir=Path(tmpdir))
+        recorder = FixtureRecorder(fixture_dir=Path(tmp_path))
 
-            # Record fixture
-            def fake_source():
-                """Yield one fixture row for load tests."""
-                yield {"id": 1, "value": 42}
+        # Record fixture
+        def fake_source():
+            """Yield one fixture row for load tests."""
+            yield {"id": 1, "value": 42}
 
-            recorder.record_dlt_source("test", fake_source)
+        recorder.record_dlt_source("test", fake_source)
 
-            # Load it back
-            source = recorder.load_dlt_fixture("test")
-            data = list(source)
+        # Load it back
+        source = recorder.load_dlt_fixture("test")
+        data = list(source)
 
-            assert len(data) == 1
-            assert data[0]["value"] == 42
+        assert len(data) == 1
+        assert data[0]["value"] == 42
 
 
 # ========== Integration Tests ==========
@@ -507,7 +501,3 @@ class TestIntegration:
             assert result.success
             assert result.data is not None
             assert len(result.data) == 2
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

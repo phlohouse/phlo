@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -866,15 +865,24 @@ def test_changed_run_upsert_advances_updated_at() -> None:
     store = SQLiteRunEvidenceStore(":memory:")
     initial = PipelineRun(project_id="project", run_id="run", trigger="initial")
     store.append_pipeline_run(initial)
+
+    # updated_at is stamped by SQLite CURRENT_TIMESTAMP (one-second resolution);
+    # pin the first write into the past so no wall-clock sleep is needed.
+    with store._transaction() as (_, cursor):
+        cursor.execute(
+            "UPDATE pipeline_run SET updated_at = ? WHERE project_id = ? AND run_id = ?",
+            ("2000-01-01 00:00:00", "project", "run"),
+        )
     before = store.get_run("project", "run")
-    time.sleep(1.1)
 
     store.append_pipeline_run(replace(initial, status="failed", trigger="changed"))
     after = store.get_run("project", "run")
 
     assert before is not None and after is not None
     assert after["status"] == "failed"
-    assert after["updated_at"] != before["updated_at"]
+    assert datetime.fromisoformat(after["updated_at"]) > datetime.fromisoformat(
+        before["updated_at"]
+    )
 
 
 def _assert_concurrent_duplicate_replay(

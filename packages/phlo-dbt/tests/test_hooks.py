@@ -7,6 +7,7 @@ ensured profile.
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -57,11 +58,18 @@ def test_compile_dbt_uses_discovered_nested_project_path(tmp_path: Path, monkeyp
     assert hooks.compile_dbt() == 0
 
     assert ensured_profiles == [profiles_dir]
-    assert commands[0][-1] == (
-        "cd /app/workflows/client_exports/transforms/dbt "
-        "&& dbt deps --profiles-dir /app/.phlo/dbt-profiles"
-    )
-    assert commands[1][-1] == (
-        "cd /app/workflows/client_exports/transforms/dbt "
-        "&& dbt compile --profiles-dir /app/.phlo/dbt-profiles"
-    )
+
+    def _parsed_remote_command(command_token: str) -> tuple[str, list[str]]:
+        """Split the composed 'cd <dir> && dbt <argv>' payload."""
+        change_dir, _, dbt_invocation = command_token.partition("&&")
+        return change_dir.removeprefix("cd ").strip(), shlex.split(dbt_invocation)
+
+    workdir, deps_argv = _parsed_remote_command(commands[0][-1])
+    assert workdir == "/app/workflows/client_exports/transforms/dbt"
+    assert deps_argv[:2] == ["dbt", "deps"]
+    assert deps_argv[deps_argv.index("--profiles-dir") + 1] == "/app/.phlo/dbt-profiles"
+
+    compile_workdir, compile_argv = _parsed_remote_command(commands[1][-1])
+    assert compile_workdir == workdir
+    assert compile_argv[:2] == ["dbt", "compile"]
+    assert compile_argv[compile_argv.index("--profiles-dir") + 1] == ("/app/.phlo/dbt-profiles")

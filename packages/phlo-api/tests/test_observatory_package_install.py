@@ -19,20 +19,22 @@ from security_test_support import authenticated_client
 def test_package_install_router_preserves_the_observatory_route_contract() -> None:
     """The extracted router replaces exactly one existing Observatory operation."""
     observatory_operations = {
-        (method, route.path)
+        (method, route.path.replace(":path}", "}"))
         for route in observatory.router.routes
         for method in route.methods or ()
     }
     package_install_operations = {
-        (method, route.path)
+        (method, route.path.replace(":path}", "}"))
         for route in package_install.router.routes
         for method in route.methods or ()
     }
     run_report_operations = {
-        (method, route.path) for route in run_report.router.routes for method in route.methods or ()
+        (method, route.path.replace(":path}", "}"))
+        for route in run_report.router.routes
+        for method in route.methods or ()
     }
     registered_operations = {
-        (method, route.path.removeprefix("/api/observatory"))
+        (method, route.path.removeprefix("/api/observatory").replace(":path}", "}"))
         for route in app.routes
         if getattr(route, "methods", None) and route.path.startswith("/api/observatory")
         for method in route.methods
@@ -46,7 +48,14 @@ def test_package_install_router_preserves_the_observatory_route_contract() -> No
         observatory_operations | package_install_operations | run_report_operations
         == registered_operations
     )
-    assert len(registered_operations) == 66
+    openapi_operations = {
+        (method.upper(), path.removeprefix("/api/observatory").replace(":path}", "}"))
+        for path, operations in app.openapi()["paths"].items()
+        if path.startswith("/api/observatory")
+        for method in operations
+    }
+
+    assert registered_operations == openapi_operations
 
 
 def test_package_install_openapi_contract_is_unchanged() -> None:

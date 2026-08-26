@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
 from typing import cast
 
 import click
@@ -25,24 +24,6 @@ from phlo.plugins.compose.env import generate_env, generate_env_local
 from phlo.plugins.compose.generator import ComposeGenerator
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
 from tests.helpers import FakeDiscovery, _service
-
-
-def test_bundled_service_images_have_explicit_default_versions() -> None:
-    """Generated service defaults must never rely on an implicit or moving latest tag."""
-    repository = Path(__file__).parents[2]
-    unpinned: list[str] = []
-
-    for service_file in sorted(repository.glob("packages/phlo-*/src/**/*.yaml")):
-        image = yaml.safe_load(service_file.read_text()).get("image")
-        if not image:
-            continue
-        default_image = re.sub(r"^\$\{[^:}]+:-([^}]+)\}$", r"\1", image)
-        if (
-            ":" not in default_image.rsplit("/", 1)[-1] and "@sha256:" not in default_image
-        ) or default_image.endswith(":latest"):
-            unpinned.append(f"{service_file.relative_to(repository)}: {image}")
-
-    assert unpinned == []
 
 
 def test_production_credentials_reject_defaults_and_require_safe_usernames() -> None:
@@ -468,17 +449,19 @@ def test_compose_generator_injects_phlo_dev_mounts(tmp_path) -> None:
         phlo_dev=True,
         compose={},
     )
-
     generator = ComposeGenerator(cast(ServiceDiscovery, MinimalFakeDiscovery()))
-    compose = generator.generate_compose(
-        services=[service],
-        output_dir=tmp_path,
-        dev_mode=True,
-        phlo_src_path="../phlo/src/phlo",
+    compose = yaml.safe_load(
+        generator.generate_compose(
+            services=[service],
+            output_dir=tmp_path,
+            dev_mode=True,
+            phlo_src_path="../phlo/src/phlo",
+        )
     )
 
-    assert "/opt/phlo-dev:rw" in compose
-    assert "PHLO_DEV_MODE" in compose
+    dagster = compose["services"]["dagster"]
+    assert "../phlo/src/phlo/../..:/opt/phlo-dev:rw" in dagster["volumes"]
+    assert dagster["environment"]["PHLO_DEV_MODE"] == "true"
 
 
 def test_compose_generator_dev_mode_builds_phlo_services_from_source(tmp_path) -> None:

@@ -1,19 +1,25 @@
 """Tests for column-level lineage.
 
 Covers the frozen ColumnLineage dataclass, dbt manifest column extraction
-(same-name columns map lineage; no columns or no overlap yield nothing),
-and store behaviour against a mocked psycopg2 connection: batch inserts and
-upstream-column queries.
+(same-name columns map lineage; no columns or no overlap yield nothing), and
+the store's column-lineage persistence and queries driven through a scripted
+fake psycopg2 driver that records exact bound parameters and replays queued
+fetch results.
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from collections import deque
+from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
+from phlo_lineage import store as store_module
 from phlo_lineage.dbt_column_lineage import extract_column_lineage
 from phlo_lineage.store import ColumnLineage, LineageStore
+
+LINEAGE_DSN = "postgresql://lineage-fake/test"
 
 
 # -------------------------------------------------------------------
@@ -180,85 +186,315 @@ class TestExtractColumnLineageNoOverlap:
 
 
 # -------------------------------------------------------------------
-# Store methods (mocked psycopg2)
+# Store persistence and queries (scripted fake driver)
 # -------------------------------------------------------------------
 
 
-@pytest.fixture()
-def mock_pg():
-    """Provide a mocked psycopg2 connection + cursor."""
-    mock_conn = MagicMock()
-    mock_cursor = MagicMock()
-    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
-    mock_conn.__exit__ = MagicMock(return_value=False)
-    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
-    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-    return mock_conn, mock_cursor
+@dataclass
+class _Statement:
+    """One executed statement: its SQL plus the exact bound parameters."""
+
+    sql: str
+    params: tuple | None
 
 
-class TestRecordColumnLineageMock:
-    """Verify batch insert SQL via mocked psycopg2."""
+class _FakeCursor:
+    """Records statements and replays scripted results and rowcounts."""
 
-    @patch("psycopg2.extras.execute_values")
-    @patch("phlo_lineage.store.psycopg2")
-    def test_batch_insert(self, mock_psycopg2, mock_execute_values, mock_pg):
-        mock_conn, mock_cursor = mock_pg
-        mock_psycopg2.connect.return_value = mock_conn
+    def __init__(self, driver: _FakeDriver) -> None:
+        self._driver = driver
+        self.rowcount = -1
 
-        store = LineageStore("postgresql://test")
+    def execute(self, sql: str, params: tuple | None = None) -> None:
+        self._driver.statements.append(_Statement(sql=sql, params=params))
+        self.rowcount = self._driver.next_affected()
+        self._driver.affected_history.append(self.rowcount)
+
+    def record_batch(self, sql: str, values: tuple) -> None:
+        """Receiving end of psycopg2.extras.execute_values."""
+        self._driver.batches.append(_Statement(sql=sql, params=values))
+        self.rowcount = self._driver.next_affected()
+        self._driver.affected_history.append(self.rowcount)
+
+    def fetchone(self):
+        return self._driver.next_fetchone()
+
+    def fetchall(self):
+        return self._driver.next_fetchall()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info) -> bool:
+        return False
+
+
+class _FakeConnection:
+    def __init__(self, driver: _FakeDriver) -> None:
+        self._driver = driver
+        self.commits = 0
+
+    def cursor(self) -> _FakeCursor:
+        return _FakeCursor(self._driver)
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info) -> bool:
+        return False
+
+
+class _FakeDriver:
+    """In-memory psycopg2 stand-in with scripted fetches and rowcounts."""
+
+    def __init__(self) -> None:
+        self.statements: list[_Statement] = []
+        self.batches: list[_Statement] = []
+        self.connections: list[_FakeConnection] = []
+        self.affected_history: list[int] = []
+        self.connect_error: Exception | None = None
+        self._affected: deque[int] = deque()
+        self._fetchone_results: deque = deque()
+        self._fetchall_results: deque[list] = deque()
+
+    def connect(self, dsn: str) -> _FakeConnection:
+        if self.connect_error is not None:
+            raise self.connect_error
+        connection = _FakeConnection(self)
+        self.connections.append(connection)
+        return connection
+
+    def script_affected(self, *rowcounts: int) -> None:
+        """Queue cursor.rowcount values, consumed one per execute/batch."""
+        self._affected.extend(rowcounts)
+
+    def script_fetchall(self, *result_lists: list) -> None:
+        self._fetchall_results.extend(result_lists)
+
+    def next_affected(self) -> int:
+        return self._affected.popleft() if self._affected else -1
+
+    def next_fetchone(self):
+        return self._fetchone_results.popleft() if self._fetchone_results else None
+
+    def next_fetchall(self) -> list:
+        return self._fetchall_results.popleft() if self._fetchall_results else []
+
+    @property
+    def total_affected(self) -> int:
+        return sum(count for count in self.affected_history if count > 0)
+
+
+@pytest.fixture
+def fresh_schema_cache():
+    """Reset the class-wide schema cache so bootstrap branches stay reachable."""
+    LineageStore._schema_initialized = False
+    yield
+    LineageStore._schema_initialized = False
+
+
+@pytest.fixture
+def stub_schema_setup(monkeypatch) -> list[LineageStore]:
+    """Replace migration execution with a call recorder."""
+    calls: list[LineageStore] = []
+
+    def _record(store: LineageStore) -> None:
+        calls.append(store)
+
+    monkeypatch.setattr(LineageStore, "setup_schema", _record)
+    return calls
+
+
+@pytest.fixture
+def driver(monkeypatch, fresh_schema_cache, stub_schema_setup) -> _FakeDriver:
+    """Install the fake psycopg2 module and batch helper into the store package."""
+    fake_driver = _FakeDriver()
+
+    def _execute_values(cur, sql, values, *args, **kwargs):
+        cur.record_batch(sql, tuple(values))
+
+    # Store methods do a local ``from psycopg2.extras import execute_values``,
+    # so the real module attribute must be patched, not just the package ref.
+    monkeypatch.setattr("psycopg2.extras.execute_values", _execute_values)
+
+    monkeypatch.setattr(
+        store_module,
+        "psycopg2",
+        SimpleNamespace(
+            connect=fake_driver.connect,
+            extras=SimpleNamespace(execute_values=_execute_values),
+        ),
+    )
+    return fake_driver
+
+
+@pytest.fixture
+def ready_store(driver) -> LineageStore:
+    """Store with a warm schema cache: operations emit only their own SQL."""
+    LineageStore._schema_initialized = True
+    return LineageStore(LINEAGE_DSN)
+
+
+class TestRecordColumnLineage:
+    """Batch insert outcomes through the fake driver."""
+
+    def test_binds_every_mapping_field_in_submission_order(self, ready_store, driver):
         mappings = [
             ColumnLineage(
-                source_asset="bronze.src",
-                source_column="id",
-                target_asset="silver.stg",
-                target_column="id",
+                source_asset="bronze.src_events",
+                source_column="user_id",
+                target_asset="silver.stg_events",
+                target_column="user_id",
+                metadata={"confidence": 0.9},
+            ),
+            ColumnLineage(
+                source_asset="bronze.src_events",
+                source_column="event_type",
+                target_asset="silver.stg_events",
+                target_column="event_type",
             ),
         ]
-        count = store.record_column_lineage(mappings)
 
-        assert count == 1
-        sql = mock_execute_values.call_args[0][1]
-        assert "INSERT INTO phlo.column_lineage" in sql
-        assert "ON CONFLICT DO NOTHING" in sql
+        count = ready_store.record_column_lineage(mappings)
 
-    @patch("phlo_lineage.store.psycopg2")
-    def test_empty_returns_zero(self, mock_psycopg2):
-        store = LineageStore("postgresql://test")
-        assert store.record_column_lineage([]) == 0
+        assert count == 2
+        assert len(driver.batches) == 1
+        assert driver.batches[0].params == (
+            (
+                "bronze.src_events",
+                "user_id",
+                "silver.stg_events",
+                "user_id",
+                "dbt_heuristic",
+                '{"confidence": 0.9}',
+            ),
+            (
+                "bronze.src_events",
+                "event_type",
+                "silver.stg_events",
+                "event_type",
+                "dbt_heuristic",
+                None,
+            ),
+        )
+        assert driver.connections[-1].commits == 1
 
+    def test_resubmitting_known_mappings_duplicates_nothing_and_raises_nothing(
+        self, ready_store, driver
+    ):
+        mappings = [
+            ColumnLineage(
+                source_asset="bronze.a",
+                source_column="id",
+                target_asset="silver.b",
+                target_column="id",
+            ),
+            ColumnLineage(
+                source_asset="bronze.a",
+                source_column="ts",
+                target_asset="silver.b",
+                target_column="ts",
+            ),
+        ]
+        driver.script_affected(2, 0)  # both land first time; replay conflicts away
 
-class TestGetUpstreamColumnsMock:
-    """Verify upstream query via mocked psycopg2."""
+        first = ready_store.record_column_lineage(mappings)
+        second = ready_store.record_column_lineage(mappings)
 
-    @patch("phlo_lineage.store.psycopg2")
-    def test_query_with_column(self, mock_psycopg2, mock_pg):
-        mock_conn, mock_cursor = mock_pg
-        mock_psycopg2.connect.return_value = mock_conn
-        mock_cursor.fetchall.return_value = [
-            ("bronze.src", "id", "silver.stg", "id", "dbt_heuristic", None),
+        assert (first, second) == (2, 2)
+        assert driver.batches[0].params == driver.batches[1].params  # same keys resubmitted
+        assert driver.total_affected == 2  # the replay inserted nothing new
+
+    def test_empty_mapping_list_is_a_database_no_op(self, ready_store, driver):
+        assert ready_store.record_column_lineage([]) == 0
+        assert driver.batches == []
+        assert driver.connections == []
+
+    def test_database_failure_propagates_to_the_caller(self, ready_store, driver):
+        driver.connect_error = RuntimeError("catalog offline")
+        mappings = [
+            ColumnLineage(source_asset="a", source_column="b", target_asset="c", target_column="d")
         ]
 
-        store = LineageStore("postgresql://test")
-        results = store.get_upstream_columns("silver.stg", target_column="id")
+        with pytest.raises(RuntimeError, match="catalog offline"):
+            ready_store.record_column_lineage(mappings)
 
-        assert len(results) == 1
-        assert results[0].source_asset == "bronze.src"
-        assert results[0].source_column == "id"
 
-        sql = mock_cursor.execute.call_args[0][0]
-        assert "target_asset" in sql
-        assert "target_column" in sql
+class TestColumnLineageQueries:
+    def test_maps_every_returned_field_into_column_lineage_objects(self, ready_store, driver):
+        driver.script_fetchall(
+            [
+                (
+                    "bronze.raw_signups",
+                    "user_id",
+                    "silver.dim_users",
+                    "user_id",
+                    "dbt_heuristic",
+                    {"confidence": 0.93},
+                ),
+                (
+                    "bronze.raw_events",
+                    "event_ts",
+                    "silver.dim_users",
+                    "last_seen_at",
+                    "dbt_heuristic",
+                    None,
+                ),
+            ]
+        )
 
-    @patch("phlo_lineage.store.psycopg2")
-    def test_query_without_column(self, mock_psycopg2, mock_pg):
-        mock_conn, mock_cursor = mock_pg
-        mock_psycopg2.connect.return_value = mock_conn
-        mock_cursor.fetchall.return_value = []
+        results = ready_store.get_upstream_columns("silver.dim_users", target_column="user_id")
 
-        store = LineageStore("postgresql://test")
-        results = store.get_upstream_columns("silver.stg")
+        assert results == [
+            ColumnLineage(
+                source_asset="bronze.raw_signups",
+                source_column="user_id",
+                target_asset="silver.dim_users",
+                target_column="user_id",
+                source_type="dbt_heuristic",
+                metadata={"confidence": 0.93},
+            ),
+            ColumnLineage(
+                source_asset="bronze.raw_events",
+                source_column="event_ts",
+                target_asset="silver.dim_users",
+                target_column="last_seen_at",
+                source_type="dbt_heuristic",
+            ),
+        ]
+        assert driver.statements[-1].params == ("silver.dim_users", "user_id")
 
-        assert results == []
-        sql = mock_cursor.execute.call_args[0][0]
-        assert "WHERE target_asset = %s" in sql
-        assert "target_column = %s" not in sql
+    def test_without_a_column_filter_only_the_asset_is_bound(self, ready_store, driver):
+        driver.script_fetchall([])
+
+        assert ready_store.get_upstream_columns("silver.dim_users") == []
+        assert driver.statements[-1].params == ("silver.dim_users",)
+
+    def test_downstream_query_binds_source_side_filters_and_maps_rows(self, ready_store, driver):
+        driver.script_fetchall(
+            [
+                (
+                    "bronze.raw_signups",
+                    "user_id",
+                    "silver.dim_users",
+                    "user_id",
+                    "dbt_heuristic",
+                    None,
+                ),
+            ]
+        )
+
+        results = ready_store.get_downstream_columns("bronze.raw_signups", source_column="user_id")
+
+        assert results == [
+            ColumnLineage(
+                source_asset="bronze.raw_signups",
+                source_column="user_id",
+                target_asset="silver.dim_users",
+                target_column="user_id",
+            )
+        ]
+        assert driver.statements[-1].params == ("bronze.raw_signups", "user_id")

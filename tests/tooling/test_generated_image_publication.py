@@ -13,6 +13,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -113,34 +114,37 @@ def test_generated_prometheus_and_trino_use_upstream_images_and_are_not_publishe
     assert published_services == {"phlo-api", "dagster", "observatory"}
 
 
+_VENDOR_UPSTREAM_SERVICES = (
+    "alloy",
+    "loki",
+    "oauth2-proxy",
+    "grafana",
+    "clickstack",
+    "minio",
+    "minio-setup",
+    "nessie",
+    "openmetadata",
+    "openmetadata-setup",
+    "openmetadata-mysql",
+    "openmetadata-elasticsearch",
+    "pgweb",
+    "postgres",
+    "postgres-exporter",
+    "postgrest",
+    "superset",
+)
+
+
 def test_remaining_vendor_services_use_upstream_images_and_are_not_published(
     tmp_path: Path, monkeypatch
 ) -> None:
-    expected_images = {
-        "alloy": "grafana/alloy:v1.18.0@sha256:491b0578c04983fd54fe99b587b6fab4404dc46d0dc16677bd6b00cc1140b308",
-        "loki": "grafana/loki:3.7.4@sha256:87f0a067673756a3cede1bcbf0c74875f7df9b09fddb53e399d0c576f756cfcc",
-        "oauth2-proxy": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.3@sha256:10a1165743a192e1940b4708fb9647027185ce11a681a1c5519b442ff7f1f561",
-        "grafana": "grafana/grafana:13.1.1@sha256:7cb8c64c4d57a57e734073f3cc94620adb24a0acb929bd80ba9f14017e3a975b",
-        "clickstack": "docker.io/hyperdx/hyperdx-all-in-one:2.31.0@sha256:b01cc48cb5aaf30d630865a88217c826ab86fb9828374201f6cd7c539d5beed1",
-        "minio": "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
-        "minio-setup": "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
-        "nessie": "ghcr.io/projectnessie/nessie:0.108.3@sha256:219709df809fcfac7abe0491b2070c8d56178ed29828fb30968a4365b62bcc8a",
-        "openmetadata": "docker.io/openmetadata/server:1.13.1@sha256:eaa318584c52d4a492a2c56c95818b5564c6ea28b2e9695ac532c856b2c61bc9",
-        "openmetadata-setup": "docker.io/openmetadata/server:1.13.1@sha256:eaa318584c52d4a492a2c56c95818b5564c6ea28b2e9695ac532c856b2c61bc9",
-        "openmetadata-mysql": "docker.io/openmetadata/db:1.13.1@sha256:6659446dba183f1e9364602839dd999c06a83f7d2e905d1c3fb22a74f3e27288",
-        "openmetadata-elasticsearch": "docker.elastic.co/elasticsearch/elasticsearch:9.3.0@sha256:4f6bdcb742e892539c6ac49b0dd3e4e182e90218546e8c6a22db378c344acb60",
-        "pgweb": "sosedoff/pgweb:0.17.0@sha256:a5256d416e2e8b92d69a4459058e3eca33a9f075d8325491644411d0bc3bd70b",
-        "postgres": "postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15",
-        "postgres-exporter": "quay.io/prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e",
-        "postgrest": "postgrest/postgrest:v14.15@sha256:2f8e7b656f09db697a8875177694b417b35cb76c21370de07fc54e711e902326",
-        "superset": "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705",
-    }
     discovery = ServiceDiscovery()
-    services = []
-    for name in expected_images:
+    vendor_services = []
+    for name in _VENDOR_UPSTREAM_SERVICES:
         service = discovery.get_service(name)
         assert service is not None, name
-        services.append(service)
+        vendor_services.append(service)
+    services = [*vendor_services]
     for name in ("phlo-api", "dagster", "dagster-daemon", "observatory"):
         service = discovery.get_service(name)
         assert service is not None, name
@@ -152,9 +156,11 @@ def test_remaining_vendor_services_use_upstream_images_and_are_not_published(
         ComposeGenerator(discovery).generate_compose(services, output_dir=generated_root)
     )
 
-    for name, image in expected_images.items():
-        assert compose["services"][name]["image"] == image
-        assert "build" not in compose["services"][name]
+    for service in vendor_services:
+        rendered = compose["services"][service.name]
+        assert rendered["image"] == service.image
+        assert "@sha256:" in _published_image(rendered["image"])
+        assert "build" not in rendered
 
     monkeypatch.chdir(generated_root)
     targets = GENERATED_IMAGE_MATRIX.publication_matrix(compose, generated_root, REPO_ROOT)[
@@ -210,41 +216,116 @@ def test_hasura_and_clickhouse_accept_safe_full_image_overrides() -> None:
     )
 
 
-def test_publication_workflow_publishes_attested_images_after_digest_scans() -> None:
-    workflow = (REPO_ROOT / ".github/workflows/build-core-services.yml").read_text(encoding="utf-8")
+def _workflow_triggers(workflow: dict[str, Any]) -> dict[str, Any]:
+    """A bare ``on:`` mapping key parses as boolean True."""
+    triggers = workflow.get("on") or workflow.get(True) or {}
+    assert isinstance(triggers, dict)
+    return triggers
 
-    assert "pull_request:" not in workflow
-    assert "\n  push:" in workflow
-    assert "fetch-depth: 0" in workflow
-    assert "workflow_dispatch:" in workflow
-    assert "release:" in workflow
-    assert "PUBLISH_SERVICES" in workflow
-    assert "packages: write" in workflow
-    assert "docker/build-push-action@" in workflow
-    assert "ubuntu-24.04-arm" in workflow
-    assert "platform: linux/amd64" in workflow
-    assert "platform: linux/arm64" in workflow
-    assert "setup-qemu-action@" not in workflow
-    assert "push-by-digest=true" in workflow
-    assert "name=${{ steps.image.outputs.repository }},push-by-digest=true" in workflow
-    assert "name=${{ matrix.target.image }},push-by-digest=true" not in workflow
-    assert "if: always() && needs.prepare.result == 'success'" in workflow
-    assert "name: digest-${{ matrix.target.service }}-amd64" in workflow
-    assert "name: digest-${{ matrix.target.service }}-arm64" in workflow
-    assert "pattern: digest-${{ matrix.target.service }}-*" not in workflow
-    assert "docker buildx imagetools create" in workflow
-    assert "timeout-minutes: 45" in workflow
-    assert "max-parallel: 8" in workflow
-    assert "org.opencontainers.image.source=https://github.com/${{ github.repository }}" in workflow
-    assert "Scan immutable architecture digest" in workflow
-    assert "apply-policy" in workflow
-    assert '-v "$PWD:/work" -w /work' in workflow
-    assert (
-        '"/work/security-reports/${{ matrix.target.service }}-${{ matrix.architecture.name }}.json"'
-        in workflow
+
+def _job_steps(job: dict[str, Any]) -> list[dict[str, Any]]:
+    return [step for step in job.get("steps") or [] if isinstance(step, dict)]
+
+
+def _step_using(steps: list[dict[str, Any]], action: str) -> dict[str, Any]:
+    for step in steps:
+        if str(step.get("uses", "")).startswith(action):
+            return step
+    raise AssertionError(f"No step uses {action!r}")
+
+
+def _step_named(steps: list[dict[str, Any]], name: str) -> dict[str, Any]:
+    for step in steps:
+        if step.get("name") == name:
+            return step
+    raise AssertionError(f"No step named {name!r}")
+
+
+def _step_with_id(steps: list[dict[str, Any]], step_id: str) -> dict[str, Any]:
+    for step in steps:
+        if step.get("id") == step_id:
+            return step
+    raise AssertionError(f"No step with id {step_id!r}")
+
+
+def test_publication_workflow_publishes_attested_images_after_digest_scans() -> None:
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/build-core-services.yml").read_text(encoding="utf-8")
     )
-    assert "PLATFORM: ${{ matrix.architecture.platform }}" in workflow
-    assert 'image --platform "$PLATFORM"' in workflow
+    assert isinstance(workflow, dict)
+    triggers = _workflow_triggers(workflow)
+    jobs = workflow["jobs"]
+
+    assert {"push", "workflow_dispatch", "release"} <= set(triggers)
+    assert "pull_request" not in triggers
+
+    prepare_steps = _job_steps(jobs["prepare"])
+    checkout = _step_using(prepare_steps, "actions/checkout@")
+    assert (checkout.get("with") or {}).get("fetch-depth") == 0
+    matrix_step = _step_with_id(prepare_steps, "matrix")
+    assert "PUBLISH_SERVICES" in (matrix_step.get("env") or {})
+    for job_name in ("build", "merge"):
+        assert jobs[job_name]["permissions"]["packages"] == "write"
+
+    build_job = jobs["build"]
+    build_steps = _job_steps(build_job)
+    build_step = _step_using(build_steps, "docker/build-push-action@")
+    all_steps = [step for job in jobs.values() for step in _job_steps(job)]
+    assert not any("setup-qemu-action" in str(step.get("uses", "")) for step in all_steps)
+
+    architectures = build_job["strategy"]["matrix"]["architecture"]
+    assert {"linux/amd64", "linux/arm64"} <= {arch["platform"] for arch in architectures}
+    assert "ubuntu-24.04-arm" in {arch["runner"] for arch in architectures}
+
+    outputs_spec = build_step["with"]["outputs"]
+    assert "type=image" in outputs_spec
+    assert "name=${{ steps.image.outputs.repository }}" in outputs_spec
+    assert "push-by-digest=true" in outputs_spec
+    assert "matrix.target.image" not in outputs_spec
+
+    assert build_job["timeout-minutes"] == 45
+    assert build_job["strategy"]["max-parallel"] == 8
+    assert (
+        "org.opencontainers.image.source=https://github.com/${{ github.repository }}"
+        in build_step["with"]["labels"]
+    )
+
+    merge_job = jobs["merge"]
+    assert str(merge_job.get("if", "")).startswith("always() && needs.prepare.result == 'success'")
+    digest_uploads = [
+        step
+        for step in build_steps
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+        and str((step.get("with") or {}).get("name", "")).startswith("digest-")
+    ]
+    assert len(digest_uploads) == 1
+    assert digest_uploads[0]["with"]["name"] == (
+        "digest-${{ matrix.target.service }}-${{ matrix.architecture.name }}"
+    )
+    merge_downloads = [
+        step
+        for step in _job_steps(merge_job)
+        if str(step.get("uses", "")).startswith("actions/download-artifact@")
+    ]
+    downloaded_names = {(step.get("with") or {}).get("name") for step in merge_downloads}
+    assert {
+        "digest-${{ matrix.target.service }}-amd64",
+        "digest-${{ matrix.target.service }}-arm64",
+    } <= downloaded_names
+    assert not any("pattern" in (step.get("with") or {}) for step in merge_downloads)
+    manifest_script = _step_with_id(_job_steps(merge_job), "manifest")["run"]
+    assert "docker buildx imagetools create" in manifest_script
+
+    scan_step = _step_named(build_steps, "Scan immutable architecture digest")
+    assert scan_step["env"]["PLATFORM"] == "${{ matrix.architecture.platform }}"
+    scan_script = scan_step["run"]
+    assert 'image --platform "$PLATFORM"' in scan_script
+    assert '-v "$PWD:/work" -w /work' in scan_script
+    report_arg = (
+        '"/work/security-reports/${{ matrix.target.service }}-${{ matrix.architecture.name }}.json"'
+    )
+    assert report_arg in scan_script
+    assert "apply-policy" in scan_script
 
 
 def test_container_security_replaces_legacy_remote_image_scan() -> None:

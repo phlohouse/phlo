@@ -8,11 +8,22 @@ case-insensitive.
 
 from __future__ import annotations
 
+import pytest
+
 from phlo.security.gating import (
     WRITE_RESTRICTED_SERVICES,
     get_write_restricted_services,
     is_write_restricted,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_config_cache():
+    from phlo.infrastructure.config import load_project_config
+
+    load_project_config.cache_clear()
+    yield
+    load_project_config.cache_clear()
 
 
 def test_write_restricted_services_contains_hasura_postgrest():
@@ -43,9 +54,6 @@ def test_not_restricted_for_non_write_restricted_service():
 
 def test_opt_in_disables_restriction(monkeypatch, tmp_path):
     """When phlo.yaml has surfaces.hasura.allow_writes: true, restriction is lifted."""
-    from phlo.infrastructure.config import load_project_config
-
-    load_project_config.cache_clear()
 
     config_file = tmp_path / "phlo.yaml"
     config_file.write_text("surfaces:\n  hasura:\n    allow_writes: true\n")
@@ -54,14 +62,9 @@ def test_opt_in_disables_restriction(monkeypatch, tmp_path):
 
     assert is_write_restricted("hasura", regulated=True) is False
 
-    load_project_config.cache_clear()
-
 
 def test_restriction_without_opt_in(monkeypatch, tmp_path):
     """When phlo.yaml exists but no opt-in, restriction stays."""
-    from phlo.infrastructure.config import load_project_config
-
-    load_project_config.cache_clear()
 
     config_file = tmp_path / "phlo.yaml"
     config_file.write_text("regulated: true\n")
@@ -69,8 +72,6 @@ def test_restriction_without_opt_in(monkeypatch, tmp_path):
     monkeypatch.setenv("PHLO_REGULATED", "true")
 
     assert is_write_restricted("hasura", regulated=True) is True
-
-    load_project_config.cache_clear()
 
 
 def test_case_insensitive(monkeypatch):

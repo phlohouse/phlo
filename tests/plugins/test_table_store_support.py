@@ -59,3 +59,36 @@ class MinimalStore:
 
 def test_table_store_protocol_accepts_support_property() -> None:
     assert isinstance(MinimalStore(), TableStore)
+
+
+class StoreWithoutSupportProperty:
+    def ensure_table(self, *, table_name, schema, partition_spec=None, override_ref=None):
+        return object()
+
+    def append_parquet(self, *, table_name, data_path, override_ref=None):
+        return {"rows_inserted": 1}
+
+    def merge_parquet(self, *, table_name, data_path, unique_key, override_ref=None):
+        return {"rows_inserted": 1, "rows_deleted": 0}
+
+    def overwrite_parquet(self, *, table_name, data_path, override_ref=None):
+        return {"rows_inserted": 1}
+
+    def delete_rows(self, *, table_name, predicate, override_ref=None):
+        return {"rows_deleted": 1}
+
+    def compact(self, *, table_name, override_ref=None):
+        return {}
+
+    def list_snapshots(self, *, table_name, limit=10):
+        return []
+
+    def rollback_to_snapshot(self, *, table_name, snapshot_id):
+        return {}
+
+    def vacuum(self, *, table_name, retain_hours=168):
+        return {}
+
+
+def test_table_store_protocol_rejects_missing_support_property() -> None:
+    assert not isinstance(StoreWithoutSupportProperty(), TableStore)

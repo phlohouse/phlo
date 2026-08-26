@@ -8,7 +8,6 @@ Tests the workflow validation CLI command, including:
 """
 
 import ast
-import tempfile
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -293,14 +292,13 @@ class TestValidateFieldNames:
 class TestWorkflowValidationCLI:
     """Tests for the validate-workflow CLI command."""
 
-    def test_validate_workflow_file_with_valid_decorator(self):
+    def test_validate_workflow_file_with_valid_decorator(self, tmp_path):
         """Test validating a workflow file with valid decorator."""
         runner = CliRunner()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "test_workflow.py"
-            workflow_file.write_text(
-                """
+        workflow_file = Path(tmp_path) / "test_workflow.py"
+        workflow_file.write_text(
+            """
 # Mock @phlo_ingestion decorator for testing
 def phlo_ingestion(**kwargs):
     def decorator(f):
@@ -318,20 +316,18 @@ def phlo_ingestion(**kwargs):
 def test_workflow(partition_date: str):
     return None
 """
-            )
+        )
 
-            result = runner.invoke(validate_workflow, [str(workflow_file)])
-            # Will pass validation (cron/names are valid) even if no @phlo_ingestion found
-            assert result.exit_code in [0, 1]
+        result = runner.invoke(validate_workflow, [str(workflow_file)])
+        assert result.exit_code == 0
 
-    def test_validate_workflow_file_missing_group(self):
+    def test_validate_workflow_file_missing_group(self, tmp_path):
         """Test that missing group parameter is caught."""
         runner = CliRunner()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "test_workflow.py"
-            workflow_file.write_text(
-                """
+        workflow_file = Path(tmp_path) / "test_workflow.py"
+        workflow_file.write_text(
+            """
 def phlo_ingestion(**kwargs):
     def decorator(f):
         return f
@@ -345,20 +341,19 @@ def phlo_ingestion(**kwargs):
 def test_workflow(partition_date: str):
     return None
 """
-            )
+        )
 
-            result = runner.invoke(validate_workflow, [str(workflow_file)])
-            # Should detect missing group parameter
-            assert result.exit_code == 1 or "group" in result.output.lower()
+        result = runner.invoke(validate_workflow, [str(workflow_file)])
+        # Should detect missing group parameter
+        assert result.exit_code == 1 or "group" in result.output.lower()
 
-    def test_validate_workflow_file_invalid_cron(self):
+    def test_validate_workflow_file_invalid_cron(self, tmp_path):
         """Test that invalid cron is caught."""
         runner = CliRunner()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "test_workflow.py"
-            workflow_file.write_text(
-                """
+        workflow_file = Path(tmp_path) / "test_workflow.py"
+        workflow_file.write_text(
+            """
 def phlo_ingestion(**kwargs):
     def decorator(f):
         return f
@@ -373,22 +368,21 @@ def phlo_ingestion(**kwargs):
 def test_workflow(partition_date: str):
     return None
 """
-            )
+        )
 
-            result = runner.invoke(validate_workflow, [str(workflow_file)])
-            assert result.exit_code == 1 or "cron" in result.output.lower()
+        result = runner.invoke(validate_workflow, [str(workflow_file)])
+        assert result.exit_code == 1 or "cron" in result.output.lower()
 
-    def test_validate_workflow_directory(self):
+    def test_validate_workflow_directory(self, tmp_path):
         """Test validating a directory of workflow files."""
         runner = CliRunner()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir_path = Path(tmpdir)
+        tmp_path_path = Path(tmp_path)
 
-            # Create first valid workflow
-            workflow_file1 = tmpdir_path / "workflow1.py"
-            workflow_file1.write_text(
-                """
+        # Create first valid workflow
+        workflow_file1 = tmp_path_path / "workflow1.py"
+        workflow_file1.write_text(
+            """
 def phlo_ingestion(**kwargs):
     def decorator(f):
         return f
@@ -403,12 +397,12 @@ def phlo_ingestion(**kwargs):
 def workflow1(partition_date: str):
     return None
 """
-            )
+        )
 
-            # Create second valid workflow
-            workflow_file2 = tmpdir_path / "workflow2.py"
-            workflow_file2.write_text(
-                """
+        # Create second valid workflow
+        workflow_file2 = tmp_path_path / "workflow2.py"
+        workflow_file2.write_text(
+            """
 def phlo_ingestion(**kwargs):
     def decorator(f):
         return f
@@ -423,11 +417,10 @@ def phlo_ingestion(**kwargs):
 def workflow2(partition_date: str):
     return None
 """
-            )
+        )
 
-            result = runner.invoke(validate_workflow, [tmpdir])
-            # Should succeed if files are valid or handle gracefully
-            assert result.exit_code in [0, 1]
+        result = runner.invoke(validate_workflow, [str(tmp_path)])
+        assert result.exit_code == 0
 
     def test_validate_nonexistent_file(self):
         """Test that nonexistent file is handled gracefully."""
@@ -436,14 +429,13 @@ def workflow2(partition_date: str):
         result = runner.invoke(validate_workflow, ["/nonexistent/file.py"])
         assert result.exit_code != 0
 
-    def test_validate_workflow_with_invalid_table_name(self):
+    def test_validate_workflow_with_invalid_table_name(self, tmp_path):
         """Test that invalid table names are caught."""
         runner = CliRunner()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "test_workflow.py"
-            workflow_file.write_text(
-                """
+        workflow_file = Path(tmp_path) / "test_workflow.py"
+        workflow_file.write_text(
+            """
 def phlo_ingestion(**kwargs):
     def decorator(f):
         return f
@@ -458,20 +450,19 @@ def phlo_ingestion(**kwargs):
 def test_workflow(partition_date: str):
     return None
 """
-            )
+        )
 
-            result = runner.invoke(validate_workflow, [str(workflow_file)])
-            # Should catch the invalid table name
-            assert "invalid" in result.output.lower() or result.exit_code == 1
+        result = runner.invoke(validate_workflow, [str(workflow_file)])
+        # Should catch the invalid table name
+        assert "invalid" in result.output.lower() or result.exit_code == 1
 
-    def test_validate_workflow_with_invalid_unique_key(self):
+    def test_validate_workflow_with_invalid_unique_key(self, tmp_path):
         """Test that invalid unique key names are caught."""
         runner = CliRunner()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "test_workflow.py"
-            workflow_file.write_text(
-                """
+        workflow_file = Path(tmp_path) / "test_workflow.py"
+        workflow_file.write_text(
+            """
 def phlo_ingestion(**kwargs):
     def decorator(f):
         return f
@@ -486,20 +477,19 @@ def phlo_ingestion(**kwargs):
 def test_workflow(partition_date: str):
     return None
 """
-            )
+        )
 
-            result = runner.invoke(validate_workflow, [str(workflow_file)])
-            # Should catch the invalid key name
-            assert "invalid" in result.output.lower() or result.exit_code == 1
+        result = runner.invoke(validate_workflow, [str(workflow_file)])
+        # Should catch the invalid key name
+        assert "invalid" in result.output.lower() or result.exit_code == 1
 
-    def test_validate_workflow_warns_on_missing_schema(self):
+    def test_validate_workflow_warns_on_missing_schema(self, tmp_path):
         """Test that missing validation_schema generates warning."""
         runner = CliRunner()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "test_workflow.py"
-            workflow_file.write_text(
-                """
+        workflow_file = Path(tmp_path) / "test_workflow.py"
+        workflow_file.write_text(
+            """
 def phlo_ingestion(**kwargs):
     def decorator(f):
         return f
@@ -514,20 +504,19 @@ def phlo_ingestion(**kwargs):
 def test_workflow(partition_date: str):
     return None
 """
-            )
+        )
 
-            result = runner.invoke(validate_workflow, [str(workflow_file)])
-            # Should detect decorator and potentially warn about missing schema
-            assert result.exit_code in [0, 1]
+        result = runner.invoke(validate_workflow, [str(workflow_file)])
+        # Missing validation_schema is a warning, not an issue: still valid.
+        assert result.exit_code == 0
 
-    def test_validate_workflow_warns_on_missing_freshness(self):
+    def test_validate_workflow_warns_on_missing_freshness(self, tmp_path):
         """Test that missing freshness_hours generates warning."""
         runner = CliRunner()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "test_workflow.py"
-            workflow_file.write_text(
-                """
+        workflow_file = Path(tmp_path) / "test_workflow.py"
+        workflow_file.write_text(
+            """
 def phlo_ingestion(**kwargs):
     def decorator(f):
         return f
@@ -542,39 +531,37 @@ def phlo_ingestion(**kwargs):
 def test_workflow(partition_date: str):
     return None
 """
-            )
+        )
 
-            result = runner.invoke(validate_workflow, [str(workflow_file)])
-            # Should detect decorator and handle gracefully
-            assert result.exit_code in [0, 1]
+        result = runner.invoke(validate_workflow, [str(workflow_file)])
+        # Missing freshness_hours is a warning, not an issue: still valid.
+        assert result.exit_code == 0
 
 
 class TestValidateWorkflowEdgeCases:
     """Tests for edge cases in workflow validation."""
 
-    def test_validate_empty_file(self):
+    def test_validate_empty_file(self, tmp_path):
         """Test validating an empty Python file."""
         runner = CliRunner()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "test_workflow.py"
-            workflow_file.write_text("")
+        workflow_file = Path(tmp_path) / "test_workflow.py"
+        workflow_file.write_text("")
 
-            result = runner.invoke(validate_workflow, [str(workflow_file)])
-            # Should handle gracefully
-            assert result.exit_code in [0, 1]
+        result = runner.invoke(validate_workflow, [str(workflow_file)])
+        # An empty file has no workflows: nothing to reject.
+        assert result.exit_code == 0
 
-    def test_validate_file_with_syntax_error(self):
+    def test_validate_file_with_syntax_error(self, tmp_path):
         """Test validating a file with syntax errors."""
         runner = CliRunner()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "test_workflow.py"
-            workflow_file.write_text("this is not valid python syntax !!!!")
+        workflow_file = Path(tmp_path) / "test_workflow.py"
+        workflow_file.write_text("this is not valid python syntax !!!!")
 
-            result = runner.invoke(validate_workflow, [str(workflow_file)])
-            # Should fail gracefully
-            assert result.exit_code != 0
+        result = runner.invoke(validate_workflow, [str(workflow_file)])
+        # Should fail gracefully
+        assert result.exit_code != 0
 
     def test_validate_cron_with_spaces(self):
         """Test that cron expressions with extra spaces are handled."""
@@ -582,14 +569,13 @@ class TestValidateWorkflowEdgeCases:
         # Should handle gracefully (may have trailing empty parts)
         assert isinstance(errors, list)
 
-    def test_validate_multiple_workflows_in_file(self):
+    def test_validate_multiple_workflows_in_file(self, tmp_path):
         """Test file with multiple @phlo_ingestion decorated functions."""
         runner = CliRunner()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "test_workflow.py"
-            workflow_file.write_text(
-                """
+        workflow_file = Path(tmp_path) / "test_workflow.py"
+        workflow_file.write_text(
+            """
 from phlo_dlt import phlo_ingestion
 
 @phlo_ingestion(
@@ -610,11 +596,11 @@ def workflow1(partition_date: str):
 def workflow2(partition_date: str):
     return None
 """
-            )
+        )
 
-            result = runner.invoke(validate_workflow, [str(workflow_file)])
-            # Should handle multiple workflows
-            assert "workflow" in result.output.lower() or result.exit_code == 0
+        result = runner.invoke(validate_workflow, [str(workflow_file)])
+        # Should handle multiple workflows
+        assert "workflow" in result.output.lower() or result.exit_code == 0
 
 
 class TestCronExpressionExamples:

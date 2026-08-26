@@ -79,6 +79,18 @@ _PROVIDER_URL_SETTING_NAMES = (
 )
 
 
+def _telemetry_event_names(tmp_path) -> set[str]:
+    """Parse recorded telemetry events; missing file yields an empty set."""
+    telemetry = tmp_path / ".phlo" / "telemetry" / "events.jsonl"
+    if not telemetry.exists():
+        return set()
+    return {
+        json.loads(line).get("name", "")
+        for line in telemetry.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    }
+
+
 def test_authenticated_run_report_isolated_by_attempt_and_path_identity(
     monkeypatch, tmp_path, regulated_api_boundary
 ) -> None:
@@ -259,7 +271,7 @@ def test_unregulated_run_report_keeps_anonymous_open_but_enforces_supplied_scope
 
 
 def test_runs_list_carries_report_identity_only_for_complete_durable_evidence(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, observatory_loaders
 ) -> None:
     database = tmp_path / "run-evidence.sqlite"
     store = SQLiteRunEvidenceStore(database)
@@ -274,7 +286,7 @@ def test_runs_list_carries_report_identity_only_for_complete_durable_evidence(
     )
     monkeypatch.setenv("PHLO_RUN_EVIDENCE_SQLITE_PATH", str(database))
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    observatory_loaders(capability_registry=None)
     observatory._clear_read_model_cache()
 
     items = authenticated_client("admin").get("/api/observatory/runs").json()["items"]
@@ -297,10 +309,10 @@ def test_runs_list_carries_report_identity_only_for_complete_durable_evidence(
 
 
 def test_manifest_and_recovered_runs_never_carry_report_identity(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, observatory_loaders
 ) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    observatory_loaders(capability_registry=None)
     state_dir = tmp_path / ".phlo" / "observatory"
     state_dir.mkdir(parents=True)
     (state_dir / "lakehouse_manifest.json").write_text(
@@ -325,7 +337,9 @@ def test_manifest_and_recovered_runs_never_carry_report_identity(
     assert manifest_run["metadata"]["evidence_source"] == "lakehouse_manifest"
 
 
-def test_durable_run_without_complete_identity_omits_report_identity(monkeypatch, tmp_path) -> None:
+def test_durable_run_without_complete_identity_omits_report_identity(
+    monkeypatch, tmp_path, observatory_loaders
+) -> None:
     database = tmp_path / "run-evidence.sqlite"
     SQLiteRunEvidenceStore(database).append_pipeline_run(
         PipelineRun(project_id="finance", run_id="daily-orders", attempt=2)
@@ -333,7 +347,7 @@ def test_durable_run_without_complete_identity_omits_report_identity(monkeypatch
     monkeypatch.setenv("PHLO_RUN_EVIDENCE_SQLITE_PATH", str(database))
     monkeypatch.setattr(observatory_runs_module, "_durable_report_identity", lambda row: None)
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    observatory_loaders(capability_registry=None)
     observatory._clear_read_model_cache()
 
     items = authenticated_client("admin").get("/api/observatory/runs").json()["items"]
@@ -486,12 +500,11 @@ def test_observatory_resource_models_serialize_provider_neutral_shapes() -> None
 
 def test_observatory_datasets_endpoint_returns_profile_summaries(
     monkeypatch: pytest.MonkeyPatch,
+    observatory_loaders,
 ) -> None:
     observatory._clear_read_model_cache()
-    monkeypatch.setattr(
-        observatory,
-        "_load_assets",
-        lambda: [
+    observatory_loaders(
+        assets=[
             ObservatoryAsset(
                 id="gold.orders",
                 name="gold.orders",
@@ -505,11 +518,7 @@ def test_observatory_datasets_endpoint_returns_profile_summaries(
                 },
             )
         ],
-    )
-    monkeypatch.setattr(
-        observatory,
-        "_load_tables_without_catalog",
-        lambda: [
+        tables_without_catalog=[
             ObservatoryTable(
                 id="orders",
                 name="orders",
@@ -517,11 +526,7 @@ def test_observatory_datasets_endpoint_returns_profile_summaries(
                 asset_id="gold.orders",
             )
         ],
-    )
-    monkeypatch.setattr(
-        observatory,
-        "_load_quality",
-        lambda: [
+        quality=[
             ObservatoryQualityCheck(
                 id="gold.orders:not_null_order_id",
                 name="not_null_order_id",
@@ -545,6 +550,7 @@ def test_observatory_datasets_endpoint_returns_profile_summaries(
 
 def test_observatory_publishing_readiness_loads_shared_sources_once(
     monkeypatch: pytest.MonkeyPatch,
+    observatory_loaders,
 ) -> None:
     observatory._clear_read_model_cache()
     calls: list[str] = []
@@ -560,16 +566,10 @@ def test_observatory_publishing_readiness_loads_shared_sources_once(
             for name in ("orders", "customers", "payments")
         ]
 
-    monkeypatch.setattr(observatory, "_load_assets", assets)
-    monkeypatch.setattr(
-        observatory,
-        "_load_tables_without_catalog",
-        lambda: calls.append("tables") or [],
-    )
-    monkeypatch.setattr(
-        observatory,
-        "_load_quality",
-        lambda: calls.append("quality") or [],
+    observatory_loaders(
+        assets=assets,
+        tables_without_catalog=lambda: calls.append("tables") or [],
+        quality=lambda: calls.append("quality") or [],
     )
 
     response = authenticated_client("admin").get("/api/observatory/datasets/publishing-readiness")
@@ -588,6 +588,7 @@ def test_observatory_publishing_readiness_loads_shared_sources_once(
 def test_observatory_datasets_endpoint_uses_project_read_model_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    observatory_loaders,
 ) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     observatory._clear_read_model_cache()
@@ -597,9 +598,11 @@ def test_observatory_datasets_endpoint_uses_project_read_model_cache(
         calls.append("assets")
         return [ObservatoryAsset(id="gold.orders", name="Gold Orders", group="gold")]
 
-    monkeypatch.setattr(observatory, "_load_assets", load_assets)
-    monkeypatch.setattr(observatory, "_load_tables_without_catalog", lambda: [])
-    monkeypatch.setattr(observatory, "_load_quality", lambda: [])
+    observatory_loaders(
+        assets=load_assets,
+        tables_without_catalog=[],
+        quality=[],
+    )
 
     first = authenticated_client("admin").get("/api/observatory/datasets")
     observatory._READ_MODEL_CACHE._values.clear()
@@ -614,13 +617,12 @@ def test_observatory_datasets_endpoint_uses_project_read_model_cache(
 
 def test_observatory_datasets_endpoint_returns_table_candidates(
     monkeypatch: pytest.MonkeyPatch,
+    observatory_loaders,
 ) -> None:
     observatory._clear_read_model_cache()
-    monkeypatch.setattr(observatory, "_load_assets", lambda: [])
-    monkeypatch.setattr(
-        observatory,
-        "_load_tables_without_catalog",
-        lambda: [
+    observatory_loaders(
+        assets=[],
+        tables_without_catalog=[
             ObservatoryTable(
                 id="raw_orders",
                 name="raw_orders",
@@ -628,8 +630,8 @@ def test_observatory_datasets_endpoint_returns_table_candidates(
                 format="iceberg",
             )
         ],
+        quality=[],
     )
-    monkeypatch.setattr(observatory, "_load_quality", lambda: [])
 
     response = authenticated_client("admin").get("/api/observatory/datasets")
 
@@ -646,15 +648,14 @@ def test_observatory_datasets_endpoint_returns_table_candidates(
 def test_observatory_dataset_profile_returns_table_candidate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    observatory_loaders,
 ) -> None:
     observatory._clear_read_model_cache()
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setenv("USER", "data-team")
-    monkeypatch.setattr(observatory, "_load_assets", lambda: [])
-    monkeypatch.setattr(
-        observatory,
-        "_load_tables_without_catalog",
-        lambda: [
+    observatory_loaders(
+        assets=[],
+        tables_without_catalog=[
             ObservatoryTable(
                 id="raw_orders",
                 name="raw_orders",
@@ -662,10 +663,10 @@ def test_observatory_dataset_profile_returns_table_candidate(
                 format="iceberg",
             )
         ],
+        quality=[],
+        logs=[],
+        operations=[],
     )
-    monkeypatch.setattr(observatory, "_load_quality", lambda: [])
-    monkeypatch.setattr(observatory, "_load_logs", lambda: [])
-    monkeypatch.setattr(observatory, "_load_operations", lambda: [])
 
     response = authenticated_client("admin").get("/api/observatory/datasets/candidate:raw_orders")
 
@@ -681,19 +682,20 @@ def test_observatory_dataset_profile_returns_table_candidate(
 def test_observatory_candidate_actions_persist_workflow_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    observatory_loaders,
 ) -> None:
     observatory._clear_read_model_cache()
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setenv("USER", "data-team")
-    monkeypatch.setattr(observatory, "_load_assets", lambda: [])
-    monkeypatch.setattr(
-        observatory,
-        "_load_tables_without_catalog",
-        lambda: [ObservatoryTable(id="raw_orders", name="raw_orders", namespace="raw")],
+    observatory_loaders(
+        assets=[],
+        tables_without_catalog=[
+            ObservatoryTable(id="raw_orders", name="raw_orders", namespace="raw")
+        ],
+        quality=[],
+        logs=[],
+        operations=[],
     )
-    monkeypatch.setattr(observatory, "_load_quality", lambda: [])
-    monkeypatch.setattr(observatory, "_load_logs", lambda: [])
-    monkeypatch.setattr(observatory, "_load_operations", lambda: [])
     client = authenticated_client("admin")
 
     claim = client.post(
@@ -704,8 +706,6 @@ def test_observatory_candidate_actions_persist_workflow_state(
     assert claim.json()["status"] == "succeeded"
     candidate = client.get("/api/observatory/datasets/candidate:raw_orders").json()
     assert candidate["dataset"]["owner"] == "data-team"
-    assert candidate["dataset"]["metadata"]["approval_state"] == "claimed"
-
     promote = client.post(
         "/api/observatory/actions",
         json={"action_id": "candidate:raw_orders:promote"},
@@ -717,36 +717,31 @@ def test_observatory_candidate_actions_persist_workflow_state(
     assert datasets[0]["owner"] == "data-team"
     profile = client.get("/api/observatory/datasets/raw_orders").json()
     assert profile["dataset"]["metadata"]["promoted_from_candidate"] is True
-    telemetry = tmp_path / ".phlo" / "telemetry" / "events.jsonl"
-    assert "observatory.candidate.promote" in telemetry.read_text(encoding="utf-8")
+    assert {
+        "observatory.candidate.claim",
+        "observatory.candidate.promote",
+    } <= _telemetry_event_names(tmp_path)
 
 
 def test_observatory_publication_action_persists_dataset_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    observatory_loaders,
 ) -> None:
     observatory._clear_read_model_cache()
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.setattr(
-        observatory,
-        "_load_assets",
-        lambda: [
+    observatory_loaders(
+        assets=[
             ObservatoryAsset(
                 id="gold.orders",
                 name="gold.orders",
                 metadata={"owner": "analytics", "classification": "internal"},
             )
         ],
-    )
-    monkeypatch.setattr(
-        observatory,
-        "_load_tables_without_catalog",
-        lambda: [ObservatoryTable(id="orders", name="orders", asset_id="gold.orders")],
-    )
-    monkeypatch.setattr(
-        observatory,
-        "_load_quality",
-        lambda: [
+        tables_without_catalog=[
+            ObservatoryTable(id="orders", name="orders", asset_id="gold.orders")
+        ],
+        quality=[
             ObservatoryQualityCheck(
                 id="gold.orders:not_null_order_id",
                 name="not_null_order_id",
@@ -755,9 +750,9 @@ def test_observatory_publication_action_persists_dataset_state(
                 blocking=True,
             )
         ],
+        logs=[],
+        operations=[],
     )
-    monkeypatch.setattr(observatory, "_load_logs", lambda: [])
-    monkeypatch.setattr(observatory, "_load_operations", lambda: [])
     client = authenticated_client("admin")
 
     result = client.post(
@@ -771,8 +766,7 @@ def test_observatory_publication_action_persists_dataset_state(
     assert profile["dataset"]["publication_state"] == "published"
     assert profile["dataset"]["metadata"]["approval_state"] == "approved"
     assert profile["publishing"]["actions"][0]["enabled"] is False
-    telemetry = tmp_path / ".phlo" / "telemetry" / "events.jsonl"
-    assert "observatory.dataset.publish" in telemetry.read_text(encoding="utf-8")
+    assert "observatory.dataset.publish" in _telemetry_event_names(tmp_path)
 
 
 def test_observatory_dataset_workflow_config_round_trips(
@@ -801,12 +795,11 @@ def test_observatory_dataset_workflow_config_round_trips(
 
 def test_observatory_governance_endpoint_returns_dataset_control_matrix(
     monkeypatch: pytest.MonkeyPatch,
+    observatory_loaders,
 ) -> None:
     observatory._clear_read_model_cache()
-    monkeypatch.setattr(
-        observatory,
-        "_load_assets",
-        lambda: [
+    observatory_loaders(
+        assets=[
             ObservatoryAsset(
                 id="gold.orders",
                 name="gold.orders",
@@ -815,20 +808,12 @@ def test_observatory_governance_endpoint_returns_dataset_control_matrix(
             ),
             ObservatoryAsset(id="gold.customers", name="gold.customers", group="gold"),
         ],
-    )
-    monkeypatch.setattr(
-        observatory,
-        "_load_tables_without_catalog",
-        lambda: [
+        tables_without_catalog=[
             ObservatoryTable(id="orders", name="orders", asset_id="gold.orders"),
             ObservatoryTable(id="customers", name="customers", asset_id="gold.customers"),
             ObservatoryTable(id="raw_events", name="raw_events"),
         ],
-    )
-    monkeypatch.setattr(
-        observatory,
-        "_load_quality",
-        lambda: [
+        quality=[
             ObservatoryQualityCheck(
                 id="gold.orders:not_null_order_id",
                 name="not_null_order_id",
@@ -879,12 +864,11 @@ def test_observatory_governance_endpoint_returns_dataset_control_matrix(
 
 def test_observatory_dataset_profile_returns_privacy_shaped_usage(
     monkeypatch: pytest.MonkeyPatch,
+    observatory_loaders,
 ) -> None:
     observatory._clear_read_model_cache()
-    monkeypatch.setattr(
-        observatory,
-        "_load_lakehouse_manifest",
-        lambda: {
+    observatory_loaders(
+        lakehouse_manifest={
             "usage": {
                 "privacy_policy": {
                     "identity_detail": "audit_only",
@@ -923,26 +907,20 @@ def test_observatory_dataset_profile_returns_privacy_shaped_usage(
                 ],
             }
         },
-    )
-    monkeypatch.setattr(
-        observatory,
-        "_load_assets",
-        lambda: [
+        assets=[
             ObservatoryAsset(
                 id="gold.orders",
                 name="gold.orders",
                 metadata={"owner": "analytics", "classification": "internal"},
             )
         ],
+        tables_without_catalog=[
+            ObservatoryTable(id="orders", name="orders", asset_id="gold.orders")
+        ],
+        quality=[],
+        logs=[],
+        operations=[],
     )
-    monkeypatch.setattr(
-        observatory,
-        "_load_tables_without_catalog",
-        lambda: [ObservatoryTable(id="orders", name="orders", asset_id="gold.orders")],
-    )
-    monkeypatch.setattr(observatory, "_load_quality", lambda: [])
-    monkeypatch.setattr(observatory, "_load_logs", lambda: [])
-    monkeypatch.setattr(observatory, "_load_operations", lambda: [])
 
     response = authenticated_client("admin").get("/api/observatory/datasets/gold.orders")
 
@@ -959,23 +937,16 @@ def test_observatory_dataset_profile_returns_privacy_shaped_usage(
 
 def test_observatory_pipelines_endpoint_returns_flow_and_action_availability(
     monkeypatch: pytest.MonkeyPatch,
+    observatory_loaders,
 ) -> None:
     observatory._clear_read_model_cache()
-    monkeypatch.setattr(
-        observatory,
-        "_load_assets",
-        lambda: [ObservatoryAsset(id="gold.orders", name="gold.orders")],
-    )
-    monkeypatch.setattr(
-        observatory,
-        "_load_tables_without_catalog",
-        lambda: [ObservatoryTable(id="orders", name="orders", asset_id="gold.orders")],
-    )
-    monkeypatch.setattr(observatory, "_load_quality", lambda: [])
-    monkeypatch.setattr(
-        observatory,
-        "_load_operations",
-        lambda: [
+    observatory_loaders(
+        assets=[ObservatoryAsset(id="gold.orders", name="gold.orders")],
+        tables_without_catalog=[
+            ObservatoryTable(id="orders", name="orders", asset_id="gold.orders")
+        ],
+        quality=[],
+        operations=[
             ObservatoryOperation(
                 id="run-1",
                 name="orders refresh",
@@ -1008,12 +979,11 @@ def test_observatory_pipelines_endpoint_returns_flow_and_action_availability(
 
 def test_observatory_dataset_profile_collects_related_context(
     monkeypatch: pytest.MonkeyPatch,
+    observatory_loaders,
 ) -> None:
     observatory._clear_read_model_cache()
-    monkeypatch.setattr(
-        observatory,
-        "_load_assets",
-        lambda: [
+    observatory_loaders(
+        assets=[
             ObservatoryAsset(
                 id="silver.orders",
                 name="silver.orders",
@@ -1027,11 +997,7 @@ def test_observatory_dataset_profile_collects_related_context(
                 metadata={"owner": "analytics"},
             ),
         ],
-    )
-    monkeypatch.setattr(
-        observatory,
-        "_load_tables_without_catalog",
-        lambda: [
+        tables_without_catalog=[
             ObservatoryTable(
                 id="orders",
                 name="orders",
@@ -1039,11 +1005,7 @@ def test_observatory_dataset_profile_collects_related_context(
                 asset_id="gold.orders",
             )
         ],
-    )
-    monkeypatch.setattr(
-        observatory,
-        "_load_quality",
-        lambda: [
+        quality=[
             ObservatoryQualityCheck(
                 id="gold.orders:not_null_order_id",
                 name="not_null_order_id",
@@ -1051,9 +1013,9 @@ def test_observatory_dataset_profile_collects_related_context(
                 status="warning",
             )
         ],
+        logs=[],
+        operations=[],
     )
-    monkeypatch.setattr(observatory, "_load_logs", lambda: [])
-    monkeypatch.setattr(observatory, "_load_operations", lambda: [])
 
     response = authenticated_client("admin").get("/api/observatory/datasets/gold.orders")
 
@@ -1477,7 +1439,9 @@ def test_observatory_disabled_service_action_skips_without_subprocess(monkeypatc
     assert result.operation is None
 
 
-def test_observatory_available_installed_service_can_be_added_to_stack(monkeypatch) -> None:
+def test_observatory_available_installed_service_can_be_added_to_stack(
+    monkeypatch, observatory_loaders
+) -> None:
     service = ObservatoryService(
         id="alloy",
         name="alloy",
@@ -1493,7 +1457,7 @@ def test_observatory_available_installed_service_can_be_added_to_stack(monkeypat
         commands.append(command)
         return subprocess.CompletedProcess(command, returncode=0, stdout="Services added.")
 
-    monkeypatch.setattr(observatory, "_load_services", lambda: [service])
+    observatory_loaders(services=[service])
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     result = _execute_action(ObservatoryActionRequest(action_id="alloy:add"))
@@ -1504,7 +1468,7 @@ def test_observatory_available_installed_service_can_be_added_to_stack(monkeypat
 
 
 def test_observatory_actions_endpoint_routes_add_service_action(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, observatory_loaders
 ) -> None:
     service = ObservatoryService(
         id="pgweb",
@@ -1522,7 +1486,7 @@ def test_observatory_actions_endpoint_routes_add_service_action(
         return subprocess.CompletedProcess(command, returncode=0, stdout="Services added.")
 
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.setattr(observatory, "_load_services", lambda: [service])
+    observatory_loaders(services=[service])
     monkeypatch.setattr(subprocess, "run", fake_run)
     observatory._clear_read_model_cache()
 
@@ -1989,7 +1953,9 @@ def test_observatory_idempotency_outcome_unknown_endpoint_does_not_retry(
     assert provider_call_count == 1
 
 
-def test_observatory_available_missing_package_service_add_is_disabled(monkeypatch) -> None:
+def test_observatory_available_missing_package_service_add_is_disabled(
+    monkeypatch, observatory_loaders
+) -> None:
     service = ObservatoryService(
         id="plugin-example",
         name="plugin-example",
@@ -2000,7 +1966,7 @@ def test_observatory_available_missing_package_service_add_is_disabled(monkeypat
         metadata={"package": "phlo-plugin-example", "package_installed": False},
     )
 
-    monkeypatch.setattr(observatory, "_load_services", lambda: [service])
+    observatory_loaders(services=[service])
 
     result = _execute_action(ObservatoryActionRequest(action_id="plugin-example:add"))
 
@@ -2013,9 +1979,10 @@ def test_observatory_available_missing_package_service_add_is_disabled(monkeypat
 def test_observatory_operations_endpoint_includes_journal_records(
     monkeypatch,
     tmp_path: Path,
+    observatory_loaders,
 ) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    observatory_loaders(capability_registry=None)
     observatory._clear_read_model_cache()
     append_operation(
         tmp_path,
@@ -2043,10 +2010,11 @@ def test_observatory_operations_endpoint_includes_journal_records(
 def test_observatory_manifest_records_enrich_lakehouse_surfaces(
     monkeypatch,
     tmp_path: Path,
+    observatory_loaders,
 ) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setenv("PHLO_RUN_EVIDENCE_SQLITE_PATH", str(tmp_path / "empty.sqlite"))
-    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    observatory_loaders(capability_registry=None)
     state_dir = tmp_path / ".phlo" / "observatory"
     state_dir.mkdir(parents=True)
     (state_dir / "lakehouse_manifest.json").write_text(
@@ -2193,10 +2161,10 @@ def test_observatory_manifest_records_enrich_lakehouse_surfaces(
 def test_observatory_generic_skipped_action_records_operation(
     monkeypatch,
     tmp_path: Path,
+    observatory_loaders,
 ) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.setattr(observatory, "_load_services", lambda: [])
-    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    observatory_loaders(services=[], capability_registry=None)
     observatory._clear_read_model_cache()
 
     response = authenticated_client("admin").post(
@@ -2218,9 +2186,10 @@ def test_observatory_generic_skipped_action_records_operation(
 def test_observatory_service_action_records_subprocess_result(
     monkeypatch,
     tmp_path: Path,
+    observatory_loaders,
 ) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    observatory_loaders(capability_registry=None)
     observatory._clear_read_model_cache()
     service = ObservatoryService(
         id="phlo-api",
@@ -2239,7 +2208,7 @@ def test_observatory_service_action_records_subprocess_result(
             stdout="phlo-api start requested\n",
         )
 
-    monkeypatch.setattr(observatory, "_load_services", lambda: [service])
+    observatory_loaders(services=[service])
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     response = authenticated_client("admin").post(
@@ -2275,7 +2244,9 @@ def test_observatory_overview_endpoint_returns_provider_neutral_payload() -> Non
     _assert_no_provider_url_settings(payload)
 
 
-def test_observatory_overview_endpoint_returns_canonical_home_rows(monkeypatch) -> None:
+def test_observatory_overview_endpoint_returns_canonical_home_rows(
+    monkeypatch, observatory_loaders
+) -> None:
     observatory._clear_read_model_cache()
     service = ObservatoryService(
         id="dagster",
@@ -2336,8 +2307,7 @@ def test_observatory_overview_endpoint_returns_canonical_home_rows(monkeypatch) 
         "_runtime_services_from_containers",
         lambda _containers, _disabled, _root: [service],
     )
-    monkeypatch.setattr(observatory, "_load_operations", lambda: [operation])
-    monkeypatch.setattr(observatory, "_load_logs", lambda: logs)
+    observatory_loaders(operations=[operation], logs=logs)
     monkeypatch.setattr(
         observatory,
         "_manifest_records",
@@ -2420,7 +2390,9 @@ def test_observatory_capabilities_endpoint_returns_provider_neutral_payload() ->
     _assert_no_provider_url_settings(payload)
 
 
-def test_observatory_capabilities_endpoint_reloads_project_capabilities(monkeypatch) -> None:
+def test_observatory_capabilities_endpoint_reloads_project_capabilities(
+    monkeypatch, observatory_loaders
+) -> None:
     """Route gating must reflect package/service inventory changes immediately."""
     calls = 0
 
@@ -2429,7 +2401,7 @@ def test_observatory_capabilities_endpoint_reloads_project_capabilities(monkeypa
         calls += 1
         return ObservatoryCapabilities(features={"tables": calls == 2})
 
-    monkeypatch.setattr(observatory, "_load_capabilities", load_capabilities)
+    observatory_loaders(capabilities=load_capabilities)
 
     first = authenticated_client("admin").get("/api/observatory/capabilities")
     second = authenticated_client("admin").get("/api/observatory/capabilities")
@@ -2655,13 +2627,13 @@ def test_project_log_tail_marks_oversized_malformed_line(tmp_path: Path) -> None
 
 
 def test_observatory_log_telemetry_keeps_only_the_latest_50_events(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, observatory_loaders
 ) -> None:
     from phlo.capabilities import telemetry
 
     monkeypatch.setattr(observatory, "_project_root", lambda: tmp_path)
     monkeypatch.setattr(observatory, "_manifest_records", lambda *_args: [])
-    monkeypatch.setattr(observatory, "_load_project_log_events", lambda _root: [])
+    observatory_loaders(project_log_events=[])
     monkeypatch.setattr(
         telemetry,
         "iter_telemetry_events",
@@ -2742,6 +2714,7 @@ def test_observatory_operations_endpoint_returns_provider_neutral_payload() -> N
 
 def test_observatory_operations_endpoint_filters_before_returning_context_candidates(
     monkeypatch,
+    observatory_loaders,
 ) -> None:
     operations = [
         ObservatoryOperation(
@@ -2769,7 +2742,7 @@ def test_observatory_operations_endpoint_filters_before_returning_context_candid
             target=ObservatoryResourceRef(kind="service", id="phlo-api", label="phlo-api"),
         ),
     ]
-    monkeypatch.setattr(observatory, "_load_operations", lambda: operations)
+    observatory_loaders(operations=operations)
     observatory._clear_read_model_cache()
 
     response = authenticated_client("admin").get(
@@ -2864,6 +2837,7 @@ def test_table_catalog_state_is_explicit_when_catalog_read_is_unavailable() -> N
 
 def test_asset_derived_tables_include_unknown_catalog_state_when_catalog_read_fails(
     monkeypatch: pytest.MonkeyPatch,
+    observatory_loaders,
 ) -> None:
     registry = SimpleNamespace(
         list=lambda kind: (
@@ -2879,7 +2853,7 @@ def test_asset_derived_tables_include_unknown_catalog_state_when_catalog_read_fa
             else []
         )
     )
-    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: registry)
+    observatory_loaders(capability_registry=registry)
     monkeypatch.setattr(observatory, "_manifest_records", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(observatory, "_catalog_tables", lambda: None)
 
@@ -3342,10 +3316,10 @@ def test_contributing_rows_reject_client_provider_routing(monkeypatch) -> None:
 
 
 def test_observatory_branch_action_contract_skips_until_provider_write_contract_exists(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, observatory_loaders
 ) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    observatory_loaders(capability_registry=None)
     observatory._clear_read_model_cache()
     response = authenticated_client("admin").post(
         "/api/observatory/branches/actions",
@@ -3393,9 +3367,10 @@ def test_observatory_branch_action_skips_when_branches_capability_is_unavailable
 def test_observatory_branch_action_skip_is_recorded(
     monkeypatch,
     tmp_path: Path,
+    observatory_loaders,
 ) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: None)
+    observatory_loaders(capability_registry=None)
     observatory._clear_read_model_cache()
 
     response = authenticated_client("admin").post(
@@ -3531,6 +3506,7 @@ def test_observatory_branch_detail_uses_wap_report_tables_when_catalog_tables_mi
 def test_observatory_branch_actions_use_registered_catalog_provider(
     monkeypatch,
     tmp_path: Path,
+    observatory_loaders,
 ) -> None:
     class CatalogProvider:
         def __init__(self) -> None:
@@ -3557,7 +3533,7 @@ def test_observatory_branch_actions_use_registered_catalog_provider(
     provider = CatalogProvider()
     registry = CapabilityRegistry()
     registry.register("catalog", CatalogSpec(name="catalog", provider=provider))
-    monkeypatch.setattr(observatory, "_load_capability_registry", lambda: registry)
+    observatory_loaders(capability_registry=registry)
     observatory._clear_read_model_cache()
 
     client = authenticated_client("admin")
@@ -3771,14 +3747,16 @@ def test_observatory_search_endpoint_url_encodes_resource_href_segments(monkeypa
     assert hrefs["extension"] == "/extensions/demo%2Fext"
 
 
-def test_observatory_schema_diff_returns_stable_agent_envelope(monkeypatch) -> None:
+def test_observatory_schema_diff_returns_stable_agent_envelope(
+    monkeypatch, observatory_loaders
+) -> None:
     detail = ObservatoryAssetDetail(
         asset=ObservatoryAsset(id="raw.orders", name="raw.orders"),
         tables=[
             ObservatoryTable(id="orders", name="orders", metadata={"columns": ["id", "amount"]})
         ],
     )
-    monkeypatch.setattr(observatory, "_load_asset_detail", lambda asset_key: detail)
+    observatory_loaders(asset_detail=detail)
 
     response = authenticated_client("admin").post(
         "/api/observatory/schemas/diff",

@@ -88,6 +88,18 @@ def test_resolve_dbt_target_name_falls_back_to_legacy_tag() -> None:
     assert resolve_dbt_target_name(runtime) == "qa"
 
 
+def test_resolve_dbt_target_name_defaults_without_tags() -> None:
+    """A runtime context without routing or legacy tags resolves to the default target."""
+    runtime = SimpleNamespace(
+        run_id="run-1",
+        partition_key=None,
+        tags={},
+        resources={},
+    )
+
+    assert resolve_dbt_target_name(runtime) == DEFAULT_DBT_TARGET
+
+
 def test_resolve_dbt_runtime_config_uses_ref_aware_catalog() -> None:
     runtime = SimpleNamespace(
         run_id="run-1",

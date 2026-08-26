@@ -1,146 +1,187 @@
-"""Workflow contracts for the focused container-security lanes.
+"""Parsed structural contracts for the container-security workflow lanes.
 
-Pins container-security.yml and container-rescan.yml structure: nightly
-schedules, SHA-pinned tooling, affected-image scoping, digest-based nightly
-rescans, and no docker build steps in either lane.
+Each workflow is loaded with ``yaml.safe_load`` and checked semantically:
+trigger events, referenced scripts/subcommands resolving on disk, and each
+lane's registry/reporting posture. Action SHA pinning is enforced globally by
+tests/tooling/test_toolchain_pins.py.
 """
 
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
+SECURITY_SCRIPT = REPO_ROOT / "scripts" / "container_security.py"
+
+_CONTAINER_SECURITY_INVOCATION = re.compile(
+    r"container_security\.py\s*(?:\\\n\s*)?([a-z][a-z0-9-]*)"
+)
 
 
-def _publisher_should_run(discovery_result: str, count: str) -> bool:
-    return discovery_result == "success" and count.isdecimal() and int(count) > 0
+def _load_workflow(name: str) -> dict[str, Any]:
+    return yaml.safe_load((WORKFLOW_ROOT / name).read_text(encoding="utf-8"))
 
 
-def test_candidate_comment_publisher_requires_successful_nonempty_discovery() -> None:
-    assert not _publisher_should_run("skipped", "")
-    assert not _publisher_should_run("success", "")
-    assert not _publisher_should_run("success", "0")
-    assert _publisher_should_run("success", "1")
+def _triggers(workflow: dict[str, Any]) -> dict[str, Any]:
+    return workflow.get("on") or workflow.get(True) or {}
 
 
-def test_container_workflows_run_validation_nightly_with_pinned_tools_and_digest_rescans() -> None:
-    validation = (REPO_ROOT / ".github/workflows/container-security.yml").read_text()
-    nightly = (REPO_ROOT / ".github/workflows/container-rescan.yml").read_text()
-    assert "schedule:" in validation
-    assert "pull_request:" in validation
-    assert "branches: [main]" in validation
-    assert "hadolint/hadolint@sha256:" in validation
-    assert "github.event.pull_request.base.sha" in validation
-    assert "github.event.pull_request.head.sha" in validation
-    assert 'affected-images --base "$BASE_SHA" --head "$HEAD_SHA"' in validation
-    assert "affected-images --all" in validation
-    assert "container-waivers.md" in validation
-    assert "docker build" not in validation
-    assert "aquasec/trivy" not in validation
-    assert "published-fleet" in nightly
-    assert "assemble-rescan-manifest" in nightly
-    assert "docker buildx imagetools inspect" in nightly
-    assert "generated-service-images.json" in nightly
-    assert '"$image@$digest"' in nightly
-    assert "gh run download" not in nightly
-    assert "docker build --" not in nightly
+def _steps(workflow: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    for job in (workflow.get("jobs") or {}).values():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps") or []:
+            if isinstance(step, dict):
+                yield step
 
 
-def test_container_security_pr_paths_cover_image_contract_inputs() -> None:
-    validation = (REPO_ROOT / ".github/workflows/container-security.yml").read_text()
+def _run_scripts(workflow: dict[str, Any]) -> list[str]:
+    return [step["run"] for step in _steps(workflow) if isinstance(step.get("run"), str)]
 
-    for path in (
-        '"packages/**"',
-        '"scripts/container_security.py"',
-        '"scripts/generated_image_matrix.py"',
-        '"security/**"',
-        '"pyproject.toml"',
-        '"uv.lock"',
+
+def _script_subcommands() -> set[str]:
+    """Collect every argparse subcommand registered by scripts/container_security.py."""
+    tree = ast.parse(SECURITY_SCRIPT.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_parser"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            names.add(node.args[0].value)
+    return names
+
+
+def _referenced_subcommands(scripts: list[str]) -> set[str]:
+    referenced: set[str] = set()
+    for script in scripts:
+        referenced.update(_CONTAINER_SECURITY_INVOCATION.findall(script))
+    return referenced
+
+
+def test_container_security_and_rescan_lanes_reference_real_inputs_and_registry() -> None:
+    security = _load_workflow("container-security.yml")
+    rescan = _load_workflow("container-rescan.yml")
+
+    security_triggers = _triggers(security)
+    assert {"pull_request", "workflow_dispatch", "schedule"} <= set(security_triggers)
+    assert {
+        "packages/**",
+        "scripts/container_security.py",
+        "scripts/generated_image_matrix.py",
+        "security/**",
+        "pyproject.toml",
+        "uv.lock",
+    } <= set(security_triggers["pull_request"]["paths"])
+    assert (REPO_ROOT / "packages").is_dir()
+    assert (REPO_ROOT / "security").is_dir()
+    for name in (
+        "scripts/container_security.py",
+        "scripts/generated_image_matrix.py",
+        "pyproject.toml",
+        "uv.lock",
     ):
-        assert path in validation
-    assert "if: always()" in validation
+        assert (REPO_ROOT / name).is_file()
+
+    rescan_triggers = _triggers(rescan)
+    assert {"schedule", "workflow_dispatch"} <= set(rescan_triggers)
+
+    subcommands = _script_subcommands()
+    security_commands = _referenced_subcommands(_run_scripts(security))
+    rescan_commands = _referenced_subcommands(_run_scripts(rescan))
+    assert security_commands <= subcommands
+    assert {"validate-waivers", "render-waivers", "affected-images"} <= security_commands
+    assert rescan_commands <= subcommands
+    assert {
+        "validate-waivers",
+        "published-fleet",
+        "assemble-rescan-manifest",
+        "apply-policy",
+    } <= rescan_commands
+
+    registries = {
+        step["with"]["registry"]
+        for step in _steps(rescan)
+        if str(step.get("uses", "")).startswith("docker/login-action")
+        and "registry" in (step.get("with") or {})
+    }
+    assert registries == {"ghcr.io"}
+    rescan_scripts = "\n".join(_run_scripts(rescan))
+    assert "imagetools inspect" in rescan_scripts
+    assert '"$image@$digest"' in rescan_scripts
 
 
-def test_workflow_security_audit_is_nightly_not_a_pr_ci_gate() -> None:
-    ci = (REPO_ROOT / ".github/workflows/ci.yml").read_text()
-    security = (REPO_ROOT / ".github/workflows/security.yml").read_text()
+def test_upstream_visibility_is_report_only_with_resolvable_references() -> None:
+    workflow = _load_workflow("upstream-image-visibility.yml")
+    triggers = _triggers(workflow)
 
-    assert "make zizmor" not in ci
-    assert "security / workflow hardening" in security
-    assert "make zizmor" in security
+    assert {"pull_request", "workflow_dispatch", "schedule"} <= set(triggers)
+    assert {"opened", "reopened", "synchronize", "labeled"} <= set(
+        triggers["pull_request"]["types"]
+    )
 
+    assert workflow["permissions"] == {"contents": "read"}
+    publisher = workflow["jobs"]["publish-candidate-comparison"]
+    assert publisher["permissions"] == {"actions": "read", "pull-requests": "write"}
 
-def test_upstream_visibility_is_scheduled_manual_non_blocking_and_strictly_reported() -> None:
-    workflow = (REPO_ROOT / ".github/workflows/upstream-image-visibility.yml").read_text()
-
-    for contract in (
-        "workflow_dispatch:",
-        "schedule:",
-        "permissions:",
-        "contents: read",
-        "timeout-minutes: 90",
-        "write-upstream-inventory",
-        "summarize-upstream-reports",
-        "aquasec/trivy@sha256:",
-        "$GITHUB_STEP_SUMMARY",
-        "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f",
-        "if: always()",
-        "if-no-files-found: error",
-        '"$reference" < /dev/null',
-    ):
-        assert contract in workflow
-    for forbidden in ("apply-policy", "container-waivers", "continue-on-error", "--exit-code 1"):
-        assert forbidden not in workflow
-
-
-def test_renovate_image_prs_compare_exact_changed_base_and_candidate_refs() -> None:
-    workflow = (REPO_ROOT / ".github/workflows/upstream-image-visibility.yml").read_text()
-
-    for contract in (
-        "pull_request:",
-        "types: [opened, reopened, synchronize, labeled]",
-        "discover-candidates",
-        "compare-candidates",
-        "github.event.pull_request.user.type == 'Bot'",
-        "startsWith(github.head_ref, 'renovate/')",
-        "contains(github.event.pull_request.labels.*.name, 'dependencies')",
-        "github.event.pull_request.base.sha",
-        "github.event.pull_request.head.sha",
+    used = _referenced_subcommands(_run_scripts(workflow))
+    assert used <= _script_subcommands()
+    assert {
         "write-upstream-candidates",
-        "--download-db-only",
-        "--skip-db-update",
+        "write-upstream-inventory",
         "compare-upstream-candidates",
-        "base-reports/*.json",
-        "candidate-reports/*.json",
-    ):
-        assert contract in workflow
-    for publisher_contract in (
-        "publish-candidate-comparison",
-        "needs: [discover-candidates, compare-candidates]",
-        "needs.discover-candidates.result == 'success'",
-        "fromJSON(needs.discover-candidates.outputs.count) > 0",
-        "actions: read",
-        "pull-requests: write",
-        "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
-        "name: upstream-image-candidate-comparison",
-        "<!-- phlo-upstream-image-candidate-comparison -->",
-        "gh api --paginate",
-        "--method PATCH",
-        "--method POST",
-        "--method DELETE",
-        "--input comment-payload.json",
-    ):
-        assert publisher_contract in workflow
-    publisher = workflow.split("  publish-candidate-comparison:", 1)[1].split("\n  scan:", 1)[0]
-    assert "permissions:\n      actions: read\n      pull-requests: write" in publisher
-    assert "actions/checkout" not in publisher
+        "summarize-upstream-reports",
+    } <= used
+    assert not used & {"apply-policy", "validate-waivers"}
+
+    uploads = [
+        (step.get("with") or {}).get("if-no-files-found")
+        for step in _steps(workflow)
+        if str(step.get("uses", "")).startswith("actions/upload-artifact")
+    ]
+    assert uploads
+    assert set(uploads) == {"error"}
+    assert any("GITHUB_STEP_SUMMARY" in script for script in _run_scripts(workflow))
+    assert all("continue-on-error" not in step for step in _steps(workflow))
 
 
-def test_renovate_config_validation_uses_pinned_node_and_renovate() -> None:
-    workflow = (REPO_ROOT / ".github/workflows/renovate-config.yml").read_text()
+def test_renovate_config_workflow_validates_the_repository_config() -> None:
+    workflow = _load_workflow("renovate-config.yml")
+    triggers = _triggers(workflow)
 
-    assert "pull_request:" in workflow
-    assert '"renovate.json"' in workflow
-    assert "actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238" in workflow
-    assert "npm install --global renovate@44.20.1" in workflow
-    assert "renovate-config-validator renovate.json" in workflow
-    assert "--no-global" not in workflow
-    assert "contents: read" in workflow
+    assert {"pull_request", "workflow_dispatch"} <= set(triggers)
+    assert "renovate.json" in triggers["pull_request"]["paths"]
+    assert workflow["permissions"] == {"contents": "read"}
+
+    config_path = REPO_ROOT / "renovate.json"
+    assert config_path.is_file()
+
+    validator_runs = [s for s in _run_scripts(workflow) if "renovate-config-validator" in s]
+    assert len(validator_runs) == 1
+    assert config_path.name in validator_runs[0]
+
+
+def test_zizmor_audit_runs_in_the_scheduled_security_lane_not_ci() -> None:
+    security = _load_workflow("security.yml")
+    ci = _load_workflow("ci.yml")
+
+    assert "schedule" in _triggers(security)
+    hardening_steps = [step for step in _steps(security) if "zizmor" in (step.get("name") or "")]
+    assert len(hardening_steps) == 1
+    assert hardening_steps[0]["run"] == "make zizmor"
+
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    assert re.search(r"(?m)^zizmor\s*:", makefile)
+
+    assert all("zizmor" not in script for script in _run_scripts(ci))

@@ -25,8 +25,6 @@ from pyiceberg.types import (
     TimestamptzType,
 )
 
-pytestmark = pytest.mark.integration
-
 
 class TestBasicTypeMapping:
     """Test basic Pandera to PyIceberg type conversions."""

@@ -106,38 +106,34 @@ class TestSurfaceOperationMapping:
         assert len(operation_names) == len(set(operation_names))
 
     def test_all_operations_have_resource_type(self):
-        """Verify all operations declare a resource_type."""
+        """Verify the operation table uses exactly the five regulated resources."""
         adapter = DagsterRegulatedSurfaceAdapter()
         operations = adapter.list_operations()
-        for op in operations:
-            assert "resource_type" in op
-            assert op["resource_type"] in {
-                "asset",
-                "run",
-                "service",
-                "catalog",
-                "admin",
-            }
+        assert {op["resource_type"] for op in operations} == {
+            "asset",
+            "run",
+            "service",
+            "catalog",
+            "admin",
+        }
 
     def test_all_operations_have_action(self):
-        """Verify all operations declare an action."""
+        """Verify the operation table uses exactly the eleven canonical actions."""
         adapter = DagsterRegulatedSurfaceAdapter()
         operations = adapter.list_operations()
-        for op in operations:
-            assert "action" in op
-            assert op["action"] in {
-                "asset.read",
-                "asset.execute",
-                "asset.manage",
-                "run.read",
-                "run.execute",
-                "run.manage",
-                "service.read",
-                "catalog.read",
-                "catalog.manage",
-                "admin.read",
-                "admin.manage",
-            }
+        assert {op["action"] for op in operations} == {
+            "asset.read",
+            "asset.execute",
+            "asset.manage",
+            "run.read",
+            "run.execute",
+            "run.manage",
+            "service.read",
+            "catalog.read",
+            "catalog.manage",
+            "admin.read",
+            "admin.manage",
+        }
 
     def test_graphql_operations_in_framework_metadata(self):
         """Verify mapped operations include GraphQL operation names in framework_metadata."""

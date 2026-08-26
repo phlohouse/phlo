@@ -10,11 +10,28 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
+GATE_CHECK_NAME = "release candidate / status"
+IDENTITY_SCRIPT = REPO_ROOT / "scripts" / "release_identity.py"
+
+
+def _step_run_script(step: dict[str, Any]) -> str:
+    run = step.get("run")
+    return run if isinstance(run, str) else ""
+
+
+def _candidate_gate_steps(job: dict[str, Any]) -> list[dict[str, Any]]:
+    """Run steps that block until the aggregate candidate check concludes."""
+    return [
+        step
+        for step in job.get("steps", [])
+        if GATE_CHECK_NAME in _step_run_script(step) and "check-runs" in _step_run_script(step)
+    ]
 
 
 def test_candidate_status_fails_closed_on_every_release_critical_lane() -> None:
@@ -27,10 +44,13 @@ def test_candidate_status_fails_closed_on_every_release_critical_lane() -> None:
     assert candidate["jobs"]["status"]["name"] == "release candidate / status"
     assert candidate["jobs"]["status"]["if"] == "always()"
     assert candidate["jobs"]["status"]["needs"] == ["ci", "integration", "security", "nightly"]
-    assert (
-        "release-candidate-evidence-${{ github.sha }}"
-        in (WORKFLOW_ROOT / "release-candidate.yml").read_text()
+    upload = next(
+        step
+        for step in candidate["jobs"]["status"]["steps"]
+        if step.get("uses", "").startswith("actions/upload-artifact@")
     )
+    assert upload["with"]["name"] == "release-candidate-evidence-${{ github.sha }}"
+    assert upload["with"]["if-no-files-found"] == "error"
 
 
 def test_reusable_evidence_workflows_do_not_cancel_one_another() -> None:
@@ -64,35 +84,75 @@ def test_ci_status_includes_every_installed_provider_artifact_shard() -> None:
         3,
     ]
     assert "installed-provider-artifacts" in ci["jobs"]["ci-status"]["needs"]
-    assert '"${INSTALLED_PROVIDER_ARTIFACTS}"' in (WORKFLOW_ROOT / "ci.yml").read_text()
+    summary = ci["jobs"]["ci-status"]["steps"][0]
+    assert (
+        summary["env"]["INSTALLED_PROVIDER_ARTIFACTS"]
+        == "${{ needs.installed-provider-artifacts.result }}"
+    )
 
 
 def test_release_tag_requires_successful_aggregate_for_its_exact_sha() -> None:
-    release = (WORKFLOW_ROOT / "release.yml").read_text()
+    release = yaml.safe_load((WORKFLOW_ROOT / "release.yml").read_text())
+    tag_job = release["jobs"]["release-tag"]
 
-    assert "CANDIDATE_SHA: ${{ github.sha }}" in release
-    assert "check-runs?per_page=100" in release
-    assert (
-        'select(.name == "release candidate / status" and .app.slug == "github-actions")' in release
+    assert tag_job["permissions"]["checks"] == "read"
+
+    gates = _candidate_gate_steps(tag_job)
+    assert len(gates) == 1
+    gate = gates[0]
+    assert gate is tag_job["steps"][0]  # the gate runs before any side effect
+    assert gate["env"] == {
+        "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+        "CANDIDATE_SHA": "${{ github.sha }}",
+        "REPOSITORY": "${{ github.repository }}",
+    }
+    assert gate["shell"] == "bash"
+    assert gate["run"].lstrip().startswith("set -euo pipefail")
+    assert gate["run"].count("exit 1") >= 2  # failed conclusion and timeout abort
+    assert "if" not in gate
+    assert "continue-on-error" not in gate
+    assert not tag_job.get("continue-on-error")
+
+    identity = next(step for step in tag_job["steps"] if step.get("id") == "release-identity")
+    assert identity["env"]["CANDIDATE_SHA"] == "${{ github.sha }}"
+    assert identity["env"]["RELEASE_BRANCH"] == "${{ github.ref_name }}"
+    assert "scripts/release_identity.py source" in _step_run_script(identity)
+    assert IDENTITY_SCRIPT.is_file()
+
+    verify = next(
+        step
+        for step in tag_job["steps"]
+        if (step.get("env") or {}).get("TAG") == "${{ steps.release-identity.outputs.tag }}"
     )
-    assert "failure|cancelled|skipped|timed_out|action_required" in release
-    assert "checks: read" in release
-    assert 'candidate_sha="$(git rev-parse HEAD)"' in release
-    assert "Require successful release-candidate evidence for tag target" in release
-    assert "Prove the ReleaseX candidate and proposed tag identity" in release
-    assert "relx/release/monorepo/${RELEASE_BRANCH}-release-set" in release
-    assert "refs/tags/${tag} already exists" in release
-    assert "Verify created tag and GitHub Release target the candidate" in release
+    assert verify["env"]["CANDIDATE_SHA"] == "${{ github.sha }}"
 
 
 def test_release_publish_validates_the_complete_artifact_manifest() -> None:
-    release = (WORKFLOW_ROOT / "release.yml").read_text()
+    release = yaml.safe_load((WORKFLOW_ROOT / "release.yml").read_text())
+    publish_job = release["jobs"]["publish"]
 
-    assert "Validate the complete built artifact manifest" in release
-    assert "scripts/release_identity.py artifacts" in release
-    assert "scripts/release_identity.py publish-plan" in release
-    assert "All expected artifacts are already published with matching hashes." in release
-    assert "Remove already-published artifacts" not in release
+    gates = _candidate_gate_steps(publish_job)
+    assert len(gates) == 1
+    gate = gates[0]
+    assert set(gate["env"]) == {"GH_TOKEN", "REPOSITORY"}
+    assert gate["run"].lstrip().startswith("set -euo pipefail")
+    assert "git rev-parse HEAD" in gate["run"]  # SHA is derived from the tag target
+    assert "if" not in gate
+    assert "continue-on-error" not in gate
+    assert not publish_job.get("continue-on-error")
+
+    commands = [
+        line.split()
+        for step in publish_job["steps"]
+        for line in _step_run_script(step).splitlines()
+    ]
+    subcommands = {
+        parts[2]
+        for parts in commands
+        if len(parts) > 2 and parts[:2] == ["python", "scripts/release_identity.py"]
+    }
+    assert {"artifacts", "publish-plan"} <= subcommands
+    assert IDENTITY_SCRIPT.is_file()
 
 
 def test_manual_artifact_workflow_cannot_bypass_release_identity_checks() -> None:

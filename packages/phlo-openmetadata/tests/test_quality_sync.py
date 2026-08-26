@@ -290,9 +290,8 @@ class TestQualityCheckPublisher:
         stats = publisher.publish_test_cases(checks, "public.users", test_suite_name="custom_suite")
 
         assert stats["created"] == 1
-        # Verify suite name was used
-        call_args = publisher.om_client.create_test_case.call_args
-        assert call_args is not None
+        kwargs = publisher.om_client.create_test_case.call_args.kwargs
+        assert kwargs["test_suite_name"] == "custom_suite"
 
     def test_publish_test_results_success(self, publisher):
         """Test publishing test results successfully."""

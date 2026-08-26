@@ -1,13 +1,18 @@
-"""Contracts for the repository's pinned validation toolchain.
+"""Structural contracts for the repository's pinned validation toolchain.
 
-Every setup-uv step must match the repo pin, release.yml must reference the
-immutable ReleaseX revision exactly twice, and relx.toml must derive workspace
-versions transactionally.
+Workflows and pre-commit configuration are parsed as YAML and checked
+structurally: third-party actions must be SHA-pinned, toolchain steps must
+carry exact version pins, and every project uv invocation must run in
+locked mode.
 """
 
 import re
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
@@ -15,31 +20,116 @@ EXPECTED_UV_VERSION = "0.12.1"
 EXPECTED_RELX_VERSION = "v1.5.0"
 EXPECTED_RELX_REVISION = "5dc88dc73d728dd1560444baadf66d6115c1bec2"
 
+_SHA_REF = re.compile(r"@[0-9a-f]{40}$")
 
-def _workflow_texts() -> list[str]:
-    return [path.read_text(encoding="utf-8") for path in sorted(WORKFLOW_ROOT.glob("*.yml"))]
+# uv invocations that opt out of the project environment are allowed to skip
+# the lockfile; everything else operating on the project must be locked.
+_NO_PROJECT_MARKERS = ("--no-project",)
 
 
-def test_every_setup_uv_step_uses_the_repository_pin() -> None:
-    for workflow in _workflow_texts():
-        lines = workflow.splitlines()
-        for index, line in enumerate(lines):
-            if "uses: astral-sh/setup-uv@" not in line:
+def _workflow_paths() -> list[Path]:
+    return sorted(WORKFLOW_ROOT.glob("*.yml"))
+
+
+def _parse_yaml(path: Path) -> Any:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _iter_steps(value: Any) -> Iterator[dict[str, Any]]:
+    """Yield every job/composite-action step mapping in a parsed document."""
+    if isinstance(value, dict):
+        steps = value.get("steps")
+        if isinstance(steps, list):
+            for step in steps:
+                if isinstance(step, dict):
+                    yield step
+        for child in value.values():
+            yield from _iter_steps(child)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_steps(item)
+
+
+def _step_run_script(step: dict[str, Any]) -> str:
+    run = step.get("run")
+    return run if isinstance(run, str) else ""
+
+
+def _project_uv_lines(script: str) -> list[str]:
+    return [
+        line
+        for line in script.splitlines()
+        if re.search(r"\buv (run|sync|audit)\b", line)
+        and not any(marker in line for marker in _NO_PROJECT_MARKERS)
+    ]
+
+
+def test_workflow_actions_are_sha_pinned() -> None:
+    """Third-party actions must be referenced by an immutable commit SHA."""
+    for path in _workflow_paths():
+        for step in _iter_steps(_parse_yaml(path)):
+            uses = step.get("uses")
+            if not isinstance(uses, str) or uses.startswith(("./", "docker://")):
                 continue
-            setup_block = lines[index : index + 6]
-            assert any(
-                re.fullmatch(rf'\s+version: "{EXPECTED_UV_VERSION}"', block_line)
-                for block_line in setup_block
-            ), f"setup-uv step is not pinned to {EXPECTED_UV_VERSION}: {line}"
-            assert not any('version: "latest"' in block_line for block_line in setup_block)
+            assert _SHA_REF.search(uses), f"{path.name}: {uses!r} is not SHA-pinned"
 
 
-def test_release_workflow_uses_the_immutable_releasex_pin() -> None:
-    release = (WORKFLOW_ROOT / "release.yml").read_text(encoding="utf-8")
+def test_setup_uv_steps_pin_the_repository_uv_version() -> None:
+    """Every setup-uv step must request exactly the repository uv version."""
+    for path in _workflow_paths():
+        for step in _iter_steps(_parse_yaml(path)):
+            uses = step.get("uses")
+            if not (isinstance(uses, str) and uses.startswith("astral-sh/setup-uv@")):
+                continue
+            with_block = step.get("with")
+            version = with_block.get("version") if isinstance(with_block, dict) else None
+            assert version == EXPECTED_UV_VERSION, (
+                f"{path.name}: setup-uv is not pinned to {EXPECTED_UV_VERSION}"
+            )
 
-    assert release.count(f"uses: iamgp/ReleaseX@{EXPECTED_RELX_REVISION}") == 2
-    assert release.count(f"version: {EXPECTED_RELX_VERSION}") == 2
-    assert "iamgp/ReleaseX@v" not in release
+
+def test_release_workflow_pins_releasex_immutably() -> None:
+    """Release steps must use the pinned ReleaseX build at its fixed version."""
+    doc = _parse_yaml(WORKFLOW_ROOT / "release.yml")
+    releasex_steps = [
+        step
+        for step in _iter_steps(doc)
+        if isinstance(step.get("uses"), str) and step["uses"].startswith("iamgp/ReleaseX@")
+    ]
+    assert releasex_steps, "release.yml must invoke ReleaseX"
+    for step in releasex_steps:
+        assert step["uses"] == f"iamgp/ReleaseX@{EXPECTED_RELX_REVISION}"
+        assert (step.get("with") or {}).get("version") == EXPECTED_RELX_VERSION
+
+
+def test_workflow_uv_commands_run_in_locked_mode() -> None:
+    """Project uv invocations inside workflows must be locked."""
+    for path in _workflow_paths():
+        for step in _iter_steps(_parse_yaml(path)):
+            script = _step_run_script(step)
+            for line in _project_uv_lines(script):
+                if 'uv run "${run_args[@]}"' in line:
+                    assert "run_args=(--locked" in script, (
+                        f"{path.name}: run_args indirection without a locked default: {line}"
+                    )
+                else:
+                    assert "--locked" in line, f"{path.name}: unlocked uv command: {line}"
+
+
+def test_pre_commit_hooks_use_the_locked_project_toolchain() -> None:
+    """Pre-commit must drive tools through the locked project environment."""
+    config = _parse_yaml(REPO_ROOT / ".pre-commit-config.yaml")
+    repos = config.get("repos") or []
+    remote_tool_repos = [
+        repo for repo in repos if "astral-sh/ruff-pre-commit" in str(repo.get("repo", ""))
+    ]
+    assert not remote_tool_repos, "ruff must come from the project environment"
+
+    for repo in repos:
+        for hook in repo.get("hooks") or []:
+            entry = str(hook.get("entry", ""))
+            if entry.startswith("uv run"):
+                assert "--locked" in entry, f"unlocked pre-commit entry: {entry}"
 
 
 def test_releasex_prepares_derived_workspace_versions_transactionally() -> None:
@@ -80,58 +170,3 @@ def test_releasex_prepares_derived_workspace_versions_transactionally() -> None:
                     relative_path,
                     search,
                 )
-
-
-def test_makefile_project_commands_require_the_lockfile() -> None:
-    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
-    uv_run_lines = [line for line in makefile.splitlines() if "uv run" in line]
-
-    assert uv_run_lines
-    assert all("uv run --locked" in line for line in uv_run_lines), uv_run_lines
-    assert "uv sync --locked" in makefile
-
-
-def test_pre_commit_uses_the_locked_project_ruff_and_tools() -> None:
-    pre_commit = (REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    lockfile = (REPO_ROOT / "uv.lock").read_text(encoding="utf-8")
-    ruff_version = re.search(
-        r'\[\[package\]\]\nname = "ruff"\nversion = "([^"]+)"',
-        lockfile,
-    )
-
-    assert ruff_version is not None
-    assert ruff_version.group(1) == "0.15.9"
-    assert "https://github.com/astral-sh/ruff-pre-commit" not in pre_commit
-    assert "entry: uv run --locked ruff check --fix" in pre_commit
-    assert "entry: uv run --locked ruff format" in pre_commit
-
-    for line in pre_commit.splitlines():
-        if "entry: uv run" in line:
-            assert "--locked" in line, line
-
-
-def test_workflow_project_validation_commands_require_the_lockfile() -> None:
-    for workflow_path in sorted(WORKFLOW_ROOT.glob("*.yml")):
-        lines = workflow_path.read_text(encoding="utf-8").splitlines()
-        for index, line in enumerate(lines):
-            if "uv sync" in line and "--no-project" not in line:
-                assert "--locked" in line, f"{workflow_path}: {line}"
-            if "uv --project" in line and " run" in line and "--no-project" not in line:
-                assert "--locked" in line, f"{workflow_path}: {line}"
-            if "uv run" not in line:
-                continue
-            if "--no-project" in line:
-                continue
-            if 'uv run "${run_args[@]}"' in line:
-                assert any(
-                    "run_args=(--locked" in prior for prior in lines[max(0, index - 20) : index]
-                )
-            else:
-                assert "--locked" in line, f"{workflow_path}: {line}"
-
-
-def test_security_audit_uses_the_stable_pinned_uv_command() -> None:
-    security = (WORKFLOW_ROOT / "security.yml").read_text(encoding="utf-8")
-
-    assert "run: uv audit --locked" in security
-    assert "--preview-features audit-command" not in security

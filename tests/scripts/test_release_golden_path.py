@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location(
     "release_golden_path", REPO_ROOT / "scripts" / "release_golden_path.py"
@@ -840,53 +842,89 @@ def test_unexpected_exception_still_cleans_owned_paths(tmp_path: Path, monkeypat
     assert not project.exists()
 
 
-def test_dagster_build_receives_a_local_wheelhouse_arg() -> None:
-    service = (REPO_ROOT / "packages/phlo-dagster/src/phlo_dagster/service.yaml").read_text()
-    daemon = (REPO_ROOT / "packages/phlo-dagster/src/phlo_dagster/dagster-daemon.yaml").read_text()
-    dockerfile = (REPO_ROOT / "packages/phlo-dagster/src/phlo_dagster/Dockerfile").read_text()
-    trino_service = (REPO_ROOT / "packages/phlo-trino/src/phlo_trino/service.yaml").read_text()
-    api_service = (REPO_ROOT / "packages/phlo-api/src/phlo_api/service.yaml").read_text()
-    api_dockerfile = (REPO_ROOT / "packages/phlo-api/src/phlo_api/Dockerfile").read_text()
+def _dockerfile_lines(path: Path) -> list[str]:
+    """Return non-comment instruction lines, continuations kept intact."""
+    return [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
 
-    assert "PHLO_WHEELHOUSE: ${PHLO_WHEELHOUSE:-}" in service
-    assert "PHLO_WHEELHOUSE: ${PHLO_WHEELHOUSE:-}" in daemon
-    assert 'ARG PHLO_WHEELHOUSE=""' in dockerfile
-    assert "FROM python:3.12-slim AS phlo-build-context" in dockerfile
-    assert "COPY . ." in dockerfile
-    assert "RUN mkdir -p /opt/phlo-build-context/wheelhouse" in dockerfile
-    assert (
-        "COPY --from=phlo-build-context /opt/phlo-build-context/wheelhouse /opt/phlo-wheelhouse"
-        in dockerfile
+
+def test_dagster_build_receives_a_local_wheelhouse_arg() -> None:
+    yaml = pytest.importorskip("yaml", reason="service definitions are YAML")
+    dagster_pkg = REPO_ROOT / "packages/phlo-dagster/src/phlo_dagster"
+    service = yaml.safe_load((dagster_pkg / "service.yaml").read_text(encoding="utf-8"))
+    daemon = yaml.safe_load((dagster_pkg / "dagster-daemon.yaml").read_text(encoding="utf-8"))
+    dockerfile_lines = _dockerfile_lines(dagster_pkg / "Dockerfile")
+    trino_service = yaml.safe_load(
+        (REPO_ROOT / "packages/phlo-trino/src/phlo_trino/service.yaml").read_text(encoding="utf-8")
     )
-    assert "RUN --mount=" not in dockerfile
-    assert "--no-index --no-deps --reinstall --find-links" in dockerfile
-    assert '"phlo==$PHLO_VERSION"' in dockerfile
-    local_reinstall = dockerfile.rindex(
-        "uv pip install --system --no-index --no-deps --reinstall --find-links"
+    api_pkg = REPO_ROOT / "packages/phlo-api/src/phlo_api"
+    api_service = yaml.safe_load((api_pkg / "service.yaml").read_text(encoding="utf-8"))
+    api_dockerfile_lines = _dockerfile_lines(api_pkg / "Dockerfile")
+
+    # Both Dagster services must pass the local wheelhouse into their build.
+    for definition in (service, daemon):
+        assert "PHLO_WHEELHOUSE" in definition["build"]["args"]
+
+    # The runtime stage must declare the arg, receive the context-stage
+    # wheelhouse copy, and install phlo from it without network access.
+    assert any(line.startswith("ARG PHLO_WHEELHOUSE") for line in dockerfile_lines)
+    assert any(
+        line.startswith("FROM ") and line.endswith("AS phlo-build-context")
+        for line in dockerfile_lines
     )
-    dependency_install = dockerfile.index(
-        "uv pip install --system --prerelease explicit --find-links"
+    assert any(
+        line.startswith("COPY --from=phlo-build-context ")
+        and "/opt/phlo-wheelhouse" in line.split()
+        for line in dockerfile_lines
     )
-    assert local_reinstall > dependency_install
-    assert "- source: jvm.config" in trino_service
-    assert "dest: trino/jvm.config" in trino_service
-    assert "PHLO_WHEELHOUSE: ${PHLO_WHEELHOUSE:-}" in api_service
-    assert "dockerfile: phlo-api/Dockerfile" in api_service
-    assert "dest: phlo-api/Dockerfile" in api_service
-    assert (
-        "COPY --from=phlo-build-context /opt/phlo-build-context/wheelhouse /opt/phlo-wheelhouse"
-        in api_dockerfile
+    offline_install = [
+        index
+        for index, line in enumerate(dockerfile_lines)
+        if "uv pip install" in line and "--no-index" in line.split()
+    ]
+    online_dependency_install = next(
+        index
+        for index, line in enumerate(dockerfile_lines)
+        if "uv pip install" in line and "--prerelease explicit --find-links" in line
     )
-    assert "--no-index --no-deps --reinstall --find-links" in api_dockerfile
+    assert offline_install and max(offline_install) > online_dependency_install
+
+    # Trino ships its jvm.config; the API build mirrors the same wheelhouse contract.
+    assert any(item.get("dest") == "trino/jvm.config" for item in trino_service.get("files", []))
+    assert "PHLO_WHEELHOUSE" in api_service["build"]["args"]
+    assert api_service["build"]["dockerfile"] == "phlo-api/Dockerfile"
+    assert any(item.get("dest") == "phlo-api/Dockerfile" for item in api_service.get("files", []))
+    assert any(line.startswith("COPY --from=phlo-build-context ") for line in api_dockerfile_lines)
+    assert any(
+        "uv pip install" in line and "--no-index" in line.split() for line in api_dockerfile_lines
+    )
 
 
 def test_dagster_stable_version_install_keeps_base_requirements_unconditional() -> None:
-    dockerfile = (REPO_ROOT / "packages/phlo-dagster/src/phlo_dagster/Dockerfile").read_text()
+    dagster_pkg = REPO_ROOT / "packages/phlo-dagster/src/phlo_dagster"
+    dockerfile_lines = _dockerfile_lines(dagster_pkg / "Dockerfile")
 
-    assert 'base_requirements=("phlo[defaults]==$PHLO_VERSION"' in dockerfile
-    assert 'base_requirements+=("${prerelease_requirements[@]}")' in dockerfile
-    assert 'uv pip install --system --prerelease explicit "${base_requirements[@]}"' in dockerfile
-    assert 'if [ -n "$PHLO_PRERELEASE_REQUIREMENTS" ]; then' in dockerfile
+    assignment = next(
+        index for index, line in enumerate(dockerfile_lines) if "base_requirements+=(" in line
+    )
+    guarded_append = dockerfile_lines[assignment].rstrip("\\").strip()
+    # Prerelease extras are appended only when prerelease requirements exist.
+    assert 'if [ -n "$PHLO_PRERELEASE_REQUIREMENTS" ]' in guarded_append
+    assert 'base_requirements+=("${prerelease_requirements[@]}")' in guarded_append
+    assert guarded_append.endswith("fi;")
+
+    install = next(
+        index
+        for index, line in enumerate(dockerfile_lines)
+        if "uv pip install" in line and '"${base_requirements[@]}"' in line
+    )
+    # The base install itself runs outside any conditional: stable releases
+    # must not depend on prerelease requirements being present.
+    assert install > assignment
+    assert not dockerfile_lines[install].lstrip().startswith("if ")
 
 
 def test_configure_non_dev_compose_uses_docker_ephemeral_ports(tmp_path: Path, monkeypatch) -> None:

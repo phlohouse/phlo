@@ -585,7 +585,3 @@ class TestQualityCheckMetadata:
 
         assert "duplicate_count" in result.metadata
         assert "duplicate_percentage" in result.metadata
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

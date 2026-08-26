@@ -181,20 +181,19 @@ class TestMinioClientMocked:
         finally:
             os.unlink(temp_path)
 
-    def test_file_download_mocked(self):
+    def test_file_download_mocked(self, tmp_path):
         """Test file download with mocked client."""
         mock_client = MagicMock()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            download_path = Path(tmpdir) / "downloaded.txt"
+        download_path = Path(tmp_path) / "downloaded.txt"
 
-            mock_client.fget_object(
-                bucket_name="test-bucket",
-                object_name="test.txt",
-                file_path=str(download_path),
-            )
+        mock_client.fget_object(
+            bucket_name="test-bucket",
+            object_name="test.txt",
+            file_path=str(download_path),
+        )
 
-            mock_client.fget_object.assert_called_once()
+        mock_client.fget_object.assert_called_once()
 
     def test_list_objects_mocked(self):
         """Test listing objects with mocked client."""
@@ -276,7 +275,7 @@ class TestMinioIntegrationReal:
             except Exception:
                 pass
 
-    def test_upload_and_download_file(self, minio_client):
+    def test_upload_and_download_file(self, minio_client, tmp_path):
         """Test uploading and downloading a file."""
         import uuid
 
@@ -297,12 +296,11 @@ class TestMinioIntegrationReal:
             os.unlink(upload_path)
 
             # Download
-            with tempfile.TemporaryDirectory() as tmpdir:
-                download_path = Path(tmpdir) / "downloaded.txt"
-                minio_client.fget_object(bucket_name, object_name, str(download_path))
+            download_path = Path(tmp_path) / "downloaded.txt"
+            minio_client.fget_object(bucket_name, object_name, str(download_path))
 
-                # Verify content
-                assert download_path.read_bytes() == content
+            # Verify content
+            assert download_path.read_bytes() == content
         finally:
             # Cleanup
             try:

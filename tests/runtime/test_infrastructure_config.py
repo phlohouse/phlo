@@ -7,7 +7,6 @@ remote endpoints, regulated-mode key precedence with deprecation
 aliasing, and path-traversal rejection of PHLO_PROJECT_PATH.
 """
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -262,60 +261,58 @@ def test_infrastructure_config_get_container_name():
     assert config.get_container_name("nonexistent", "myproject") is None
 
 
-def test_load_infrastructure_config_with_file():
+def test_load_infrastructure_config_with_file(tmp_path):
     """Test loading config from phlo.yaml."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        config_path = Path(tmpdir) / "phlo.yaml"
+    config_path = Path(tmp_path) / "phlo.yaml"
 
-        phlo_config = {
-            "name": "test-project",
-            "infrastructure": {
-                "container_naming_pattern": "{project}_{service}",
-                "services": {
-                    "dagster_webserver": {
-                        "service_name": "dagster-webserver",
-                        "host": "localhost",
-                        "internal_host": "dagster",
-                    }
-                },
-            },
-        }
-
-        with config_path.open("w") as f:
-            yaml.dump(phlo_config, f)
-
-        clear_config_cache()
-        config = load_infrastructure_config(Path(tmpdir))
-
-        assert config.container_naming_pattern == "{project}_{service}"
-        assert len(config.services) == 1
-        assert "dagster_webserver" in config.services
-
-
-def test_get_container_name_helper():
-    """Test get_container_name helper function."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        config_path = Path(tmpdir) / "phlo.yaml"
-
-        phlo_config = {
-            "name": "test-project",
-            "infrastructure": {
-                "services": {
-                    "dagster_webserver": {
-                        "service_name": "dagster-webserver",
-                        "internal_host": "dagster",
-                    }
+    phlo_config = {
+        "name": "test-project",
+        "infrastructure": {
+            "container_naming_pattern": "{project}_{service}",
+            "services": {
+                "dagster_webserver": {
+                    "service_name": "dagster-webserver",
+                    "host": "localhost",
+                    "internal_host": "dagster",
                 }
             },
-        }
+        },
+    }
 
-        with config_path.open("w") as f:
-            yaml.dump(phlo_config, f)
+    with config_path.open("w") as f:
+        yaml.dump(phlo_config, f)
 
-        clear_config_cache()
-        name = get_container_name("dagster_webserver", "myproject", Path(tmpdir))
+    clear_config_cache()
+    config = load_infrastructure_config(Path(tmp_path))
 
-        assert name == "myproject-dagster-webserver-1"
+    assert config.container_naming_pattern == "{project}_{service}"
+    assert len(config.services) == 1
+    assert "dagster_webserver" in config.services
+
+
+def test_get_container_name_helper(tmp_path):
+    """Test get_container_name helper function."""
+    config_path = Path(tmp_path) / "phlo.yaml"
+
+    phlo_config = {
+        "name": "test-project",
+        "infrastructure": {
+            "services": {
+                "dagster_webserver": {
+                    "service_name": "dagster-webserver",
+                    "internal_host": "dagster",
+                }
+            }
+        },
+    }
+
+    with config_path.open("w") as f:
+        yaml.dump(phlo_config, f)
+
+    clear_config_cache()
+    name = get_container_name("dagster_webserver", "myproject", Path(tmp_path))
+
+    assert name == "myproject-dagster-webserver-1"
 
 
 def test_load_infrastructure_config_missing_file_returns_defaults(tmp_path: Path):

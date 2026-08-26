@@ -1,8 +1,8 @@
 """Tests for the dbt authorization module.
 
-Verifies the DbtSurfaceAdapter singleton, complete read/mutation command
-coverage without overlap, and enforcement: read commands skip authorization
-while mutation commands are denied unless policy allows them.
+Package-specific command-table coverage plus the shared surface-adapter
+contract from ``phlo_testing.authorization_surface``: reads skip enforcement,
+unknown commands deny closed, and mutations honor policy allow/deny.
 """
 
 from __future__ import annotations
@@ -11,6 +11,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from phlo_testing.authorization_surface import (
+    assert_mutation_enforcement_allows_and_denies,
+    assert_read_commands_allow_without_enforcement,
+    assert_unknown_command_denied,
+    reset_surface_adapter_singleton,
+)
 from phlo_dbt.authorization import (
     COMMAND_ACTION_MAP,
     COMMAND_RESOURCE_MAP,
@@ -30,10 +36,6 @@ class TestDbtSurfaceAdapter:
         adapter = DbtSurfaceAdapter()
         assert adapter.surface_name == SURFACE_NAME
 
-    def test_framework_type(self):
-        adapter = DbtSurfaceAdapter()
-        assert adapter.framework_type == "cli"
-
     def test_list_operations(self):
         adapter = DbtSurfaceAdapter()
         operations = adapter.list_operations()
@@ -45,9 +47,9 @@ class TestDbtSurfaceAdapter:
     def test_list_operations_has_required_fields(self):
         adapter = DbtSurfaceAdapter()
         for op in adapter.list_operations():
+            assert "operation_name" in op
             assert "action" in op
             assert "resource_type" in op
-            assert "operation_name" in op
 
     def test_is_active(self):
         adapter = DbtSurfaceAdapter()
@@ -58,17 +60,14 @@ class TestDbtSurfaceAdapter:
         adapter2 = DbtSurfaceAdapter.get_instance()
         assert adapter1 is adapter2
 
-    def test_read_commands_allowed(self):
-        adapter = DbtSurfaceAdapter()
-        for cmd in READ_COMMANDS:
-            result = adapter.check_command_authorization(cmd)
-            assert result.allowed, f"Read command {cmd} should be allowed"
+    def test_read_commands_allow_without_enforcement(self):
+        """Read commands allow without touching the enforcement path."""
+        with reset_surface_adapter_singleton(DbtSurfaceAdapter):
+            assert_read_commands_allow_without_enforcement(DbtSurfaceAdapter())
 
-    def test_unknown_command_denied(self):
-        adapter = DbtSurfaceAdapter()
-        result = adapter.check_command_authorization("dbt.unknown")
-        assert not result.allowed
-        assert result.reason_code == "unknown_command"
+    def test_unknown_command_denied_closed(self):
+        with reset_surface_adapter_singleton(DbtSurfaceAdapter):
+            assert_unknown_command_denied(DbtSurfaceAdapter(), "dbt.unknown")
 
 
 class TestMutationCommandMaps:
@@ -94,6 +93,10 @@ class TestMutationCommandMaps:
         """All mutation commands have resource mappings."""
         for cmd in MUTATION_COMMANDS:
             assert cmd in COMMAND_RESOURCE_MAP, f"Missing resource mapping for {cmd}"
+
+    def test_mutation_commands_have_action_mapping(self):
+        """All mutation commands have action mappings."""
+        for cmd in MUTATION_COMMANDS:
             assert cmd in COMMAND_ACTION_MAP, f"Missing action mapping for {cmd}"
 
 
@@ -102,31 +105,12 @@ class TestEnforcement:
 
     @pytest.fixture(autouse=True)
     def reset_singleton(self):
-        DbtSurfaceAdapter._instance = None
-        yield
-        DbtSurfaceAdapter._instance = None
+        with reset_surface_adapter_singleton(DbtSurfaceAdapter):
+            yield
 
-    def test_dbt_run_mutation_enforced(self):
-        """dbt.run goes through enforcement."""
-        adapter = DbtSurfaceAdapter()
-        with patch("phlo.security.enforcement.EnforcementContext") as mock_ctx:
-            mock_instance = MagicMock()
-            mock_ctx.get_instance.return_value = mock_instance
-            mock_instance.canonicalize.return_value = MagicMock(
-                subject="test-user",
-                principal_type="user",
-                roles=("admin",),
-                attributes={"authentication_source": "env"},
-            )
-            mock_instance.authorization_backend.explain_decision.return_value = MagicMock(
-                allowed=True,
-                reason_code=None,
-                policy_id=None,
-                explanation=None,
-            )
-
-            result = adapter.check_command_authorization("dbt.run")
-            assert result.allowed or not result.allowed
+    def test_dbt_run_mutation_honors_policy_decision(self):
+        """dbt.run flows a policy allow through and blocks a policy deny."""
+        assert_mutation_enforcement_allows_and_denies(DbtSurfaceAdapter(), "dbt.run")
 
     def test_read_commands_skip_enforcement(self):
         """Read commands do not go through enforcement."""

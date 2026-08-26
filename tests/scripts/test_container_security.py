@@ -204,17 +204,35 @@ def test_rescan_manifest_rejects_incomplete_duplicate_unexpected_and_malformed_r
 
 def test_upstream_runtime_inventory_is_complete_deduplicated_and_provenanced() -> None:
     inventory = container_security.upstream_runtime_inventory(REPO_ROOT)
-    root_image_documents = []
+    image_documents = []
     for path in sorted((REPO_ROOT / "packages").glob("*/src/**/*.yaml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         if isinstance(document, dict) and "image" in document:
-            root_image_documents.append(document)
+            image_documents.append((path.relative_to(REPO_ROOT).as_posix(), document))
+    build_arg_paths = {
+        path for path, document in image_documents if isinstance(document.get("build"), dict)
+    }
+    expected_sources: dict[str, list[str]] = {}
+    skipped_published_paths: list[str] = []
+    for path, document in image_documents:
+        if path in build_arg_paths:
+            continue
+        reference = document["image"]
+        if reference.startswith("${") and ":-" in reference and reference.endswith("}"):
+            reference = reference.split(":-", 1)[1][:-1]
+        if reference.startswith("ghcr.io/phlohouse/phlo-"):
+            skipped_published_paths.append(path)
+            continue
+        expected_sources.setdefault(reference, []).append(path)
+    derived_source_count = sum(len(sources) for sources in expected_sources.values())
 
     assert inventory["version"] == 1
-    assert len(root_image_documents) == 31
-    assert sum(isinstance(document.get("build"), dict) for document in root_image_documents) == 4
-    assert len(inventory["images"]) == 24
-    assert sum(len(image["sources"]) for image in inventory["images"]) == 27
+    assert len(image_documents) == (
+        len(build_arg_paths) + len(skipped_published_paths) + derived_source_count
+    )
+    assert len(inventory["images"]) == len(expected_sources)
+    assert {image["reference"] for image in inventory["images"]} == set(expected_sources)
+    assert sum(len(image["sources"]) for image in inventory["images"]) == derived_source_count
     assert inventory["images"] == sorted(inventory["images"], key=lambda item: item["reference"])
     for image in inventory["images"]:
         assert re.fullmatch(r".+:[^@]+@sha256:[0-9a-f]{64}", image["reference"])

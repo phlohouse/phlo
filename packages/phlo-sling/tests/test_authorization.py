@@ -1,9 +1,9 @@
 """Tests for the Sling authorization module.
 
-Covers principal resolution from env (service accounts, human subjects,
-dev-mode admin fallback, anonymous default), the Sling CLI surface adapter's
-command classification, mutation enforcement, and complete resource/action
-mappings with no unclassified commands.
+Package-specific command-table coverage plus the shared surface-adapter
+contract from ``phlo_testing.authorization_surface``: reads skip enforcement,
+unknown commands deny closed, mutation commands honor policy allow/deny, and
+the shared ``CliPrincipalResolver`` environment fallbacks hold.
 """
 
 from __future__ import annotations
@@ -14,6 +14,13 @@ from unittest.mock import patch
 import pytest
 
 from phlo.cli.authorization import CliPrincipalResolver
+from phlo_testing.authorization_surface import (
+    assert_mutation_enforcement_allows_and_denies,
+    assert_read_commands_allow_without_enforcement,
+    assert_unknown_command_denied,
+    reset_surface_adapter_singleton,
+    run_cli_principal_resolver_contract,
+)
 from phlo_sling.authorization import (
     COMMAND_ACTION_MAP,
     COMMAND_RESOURCE_MAP,
@@ -27,32 +34,7 @@ pytestmark = pytest.mark.core_regression
 
 
 class TestSlingPrincipalResolver:
-    """Tests for the shared CLI principal resolver."""
-
-    def test_resolve_service_account(self):
-        """PHLO_SERVICE_ACCOUNT creates service principal."""
-        env = {"PHLO_SERVICE_ACCOUNT": "ci-bot@phlo.svc"}
-        with patch.dict(os.environ, env, clear=True):
-            resolver = CliPrincipalResolver()
-            principal = resolver.resolve()
-            assert principal.subject == "ci-bot@phlo.svc"
-            assert principal.principal_type == "service"
-            assert "operators" in principal.groups
-
-    def test_resolve_human_principal(self):
-        """PHLO_AUTH_SUBJECT creates human principal."""
-        env = {
-            "PHLO_AUTH_SUBJECT": "user@example.com",
-            "PHLO_AUTH_TYPE": "user",
-            "PHLO_AUTH_GROUPS": "admin,developers",
-        }
-        with patch.dict(os.environ, env, clear=True):
-            resolver = CliPrincipalResolver()
-            principal = resolver.resolve()
-            assert principal.subject == "user@example.com"
-            assert principal.principal_type == "user"
-            assert "admin" in principal.groups
-            assert "developers" in principal.groups
+    """Extra principal-resolver edge case beyond the shared contract."""
 
     def test_resolve_human_principal_empty_groups(self):
         """PHLO_AUTH_SUBJECT with no groups."""
@@ -66,34 +48,19 @@ class TestSlingPrincipalResolver:
             assert principal.subject == "user@example.com"
             assert principal.groups == ()
 
-    def test_resolve_dev_mode_fallback(self):
-        """PHLO_DEV_MODE creates admin fallback with warning."""
-        env = {"PHLO_DEV_MODE": "1"}
-        with patch.dict(os.environ, env, clear=True):
-            resolver = CliPrincipalResolver()
-            principal = resolver.resolve()
-            assert principal.subject == "local:root"
-            assert principal.principal_type == "user"
-            assert "admin" in principal.groups
 
-    def test_resolve_anonymous_default(self):
-        """No env vars creates anonymous principal."""
-        env = {}
-        with patch.dict(os.environ, env, clear=True):
-            resolver = CliPrincipalResolver()
-            principal = resolver.resolve()
-            assert principal.subject == "anonymous"
-            assert principal.principal_type == "user"
+def test_cli_principal_resolver_contract():
+    """The shared CLI principal resolver environment fallbacks hold."""
+    run_cli_principal_resolver_contract()
 
 
 class TestSlingSurfaceAdapter:
     """Tests for SlingSurfaceAdapter."""
 
-    def setup_method(self):
-        SlingSurfaceAdapter._instance = None
-
-    def teardown_method(self):
-        SlingSurfaceAdapter._instance = None
+    @pytest.fixture(autouse=True)
+    def reset_singleton(self):
+        with reset_surface_adapter_singleton(SlingSurfaceAdapter):
+            yield
 
     def test_surface_name(self):
         adapter = SlingSurfaceAdapter()
@@ -137,25 +104,22 @@ class TestSlingSurfaceAdapter:
 class TestEnforcement:
     """Tests for Sling mutation enforcement."""
 
-    def setup_method(self):
-        SlingSurfaceAdapter._instance = None
+    @pytest.fixture(autouse=True)
+    def reset_singleton(self):
+        with reset_surface_adapter_singleton(SlingSurfaceAdapter):
+            yield
 
-    def teardown_method(self):
-        SlingSurfaceAdapter._instance = None
+    def test_read_commands_allow_without_enforcement(self):
+        """Read commands allow without touching the enforcement path."""
+        assert_read_commands_allow_without_enforcement(SlingSurfaceAdapter())
 
-    def test_check_read_command_allowed(self):
-        """Read commands are always allowed."""
-        adapter = SlingSurfaceAdapter()
-        for cmd in READ_COMMANDS:
-            result = adapter.check_command_authorization(cmd)
-            assert result.allowed, f"Read command {cmd} should be allowed"
+    def test_unknown_command_denied_closed(self):
+        """Unknown commands are denied closed."""
+        assert_unknown_command_denied(SlingSurfaceAdapter(), "sling.unknown")
 
-    def test_check_unknown_command_denied(self):
-        """Unknown commands are denied."""
-        adapter = SlingSurfaceAdapter()
-        result = adapter.check_command_authorization("unknown.command")
-        assert not result.allowed
-        assert result.reason_code == "unknown_command"
+    def test_sling_run_mutation_honors_policy_decision(self):
+        """sling.run flows a policy allow through and blocks a policy deny."""
+        assert_mutation_enforcement_allows_and_denies(SlingSurfaceAdapter(), "sling.run")
 
 
 class TestMutationCommandLists:

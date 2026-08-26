@@ -224,7 +224,7 @@ class TestDbtManifestParser:
         parser = DbtManifestParser(manifest_file)
         tests = parser.get_model_tests("model.my_project.stg_glucose_entries", sample_manifest)
 
-        assert len(tests) > 0
+        assert len(tests) == 1
 
     def test_extract_openmetadata_table_from_manifest(self, manifest_file, sample_manifest):
         """Test extracting OpenMetadata table from manifest."""
@@ -276,7 +276,7 @@ class TestDbtManifestParser:
         om_table = parser.extract_openmetadata_table(model, "bronze")
 
         freshness_tags = [t for t in om_table.tags or [] if "freshness" in t["name"]]
-        assert len(freshness_tags) > 0
+        assert len(freshness_tags) == 1
 
     @patch("phlo_openmetadata.dbt_sync.DbtManifestParser.load_manifest")
     @patch("phlo_openmetadata.dbt_sync.DbtManifestParser.load_catalog")
@@ -297,7 +297,7 @@ class TestDbtManifestParser:
 
         stats = parser.sync_to_openmetadata(om_client, schema_name="bronze")
 
-        assert stats["created"] >= 1
+        assert stats["created"] == 2
         assert om_client.create_or_update_table.called
 
     @patch("phlo_openmetadata.dbt_sync.DbtManifestParser.load_manifest")

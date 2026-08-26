@@ -1,7 +1,9 @@
 """Tests for OpenMetadata authorization module.
 
-Covers the OpenMetadata surface adapter, the read/mutation command maps
-(asserted disjoint), and mutation enforcement behavior.
+Package-specific surface metadata, operation listing, and command-table
+classification; the shared adapter contract (read allow-through, unknown
+deny-closed, mutation policy allow/deny) delegates to
+``phlo_testing.authorization_surface``.
 """
 
 from __future__ import annotations
@@ -10,6 +12,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from phlo_testing.authorization_surface import (
+    assert_mutation_enforcement_allows_and_denies,
+    assert_read_commands_allow_without_enforcement,
+    assert_unknown_command_denied,
+    reset_surface_adapter_singleton,
+)
 from phlo_openmetadata.authorization import (
     COMMAND_ACTION_MAP,
     COMMAND_RESOURCE_MAP,
@@ -58,16 +66,10 @@ class TestOpenMetadataSurfaceAdapter:
         assert adapter1 is adapter2
 
     def test_read_commands_allowed(self):
-        adapter = OpenMetadataSurfaceAdapter()
-        for cmd in READ_COMMANDS:
-            result = adapter.check_command_authorization(cmd)
-            assert result.allowed, f"Read command {cmd} should be allowed"
+        assert_read_commands_allow_without_enforcement(OpenMetadataSurfaceAdapter())
 
     def test_unknown_command_denied(self):
-        adapter = OpenMetadataSurfaceAdapter()
-        result = adapter.check_command_authorization("openmetadata.unknown")
-        assert not result.allowed
-        assert result.reason_code == "unknown_command"
+        assert_unknown_command_denied(OpenMetadataSurfaceAdapter(), "openmetadata.unknown")
 
 
 class TestMutationCommandMaps:
@@ -99,31 +101,14 @@ class TestEnforcement:
 
     @pytest.fixture(autouse=True)
     def reset_singleton(self):
-        OpenMetadataSurfaceAdapter._instance = None
-        yield
-        OpenMetadataSurfaceAdapter._instance = None
+        with reset_surface_adapter_singleton(OpenMetadataSurfaceAdapter):
+            yield
 
-    def test_openmetadata_sync_mutation_enforced(self):
-        """openmetadata.sync goes through enforcement."""
-        adapter = OpenMetadataSurfaceAdapter()
-        with patch("phlo.security.enforcement.EnforcementContext") as mock_ctx:
-            mock_instance = MagicMock()
-            mock_ctx.get_instance.return_value = mock_instance
-            mock_instance.canonicalize.return_value = MagicMock(
-                subject="test-user",
-                principal_type="user",
-                roles=("admin",),
-                attributes={"authentication_source": "env"},
-            )
-            mock_instance.authorization_backend.explain_decision.return_value = MagicMock(
-                allowed=True,
-                reason_code=None,
-                policy_id=None,
-                explanation=None,
-            )
-
-            result = adapter.check_command_authorization("openmetadata.sync")
-            assert result.allowed or not result.allowed
+    def test_openmetadata_sync_mutation_honors_policy_decision(self):
+        """openmetadata.sync honors both policy outcomes through enforcement."""
+        assert_mutation_enforcement_allows_and_denies(
+            OpenMetadataSurfaceAdapter(), "openmetadata.sync"
+        )
 
     def test_read_commands_skip_enforcement(self):
         """Read commands do not go through enforcement."""

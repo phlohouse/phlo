@@ -1,18 +1,23 @@
 """Tests for Nessie CLI authorization adapter.
 
-Also covers the shared CliPrincipalResolver precedence: service
-account, then human subject, then dev-mode fallback, then anonymous.
 Adapter tests assert singleton access, surface metadata, and that every
-declared mutation command maps to a resource and action.
+declared mutation command maps to a resource and action. The shared
+adapter contract (read allow-through, unknown deny-closed, mutation
+policy allow/deny) and the CliPrincipalResolver environment fallbacks
+delegate to ``phlo_testing.authorization_surface``.
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 
+from phlo_testing.authorization_surface import (
+    assert_mutation_enforcement_allows_and_denies,
+    assert_read_commands_allow_without_enforcement,
+    assert_unknown_command_denied,
+    run_cli_principal_resolver_contract,
+)
 from phlo_nessie import cli_branch
-from phlo.cli.authorization import CliPrincipalResolver
 from phlo_nessie.authorization import (
     COMMAND_ACTION_MAP,
     COMMAND_RESOURCE_MAP,
@@ -24,45 +29,9 @@ from phlo_nessie.authorization import (
 )
 
 
-class TestNessieCliPrincipalResolver:
-    """Tests for the shared CLI principal resolver."""
-
-    def test_resolve_service_account(self) -> None:
-        """Should resolve PHLO_SERVICE_ACCOUNT as service principal."""
-        with patch.dict("os.environ", {"PHLO_SERVICE_ACCOUNT": "ci-pipeline"}):
-            principal = CliPrincipalResolver.resolve()
-            assert principal.subject == "ci-pipeline"
-            assert principal.principal_type == "service"
-            assert "operators" in principal.groups
-
-    def test_resolve_human_principal(self) -> None:
-        """Should resolve PHLO_AUTH_SUBJECT as human principal."""
-        with patch.dict(
-            "os.environ",
-            {
-                "PHLO_AUTH_SUBJECT": "alice",
-                "PHLO_AUTH_TYPE": "user",
-                "PHLO_AUTH_GROUPS": "operators,admins",
-            },
-        ):
-            principal = CliPrincipalResolver.resolve()
-            assert principal.subject == "alice"
-            assert principal.principal_type == "user"
-            assert principal.groups == ("operators", "admins")
-
-    def test_resolve_dev_fallback(self) -> None:
-        """Should use dev fallback when PHLO_DEV_MODE set."""
-        with patch.dict("os.environ", {"PHLO_DEV_MODE": "true"}):
-            principal = CliPrincipalResolver.resolve()
-            assert principal.subject == "local:root"
-            assert principal.groups == ("admin",)
-
-    def test_resolve_anonymous_default(self) -> None:
-        """Should return anonymous principal when no auth env vars."""
-        principal = CliPrincipalResolver.resolve()
-        assert principal.subject == "anonymous"
-        assert principal.principal_type == "user"
-        assert principal.groups == ()
+def test_cli_principal_resolver_environment_fallbacks() -> None:
+    """Shared CliPrincipalResolver environment fallback contract."""
+    run_cli_principal_resolver_contract()
 
 
 class TestNessieCliSurfaceAdapter:
@@ -100,43 +69,15 @@ class TestNessieCliSurfaceAdapter:
 
     def test_read_commands_return_allow(self) -> None:
         """Read commands should return allow without enforcement."""
-        adapter = NessieCliSurfaceAdapter()
-        for cmd in READ_COMMANDS:
-            result = adapter.check_command_authorization(cmd)
-            assert result.allowed is True
+        assert_read_commands_allow_without_enforcement(NessieCliSurfaceAdapter())
 
     def test_unknown_commands_return_deny(self) -> None:
         """Unknown commands should return deny."""
-        adapter = NessieCliSurfaceAdapter()
-        result = adapter.check_command_authorization("branch.unknown")
-        assert result.allowed is False
-        assert result.reason_code == "unknown_command"
+        assert_unknown_command_denied(NessieCliSurfaceAdapter(), "branch.unknown")
 
-    def test_mutation_commands_call_enforce(self) -> None:
-        """Mutation commands should call enforce."""
-        adapter = NessieCliSurfaceAdapter()
-
-        mock_result = MagicMock()
-        mock_result.variant = "allow"
-
-        with patch("phlo.cli.authorization.enforce", return_value=mock_result):
-            with patch.object(adapter, "_resolver"):
-                from phlo.capabilities.interfaces import AuthPrincipal
-
-                adapter._resolver.resolve = MagicMock(
-                    return_value=AuthPrincipal(
-                        subject="test",
-                        principal_type="user",
-                        issuer="test",
-                        groups=(),
-                        attributes={},
-                    )
-                )
-
-                result = adapter.check_command_authorization("branch.create")
-
-                if result.variant == "deny":
-                    pass
+    def test_branch_create_mutation_honors_policy_decision(self) -> None:
+        """branch.create honors both policy outcomes through enforcement."""
+        assert_mutation_enforcement_allows_and_denies(NessieCliSurfaceAdapter(), "branch.create")
 
 
 class TestCommandClassification:

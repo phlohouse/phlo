@@ -8,8 +8,6 @@ best-effort.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from phlo.audit.events import (
@@ -20,7 +18,8 @@ from phlo.audit.events import (
 )
 from phlo.capabilities.interfaces import AuthPrincipal, ResourceRef
 from phlo.compliance.audit import InMemoryAuditStore, TamperEvidentAuditSink
-from phlo.security.enforcement import EnforcementContext, enforce
+from phlo.security.enforcement import enforce
+from tests.helpers import stubbed_enforcement_context
 
 
 class DurableSink:
@@ -98,27 +97,18 @@ def test_memory_backed_audit_sink_cannot_satisfy_durable_delivery() -> None:
         emitter.emit(_event(), require_durable=True)
 
 
-def test_required_audit_failure_fails_closed_for_allowed_mutation(monkeypatch) -> None:
-    monkeypatch.setattr(EnforcementContext, "_instance", None)
-    ctx = EnforcementContext.get_instance()
-    backend = MagicMock()
-    backend.explain_decision.return_value = MagicMock(
-        allowed=True, reason_code=None, policy_id=None, explanation=None
-    )
-    ctx._authorization_backend = backend
+def test_required_audit_failure_fails_closed_for_allowed_mutation() -> None:
     emitter = AuditEventEmitter("core")
     emitter.add_sink(FailingDurableSink())
-    ctx._audit_emitter = emitter
-    ctx._initialized = True
 
-    result = enforce(
-        principal=AuthPrincipal(subject="operator", principal_type="user", groups=()),
-        action="dataset.delete",
-        resource=ResourceRef(resource_type="dataset", resource_id="orders"),
-        surface="phlo-api",
-        require_durable_audit=True,
-    )
+    with stubbed_enforcement_context(emitter=emitter):
+        result = enforce(
+            principal=AuthPrincipal(subject="operator", principal_type="user", groups=()),
+            action="dataset.delete",
+            resource=ResourceRef(resource_type="dataset", resource_id="orders"),
+            surface="phlo-api",
+            require_durable_audit=True,
+        )
 
     assert result.variant == "error"
     assert result.reason_code == "audit_persistence_failed"
-    EnforcementContext.reset_instance()

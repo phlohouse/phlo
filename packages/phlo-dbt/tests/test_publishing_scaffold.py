@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from phlo_dbt.cli_publishing import scaffold_publishing_config
 
@@ -100,11 +101,11 @@ def test_scaffold_command_writes_file(tmp_path: Path, monkeypatch: pytest.Monkey
     assert result.exit_code == 0, result.output
 
     output_path = tmp_path / "publishing.yaml"
-    contents = output_path.read_text()
-    assert "publishing:" in contents
-    assert "demo:" in contents
-    assert "mrt_a: ref:mrt_a" in contents
-    assert "stg_b" not in contents
+    config = yaml.safe_load(output_path.read_text())
+    entry = config["publishing"]["demo"]
+    assert set(entry["tables"]) == {"mrt_a"}
+    assert entry["tables"]["mrt_a"] == "ref:mrt_a"
+    assert entry["dependencies"] == ["mrt_a"]
 
 
 def test_scaffold_command_can_write_physical_table_mappings(
@@ -138,7 +139,12 @@ def test_scaffold_command_can_write_physical_table_mappings(
     )
 
     assert result.exit_code == 0, result.output
-    assert "mrt_a: gold.mrt_a" in (tmp_path / "publishing.yaml").read_text()
+    assert (
+        yaml.safe_load((tmp_path / "publishing.yaml").read_text())["publishing"]["demo"]["tables"][
+            "mrt_a"
+        ]
+        == "gold.mrt_a"
+    )
 
 
 def test_scaffold_command_keeps_legacy_iceberg_schema_alias(
@@ -172,4 +178,9 @@ def test_scaffold_command_keeps_legacy_iceberg_schema_alias(
     )
 
     assert result.exit_code == 0, result.output
-    assert "mrt_a: gold.mrt_a" in (tmp_path / "publishing.yaml").read_text()
+    assert (
+        yaml.safe_load((tmp_path / "publishing.yaml").read_text())["publishing"]["demo"]["tables"][
+            "mrt_a"
+        ]
+        == "gold.mrt_a"
+    )

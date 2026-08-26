@@ -14,6 +14,8 @@ import tomllib
 import zipfile
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parents[2]
 VALIDATOR_PATH = ROOT / "scripts/validate_support_manifest.py"
 SPEC = importlib.util.spec_from_file_location("support_manifest_validator", VALIDATOR_PATH)
@@ -93,6 +95,7 @@ def test_provider_compatibility_validator_rejects_a_new_unbounded_provider(tmp_p
     ]
 
 
+@pytest.mark.integration
 def test_built_provider_wheels_install_and_import_with_the_declared_core_minimum(
     tmp_path: Path,
 ) -> None:
@@ -121,6 +124,7 @@ def test_built_provider_wheels_install_and_import_with_the_declared_core_minimum
             _run(str(python), "-c", f"import {module}")
 
 
+@pytest.mark.integration
 def test_older_core_resolution_is_rejected_before_provider_import(tmp_path: Path) -> None:
     wheelhouse = tmp_path / "wheelhouse"
     _run("uv", "build", "--all-packages", "--wheel", "--out-dir", str(wheelhouse))

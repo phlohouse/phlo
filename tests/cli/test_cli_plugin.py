@@ -101,6 +101,33 @@ def setup_registry():
     registry.clear()
 
 
+def _result(returncode=0, stdout="", stderr=""):
+    """Build a minimal subprocess result stand-in."""
+    return type("Result", (), {"returncode": returncode, "stdout": stdout, "stderr": stderr})()
+
+
+def install_fake_run(respond=None, *, record_kwargs=False):
+    """Patch run_command/run to record invocations; returns the recording list.
+
+    Returns ``(calls, fake_run)``. Every invocation appends its argv to
+    ``calls`` -- or an ``(argv, kwargs)`` pair when ``record_kwargs`` is set --
+    and ``fake_run(argv, **kwargs)`` replays ``respond(argv, kwargs)``,
+    falling back to a successful empty result.
+    """
+    calls: list = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs) if record_kwargs else argv)
+        return respond(argv, kwargs) if respond is not None else _result()
+
+    return calls, fake_run
+
+
+def _compose_config(services):
+    """Serialized docker compose config payload served by fake runners."""
+    return json.dumps({"name": "test-project", "services": services})
+
+
 def test_plugin_list_json_installed(setup_registry):
     """List command returns installed plugins as JSON."""
     # #given
@@ -184,42 +211,31 @@ def test_plugin_check_containers_checks_generated_project(monkeypatch, setup_reg
     """Container checks run tools against files generated in an external project."""
     from phlo.cli.commands.plugin import check as check_module
 
-    calls = []
-
-    def fake_run(command, **kwargs):
-        calls.append((command, kwargs))
-        if command[0] == "/bin/phlo":
+    def respond(argv, kwargs):
+        if argv[0] == "/bin/phlo":
             project = kwargs["cwd"]
             dockerfile = project / ".phlo" / "dagster" / "Dockerfile"
             dockerfile.parent.mkdir(parents=True, exist_ok=True)
             dockerfile.write_text("FROM python:3.11\n")
-        if command[:3] == ["/bin/docker", "compose", "--profile"] and command[-2:] == [
+        if argv[:3] == ["/bin/docker", "compose", "--profile"] and argv[-2:] == [
             "--format",
             "json",
         ]:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 0,
-                    "stdout": json.dumps(
-                        {
-                            "name": "test-project",
-                            "services": {
-                                "dagster": {"image": "example/dagster:1"},
-                                "observatory": {"image": "example/observatory:1"},
-                            },
-                        }
-                    ),
-                    "stderr": "",
-                },
-            )()
-        if command[:3] == ["/bin/docker", "image", "inspect"]:
-            return type("Result", (), {"returncode": 0, "stdout": "sha256:test\n", "stderr": ""})()
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            return _result(
+                stdout=_compose_config(
+                    {
+                        "dagster": {"image": "example/dagster:1"},
+                        "observatory": {"image": "example/observatory:1"},
+                    }
+                )
+            )
+        if argv[:3] == ["/bin/docker", "image", "inspect"]:
+            return _result(stdout="sha256:test\n")
+        return _result()
 
-    monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
+    calls, fake_run = install_fake_run(respond, record_kwargs=True)
     monkeypatch.setattr(check_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
     monkeypatch.setattr(check_module, "discover_plugins", lambda **_: {"service": []})
     monkeypatch.setattr(check_module, "validate_plugins", lambda: {"valid": [], "invalid": []})
 
@@ -334,8 +350,7 @@ def test_plugin_check_containers_reports_tool_failure(monkeypatch, tmp_path):
     """A generated-container tool failure is reported as a CLI failure."""
     from phlo.cli.commands.plugin import check as check_module
 
-    def fake_run(command, **kwargs):
-        return type("Result", (), {"returncode": 1, "stdout": "bad", "stderr": "failure"})()
+    _, fake_run = install_fake_run(lambda argv, kwargs: _result(1, "bad", "failure"))
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
     monkeypatch.setattr(check_module.subprocess, "run", fake_run)
@@ -362,8 +377,7 @@ def test_plugin_check_containers_bounds_large_tool_failure_output(monkeypatch, t
     stdout = "stdout-start\n" + ("x" * (check_module.MAX_TOOL_OUTPUT_CHARS + 100)) + "\nstdout-end"
     stderr = "stderr-start\n" + ("y" * (check_module.MAX_TOOL_OUTPUT_CHARS + 100)) + "\nstderr-end"
 
-    def fake_run(command, **kwargs):
-        return type("Result", (), {"returncode": 1, "stdout": stdout, "stderr": stderr})()
+    _, fake_run = install_fake_run(lambda argv, kwargs: _result(1, stdout, stderr))
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
     monkeypatch.setattr(check_module.subprocess, "run", fake_run)
@@ -391,11 +405,7 @@ def test_trivy_image_scan_retains_a_parseable_bounded_json_report(monkeypatch, t
 
     def fake_capture(command, **kwargs):
         capture["max_output_chars"] = kwargs["max_output_chars"]
-        return type(
-            "Result",
-            (),
-            {"returncode": 1, "stdout": '{"Results": []}', "stderr": "findings"},
-        )()
+        return _result(1, '{"Results": []}', "findings")
 
     monkeypatch.setattr(check_module, "_run_with_capture", fake_capture)
 
@@ -427,16 +437,14 @@ def test_plugin_check_containers_keeps_large_compose_config_parseable(monkeypatc
         },
     }
 
-    def fake_run(command, **kwargs):
-        if command[:3] == ["/bin/docker", "compose", "--profile"]:
-            return type(
-                "Result",
-                (),
-                {"returncode": 0, "stdout": json.dumps(compose_config), "stderr": ""},
-            )()
-        if command[:3] == ["/bin/docker", "image", "inspect"]:
-            return type("Result", (), {"returncode": 0, "stdout": "sha256:test\n", "stderr": ""})()
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+    def respond(argv, kwargs):
+        if argv[:3] == ["/bin/docker", "compose", "--profile"]:
+            return _result(stdout=_compose_config(compose_config["services"]))
+        if argv[:3] == ["/bin/docker", "image", "inspect"]:
+            return _result(stdout="sha256:test\n")
+        return _result()
+
+    _, fake_run = install_fake_run(respond)
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
 
@@ -453,42 +461,24 @@ def test_plugin_check_containers_builds_a_shared_exact_image_once(monkeypatch, t
     """Services sharing one exact build tag must retain the image ID that gets scanned."""
     from phlo.cli.commands.plugin import check as check_module
 
-    calls: list[list[str]] = []
-
-    def fake_run(command, **kwargs):
-        calls.append(command)
-        if command[:3] == ["/bin/docker", "compose", "--profile"] and command[-2:] == [
+    def respond(argv, kwargs):
+        if argv[:3] == ["/bin/docker", "compose", "--profile"] and argv[-2:] == [
             "--format",
             "json",
         ]:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 0,
-                    "stdout": json.dumps(
-                        {
-                            "name": "test-project",
-                            "services": {
-                                "server": {
-                                    "image": "example/server:1",
-                                    "build": {"context": "."},
-                                },
-                                "setup": {
-                                    "image": "example/server:1",
-                                    "build": {"context": "."},
-                                },
-                            },
-                        }
-                    ),
-                    "stderr": "",
-                },
-            )()
-        if command[:3] == ["/bin/docker", "image", "inspect"]:
-            return type(
-                "Result", (), {"returncode": 0, "stdout": "sha256:shared\n", "stderr": ""}
-            )()
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            return _result(
+                stdout=_compose_config(
+                    {
+                        "server": {"image": "example/server:1", "build": {"context": "."}},
+                        "setup": {"image": "example/server:1", "build": {"context": "."}},
+                    }
+                )
+            )
+        if argv[:3] == ["/bin/docker", "image", "inspect"]:
+            return _result(stdout="sha256:shared\n")
+        return _result()
+
+    calls, fake_run = install_fake_run(respond)
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
 
@@ -510,51 +500,30 @@ def test_plugin_check_containers_scans_each_build_before_starting_the_next(monke
     """Generated builds use disposable cache and get scanned before disk use accumulates."""
     from phlo.cli.commands.plugin import check as check_module
 
-    calls: list[list[str]] = []
     inspect_counts: dict[str, int] = {}
 
-    def fake_run(command, **kwargs):
-        calls.append(command)
-        if command[:3] == ["/bin/docker", "compose", "--profile"] and command[-2:] == [
+    def respond(argv, kwargs):
+        if argv[:3] == ["/bin/docker", "compose", "--profile"] and argv[-2:] == [
             "--format",
             "json",
         ]:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 0,
-                    "stdout": json.dumps(
-                        {
-                            "name": "test-project",
-                            "services": {
-                                "one": {
-                                    "image": "example/one:1",
-                                    "build": {"context": "one"},
-                                },
-                                "two": {
-                                    "image": "example/two:1",
-                                    "build": {"context": "two"},
-                                },
-                            },
-                        }
-                    ),
-                    "stderr": "",
-                },
-            )()
-        if command[:3] == ["/bin/docker", "image", "inspect"]:
-            image = command[-1]
+            return _result(
+                stdout=_compose_config(
+                    {
+                        "one": {"image": "example/one:1", "build": {"context": "one"}},
+                        "two": {"image": "example/two:1", "build": {"context": "two"}},
+                    }
+                )
+            )
+        if argv[:3] == ["/bin/docker", "image", "inspect"]:
+            image = argv[-1]
             inspect_counts[image] = inspect_counts.get(image, 0) + 1
             if inspect_counts[image] == 1:
-                return type(
-                    "Result", (), {"returncode": 1, "stdout": "", "stderr": "No such image"}
-                )()
-            return type(
-                "Result",
-                (),
-                {"returncode": 0, "stdout": f"sha256:{image.split('/')[1][:-2]}\n", "stderr": ""},
-            )()
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+                return _result(1, "", "No such image")
+            return _result(stdout=f"sha256:{image.split('/')[1][:-2]}\n")
+        return _result()
+
+    calls, fake_run = install_fake_run(respond)
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
 
@@ -601,37 +570,23 @@ def test_plugin_check_containers_remote_mode_never_builds_or_pulls(monkeypatch, 
     """Published images resolve to immutable digests and scan without local image storage."""
     from phlo.cli.commands.plugin import check as check_module
 
-    calls: list[list[str]] = []
-
-    def fake_run(command, **kwargs):
-        calls.append(command)
-        if command[:3] == ["/bin/docker", "compose", "--profile"]:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 0,
-                    "stdout": json.dumps(
-                        {
-                            "name": "test-project",
-                            "services": {
-                                "one": {
-                                    "image": "ghcr.io/phlohouse/phlo-one:1.2.3",
-                                    "build": {"context": "one"},
-                                }
-                            },
+    def respond(argv, kwargs):
+        if argv[:3] == ["/bin/docker", "compose", "--profile"]:
+            return _result(
+                stdout=_compose_config(
+                    {
+                        "one": {
+                            "image": "ghcr.io/phlohouse/phlo-one:1.2.3",
+                            "build": {"context": "one"},
                         }
-                    ),
-                    "stderr": "",
-                },
-            )()
-        if command[1:4] == ["buildx", "imagetools", "inspect"]:
-            return type(
-                "Result",
-                (),
-                {"returncode": 0, "stdout": f'"sha256:{"a" * 64}"\n', "stderr": ""},
-            )()
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+                    }
+                )
+            )
+        if argv[1:4] == ["buildx", "imagetools", "inspect"]:
+            return _result(stdout=f'"sha256:{"a" * 64}"\n')
+        return _result()
+
+    calls, fake_run = install_fake_run(respond)
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
 
@@ -659,49 +614,35 @@ def test_plugin_check_containers_removes_only_images_created_for_the_check(monke
     """Temporary validation images are removed without touching pre-existing tags."""
     from phlo.cli.commands.plugin import check as check_module
 
-    calls: list[list[str]] = []
     new_image_inspects = 0
 
-    def fake_run(command, **kwargs):
+    def respond(argv, kwargs):
         nonlocal new_image_inspects
-        calls.append(command)
-        if command[:3] == ["/bin/docker", "compose", "--profile"] and command[-2:] == [
+        if argv[:3] == ["/bin/docker", "compose", "--profile"] and argv[-2:] == [
             "--format",
             "json",
         ]:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 0,
-                    "stdout": json.dumps(
-                        {
-                            "name": "test-project",
-                            "services": {
-                                "new": {
-                                    "image": "example/new:1",
-                                    "build": {"context": "."},
-                                },
-                                "existing": {"image": "example/existing:1"},
-                            },
-                        }
-                    ),
-                    "stderr": "",
-                },
-            )()
-        if command[:3] == ["/bin/docker", "image", "inspect"]:
-            image = command[-1]
+            return _result(
+                stdout=_compose_config(
+                    {
+                        "new": {"image": "example/new:1", "build": {"context": "."}},
+                        "existing": {"image": "example/existing:1"},
+                    }
+                )
+            )
+        if argv[:3] == ["/bin/docker", "image", "inspect"]:
+            image = argv[-1]
             if image == "example/new:1":
                 new_image_inspects += 1
                 if new_image_inspects == 1:
-                    return type(
-                        "Result", (), {"returncode": 1, "stdout": "", "stderr": "No such image"}
-                    )()
+                    return _result(1, "", "No such image")
                 image_id = "sha256:new"
             else:
                 image_id = "sha256:existing"
-            return type("Result", (), {"returncode": 0, "stdout": f"{image_id}\n", "stderr": ""})()
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            return _result(stdout=f"{image_id}\n")
+        return _result()
+
+    calls, fake_run = install_fake_run(respond)
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
 
@@ -723,40 +664,26 @@ def test_plugin_check_containers_restores_preexisting_local_image_tag(monkeypatc
     """A validation build cannot replace an image tag that the operator already had."""
     from phlo.cli.commands.plugin import check as check_module
 
-    calls: list[list[str]] = []
     inspect_count = 0
 
-    def fake_run(command, **kwargs):
+    def respond(argv, kwargs):
         nonlocal inspect_count
-        calls.append(command)
-        if command[:3] == ["/bin/docker", "compose", "--profile"] and command[-2:] == [
+        if argv[:3] == ["/bin/docker", "compose", "--profile"] and argv[-2:] == [
             "--format",
             "json",
         ]:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 0,
-                    "stdout": json.dumps(
-                        {
-                            "name": "test-project",
-                            "services": {
-                                "existing": {
-                                    "image": "example/existing:1",
-                                    "build": {"context": "."},
-                                }
-                            },
-                        }
-                    ),
-                    "stderr": "",
-                },
-            )()
-        if command[:3] == ["/bin/docker", "image", "inspect"]:
+            return _result(
+                stdout=_compose_config(
+                    {"existing": {"image": "example/existing:1", "build": {"context": "."}}}
+                )
+            )
+        if argv[:3] == ["/bin/docker", "image", "inspect"]:
             inspect_count += 1
             image_id = "sha256:original" if inspect_count == 1 else "sha256:validation"
-            return type("Result", (), {"returncode": 0, "stdout": f"{image_id}\n", "stderr": ""})()
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            return _result(stdout=f"{image_id}\n")
+        return _result()
+
+    calls, fake_run = install_fake_run(respond)
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
 
@@ -780,35 +707,22 @@ def test_plugin_check_containers_restores_preexisting_pulled_image_tag(monkeypat
     """A validation pull cannot refresh an image tag that the operator already had."""
     from phlo.cli.commands.plugin import check as check_module
 
-    calls: list[list[str]] = []
     inspect_count = 0
 
-    def fake_run(command, **kwargs):
+    def respond(argv, kwargs):
         nonlocal inspect_count
-        calls.append(command)
-        if command[:3] == ["/bin/docker", "compose", "--profile"] and command[-2:] == [
+        if argv[:3] == ["/bin/docker", "compose", "--profile"] and argv[-2:] == [
             "--format",
             "json",
         ]:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 0,
-                    "stdout": json.dumps(
-                        {
-                            "name": "test-project",
-                            "services": {"remote": {"image": "example/remote:latest"}},
-                        }
-                    ),
-                    "stderr": "",
-                },
-            )()
-        if command[:3] == ["/bin/docker", "image", "inspect"]:
+            return _result(stdout=_compose_config({"remote": {"image": "example/remote:latest"}}))
+        if argv[:3] == ["/bin/docker", "image", "inspect"]:
             inspect_count += 1
             image_id = "sha256:original" if inspect_count == 1 else "sha256:pulled"
-            return type("Result", (), {"returncode": 0, "stdout": f"{image_id}\n", "stderr": ""})()
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            return _result(stdout=f"{image_id}\n")
+        return _result()
+
+    calls, fake_run = install_fake_run(respond)
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
 
@@ -832,12 +746,7 @@ def test_existing_image_lookup_fails_closed_on_inspect_error(tmp_path) -> None:
     """A Docker inspect outage cannot be mistaken for an absent operator image."""
     from phlo.cli.commands.plugin import check as check_module
 
-    def fake_run(command, **kwargs):
-        return type(
-            "Result",
-            (),
-            {"returncode": 1, "stdout": "", "stderr": "daemon unavailable"},
-        )()
+    _, fake_run = install_fake_run(lambda argv, kwargs: _result(1, "", "daemon unavailable"))
 
     with pytest.raises(check_module.ContainerCheckError, match="daemon unavailable"):
         check_module._existing_image_id(
@@ -853,25 +762,15 @@ def test_plugin_check_containers_reuses_configured_trivy_cache(monkeypatch, tmp_
     from phlo.cli.commands.plugin import check as check_module
 
     cache_dir = tmp_path / "trivy-cache"
-    calls = []
 
-    def fake_run(command, **kwargs):
-        calls.append(command)
-        if command[:3] == ["/bin/docker", "compose", "--profile"]:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 0,
-                    "stdout": json.dumps(
-                        {"name": "test-project", "services": {"one": {"image": "example/one:1"}}}
-                    ),
-                    "stderr": "",
-                },
-            )()
-        if command[:3] == ["/bin/docker", "image", "inspect"]:
-            return type("Result", (), {"returncode": 0, "stdout": "sha256:test\n", "stderr": ""})()
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+    def respond(argv, kwargs):
+        if argv[:3] == ["/bin/docker", "compose", "--profile"]:
+            return _result(stdout=_compose_config({"one": {"image": "example/one:1"}}))
+        if argv[:3] == ["/bin/docker", "image", "inspect"]:
+            return _result(stdout="sha256:test\n")
+        return _result()
+
+    calls, fake_run = install_fake_run(respond)
 
     monkeypatch.setenv("PHLO_TRIVY_CACHE_DIR", str(cache_dir))
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
@@ -911,11 +810,13 @@ def test_plugin_check_containers_rejects_unowned_dockerfile(monkeypatch, tmp_pat
     """Generated Dockerfiles without discovered package ownership fail closed."""
     from phlo.cli.commands.plugin import check as check_module
 
-    def fake_run(command, **kwargs):
+    def respond(argv, kwargs):
         dockerfile = kwargs["cwd"] / ".phlo" / "unknown" / "Dockerfile"
         dockerfile.parent.mkdir(parents=True, exist_ok=True)
         dockerfile.write_text("FROM python:3.11\n")
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        return _result()
+
+    _, fake_run = install_fake_run(respond)
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
 
@@ -931,38 +832,28 @@ def test_plugin_check_containers_reports_all_package_failures(monkeypatch, tmp_p
     """All generated package failures are reported after every scanner runs."""
     from phlo.cli.commands.plugin import check as check_module
 
-    calls = []
-
-    def fake_run(command, **kwargs):
-        calls.append(command)
-        if command[0] == "/bin/phlo":
+    def respond(argv, kwargs):
+        if argv[0] == "/bin/phlo":
             for name in ("one", "two"):
                 dockerfile = kwargs["cwd"] / ".phlo" / name / "Dockerfile"
                 dockerfile.parent.mkdir(parents=True, exist_ok=True)
                 dockerfile.write_text("FROM python:3.11\n")
-            return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        if command[:3] == ["/bin/docker", "compose", "--profile"] and command[-2:] == [
+            return _result()
+        if argv[:3] == ["/bin/docker", "compose", "--profile"] and argv[-2:] == [
             "--format",
             "json",
         ]:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 0,
-                    "stdout": json.dumps(
-                        {
-                            "name": "test-project",
-                            "services": {
-                                "one": {"image": "example/one:1"},
-                                "two": {"image": "example/two:1"},
-                            },
-                        }
-                    ),
-                    "stderr": "",
-                },
-            )()
-        return type("Result", (), {"returncode": 1, "stdout": "", "stderr": "failed"})()
+            return _result(
+                stdout=_compose_config(
+                    {
+                        "one": {"image": "example/one:1"},
+                        "two": {"image": "example/two:1"},
+                    }
+                )
+            )
+        return _result(1, "", "failed")
+
+    calls, fake_run = install_fake_run(respond)
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
 
@@ -991,48 +882,32 @@ def test_plugin_check_containers_scans_original_after_wrapper_build_failure(monk
     """A wrapper failure still gets an attributed scan of the resolved base image."""
     from phlo.cli.commands.plugin import check as check_module
 
-    def fake_run(command, **kwargs):
-        if command[0] == "/bin/phlo":
+    def respond(argv, kwargs):
+        if argv[0] == "/bin/phlo":
             dockerfile = kwargs["cwd"] / ".phlo" / "one" / "Dockerfile"
             dockerfile.parent.mkdir(parents=True, exist_ok=True)
             dockerfile.write_text("FROM python:3.11\n")
-            return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        if command[:3] == ["/bin/docker", "compose", "--profile"] and command[-2:] == [
+            return _result()
+        if argv[:3] == ["/bin/docker", "compose", "--profile"] and argv[-2:] == [
             "--format",
             "json",
         ]:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 0,
-                    "stdout": json.dumps(
-                        {
-                            "name": "test-project",
-                            "services": {
-                                "one": {
-                                    "image": "example/one:1",
-                                    "build": {"context": "."},
-                                }
-                            },
-                        }
-                    ),
-                    "stderr": "",
-                },
-            )()
-        if "build" in command and command[-1] == "one":
-            return type(
-                "Result", (), {"returncode": 1, "stdout": "build output", "stderr": "build failed"}
-            )()
-        if command[:2] == ["/bin/docker", "pull"]:
-            return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        if command[:3] == ["/bin/docker", "image", "inspect"]:
-            return type("Result", (), {"returncode": 0, "stdout": "sha256:base\n", "stderr": ""})()
-        if "image" in command:
-            return type(
-                "Result", (), {"returncode": 1, "stdout": "trivy output", "stderr": "trivy error"}
-            )()
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            return _result(
+                stdout=_compose_config(
+                    {"one": {"image": "example/one:1", "build": {"context": "."}}}
+                )
+            )
+        if "build" in argv and argv[-1] == "one":
+            return _result(1, "build output", "build failed")
+        if argv[:2] == ["/bin/docker", "pull"]:
+            return _result()
+        if argv[:3] == ["/bin/docker", "image", "inspect"]:
+            return _result(stdout="sha256:base\n")
+        if "image" in argv:
+            return _result(1, "trivy output", "trivy error")
+        return _result()
+
+    _, fake_run = install_fake_run(respond)
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
 
@@ -1057,62 +932,46 @@ def test_plugin_check_containers_reports_exact_image_vulnerability_waiver(monkey
     """An exact service/image waiver is visible and does not hide other failures."""
     from phlo.cli.commands.plugin import check as check_module
 
-    def fake_run(command, **kwargs):
-        if command[0] == "/bin/phlo":
+    def respond(argv, kwargs):
+        if argv[0] == "/bin/phlo":
             (kwargs["cwd"] / ".phlo").mkdir(parents=True, exist_ok=True)
-            return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        if command[:3] == ["/bin/docker", "compose", "--profile"] and command[-2:] == [
+            return _result()
+        if argv[:3] == ["/bin/docker", "compose", "--profile"] and argv[-2:] == [
             "--format",
             "json",
         ]:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 0,
-                    "stdout": json.dumps(
-                        {
-                            "name": "test-project",
-                            "services": {"one": {"image": "example/one:1"}},
-                        }
-                    ),
-                    "stderr": "",
-                },
-            )()
-        if command[:2] == ["/bin/docker", "pull"]:
-            return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        if command[:3] == ["/bin/docker", "image", "inspect"]:
-            return type("Result", (), {"returncode": 0, "stdout": "sha256:one\n", "stderr": ""})()
-        if "image" in command:
-            return type(
-                "Result",
-                (),
-                {
-                    "returncode": 1,
-                    "stdout": json.dumps(
-                        {
-                            "Results": [
-                                {
-                                    "Target": "one-binary",
-                                    "Class": "lang-pkgs",
-                                    "Type": "gobinary",
-                                    "Vulnerabilities": [
-                                        {
-                                            "VulnerabilityID": "CVE-TEST",
-                                            "PkgName": "example/component",
-                                            "InstalledVersion": "1.0.0",
-                                            "FixedVersion": "1.0.1",
-                                            "Severity": "HIGH",
-                                        }
-                                    ],
-                                }
-                            ]
-                        }
-                    ),
-                    "stderr": "",
-                },
-            )()
-        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            return _result(stdout=_compose_config({"one": {"image": "example/one:1"}}))
+        if argv[:2] == ["/bin/docker", "pull"]:
+            return _result()
+        if argv[:3] == ["/bin/docker", "image", "inspect"]:
+            return _result(stdout="sha256:one\n")
+        if "image" in argv:
+            return _result(
+                1,
+                json.dumps(
+                    {
+                        "Results": [
+                            {
+                                "Target": "one-binary",
+                                "Class": "lang-pkgs",
+                                "Type": "gobinary",
+                                "Vulnerabilities": [
+                                    {
+                                        "VulnerabilityID": "CVE-TEST",
+                                        "PkgName": "example/component",
+                                        "InstalledVersion": "1.0.0",
+                                        "FixedVersion": "1.0.1",
+                                        "Severity": "HIGH",
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ),
+            )
+        return _result()
+
+    _, fake_run = install_fake_run(respond)
 
     monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
 

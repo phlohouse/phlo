@@ -49,6 +49,41 @@ lifecycle rules, ownership transfer.
   never add a docstring that merely paraphrases the name.
 - Test functions are exempt: the test name is the scenario description.
 
+
+## Testing standards
+
+Tests defend observable contracts: a test fails when user-facing behaviour
+regresses, and passes for refactors that preserve it. The binding rules:
+
+- **Behavioral oracles.** Assert outcomes through public APIs — returned
+  data, written files (parsed), exit codes, emitted events, HTTP responses.
+- **No static-artifact mirroring.** Never assert substrings inside checked-in
+  Dockerfiles, workflow YAML, Makefiles, or config templates. Parse them
+  (`yaml.safe_load`, instruction lines) and assert structure, or execute the
+  behaviour. Generated output must be parsed or imported, not grepped.
+- **Every test can fail.** No `assert x or not x`, no `exit_code in [0, 1]`,
+  no assertions guarded by `if` on the value under test, no assertion-free
+  calls. Pin the expected outcome per case.
+- **Mocks sit at real seams.** A fake stands in for an external system
+  (HTTP, subprocess, database driver) while real code runs around it.
+  Asserting on mock call arguments only restates implementation; prefer
+  recording fakes whose outputs derive from their inputs.
+- **Markers.** Default runs (`make test`) exclude `-m integration`. Mark a
+  test integration only when it needs an external service, container, or
+  network; never to park slow unit tests — fix them instead.
+- **Isolation.** Use `tmp_path` (never `tempfile`), inject clocks instead of
+  sleeping, restore patched globals (`sys.modules`, caches, singletons) via
+  fixtures, and derive repo-shape counts from the inputs rather than hardcoding.
+- **Shared contracts live once.** Cross-package adapter/resolver contracts
+  come from `phlo_testing.authorization_surface`; do not re-copy them into
+  package suites.
+
+Reference suites for each pattern: `tests/observability/test_run_reconciliation.py`,
+`packages/phlo-iceberg/tests/test_tables_rollback.py`,
+`packages/phlo-api/tests/test_security_manifest.py`,
+`packages/phlo-dagster/tests/test_oidc_identity.py`,
+`packages/phlo-postgres/tests/test_postgres_cli.py`.
+
 ## Contributor Licence Agreement
 
 The [Contributor Licence Agreement](CLA.md) describes the additional rights

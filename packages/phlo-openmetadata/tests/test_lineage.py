@@ -145,7 +145,7 @@ class TestLineageExtractor:
 
         stats = extractor.publish_to_openmetadata(om_client)
 
-        assert stats["edges_published"] > 0
+        assert stats["edges_published"] == 3
         assert om_client.create_lineage.called
 
     def test_publish_to_openmetadata_skip_edges(self, sample_manifest):
@@ -174,8 +174,8 @@ class TestLineageExtractor:
 
         stats = extractor.publish_to_openmetadata(om_client)
 
-        assert stats["edges_published"] >= 1
-        assert stats["failed"] >= 1
+        assert stats["edges_published"] == 2
+        assert stats["failed"] == 1
 
     def test_get_impact_analysis(self, sample_manifest):
         """Test impact analysis."""
@@ -211,25 +211,27 @@ class TestLineageExtractor:
         assert "assets" in json_output
 
     def test_export_lineage_dot(self, sample_manifest):
-        """Test exporting lineage as DOT."""
+        """DOT export must carry every node and each manifest edge exactly once."""
         extractor = LineageExtractor()
         extractor.extract_from_dbt_manifest(sample_manifest)
 
         dot_output = extractor.export_lineage(format_type="dot")
 
-        assert isinstance(dot_output, str)
-        assert "digraph" in dot_output
-        assert "stg_glucose" in dot_output
+        assert dot_output.startswith("digraph")
+        for model in ("nightscout.glucose", "stg_glucose", "fct_glucose", "mrt_glucose"):
+            assert model in dot_output
+        assert dot_output.count("->") == 3
 
     def test_export_lineage_mermaid(self, sample_manifest):
-        """Test exporting lineage as Mermaid."""
+        """Mermaid export must carry every node and each manifest edge exactly once."""
         extractor = LineageExtractor()
         extractor.extract_from_dbt_manifest(sample_manifest)
 
         mermaid_output = extractor.export_lineage(format_type="mermaid")
 
-        assert isinstance(mermaid_output, str)
-        assert "graph" in mermaid_output
+        for model in ("nightscout.glucose", "stg_glucose", "fct_glucose", "mrt_glucose"):
+            assert model in mermaid_output
+        assert mermaid_output.count("-->") == 3
 
     def test_export_lineage_invalid_format(self, sample_manifest):
         """Test exporting with invalid format."""

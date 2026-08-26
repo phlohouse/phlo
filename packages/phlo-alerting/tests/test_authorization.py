@@ -1,13 +1,19 @@
 """Tests for the phlo-alerting CLI authorization surface adapter.
 
-Verifies mutation-command classification and principal resolution against the
-shared CLI authorization contract.
+Package-specific adapter basics plus the shared surface-adapter contract from
+``phlo_testing.authorization_surface``: reads allow without enforcement and
+unknown commands deny closed.
 """
 
 from __future__ import annotations
 
 import pytest
 
+from phlo_testing.authorization_surface import (
+    assert_read_commands_allow_without_enforcement,
+    assert_unknown_command_denied,
+    reset_surface_adapter_singleton,
+)
 from phlo_alerting.authorization import (
     AlertingSurfaceAdapter,
     READ_COMMANDS,
@@ -41,17 +47,14 @@ class TestAlertingSurfaceAdapter:
         adapter2 = AlertingSurfaceAdapter.get_instance()
         assert adapter1 is adapter2
 
-    def test_read_commands_allowed(self):
-        adapter = AlertingSurfaceAdapter()
-        for cmd in READ_COMMANDS:
-            result = adapter.check_command_authorization(cmd)
-            assert result.allowed, f"Read command {cmd} should be allowed"
+    def test_read_commands_allow_without_enforcement(self):
+        """Read commands allow without touching the enforcement path."""
+        with reset_surface_adapter_singleton(AlertingSurfaceAdapter):
+            assert_read_commands_allow_without_enforcement(AlertingSurfaceAdapter())
 
-    def test_unknown_command_denied(self):
-        adapter = AlertingSurfaceAdapter()
-        result = adapter.check_command_authorization("alerts.unknown")
-        assert not result.allowed
-        assert result.reason_code == "unknown_command"
+    def test_unknown_command_denied_closed(self):
+        with reset_surface_adapter_singleton(AlertingSurfaceAdapter):
+            assert_unknown_command_denied(AlertingSurfaceAdapter(), "alerts.unknown")
 
     def test_all_alerting_commands_covered(self):
         """All alerting subcommands are classified."""
