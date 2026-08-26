@@ -154,7 +154,42 @@ def test_clickhouse_connection_uses_native_settings(monkeypatch) -> None:
 
 
 def test_delta_connection_uses_warehouse_path(monkeypatch) -> None:
-    fake = SimpleNamespace(delta_warehouse_path="s3://lake/warehouse/delta")
+    from types import SimpleNamespace
+
+    fake = SimpleNamespace(
+        delta_warehouse_path="s3://lake/warehouse/delta",
+        delta_s3_endpoint="http://minio:9000",
+        delta_s3_access_key="ak",
+        delta_s3_secret_key="sk",
+        delta_s3_region="us-east-1",
+    )
+    import phlo_delta.settings as delta_settings
+
+    monkeypatch.setattr(delta_settings, "get_settings", lambda: fake)
+    from phlo_sling.connections import _resolve_delta_connection
+
+    conn = _resolve_delta_connection()
+    assert conn["PHLO_DELTA"] == {
+        "type": "s3",
+        "bucket": "lake",
+        "endpoint": "http://minio:9000",
+        "access_key": "ak",
+        "secret": "sk",
+        "region": "us-east-1",
+    }
+
+
+def test_delta_connection_local_root_omits_s3_keys(monkeypatch) -> None:
+    """Local warehouses must not carry S3 endpoint/credential keys."""
+    from types import SimpleNamespace
+
+    fake = SimpleNamespace(
+        delta_warehouse_path="/tmp/warehouse",
+        delta_s3_endpoint="http://minio:9000",
+        delta_s3_access_key="ak",
+        delta_s3_secret_key="sk",
+        delta_s3_region="us-east-1",
+    )
     import phlo_delta.settings as delta_settings
 
     monkeypatch.setattr(delta_settings, "get_settings", lambda: fake)
@@ -163,7 +198,7 @@ def test_delta_connection_uses_warehouse_path(monkeypatch) -> None:
     conn = _resolve_delta_connection()
     assert conn["PHLO_DELTA"] == {
         "type": "file",
-        "root_path": "s3://lake/warehouse/delta",
+        "root_path": "/tmp/warehouse",
     }
 
 

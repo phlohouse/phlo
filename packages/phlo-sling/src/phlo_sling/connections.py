@@ -48,24 +48,39 @@ def _resolve_clickhouse_connection() -> dict[str, dict[str, Any]]:
 def _resolve_delta_connection() -> dict[str, dict[str, Any]]:
     """Resolve a Delta Lake connection from phlo-delta settings.
 
-    Sling targets Delta via its native file target rooted at the warehouse;
-    returns {"PHLO_DELTA": ...} or an empty dict when phlo-delta is not
+    Returns ``{"PHLO_DELTA": ...}`` or an empty dict when phlo-delta is not
     installed.
 
-    The type label must be ``file``: that is the connection type Sling
-    registers for filesystem roots, and an unregistered type makes Sling
-    drop the connection entirely (``could not find connection PHLO_DELTA``).
+    - ``s3://`` warehouses resolve to an ``s3`` connection (bucket split out
+      of the root path) carrying the endpoint and credentials from the Delta
+      settings. Callers build ``tgt_object`` relative to the bucket, keeping
+      the warehouse prefix: for the default
+      ``s3://lake/warehouse/delta`` root that prefix is
+      ``warehouse/delta``.
+    - Local paths keep a ``file`` connection rooted at the path.
+
+    The ``file`` label cannot host S3 endpoints - Sling routes such targets
+    through the default AWS chain and ignores custom endpoints, producing
+    ``InvalidAccessKeyId`` against MinIO.
     """
     try:
         from phlo_delta.settings import get_settings as get_delta_settings
 
         delta = get_delta_settings()
-        return {
-            "PHLO_DELTA": {
-                "type": "file",
-                "root_path": delta.delta_warehouse_path,
+        root = str(delta.delta_warehouse_path)
+        if root.startswith("s3://"):
+            bucket = root[len("s3://") :].partition("/")[0]
+            return {
+                "PHLO_DELTA": {
+                    "type": "s3",
+                    "bucket": bucket,
+                    "endpoint": delta.delta_s3_endpoint,
+                    "access_key": delta.delta_s3_access_key,
+                    "secret": delta.delta_s3_secret_key,
+                    "region": delta.delta_s3_region,
+                }
             }
-        }
+        return {"PHLO_DELTA": {"type": "file", "root_path": root}}
     except (ImportError, Exception) as exc:
         logger.debug("delta_connection_skipped", error=str(exc))
         return {}
