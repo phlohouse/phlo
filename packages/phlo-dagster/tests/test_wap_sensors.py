@@ -283,18 +283,27 @@ def test_write_wap_report_keeps_identity_fields_and_ignores_write_failure(
 
 
 class _FakeCheckEvaluation:
-    def __init__(self, passed: bool):
+    def __init__(
+        self,
+        passed: bool,
+        severity: str | None = None,
+        blocking: bool | None = None,
+    ):
         self.passed = passed
+        if severity is not None:
+            self.severity = severity
+        if blocking is not None:
+            self.blocking = blocking
 
 
 class _FakeEvent:
-    def __init__(self, passed: bool):
-        self.asset_check_evaluation = _FakeCheckEvaluation(passed)
+    def __init__(self, passed: bool, severity: str | None = None, blocking: bool | None = None):
+        self.asset_check_evaluation = _FakeCheckEvaluation(passed, severity, blocking)
 
 
 class _FakeRecord:
-    def __init__(self, passed: bool):
-        self.event_log_entry = _FakeEvent(passed)
+    def __init__(self, passed: bool, severity: str | None = None, blocking: bool | None = None):
+        self.event_log_entry = _FakeEvent(passed, severity, blocking)
 
 
 def test_all_checks_passed_no_events():
@@ -304,20 +313,32 @@ def test_all_checks_passed_no_events():
     assert _all_checks_passed(instance, "run-1") is True
 
 
-def test_all_checks_passed_all_pass():
-    """All checks passing returns True."""
+def test_all_checks_passed_one_fails():
+    """A single failing check returns False."""
     instance = MagicMock()
     instance.get_records_for_run.return_value = MagicMock(
         records=[
             _FakeRecord(passed=True),
+            _FakeRecord(passed=False),
+        ]
+    )
+    assert _all_checks_passed(instance, "run-1") is False
+
+
+def test_all_checks_passed_warn_failure_is_not_gating():
+    """A failed WARN-severity check never blocks WAP promotion."""
+    instance = MagicMock()
+    instance.get_records_for_run.return_value = MagicMock(
+        records=[
             _FakeRecord(passed=True),
+            _FakeRecord(passed=False, severity="WARN"),
         ]
     )
     assert _all_checks_passed(instance, "run-1") is True
 
 
-def test_all_checks_passed_one_fails():
-    """A single failing check returns False."""
+def test_all_checks_passed_missing_severity_fails_closed():
+    """Legacy evaluations without a severity field classify as blocking."""
     instance = MagicMock()
     instance.get_records_for_run.return_value = MagicMock(
         records=[
@@ -1400,3 +1421,111 @@ def test_persist_aggregate_quality_decision_reflects_failures(monkeypatch, tmp_p
         evidence_run_id=run_id,
     )
     assert quality_id is not None
+
+
+def test_persist_aggregate_quality_decision_warn_only_passes_with_warnings(
+    monkeypatch, tmp_path
+) -> None:
+    """WARN-only failures pass the aggregate as passed_with_warnings."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    run_id = "run-warn-only"
+    write_wap_report(run_id, status="branch_created")
+
+    records = [
+        SimpleNamespace(
+            storage_id=storage_id,
+            event_log_entry=SimpleNamespace(
+                asset_check_evaluation=SimpleNamespace(
+                    passed=check_passed,
+                    severity=severity,
+                    blocking=False,
+                )
+            ),
+        )
+        for storage_id, check_passed, severity in [(1, True, "warn"), (2, False, "warn")]
+    ]
+
+    instance = MagicMock()
+    instance.get_records_for_run.return_value = MagicMock(records=records)
+
+    from phlo_dagster.wap_sensors import _quality_check_records, _quality_evidence
+
+    checks = _quality_check_records(instance, run_id)
+    assert checks is not None
+    assert checks[1]["severity"] == "warn"
+    assert checks[1]["blocking"] is False
+
+    store = SQLiteRunEvidenceStore(":memory:")
+    bus = HookBus()
+    bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
+    monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
+    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+
+    quality_id, metadata = _quality_evidence(
+        run_id,
+        instance,
+        project_id="p",
+        attempt=1,
+        evidence_run_id=run_id,
+    )
+
+    result = store.list_quality_results("p", run_id, attempt=1)[0]
+    assert quality_id == result["quality_result_id"]
+    assert result["passed"] is True
+    assert result["severity"] == "warn"
+    evidence = metadata["quality_evidence"]
+    assert evidence["decision"] == "passed_with_warnings"
+    assert evidence["failed_check_ids"] == []
+    assert len(evidence["warned_check_ids"]) == 1
+
+
+def test_persist_aggregate_quality_decision_mixed_severity_rejects(monkeypatch, tmp_path) -> None:
+    """Any ERROR failure rejects the aggregate even alongside WARN failures."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    run_id = "run-mixed-severity"
+    write_wap_report(run_id, status="branch_created")
+
+    records = [
+        SimpleNamespace(
+            storage_id=storage_id,
+            event_log_entry=SimpleNamespace(
+                asset_check_evaluation=SimpleNamespace(
+                    passed=check_passed,
+                    severity=severity,
+                    blocking=True,
+                )
+            ),
+        )
+        for storage_id, check_passed, severity in [
+            (1, False, "error"),
+            (2, False, "warn"),
+            (3, True, "warn"),
+        ]
+    ]
+
+    instance = MagicMock()
+    instance.get_records_for_run.return_value = MagicMock(records=records)
+
+    from phlo_dagster.wap_sensors import _quality_evidence
+
+    store = SQLiteRunEvidenceStore(":memory:")
+    bus = HookBus()
+    bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
+    monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
+    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+
+    quality_id, metadata = _quality_evidence(
+        run_id,
+        instance,
+        project_id="p",
+        attempt=1,
+        evidence_run_id=run_id,
+    )
+
+    result = store.list_quality_results("p", run_id, attempt=1)[0]
+    assert result["passed"] is False
+    assert result["severity"] == "error"
+    evidence = metadata["quality_evidence"]
+    assert evidence["decision"] == "rejected"
+    assert len(evidence["failed_check_ids"]) == 1
+    assert len(evidence["warned_check_ids"]) == 1

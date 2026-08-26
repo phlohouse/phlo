@@ -414,7 +414,10 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
     def _build_check(self, spec: AssetCheckSpec) -> dg.AssetChecksDefinition:
         """Create a Dagster asset check definition from a capability check spec."""
         asset_key = _asset_key_from_string(spec.asset_key)
-        default_severity = _severity_from_string(spec.severity) or dg.AssetCheckSeverity.ERROR
+        # A failing non-blocking check must surface as WARN so the WAP
+        # promotion sensor treats it as warning evidence instead of gating.
+        fallback = dg.AssetCheckSeverity.ERROR if spec.blocking else dg.AssetCheckSeverity.WARN
+        default_severity = _severity_from_string(spec.severity) or fallback
 
         @dg.asset_check(
             name=spec.name,

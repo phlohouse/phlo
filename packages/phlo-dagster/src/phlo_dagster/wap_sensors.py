@@ -213,7 +213,12 @@ def _read_wap_report(run_id: str) -> dict[str, Any] | None:
 
 
 def _quality_check_records(instance: Any, run_id: str) -> list[dict[str, Any]] | None:
-    """Return check outcomes with only their durable event identities."""
+    """Return durable check outcomes with severity and blocking classification.
+
+    Severity defaults to ``error`` and blocking to ``True`` when the recorded
+    evaluation predates those fields, so legacy evidence classifies as
+    blocking (fail-closed).
+    """
     try:
         check_records = instance.get_records_for_run(
             run_id,
@@ -232,6 +237,8 @@ def _quality_check_records(instance: Any, run_id: str) -> list[dict[str, Any]] |
             {
                 "event_id": f"dagster-quality:{storage_id}" if storage_id is not None else None,
                 "passed": bool(getattr(evaluation, "passed", False)),
+                "severity": str(getattr(evaluation, "severity", "") or "error").lower(),
+                "blocking": bool(getattr(evaluation, "blocking", True)),
             }
         )
     return checks
@@ -247,10 +254,24 @@ def _persist_aggregate_quality_decision(
     promotion evidence, matching ``_all_checks_passed`` semantics where zero
     executed checks counts as passed. A None return is reserved for unusable
     input - any recorded check missing its durable event id.
+
+    Failed WARN-severity checks are non-blocking: the aggregate still passes,
+    but as ``passed_with_warnings`` with severity ``warn`` so downstream
+    evidence consumers can surface the warnings without reading a rejection.
     """
     if any(not check.get("event_id") for check in checks):
         return None
-    passed = all(check["passed"] for check in checks)
+    error_failures = [
+        c for c in checks if not c["passed"] and str(c.get("severity", "error")).lower() != "warn"
+    ]
+    warn_failures = [
+        c for c in checks if not c["passed"] and str(c.get("severity", "error")).lower() == "warn"
+    ]
+    passed = not error_failures
+    severity = "error" if error_failures else ("warn" if warn_failures else None)
+    decision = (
+        "rejected" if error_failures else ("passed_with_warnings" if warn_failures else "passed")
+    )
     event_id = (
         "wap-quality-"
         + hashlib.sha256(
@@ -268,13 +289,12 @@ def _persist_aggregate_quality_decision(
         asset_key="__pipeline__",
         check_name="wap.aggregate",
         passed=passed,
-        severity=None if passed else "error",
+        severity=severity,
         check_type="aggregate",
         metadata={
-            "decision": "passed" if passed else "rejected",
-            "failed_check_ids": [
-                check["event_id"] for check in checks if not check["passed"] and check["event_id"]
-            ],
+            "decision": decision,
+            "failed_check_ids": [c["event_id"] for c in error_failures if c["event_id"]],
+            "warned_check_ids": [c["event_id"] for c in warn_failures if c["event_id"]],
             "checks": checks,
         },
         correlation=HookCorrelation(
@@ -327,7 +347,14 @@ def _quality_evidence(
     quality_id = None
     checks = _quality_check_records(instance, run_id) if instance is not None else None
     failed_check_ids = [
-        check["event_id"] for check in checks or [] if not check["passed"] and check["event_id"]
+        c["event_id"]
+        for c in checks or []
+        if not c["passed"] and c["event_id"] and str(c.get("severity", "error")).lower() != "warn"
+    ]
+    warned_check_ids = [
+        c["event_id"]
+        for c in checks or []
+        if not c["passed"] and c["event_id"] and str(c.get("severity", "error")).lower() == "warn"
     ]
     if checks is not None and project_id and attempt is not None:
         aggregate_id = _persist_aggregate_quality_decision(
@@ -341,6 +368,15 @@ def _quality_evidence(
     checksum = hashlib.sha256(raw).hexdigest() if raw is not None else None
     snapshot_path = _report_snapshot_path(run_id, checksum) if checksum is not None else None
     evidence_path = snapshot_path if snapshot_path is not None and snapshot_path.exists() else path
+    decision = (
+        "rejected"
+        if failed_check_ids
+        else "passed_with_warnings"
+        if warned_check_ids
+        else "passed"
+        if checks is not None
+        else "unavailable"
+    )
     return quality_id, {
         "quality_evidence": {
             "uri": str(evidence_path) if raw is not None else None,
@@ -352,14 +388,9 @@ def _quality_evidence(
                 else None
             ),
             "decision_scope": "aggregate" if checks is not None else "unavailable",
-            "decision": (
-                "rejected"
-                if failed_check_ids
-                else "passed"
-                if checks is not None
-                else "unavailable"
-            ),
+            "decision": decision,
             "failed_check_ids": failed_check_ids,
+            "warned_check_ids": warned_check_ids,
         }
     }
 
