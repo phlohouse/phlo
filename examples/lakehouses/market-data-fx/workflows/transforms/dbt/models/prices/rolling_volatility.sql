@@ -1,7 +1,10 @@
 -- Annualized realized volatility over the trailing five sessions.
 --
--- Implemented as a bounded self-join rather than a sliding window frame:
--- each session aggregates exactly its own and the four preceding returns,
+-- Implemented as a bounded self-join rather than a sliding window frame
+-- (issue #776): the window form nondeterministically evaluated its frame as
+-- if each partition's first four sessions were invisible, persisting NULLs
+-- at the first full-window row. This self-join is deterministic everywhere.
+-- Each session aggregates exactly its own and the four preceding returns,
 -- and rows are emitted only once the window is full so every value is defined.
 with numbered as (
     select
