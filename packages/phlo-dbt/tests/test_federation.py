@@ -228,3 +228,102 @@ def test_run_transform_profile_write_uses_own_project_profile(monkeypatch, tmp_p
         pass  # telemetry hooks may be absent in this stub context
 
     assert captured["project_dir"] == project
+
+
+def test_external_deps_recorded_for_cross_provider_references(monkeypatch, tmp_path) -> None:
+    """Deps that no dbt manifest produces are recorded as external deps for
+    the aggregation-point validator."""
+    from phlo.capabilities.external_refs import EXTERNAL_DEPS_METADATA_KEY
+
+    project_path = tmp_path / "workflows" / "sales_domain" / "transforms" / "dbt"
+    (project_path / "target").mkdir(parents=True)
+    (project_path / "dbt_project.yml").write_text(
+        "name: sales_domain\nversion: '1.0'\nprofile: sales_domain\n", encoding="utf-8"
+    )
+    (project_path / "target" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "nodes": {
+                    "model.sales_domain.deal_pipeline": {
+                        "resource_type": "model",
+                        "name": "deal_pipeline",
+                        "path": "models/deal_pipeline.sql",
+                        "schema": "raw",
+                        "depends_on": {"nodes": ["source.sales_domain.raw.deals"]},
+                        "columns": {},
+                    }
+                },
+                "sources": {
+                    "source.sales_domain.raw.deals": {
+                        "resource_type": "source",
+                        "source_name": "dagster_assets",
+                        "name": "deals",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    _stub_settings(monkeypatch, [project_path], namespaced=True)
+
+    specs = {spec.key: spec for spec in build_dbt_asset_specs()}
+
+    sales = specs["sales_domain.deal_pipeline"]
+    assert sales.deps == ["dlt_deals"]
+    assert sales.metadata[EXTERNAL_DEPS_METADATA_KEY] == ["dlt_deals"]
+
+
+def test_plain_source_binding_is_recorded_as_external(monkeypatch, tmp_path) -> None:
+    """A conventional dbt source ({source_name}.{table}) is owned by no
+    provider, so it is recorded as an external dep and the validator warns
+    when it is absent from the merged graph."""
+    from phlo.capabilities.external_refs import (
+        EXTERNAL_DEPS_METADATA_KEY,
+        validate_external_asset_references,
+    )
+
+    project_path = tmp_path / "workflows" / "sales_domain" / "transforms" / "dbt"
+    (project_path / "target").mkdir(parents=True)
+    (project_path / "dbt_project.yml").write_text(
+        "name: sales_domain\nversion: '1.0'\nprofile: sales_domain\n", encoding="utf-8"
+    )
+    (project_path / "target" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "nodes": {
+                    "model.sales_domain.deal_pipeline": {
+                        "resource_type": "model",
+                        "name": "deal_pipeline",
+                        "path": "models/deal_pipeline.sql",
+                        "schema": "raw",
+                        "depends_on": {"nodes": ["source.sales_domain.upstream.deals"]},
+                        "columns": {},
+                    }
+                },
+                "sources": {
+                    "source.sales_domain.upstream.deals": {
+                        "resource_type": "source",
+                        "source_name": "upstream",
+                        "name": "deals",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    _stub_settings(monkeypatch, [project_path], namespaced=True)
+
+    specs = build_dbt_asset_specs()
+
+    assert specs[0].metadata[EXTERNAL_DEPS_METADATA_KEY] == ["upstream.deals"]
+    warnings: list[str] = []
+    import logging
+
+    handler = logging.Handler()
+    handler.emit = lambda record: warnings.append(record.getMessage())
+    logging.getLogger("phlo.capabilities.external_refs").addHandler(handler)
+    try:
+        validate_external_asset_references(specs)
+    finally:
+        logging.getLogger("phlo.capabilities.external_refs").removeHandler(handler)
+    assert any("upstream.deals" in message for message in warnings)

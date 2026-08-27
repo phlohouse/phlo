@@ -26,6 +26,7 @@ from phlo.capabilities import (
     PartitionSpec,
     RunSpec,
 )
+from phlo.capabilities.external_refs import EXTERNAL_DEPS_METADATA_KEY
 from phlo.capabilities.runtime import RuntimeContext
 from phlo.exceptions import PhloCapabilitySetupError
 from phlo.logging import get_logger
@@ -162,12 +163,13 @@ def _build_project_asset_specs(
     project_path: Path,
     project_name: str,
     key_prefix: str | None,
-) -> tuple[list[AssetSpec], dict[str, str], set[str]]:
+) -> tuple[list[AssetSpec], dict[str, str]]:
     """Build asset specs for one dbt project from its manifest metadata.
 
-    Returns the specs, the unique-id-to-asset-key map used for dependency
-    resolution (nodes and sources), and the set of explicitly declared
-    cross-project reference keys (sources with ``meta.phlo_asset_key``).
+    Returns the specs and the unique-id-to-asset-key map used for dependency
+    resolution (nodes and sources). Deps that resolve against no key in this
+    map (or another activated project's) are cross-provider references and
+    are recorded by the caller via ``phlo/external_deps`` metadata.
     """
     settings = get_settings()
     profiles_path = settings.dbt_profiles_path_for(project_path)
@@ -180,7 +182,7 @@ def _build_project_asset_specs(
             reason="project_missing",
             dbt_project_path=str(project_path),
         )
-        return [], {}, set()
+        return [], {}
 
     ensure_dbt_profile(profiles_path, project_dir=project_path)
 
@@ -226,7 +228,6 @@ def _build_project_asset_specs(
         )
 
     asset_keys: dict[str, str] = {}
-    cross_refs: set[str] = set()
     for unique_id, props in {**nodes, **sources}.items():
         if not isinstance(props, Mapping):
             continue
@@ -239,10 +240,6 @@ def _build_project_asset_specs(
             )
             continue
         asset_keys[str(unique_id)] = str(asset_key)
-        if str(props.get("resource_type") or "") == "source":
-            meta = props.get("meta")
-            if isinstance(meta, Mapping) and (meta.get("phlo_asset_key") or meta.get("asset_key")):
-                cross_refs.add(str(asset_key))
 
     specs: list[AssetSpec] = []
     check_specs = dbt_asset_check_specs(manifest, translator=translator)
@@ -306,7 +303,7 @@ def _build_project_asset_specs(
         spec_count=len(specs),
         dbt_project_path=str(project_path),
     )
-    return specs, asset_keys, cross_refs
+    return specs, asset_keys
 
 
 def build_dbt_asset_specs() -> list[AssetSpec]:
@@ -318,8 +315,10 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
     With ``dbt_namespaced_asset_keys`` (env ``DBT_NAMESPACED_ASSET_KEYS``),
     dbt-derived keys are prefixed with the project name to prevent
     cross-domain collisions. Collisions that survive namespacing raise
-    ``PhloCapabilitySetupError``; cross-project source references that do not
-    resolve to any known dbt asset key are logged loudly.
+    ``PhloCapabilitySetupError``. Deps that no dbt project produces are
+    recorded as ``phlo/external_deps`` metadata and validated against the
+    complete asset graph by the capability aggregation point (see
+    ``phlo.capabilities.external_refs``).
     """
     settings = get_settings()
     project_paths = settings.dbt_project_paths
@@ -333,9 +332,7 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
         )
 
     all_specs: list[AssetSpec] = []
-    known_keys: set[str] = set()
     key_owner: dict[str, Path] = {}
-    cross_refs: set[str] = set()
     seen_paths: set[Path] = set()
     seen_project_names: set[str] = set()
     for project_path in project_paths:
@@ -365,7 +362,7 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
             )
         seen_project_names.add(project_name)
         key_prefix = project_name if namespaced else None
-        specs, asset_keys, project_refs = _build_project_asset_specs(
+        specs, asset_keys = _build_project_asset_specs(
             project_path=project_path,
             project_name=project_name,
             key_prefix=key_prefix,
@@ -393,21 +390,18 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
                     ],
                 )
             key_owner[asset_key] = resolved_path
-        known_keys.update(asset_keys.values())
-        cross_refs.update(project_refs)
         all_specs.extend(specs)
 
-    unresolved = sorted(key for key in cross_refs if key not in known_keys)
-    if unresolved:
-        logger.warning(
-            "dbt_cross_project_reference_unresolved",
-            asset_keys=unresolved,
-            hint=(
-                "Referenced asset keys were not found in any activated dbt "
-                "project; verify they are owned by another provider (e.g. "
-                "phlo-dlt) or that the owning project is activated."
-            ),
-        )
+    # Deps that dbt itself does not produce are cross-provider references
+    # (for example dlt_ ingestion assets owned by phlo-dlt, or another
+    # project's models when this project declares them as sources). Record
+    # them so the capability aggregation point can validate them against the
+    # complete asset graph once every provider has registered its specs.
+    produced_keys = {spec.key for spec in all_specs}
+    for spec in all_specs:
+        external_deps = [dep for dep in spec.deps if dep not in produced_keys]
+        if external_deps:
+            spec.metadata[EXTERNAL_DEPS_METADATA_KEY] = sorted(external_deps)
 
     logger.info(
         "dbt_asset_specs_built",

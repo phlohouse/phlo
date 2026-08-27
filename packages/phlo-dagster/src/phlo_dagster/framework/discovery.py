@@ -59,6 +59,7 @@ from pathlib import Path
 from typing import Any
 
 from phlo.capabilities.discovery import discover_capabilities
+from phlo.capabilities.external_refs import validate_external_asset_references
 from phlo.capabilities.registry import clear_all_capabilities, get_capability_registry
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
@@ -115,6 +116,7 @@ def discover_user_workflows(
     assets = registry.list("asset")
     checks = registry.list("check")
     resources = registry.list("resource")
+    validate_external_asset_references(assets)
     module_defs = _collect_module_dagster_definitions(imported_modules)
     try:
         adapter = get_active_orchestrator()
