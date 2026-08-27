@@ -110,56 +110,76 @@ def _import_manifest_lineage(manifest_path: Path) -> dict[str, int]:
     return import_manifest_lineage(manifest_path)
 
 
+def _activated_dbt_projects() -> list[Path]:
+    """Return every activated dbt project that exists on disk.
+
+    Raises a user error when none of the activated projects exist, keeping
+    the original single-project error semantics.
+    """
+    from phlo_dbt.settings import get_settings
+
+    settings = get_settings()
+    existing = [
+        project for project in settings.dbt_project_paths if (project / "dbt_project.yml").exists()
+    ]
+    if not existing:
+        raise user_error(
+            "no dbt project found",
+            missing=settings.dbt_project_paths[0] / "dbt_project.yml",
+            details=[DBT_PROJECT_HELP],
+            run="phlo workflow create --help",
+        )
+    return existing
+
+
 def _run_dbt_in_container(
     *,
     subcommand: str,
     target: str,
     select_expr: str | None = None,
 ) -> None:
-    """Run dbt inside the active orchestrator service container."""
+    """Run dbt inside the active orchestrator service container.
+
+    Runs once per activated dbt project and exits with the worst return code.
+    """
     from phlo_dbt.settings import get_settings
 
     logger = get_logger(f"phlo.dbt.{subcommand}")
     settings = get_settings()
     project_root = Path.cwd()
-    project_dir = settings.dbt_project_path
-    profiles_dir = settings.dbt_profiles_path
+    projects = _activated_dbt_projects()
     exec_service_name = _resolve_exec_service_name()
-
-    if not (project_dir / "dbt_project.yml").exists():
-        raise user_error(
-            "no dbt project found",
-            missing=project_dir / "dbt_project.yml",
-            details=[DBT_PROJECT_HELP],
-            run="phlo workflow create --help",
-        )
 
     phlo_dir = ensure_phlo_dir()
     compose_cmd = compose_base_cmd(phlo_dir=phlo_dir, project_name=get_project_name())
-    cmd = [*compose_cmd, "exec", "-T", exec_service_name, "dbt", subcommand]
-    cmd.extend(["--project-dir", _container_path(project_dir, project_root=project_root)])
-    cmd.extend(["--profiles-dir", _container_path(profiles_dir, project_root=project_root)])
-    cmd.extend(["--target", target])
-    if select_expr is not None:
-        cmd.extend(["--select", select_expr])
+    worst_returncode = 0
+    for project_dir in projects:
+        profiles_dir = settings.dbt_profiles_path_for(project_dir)
+        cmd = [*compose_cmd, "exec", "-T", exec_service_name, "dbt", subcommand]
+        cmd.extend(["--project-dir", _container_path(project_dir, project_root=project_root)])
+        cmd.extend(["--profiles-dir", _container_path(profiles_dir, project_root=project_root)])
+        cmd.extend(["--target", target])
+        if select_expr is not None:
+            cmd.extend(["--select", select_expr])
 
-    click.echo(f"Running dbt {subcommand} in {exec_service_name}...")
-    logger.debug(
-        "dbt_command_container_started",
-        subcommand=subcommand,
-        project_dir=str(project_dir),
-        service_name=exec_service_name,
-        target=target,
-        select=select_expr,
-    )
-    try:
-        result = subprocess.run(cmd, check=False)
+        click.echo(f"Running dbt {subcommand} in {exec_service_name} at {project_dir}...")
+        logger.debug(
+            "dbt_command_container_started",
+            subcommand=subcommand,
+            project_dir=str(project_dir),
+            service_name=exec_service_name,
+            target=target,
+            select=select_expr,
+        )
+        try:
+            result = subprocess.run(cmd, check=False)
+        except FileNotFoundError:
+            click.echo("Error: docker command not found", err=True)
+            sys.exit(1)
         if result.returncode == 0:
             _import_lineage_after_run(subcommand=subcommand, project_dir=project_dir, logger=logger)
-        sys.exit(result.returncode)
-    except FileNotFoundError:
-        click.echo("Error: docker command not found", err=True)
-        sys.exit(1)
+        worst_returncode = max(worst_returncode, result.returncode)
+    sys.exit(worst_returncode)
 
 
 def _import_lineage_after_run(
@@ -192,51 +212,50 @@ def _import_lineage_after_run(
 
 
 def _run_dbt_local(subcommand: str, target: str, select_expr: str | None = None) -> None:
-    """Run a dbt subcommand against the local project."""
+    """Run a dbt subcommand against every activated local project.
+
+    Exits with the worst return code across projects; single-project
+    activation keeps the original behavior.
+    """
     from phlo_dbt.settings import get_settings
 
     logger = get_logger(f"phlo.dbt.{subcommand}")
     settings = get_settings()
-    project_dir = settings.dbt_project_path
-    profiles_dir = settings.dbt_profiles_path
+    projects = _activated_dbt_projects()
 
-    if not (project_dir / "dbt_project.yml").exists():
-        raise user_error(
-            "no dbt project found",
-            missing=project_dir / "dbt_project.yml",
-            details=[DBT_PROJECT_HELP],
-            run="phlo workflow create --help",
+    worst_returncode = 0
+    for project_dir in projects:
+        profiles_dir = settings.dbt_profiles_path_for(project_dir)
+        ensure_dbt_profile(profiles_dir, target=target, project_dir=project_dir)
+
+        cmd = [
+            "dbt",
+            subcommand,
+            "--profiles-dir",
+            str(profiles_dir),
+            "--target",
+            target,
+        ]
+        if select_expr is not None:
+            cmd.extend(["--select", select_expr])
+
+        click.echo(f"Running dbt {subcommand} at {project_dir}...")
+        logger.debug(
+            "dbt_command_started",
+            subcommand=subcommand,
+            project_dir=str(project_dir),
+            target=target,
+            select=select_expr,
         )
-
-    ensure_dbt_profile(profiles_dir, target=target)
-
-    cmd = [
-        "dbt",
-        subcommand,
-        "--profiles-dir",
-        str(profiles_dir),
-        "--target",
-        target,
-    ]
-    if select_expr is not None:
-        cmd.extend(["--select", select_expr])
-
-    click.echo(f"Running dbt {subcommand} at {project_dir}...")
-    logger.debug(
-        "dbt_command_started",
-        subcommand=subcommand,
-        project_dir=str(project_dir),
-        target=target,
-        select=select_expr,
-    )
-    try:
-        result = subprocess.run(cmd, cwd=str(project_dir), check=False)
+        try:
+            result = subprocess.run(cmd, cwd=str(project_dir), check=False)
+        except FileNotFoundError:
+            click.echo("Error: dbt command not found", err=True)
+            sys.exit(1)
         if result.returncode == 0:
             _import_lineage_after_run(subcommand=subcommand, project_dir=project_dir, logger=logger)
-        sys.exit(result.returncode)
-    except FileNotFoundError:
-        click.echo("Error: dbt command not found", err=True)
-        sys.exit(1)
+        worst_returncode = max(worst_returncode, result.returncode)
+    sys.exit(worst_returncode)
 
 
 def _run_dbt(

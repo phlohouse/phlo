@@ -29,3 +29,14 @@ def test_get_dbt_project_dir_discovers_nested_transforms_project(
     monkeypatch.delenv("DBT_PROJECT_DIR", raising=False)
 
     assert get_dbt_project_dir() == dbt_project
+
+
+def test_find_dbt_projects_orders_shallowest_first(tmp_path: Path) -> None:
+    """Discovery and settings must share one ordering rule in nested layouts."""
+    deep = tmp_path / "workflows" / "teams" / "east" / "sales" / "transforms" / "dbt"
+    shallow = tmp_path / "workflows" / "alpha" / "transforms" / "dbt"
+    for project in (deep, shallow):
+        project.mkdir(parents=True)
+        (project / "dbt_project.yml").write_text("name: x\n")
+
+    assert find_dbt_projects(tmp_path) == [shallow, deep]

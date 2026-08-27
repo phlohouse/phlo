@@ -27,6 +27,11 @@ from pydantic import Field, computed_field
 from phlo.config.base import BaseConfig
 from phlo.config.cache import project_root_cached
 from phlo.config.network import resolve_host
+from phlo.logging import get_logger
+
+from phlo_dbt.discovery import find_dbt_projects
+
+logger = get_logger(__name__)
 
 
 def _project_root() -> Path:
@@ -40,16 +45,35 @@ def _resolve_project_path(value: str) -> Path:
     return _project_root() / path
 
 
-def _discover_dbt_project_path(root: Path) -> Path | None:
-    workflows_root = root / "workflows"
-    if not workflows_root.exists():
-        return None
+def _discover_dbt_project_paths(root: Path) -> list[Path]:
+    """Return discovered dbt projects under workflows/ in canonical order.
 
-    candidates = sorted(
-        (path.parent for path in workflows_root.rglob("dbt_project.yml")),
-        key=lambda path: (len(path.parts), str(path)),
+    Delegates to ``phlo_dbt.discovery.find_dbt_projects`` so settings and
+    discovery share one ordering rule (shallowest-then-alphabetical).
+    """
+    return find_dbt_projects(root_dir=root)
+
+
+def _warn_skipped_projects(activated: Path, discovered: list[Path]) -> None:
+    """Log a loud one-time warning when discovery found projects that stay inert."""
+    if len(discovered) <= 1:
+        return
+    skipped = [path for path in discovered if path != activated]
+    if not skipped or activated in _warned_single_activations:
+        return
+    _warned_single_activations.add(activated)
+    logger.warning(
+        "dbt_multiple_projects_discovered_single_activated",
+        activated=str(activated),
+        skipped=[str(path) for path in skipped],
+        hint=(
+            "Set DBT_PROJECT_DIRS (comma-separated) to activate multiple dbt "
+            "projects, or DBT_PROJECT_DIR to pick one explicitly."
+        ),
     )
-    return candidates[0] if candidates else None
+
+
+_warned_single_activations: set[Path] = set()
 
 
 class DbtSettings(BaseConfig):
@@ -117,6 +141,30 @@ class DbtSettings(BaseConfig):
         default="workflows/transforms/dbt",
         description="Path to dbt project directory",
     )
+    dbt_project_dirs: str = Field(
+        default="",
+        description=(
+            "Comma-separated list of dbt project directories to activate "
+            "together (multi-project federation). Overrides dbt_project_dir."
+        ),
+    )
+    dbt_namespaced_asset_keys: bool = Field(
+        default=False,
+        description=(
+            "Prefix dbt-derived asset keys with the dbt project name "
+            "(e.g. sales.deal_pipeline) to prevent cross-domain collisions. "
+            "Recommended when multiple projects are activated."
+        ),
+    )
+    dbt_shared_schema: bool = Field(
+        default=False,
+        description=(
+            "Keep the shared dbt_query_schema for every activated project. "
+            "By default, multi-project activation isolates each project in "
+            "its own schema ({project_name}_{schema}) so independent domains "
+            "do not write into the same relations."
+        ),
+    )
     dbt_manifest_path: str = Field(
         default="",
         description="Path to dbt manifest.json after running dbt docs generate",
@@ -148,19 +196,46 @@ class DbtSettings(BaseConfig):
         """Return the dbt profiles directory path string."""
         return f"{self.dbt_project_dir}/profiles"
 
+    def _configured_project_dirs(self) -> list[str]:
+        """Return explicitly configured multi-project dirs, trimmed and non-empty."""
+        return [part.strip() for part in self.dbt_project_dirs.split(",") if part.strip()]
+
     @property
     def dbt_project_path(self) -> Path:
         """Return the dbt project path as a ``Path``.
 
-        Auto-discovery only applies when the default directory is configured
-        and does not exist on disk: the shallowest dbt project under
-        workflows/ wins, while an explicitly configured custom path is
-        returned as-is even if missing.
+        The first configured multi-project dir wins when ``dbt_project_dirs``
+        is set. Otherwise, auto-discovery only applies when the default
+        directory is configured and does not exist on disk: the shallowest
+        dbt project under workflows/ wins, while an explicitly configured
+        custom path is returned as-is even if missing. When discovery finds
+        several projects, the first is activated and the rest logged loudly.
         """
+        configured_dirs = self._configured_project_dirs()
+        if configured_dirs:
+            return _resolve_project_path(configured_dirs[0])
         configured_path = _resolve_project_path(self.dbt_project_dir)
         if self.dbt_project_dir != "workflows/transforms/dbt" or configured_path.exists():
             return configured_path
-        return _discover_dbt_project_path(_project_root()) or configured_path
+        discovered = _discover_dbt_project_paths(_project_root())
+        activated = discovered[0] if discovered else configured_path
+        _warn_skipped_projects(activated, discovered)
+        return activated
+
+    @property
+    def dbt_project_paths(self) -> list[Path]:
+        """Return every dbt project path activated for asset building.
+
+        Resolution order:
+        1. ``dbt_project_dirs`` (comma-separated) — explicit multi-project
+           federation; each entry resolves relative to the project root.
+        2. ``dbt_project_path`` — the single-project behavior, including
+           auto-discovery.
+        """
+        configured_dirs = self._configured_project_dirs()
+        if configured_dirs:
+            return [_resolve_project_path(part) for part in configured_dirs]
+        return [self.dbt_project_path]
 
     @property
     def dbt_profiles_path(self) -> Path:
@@ -175,6 +250,17 @@ class DbtSettings(BaseConfig):
             if discovered_project != _resolve_project_path(self.dbt_project_dir):
                 return discovered_project / "profiles"
         return _resolve_project_path(self.dbt_profiles_dir)
+
+    def dbt_profiles_path_for(self, project_path: Path) -> Path:
+        """Return the profiles directory for one activated dbt project.
+
+        The globally activated project keeps its configured profiles path
+        (which may be a custom location); every other federated project uses
+        its own ``profiles/`` subdirectory.
+        """
+        if project_path == self.dbt_project_path:
+            return self.dbt_profiles_path
+        return project_path / "profiles"
 
 
 @project_root_cached

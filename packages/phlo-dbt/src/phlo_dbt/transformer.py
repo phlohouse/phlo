@@ -164,7 +164,7 @@ def _latest_project_mtime(dbt_project_path: Path) -> float:
 def ensure_dbt_manifest(dbt_project_path: Path, profiles_path: Path) -> bool:
     """Ensure a valid dbt manifest exists for the project; True when present after checks/parse."""
     manifest_path = dbt_project_path / "target" / "manifest.json"
-    ensure_dbt_profile(profiles_path)
+    ensure_dbt_profile(profiles_path, project_dir=dbt_project_path)
 
     needs_parse = not manifest_path.exists()
     if not needs_parse:
@@ -291,13 +291,21 @@ class DbtTransformer(BaseTransformer):
         profiles_dir: Path,
         target: str = "dev",
         dbt_executable: str = "dbt",
+        key_prefix: str | None = None,
     ):
-        """Initialize dbt transformer runtime configuration."""
+        """Initialize dbt transformer runtime configuration.
+
+        ``key_prefix`` namespaces lineage asset keys with the dbt project
+        name, matching the prefixed asset keys built under
+        ``dbt_namespaced_asset_keys``; it must stay in sync with the prefix
+        used at spec-build time.
+        """
         super().__init__(context, logger)
         self.project_dir = project_dir
         self.profiles_dir = profiles_dir
         self.target = target
         self.dbt_executable = dbt_executable
+        self.key_prefix = key_prefix
         self.build_run_results: Mapping[str, Any] | None = None
 
     @staticmethod
@@ -375,7 +383,12 @@ class DbtTransformer(BaseTransformer):
         exclude_args = parameters.get("exclude", [])
         indirect_selection = parameters.get("indirect_selection")
         skip_build = parameters.get("skip_build", False)
-        ensure_dbt_profile(self.profiles_dir, runtime=self.context, target=self.target)
+        ensure_dbt_profile(
+            self.profiles_dir,
+            runtime=self.context,
+            target=self.target,
+            project_dir=self.project_dir,
+        )
 
         build_args = [
             "build",
@@ -481,7 +494,7 @@ class DbtTransformer(BaseTransformer):
 
             # 3. Emit lineage from the manifest left by the build.
             manifest_path = self.project_dir / "target" / "manifest.json"
-            translator = DbtSpecTranslator()
+            translator = DbtSpecTranslator(project_dir=self.project_dir, key_prefix=self.key_prefix)
 
             _emit_dbt_lineage(
                 manifest_path,

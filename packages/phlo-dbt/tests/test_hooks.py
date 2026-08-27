@@ -42,11 +42,18 @@ def test_compile_dbt_uses_discovered_nested_project_path(tmp_path: Path, monkeyp
     monkeypatch.setattr(
         hooks,
         "get_settings",
-        lambda: SimpleNamespace(dbt_project_path=dbt_project, dbt_profiles_path=profiles_dir),
+        lambda: SimpleNamespace(
+            dbt_project_path=dbt_project,
+            dbt_project_paths=[dbt_project],
+            dbt_profiles_path=profiles_dir,
+            dbt_profiles_path_for=lambda _p: profiles_dir,
+        ),
     )
     ensured_profiles: list[Path] = []
     commands: list[list[str]] = []
-    monkeypatch.setattr(hooks, "ensure_dbt_profile", lambda path: ensured_profiles.append(path))
+    monkeypatch.setattr(
+        hooks, "ensure_dbt_profile", lambda path, **_kwargs: ensured_profiles.append(path)
+    )
     monkeypatch.setattr(
         hooks,
         "run_command",

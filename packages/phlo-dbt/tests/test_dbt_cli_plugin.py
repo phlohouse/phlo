@@ -44,13 +44,23 @@ def test_dbt_run_uses_active_orchestrator_container_by_default(monkeypatch, tmp_
     )
     monkeypatch.setattr(
         "phlo_dbt.cli_plugin.get_settings",
-        lambda: SimpleNamespace(dbt_project_path=project_dir, dbt_profiles_path=profiles_dir),
+        lambda: SimpleNamespace(
+            dbt_project_path=project_dir,
+            dbt_project_paths=[project_dir],
+            dbt_profiles_path=profiles_dir,
+            dbt_profiles_path_for=lambda _p: profiles_dir,
+        ),
         raising=False,
     )
     monkeypatch.setattr(
         dbt_settings,
         "get_settings",
-        lambda: SimpleNamespace(dbt_project_path=project_dir, dbt_profiles_path=profiles_dir),
+        lambda: SimpleNamespace(
+            dbt_project_path=project_dir,
+            dbt_project_paths=[project_dir],
+            dbt_profiles_path=profiles_dir,
+            dbt_profiles_path_for=lambda _p: profiles_dir,
+        ),
     )
     imported_manifests: list[Path] = []
     monkeypatch.setattr(
@@ -105,7 +115,12 @@ def test_dbt_run_local_uses_host_dbt(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         dbt_settings,
         "get_settings",
-        lambda: SimpleNamespace(dbt_project_path=project_dir, dbt_profiles_path=profiles_dir),
+        lambda: SimpleNamespace(
+            dbt_project_path=project_dir,
+            dbt_project_paths=[project_dir],
+            dbt_profiles_path=profiles_dir,
+            dbt_profiles_path_for=lambda _p: profiles_dir,
+        ),
     )
     monkeypatch.setattr("phlo_dbt.cli_plugin.ensure_dbt_profile", lambda *_args, **_kwargs: None)
     imported_manifests: list[Path] = []
@@ -154,7 +169,12 @@ def test_dbt_run_missing_project_is_actionable(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         dbt_settings,
         "get_settings",
-        lambda: SimpleNamespace(dbt_project_path=project_dir, dbt_profiles_path=profiles_dir),
+        lambda: SimpleNamespace(
+            dbt_project_path=project_dir,
+            dbt_project_paths=[project_dir],
+            dbt_profiles_path=profiles_dir,
+            dbt_profiles_path_for=lambda _p: profiles_dir,
+        ),
     )
 
     result = CliRunner().invoke(dbt_group, ["run", "--local"])
@@ -181,7 +201,12 @@ def test_dbt_run_container_requires_exec_service(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         dbt_settings,
         "get_settings",
-        lambda: SimpleNamespace(dbt_project_path=project_dir, dbt_profiles_path=profiles_dir),
+        lambda: SimpleNamespace(
+            dbt_project_path=project_dir,
+            dbt_project_paths=[project_dir],
+            dbt_profiles_path=profiles_dir,
+            dbt_profiles_path_for=lambda _p: profiles_dir,
+        ),
     )
 
     result = CliRunner().invoke(dbt_group, ["run", "--select", "dim_pokemon"])
@@ -210,7 +235,12 @@ def test_dbt_run_joins_multiple_select_flags(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         dbt_settings,
         "get_settings",
-        lambda: SimpleNamespace(dbt_project_path=project_dir, dbt_profiles_path=profiles_dir),
+        lambda: SimpleNamespace(
+            dbt_project_path=project_dir,
+            dbt_project_paths=[project_dir],
+            dbt_profiles_path=profiles_dir,
+            dbt_profiles_path_for=lambda _p: profiles_dir,
+        ),
     )
     monkeypatch.setattr(
         "phlo_dbt.cli_plugin._import_manifest_lineage",
@@ -244,7 +274,12 @@ def test_dbt_run_skips_lineage_import_on_failure(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         dbt_settings,
         "get_settings",
-        lambda: SimpleNamespace(dbt_project_path=project_dir, dbt_profiles_path=profiles_dir),
+        lambda: SimpleNamespace(
+            dbt_project_path=project_dir,
+            dbt_project_paths=[project_dir],
+            dbt_profiles_path=profiles_dir,
+            dbt_profiles_path_for=lambda _p: profiles_dir,
+        ),
     )
     monkeypatch.setattr("phlo_dbt.cli_plugin.ensure_dbt_profile", lambda *_args, **_kwargs: None)
 
@@ -276,7 +311,12 @@ def test_dbt_compile_does_not_import_lineage(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         dbt_settings,
         "get_settings",
-        lambda: SimpleNamespace(dbt_project_path=project_dir, dbt_profiles_path=profiles_dir),
+        lambda: SimpleNamespace(
+            dbt_project_path=project_dir,
+            dbt_project_paths=[project_dir],
+            dbt_profiles_path=profiles_dir,
+            dbt_profiles_path_for=lambda _p: profiles_dir,
+        ),
     )
     monkeypatch.setattr("phlo_dbt.cli_plugin.ensure_dbt_profile", lambda *_args, **_kwargs: None)
 

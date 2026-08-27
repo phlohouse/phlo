@@ -33,7 +33,6 @@ def test_dbt_asset_runner_emits_dagster_check_events(
 ) -> None:
     """A multi-model provider emits only checks owned by the selected asset."""
     project_path = tmp_path / "dbt"
-    profiles_path = project_path / "profiles"
     target_path = project_path / "target"
     target_path.mkdir(parents=True)
     (project_path / "dbt_project.yml").write_text("name: test\nversion: '1.0'\n", encoding="utf-8")
@@ -92,7 +91,12 @@ def test_dbt_asset_runner_emits_dagster_check_events(
         lambda: type(
             "Settings",
             (),
-            {"dbt_project_path": project_path, "dbt_profiles_path": profiles_path},
+            {
+                "dbt_project_path": project_path,
+                "dbt_project_paths": [project_path],
+                "dbt_namespaced_asset_keys": False,
+                "dbt_profiles_path_for": lambda _s, p: p / "profiles",
+            },
         )(),
     )
     monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_profile", lambda *_args, **_kwargs: None)

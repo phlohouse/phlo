@@ -343,7 +343,9 @@ def test_each_project_is_valid_uniquely_named_and_selectable() -> None:
 def test_sources_map_to_shared_asset_graph_via_phlo_asset_keys() -> None:
     expected_keys = {
         "sales": {"dlt_sales_deals"},
-        "finance": {"dlt_finance_invoices", "dlt_sales_deals"},
+        # finance's sales reference points at the sales domain's dbt MODEL
+        # (model-level cross-project lineage), not the raw dlt table.
+        "finance": {"dlt_finance_invoices", "sales_domain.deal_pipeline"},
         "operations": {"dlt_operations_incidents"},
     }
     for domain, dbt_dir in DOMAIN_DBT_DIRS.items():
@@ -439,3 +441,46 @@ def test_findings_file_records_verified_boundary_and_product_work() -> None:
     for topic in ("multi-manifest", "namespaced", "lineage", "unresolved"):
         assert topic in lowered, f"missing product-work topic: {topic}"
     assert "WAP" in text
+
+
+def _multi_project_capable() -> bool:
+    """Federation tests need phlo-dbt with multi-project activation support."""
+    from phlo_dbt.settings import DbtSettings
+
+    return hasattr(DbtSettings, "dbt_project_paths") and "dbt_namespaced_asset_keys" in getattr(
+        DbtSettings, "model_fields", {}
+    )
+
+
+@pytest.mark.skipif(
+    not _multi_project_capable(),
+    reason="phlo-dbt build lacks multi-project activation (DBT_PROJECT_DIRS)",
+)
+def test_multi_project_activation_builds_all_three_domains(monkeypatch) -> None:
+    """Every discovered domain project activates together when DBT_PROJECT_DIRS is set."""
+    from phlo_dbt.assets import build_dbt_asset_specs
+
+    root = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(root))
+    monkeypatch.setenv(
+        "DBT_PROJECT_DIRS",
+        ",".join(
+            [
+                "workflows/sales/transforms/dbt",
+                "workflows/finance/transforms/dbt",
+                "workflows/operations/transforms/dbt",
+            ]
+        ),
+    )
+    monkeypatch.setenv("DBT_NAMESPACED_ASSET_KEYS", "1")
+    monkeypatch.delenv("DBT_PROJECT_DIR", raising=False)
+
+    specs = {spec.key: spec for spec in build_dbt_asset_specs()}
+
+    assert "sales_domain.deal_pipeline" in specs
+    assert "finance_domain.invoice_aging" in specs
+    assert "operations_domain.incident_summary" in specs
+    # Cross-project lineage: the finance bridge source maps to the sales
+    # domain's dbt model via meta.phlo_asset_key, so the previously
+    # raw-table-hop dependency becomes a real model-to-model edge.
+    assert "sales_domain.deal_pipeline" in specs["finance_domain.invoice_aging"].deps

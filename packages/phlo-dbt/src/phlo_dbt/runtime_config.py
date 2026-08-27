@@ -33,6 +33,7 @@ from phlo.capabilities import (
     routing_from_context,
 )
 from phlo.logging import get_logger
+from phlo_dbt.discovery import read_dbt_project_name
 from phlo_dbt.settings import get_settings as get_dbt_settings
 
 logger = get_logger(__name__)
@@ -158,12 +159,16 @@ def resolve_dbt_runtime_config(
     runtime: RuntimeContext | None = None,
     *,
     target: str | None = None,
+    project_dir: Path | None = None,
 ) -> DbtRuntimeConfig:
     """Resolve canonical dbt runtime config from query-engine settings and routing.
 
     Combines Phlo settings with runtime context to produce a complete dbt
     runtime configuration. Handles catalog name resolution based on runtime
-    references.
+    references. When ``project_dir`` is given, the profile name is read from
+    that project's ``dbt_project.yml`` instead of the globally activated
+    project — required for multi-project federation where each project
+    declares its own profile.
 
     Example:
         >>> config = resolve_dbt_runtime_config(target="prod")
@@ -175,6 +180,15 @@ def resolve_dbt_runtime_config(
     settings = get_dbt_settings()
     target_name = resolve_dbt_target_name(runtime, target=target)
     catalog = settings.dbt_query_catalog
+    schema = settings.dbt_query_schema
+    # Multi-project federation isolates each domain in its own schema so
+    # independent projects do not interleave models in one shared schema.
+    if (
+        project_dir is not None
+        and not settings.dbt_shared_schema
+        and len(settings.dbt_project_paths) > 1
+    ):
+        schema = f"{read_dbt_project_name(project_dir)}_{schema}"
     ref = resolve_runtime_ref(runtime, support=DBT_QUERY_ENGINE_SUPPORT, default_ref="main")
     # Non-main refs run against an isolated catalog. Refs owned by a
     # pipeline run (OWNED_WAP_REF_PREFIX) get their catalog provisioned by
@@ -190,7 +204,7 @@ def resolve_dbt_runtime_config(
                 catalog = query_engine.provider.provision_ref_query_catalog(ref)
 
     return DbtRuntimeConfig(
-        profile_name=resolve_dbt_profile_name(settings.dbt_project_path),
+        profile_name=resolve_dbt_profile_name(project_dir or settings.dbt_project_path),
         target_name=target_name,
         engine_type=settings.dbt_query_engine_type,
         password=settings.dbt_query_password,
@@ -198,7 +212,7 @@ def resolve_dbt_runtime_config(
         host=settings.dbt_query_host,
         port=settings.dbt_query_port,
         catalog=catalog,
-        schema=settings.dbt_query_schema,
+        schema=schema,
         threads=settings.dbt_query_threads,
         http_scheme=settings.dbt_query_http_scheme,
         method=settings.dbt_query_auth_method,
@@ -305,12 +319,14 @@ def ensure_dbt_profile(
     *,
     runtime: RuntimeContext | None = None,
     target: str | None = None,
+    project_dir: Path | None = None,
 ) -> Path:
     """Resolve and write canonical `profiles.yml` for the active dbt target.
 
     Combines configuration resolution and profile writing into a single
     convenience function so a valid profiles.yml always exists for the given
-    runtime context and target.
+    runtime context and target. ``project_dir`` selects the profile name
+    source for multi-project federation.
 
     Example:
         >>> from phlo_dbt.runtime_config import ensure_dbt_profile
@@ -321,6 +337,6 @@ def ensure_dbt_profile(
         >>> print(f"Profile ready at: {path}")
     """
     return write_dbt_profile(
-        resolve_dbt_runtime_config(runtime, target=target),
+        resolve_dbt_runtime_config(runtime, target=target, project_dir=project_dir),
         profiles_dir,
     )

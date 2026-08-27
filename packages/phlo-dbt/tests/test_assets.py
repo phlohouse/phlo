@@ -23,7 +23,9 @@ def test_build_dbt_asset_specs_returns_empty_when_project_missing(monkeypatch, t
             (),
             {
                 "dbt_project_path": tmp_path / "missing",
-                "dbt_profiles_path": tmp_path / "missing" / "profiles",
+                "dbt_project_paths": [tmp_path / "missing"],
+                "dbt_namespaced_asset_keys": False,
+                "dbt_profiles_path_for": lambda _s, p: p / "profiles",
             },
         )(),
     )
@@ -33,7 +35,6 @@ def test_build_dbt_asset_specs_returns_empty_when_project_missing(monkeypatch, t
 
 def test_build_dbt_asset_specs_raises_when_manifest_unavailable(monkeypatch, tmp_path) -> None:
     project_path = tmp_path / "dbt"
-    profiles_path = project_path / "profiles"
     project_path.mkdir(parents=True)
     (project_path / "dbt_project.yml").write_text("name: test\nversion: '1.0'\n", encoding="utf-8")
 
@@ -44,7 +45,9 @@ def test_build_dbt_asset_specs_raises_when_manifest_unavailable(monkeypatch, tmp
             (),
             {
                 "dbt_project_path": project_path,
-                "dbt_profiles_path": profiles_path,
+                "dbt_project_paths": [project_path],
+                "dbt_namespaced_asset_keys": False,
+                "dbt_profiles_path_for": lambda _s, p: p / "profiles",
             },
         )(),
     )
@@ -57,7 +60,6 @@ def test_build_dbt_asset_specs_raises_when_manifest_unavailable(monkeypatch, tmp
 
 def test_build_dbt_asset_specs_raises_when_manifest_shape_is_invalid(monkeypatch, tmp_path) -> None:
     project_path = tmp_path / "dbt"
-    profiles_path = project_path / "profiles"
     target_path = project_path / "target"
     project_path.mkdir(parents=True)
     target_path.mkdir(parents=True)
@@ -71,7 +73,9 @@ def test_build_dbt_asset_specs_raises_when_manifest_shape_is_invalid(monkeypatch
             (),
             {
                 "dbt_project_path": project_path,
-                "dbt_profiles_path": profiles_path,
+                "dbt_project_paths": [project_path],
+                "dbt_namespaced_asset_keys": False,
+                "dbt_profiles_path_for": lambda _s, p: p / "profiles",
             },
         )(),
     )

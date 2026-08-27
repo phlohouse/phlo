@@ -294,3 +294,51 @@ def test_resolve_dbt_profile_name_prefers_project_declaration(tmp_path) -> None:
 
 def test_resolve_dbt_profile_name_falls_back_when_project_missing(tmp_path) -> None:
     assert resolve_dbt_profile_name(tmp_path / "missing") == "phlo"
+
+
+def test_multi_project_resolves_per_project_schema(monkeypatch, tmp_path) -> None:
+    """Multi-project activation isolates each domain in {project}_{schema}."""
+    sales = tmp_path / "workflows" / "sales" / "transforms" / "dbt"
+    finance = tmp_path / "workflows" / "finance" / "transforms" / "dbt"
+    for project, name in ((sales, "sales_domain"), (finance, "finance_domain")):
+        project.mkdir(parents=True)
+        (project / "dbt_project.yml").write_text(f"name: {name}\nprofile: phlo\n", encoding="utf-8")
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("DBT_PROJECT_DIRS", f"{sales},{finance}")
+    monkeypatch.delenv("DBT_SHARED_SCHEMA", raising=False)
+
+    from phlo_dbt.runtime_config import resolve_dbt_runtime_config
+
+    assert resolve_dbt_runtime_config(project_dir=sales).schema == "sales_domain_raw"
+    assert resolve_dbt_runtime_config(project_dir=finance).schema == "finance_domain_raw"
+    # The globally activated project (no explicit project_dir) keeps the
+    # shared schema for backward compatibility.
+    assert resolve_dbt_runtime_config().schema == "raw"
+
+
+def test_shared_schema_flag_disables_per_project_isolation(monkeypatch, tmp_path) -> None:
+    sales = tmp_path / "workflows" / "sales" / "transforms" / "dbt"
+    finance = tmp_path / "workflows" / "finance" / "transforms" / "dbt"
+    for project, name in ((sales, "sales_domain"), (finance, "finance_domain")):
+        project.mkdir(parents=True)
+        (project / "dbt_project.yml").write_text(f"name: {name}\nprofile: phlo\n", encoding="utf-8")
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("DBT_PROJECT_DIRS", f"{sales},{finance}")
+    monkeypatch.setenv("DBT_SHARED_SCHEMA", "1")
+
+    from phlo_dbt.runtime_config import resolve_dbt_runtime_config
+
+    assert resolve_dbt_runtime_config(project_dir=sales).schema == "raw"
+
+
+def test_single_project_keeps_shared_schema(monkeypatch, tmp_path) -> None:
+    sales = tmp_path / "workflows" / "sales" / "transforms" / "dbt"
+    sales.mkdir(parents=True)
+    (sales / "dbt_project.yml").write_text("name: sales_domain\nprofile: phlo\n")
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("DBT_PROJECT_DIRS", str(sales))
+    monkeypatch.delenv("DBT_SHARED_SCHEMA", raising=False)
+
+    from phlo_dbt.runtime_config import resolve_dbt_runtime_config
+
+    assert resolve_dbt_runtime_config(project_dir=sales).schema == "raw"

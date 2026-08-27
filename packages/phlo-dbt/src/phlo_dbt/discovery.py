@@ -21,7 +21,10 @@ Example:
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
+
+import yaml
 
 from phlo.logging import get_logger, setup_logging
 
@@ -73,13 +76,40 @@ def find_dbt_projects(
     if search_paths is None:
         workflows_root = root_dir / "workflows"
         if workflows_root.exists():
-            for candidate in sorted(workflows_root.rglob("dbt_project.yml")):
+            # Canonical ordering policy: shallowest path wins, then
+            # alphabetical. Settings auto-discovery must reuse this rule so
+            # both paths agree on which project is "first" in nested layouts.
+            for candidate in sorted(
+                workflows_root.rglob("dbt_project.yml"),
+                key=lambda path: (len(path.parent.parts), str(path.parent)),
+            ):
                 if candidate.parent not in seen:
                     seen.add(candidate.parent)
                     discovered.append(candidate.parent)
                     logger.info("Discovered dbt project: %s", candidate.parent)
 
     return discovered
+
+
+def read_dbt_project_name(project_dir: str | Path) -> str:
+    """Read the dbt project name from dbt_project.yml.
+
+    Falls back to the directory name when the file is missing or malformed.
+    Shared by settings, asset building, and runtime config so the project
+    name means the same thing everywhere.
+    """
+    project_path = Path(project_dir)
+    project_file = project_path / "dbt_project.yml"
+    if not project_file.exists():
+        return project_path.name
+    try:
+        payload = yaml.safe_load(project_file.read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001 - a malformed project file falls back to the dir name
+        return project_path.name
+    name = payload.get("name") if isinstance(payload, Mapping) else None
+    if isinstance(name, str) and name:
+        return name
+    return project_path.name
 
 
 def get_dbt_project_dir() -> Path:

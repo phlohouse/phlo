@@ -29,6 +29,7 @@ from phlo.capabilities import (
 from phlo.capabilities.runtime import RuntimeContext
 from phlo.exceptions import PhloCapabilitySetupError
 from phlo.logging import get_logger
+from phlo_dbt.discovery import read_dbt_project_name
 from phlo_dbt.runtime_config import ensure_dbt_profile, resolve_dbt_target_name
 from phlo_dbt.settings import get_settings
 
@@ -86,6 +87,7 @@ def _run_dbt_model(
     runtime: RuntimeContext,
     manifest: Mapping[str, Any],
     translator: DbtSpecTranslator,
+    key_prefix: str | None = None,
 ) -> list[MaterializeResult | CheckResult]:
     """Execute a single dbt model and return its materialization result plus
     test-check results."""
@@ -99,6 +101,7 @@ def _run_dbt_model(
         project_dir=project_dir,
         profiles_dir=profiles_dir,
         target=target,
+        key_prefix=key_prefix,
     )
 
     result = transformer.run_transform(
@@ -154,30 +157,38 @@ def _read_dbt_asset_checks(
     ]
 
 
-def build_dbt_asset_specs() -> list[AssetSpec]:
-    """Build asset specifications for supported dbt nodes from manifest metadata."""
+def _build_project_asset_specs(
+    *,
+    project_path: Path,
+    project_name: str,
+    key_prefix: str | None,
+) -> tuple[list[AssetSpec], dict[str, str], set[str]]:
+    """Build asset specs for one dbt project from its manifest metadata.
+
+    Returns the specs, the unique-id-to-asset-key map used for dependency
+    resolution (nodes and sources), and the set of explicitly declared
+    cross-project reference keys (sources with ``meta.phlo_asset_key``).
+    """
     settings = get_settings()
+    profiles_path = settings.dbt_profiles_path_for(project_path)
+    manifest_path = project_path / "target" / "manifest.json"
 
-    dbt_project_path = settings.dbt_project_path
-    dbt_profiles_path = settings.dbt_profiles_path
-    manifest_path = dbt_project_path / "target" / "manifest.json"
-
-    if not dbt_project_path.exists() or not (dbt_project_path / "dbt_project.yml").exists():
+    if not project_path.exists() or not (project_path / "dbt_project.yml").exists():
         logger.warning(
             "optional_capability_degraded",
             capability="dbt",
             reason="project_missing",
-            dbt_project_path=str(dbt_project_path),
+            dbt_project_path=str(project_path),
         )
-        return []
+        return [], {}, set()
 
-    ensure_dbt_profile(dbt_profiles_path)
+    ensure_dbt_profile(profiles_path, project_dir=project_path)
 
-    if not ensure_dbt_manifest(dbt_project_path, dbt_profiles_path):
+    if not ensure_dbt_manifest(project_path, profiles_path):
         _raise_required_dbt_setup_error(
             reason="manifest_unavailable",
-            dbt_project_path=dbt_project_path,
-            dbt_profiles_path=dbt_profiles_path,
+            dbt_project_path=project_path,
+            dbt_profiles_path=profiles_path,
             manifest_path=manifest_path,
         )
 
@@ -186,20 +197,20 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
     except (OSError, ValueError):
         _raise_required_dbt_setup_error(
             reason="manifest_read_failed",
-            dbt_project_path=dbt_project_path,
-            dbt_profiles_path=dbt_profiles_path,
+            dbt_project_path=project_path,
+            dbt_profiles_path=profiles_path,
             manifest_path=manifest_path,
         )
 
     if not isinstance(manifest, Mapping):
         _raise_required_dbt_setup_error(
             reason="manifest_not_mapping",
-            dbt_project_path=dbt_project_path,
-            dbt_profiles_path=dbt_profiles_path,
+            dbt_project_path=project_path,
+            dbt_profiles_path=profiles_path,
             manifest_path=manifest_path,
         )
 
-    translator = DbtSpecTranslator()
+    translator = DbtSpecTranslator(project_dir=project_path, key_prefix=key_prefix)
     nodes = manifest.get("nodes")
     sources = manifest.get("sources")
     if nodes is None:
@@ -209,12 +220,13 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
     if not isinstance(nodes, Mapping) or not isinstance(sources, Mapping):
         _raise_required_dbt_setup_error(
             reason="manifest_shape_invalid",
-            dbt_project_path=dbt_project_path,
-            dbt_profiles_path=dbt_profiles_path,
+            dbt_project_path=project_path,
+            dbt_profiles_path=profiles_path,
             manifest_path=manifest_path,
         )
 
     asset_keys: dict[str, str] = {}
+    cross_refs: set[str] = set()
     for unique_id, props in {**nodes, **sources}.items():
         if not isinstance(props, Mapping):
             continue
@@ -227,6 +239,10 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
             )
             continue
         asset_keys[str(unique_id)] = str(asset_key)
+        if str(props.get("resource_type") or "") == "source":
+            meta = props.get("meta")
+            if isinstance(meta, Mapping) and (meta.get("phlo_asset_key") or meta.get("asset_key")):
+                cross_refs.add(str(asset_key))
 
     specs: list[AssetSpec] = []
     check_specs = dbt_asset_check_specs(manifest, translator=translator)
@@ -246,6 +262,8 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
         kinds = translator.get_kinds(props)
         metadata = translator.get_metadata(props)
         tags = {"tool": "dbt"}
+        if key_prefix:
+            metadata = {**metadata, "dbt_project": project_name}
 
         checks = [check for check in check_specs if check.asset_key == asset_key]
 
@@ -260,11 +278,12 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
             return _run_dbt_model(
                 model_name=model,
                 asset_key=key,
-                project_dir=dbt_project_path,
-                profiles_dir=dbt_profiles_path,
+                project_dir=project_path,
+                profiles_dir=profiles_path,
                 runtime=runtime,
                 manifest=manifest,
                 translator=translator,
+                key_prefix=key_prefix,
             )
 
         specs.append(
@@ -285,6 +304,114 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
     logger.info(
         "dbt_asset_specs_built",
         spec_count=len(specs),
-        dbt_project_path=str(dbt_project_path),
+        dbt_project_path=str(project_path),
     )
-    return specs
+    return specs, asset_keys, cross_refs
+
+
+def build_dbt_asset_specs() -> list[AssetSpec]:
+    """Build asset specifications for supported dbt nodes across all activated projects.
+
+    Activates exactly one project by default (existing single-project
+    behavior). When ``dbt_project_dirs`` (env ``DBT_PROJECT_DIRS``) lists
+    several projects, each is compiled and merged into one asset graph.
+    With ``dbt_namespaced_asset_keys`` (env ``DBT_NAMESPACED_ASSET_KEYS``),
+    dbt-derived keys are prefixed with the project name to prevent
+    cross-domain collisions. Collisions that survive namespacing raise
+    ``PhloCapabilitySetupError``; cross-project source references that do not
+    resolve to any known dbt asset key are logged loudly.
+    """
+    settings = get_settings()
+    project_paths = settings.dbt_project_paths
+    namespaced = settings.dbt_namespaced_asset_keys
+
+    if len(project_paths) > 1:
+        logger.info(
+            "dbt_multi_project_activation",
+            project_count=len(project_paths),
+            projects=[str(path) for path in project_paths],
+        )
+
+    all_specs: list[AssetSpec] = []
+    known_keys: set[str] = set()
+    key_owner: dict[str, Path] = {}
+    cross_refs: set[str] = set()
+    seen_paths: set[Path] = set()
+    seen_project_names: set[str] = set()
+    for project_path in project_paths:
+        resolved_path = project_path.resolve()
+        if resolved_path in seen_paths:
+            raise PhloCapabilitySetupError(
+                capability="dbt",
+                required=True,
+                message=f"dbt project directory listed more than once: '{project_path}'",
+                suggestions=[
+                    "Remove the duplicate entry from DBT_PROJECT_DIRS",
+                ],
+            )
+        seen_paths.add(resolved_path)
+        project_name = read_dbt_project_name(project_path)
+        if project_name in seen_project_names:
+            raise PhloCapabilitySetupError(
+                capability="dbt",
+                required=True,
+                message=(
+                    f"dbt project name '{project_name}' is declared by more than one "
+                    "activated project"
+                ),
+                suggestions=[
+                    "Give each activated dbt project a unique name in its dbt_project.yml",
+                ],
+            )
+        seen_project_names.add(project_name)
+        key_prefix = project_name if namespaced else None
+        specs, asset_keys, project_refs = _build_project_asset_specs(
+            project_path=project_path,
+            project_name=project_name,
+            key_prefix=key_prefix,
+        )
+
+        # A same-named model in two projects would silently merge into one
+        # asset; namespacing prevents it, and any surviving collision must
+        # fail loudly instead. Source-derived keys are exempt: two projects
+        # declaring the same foreign source (e.g. another domain's dlt_ table)
+        # is the intended cross-domain reference pattern.
+        for asset_key in sorted({spec.key for spec in specs}):
+            owner = key_owner.get(asset_key)
+            if owner is not None and owner != resolved_path:
+                raise PhloCapabilitySetupError(
+                    capability="dbt",
+                    required=True,
+                    message=(
+                        f"dbt asset key collision across projects: '{asset_key}' is "
+                        f"produced by both '{owner.name}' and '{project_name}'"
+                    ),
+                    suggestions=[
+                        "Set DBT_NAMESPACED_ASSET_KEYS=1 to prefix dbt asset keys "
+                        "with the dbt project name",
+                        "Rename the colliding dbt model or source table",
+                    ],
+                )
+            key_owner[asset_key] = resolved_path
+        known_keys.update(asset_keys.values())
+        cross_refs.update(project_refs)
+        all_specs.extend(specs)
+
+    unresolved = sorted(key for key in cross_refs if key not in known_keys)
+    if unresolved:
+        logger.warning(
+            "dbt_cross_project_reference_unresolved",
+            asset_keys=unresolved,
+            hint=(
+                "Referenced asset keys were not found in any activated dbt "
+                "project; verify they are owned by another provider (e.g. "
+                "phlo-dlt) or that the owning project is activated."
+            ),
+        )
+
+    logger.info(
+        "dbt_asset_specs_built",
+        spec_count=len(all_specs),
+        project_count=len(project_paths),
+    )
+    return all_specs

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping, Sequence
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from phlo.logging import get_logger
@@ -103,7 +103,10 @@ def _truncate_utf8_bytes(text: str, max_bytes: int) -> tuple[str, bool, int]:
 
 
 def get_compiled_sql_from_resource_props(
-    dbt_resource_props: Mapping[str, Any], *, max_bytes: int
+    dbt_resource_props: Mapping[str, Any],
+    *,
+    max_bytes: int,
+    project_dir: Path | None = None,
 ) -> tuple[str, bool, int, str]:
     """Resolve compiled SQL for a dbt resource, capped at max_bytes UTF-8 bytes.
 
@@ -111,7 +114,8 @@ def get_compiled_sql_from_resource_props(
     outside the dbt project directory), falling back to the manifest's
     compiled_code, raw_code, or raw_sql. Returns the SQL text, whether it was
     truncated, the original byte length, and the source used ("compiled_file",
-    "manifest", or "none").
+    "manifest", or "none"). ``project_dir`` confines reads for multi-project
+    federation; it defaults to the globally activated project.
     """
     compiled_sql = ""
     source = "none"
@@ -120,7 +124,7 @@ def get_compiled_sql_from_resource_props(
     if compiled_path:
         # compiled_path comes from the manifest, so confine reads to the dbt
         # project directory; anything escaping it is treated as traversal.
-        dbt_project_path = get_settings().dbt_project_path
+        dbt_project_path = project_dir or get_settings().dbt_project_path
         compiled_file = (dbt_project_path / str(compiled_path)).resolve()
         if not str(compiled_file).startswith(str(dbt_project_path.resolve()) + os.sep):
             logger.warning(
@@ -205,12 +209,26 @@ class DbtSpecTranslator:
 
     """
 
+    def __init__(self, project_dir: Path | None = None, key_prefix: str | None = None) -> None:
+        """Store the owning project directory and optional asset-key prefix.
+
+        ``project_dir`` confines compiled-SQL reads to the owning project in
+        multi-project federation; it defaults to the globally activated project.
+        ``key_prefix`` namespaces asset keys with the dbt project name (e.g.
+        ``sales.deal_pipeline``) and applies only to a project's own resources
+        — sources keep their explicit ``phlo_asset_key`` override, ``dlt_``
+        binding, or source-qualified key so cross-provider references resolve.
+        """
+        self._project_dir = project_dir
+        self._key_prefix = key_prefix
+
     def get_asset_key(self, dbt_resource_props: Mapping[str, Any]) -> str:
         """Build the canonical asset key from dbt manifest properties.
 
         Sources yield "{source_name}.{name}", or "dlt_{name}" when the source
         is dagster_assets or starts with raw_; an explicit asset_key override
-        in meta wins. Other resources use their own name.
+        in meta wins. Other resources use their own name, prefixed with the
+        configured key prefix when one is set.
         """
         resource_type = dbt_resource_props.get("resource_type")
         is_source = resource_type == "source" or (
@@ -229,7 +247,10 @@ class DbtSpecTranslator:
                 return f"dlt_{table_name}"
             return f"{source_name}.{table_name}"
 
-        return str(dbt_resource_props["name"])
+        name = str(dbt_resource_props["name"])
+        if self._key_prefix:
+            return f"{self._key_prefix}.{name}"
+        return name
 
     def get_description(self, dbt_resource_props: Mapping[str, Any]) -> str:
         """Build the asset description from the model's dbt description text.
@@ -248,7 +269,7 @@ class DbtSpecTranslator:
         if _bool_env("PHLO_DBT_INCLUDE_COMPILED_SQL_IN_DESCRIPTION", default=False):
             max_bytes = _int_env("PHLO_DBT_COMPILED_SQL_MAX_BYTES", default=64_000)
             compiled_sql, _, _, _ = get_compiled_sql_from_resource_props(
-                dbt_resource_props, max_bytes=max_bytes
+                dbt_resource_props, max_bytes=max_bytes, project_dir=self._project_dir
             )
             if compiled_sql:
                 parts.append("\n#### Compiled SQL (truncated):\n```sql\n" + compiled_sql + "\n```")
@@ -334,7 +355,7 @@ class DbtSpecTranslator:
 
         max_bytes = _int_env("PHLO_DBT_COMPILED_SQL_MAX_BYTES", default=64_000)
         compiled_sql, was_truncated, original_bytes, source = get_compiled_sql_from_resource_props(
-            dbt_resource_props, max_bytes=max_bytes
+            dbt_resource_props, max_bytes=max_bytes, project_dir=self._project_dir
         )
         if compiled_sql:
             metadata["phlo/compiled_sql"] = compiled_sql

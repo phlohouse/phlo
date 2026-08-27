@@ -10,17 +10,17 @@ sources:
         meta:
           phlo_asset_key: dlt_finance_invoices
 
-  # Cross-domain declaration: the sales ingestion asset is owned by the
+  # Cross-domain declaration: the sales-domain model is owned by the
   # sales_domain project, not by this manifest. phlo_asset_key maps it to the
   # shared asset graph; no ref() can reach a foreign model.
   - name: sales_raw
-    description: Sales-domain raw table consumed across projects (see FEDERATION_FINDINGS.md).
+    description: Sales-domain table consumed across projects (see FEDERATION_FINDINGS.md).
     schema: raw
     tables:
       - name: sales_deals
         identifier: sales_deals
         meta:
-          phlo_asset_key: dlt_sales_deals
+          phlo_asset_key: sales_domain.deal_pipeline
 
 models:
   - name: invoice_aging

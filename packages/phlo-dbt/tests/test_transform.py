@@ -70,7 +70,9 @@ def test_ensure_dbt_manifest_uses_parse_for_discovery(monkeypatch, tmp_path: Pat
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr("phlo_dbt.transformer.subprocess.run", fake_run)
-    monkeypatch.setattr("phlo_dbt.transformer.ensure_dbt_profile", lambda _profiles_dir: None)
+    monkeypatch.setattr(
+        "phlo_dbt.transformer.ensure_dbt_profile", lambda _profiles_dir, **_kwargs: None
+    )
 
     assert ensure_dbt_manifest(project_dir, profiles_dir) is True
     assert captured[0][:2] == ["dbt", "parse"]
