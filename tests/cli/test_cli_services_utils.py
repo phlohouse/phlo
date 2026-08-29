@@ -95,7 +95,12 @@ def test_stop_native_processes_clears_exited_entries(
         if sig == 0:
             raise ProcessLookupError
 
-    monkeypatch.setattr(service_utils.os, "killpg", lambda pid, sig: signals.append((pid, sig)))
+    def _fake_killpg(pid: int, sig: int) -> None:
+        signals.append((pid, sig))
+        if sig == 0:
+            raise ProcessLookupError
+
+    monkeypatch.setattr(service_utils.os, "killpg", _fake_killpg)
     monkeypatch.setattr(service_utils.os, "kill", _fake_kill)
 
     service_utils._stop_native_processes(project_root)

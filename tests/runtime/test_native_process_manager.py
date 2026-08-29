@@ -253,6 +253,39 @@ def test_start_service_discards_process_when_declared_health_check_fails(
     assert mgr.get_process("api") is None
 
 
+def test_start_service_cleans_process_when_registration_is_interrupted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An interrupt between spawning and registration reaps the new process."""
+    manager = NativeProcessManager(tmp_path)
+    service = _svc("api", dev={"command": ["python", "-m", "http.server"]})
+    signals: list[int] = []
+
+    class _Proc:
+        pid = 123
+
+        def poll(self):
+            return None
+
+        def send_signal(self, sig):
+            signals.append(sig)
+
+        def wait(self, timeout):
+            del timeout
+
+    def interrupted_registration(**_kwargs):
+        raise SystemExit
+
+    monkeypatch.setattr(compose_native.subprocess, "Popen", lambda *_args, **_kwargs: _Proc())
+    monkeypatch.setattr(compose_native, "NativeProcess", interrupted_registration)
+
+    with pytest.raises(SystemExit):
+        asyncio.run(manager.start_service(service))
+
+    assert signals == [signal.SIGTERM]
+    assert manager.get_process("api") is None
+
+
 @pytest.mark.skipif(not hasattr(os, "killpg"), reason="process groups require POSIX")
 def test_failed_health_cleanup_terminates_native_process_group(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

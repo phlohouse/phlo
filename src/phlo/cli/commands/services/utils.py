@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
@@ -561,38 +562,41 @@ def _stop_native_processes(project_root: Path, service_names: list[str] | None =
             continue
 
         # Termination protocol: SIGTERM the process group first (falling back
-        # to the bare pid if the group is gone), allow up to 10 seconds for
-        # exit, then SIGKILL any survivor. Exited services are dropped from
-        # persisted state as soon as they are confirmed gone.
+        # to the bare pid if groups are unavailable), allow up to 10 seconds
+        # for the whole group to exit, then SIGKILL that same scope. A leader
+        # exit alone does not prove that a descendant released its port.
+        process_group = True
         try:
             os.killpg(pid, signal.SIGTERM)
         except ProcessLookupError:
             state.pop(name, None)
             continue
         except Exception:
+            process_group = False
             try:
                 os.kill(pid, signal.SIGTERM)
             except ProcessLookupError:
                 state.pop(name, None)
                 continue
 
-        deadline = time.time() + 10
-        while time.time() < deadline:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if not _native_process_scope_exists(pid, process_group=process_group):
                 state.pop(name, None)
                 break
             time.sleep(0.25)
 
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
+        if name not in state:
+            continue
+        if not _native_process_scope_exists(pid, process_group=process_group):
             state.pop(name, None)
             continue
 
         try:
-            os.kill(pid, signal.SIGKILL)
+            if process_group:
+                os.killpg(pid, signal.SIGKILL)
+            else:
+                os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             state.pop(name, None)
             continue
@@ -602,10 +606,9 @@ def _stop_native_processes(project_root: Path, service_names: list[str] | None =
             logger.warning("process_kill_failed", name=name, pid=pid)
             continue
 
-        for _ in range(4):
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
+        kill_deadline = time.monotonic() + 5
+        while time.monotonic() < kill_deadline:
+            if not _native_process_scope_exists(pid, process_group=process_group):
                 state.pop(name, None)
                 break
             time.sleep(0.25)
@@ -614,6 +617,24 @@ def _stop_native_processes(project_root: Path, service_names: list[str] | None =
         _save_native_state(project_root, state)
     else:
         _native_state_path(project_root).unlink(missing_ok=True)
+
+
+def _native_process_scope_exists(pid: int, *, process_group: bool) -> bool:
+    """Return whether the native process group or bare process remains alive."""
+    with suppress(ChildProcessError):
+        os.waitpid(pid, os.WNOHANG)
+    try:
+        if process_group:
+            os.killpg(pid, 0)
+        else:
+            os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+    return True
 
 
 def get_profile_service_names(profile_names: tuple[str, ...]) -> list[str]:

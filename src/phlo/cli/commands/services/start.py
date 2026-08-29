@@ -830,6 +830,7 @@ def start_cmd(
                     """Start selected native services, returning their successful and failed names."""
                     started: dict[str, dict] = {}
                     failed: list[str] = []
+                    state = _load_native_state(project_root)
                     env_overrides = {
                         **_load_native_env_overrides(project_root),
                         "PHLO_PROJECT_PATH": str(project_root),
@@ -855,6 +856,9 @@ def start_cmd(
                                     project_root / ".phlo" / "native-logs" / f"{svc.name}.log"
                                 ),
                             }
+                            invocation_started_names.add(svc.name)
+                            state.update({svc.name: started[svc.name]})
+                            _save_native_state(project_root, state)
                             _emit_service_lifecycle_events(
                                 "post_start",
                                 [svc.name],
@@ -878,7 +882,61 @@ def start_cmd(
                             )
                     return started, failed
 
-                started, failed = asyncio.run(start_native_services())
+                started: dict[str, dict] = {}
+                invocation_started_names: set[str] = set()
+
+                def _current_invocation_state() -> dict[str, dict]:
+                    """Snapshot only live processes owned by this native start invocation."""
+                    current: dict[str, dict] = {}
+                    for service_definition in native_to_start:
+                        native_process = dev_manager.get_process(service_definition.name)
+                        if native_process is None or not native_process.is_running:
+                            continue
+                        current[service_definition.name] = {
+                            "pid": native_process.pid,
+                            "started_at": time.time(),
+                            "log": str(
+                                project_root
+                                / ".phlo"
+                                / "native-logs"
+                                / f"{service_definition.name}.log"
+                            ),
+                        }
+                    return current
+
+                def _interrupt_native_startup(_signum, _frame) -> None:
+                    """Turn SIGTERM during native startup into recoverable cleanup."""
+                    raise KeyboardInterrupt
+
+                old_sigterm = signal.signal(signal.SIGTERM, _interrupt_native_startup)
+                try:
+                    started, failed = asyncio.run(start_native_services())
+                except (KeyboardInterrupt, SystemExit):
+                    current_state = _current_invocation_state()
+                    tracked_names = invocation_started_names | set(current_state)
+                    if current_state:
+                        persisted_state = _load_native_state(project_root)
+                        persisted_state.update(current_state)
+                        _save_native_state(project_root, persisted_state)
+                    logger.warning(
+                        "services_start_native_interrupted",
+                        project_name=project_name,
+                        started_service_names=sorted(tracked_names),
+                    )
+                    try:
+                        asyncio.run(dev_manager.stop_all())
+                    except BaseException:
+                        logger.exception(
+                            "services_start_native_interrupt_cleanup_failed",
+                            project_name=project_name,
+                        )
+                    finally:
+                        _stop_native_processes(project_root, sorted(tracked_names))
+                    raise click.ClickException(
+                        "Native startup interrupted; current invocation services were stopped."
+                    ) from None
+                finally:
+                    signal.signal(signal.SIGTERM, old_sigterm)
                 logger.info(
                     "services_start_native_completed",
                     project_name=project_name,
@@ -887,11 +945,6 @@ def start_cmd(
                     failed_count=len(failed),
                     service_names=[svc.name for svc in native_to_start],
                 )
-                if started:
-                    state = _load_native_state(project_root)
-                    state.update(started)
-                    _save_native_state(project_root, state)
-
                 click.echo("")
                 if started:
                     click.echo(f"Native services started: {', '.join(started)}")
