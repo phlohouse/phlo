@@ -3515,13 +3515,10 @@ _PROVIDER_SERVICE_DEPENDENCIES: dict[tuple[str, str], tuple[str, ...]] = {
 
 def _add_orchestrator_plugin_providers(inventory: ObservatoryCapabilityInventory) -> None:
     """Expose installed orchestrator plugins as route-gating capabilities."""
-    try:
-        from phlo.plugins.discovery import discover_plugins, list_plugins
+    from phlo.plugins.discovery import discover_plugins, list_plugins
 
-        discover_plugins(plugin_type="orchestrators", auto_register=True)
-        orchestrators = list_plugins("orchestrators").get("orchestrators", [])
-    except Exception:
-        orchestrators = []
+    discover_plugins(plugin_type="orchestrator", auto_register=True)
+    orchestrators = list_plugins("orchestrator").get("orchestrator", [])
 
     providers = inventory.providers.setdefault("orchestrator", [])
     for orchestrator in orchestrators:

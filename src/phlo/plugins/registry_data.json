@@ -3,36 +3,6 @@
   "version": "1.0.0",
   "updated_at": "2025-12-22T00:00:00Z",
   "plugins": {
-    "example_cache": {
-      "type": "service",
-      "package": "phlo-plugin-example",
-      "version": "1.0.0",
-      "description": "Redis cache service for Phlo stacks",
-      "author": "Phlo Team",
-      "homepage": "https://github.com/iamgp/phlo-examples/tree/main/plugins/phlo-plugin-example",
-      "tags": ["cache", "redis", "service"],
-      "verified": true
-    },
-    "jsonplaceholder": {
-      "type": "source",
-      "package": "phlo-plugin-example",
-      "version": "1.0.0",
-      "description": "JSONPlaceholder source connector",
-      "author": "Phlo Team",
-      "homepage": "https://github.com/iamgp/phlo-examples/tree/main/plugins/phlo-plugin-example",
-      "tags": ["api", "example"],
-      "verified": true
-    },
-    "threshold_check": {
-      "type": "quality",
-      "package": "phlo-plugin-example",
-      "version": "1.0.0",
-      "description": "Threshold validation for numeric columns",
-      "author": "Phlo Team",
-      "homepage": "https://github.com/iamgp/phlo-examples/tree/main/plugins/phlo-plugin-example",
-      "tags": ["validation", "numeric", "example"],
-      "verified": true
-    },
     "dagster": {
       "type": "service",
       "package": "phlo-dagster",
@@ -62,6 +32,17 @@
       "description": "S3-compatible object storage for data lake",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-minio",
+      "tags": ["core", "storage", "s3"],
+      "verified": true,
+      "core": true
+    },
+    "rustfs": {
+      "type": "service",
+      "package": "phlo-rustfs",
+      "version": "0.1.0",
+      "description": "RustFS S3-compatible object storage for data lake",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-rustfs",
       "tags": ["core", "storage", "s3"],
       "verified": true,
       "core": true
@@ -165,6 +146,17 @@
       "verified": true,
       "core": true
     },
+    "rustfs-setup": {
+      "type": "service",
+      "package": "phlo-rustfs",
+      "version": "0.1.0",
+      "description": "Initialize RustFS buckets for data lake",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-rustfs",
+      "tags": ["core", "storage", "bootstrap"],
+      "verified": true,
+      "core": true
+    },
     "pgweb": {
       "type": "service",
       "package": "phlo-pgweb",
@@ -213,16 +205,6 @@
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-postgrest",
       "tags": ["api", "rest"],
-      "verified": true
-    },
-    "clickstack": {
-      "type": "service",
-      "package": "phlo-clickstack",
-      "version": "0.1.0",
-      "description": "ClickStack all-in-one observability backend",
-      "author": "Phlo Team",
-      "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-clickstack",
-      "tags": ["observability", "logs", "metrics", "traces"],
       "verified": true
     },
     "loki": {
@@ -275,6 +257,16 @@
       "tags": ["orchestration", "ui", "observability"],
       "verified": true
     },
+    "delta": {
+      "type": "resource",
+      "package": "phlo-delta",
+      "version": "0.1.0",
+      "description": "Delta Lake table-store capability plugin for the data lakehouse",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-delta",
+      "tags": ["table-store", "delta", "lakehouse"],
+      "verified": true
+    },
     "openmetadata": {
       "type": "hooks",
       "package": "phlo-openmetadata",
@@ -304,6 +296,39 @@
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-lineage",
       "tags": ["lineage", "observability", "hooks"],
       "verified": true
+    },
+    "clickhouse": {
+      "type": "service",
+      "package": "phlo-clickhouse",
+      "version": "0.1.0",
+      "description": "ClickHouse analytical database for data plane",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-clickhouse",
+      "tags": ["data", "query", "storage", "clickhouse"],
+      "verified": true,
+      "core": false
+    },
+    "clickhouse-setup": {
+      "type": "service",
+      "package": "phlo-clickhouse",
+      "version": "0.1.0",
+      "description": "Initialize ClickHouse databases for data plane",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-clickhouse",
+      "tags": ["data", "bootstrap", "clickhouse"],
+      "verified": true,
+      "core": false
+    },
+    "sling": {
+      "type": "ingestion_providers",
+      "package": "phlo-sling",
+      "version": "0.1.0",
+      "description": "Sling database replication ingestion provider for Phlo",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-sling",
+      "tags": ["ingestion", "replication", "database", "sling"],
+      "verified": true,
+      "core": false
     }
   }
 }

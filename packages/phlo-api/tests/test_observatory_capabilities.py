@@ -7,8 +7,11 @@ safe values and nested entries survive.
 
 from types import SimpleNamespace
 
+import pytest
+
 from phlo_api.observatory_api.observatory_capabilities import build_capability_inventory
 from phlo_api.observatory_api.observatory import (
+    _add_orchestrator_plugin_providers,
     _filter_capabilities_to_project_services,
     _pages_from_inventory,
 )
@@ -106,6 +109,39 @@ class FakeRegistry:
 
     def list_regulated_surfaces(self):
         return []
+
+
+def test_orchestrator_inventory_uses_the_canonical_plugin_family(monkeypatch) -> None:
+    """Installed orchestrators are exposed through the singular family name."""
+    families: list[str] = []
+
+    def discover(plugin_type: str, *, auto_register: bool) -> None:
+        assert auto_register is True
+        families.append(plugin_type)
+
+    def list_registered(plugin_type: str) -> dict[str, list[str]]:
+        families.append(plugin_type)
+        return {plugin_type: ["dagster"]}
+
+    monkeypatch.setattr("phlo.plugins.discovery.discover_plugins", discover)
+    monkeypatch.setattr("phlo.plugins.discovery.list_plugins", list_registered)
+    inventory = ObservatoryCapabilityInventory(providers={})
+
+    _add_orchestrator_plugin_providers(inventory)
+
+    assert families == ["orchestrator", "orchestrator"]
+    assert [provider.name for provider in inventory.providers["orchestrator"]] == ["dagster"]
+
+
+def test_orchestrator_inventory_does_not_hide_invalid_family_errors(monkeypatch) -> None:
+    """An invalid plugin family must surface instead of yielding an empty inventory."""
+    monkeypatch.setattr(
+        "phlo.plugins.discovery.discover_plugins",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("Unknown plugin family")),
+    )
+
+    with pytest.raises(ValueError, match="Unknown plugin family"):
+        _add_orchestrator_plugin_providers(ObservatoryCapabilityInventory(providers={}))
 
 
 def test_observatory_capability_inventory_serializes_support_and_requirements() -> None:

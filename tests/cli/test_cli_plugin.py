@@ -15,7 +15,7 @@ import pytest
 from click.testing import CliRunner
 
 from phlo.cli.commands.plugin import plugin_group
-from phlo.plugins import PluginMetadata
+from phlo.plugins import PluginMetadata, registry_client
 from phlo.plugins.base import (
     CliCommandPlugin,
     IngestionProviderPlugin,
@@ -104,6 +104,33 @@ def setup_registry():
 def _result(returncode=0, stdout="", stderr=""):
     """Build a minimal subprocess result stand-in."""
     return type("Result", (), {"returncode": returncode, "stdout": stdout, "stderr": stderr})()
+
+
+def test_plugin_search_uses_canonical_bundled_registry_offline(monkeypatch) -> None:
+    """Offline CLI search exposes canonical plugins without stale demo entries."""
+
+    class OfflineSettings:
+        plugin_registry_url = ""
+        plugin_registry_cache_ttl_seconds = 3600
+        plugin_registry_timeout_seconds = 1
+
+    previous_cache = registry_client._REGISTRY_CACHE.copy()
+    monkeypatch.setattr(registry_client, "get_settings", lambda: OfflineSettings())
+    monkeypatch.setattr(
+        "phlo.cli.commands.plugin.search.collect_installed_plugins", lambda _plugin_type: []
+    )
+
+    try:
+        registry_client.clear_registry_cache()
+        result = CliRunner().invoke(plugin_group, ["search", "--json"])
+
+        assert result.exit_code == 0, result.output
+        names = {plugin["name"] for plugin in json.loads(result.output)}
+        assert {"rustfs", "delta", "clickhouse", "sling"} <= names
+        assert "example_cache" not in names
+    finally:
+        registry_client._REGISTRY_CACHE.clear()
+        registry_client._REGISTRY_CACHE.update(previous_cache)
 
 
 def install_fake_run(respond=None, *, record_kwargs=False):

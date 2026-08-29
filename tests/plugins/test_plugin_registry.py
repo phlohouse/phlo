@@ -7,12 +7,25 @@ search_plugins filters by query, type, and tags over the cached
 registry. All HTTP is faked.
 """
 
+import json
 import time
+from pathlib import Path
 
 import httpx
 import pytest
 
 from phlo.plugins import registry_client
+
+
+def test_bundled_registry_matches_canonical_authoring_data() -> None:
+    """Offline registry data is generated from the canonical registry payload."""
+    root = Path(__file__).resolve().parents[2]
+    canonical = json.loads((root / "registry" / "plugins.json").read_text(encoding="utf-8"))
+    bundled = json.loads(
+        (root / "src" / "phlo" / "plugins" / "registry_data.json").read_text(encoding="utf-8")
+    )
+
+    assert bundled == canonical
 
 
 def test_fetch_registry_uses_local_cache(monkeypatch):
