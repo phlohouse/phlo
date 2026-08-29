@@ -166,7 +166,6 @@ merge_strategy="append"  # Insert-only
 ```python
 merge_config={"deduplication_method": "last"}   # Keep last occurrence (default)
 merge_config={"deduplication_method": "first"}  # Keep first occurrence
-merge_config={"deduplication_method": "hash"}   # Keep based on content hash
 ```
 
 `max_retries` (int): Number of retry attempts (default: 3)
@@ -355,13 +354,6 @@ merge_config={"deduplication_method": "last"}
 ```python
 merge_config={"deduplication_method": "first"}
 # If same ID appears twice, keep the one with earliest timestamp
-```
-
-`hash`: Keep based on content hash
-
-```python
-merge_config={"deduplication_method": "hash"}
-# If same ID appears twice, keep the one with different content
 ```
 
 ### Partition Handling

@@ -180,7 +180,7 @@ import phlo
     unique_key="id",
     group="api",
     merge_strategy="merge",
-    merge_config={"deduplication_method": "last"}  # or "first", "hash"
+    merge_config={"deduplication_method": "last"}  # or "first"
 )
 def merge_events():
     ...

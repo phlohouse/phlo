@@ -444,7 +444,11 @@ def connect_source():
 def {table_snake}(partition_date: str):
     partition_start = datetime.fromisoformat(partition_date).replace(tzinfo=timezone.utc)
     partition_end = partition_start + timedelta(days=1)
-    window = PartitionWindow(start=partition_start, end=partition_end)
+    window = PartitionWindow(
+        partition_key=partition_date,
+        start=partition_start,
+        end=partition_end,
+    )
 
     config = PartitionedSqlConfig(
         sql_template_path=str(

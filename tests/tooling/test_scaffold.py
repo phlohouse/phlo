@@ -3,6 +3,7 @@ validation, generated workflow structure, dependency requirements."""
 
 from __future__ import annotations
 
+import importlib.util
 import re
 import tomllib
 from pathlib import Path
@@ -214,6 +215,32 @@ def test_scaffold_can_generate_partitioned_sql_source(
     assert 'Path(__file__).resolve().parents[2] / "sql" / "warehouse" / "orders.sql"' in asset_text
     assert "WHERE updated_at >= :partition_start" in sql_text
     assert "AND updated_at < :partition_end" in sql_text
+
+
+def test_generated_partitioned_sql_callable_constructs_partition_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The generated public callable builds a window for its partition date."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    create_ingestion_workflow(
+        domain="warehouse",
+        table_name="orders",
+        unique_key="order_id",
+        fields=["order_id:int", "updated_at:datetime"],
+        source_kind="partitioned-sql",
+    )
+
+    asset_path = tmp_path / "workflows" / "ingestion" / "warehouse" / "orders.py"
+    spec = importlib.util.spec_from_file_location("scaffolded_warehouse_orders", asset_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    resource = module.orders("2026-06-04")
+
+    assert resource is not None
 
 
 def test_scaffold_uses_unique_key_field_type_when_declared(

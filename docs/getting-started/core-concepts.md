@@ -339,14 +339,13 @@ merge_strategy="append"
 
 ```python
 merge_strategy="merge"
-merge_config={"deduplication_method": "last"}  # or "first" or "hash"
+merge_config={"deduplication_method": "last"}  # or "first"
 ```
 
 - Upsert based on `unique_key`
 - Deduplication strategies:
   - `first`: Keep first occurrence
   - `last`: Keep last occurrence (default)
-  - `hash`: Keep based on content hash
 
 **Implementation**:
 
