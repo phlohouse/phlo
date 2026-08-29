@@ -32,6 +32,7 @@ WAP_RUN_ID_TAG = "phlo/run_id"
 WAP_PROJECT_ID_TAG = "phlo/project_id"
 WAP_ATTEMPT_TAG = "phlo/attempt"
 WAP_BRANCH_PREFIX = "pipeline-run-"
+_PROMOTED_OUTCOME_FIELDS = frozenset({"failure_reason"})
 logger = get_logger(__name__)
 
 
@@ -116,6 +117,14 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
         payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         payload = {}
+    if updates.get("status") == "promoted":
+        # Terminal success replaces failure-only outcome fields from prior
+        # attempts. Identity and evidence binding fields remain append/update
+        # compatible, including the immutable launch-manifest checksum.
+        for field in _PROMOTED_OUTCOME_FIELDS:
+            payload.pop(field, None)
+            updates.pop(field, None)
+
     now = datetime.now(timezone.utc).isoformat()
     payload.update(updates)
     payload.update(
@@ -159,7 +168,13 @@ def read_wap_report(logical_run_id: str) -> dict[str, Any] | None:
         payload = json.loads(_report_path(logical_run_id).read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
-    return payload if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        return None
+    # Older writers may have serialized an explicit null; callers should see
+    # it exactly like an absent failure reason.
+    if payload.get("failure_reason") is None:
+        payload.pop("failure_reason", None)
+    return payload
 
 
 @dataclass(frozen=True)

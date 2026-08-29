@@ -29,7 +29,10 @@ from phlo_dagster.wap_sensors import (
     wap_branch_cleanup_sensor,
     write_wap_report,
 )
-from phlo_dagster.wap_launch import _write_launch_manifest as _write_immutable_launch_manifest
+from phlo_dagster.wap_launch import (
+    _write_launch_manifest as _write_immutable_launch_manifest,
+    read_wap_report,
+)
 from phlo.hooks import HookBus
 from phlo.run_evidence import SQLiteRunEvidenceStore
 from phlo.run_evidence.hooks import CoreRunEvidenceHookProvider
@@ -251,6 +254,56 @@ def test_write_wap_report_updates_run_json(monkeypatch, tmp_path):
     assert payload["target_hash_after"] == "after"
     assert payload["run_id"] == "run-1"
     assert payload["created_at"]
+
+
+def test_promoted_wap_report_replaces_failure_only_outcome_fields(monkeypatch, tmp_path):
+    """A successful retry cannot retain a previous terminal failure reason."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    logical_run_id = "run-retried"
+    launch_manifest_checksum = "a" * 64
+
+    assert write_wap_report(
+        logical_run_id,
+        status="promotion_blocked",
+        failure_reason="asset_checks_failed",
+        branch="pipeline-run-retried",
+        source_hash="source-hash",
+        target_hash_before="target-before",
+        launch_manifest_checksum=launch_manifest_checksum,
+    )
+    assert write_wap_report(
+        logical_run_id,
+        status="promoted",
+        target_hash_after="target-after",
+    )
+
+    report = read_wap_report(logical_run_id)
+
+    assert report is not None
+    assert report["status"] == "promoted"
+    assert "failure_reason" not in report
+    assert report["run_id"] == logical_run_id
+    assert report["branch"] == "pipeline-run-retried"
+    assert report["launch_manifest_checksum"] == launch_manifest_checksum
+    assert report["source_hash"] == "source-hash"
+    assert report["target_hash_before"] == "target-before"
+    assert report["target_hash_after"] == "target-after"
+
+
+def test_read_wap_report_treats_null_failure_reason_as_absent(monkeypatch, tmp_path):
+    """Older reports with a null failure reason match the current absent-field contract."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    report_path = tmp_path / ".phlo" / "wap-reports" / "run-null-reason.json"
+    report_path.parent.mkdir(parents=True)
+    report_path.write_text(
+        json.dumps({"run_id": "run-null-reason", "status": "promoted", "failure_reason": None}),
+        encoding="utf-8",
+    )
+
+    report = read_wap_report("run-null-reason")
+
+    assert report is not None
+    assert "failure_reason" not in report
 
 
 def test_write_wap_report_keeps_identity_fields_and_ignores_write_failure(
