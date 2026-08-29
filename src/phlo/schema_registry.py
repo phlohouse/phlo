@@ -9,10 +9,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 from phlo.capabilities.specs import FieldSpec, NormalizedSchema
 from phlo.logging import get_logger
@@ -76,6 +78,21 @@ def _schema_hash(canonical_json: str) -> str:
     return hashlib.sha256(canonical_json.encode()).hexdigest()[:16]
 
 
+def _normalized_connection_key(connection_string: str) -> str:
+    """Hash the effective non-secret PostgreSQL target for initialization state."""
+    parsed = urlsplit(connection_string.strip())
+    if parsed.scheme in {"postgres", "postgresql"} and parsed.hostname:
+        parameters = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        host = parameters.get("host") or parsed.hostname
+        port = parameters.get("port") or parsed.port or 5432
+        query_user = parameters.get("user")
+        effective_user = query_user if query_user is not None else unquote(parsed.username or "")
+        database = parameters.get("dbname") or unquote(parsed.path.strip("/")) or effective_user
+        canonical = f"postgresql://{host.lower()}:{port}/{database}"
+        return hashlib.sha256(canonical.encode()).hexdigest()
+    return hashlib.sha256(connection_string.strip().encode()).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class SchemaSnapshot:
     """Immutable record of a schema snapshot stored in the registry."""
@@ -92,7 +109,8 @@ class SchemaSnapshot:
 class SchemaRegistry:
     """PostgreSQL-backed schema snapshot registry."""
 
-    _schema_initialized: bool = False
+    _initialized_connections: set[str] = set()
+    _initialization_lock = threading.Lock()
 
     def __init__(self, connection_string: str):
         self.connection_string = connection_string
@@ -103,16 +121,18 @@ class SchemaRegistry:
         # A concurrent-creator "already exists" error counts as initialized;
         # any other failure is only warned about, leaving the flag unset so
         # the next call retries setup before its first statement.
-        if SchemaRegistry._schema_initialized:
-            return
-        try:
-            self._setup_schema()
-            SchemaRegistry._schema_initialized = True
-        except Exception as e:
-            if "already exists" in str(e).lower():
-                SchemaRegistry._schema_initialized = True
-            else:
-                logger.warning("schema_registry_init_failed", error=str(e))
+        connection_key = _normalized_connection_key(self.connection_string)
+        with SchemaRegistry._initialization_lock:
+            if connection_key in SchemaRegistry._initialized_connections:
+                return
+            try:
+                self._setup_schema()
+                SchemaRegistry._initialized_connections.add(connection_key)
+            except Exception as e:
+                if "already exists" in str(e).lower():
+                    SchemaRegistry._initialized_connections.add(connection_key)
+                else:
+                    logger.warning("schema_registry_init_failed", error=str(e))
 
     def _setup_schema(self) -> None:
         sql_path = Path(__file__).parent / "sql" / "001_create_schema_registry.sql"
