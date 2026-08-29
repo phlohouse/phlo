@@ -5,16 +5,21 @@ Tests cover decorator application, schema auto-generation, asset registration,
 configuration parameters, and error handling.
 """
 
+import hashlib
+import json
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import pyarrow as pa
+import pyarrow.parquet as pq
 from pandera.pandas import DataFrameModel, Field
 
 pytest.importorskip("pyiceberg")
 
 from phlo.contracts import Consumer, SLA
+from phlo.capabilities.specs import CheckResult
 from phlo.logging import get_logger
 from phlo.run_evidence import SQLiteRunEvidenceStore
 from phlo.run_evidence.hooks import CoreRunEvidenceHookProvider
@@ -35,6 +40,145 @@ def _clear_ingestion_registry() -> None:
 def test_phlo_ingestion_export_is_available() -> None:
     """Verify the ingestion decorator export is callable."""
     assert callable(phlo_ingestion)
+
+
+def test_strict_domain_quality_failure_preserves_main_through_wap_and_evidence(
+    monkeypatch, tmp_path
+) -> None:
+    """A rejected staged row must not alter main or promote its WAP branch."""
+
+    class _Schema(DataFrameModel):
+        id: int
+
+    class _WapTableStore:
+        """Represent the public table-store/WAP boundary used by the decorated asset."""
+
+        def __init__(self) -> None:
+            self._rows: dict[str, list[dict[str, Any]]] = {}
+
+        def schema_from_validation_schema(self, validation_schema: type[Any]) -> pa.Schema:
+            assert validation_schema is _Schema
+            return pa.schema([pa.field("id", pa.int64(), nullable=False)])
+
+        def ensure_table(self, **kwargs: Any) -> None:
+            self._rows.setdefault(str(kwargs["override_ref"]), [])
+
+        def merge_parquet(self, **kwargs: Any) -> dict[str, int]:
+            ref = str(kwargs["override_ref"])
+            rows = pq.read_table(kwargs["data_path"]).to_pylist()
+            self._rows.setdefault(ref, []).extend(rows)
+            return {"rows_inserted": len(rows), "rows_deleted": 0}
+
+        def rows(self, ref: str) -> list[dict[str, Any]]:
+            return list(self._rows.get(ref, []))
+
+        def catalog_hash(self, ref: str) -> str:
+            encoded = json.dumps(self.rows(ref), sort_keys=True).encode()
+            return hashlib.sha256(encoded).hexdigest()
+
+        def observe_table_state(self, **kwargs: Any) -> dict[str, Any]:
+            ref = str(kwargs["override_ref"])
+            rows = self.rows(ref)
+            return {
+                "state": "present" if rows else "absent",
+                "snapshot_id": self.catalog_hash(ref),
+                "schema_hash": "test-schema-v1",
+                "metadata": {"row_count": len(rows)},
+            }
+
+    store = _WapTableStore()
+    seed_path = tmp_path / "seed.parquet"
+    pq.write_table(pa.table({"id": [1]}), seed_path)
+    store.ensure_table(table_name="raw.events", schema=pa.schema([]), override_ref="main")
+    store.merge_parquet(
+        table_name="raw.events",
+        data_path=seed_path,
+        unique_key="id",
+        override_ref="main",
+    )
+    main_before = store.rows("main")
+    main_hash_before = store.catalog_hash("main")
+
+    rejected_path = tmp_path / "rejected.parquet"
+    pq.write_table(pa.table({"id": [2]}), rejected_path)
+    monkeypatch.setattr(
+        "phlo_dlt.decorator._resolve_table_store_capability",
+        lambda _runtime: (store, "representative-wap-store"),
+    )
+    monkeypatch.setattr(
+        "phlo_dlt.executor.setup_dlt_pipeline",
+        lambda **_kwargs: (SimpleNamespace(), tmp_path),
+    )
+    monkeypatch.setattr(
+        "phlo_dlt.executor.stage_to_parquet",
+        lambda **_kwargs: ([rejected_path], 0.01),
+    )
+
+    @phlo_ingestion(
+        table_name="events",
+        unique_key="id",
+        group="raw",
+        validation_schema=_Schema,
+        add_metadata_columns=False,
+        quality_checks=[lambda frame: "id 2 is rejected" if 2 in frame["id"].values else None],
+    )
+    def events(partition_date: str):
+        return object()
+
+    evidence_store = SQLiteRunEvidenceStore(":memory:")
+    from phlo.hooks import get_hook_bus
+
+    hook_bus = get_hook_bus()
+    hook_bus.clear()
+    hook_bus.register_provider(CoreRunEvidenceHookProvider(evidence_store), plugin_name="test")
+    runtime = SimpleNamespace(
+        run_id="run-domain-quality-failure",
+        partition_key="2026-08-29",
+        tags={
+            "phlo/project_id": "project-domain-quality",
+            "phlo/attempt": "1",
+            "phlo/ref": "main",
+            "phlo/wap_branch": "wap-domain-quality-failure",
+        },
+        resources={},
+        logger=get_logger("test_domain_quality_wap"),
+    )
+    results: list[CheckResult] = []
+    try:
+        with pytest.raises(RuntimeError, match="Domain quality check failed"):
+            for result in get_ingestion_assets()[0].run.fn(runtime):
+                assert isinstance(result, CheckResult)
+                results.append(result)
+    finally:
+        hook_bus.clear()
+
+    assert [(result.check_name, result.passed) for result in results] == [
+        ("quality_<lambda>", False)
+    ]
+    assert store.rows("main") == main_before
+    assert store.catalog_hash("main") == main_hash_before
+    assert store.rows("wap-domain-quality-failure") == []
+    run = evidence_store.get_run("project-domain-quality", "run-domain-quality-failure")
+    assert run is not None
+    assert run["status"] == "failed"
+    assert str(run["failure_summary"]).startswith("DomainQualityValidationError:fingerprint:")
+    durable_events = evidence_store.list_events(
+        "project-domain-quality", "run-domain-quality-failure"
+    )
+    assert any(
+        event["event_type"] == "run_evidence.observation"
+        and event["payload"]["status"] == "failed"
+        and str(event["payload"]["error"]).startswith("DomainQualityValidationError:fingerprint:")
+        for event in durable_events
+    )
+    assert evidence_store.count_events("project-domain-quality", "run-domain-quality-failure") > 0
+    resources = evidence_store.list_resources(
+        "project-domain-quality", "run-domain-quality-failure", attempt=1
+    )
+    assert any(
+        resource["resource_kind"] == "quality_check" and resource["metadata"]["status"] == "failed"
+        for resource in resources
+    )
 
 
 def test_blessed_decorator_persists_runtime_correlation(monkeypatch, tmp_path) -> None:

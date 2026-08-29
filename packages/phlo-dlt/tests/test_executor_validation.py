@@ -75,6 +75,60 @@ def test_strict_validation_blocks_visible_write(monkeypatch, tmp_path) -> None:
     assert merge_called is False
 
 
+def test_strict_domain_check_rejects_rows_in_a_later_staged_file(monkeypatch, tmp_path) -> None:
+    """A strict domain check must inspect every staged file before any merge."""
+    accepted_path = tmp_path / "accepted.parquet"
+    rejected_path = tmp_path / "rejected.parquet"
+    pd.DataFrame([{"name": "accepted", "value": 1}]).to_parquet(accepted_path)
+    pd.DataFrame([{"name": "rejected", "value": 2}]).to_parquet(rejected_path)
+    merge_called = False
+    observed_values: list[int] = []
+
+    monkeypatch.setattr(
+        "phlo_dlt.executor.setup_dlt_pipeline",
+        lambda **_kwargs: (SimpleNamespace(), tmp_path),
+    )
+    monkeypatch.setattr(
+        "phlo_dlt.executor.stage_to_parquet",
+        lambda **_kwargs: ([accepted_path, rejected_path], 0.01),
+    )
+
+    def _merge_to_table_store(**_kwargs):
+        nonlocal merge_called
+        merge_called = True
+        return {"rows_inserted": 2, "rows_deleted": 0}
+
+    monkeypatch.setattr("phlo_dlt.executor.merge_to_table_store", _merge_to_table_store)
+
+    def reject_later_file(frame: pd.DataFrame) -> str | None:
+        observed_values.extend(frame["value"].tolist())
+        return "value 2 is rejected" if 2 in frame["value"].values else None
+
+    ingester = DltIngester(
+        context=None,
+        logger=get_logger("test_dlt_executor_domain_quality_all_files"),
+        table_config=TableConfig(
+            table_name="entries",
+            table_schema=None,
+            validation_schema=StrictExecutorSchema,
+            unique_key="name",
+            group_name="raw",
+        ),
+        table_store_resource=cast(Any, SimpleNamespace()),
+        dlt_source_func=lambda partition_date: object(),
+        validation_schema=StrictExecutorSchema,
+        validate=True,
+        strict_validation=True,
+        quality_checks=[reject_later_file],
+    )
+
+    with pytest.raises(RuntimeError, match="Domain quality check failed"):
+        ingester.run_ingestion(partition_key="2026-03-05")
+
+    assert observed_values == [1, 2]
+    assert merge_called is False
+
+
 def test_non_strict_validation_allows_write_and_records_evaluation(monkeypatch, tmp_path) -> None:
     invalid_path = tmp_path / "invalid.parquet"
     pd.DataFrame([{"name": "test", "value": "not_an_int"}]).to_parquet(invalid_path)

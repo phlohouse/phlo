@@ -72,6 +72,7 @@ from phlo.logging import log_event
 
 from phlo_dlt.contract_coverage import detect_dropped_source_columns
 from phlo_dlt.dlt_helpers import get_branch_from_context, get_write_branch_from_context
+from phlo_dlt.executor import DomainQualityValidationError
 from phlo_dlt.pandera_checks import (
     PANDERA_CONTRACT_CHECK_NAME,
     PanderaContractEvaluation,
@@ -634,6 +635,7 @@ def phlo_ingestion(
                     add_metadata_columns=add_metadata_columns,
                     merge_strategy=merge_strategy,
                     merge_config=merge_cfg,
+                    quality_checks=quality_checks,
                 )
                 log_event(
                     logger, "info", "target_table_store_selected", table_store=table_store_name
@@ -806,14 +808,30 @@ def phlo_ingestion(
                     if strict_validation and not evaluation.passed:
                         raise RuntimeError("Pandera contract validation failed")
 
+                recorded_quality_evaluations = result.metadata.get("domain_quality_evaluations")
                 for index, quality_check in enumerate(quality_checks or ()):
                     check_name = getattr(quality_check, "__name__", None) or f"quality_{index}"
                     violation: str | None = None
-                    if not parquet_paths:
+                    recorded_evaluation = (
+                        recorded_quality_evaluations[index]
+                        if isinstance(recorded_quality_evaluations, list)
+                        and index < len(recorded_quality_evaluations)
+                        and isinstance(recorded_quality_evaluations[index], dict)
+                        else None
+                    )
+                    if recorded_evaluation is not None:
+                        recorded_violation = recorded_evaluation.get("violation")
+                        violation = (
+                            recorded_violation if isinstance(recorded_violation, str) else None
+                        )
+                    elif not parquet_paths:
                         violation = "no staged parquet available for domain checks"
                     else:
                         try:
-                            staged_frame = pd.read_parquet(parquet_paths[0])
+                            staged_frame = pd.concat(
+                                [pd.read_parquet(parquet_path) for parquet_path in parquet_paths],
+                                ignore_index=True,
+                            )
                             violation = quality_check(staged_frame)
                         except Exception as exc:  # noqa: BLE001 - violations must surface as checks
                             violation = f"quality check raised: {exc}"
@@ -860,6 +878,24 @@ def phlo_ingestion(
                     status=result.status,
                 )
 
+            except DomainQualityValidationError as exc:
+                query_or_sql = ",".join(
+                    f"parquet://{parquet_path}" for parquet_path in exc.parquet_paths
+                )
+                for evaluation in exc.evaluations:
+                    yield CheckResult(
+                        passed=evaluation.passed,
+                        check_name=f"quality_{evaluation.check_name}",
+                        metadata={
+                            "source": "domain",
+                            "partition_key": partition_date,
+                            "violation": evaluation.violation,
+                            "staged_parquet": query_or_sql,
+                        },
+                        severity=None if evaluation.passed else "error",
+                        asset_key=f"dlt_{table_config.table_name}",
+                    )
+                raise
             except PanderaContractValidationError as exc:
                 # Emit the failed check before aborting: the generator must
                 # surface the check result so the orchestrator records the
