@@ -44,20 +44,19 @@ class StepUpAuthChallenge:
 
 
 class SessionConfirmChallenge(StepUpAuthChallenge):
-    """V1 step-up challenge that accepts the current session as sufficient.
+    """Fail-closed challenge used until a real step-up verifier is configured.
 
-    This is a placeholder implementation that accepts the current session
-    without additional verification. Future versions will integrate with
-    MFA providers for true step-up authentication.
+    A current session alone cannot demonstrate re-authentication or MFA.
+    Future versions can replace this with a verifier-backed challenge.
     """
 
     def challenge(self, session: AuthenticatedSession) -> StepUpResult:
-        """Accept the current session as sufficient for step-up.
+        """Deny because the current session did not perform verification.
 
-        Returns a successful ``StepUpResult`` with "session" assurance level.
+        Returns a failed ``StepUpResult`` with no authentication assurance.
         """
         return StepUpResult(
-            success=True,
-            assurance_level="session",
-            message="Current session accepted as sufficient for signature",
+            success=False,
+            assurance_level="none",
+            message="No step-up verification mechanism is configured",
         )

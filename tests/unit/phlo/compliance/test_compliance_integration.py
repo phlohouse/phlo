@@ -34,10 +34,20 @@ from phlo.compliance.signatures import (
     SignatureRequest,
     SignatureService,
     SignatureServiceConfig,
+    StepUpResult,
 )
+from phlo.compliance.signatures.step_up import StepUpAuthChallenge
 
 _TEST_KEY = b"test-evidence-hmac-key-0123456789"
 _WRONG_KEY = b"wrong-evidence-hmac-key-9876543210"
+
+
+class _VerifiedStepUpChallenge(StepUpAuthChallenge):
+    """Test-only step-up verifier that supplies independent assurance."""
+
+    def challenge(self, session) -> StepUpResult:
+        del session
+        return StepUpResult(success=True, assurance_level="mfa")
 
 
 class TestComplianceManifestIntegration:
@@ -126,7 +136,10 @@ class TestSignatureIntegration:
                 capture_event(event)
 
         service = SignatureService(
-            config=SignatureServiceConfig(critical_actions=frozenset(["dataset.publish"])),
+            config=SignatureServiceConfig(
+                critical_actions=frozenset(["dataset.publish"]),
+                step_up_challenge=_VerifiedStepUpChallenge(),
+            ),
             audit_emitter=MockAuditEmitter(),
         )
 

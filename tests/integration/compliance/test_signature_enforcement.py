@@ -19,9 +19,27 @@ from phlo.compliance.signatures import (
     SignatureRequest,
     SignatureService,
     SignatureServiceConfig,
+    StepUpResult,
 )
+from phlo.compliance.signatures.step_up import StepUpAuthChallenge
 
 pytestmark = pytest.mark.integration
+
+
+class _VerifiedStepUpChallenge(StepUpAuthChallenge):
+    """Test-only step-up verifier that supplies independent assurance."""
+
+    def challenge(self, session) -> StepUpResult:
+        del session
+        return StepUpResult(success=True, assurance_level="mfa")
+
+
+def _signature_config(actions: frozenset[str]) -> SignatureServiceConfig:
+    """Build a signature configuration with an explicit verified challenge."""
+    return SignatureServiceConfig(
+        critical_actions=actions,
+        step_up_challenge=_VerifiedStepUpChallenge(),
+    )
 
 
 class TestSignatureEnforcement:
@@ -36,9 +54,7 @@ class TestSignatureEnforcement:
                 events_emitted.append(event)
 
         service = SignatureService(
-            config=SignatureServiceConfig(
-                critical_actions=frozenset(["dataset.publish", "config.update"])
-            ),
+            config=_signature_config(frozenset(["dataset.publish", "config.update"])),
             audit_emitter=MockAuditEmitter(),
         )
 
@@ -86,7 +102,7 @@ class TestSignatureEnforcement:
     def test_non_critical_action_no_signature_required(self) -> None:
         """Non-critical actions do not require a signature."""
         service = SignatureService(
-            config=SignatureServiceConfig(critical_actions=frozenset(["dataset.publish"])),
+            config=_signature_config(frozenset(["dataset.publish"])),
         )
 
         result = service.require_signature("dataset.read", "dataset")
@@ -101,7 +117,7 @@ class TestSignatureEnforcement:
                 events_emitted.append(event)
 
         service = SignatureService(
-            config=SignatureServiceConfig(critical_actions=frozenset(["dataset.publish"])),
+            config=_signature_config(frozenset(["dataset.publish"])),
             audit_emitter=MockAuditEmitter(),
         )
 
@@ -132,7 +148,7 @@ class TestSignatureEnforcement:
     def test_signature_with_wrong_signer_fails(self) -> None:
         """Signature fails if signer doesn't match request."""
         service = SignatureService(
-            config=SignatureServiceConfig(critical_actions=frozenset(["dataset.publish"])),
+            config=_signature_config(frozenset(["dataset.publish"])),
         )
 
         session = AuthenticatedSession(
@@ -159,7 +175,7 @@ class TestSignatureEnforcement:
     def test_signature_record_contains_required_fields(self) -> None:
         """Signature record captures all required fields."""
         service = SignatureService(
-            config=SignatureServiceConfig(critical_actions=frozenset(["dataset.publish"])),
+            config=_signature_config(frozenset(["dataset.publish"])),
         )
 
         session = AuthenticatedSession(
@@ -200,7 +216,7 @@ class TestSignatureEnforcement:
                 sink.write(event)
 
         service = SignatureService(
-            config=SignatureServiceConfig(critical_actions=frozenset(["dataset.publish"])),
+            config=_signature_config(frozenset(["dataset.publish"])),
             audit_emitter=ChainEmitter(),
         )
 

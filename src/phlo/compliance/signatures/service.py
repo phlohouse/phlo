@@ -138,9 +138,9 @@ class SignatureService:
         record_id: str,
         record_version: str,
     ) -> bool:
-        """Placeholder verifier: returns True without checking anything.
+        """Deny verification until a signature record can be consulted.
 
-        Signature records are not persisted or consulted yet, so this cannot
-        confirm that a record was signed or that its version matches.
+        Signature records are not persisted or consulted yet, so this service
+        cannot confirm that a record was signed or that its version matches.
         """
-        return True
+        return False

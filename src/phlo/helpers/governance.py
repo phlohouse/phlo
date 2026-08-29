@@ -1,7 +1,7 @@
 """Governance, policy, and audit helper utilities.
 
-Policy checks delegate to the resolved governance backend and fail open when
-no backend is available; column classification and masking are name-based
+Policy checks delegate to the resolved governance backend and deny when no
+backend is available; column classification and masking are name-based
 heuristics that produce policy mappings, not enforcement.
 """
 
@@ -50,13 +50,13 @@ def policy_check(
     *,
     backend: Any = None,
 ) -> bool:
-    """Check an access policy when a governance backend is available."""
+    """Check an access policy, denying when no backend can enforce it."""
     provider = backend
     if provider is None:
         resolution = resolve_capability("governance_backend")
         provider = resolution.provider if resolution else None
     if provider is None or not hasattr(provider, "check_access"):
-        return True
+        return False
     return bool(provider.check_access(principal=principal, table_name=table_name, action=action))
 
 

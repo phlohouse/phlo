@@ -201,7 +201,10 @@ class TestSignatureService:
     def test_sign_creates_signature_record(self) -> None:
         """sign() creates a SignatureRecord with audit event."""
         service = SignatureService(
-            config=SignatureServiceConfig(critical_actions=frozenset(["dataset.publish"])),
+            config=SignatureServiceConfig(
+                critical_actions=frozenset(["dataset.publish"]),
+                step_up_challenge=MockStepUpChallenge(success=True),
+            ),
             audit_emitter=None,
         )
         session = self._make_session()
@@ -275,12 +278,19 @@ class TestSignatureService:
 
         assert record.authentication_assurance == "re-authenticated"
 
+    @pytest.mark.parametrize("record_version", ["v1", "v2-modified"])
+    def test_verify_signature_denies_without_a_verifiable_record(self, record_version: str) -> None:
+        """No stored signature cannot verify either original or changed content."""
+        service = SignatureService()
+
+        assert service.verify_signature("dataset-123", record_version) is False
+
 
 class TestSessionConfirmChallenge:
     """Tests for SessionConfirmChallenge."""
 
-    def test_challenge_always_succeeds(self) -> None:
-        """SessionConfirmChallenge always returns success."""
+    def test_challenge_denies_when_no_step_up_verification_occurs(self) -> None:
+        """A session alone does not satisfy a step-up authentication request."""
         session = AuthenticatedSession(
             principal=AuthPrincipal(subject="alice@example.com", principal_type="user"),
             auth_method="oidc",
@@ -290,8 +300,8 @@ class TestSessionConfirmChallenge:
         challenge = SessionConfirmChallenge()
         result = challenge.challenge(session)
 
-        assert result.success is True
-        assert result.assurance_level == "session"
+        assert result.success is False
+        assert result.assurance_level == "none"
         assert result.message is not None
 
 
