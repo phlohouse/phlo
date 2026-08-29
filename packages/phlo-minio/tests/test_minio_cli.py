@@ -193,7 +193,7 @@ def test_minio_shell_passthrough_enforces_regulated_authorization(monkeypatch) -
 
     assert result.exit_code == 1
     adapter.enforce_mutation.assert_called_once_with("minio", None)
-    assert not result.output
+    assert result.output == "Error: Authorization denied for 'minio': no\n"
 
 
 def test_minio_ls_timeout(monkeypatch) -> None:

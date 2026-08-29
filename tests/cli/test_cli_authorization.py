@@ -436,7 +436,7 @@ policies:
 
         assert handler(dry_run=True) == "read-only"
 
-    def test_require_mutation_authorization_denies_when_adapter_denies(self, monkeypatch):
+    def test_require_mutation_authorization_denies_when_adapter_denies(self, monkeypatch, capsys):
         """Authorization denial stops the command before mutation logic runs."""
         from phlo.cli import authorization as authorization_module
         from phlo.cli import authorization_wrappers
@@ -457,3 +457,29 @@ policies:
 
         with pytest.raises(SystemExit):
             handler()
+
+        assert (
+            "Error: Authorization denied for 'services.start': not allowed"
+            in capsys.readouterr().err
+        )
+
+    def test_surface_mutation_denial_prints_documented_error_prefix(self, monkeypatch, capsys):
+        """Direct package-surface enforcement exposes the documented CLI error."""
+        from phlo.cli import authorization_wrappers
+        from phlo.cli.authorization_wrappers import enforce_surface_mutation_authorization
+
+        adapter = MagicMock()
+        adapter.enforce_mutation.return_value = MagicMock(
+            allowed=False,
+            reason_code="forbidden",
+            explanation="not allowed",
+        )
+        monkeypatch.setattr(authorization_wrappers, "check_cli_surface_active", lambda: True)
+
+        with pytest.raises(SystemExit):
+            enforce_surface_mutation_authorization("contracts.snapshot", lambda: adapter)
+
+        assert (
+            "Error: Authorization denied for 'contracts.snapshot': not allowed"
+            in capsys.readouterr().err
+        )

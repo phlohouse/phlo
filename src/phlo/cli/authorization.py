@@ -66,6 +66,7 @@ MUTATION_COMMANDS: frozenset[str] = frozenset(
         "schema_migrate.export_contract",
         "schema_migrate.scaffold_yaml",
         "schema_migrate.scaffold_yaml_recent",
+        "contracts.snapshot",
         "init",
     }
 )
@@ -116,6 +117,7 @@ COMMAND_RESOURCE_MAP: dict[str, str] = {
     "schema_migrate.export_contract": "schema_contract",
     "schema_migrate.scaffold_yaml": "schema_migration",
     "schema_migrate.scaffold_yaml_recent": "schema_migration",
+    "contracts.snapshot": "schema_contract",
     "init": "project",
 }
 
@@ -139,6 +141,7 @@ COMMAND_ACTION_MAP: dict[str, str] = {
     "schema_migrate.export_contract": "schema_contract.export",
     "schema_migrate.scaffold_yaml": "schema_migration.scaffold",
     "schema_migrate.scaffold_yaml_recent": "schema_migration.scaffold",
+    "contracts.snapshot": "schema_contract.snapshot",
     "init": "project.create",
 }
 

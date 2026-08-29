@@ -16,6 +16,8 @@ from rich.console import Console
 from rich.table import Table
 
 from phlo.capabilities.schema import CLASSIFICATION_ORDER
+from phlo.cli.authorization import get_cli_adapter
+from phlo.cli.authorization_wrappers import enforce_surface_mutation_authorization
 from phlo.logging import get_logger
 from phlo.schema_migration.planning import plan_schema_migration
 from phlo.schema_registry import (
@@ -58,6 +60,7 @@ def contracts() -> None:
 @click.option("--source", default="cli", help="Snapshot source label")
 def snapshot(table: str, schema_file: str, run_id: str | None, source: str) -> None:
     """Snapshot a schema from a JSON file into the registry."""
+    enforce_surface_mutation_authorization("contracts.snapshot", get_cli_adapter, resource_id=table)
     db_url = _require_registry_db_url()
 
     try:

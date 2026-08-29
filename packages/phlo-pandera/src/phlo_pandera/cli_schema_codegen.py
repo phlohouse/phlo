@@ -13,7 +13,9 @@ from typing import Any, Callable
 
 import click
 
+from phlo.cli.authorization_wrappers import enforce_surface_mutation_authorization
 from phlo.logging import get_logger
+from phlo_pandera.authorization import get_pandera_adapter
 
 _DEFAULT_SCHEMA_OUT_DIR = Path("workflows/schemas")
 logger = get_logger(__name__)
@@ -290,6 +292,12 @@ def generate(
     from rich.console import Console
 
     console = Console()
+
+    # ``generate`` may execute user-provided source and create temporary DLT
+    # state before writing the requested schema module. Check durable writes
+    # first so a regulated denial leaves both source and output untouched.
+    if not dry_run:
+        enforce_surface_mutation_authorization("schema.generate", get_pandera_adapter)
 
     obj = _import_object(from_ref)
     source_fn, meta = _extract_source_callable(obj)

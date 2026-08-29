@@ -1,8 +1,8 @@
 """CLI authorization table for the phlo-pandera surface.
 
-Pandera is read-only: schema diff/generate/list/show/validate and the
-workflow validation commands are all reads, with no per-command
-overrides. The adapter is built once at import time and served through
+Pandera exposes one durable mutation: ``schema generate`` writes or updates
+schema modules. The other schema and workflow validation commands are reads.
+The adapter is built once at import time and served through
 get_pandera_adapter().
 """
 
@@ -12,11 +12,10 @@ from phlo.cli.authorization import CliSurfaceAdapter, cli_surface_adapter_class
 
 SURFACE_NAME = "phlo-pandera"
 FRAMEWORK_TYPE = "cli"
-MUTATION_COMMANDS: frozenset[str] = frozenset([])
+MUTATION_COMMANDS: frozenset[str] = frozenset(["schema.generate"])
 READ_COMMANDS: frozenset[str] = frozenset(
     [
         "schema.diff",
-        "schema.generate",
         "schema.list",
         "schema.show",
         "schema.validate",
@@ -24,8 +23,8 @@ READ_COMMANDS: frozenset[str] = frozenset(
         "validate-workflow",
     ]
 )
-COMMAND_RESOURCE_MAP: dict[str, str] = {}
-COMMAND_ACTION_MAP: dict[str, str] = {}
+COMMAND_RESOURCE_MAP: dict[str, str] = {"schema.generate": "schema"}
+COMMAND_ACTION_MAP: dict[str, str] = {"schema.generate": "schema.generate"}
 
 PanderaSurfaceAdapter = cli_surface_adapter_class(
     "PanderaSurfaceAdapter",
@@ -40,5 +39,5 @@ PanderaSurfaceAdapter = cli_surface_adapter_class(
 
 
 def get_pandera_adapter() -> CliSurfaceAdapter:
-    """Return the shared read-only authorization adapter for the phlo-pandera surface."""
+    """Return the shared authorization adapter for the phlo-pandera surface."""
     return PanderaSurfaceAdapter.get_instance()
