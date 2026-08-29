@@ -91,6 +91,59 @@ def test_collect_summary_computes_once_per_period_then_serves_from_cache(
     assert second == first
 
 
+def test_collect_summary_closes_postgres_connection_after_query_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed metrics query still releases its owned PostgreSQL connection."""
+
+    class FailingConnection:
+        close_calls = 0
+
+        def cursor(self, **_kwargs):
+            raise RuntimeError("query unavailable")
+
+        def close(self) -> None:
+            FailingConnection.close_calls += 1
+
+    connection = FailingConnection()
+    monkeypatch.setattr("phlo.metrics.psycopg2.connect", lambda **_kwargs: connection)
+    collector = MetricsCollector()
+    monkeypatch.setattr(collector, "_collect_from_prometheus", lambda _hours: SummaryMetrics())
+    monkeypatch.setattr(collector, "_collect_from_iceberg", dict)
+
+    result = collector.collect_summary(period_hours=24)
+
+    assert result.total_rows_processed_24h == 0
+    assert FailingConnection.close_calls == 1
+
+
+def test_collect_summary_ignores_postgres_close_failure_after_query_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Best-effort cleanup cannot mask the existing partial-result contract."""
+
+    class FailingConnection:
+        close_calls = 0
+
+        def cursor(self, **_kwargs):
+            raise RuntimeError("query unavailable")
+
+        def close(self) -> None:
+            FailingConnection.close_calls += 1
+            raise RuntimeError("close unavailable")
+
+    connection = FailingConnection()
+    monkeypatch.setattr("phlo.metrics.psycopg2.connect", lambda **_kwargs: connection)
+    collector = MetricsCollector()
+    monkeypatch.setattr(collector, "_collect_from_prometheus", lambda _hours: SummaryMetrics())
+    monkeypatch.setattr(collector, "_collect_from_iceberg", dict)
+
+    result = collector.collect_summary(period_hours=24)
+
+    assert result.total_rows_processed_24h == 0
+    assert FailingConnection.close_calls == 1
+
+
 def test_core_telemetry_hook_provider_records_telemetry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

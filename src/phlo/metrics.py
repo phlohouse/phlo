@@ -352,6 +352,7 @@ class MetricsCollector:
     def _collect_from_postgres(self, period_hours: int) -> dict[str, Any]:
         """Collect metrics from Postgres."""
         metrics: dict[str, Any] = {}
+        conn = None
         try:
             conn = psycopg2.connect(
                 host=self.settings.postgres_host,
@@ -376,11 +377,20 @@ class MetricsCollector:
             if row:
                 metrics["runs"] = row["run_count"] or 0
                 metrics["successful_runs"] = row["success_count"] or 0
-            conn.close()
         except Exception:
             logger.debug(
                 "postgres_metrics_collection_failed", period_hours=period_hours, exc_info=True
             )
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    logger.debug(
+                        "postgres_metrics_connection_close_failed",
+                        period_hours=period_hours,
+                        exc_info=True,
+                    )
         return metrics
 
     def _collect_from_iceberg(self) -> dict[str, Any]:
