@@ -3,6 +3,7 @@ construction, including env file wiring and timeouts."""
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from subprocess import CompletedProcess, TimeoutExpired
 
@@ -12,6 +13,7 @@ from phlo.cli.commands.services.utils import require_container_backend
 from phlo.cli.infrastructure.container_backend import (
     DockerBackend,
     PodmanBackend,
+    ServiceStatus,
     select_container_backend,
     select_project_container_backend,
 )
@@ -102,6 +104,63 @@ def test_docker_backend_container_exec_cmd_builds_docker_exec() -> None:
     ]
 
 
+def test_docker_backend_reports_stopped_and_healthy_service_statuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _run(cmd: list[str], **_kwargs) -> CompletedProcess:
+        if cmd[:3] == ["docker", "ps", "--all"]:
+            return CompletedProcess(
+                cmd,
+                0,
+                stdout=(
+                    '{"Names":"demo_database_1","State":"running",'
+                    '"Labels":"com.docker.compose.service=database"}\n'
+                    '{"Names":"demo_worker_1","State":"exited",'
+                    '"Labels":"com.docker.compose.service=worker"}\n'
+                ),
+                stderr="",
+            )
+        assert cmd[:4] == ["docker", "inspect", "--format", "{{json .State}}"]
+        return CompletedProcess(
+            cmd,
+            0,
+            stdout=('{"Status":"running","Health":{"Status":"healthy"}}\n{"Status":"exited"}\n'),
+            stderr="",
+        )
+
+    monkeypatch.setattr("phlo.cli.infrastructure.container_backend.subprocess.run", _run)
+
+    statuses = DockerBackend().project_service_statuses("demo", deadline=time.monotonic() + 1)
+
+    assert statuses == [
+        ServiceStatus(service="database", state="running", health="healthy"),
+        ServiceStatus(service="worker", state="exited", health=None),
+    ]
+
+
+def test_batched_inspection_uses_captured_remaining_deadline_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from phlo.cli.infrastructure import container_backend
+
+    time_values = iter([10.0, 11.0])
+    observed_timeouts: list[float | None] = []
+
+    def _run(_cmd: list[str], **kwargs) -> CompletedProcess:
+        observed_timeouts.append(kwargs["timeout"])
+        return CompletedProcess(_cmd, 0, stdout='{"Status":"running"}\n', stderr="")
+
+    monkeypatch.setattr(container_backend.time, "monotonic", lambda: next(time_values))
+    monkeypatch.setattr(container_backend.subprocess, "run", _run)
+
+    statuses = container_backend._inspect_container_states(
+        "docker", ["demo-service-1"], deadline=10.5
+    )
+
+    assert statuses == {"demo-service-1": ("running", None)}
+    assert observed_timeouts == [0.5]
+
+
 def test_podman_backend_compose_base_cmd_uses_podman(tmp_path: Path) -> None:
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
@@ -177,6 +236,33 @@ def test_podman_backend_lists_containers_with_podman_compose_labels(
     assert containers[0].name == "demo_postgres_1"
     assert containers[0].ports == "0.0.0.0:15432->5432/tcp"
     assert any("label=io.podman.compose.project=demo" in call for call in calls)
+
+
+def test_podman_backend_reports_healthcheck_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _run(cmd: list[str], **_kwargs) -> CompletedProcess:
+        if cmd[:3] == ["podman", "ps", "--all"]:
+            return CompletedProcess(
+                cmd,
+                0,
+                stdout=(
+                    '[{"Names":["demo_database_1"],"State":"running",'
+                    '"Labels":{"io.podman.compose.service":"database"}}]'
+                ),
+                stderr="",
+            )
+        assert cmd[:4] == ["podman", "inspect", "--format", "{{json .State}}"]
+        return CompletedProcess(
+            cmd,
+            0,
+            stdout='{"Status":"running","Healthcheck":{"Status":"healthy"}}\n',
+            stderr="",
+        )
+
+    monkeypatch.setattr("phlo.cli.infrastructure.container_backend.subprocess.run", _run)
+
+    statuses = PodmanBackend().project_service_statuses("demo", deadline=time.monotonic() + 1)
+
+    assert statuses == [ServiceStatus(service="database", state="running", health="healthy")]
 
 
 def test_select_backend_defaults_to_docker(monkeypatch: pytest.MonkeyPatch) -> None:

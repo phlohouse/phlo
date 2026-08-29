@@ -44,13 +44,193 @@ from phlo.cli.commands.services.utils import (
 )
 from phlo.cli.infrastructure.command import run_command
 from phlo.cli.infrastructure.compose import compose_base_cmd
-from phlo.cli.infrastructure.container_backend import select_project_container_backend
+from phlo.cli.infrastructure.container_backend import (
+    ContainerBackend,
+    ServiceStatus,
+    select_project_container_backend,
+)
 from phlo.cli.infrastructure.utils import get_project_name, parse_env_file
 from phlo.cli.output import missing_compose_file_error
 from phlo.logging import get_logger
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
 
 logger = get_logger(__name__)
+
+READINESS_TIMEOUT_SECONDS = 60
+READINESS_POLL_SECONDS = 1
+
+
+def _declared_healthcheck_services(compose_file: Path, service_names: list[str]) -> set[str]:
+    """Return selected services that declare a Compose healthcheck.
+
+    Readiness is deliberately driven by the generated Compose contract rather
+    than a backend-specific convention.  ``healthcheck: {disable: true}`` is
+    an explicit opt-out and uses the stable-running-state condition instead.
+    """
+    try:
+        compose = yaml.safe_load(compose_file.read_text()) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise click.ClickException(
+            f"Failed to read readiness contract from {compose_file}: {exc}"
+        ) from exc
+    services = compose.get("services") if isinstance(compose, dict) else None
+    if not isinstance(services, dict):
+        return set()
+    return {
+        name
+        for name in service_names
+        if isinstance(services.get(name), dict)
+        and isinstance(services[name].get("healthcheck"), dict)
+        and not services[name]["healthcheck"].get("disable", False)
+    }
+
+
+def _default_compose_service_names(compose_file: Path) -> list[str]:
+    """Return default-profile services and dependencies Compose starts without targets."""
+    try:
+        compose = yaml.safe_load(compose_file.read_text()) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise click.ClickException(
+            f"Failed to read readiness contract from {compose_file}: {exc}"
+        ) from exc
+    services = compose.get("services") if isinstance(compose, dict) else None
+    if not isinstance(services, dict):
+        return []
+    selected = {
+        name
+        for name, config in services.items()
+        if isinstance(config, dict) and not config.get("profiles")
+    }
+    pending = list(selected)
+    while pending:
+        name = pending.pop()
+        config = services.get(name)
+        if not isinstance(config, dict):
+            continue
+        dependencies = config.get("depends_on") or {}
+        dependency_names = dependencies if isinstance(dependencies, list) else dependencies.keys()
+        for dependency in dependency_names:
+            if dependency in services and dependency not in selected:
+                selected.add(dependency)
+                pending.append(dependency)
+    return sorted(selected)
+
+
+def _project_service_statuses(
+    backend: ContainerBackend,
+    project_name: str,
+    *,
+    deadline: float,
+) -> list[ServiceStatus]:
+    """Read readiness states while retaining compatibility with legacy backends.
+
+    Third-party and test backends that predate the explicit readiness method
+    still provide the running-state observation used by earlier CLI versions.
+    """
+    status_reader = getattr(backend, "project_service_statuses", None)
+    if callable(status_reader):
+        try:
+            return status_reader(project_name, deadline=deadline)
+        except subprocess.TimeoutExpired:
+            return []
+    return []
+
+
+def _format_service_statuses(
+    service_names: list[str],
+    statuses: list[ServiceStatus],
+) -> str:
+    """Render one actionable state for every requested service."""
+    by_service: dict[str, list[ServiceStatus]] = {}
+    for status in statuses:
+        by_service.setdefault(status.service, []).append(status)
+    rendered: list[str] = []
+    for service in sorted(service_names):
+        entries = by_service.get(service)
+        if not entries:
+            rendered.append(f"{service} (not created)")
+            continue
+        rendered.extend(
+            f"{service} (state={entry.state or 'unknown'}"
+            + (f", health={entry.health}" if entry.health else "")
+            + ")"
+            for entry in entries
+        )
+    return ", ".join(rendered)
+
+
+def _wait_for_services_ready(
+    *,
+    backend: ContainerBackend,
+    project_name: str,
+    compose_file: Path,
+    service_names: list[str],
+    timeout_seconds: float = READINESS_TIMEOUT_SECONDS,
+    poll_seconds: float = READINESS_POLL_SECONDS,
+) -> list[str]:
+    """Wait for every selected compose service to meet its declared readiness.
+
+    A declared Compose healthcheck must report ``healthy``.  Services without
+    one are ready once their container reports ``running``.  No containers are
+    stopped on timeout: the final state and log command make partial startup
+    inspectable and recoverable.
+    """
+    healthcheck_services = _declared_healthcheck_services(compose_file, service_names)
+    if not callable(getattr(backend, "project_service_statuses", None)):
+        # Backends created before the explicit readiness contract retain the
+        # previous successful-start behavior until they opt into it.
+        return sorted(service_names)
+    deadline = time.monotonic() + timeout_seconds
+    latest: list[ServiceStatus] = []
+    has_observation = False
+    while True:
+        # Do not replace the last observed state with a no-budget inspection
+        # after polling has already reached the readiness deadline.
+        if has_observation and time.monotonic() >= deadline:
+            rendered = _format_service_statuses(service_names, latest)
+            logger.error(
+                "services_start_readiness_timeout",
+                project_name=project_name,
+                timeout_seconds=timeout_seconds,
+                services=rendered,
+            )
+            raise click.ClickException(
+                f"services did not become ready within {timeout_seconds:g}s: {rendered}. "
+                "Containers were left running for inspection. Run `phlo services list` and "
+                "`phlo services logs <service>` for details."
+            )
+        latest = _project_service_statuses(backend, project_name, deadline=deadline)
+        has_observation = True
+        by_service: dict[str, list[ServiceStatus]] = {}
+        for status in latest:
+            by_service.setdefault(status.service, []).append(status)
+        ready = True
+        for service in service_names:
+            entries = by_service.get(service, [])
+            if not entries or any(entry.state != "running" for entry in entries):
+                ready = False
+                break
+            if service in healthcheck_services and any(
+                entry.health != "healthy" for entry in entries
+            ):
+                ready = False
+                break
+        if ready:
+            return sorted(service_names)
+        if time.monotonic() >= deadline:
+            rendered = _format_service_statuses(service_names, latest)
+            logger.error(
+                "services_start_readiness_timeout",
+                project_name=project_name,
+                timeout_seconds=timeout_seconds,
+                services=rendered,
+            )
+            raise click.ClickException(
+                f"services did not become ready within {timeout_seconds:g}s: {rendered}. "
+                "Containers were left running for inspection. Run `phlo services list` and "
+                "`phlo services logs <service>` for details."
+            )
+        time.sleep(poll_seconds)
 
 
 def _load_native_env_overrides(project_root: Path) -> dict[str, str]:
@@ -741,40 +921,23 @@ def start_cmd(
 
             started_services: list[str] = []
             if not skip_docker_compose:
-                # A zero exit from `compose up` does not guarantee health: a
-                # container can exit immediately after being created. Verify
-                # the actual container states before reporting success.
+                # A zero exit from `compose up` only confirms container
+                # creation.  Success is withheld until the backend confirms
+                # the runtime state required by each Compose service.
                 compose_service_names = load_compose_service_names(compose_file)
                 if docker_services_list:
-                    started_services = [
+                    selected_services = [
                         name for name in docker_services_list if name in compose_service_names
                     ]
                 else:
-                    started_services = compose_service_names
+                    selected_services = _default_compose_service_names(compose_file)
                 backend = select_project_container_backend(cli_backend=backend_name)
-                containers = backend.list_project_containers(project_name)
-                active_services = {
-                    container.service
-                    for container in containers
-                    if container.state == "running"
-                    and (not started_services or container.service in started_services)
-                }
-                bad_services = {
-                    container.service: container.state
-                    for container in containers
-                    if container.service in started_services and container.state != "running"
-                }
-                if bad_services:
-                    rendered = ", ".join(
-                        f"{name} ({state})" for name, state in sorted(bad_services.items())
-                    )
-                    logger.error(
-                        "services_start_unhealthy_containers",
-                        project_name=project_name,
-                        services=bad_services,
-                    )
-                    raise click.ClickException(f"services did not reach running state: {rendered}")
-                started_services = sorted(active_services)
+                started_services = _wait_for_services_ready(
+                    backend=backend,
+                    project_name=project_name,
+                    compose_file=compose_file,
+                    service_names=selected_services,
+                )
 
             _emit_service_lifecycle_events(
                 "post_start",

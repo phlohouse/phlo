@@ -8,6 +8,8 @@ matching, native interpreter selection, and polished errors without tracebacks.
 
 from __future__ import annotations
 
+import subprocess
+from contextlib import suppress
 from subprocess import CompletedProcess
 
 import pytest
@@ -15,9 +17,258 @@ from click.testing import CliRunner
 
 from phlo.cli.commands.services.planner import StartPreflightPlan
 from phlo.cli.commands.services.utils import get_profile_service_names
-from phlo.cli.infrastructure.container_backend import ContainerInfo
+from phlo.cli.infrastructure.container_backend import ContainerInfo, ServiceStatus
 from phlo.plugins.discovery import ServiceDefinition
 from tests.helpers import FakeDiscovery, _service
+
+
+class _ReadinessBackend:
+    """Deterministic backend fixture for service-start readiness tests."""
+
+    def __init__(self, snapshots: list[list[ServiceStatus]]) -> None:
+        self._snapshots = iter(snapshots)
+        self._latest: list[ServiceStatus] = []
+
+    def project_service_statuses(
+        self, _project_name: str, *, deadline: float
+    ) -> list[ServiceStatus]:
+        del deadline
+        with suppress(StopIteration):
+            self._latest = next(self._snapshots)
+        return self._latest
+
+    def list_project_containers(self, _project_name: str) -> list[ContainerInfo]:
+        return []
+
+
+def _immediately_ready(*, service_names: list[str], **_kwargs) -> list[str]:
+    """Keep unrelated command-shape tests independent of backend polling."""
+    return sorted(service_names)
+
+
+def _invoke_services_start_with_statuses(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    *,
+    compose: str,
+    snapshots: list[list[ServiceStatus]],
+    backend: object | None = None,
+):
+    """Invoke the public CLI with deterministic compose and status seams."""
+    from phlo.cli.commands.services import start as start_module
+
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / ".env").write_text("")
+    (phlo_dir / "docker-compose.yml").write_text(compose)
+    backend = backend or _ReadinessBackend(snapshots)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(start_module, "ensure_phlo_dir", lambda: phlo_dir)
+    monkeypatch.setattr(start_module, "get_project_name", lambda: "demo")
+    monkeypatch.setattr(start_module, "compose_base_cmd", lambda **_kwargs: ["docker", "compose"])
+    monkeypatch.setattr(start_module, "require_container_backend", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(start_module, "select_project_container_backend", lambda **_kwargs: backend)
+    monkeypatch.setattr(
+        start_module,
+        "run_command",
+        lambda cmd, **_kwargs: CompletedProcess(args=cmd, returncode=0),
+    )
+    monkeypatch.setattr(
+        start_module, "_emit_service_lifecycle_events", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(start_module, "_run_service_hooks", lambda *_args, **_kwargs: None)
+    return CliRunner().invoke(start_module.start_cmd, [])
+
+
+def test_services_start_waits_for_declared_healthcheck(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from phlo.cli.commands.services import start as start_module
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(start_module.time, "sleep", sleeps.append)
+    moments = iter([0.0, 0.1, 0.2])
+    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments))
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose="services:\n  database:\n    healthcheck:\n      test: ['CMD', 'true']\n",
+        snapshots=[
+            [ServiceStatus(service="database", state="running", health="starting")],
+            [ServiceStatus(service="database", state="running", health="healthy")],
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Services running: database" in result.output
+    assert sleeps == [start_module.READINESS_POLL_SECONDS]
+
+
+def test_services_start_default_waits_for_active_default_services_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose=(
+            "services:\n"
+            "  app:\n"
+            "    depends_on: [database]\n"
+            "  database: {}\n"
+            "  metrics:\n"
+            "    profiles: [observability]\n"
+        ),
+        snapshots=[
+            [
+                ServiceStatus(service="app", state="running", health=None),
+                ServiceStatus(service="database", state="running", health=None),
+            ]
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Services running: app, database" in result.output
+    assert "metrics" not in result.output
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        ServiceStatus(service="database", state="running", health="unhealthy"),
+        ServiceStatus(service="database", state="exited", health=None),
+        ServiceStatus(service="database", state="restarting", health=None),
+    ],
+)
+def test_services_start_readiness_timeout_reports_each_service_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    status: ServiceStatus,
+) -> None:
+    from phlo.cli.commands.services import start as start_module
+
+    moments = iter([0.0, 60.0])
+    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose="services:\n  database:\n    healthcheck:\n      test: ['CMD', 'true']\n",
+        snapshots=[[status]],
+    )
+
+    assert result.exit_code == 1
+    expected_health = f", health={status.health}" if status.health else ""
+    assert (
+        f"Error: services did not become ready within 60s: database (state={status.state}"
+        f"{expected_health})." in result.output
+    )
+    assert "Containers were left running for inspection" in result.output
+
+
+def test_services_start_timeout_preserves_last_observed_unhealthy_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """An expired next poll must not replace the last state with ``not created``."""
+    from phlo.cli.commands.services import start as start_module
+
+    class DeadlineBackend:
+        def __init__(self) -> None:
+            self.inspections = 0
+
+        def list_project_containers(self, _project_name: str) -> list[ContainerInfo]:
+            return []
+
+        def project_service_statuses(
+            self, _project_name: str, *, deadline: float
+        ) -> list[ServiceStatus]:
+            del deadline
+            self.inspections += 1
+            return [ServiceStatus(service="database", state="running", health="unhealthy")]
+
+    backend = DeadlineBackend()
+    moments = iter([0.0, 59.9, 60.0])
+    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments))
+    monkeypatch.setattr(start_module.time, "sleep", lambda _seconds: None)
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose="services:\n  database:\n    healthcheck:\n      test: ['CMD', 'true']\n",
+        snapshots=[],
+        backend=backend,
+    )
+
+    assert result.exit_code == 1
+    assert backend.inspections == 1
+    assert result.output == (
+        "Starting demo infrastructure...\n"
+        "Error: services did not become ready within 60s: "
+        "database (state=running, health=unhealthy). Containers were left running for "
+        "inspection. Run `phlo services list` and `phlo services logs <service>` for details.\n"
+    )
+
+
+def test_services_start_timeout_does_not_reinspect_empty_observation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """An empty observation is still final once the next poll reaches the deadline."""
+    from phlo.cli.commands.services import start as start_module
+
+    class EmptyDeadlineBackend:
+        def __init__(self) -> None:
+            self.inspections = 0
+
+        def list_project_containers(self, _project_name: str) -> list[ContainerInfo]:
+            return []
+
+        def project_service_statuses(
+            self, _project_name: str, *, deadline: float
+        ) -> list[ServiceStatus]:
+            del deadline
+            self.inspections += 1
+            return []
+
+    backend = EmptyDeadlineBackend()
+    moments = iter([0.0, 59.9, 60.0])
+    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments))
+    monkeypatch.setattr(start_module.time, "sleep", lambda _seconds: None)
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose="services:\n  database: {}\n",
+        snapshots=[],
+        backend=backend,
+    )
+
+    assert result.exit_code == 1
+    assert backend.inspections == 1
+    assert "database (not created)" in result.output
+
+
+def test_services_start_times_out_when_backend_status_call_hangs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from phlo.cli.commands.services import start as start_module
+
+    class HungBackend:
+        def list_project_containers(self, _project_name: str) -> list[ContainerInfo]:
+            return []
+
+        def project_service_statuses(self, _project_name: str, *, deadline: float):
+            del deadline
+            raise subprocess.TimeoutExpired(["docker", "ps"], timeout=60)
+
+    moments = iter([0.0, 60.0])
+    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose="services:\n  database: {}\n",
+        snapshots=[],
+        backend=HungBackend(),
+    )
+
+    assert result.exit_code == 1
+    assert "database (not created)" in result.output
+    assert "Containers were left running for inspection" in result.output
 
 
 def test_get_profile_service_names_returns_profile_services(
@@ -213,6 +464,7 @@ def test_services_start_uses_podman_backend(monkeypatch: pytest.MonkeyPatch, tmp
         start_module, "_emit_service_lifecycle_events", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(start_module, "_run_service_hooks", lambda *args, **kwargs: None)
+    monkeypatch.setattr(start_module, "_wait_for_services_ready", _immediately_ready)
 
     result = CliRunner().invoke(start_module.start_cmd, ["--backend", "podman"])
 
@@ -266,6 +518,7 @@ def test_services_start_uses_profile_targets_without_default_fallback(
         start_module, "_emit_service_lifecycle_events", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(start_module, "_run_service_hooks", lambda *args, **kwargs: None)
+    monkeypatch.setattr(start_module, "_wait_for_services_ready", _immediately_ready)
 
     result = CliRunner().invoke(start_module.start_cmd, ["--profile", "observability"])
 
@@ -449,6 +702,7 @@ def test_services_start_includes_setup_companions_for_explicit_targets(
         start_module, "_emit_service_lifecycle_events", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(start_module, "_run_service_hooks", lambda *args, **kwargs: None)
+    monkeypatch.setattr(start_module, "_wait_for_services_ready", _immediately_ready)
 
     result = CliRunner().invoke(start_module.start_cmd, ["--service", "rustfs"])
 
@@ -500,6 +754,7 @@ def test_services_start_builds_preflight_plan_for_selected_services(
         start_module, "_emit_service_lifecycle_events", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(start_module, "_run_service_hooks", lambda *args, **kwargs: None)
+    monkeypatch.setattr(start_module, "_wait_for_services_ready", _immediately_ready)
 
     result = CliRunner().invoke(start_module.start_cmd, ["--service", "postgres"])
 
@@ -642,6 +897,7 @@ def test_services_start_requires_full_dependency_match_for_setup_companions(
         start_module, "_emit_service_lifecycle_events", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(start_module, "_run_service_hooks", lambda *args, **kwargs: None)
+    monkeypatch.setattr(start_module, "_wait_for_services_ready", _immediately_ready)
 
     # Dependency edges resolve downwards only: starting a dependency must not
     # pull in services that depend on it, so openmetadata-setup stays stopped.

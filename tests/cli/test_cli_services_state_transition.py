@@ -103,6 +103,13 @@ def test_services_state_transition_remove_add_list_start_flow(
     monkeypatch.setattr(start_module, "get_profile_service_names", lambda _profiles: ["prometheus"])
     monkeypatch.setattr(start_module, "compose_base_cmd", lambda **_kwargs: ["docker", "compose"])
     monkeypatch.setattr(start_module, "require_container_backend", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        start_module,
+        "select_project_container_backend",
+        lambda **_kwargs: type(
+            "LegacyBackend", (), {"list_project_containers": lambda *_args: []}
+        )(),
+    )
     monkeypatch.setattr(start_module, "run_command", _fake_run_command)
     monkeypatch.setattr(
         start_module, "_emit_service_lifecycle_events", lambda *args, **kwargs: None
