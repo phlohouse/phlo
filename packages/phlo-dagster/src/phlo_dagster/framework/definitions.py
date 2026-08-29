@@ -194,15 +194,6 @@ def build_definitions(
             workflows_path=str(workflows_path),
         )
         user_defs = dg.Definitions()
-    except Exception as exc:
-        logger.error(
-            "failed_to_discover_user_workflows",
-            workflows_path=str(workflows_path),
-            error=str(exc),
-            exc_info=True,
-        )
-        user_defs = dg.Definitions()
-
     dagster_defs = _collect_dagster_extension_definitions()
     definitions_to_merge = [user_defs]
     if dagster_defs is not None:

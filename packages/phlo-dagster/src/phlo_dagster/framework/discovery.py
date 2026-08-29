@@ -61,7 +61,7 @@ from typing import Any
 from phlo.capabilities.discovery import discover_capabilities
 from phlo.capabilities.external_refs import validate_external_asset_references
 from phlo.capabilities.registry import clear_all_capabilities, get_capability_registry
-from phlo.exceptions import PhloConfigError
+from phlo.exceptions import PhloConfigError, PhloDiscoveryError
 from phlo.logging import get_logger
 from phlo.orchestrators import get_active_orchestrator
 from phlo_dagster.framework.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
@@ -163,8 +163,9 @@ def _build_dagster_fallback_definitions(
 
 
 def _import_workflow_modules(workflows_path: Path) -> list[Any]:
-    """Import all non-underscore Python modules under the workflows directory."""
-    imported_modules = []
+    """Import every workflow module or raise diagnostics for all import failures."""
+    imported_modules: list[Any] = []
+    failures: list[tuple[str, Path, Exception]] = []
 
     # Find all Python files
     py_files = list(workflows_path.rglob("*.py"))
@@ -186,7 +187,13 @@ def _import_workflow_modules(workflows_path: Path) -> list[Any]:
             # Import the module
             spec = importlib.util.spec_from_file_location(module_name, py_file)
             if spec is None or spec.loader is None:
-                logger.warning("workflow_module_spec_load_failed", path=str(py_file))
+                failure = ImportError("Python could not create an import loader")
+                logger.error(
+                    "workflow_module_spec_load_failed",
+                    module_name=module_name,
+                    path=str(py_file),
+                )
+                failures.append((module_name, py_file, failure))
                 continue
 
             module = importlib.util.module_from_spec(spec)
@@ -204,8 +211,26 @@ def _import_workflow_modules(workflows_path: Path) -> list[Any]:
                 error=str(exc),
                 exc_info=True,
             )
-            # Continue with other modules rather than failing completely
+            sys.modules.pop(module_name, None)
+            failures.append((module_name, py_file, exc))
             continue
+
+    if failures:
+        details = "\n".join(
+            f"  - module={module_name}, path={path}, error={type(error).__name__}: {error}"
+            for module_name, path, error in failures
+        )
+        raise PhloDiscoveryError(
+            message=(
+                "Workflow discovery failed; the code location was not loaded because one or more "
+                f"workflow modules could not be imported:\n{details}"
+            ),
+            suggestions=[
+                "Fix each listed workflow import error and reload the code location.",
+                "Do not rely on a partial asset graph after workflow discovery fails.",
+            ],
+            cause=failures[0][2],
+        )
 
     return imported_modules
 
