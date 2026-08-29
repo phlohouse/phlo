@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
+import sys
+import time
+from contextlib import suppress
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -28,6 +32,23 @@ def _svc(name: str, dev: dict | None = None, **kwargs) -> ServiceDefinition:
         dev=dev if dev is not None else {},
         **kwargs,
     )
+
+
+def _process_is_live(pid: int) -> bool:
+    """Return false for exited processes, including Linux zombies."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+
+    stat_path = Path(f"/proc/{pid}/stat")
+    if not stat_path.exists():
+        return True
+    try:
+        state = stat_path.read_text().rsplit(") ", 1)[1].split(maxsplit=1)[0]
+    except FileNotFoundError:
+        return False
+    return state != "Z"
 
 
 class TestCanRunDev:
@@ -195,3 +216,135 @@ class TestNativeEnvSetup:
 
         assert captured_env["PATH"].split(os.pathsep)[0] == str(venv_bin)
         assert captured_env["VIRTUAL_ENV"] == str(tmp_path / ".venv")
+
+
+def test_start_service_discards_process_when_declared_health_check_fails(
+    monkeypatch, tmp_path
+) -> None:
+    """A failed declared health check is a failed native start."""
+    mgr = NativeProcessManager(tmp_path)
+    service = _svc(
+        "api",
+        dev={"command": ["python", "-m", "http.server"], "health_check": "http://bad"},
+    )
+
+    class _Proc:
+        pid = 123
+
+        def poll(self):
+            return None
+
+        def send_signal(self, _signal):
+            pass
+
+        def wait(self, timeout):
+            del timeout
+
+    monkeypatch.setattr(compose_native.subprocess, "Popen", lambda *_args, **_kwargs: _Proc())
+    monkeypatch.setattr(
+        NativeProcessManager,
+        "_wait_for_health",
+        lambda self, url, timeout=30: asyncio.sleep(0, result=False),
+    )
+
+    result = asyncio.run(mgr.start_service(service))
+
+    assert result is None
+    assert mgr.get_process("api") is None
+
+
+@pytest.mark.skipif(not hasattr(os, "killpg"), reason="process groups require POSIX")
+def test_failed_health_cleanup_terminates_native_process_group(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Failed health cleanup reaps the native leader and its child process."""
+    pid_file = tmp_path / "child.pid"
+    wrapper = (
+        "import pathlib, subprocess, sys, time; "
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+        "pathlib.Path(sys.argv[1]).write_text(str(child.pid)); "
+        "time.sleep(60)"
+    )
+    service = _svc(
+        "api",
+        dev={
+            "command": [sys.executable, "-c", wrapper, str(pid_file)],
+            "health_check": "http://unhealthy",
+        },
+    )
+    manager = NativeProcessManager(tmp_path)
+
+    async def fail_after_child_starts(_self, _url: str, timeout: int = 30) -> bool:
+        """Wait until the wrapper has published its child before failing health."""
+        deadline = time.monotonic() + timeout
+        while not pid_file.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        assert pid_file.exists()
+        return False
+
+    monkeypatch.setattr(NativeProcessManager, "_wait_for_health", fail_after_child_starts)
+
+    try:
+        result = asyncio.run(manager.start_service(service))
+
+        assert result is None
+        assert manager.get_process("api") is None
+        assert pid_file.exists()
+        child_pid = int(pid_file.read_text())
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if not _process_is_live(child_pid):
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("failed health cleanup left the native child process running")
+    finally:
+        if pid_file.exists():
+            with suppress(ProcessLookupError):
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+
+@pytest.mark.skipif(not hasattr(os, "killpg"), reason="process groups require POSIX")
+def test_stop_service_escalates_after_leader_exits_but_child_ignores_sigterm(
+    tmp_path: Path,
+) -> None:
+    """Shutdown escalates when a native descendant outlives its leader."""
+    pid_file = tmp_path / "ignoring-child.pid"
+    wrapper = (
+        "import subprocess, sys, time; "
+        "child = subprocess.Popen([sys.executable, '-c', "
+        "'import os, pathlib, signal, sys, time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)', sys.argv[1]]); "
+        "time.sleep(60)"
+    )
+    service = _svc(
+        "api",
+        dev={"command": [sys.executable, "-c", wrapper, str(pid_file)]},
+    )
+    manager = NativeProcessManager(tmp_path, log_dir=tmp_path / "logs")
+    native_process = asyncio.run(manager.start_service(service))
+    assert native_process is not None
+    leader_pid = native_process.pid
+
+    try:
+        deadline = time.monotonic() + 5
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert pid_file.exists()
+        child_pid = int(pid_file.read_text())
+
+        assert asyncio.run(manager.stop_service("api", timeout=0.1)) is True
+        assert manager.get_process("api") is None
+        assert native_process.log_file is None
+
+        while time.monotonic() < deadline:
+            if not _process_is_live(child_pid):
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("native child ignoring SIGTERM survived group cleanup")
+    finally:
+        with suppress(ProcessLookupError):
+            os.killpg(leader_pid, signal.SIGKILL)

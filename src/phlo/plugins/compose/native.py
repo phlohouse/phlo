@@ -217,6 +217,12 @@ class NativeProcessManager:
         )
         self._processes[service.name] = native_process
 
+        if not native_process.is_running:
+            logger.warning("service_exited_during_start", service_name=service.name)
+            native_process.close_log_file()
+            del self._processes[service.name]
+            return None
+
         # Wait for health check if configured
         if health_check_url:
             healthy = await self._wait_for_health(health_check_url, timeout=30)
@@ -225,10 +231,18 @@ class NativeProcessManager:
                     "service_health_check_failed_after_start",
                     service_name=service.name,
                 )
+                await self.stop_service(service.name)
+                return None
+
+        if not native_process.is_running:
+            logger.warning("service_exited_during_start", service_name=service.name)
+            native_process.close_log_file()
+            del self._processes[service.name]
+            return None
 
         return native_process
 
-    async def stop_service(self, name: str, timeout: int = 10) -> bool:
+    async def stop_service(self, name: str, timeout: float = 10) -> bool:
         """Stop a native service, waiting up to ``timeout`` seconds for shutdown.
 
         Return True when stopped; False when not found or shutdown failed.
@@ -243,18 +257,39 @@ class NativeProcessManager:
             del self._processes[name]
             return True
 
-        # Try graceful shutdown first
+        # Each subprocess starts a session, so target its whole process group.
+        # A service command can delegate to children which would otherwise keep
+        # its port bound after the leader exits.
         logger.info("service_stopping", service_name=name, pid=process.pid)
         try:
-            process.send_signal(signal.SIGTERM)
-            try:
-                process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                logger.warning("service_force_kill", service_name=name)
-                process.kill()
-                process.wait(timeout=5)
+            self._signal_process_group(process, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
         except Exception:
             logger.exception("service_stop_failed", service_name=name)
+            return False
+
+        deadline = time.monotonic() + timeout
+        if not await self._wait_for_process_group_exit(process, deadline):
+            logger.warning("service_force_kill", service_name=name)
+            try:
+                self._signal_process_group(process, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except Exception:
+                logger.exception("service_force_kill_failed", service_name=name)
+                return False
+            # A successful group SIGKILL terminates every live member. Do not
+            # wait for killpg(..., 0) to fail: Linux still reports zombies as
+            # process-group members until their eventual parent reaps them.
+
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            logger.error("service_leader_survived_shutdown", service_name=name)
+            return False
+        except Exception:
+            logger.exception("service_reap_failed", service_name=name)
             return False
 
         native_process.close_log_file()
@@ -273,6 +308,34 @@ class NativeProcessManager:
     def get_process(self, name: str) -> NativeProcess | None:
         """Get a native process by name."""
         return self._processes.get(name)
+
+    def _signal_process_group(self, process: subprocess.Popen[str], sig: signal.Signals) -> None:
+        """Signal a native process group, falling back to its leader."""
+        try:
+            os.killpg(process.pid, sig)
+        except (AttributeError, OSError):
+            process.send_signal(sig)
+
+    async def _wait_for_process_group_exit(
+        self, process: subprocess.Popen[str], deadline: float
+    ) -> bool:
+        """Wait until a native process group is gone before ``deadline``."""
+        while self._process_group_exists(process):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            await asyncio.sleep(min(remaining, 0.1))
+        return True
+
+    def _process_group_exists(self, process: subprocess.Popen[str]) -> bool:
+        """Return whether a native process group still has a member."""
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return False
+        except (AttributeError, OSError):
+            return process.poll() is None
+        return True
 
     def _resolve_path(self, template: str, service: ServiceDefinition) -> Path:
         """Resolve path template."""

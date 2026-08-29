@@ -827,8 +827,9 @@ def start_cmd(
                     click.echo("No native services to start.")
 
                 async def start_native_services():
-                    """Start selected native services, returning name -> process metadata."""
+                    """Start selected native services, returning their successful and failed names."""
                     started: dict[str, dict] = {}
+                    failed: list[str] = []
                     env_overrides = {
                         **_load_native_env_overrides(project_root),
                         "PHLO_PROJECT_PATH": str(project_root),
@@ -845,7 +846,7 @@ def start_cmd(
                         )
                         click.echo(f"  Starting {svc.name}...")
                         process = await dev_manager.start_service(svc, env_overrides=env_overrides)
-                        if process:
+                        if process and process.is_running:
                             click.echo(f"    ✓ {svc.name} started (pid {process.pid})")
                             started[svc.name] = {
                                 "pid": process.pid,
@@ -864,6 +865,7 @@ def start_cmd(
                                 metadata={"native": True, "pid": process.pid},
                             )
                         else:
+                            failed.append(svc.name)
                             click.echo(f"    ✗ {svc.name} failed to start", err=True)
                             _emit_service_lifecycle_events(
                                 "post_start",
@@ -874,15 +876,15 @@ def start_cmd(
                                 status="failure",
                                 metadata={"native": True},
                             )
-                    return started
+                    return started, failed
 
-                started = asyncio.run(start_native_services())
+                started, failed = asyncio.run(start_native_services())
                 logger.info(
                     "services_start_native_completed",
                     project_name=project_name,
                     requested_count=len(native_to_start),
                     started_count=len(started),
-                    failed_count=max(len(native_to_start) - len(started), 0),
+                    failed_count=len(failed),
                     service_names=[svc.name for svc in native_to_start],
                 )
                 if started:
@@ -890,15 +892,18 @@ def start_cmd(
                     state.update(started)
                     _save_native_state(project_root, state)
 
-                if skip_docker_compose:
-                    click.echo("")
-                    if native_to_start:
-                        click.echo(
-                            f"Native services started: {', '.join(s.name for s in native_to_start)}"
-                        )
-                    else:
-                        click.echo("No native services started.")
+                click.echo("")
+                if started:
+                    click.echo(f"Native services started: {', '.join(started)}")
+                else:
+                    click.echo("No native services started.")
+                if failed:
+                    click.echo(f"Native services failed: {', '.join(failed)}", err=True)
+                    raise click.ClickException(
+                        f"native services failed to start: {', '.join(failed)}"
+                    )
 
+                if skip_docker_compose:
                     if detach or not native_to_start:
                         return
 

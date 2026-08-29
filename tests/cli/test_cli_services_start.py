@@ -11,6 +11,7 @@ from __future__ import annotations
 import subprocess
 from contextlib import suppress
 from subprocess import CompletedProcess
+from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
@@ -922,3 +923,86 @@ def test_load_native_env_overrides_merges_env_files(tmp_path) -> None:
     assert result["PHLO_API_PORT"] == "54001"
     assert result["OBSERVATORY_PORT"] == "3001"
     assert result["SECRET_TOKEN"] == "abc123"
+
+
+@pytest.mark.parametrize(
+    ("failed_name", "failed_process"),
+    [
+        ("broken", None),
+        ("exited", SimpleNamespace(pid=202, is_running=False)),
+        ("unhealthy", None),
+    ],
+)
+def test_native_start_reports_failures_without_losing_successful_services(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    failed_name: str,
+    failed_process: object | None,
+) -> None:
+    """Native failures fail the public command but preserve successful state."""
+    from phlo.cli.commands.services import start as start_module
+    from phlo.plugins.discovery import ServiceDefinition
+
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / ".env").write_text("")
+    (phlo_dir / "docker-compose.yml").write_text("services: {}\n")
+
+    successful = ServiceDefinition(
+        name="healthy",
+        description="healthy service",
+        category="core",
+        dev={"command": ["healthy"]},
+    )
+    failed = ServiceDefinition(
+        name=failed_name,
+        description="failing service",
+        category="core",
+        dev={"command": [failed_name]},
+    )
+
+    class NativeDiscovery(FakeDiscovery):
+        def discover(self) -> dict[str, ServiceDefinition]:
+            return {successful.name: successful, failed.name: failed}
+
+    class FakeNativeManager:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def can_run_dev(self, service: ServiceDefinition) -> bool:
+            return bool(service.dev and service.dev.get("command"))
+
+        async def start_service(self, service: ServiceDefinition, **_kwargs):
+            if service.name == "healthy":
+                return SimpleNamespace(pid=101, is_running=True)
+            return failed_process
+
+    saved_state: dict[str, dict] = {}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(start_module, "ensure_phlo_dir", lambda: phlo_dir)
+    monkeypatch.setattr(start_module, "get_project_name", lambda: "demo")
+    monkeypatch.setattr(start_module, "ServiceDiscovery", NativeDiscovery)
+    monkeypatch.setattr("phlo.plugins.compose.native.NativeProcessManager", FakeNativeManager)
+    monkeypatch.setattr(start_module, "_stop_native_processes", lambda *_args: None)
+    monkeypatch.setattr(start_module, "_load_native_state", lambda *_args: {})
+    monkeypatch.setattr(
+        start_module,
+        "_save_native_state",
+        lambda _root, state: saved_state.update(state),
+    )
+    monkeypatch.setattr(
+        start_module, "_emit_service_lifecycle_events", lambda *_args, **_kwargs: None
+    )
+
+    result = CliRunner().invoke(
+        start_module.start_cmd,
+        ["--native", "--service", "healthy", "--service", failed_name],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "Native services started: healthy" in result.output
+    assert f"Native services failed: {failed_name}" in result.output
+    assert set(saved_state) == {"healthy"}
+    assert saved_state["healthy"]["pid"] == 101
+    assert saved_state["healthy"]["started_at"] > 0
+    assert saved_state["healthy"]["log"] == str(tmp_path / ".phlo" / "native-logs" / "healthy.log")
