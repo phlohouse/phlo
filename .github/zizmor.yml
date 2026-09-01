@@ -1,0 +1,12 @@
+# zizmor configuration.
+#
+# self-repository: the repository's reusable workflows are referenced with
+# workspace-relative syntax (`uses: ./.github/workflows/...`), which is valid
+# GitHub Actions syntax and required by the pinned actionlint 1.7.7 checker.
+# zizmor v1.30.0 introduced the `$/...` self-repository form with pinning
+# benefits, but adopting it would break the pinned actionlint check. Remapped
+# to informational until both tools agree on the new syntax.
+rules:
+  self-repository:
+    remap:
+      severity: informational
