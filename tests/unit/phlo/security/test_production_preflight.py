@@ -45,7 +45,28 @@ def project(tmp_path: Path) -> Path:
         tmp_path,
         (
             ".phlo/.env",
-            "PHLO_ENVIRONMENT=production\nPOSTGRES_USER=lakehouse\nMINIO_ROOT_USER=object-admin\n",
+            "PHLO_ENVIRONMENT=production\n"
+            "POSTGRES_USER=lakehouse\n"
+            "MINIO_ROOT_USER=object-admin\n"
+            # Distinct per-workload credential references (reference-level facts).
+            "PHLO_SERVICE_CREDENTIALS_FILE=/run/secrets/workload-credentials.json\n"
+            "DAGSTER_MINIO_ACCESS_KEY=dagster-minio-access\n"
+            "DAGSTER_MINIO_SECRET_KEY=dagster-minio-secret\n"
+            "DAGSTER_TRINO_USER=dagster-trino-user\n"
+            "DAGSTER_POSTGRES_USER=dagster-pg-user\n"
+            "DAGSTER_POSTGRES_PASSWORD=dagster-pg-password\n"
+            "TRINO_QUERY_ACCESS_KEY=query-access\n"
+            "TRINO_QUERY_SECRET_KEY=query-secret\n"
+            "TRINO_USER=query-user\n"
+            "TRINO_ROLE=query_role\n"
+            "NESSIE_CATALOG_ACCESS_KEY=catalog-access\n"
+            "NESSIE_CATALOG_SECRET_KEY=catalog-secret\n"
+            "QUARKUS_DATASOURCE_USERNAME=catalog-pg-user\n"
+            "QUARKUS_DATASOURCE_PASSWORD=catalog-pg-password\n"
+            "MAINTENANCE_TRINO_USER=maintenance-user\n"
+            "MAINTENANCE_TRINO_ROLE=maintenance_role\n"
+            "MAINTENANCE_ACCESS_KEY=maintenance-access\n"
+            "MAINTENANCE_SECRET_KEY=maintenance-secret\n",
         ),
         (
             ".phlo/.env.local",
@@ -79,6 +100,24 @@ def isolated_preflight(monkeypatch: pytest.MonkeyPatch, project: Path):
         "POSTGRES_PASSWORD",
         "MINIO_ROOT_USER",
         "MINIO_ROOT_PASSWORD",
+        "PHLO_SERVICE_CREDENTIALS_FILE",
+        "DAGSTER_MINIO_ACCESS_KEY",
+        "DAGSTER_MINIO_SECRET_KEY",
+        "DAGSTER_TRINO_USER",
+        "DAGSTER_POSTGRES_USER",
+        "DAGSTER_POSTGRES_PASSWORD",
+        "TRINO_QUERY_ACCESS_KEY",
+        "TRINO_QUERY_SECRET_KEY",
+        "TRINO_USER",
+        "TRINO_ROLE",
+        "NESSIE_CATALOG_ACCESS_KEY",
+        "NESSIE_CATALOG_SECRET_KEY",
+        "QUARKUS_DATASOURCE_USERNAME",
+        "QUARKUS_DATASOURCE_PASSWORD",
+        "MAINTENANCE_TRINO_USER",
+        "MAINTENANCE_TRINO_ROLE",
+        "MAINTENANCE_ACCESS_KEY",
+        "MAINTENANCE_SECRET_KEY",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -198,12 +237,38 @@ def test_evaluation_never_mutates_files(project: Path, isolated_preflight: Path)
 def test_full_production_posture_passes(isolated_preflight: Path) -> None:
     report = _run(isolated_preflight)
     failing = [c.id.value for c in report.checks if c.state in (ProductionReadinessState.FAILED,)]
-    # Workload identities are deferred contributors: unavailable, not failed.
     assert failing == []
-    # Deferred workload checks must never optimistically pass.
+    # Workload identity checks are now reference-level evaluations.
     for check in report.checks:
         if str(check.id).startswith("identity.workload"):
-            assert check.state is ProductionReadinessState.UNAVAILABLE
+            assert check.state is ProductionReadinessState.PASSED
+
+
+def test_missing_workload_identity_references_fail(monkeypatch, tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        (
+            ".phlo/.env",
+            "PHLO_ENVIRONMENT=production\nPOSTGRES_USER=lakehouse\nMINIO_ROOT_USER=object-admin\n",
+        ),
+        (".phlo/.env.local", "POSTGRES_PASSWORD=pg-secret-1\nMINIO_ROOT_PASSWORD=minio-secret-1\n"),
+    )
+    (tmp_path / ".phlo" / ".env.local").chmod(0o600)
+    (tmp_path / ".phlo" / "docker-compose.yml").write_text(
+        "# Dev mode: false\nservices:\n  postgres:\n    image: x\n"
+    )
+    report = run_production_readiness(
+        plan=_plan(tmp_path, service_names=["postgres"]),
+        project_root=tmp_path,
+        environment="production",
+    )
+    identity_checks = [c for c in report.checks if str(c.id).startswith("identity.workload")]
+    assert len(identity_checks) == 5
+    assert all(c.state is ProductionReadinessState.FAILED for c in identity_checks)
+    assert all(
+        c.reason_code == ProductionReadinessReasonCode.CREDENTIALS_BUNDLED_OR_SHARED.value
+        for c in identity_checks
+    )
 
 
 def test_non_production_environment_fails_env_check(monkeypatch, tmp_path: Path) -> None:

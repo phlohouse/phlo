@@ -126,18 +126,47 @@ _AUTH_STATIC_PREFIX = "PHLO_AUTH_STATIC_"
 _AUDIT_HMAC_KEY_ENV = "PHLO_AUDIT_HMAC_KEY"
 _SIGNATURE_HMAC_KEY_ENV = "PHLO_SIGNATURE_HMAC_KEY"
 
-# Workload identities deferred to Plans 004-005. Present so the report is
-# total and never optimistically passed.
-_DEFERRED_WORKLOAD_CHECKS = (
-    (ProductionReadinessCheckId.IDENTITY_WORKLOAD_API, "phlo-api (control plane)"),
-    (
-        ProductionReadinessCheckId.IDENTITY_WORKLOAD_ORCHESTRATION,
-        "Dagster webserver and daemon",
-    ),
-    (ProductionReadinessCheckId.IDENTITY_WORKLOAD_QUERY, "Trino query engine"),
-    (ProductionReadinessCheckId.IDENTITY_WORKLOAD_CATALOG, "Nessie/Iceberg catalog"),
-    (ProductionReadinessCheckId.IDENTITY_WORKLOAD_MAINTENANCE, "compaction and snapshot expiry"),
-)
+# Workload identities: evaluated from the neutral reference matrix (ADR 0047
+# §7.1). Grant/audit/drift observations are deferred to a later stage; the
+# reference-level facts are checked here.
+_WORKLOAD_CHECK_BY_NAME: dict[str, ProductionReadinessCheckId] = {
+    "api": ProductionReadinessCheckId.IDENTITY_WORKLOAD_API,
+    "orchestration": ProductionReadinessCheckId.IDENTITY_WORKLOAD_ORCHESTRATION,
+    "query": ProductionReadinessCheckId.IDENTITY_WORKLOAD_QUERY,
+    "catalog": ProductionReadinessCheckId.IDENTITY_WORKLOAD_CATALOG,
+    "maintenance": ProductionReadinessCheckId.IDENTITY_WORKLOAD_MAINTENANCE,
+}
+
+
+def _workload_identity_checks(effective_env: Mapping[str, str]) -> list[ProductionReadinessCheck]:
+    from phlo.security.workload_identities import evaluate_workload_identity_references
+
+    checks: list[ProductionReadinessCheck] = []
+    for evaluation in evaluate_workload_identity_references(effective_env):
+        check_id = _WORKLOAD_CHECK_BY_NAME.get(evaluation.name)
+        if check_id is None:
+            continue
+        if evaluation.passed:
+            checks.append(
+                ProductionReadinessCheck(
+                    id=check_id,
+                    state=ProductionReadinessState.PASSED,
+                    message=evaluation.message(),
+                    remediation="",
+                    source="declared credential references",
+                )
+            )
+        else:
+            checks.append(
+                ProductionReadinessCheck(
+                    id=check_id,
+                    state=ProductionReadinessState.FAILED,
+                    message=evaluation.message(),
+                    remediation=evaluation.remediation(),
+                    source="declared credential references",
+                )
+            )
+    return checks
 
 
 # ---------------------------------------------------------------------------
@@ -563,18 +592,6 @@ def _check_oidc_issuer_audience_jwks(context: _CheckContext) -> ProductionReadin
     )
 
 
-def _deferred_workload_check(
-    check_id: ProductionReadinessCheckId, workload: str
-) -> ProductionReadinessCheck:
-    return ProductionReadinessCheck(
-        id=check_id,
-        state=ProductionReadinessState.UNAVAILABLE,
-        message=f"distinct {workload} identity and credential delivery are not yet verified",
-        remediation="Plans 004-005 add scoped workload identities and provider-owned credential references.",
-        source="deferred workload-identity contributor",
-    )
-
-
 def _check_audit_key_backend(context: _CheckContext) -> ProductionReadinessCheck:
     source = "effective environment"
     effective_env = context["effective_env"]
@@ -818,7 +835,7 @@ _PASSING_STATES = frozenset(
 
 # The complete closed check-ID set; every ID must have a runner.
 _ALL_CHECK_IDS = frozenset(check_id for check_id, _ in _CHECK_BUILDERS) | frozenset(
-    check_id for check_id, _ in _DEFERRED_WORKLOAD_CHECKS
+    _WORKLOAD_CHECK_BY_NAME.values()
 )
 assert len(_ALL_CHECK_IDS) == len(ProductionReadinessCheckId), "check vocabulary is not total"
 
@@ -858,6 +875,21 @@ def _derive_reason_code(check: ProductionReadinessCheck) -> str:
         ),
         ProductionReadinessCheckId.NETWORK_PROTECTED_PORTS: (
             ProductionReadinessReasonCode.PROTECTED_PORTS_EXPOSED
+        ),
+        ProductionReadinessCheckId.IDENTITY_WORKLOAD_API: (
+            ProductionReadinessReasonCode.CREDENTIALS_BUNDLED_OR_SHARED
+        ),
+        ProductionReadinessCheckId.IDENTITY_WORKLOAD_ORCHESTRATION: (
+            ProductionReadinessReasonCode.CREDENTIALS_BUNDLED_OR_SHARED
+        ),
+        ProductionReadinessCheckId.IDENTITY_WORKLOAD_QUERY: (
+            ProductionReadinessReasonCode.CREDENTIALS_BUNDLED_OR_SHARED
+        ),
+        ProductionReadinessCheckId.IDENTITY_WORKLOAD_CATALOG: (
+            ProductionReadinessReasonCode.CREDENTIALS_BUNDLED_OR_SHARED
+        ),
+        ProductionReadinessCheckId.IDENTITY_WORKLOAD_MAINTENANCE: (
+            ProductionReadinessReasonCode.CREDENTIALS_BUNDLED_OR_SHARED
         ),
     }
     return failed_by_id.get(check.id, ProductionReadinessReasonCode.EVIDENCE_UNAVAILABLE).value
@@ -932,8 +964,7 @@ def run_production_readiness(
     }
 
     checks: list[ProductionReadinessCheck] = [builder(context) for _, builder in _CHECK_BUILDERS]
-    for check_id, workload in _DEFERRED_WORKLOAD_CHECKS:
-        checks.append(_deferred_workload_check(check_id, workload))
+    checks.extend(_workload_identity_checks(effective_env))
 
     generated_at = datetime.now(UTC).isoformat()
     checks = [

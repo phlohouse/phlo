@@ -92,6 +92,9 @@ class ComposeGenerator:
             if deployment_profile == "production":
                 self._apply_production_profile(service.name, compose["services"][service.name])
 
+        if deployment_profile == "production":
+            self._validate_workload_identity_references(env_values or {})
+
         named_volumes = self._collect_named_volumes(compose["services"].values())
         if named_volumes:
             compose["volumes"] = {name: {} for name in sorted(named_volumes)}
@@ -112,6 +115,26 @@ class ComposeGenerator:
             config.pop("ports", None)
             self._remove_traefik_labels(config)
         self._require_production_credentials(config)
+
+    def _validate_workload_identity_references(self, env_values: Mapping[str, str]) -> None:
+        """Reject shared or default/root workload credentials in production rendering.
+
+        Uses the neutral workload-identity matrix so core never parses provider
+        internals. Missing references are reported by the production preflight;
+        this rendering check fails fast on refs that are present but insecure.
+        """
+        from phlo.security.workload_identities import evaluate_workload_identity_references
+
+        failed = [
+            evaluation
+            for evaluation in evaluate_workload_identity_references(env_values)
+            if not evaluation.passed and (evaluation.insecure_default or evaluation.shared_with)
+        ]
+        if failed:
+            rendered = "; ".join(evaluation.message() for evaluation in failed)
+            raise ValueError(
+                f"production workload identities are not distinct or secure: {rendered}"
+            )
 
     def _remove_traefik_labels(self, config: dict[str, Any]) -> None:
         """Remove public Traefik routes while retaining unrelated service labels."""

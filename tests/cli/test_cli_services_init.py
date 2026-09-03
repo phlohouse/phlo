@@ -1348,3 +1348,49 @@ def test_services_init_replaces_permissive_env_local_at_0600(
     assert result.exit_code == 0, result.output
     assert env_local.exists()
     assert env_local.stat().st_mode & 0o7777 == 0o600
+
+
+def test_production_compose_rejects_shared_or_default_workload_identity_references(
+    tmp_path,
+) -> None:
+    postgres = _service("postgres", default=True)
+    discovery = FakeDiscovery({postgres.name: postgres}, default_names=(postgres.name,))
+    generator = ComposeGenerator(cast(ServiceDiscovery, discovery))
+
+    with pytest.raises(ValueError, match="production workload identities"):
+        generator.generate_compose(
+            services=[postgres],
+            output_dir=tmp_path,
+            deployment_profile="production",
+            env_values={
+                "TRINO_QUERY_ACCESS_KEY": "root",
+            },
+        )
+
+    # Distinct non-default references render fine.
+    compose = generator.generate_compose(
+        services=[postgres],
+        output_dir=tmp_path,
+        deployment_profile="production",
+        env_values={
+            "PHLO_SERVICE_CREDENTIALS_FILE": "/run/secrets/workload.json",
+            "DAGSTER_MINIO_ACCESS_KEY": "d-access",
+            "DAGSTER_MINIO_SECRET_KEY": "d-secret",
+            "DAGSTER_TRINO_USER": "d-trino",
+            "DAGSTER_POSTGRES_USER": "d-pg",
+            "DAGSTER_POSTGRES_PASSWORD": "d-pg-pass",
+            "TRINO_QUERY_ACCESS_KEY": "q-access",
+            "TRINO_QUERY_SECRET_KEY": "q-secret",
+            "TRINO_USER": "q-user",
+            "TRINO_ROLE": "q_role",
+            "NESSIE_CATALOG_ACCESS_KEY": "c-access",
+            "NESSIE_CATALOG_SECRET_KEY": "c-secret",
+            "QUARKUS_DATASOURCE_USERNAME": "c-pg",
+            "QUARKUS_DATASOURCE_PASSWORD": "c-pg-pass",
+            "MAINTENANCE_TRINO_USER": "m-user",
+            "MAINTENANCE_TRINO_ROLE": "m_role",
+            "MAINTENANCE_ACCESS_KEY": "m-access",
+            "MAINTENANCE_SECRET_KEY": "m-secret",
+        },
+    )
+    assert "services:" in compose
