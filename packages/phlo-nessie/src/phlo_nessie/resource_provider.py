@@ -21,6 +21,7 @@ directly; exposes Nessie as a capability resource provider.
 from __future__ import annotations
 
 from phlo.capabilities import (
+    EvidenceProfileContributionSpec,
     BackendReadinessSpec,
     CapabilitySupport,
     CatalogScannerSpec,
@@ -40,6 +41,21 @@ NESSIE_COMPATIBILITY_METADATA = {
 
 
 class NessieResourceProvider(ResourceProviderPlugin):
+    def get_evidence_profile_contributions(self) -> list[EvidenceProfileContributionSpec]:
+        """Declare this provider's blessed run-evidence contribution."""
+        from phlo.run_evidence.profiles import EvidenceProfileContribution
+        from phlo.run_evidence.reconciliation import RequiredEvidenceRecord, RequiredEvidenceStage
+
+        contribution = EvidenceProfileContribution(
+            contribution_id="nessie.catalog",
+            provider="nessie",
+            profile_id="wap",
+            profile_version="1",
+            stages=(RequiredEvidenceStage(stage_type="publish", provider="nessie"),),
+            required_records=(RequiredEvidenceRecord(family="catalog_change", minimum=1),),
+        )
+        return [EvidenceProfileContributionSpec(name="nessie.catalog", provider=contribution)]
+
     def get_backend_readiness(self) -> list[BackendReadinessSpec]:
         """Expose the nessie security readiness inspector (read-only)."""
         from phlo_nessie.security_readiness import NessieReadinessProvider

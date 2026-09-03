@@ -58,6 +58,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from phlo.capabilities import (
+    EvidenceProfileContributionSpec,
     SchemaDiscoverySpec,
     WorkflowValidationSpec,
     WorkflowContributionMode,
@@ -140,6 +141,21 @@ def get_workflow_wizard_contributions() -> list[WorkflowWizardContribution]:
 
 
 class PanderaQualityProvider(QualityProviderPlugin):
+    def get_evidence_profile_contributions(self) -> list[EvidenceProfileContributionSpec]:
+        """Declare this provider's blessed run-evidence contribution."""
+        from phlo.run_evidence.profiles import EvidenceProfileContribution
+        from phlo.run_evidence.reconciliation import RequiredEvidenceRecord, RequiredEvidenceStage
+
+        contribution = EvidenceProfileContribution(
+            contribution_id="pandera.check",
+            provider="pandera",
+            profile_id="wap",
+            profile_version="1",
+            stages=(RequiredEvidenceStage(stage_type="check", provider="pandera"),),
+            required_records=(RequiredEvidenceRecord(family="quality_result", minimum=1),),
+        )
+        return [EvidenceProfileContributionSpec(name="pandera.check", provider=contribution)]
+
     """Pandera-based quality provider for Phlo.
 
     This plugin class integrates the Phlo Quality Framework with Phlo's plugin

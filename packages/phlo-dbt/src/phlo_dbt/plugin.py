@@ -26,6 +26,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from phlo.capabilities import (
+    EvidenceProfileContributionSpec,
     WorkflowContributionMode,
     WorkflowWizardContribution,
     WorkflowWizardField,
@@ -195,6 +196,21 @@ def get_workflow_wizard_contributions() -> list[WorkflowWizardContribution]:
 
 
 class DbtAssetProvider(AssetProviderPlugin):
+    def get_evidence_profile_contributions(self) -> list[EvidenceProfileContributionSpec]:
+        """Declare this provider's blessed run-evidence contribution."""
+        from phlo.run_evidence.profiles import EvidenceProfileContribution
+        from phlo.run_evidence.reconciliation import RequiredEvidenceRecord, RequiredEvidenceStage
+
+        contribution = EvidenceProfileContribution(
+            contribution_id="dbt.transform",
+            provider="dbt",
+            profile_id="wap",
+            profile_version="1",
+            stages=(RequiredEvidenceStage(stage_type="transform", provider="dbt"),),
+            required_records=(RequiredEvidenceRecord(family="artifact", minimum=1),),
+        )
+        return [EvidenceProfileContributionSpec(name="dbt.transform", provider=contribution)]
+
     """Asset provider plugin exposing dbt models as Phlo assets.
 
     This plugin discovers dbt models from the project's manifest and exposes

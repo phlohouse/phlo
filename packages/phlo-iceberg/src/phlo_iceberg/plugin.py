@@ -38,6 +38,7 @@ directly; registers IcebergResourceProvider through phlo.capabilities and phlo.p
 """
 
 from phlo.capabilities import (
+    EvidenceProfileContributionSpec,
     CapabilitySupport,
     ResourceSpec,
     SchemaMigrationSpec,
@@ -65,6 +66,21 @@ ICEBERG_COMPATIBILITY_METADATA = {
 
 
 class IcebergResourceProvider(ResourceProviderPlugin):
+    def get_evidence_profile_contributions(self) -> list[EvidenceProfileContributionSpec]:
+        """Declare this provider's blessed run-evidence contribution."""
+        from phlo.run_evidence.profiles import EvidenceProfileContribution
+        from phlo.run_evidence.reconciliation import RequiredEvidenceRecord, RequiredEvidenceStage
+
+        contribution = EvidenceProfileContribution(
+            contribution_id="iceberg.snapshot",
+            provider="iceberg",
+            profile_id="wap",
+            profile_version="1",
+            stages=(RequiredEvidenceStage(stage_type="publish", provider="iceberg"),),
+            required_records=(RequiredEvidenceRecord(family="resource", minimum=1),),
+        )
+        return [EvidenceProfileContributionSpec(name="iceberg.snapshot", provider=contribution)]
+
     def get_sling_connections(self) -> list[SlingConnectionSpec]:
         """Expose the iceberg Sling connection through the neutral seam."""
         from phlo_iceberg.settings import get_settings
