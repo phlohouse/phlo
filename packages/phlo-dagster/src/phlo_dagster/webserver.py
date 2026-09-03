@@ -34,7 +34,7 @@ from phlo_dagster.authorization import (
 )
 from phlo_dagster.authorization_middleware import DagsterGraphQLAuthorizationMiddleware
 from phlo_dagster.oidc_identity import OIDC_REQUIRED_ENV
-from phlo.security import is_regulated
+from phlo.security.mode import requires_http_authorization
 from phlo.security.service_identity import PostgresNonceStore
 
 GRAPHQL_WS_INIT_TIMEOUT_ENV = "PHLO_DAGSTER_GRAPHQL_WS_INIT_TIMEOUT_SECONDS"
@@ -227,7 +227,7 @@ class DagsterHTTPAuthenticationASGI:
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
             return
-        if not is_regulated():
+        if not requires_http_authorization():
             await self.app(scope, receive, send)
             return
         matched = self._match(scope)
@@ -335,7 +335,7 @@ class GraphQLWebSocketAuthenticationASGI:
         if scope.get("type") != "websocket" or scope.get("path") != "/graphql":
             await self.app(scope, receive, send)
             return
-        if not is_regulated():
+        if not requires_http_authorization():
             await self.app(scope, receive, send)
             return
 
@@ -448,7 +448,7 @@ class PhloDagsterWebserver(DagsterWebserver):
         RuntimeError when OIDC identity is required but the validator is not ready.
         """
         validate_graphql_schema(self._graphene_schema.graphql_schema)
-        if not is_regulated():
+        if not requires_http_authorization():
             return []
         discover_capabilities()
         get_adapter().install(self)
@@ -497,11 +497,11 @@ class PhloDagsterWebserver(DagsterWebserver):
     def _build_durable_nonce_store(self) -> PostgresNonceStore | None:
         """Build the webserver-owned durable nonce store once per process.
 
-        Regulated receivers initialize the durable schema through this lifecycle
-        hook so replay state survives restarts and is shared across replicas.
-        Unregulated receivers (development) need no nonce store at all.
+        Receivers requiring HTTP authorization initialize the durable schema
+        through this lifecycle hook so replay state survives restarts and is
+        shared across replicas. Development needs no nonce store at all.
         """
-        if not is_regulated():
+        if not requires_http_authorization():
             return None
         store = getattr(self, "_phlo_durable_nonce_store", None)
         if store is None:
@@ -520,7 +520,7 @@ class PhloDagsterWebserver(DagsterWebserver):
         operation_name: str | None,
     ):
         """Authorize subscription roots before Dagster starts the async task."""
-        if not is_regulated():
+        if not requires_http_authorization():
             return await super().execute_graphql_subscription(
                 websocket,
                 operation_id,

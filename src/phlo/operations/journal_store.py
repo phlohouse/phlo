@@ -15,8 +15,10 @@ for the CLI and is fully testable without live services.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +41,7 @@ class FileOperationJournalStore:
     def __init__(self, directory: str | os.PathLike[str]) -> None:
         self._directory = Path(directory)
         self._directory.mkdir(parents=True, exist_ok=True)
+        self._lock_path = self._directory / ".operation-journal.lock"
 
     # -- paths -------------------------------------------------------------
 
@@ -59,40 +62,46 @@ class FileOperationJournalStore:
     # -- protocol ----------------------------------------------------------
 
     def claim(self, entry: OperationJournalEntry) -> bool:
-        if self._path(entry.operation_id).exists():
-            return False
-        active_order = {
-            OperationJournalState.CLAIMED,
-            OperationJournalState.SUBMITTED,
-            OperationJournalState.UNKNOWN,
-        }
-        for record in self._iter_records():
-            if (
-                record["action"] == entry.action
-                and record["target"] == entry.target
-                and OperationJournalState(record["state"]) in active_order
-            ):
+        # An atomic rename prevents torn records, but it does not make the
+        # read/check/write claim sequence atomic. Serialize that sequence
+        # across CLI processes so only one active claim can own a target.
+        with self._locked():
+            if self._path(entry.operation_id).exists():
                 return False
-        self._write_atomic(entry)
-        return True
+            active_order = {
+                OperationJournalState.CLAIMED,
+                OperationJournalState.SUBMITTED,
+                OperationJournalState.UNKNOWN,
+            }
+            for record in self._iter_records():
+                if (
+                    record["action"] == entry.action
+                    and record["target"] == entry.target
+                    and OperationJournalState(record["state"]) in active_order
+                ):
+                    return False
+            self._write_atomic(entry)
+            return True
 
     def transition(
         self, operation_id: str, state: OperationJournalState, result: dict[str, Any] | None = None
     ) -> bool:
-        path = self._path(operation_id)
-        if not path.is_file():
-            return False
-        record = json.loads(path.read_text(encoding="utf-8"))
-        record["state"] = state.value
-        record["result"] = result
-        self._write_json_atomic(path, record)
-        return True
+        with self._locked():
+            path = self._path(operation_id)
+            if not path.is_file():
+                return False
+            record = json.loads(path.read_text(encoding="utf-8"))
+            record["state"] = state.value
+            record["result"] = result
+            self._write_json_atomic(path, record)
+            return True
 
     def read(self, operation_id: str) -> OperationJournalEntry | None:
-        path = self._path(operation_id)
-        if not path.is_file():
-            return None
-        record = json.loads(path.read_text(encoding="utf-8"))
+        with self._locked():
+            path = self._path(operation_id)
+            if not path.is_file():
+                return None
+            record = json.loads(path.read_text(encoding="utf-8"))
         return OperationJournalEntry(
             operation_id=str(record["operation_id"]),
             subject=str(record["subject"]),
@@ -106,6 +115,16 @@ class FileOperationJournalStore:
         )
 
     # -- helpers -----------------------------------------------------------
+
+    @contextmanager
+    def _locked(self) -> Any:
+        """Hold the journal-wide advisory lock for a state transition."""
+        with self._lock_path.open("a+", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     def _iter_records(self) -> Any:
         for path in sorted(self._directory.glob("*.json")):

@@ -724,6 +724,19 @@ def test_development_webserver_builds_no_durable_nonce_store(monkeypatch) -> Non
     assert not store.schema_initialized
 
 
+def test_production_webserver_wires_durable_nonce_store_without_regulated_mode(monkeypatch) -> None:
+    monkeypatch.setenv("PHLO_ENVIRONMENT", "production")
+    monkeypatch.setenv("PHLO_REGULATED", "false")
+    store = _DurableNonceStore()
+    monkeypatch.setattr("phlo_dagster.webserver.build_durable_nonce_store", lambda: store)
+
+    server = object.__new__(PhloDagsterWebserver)
+    middleware = server._get_graphql_authorization_middleware()
+
+    assert middleware._nonce_store is store
+    assert store.schema_initialized
+
+
 def test_build_durable_nonce_store_returns_postgres_nonce_store(monkeypatch) -> None:
     from phlo.security.service_identity import PostgresNonceStore
 
@@ -743,7 +756,7 @@ def test_build_durable_nonce_store_returns_none_without_dsn(monkeypatch) -> None
     assert build_durable_nonce_store() is None
 
 
-def test_regulated_graphql_http_accepts_scoped_phlo1_token_through_webserver_wiring(
+def test_production_graphql_http_accepts_scoped_phlo1_token_through_webserver_wiring(
     monkeypatch, tmp_path
 ) -> None:
     from phlo.security.service_identity import (
@@ -754,7 +767,8 @@ def test_regulated_graphql_http_accepts_scoped_phlo1_token_through_webserver_wir
     secret = "wls-secret"
     _write_workload_credentials(tmp_path, secret)
     monkeypatch.setenv("PHLO_SERVICE_CREDENTIALS_FILE", str(tmp_path / "workload-credentials.json"))
-    monkeypatch.setenv("PHLO_REGULATED", "true")
+    monkeypatch.setenv("PHLO_ENVIRONMENT", "production")
+    monkeypatch.setenv("PHLO_REGULATED", "false")
     store = _DurableNonceStore()
     monkeypatch.setattr("phlo_dagster.webserver.build_durable_nonce_store", lambda: store)
 

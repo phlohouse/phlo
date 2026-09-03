@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from multiprocessing import Event, Process, Queue
+
 import pytest
 
 from phlo.operations.journal import (
@@ -33,6 +35,26 @@ def _claim(
         target=target,
         plan_token=token,
     )
+
+
+def _concurrent_file_claim(directory: str, operation_id: str, start: Event, results: Queue) -> None:
+    """Claim one target from a separate process after the shared start signal."""
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    start.wait(timeout=5)
+    store = FileOperationJournalStore(directory)
+    try:
+        entry = _claim(
+            store,
+            operation_id=operation_id,
+            action="restore.apply",
+            target="/srv/same-target",
+            token=operation_id,
+        )
+    except OperationJournalError:
+        results.put(False)
+    else:
+        results.put(entry.operation_id == operation_id)
 
 
 def test_claim_succeeds_and_state_is_claimed(store) -> None:
@@ -153,6 +175,27 @@ def test_file_journal_rejects_active_conflict_across_processes(tmp_path) -> None
             target="deploy-1",
             token="tok",
         )
+
+
+def test_file_journal_serializes_concurrent_cross_process_claims(tmp_path) -> None:
+    """Only one simultaneously-started process can claim a shared target."""
+    start = Event()
+    results: Queue = Queue()
+    processes = [
+        Process(
+            target=_concurrent_file_claim,
+            args=(str(tmp_path / "journal"), f"op:{index}", start, results),
+        )
+        for index in range(8)
+    ]
+    for process in processes:
+        process.start()
+    start.set()
+    for process in processes:
+        process.join(timeout=10)
+        assert process.exitcode == 0
+
+    assert sum(results.get(timeout=2) for _ in processes) == 1
 
 
 def test_file_journal_allows_new_claim_after_terminal_state(tmp_path) -> None:
