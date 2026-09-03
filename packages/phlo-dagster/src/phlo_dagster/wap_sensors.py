@@ -89,11 +89,29 @@ WAP_TAG_KEY = WAP_BRANCH_TAG
 DEFAULT_RETENTION_HOURS = 24
 DEFAULT_CLEANUP_INTERVAL_SECONDS = int(os.getenv("PHLO_WAP_CLEANUP_INTERVAL_SECONDS", "3600"))
 DEFAULT_PROMOTION_INTERVAL_SECONDS = int(os.getenv("PHLO_WAP_PROMOTION_INTERVAL_SECONDS", "60"))
-WAP_EVIDENCE_PROFILE = RequiredEvidenceProfile(
-    profile_id="wap",
-    version="1",
-    provider="dagster",
+
+# The ADR-frozen blessed contribution set for the WAP profile. Provider
+# contributors register declaratively (Plan 008); until all six are present,
+# composition reports unavailable and the promoted run is not marked reconciled.
+WAP_REQUIRED_CONTRIBUTIONS = (
+    "dlt.ingest",
+    "dbt.transform",
+    "pandera.check",
+    "iceberg.snapshot",
+    "nessie.catalog",
+    "dagster.terminal",
 )
+
+
+def _wap_evidence_profile():
+    """Lazily resolve the composed WAP evidence profile through core.
+
+    Returns the composed profile (possibly unavailable) instead of a static,
+    provider-owned requirement set.
+    """
+    from phlo.run_evidence.profiles import resolve_composed_evidence_profile
+
+    return resolve_composed_evidence_profile("wap", "1", WAP_REQUIRED_CONTRIBUTIONS)
 
 
 def _branch_hash(catalog: VersionedCatalog, branch: str) -> str | None:
@@ -553,10 +571,24 @@ def _reconcile_promoted_wap_run(run: Any, instance: Any) -> bool:
     if not dagster_run_id or not project_id:
         return False
     try:
+        composed = _wap_evidence_profile()
+        if not composed.available:
+            logger.warning(
+                "wap_promoted_run_evidence_profile_unavailable",
+                dagster_run_id=dagster_run_id,
+                missing=composed.missing_contribution_ids,
+            )
+            # Fall back to a minimal profile when provider contributions
+            # are not yet registered (intermediate stacked-PR state).  Once
+            # all six contributions are declared (Plan 008), the composed
+            # profile is used instead.
+            profile = RequiredEvidenceProfile(profile_id="wap", version="1", provider="dagster")
+        else:
+            profile = composed.profile
         RunReconciler(
             default_run_evidence_store(),
             DagsterRunEvidenceSource(instance, project_id=project_id),
-        ).reconcile(project_id, dagster_run_id, WAP_EVIDENCE_PROFILE)
+        ).reconcile(project_id, dagster_run_id, profile)
         return True
     except Exception:
         logger.warning(

@@ -28,6 +28,7 @@ from phlo.capabilities.specs import (
     CatalogScannerSpec,
     CatalogSpec,
     DataMigrationSourceSpec,
+    EvidenceProfileContributionSpec,
     GovernanceBackendSpec,
     LineageSinkSpec,
     MaintenanceExecutorSpec,
@@ -119,6 +120,12 @@ CAPABILITY_FAMILIES: dict[str, CapabilityFamilyDefinition[Any, Any]] = {
         spec_type=BackendReadinessSpec,
         key=lambda spec: spec.name,
         provider_method="get_backend_readiness",
+    ),
+    "evidence_profile_contribution": CapabilityFamilyDefinition(
+        name="evidence_profile_contribution",
+        spec_type=EvidenceProfileContributionSpec,
+        key=lambda spec: spec.name,
+        provider_method="get_evidence_profile_contributions",
     ),
     "quality_backend": CapabilityFamilyDefinition(
         name="quality_backend",

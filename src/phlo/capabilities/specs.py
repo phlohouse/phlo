@@ -174,6 +174,22 @@ class SlingConnectionSpec:
     name: str
     provider: Any
     metadata: dict[str, Any] = field(default_factory=dict)
+    support: CapabilitySupport = field(default_factory=CapabilitySupport)
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceProfileContributionSpec:
+    """Declarative run-evidence contribution capability.
+
+    The provider payload is declarative contribution data (or a read-only
+    provider returning it); it must not execute a workflow or inspect another
+    provider.
+    """
+
+    name: str
+    provider: Any
+    metadata: dict[str, Any] = field(default_factory=dict)
+    support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +203,7 @@ class BackendReadinessSpec:
     name: str
     provider: Any
     metadata: dict[str, Any] = field(default_factory=dict)
+    support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
 
 @dataclass(frozen=True, slots=True)

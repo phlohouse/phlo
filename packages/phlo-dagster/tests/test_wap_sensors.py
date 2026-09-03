@@ -561,8 +561,37 @@ def test_wap_auto_promotion_sensor_uses_updated_after_filter():
     context.update_cursor.assert_called_once()
 
 
+def _register_wap_contributions() -> None:
+    """Register the ADR-frozen blessed contributions so WAP composition is available."""
+    from phlo.capabilities import register_capability
+    from phlo.capabilities.specs import EvidenceProfileContributionSpec
+    from phlo.run_evidence.profiles import EvidenceProfileContribution
+    from phlo.run_evidence.reconciliation import RequiredEvidenceStage
+
+    for contribution_id, stage, provider in [
+        ("dlt.ingest", "ingest", "dlt"),
+        ("dbt.transform", "transform", "dbt"),
+        ("pandera.check", "check", "pandera"),
+        ("iceberg.snapshot", "publish", "iceberg"),
+        ("nessie.catalog", "publish", "nessie"),
+        ("dagster.terminal", "lineage", "dagster"),
+    ]:
+        contribution = EvidenceProfileContribution(
+            contribution_id=contribution_id,
+            provider=provider,
+            profile_id="wap",
+            profile_version="1",
+            stages=(RequiredEvidenceStage(stage_type=stage, provider=provider),),
+        )
+        register_capability(
+            "evidence_profile_contribution",
+            EvidenceProfileContributionSpec(name=contribution_id, provider=contribution),
+        )
+
+
 def test_wap_successful_promotion_uses_recorded_check_event_identity(monkeypatch, tmp_path):
     """A passing run promotion references its durable aggregate quality result."""
+    _register_wap_contributions()
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     dagster_run_id = "run-promote"
     logical_run_id = "logical-promote"
