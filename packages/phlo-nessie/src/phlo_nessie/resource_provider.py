@@ -20,7 +20,13 @@ directly; exposes Nessie as a capability resource provider.
 
 from __future__ import annotations
 
-from phlo.capabilities import CapabilitySupport, CatalogScannerSpec, CatalogSpec, ResourceSpec
+from phlo.capabilities import (
+    BackendReadinessSpec,
+    CapabilitySupport,
+    CatalogScannerSpec,
+    CatalogSpec,
+    ResourceSpec,
+)
 from phlo.plugins.base import PluginMetadata, ResourceProviderPlugin
 
 from phlo_nessie.catalog_scanner import NessieTableScanner
@@ -34,6 +40,12 @@ NESSIE_COMPATIBILITY_METADATA = {
 
 
 class NessieResourceProvider(ResourceProviderPlugin):
+    def get_backend_readiness(self) -> list[BackendReadinessSpec]:
+        """Expose the nessie security readiness inspector (read-only)."""
+        from phlo_nessie.security_readiness import NessieReadinessProvider
+
+        return [BackendReadinessSpec(name="nessie", provider=NessieReadinessProvider())]
+
     """Expose Nessie as a capability-native catalog/versioning provider.
     This plugin registers Nessie with the Phlo capability system, exposing
     it as a catalog, catalog scanner, and versioning resource for other

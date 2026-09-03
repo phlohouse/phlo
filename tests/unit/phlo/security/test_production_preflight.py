@@ -132,6 +132,31 @@ def isolated_preflight(monkeypatch: pytest.MonkeyPatch, project: Path):
         ),
     )
 
+    # Register passing backend-readiness inspectors for the blessed backends.
+    from phlo.security.backend_readiness import (
+        REQUIRED_BACKENDS,
+        BackendReadinessResult,
+        BackendReadinessState,
+    )
+
+    def _passing_readiness(capability, backend):
+        if capability == "authorization_policy_backend":
+            return object()
+        if capability == "backend_readiness" and backend in REQUIRED_BACKENDS:
+            provider = SimpleNamespace(
+                backend_name=backend,
+                inspect=lambda b=backend: BackendReadinessResult(
+                    backend=b,
+                    state=BackendReadinessState.PASSED,
+                    reason_code="ok",
+                    message=f"{b} readiness evidence present",
+                ),
+            )
+            return SimpleNamespace(name=backend, provider=provider, metadata={})
+        return None
+
+    monkeypatch.setattr("phlo.capabilities.resolve_capability", _passing_readiness)
+
     class _FakeRbacLoader:
         def load(self) -> dict:
             return {"policies": []}
@@ -413,3 +438,76 @@ def test_load_effective_environment_precedence(monkeypatch, tmp_path: Path) -> N
     assert env["B"] == "from-local"
     assert env["C"] == "from-config"
     assert env["D"] == "from-process"
+
+
+def test_backend_readiness_missing_adapter_fails(monkeypatch, tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        (
+            ".phlo/.env",
+            "PHLO_ENVIRONMENT=production\nPOSTGRES_USER=lakehouse\nMINIO_ROOT_USER=object-admin\n",
+        ),
+        (".phlo/.env.local", "POSTGRES_PASSWORD=pg-secret-1\nMINIO_ROOT_PASSWORD=minio-secret-1\n"),
+    )
+    (tmp_path / ".phlo" / ".env.local").chmod(0o600)
+    (tmp_path / ".phlo" / "docker-compose.yml").write_text(
+        "# Dev mode: false\nservices:\n  postgres:\n    image: x\n"
+    )
+
+    # No backend readiness capability registered at all.
+    monkeypatch.setattr("phlo.capabilities.resolve_capability", lambda _capability, _backend: None)
+
+    report = run_production_readiness(
+        plan=_plan(tmp_path, service_names=["postgres"]),
+        project_root=tmp_path,
+        environment="production",
+    )
+    check = next(c for c in report.checks if c.id is ProductionReadinessCheckId.BACKEND_READINESS)
+    assert check.state is ProductionReadinessState.FAILED
+    assert "missing required backend readiness adapters" in check.message
+
+
+def test_backend_readiness_unavailable_blocks(monkeypatch, tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    _write(
+        tmp_path,
+        (
+            ".phlo/.env",
+            "PHLO_ENVIRONMENT=production\nPOSTGRES_USER=lakehouse\nMINIO_ROOT_USER=object-admin\n",
+        ),
+        (".phlo/.env.local", "POSTGRES_PASSWORD=pg-secret-1\nMINIO_ROOT_PASSWORD=minio-secret-1\n"),
+    )
+    (tmp_path / ".phlo" / ".env.local").chmod(0o600)
+    (tmp_path / ".phlo" / "docker-compose.yml").write_text(
+        "# Dev mode: false\nservices:\n  postgres:\n    image: x\n"
+    )
+
+    from phlo.security.backend_readiness import BackendReadinessResult, BackendReadinessState
+
+    def _resolve(capability, backend):
+        if capability != "backend_readiness":
+            return None
+        return SimpleNamespace(
+            name=backend,
+            provider=SimpleNamespace(
+                backend_name=backend,
+                inspect=lambda b=backend: BackendReadinessResult(
+                    backend=b,
+                    state=BackendReadinessState.UNAVAILABLE,
+                    reason_code="evidence_unavailable",
+                    message=f"{b} live evidence pending",
+                ),
+            ),
+            metadata={},
+        )
+
+    monkeypatch.setattr("phlo.capabilities.resolve_capability", _resolve)
+    report = run_production_readiness(
+        plan=_plan(tmp_path, service_names=["postgres"]),
+        project_root=tmp_path,
+        environment="production",
+    )
+    check = next(c for c in report.checks if c.id is ProductionReadinessCheckId.BACKEND_READINESS)
+    assert check.state is ProductionReadinessState.FAILED
+    assert check.reason_code == ProductionReadinessReasonCode.BACKEND_READINESS_BLOCKED.value

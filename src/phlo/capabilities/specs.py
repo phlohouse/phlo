@@ -176,6 +176,19 @@ class SlingConnectionSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class BackendReadinessSpec:
+    """A provider-owned backend security readiness capability.
+
+    The provider exposes a read-only ``inspect()`` returning a sanitized
+    readiness result; core never imports the provider package.
+    """
+
+    name: str
+    provider: Any
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class QualityBackendSpec:
     """Quality backend capability used by quality checks."""
 

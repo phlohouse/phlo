@@ -70,6 +70,7 @@ class ProductionReadinessCheckId(StrEnum):
     SECRETS_NO_BUNDLED_SHARED = "secrets.no_bundled_shared"
     SECRETS_ENV_LOCAL_0600 = "secrets.env_local_0600"
     NETWORK_PROTECTED_PORTS = "network.protected_ports"
+    BACKEND_READINESS = "backend.readiness"
 
 
 class ProductionReadinessReasonCode(StrEnum):
@@ -96,6 +97,7 @@ class ProductionReadinessReasonCode(StrEnum):
     SECRET_MODE_PERMISSIVE = "secret_mode_permissive"
     SECRET_MISSING = "secret_missing"
     PROTECTED_PORTS_EXPOSED = "protected_ports_exposed"
+    BACKEND_READINESS_BLOCKED = "backend_readiness_blocked"
 
 
 # Backends the production profile removes from public host interfaces.
@@ -753,6 +755,54 @@ def _check_secrets_env_local_0600(context: _CheckContext) -> ProductionReadiness
     )
 
 
+def _check_backend_readiness(context: _CheckContext) -> ProductionReadinessCheck:
+    """Compose provider-owned backend readiness results (ADR 0047 §5, §7.2).
+
+    Discovers only what is already registered; a backend with no adapter, a
+    ``failed`` result, or an ``unavailable`` result blocks production.
+    """
+    from phlo.capabilities import resolve_capability
+    from phlo.security.backend_readiness import REQUIRED_BACKENDS, BackendReadinessState
+
+    missing: list[str] = []
+    blocked: list[str] = []
+    for name in REQUIRED_BACKENDS:
+        resolution = resolve_capability("backend_readiness", name)
+        if resolution is None:
+            missing.append(name)
+            continue
+        try:
+            result = resolution.provider.inspect()
+        except Exception as exc:  # pragma: no cover - defensive
+            blocked.append(f"{name}: {exc}")
+            continue
+        if result.state in (BackendReadinessState.FAILED, BackendReadinessState.UNAVAILABLE):
+            blocked.append(f"{name}: {result.reason_code}")
+    if missing:
+        return ProductionReadinessCheck(
+            id=ProductionReadinessCheckId.BACKEND_READINESS,
+            state=ProductionReadinessState.FAILED,
+            message="missing required backend readiness adapters: " + ", ".join(sorted(missing)),
+            remediation="Install/enable each blessed backend's readiness inspector.",
+            source="backend readiness capability registry",
+        )
+    if blocked:
+        return ProductionReadinessCheck(
+            id=ProductionReadinessCheckId.BACKEND_READINESS,
+            state=ProductionReadinessState.FAILED,
+            message="backend readiness blocked: " + "; ".join(sorted(blocked)),
+            remediation="Resolve the reported backend evidence before claiming production readiness.",
+            source="backend readiness capability registry",
+        )
+    return ProductionReadinessCheck(
+        id=ProductionReadinessCheckId.BACKEND_READINESS,
+        state=ProductionReadinessState.PASSED,
+        message="all required backends report readiness evidence",
+        remediation="",
+        source="backend readiness capability registry",
+    )
+
+
 def _check_network_protected_ports(context: _CheckContext) -> ProductionReadinessCheck:
     source = "generated compose"
     compose_file: Path = context["compose_file"]
@@ -827,6 +877,7 @@ _CHECK_BUILDERS: tuple[tuple[ProductionReadinessCheckId, Any], ...] = (
     (ProductionReadinessCheckId.SECRETS_NO_BUNDLED_SHARED, _check_secrets_no_bundled_shared),
     (ProductionReadinessCheckId.SECRETS_ENV_LOCAL_0600, _check_secrets_env_local_0600),
     (ProductionReadinessCheckId.NETWORK_PROTECTED_PORTS, _check_network_protected_ports),
+    (ProductionReadinessCheckId.BACKEND_READINESS, _check_backend_readiness),
 )
 
 _PASSING_STATES = frozenset(
@@ -890,6 +941,9 @@ def _derive_reason_code(check: ProductionReadinessCheck) -> str:
         ),
         ProductionReadinessCheckId.IDENTITY_WORKLOAD_MAINTENANCE: (
             ProductionReadinessReasonCode.CREDENTIALS_BUNDLED_OR_SHARED
+        ),
+        ProductionReadinessCheckId.BACKEND_READINESS: (
+            ProductionReadinessReasonCode.BACKEND_READINESS_BLOCKED
         ),
     }
     return failed_by_id.get(check.id, ProductionReadinessReasonCode.EVIDENCE_UNAVAILABLE).value

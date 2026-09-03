@@ -24,6 +24,7 @@ from phlo.capabilities.specs import (
     AssetSpec,
     AuthenticationProviderSpec,
     AuthorizationPolicyBackendSpec,
+    BackendReadinessSpec,
     CatalogScannerSpec,
     CatalogSpec,
     DataMigrationSourceSpec,
@@ -112,6 +113,12 @@ CAPABILITY_FAMILIES: dict[str, CapabilityFamilyDefinition[Any, Any]] = {
         spec_type=SlingConnectionSpec,
         key=lambda spec: spec.name,
         provider_method="get_sling_connections",
+    ),
+    "backend_readiness": CapabilityFamilyDefinition(
+        name="backend_readiness",
+        spec_type=BackendReadinessSpec,
+        key=lambda spec: spec.name,
+        provider_method="get_backend_readiness",
     ),
     "quality_backend": CapabilityFamilyDefinition(
         name="quality_backend",

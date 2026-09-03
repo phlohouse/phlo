@@ -25,7 +25,7 @@ Example:
 
 from __future__ import annotations
 
-from phlo.capabilities import CapabilitySupport, ResourceSpec
+from phlo.capabilities import BackendReadinessSpec, CapabilitySupport, ResourceSpec
 from phlo.capabilities.specs import (
     GovernanceBackendSpec,
     MaintenanceExecutorSpec,
@@ -60,6 +60,12 @@ TrinoServicePlugin = service_plugin_class(
 
 
 class TrinoResourceProvider(ResourceProviderPlugin):
+    def get_backend_readiness(self) -> list[BackendReadinessSpec]:
+        """Expose the trino security readiness inspector (read-only)."""
+        from phlo_trino.security_readiness import TrinoReadinessProvider
+
+        return [BackendReadinessSpec(name="trino", provider=TrinoReadinessProvider())]
+
     """Resource provider plugin for Trino."""
 
     @property

@@ -26,6 +26,7 @@ from phlo.capabilities import (
     ResourceSpec,
     SettingsStoreSpec,
     SlingConnectionSpec,
+    BackendReadinessSpec,
 )
 from phlo.plugins import (
     PackageYamlServicePlugin,
@@ -119,6 +120,12 @@ PostgresExporterServicePlugin = service_plugin_class(
 
 
 class PostgresResourceProvider(ResourceProviderPlugin):
+    def get_backend_readiness(self) -> list[BackendReadinessSpec]:
+        """Expose the postgres security readiness inspector (read-only)."""
+        from phlo_postgres.security_readiness import PostgresReadinessProvider
+
+        return [BackendReadinessSpec(name="postgres", provider=PostgresReadinessProvider())]
+
     """Resource provider plugin that exposes PostgreSQL capabilities.
 
     This plugin registers the PostgresResource and PostgresPublishTarget with
