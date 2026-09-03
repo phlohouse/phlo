@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date
+from enum import StrEnum
 from typing import Any
 
 from phlo.capabilities.runtime import RuntimeContext
@@ -411,6 +412,38 @@ class MaterializeResult:
     status: str | None = None
 
 
+class CheckSeverity(StrEnum):
+    """Single owner of quality/check severity and its blocking semantics.
+
+    Only ``error`` and ``critical`` block. Providers stop inventing their own
+    severity vocabularies; unknown values are normalized to ``info``.
+    """
+
+    ERROR = "error"
+    CRITICAL = "critical"
+    WARNING = "warning"
+    INFO = "info"
+
+    @property
+    def blocking(self) -> bool:
+        return self in (CheckSeverity.ERROR, CheckSeverity.CRITICAL)
+
+    @classmethod
+    def normalize(cls, value: str | None) -> CheckSeverity | None:
+        if value is None:
+            return None
+        try:
+            return cls(str(value).strip().lower())
+        except ValueError:
+            return cls.INFO
+
+
+def is_blocking_severity(value: str | CheckSeverity | None) -> bool:
+    """Return whether a severity value blocks (single owner of the rule)."""
+    severity = value if isinstance(value, CheckSeverity) else CheckSeverity.normalize(value)
+    return severity is not None and severity.blocking
+
+
 @dataclass(frozen=True, slots=True)
 class CheckResult:
     """Result for a quality or contract check."""
@@ -418,7 +451,7 @@ class CheckResult:
     check_name: str
     asset_key: str
     passed: bool
-    severity: str | None = None
+    severity: CheckSeverity | str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

@@ -16,6 +16,7 @@ from dataclasses import asdict
 from typing import Any
 
 from phlo.capabilities import ResourceRef
+from phlo.capabilities.specs import is_blocking_severity
 from phlo.hooks.events import (
     HookEvent,
     IngestionEvent,
@@ -248,7 +249,7 @@ def _quality_for_event(
         asset=event.asset_key,
         stage_id=stage.stage_id if stage else None,
         severity=event.severity,
-        blocking=event.severity in {"error", "critical"},
+        blocking=is_blocking_severity(event.severity),
         passed=event.passed,
         evaluated_count=_as_int(metadata.get("evaluated_count", metadata.get("total_rows"))),
         failed_count=_as_int(metadata.get("failed_count", metadata.get("failed_rows"))),

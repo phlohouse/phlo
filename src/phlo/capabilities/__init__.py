@@ -161,6 +161,7 @@ from phlo.capabilities.specs import (
     CatalogScannerSpec,
     CatalogSpec,
     CheckResult,
+    CheckSeverity,
     DataMigrationSourceSpec,
     FieldSpec,
     GovernanceBackendSpec,
@@ -191,6 +192,7 @@ from phlo.capabilities.specs import (
     TableStoreSpec,
     WorkflowAuthoringSpec,
     WorkflowValidationSpec,
+    is_blocking_severity,
 )
 from phlo.capabilities.support import CapabilitySupport, coerce_capability_support
 from phlo.capabilities.telemetry import TelemetryRecorder, get_telemetry_path, iter_telemetry_events
@@ -222,6 +224,8 @@ __all__ = [
     "AuthenticationProvider",
     "AuthenticationProviderSpec",
     "BackendReadinessSpec",
+    "CheckSeverity",
+    "is_blocking_severity",
     "AuthorizationDecision",
     "AuthorizationPolicyBackend",
     "AuthorizationPolicyBackendSpec",
