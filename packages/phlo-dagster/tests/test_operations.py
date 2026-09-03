@@ -326,3 +326,27 @@ def test_list_partitions_uses_asset_node_partition_dimensions(monkeypatch) -> No
         {"partition_key": "2025-01-01", "status": "UNKNOWN"},
         {"partition_key": "2025-01-02", "status": "UNKNOWN"},
     ]
+
+
+def test_graphql_fails_before_http_when_production_identity_is_missing(
+    monkeypatch,
+) -> None:
+    """Production orchestration->API calls must not send an anonymous request."""
+    from phlo_dagster import operations as operations_module
+
+    monkeypatch.setenv("PHLO_ENVIRONMENT", "production")
+    monkeypatch.delenv("PHLO_SERVICE_CREDENTIALS_FILE", raising=False)
+    monkeypatch.setattr(httpx.AsyncClient, "post", _never_called)
+
+    with pytest.raises(RuntimeError, match="No service credential"):
+        asyncio.run(
+            operations_module._graphql(
+                "http://phlo-api:4000/graphql",
+                "query { __typename }",
+                {},
+            )
+        )
+
+
+def _never_called(*_args, **_kwargs):  # pragma: no cover - failure marker
+    raise AssertionError("HTTP must not be contacted when production identity is missing")

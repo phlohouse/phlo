@@ -13,7 +13,12 @@ from typing import Any
 
 import httpx
 
-from phlo.security.service_identity import build_service_headers
+from phlo.security.mode import requires_http_authorization
+from phlo.security.service_identity import (
+    build_scoped_service_headers,
+    build_service_headers,
+    load_service_identity_credentials,
+)
 
 
 LAUNCH_PIPELINE_EXECUTION_MUTATION = """
@@ -382,13 +387,25 @@ async def _graphql(
     headers = {"Content-Type": "application/json"}
     if access_token:
         headers["Authorization"] = f"Bearer {access_token}"
+    elif requires_http_authorization():
+        # Production orchestration→API calls must carry the declared workload
+        # identity; missing credentials fail before any HTTP request is made.
+        headers.update(
+            build_scoped_service_headers(
+                "phlo-orchestration",
+                audience="phlo-api",
+                scp=("api:orchestrate",),
+                credentials=load_service_identity_credentials(),
+                initiator="orchestration",
+                correlation_id=None,
+            )
+        )
     else:
         try:
-            headers.update(build_service_headers("phlo-api", initiator="observatory"))
+            headers.update(build_service_headers("phlo-orchestration", initiator="observatory"))
         except RuntimeError:
-            # Service identity is best-effort here; without a configured
-            # identity the request proceeds without auth headers and Dagster
-            # decides whether to accept it.
+            # Service identity is best-effort in development; without a
+            # configured identity the request proceeds and Dagster decides.
             pass
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(

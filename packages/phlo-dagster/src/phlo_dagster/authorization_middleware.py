@@ -84,6 +84,7 @@ class DagsterGraphQLAuthorizationMiddleware:
         self,
         surface_name: str = "dagster-webserver",
         strict_mode: bool = True,
+        nonce_store: Any | None = None,
     ) -> None:
         """Set the surface name; strict mode is mandatory, so passing False raises."""
         if not strict_mode:
@@ -91,6 +92,10 @@ class DagsterGraphQLAuthorizationMiddleware:
         self.surface_name = surface_name
         self.strict_mode = True
         self._oidc_validator = OIDCIdentityValidator()
+        # Injected by the receiver so replay state is durable and shared across
+        # every replica of this audience (ADR 0047 §4.2). Without a store,
+        # workload tokens fail closed rather than being accepted unverifiably.
+        self._nonce_store = nonce_store
 
     def resolve(
         self,
@@ -313,6 +318,32 @@ class DagsterGraphQLAuthorizationMiddleware:
         match = AUTHORIZATION_HEADER_RE.match(auth_header)
         if match:
             token = match.group(1)
+            if token.startswith("phlo1."):
+                # A failed workload token is never reinterpreted as a human
+                # OIDC token; without a durable replay store it fails closed.
+                if self._nonce_store is None:
+                    return None
+                from phlo.security.service_identity import (
+                    load_service_identity_credentials,
+                    validate_scoped_service_token,
+                )
+
+                caller = validate_scoped_service_token(
+                    token,
+                    expected_audience="phlo-dagster",
+                    allowed_caller="phlo-api",
+                    expected_scp=("dagster:control",),
+                    credentials=load_service_identity_credentials(),
+                    nonce_store=self._nonce_store,
+                )
+                if caller is None:
+                    return None
+                return AuthPrincipal(
+                    subject=f"service:{caller}",
+                    principal_type="service",
+                    groups=(),
+                    attributes={"authentication_source": "scoped_workload_token"},
+                )
             service_id = validate_service_token(token)
             allowed_services = {
                 value.strip()

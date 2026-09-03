@@ -43,7 +43,12 @@ from phlo.config.env import project_env_value
 from phlo.config.network import resolve_url
 from phlo.helpers.partitions import partition_range as _partition_range
 from phlo.logging import get_bound_correlation_context, get_logger
-from phlo.security.service_identity import build_service_headers
+from phlo.security.mode import requires_http_authorization
+from phlo.security.service_identity import (
+    build_scoped_service_headers,
+    build_service_headers,
+    load_service_identity_credentials,
+)
 from phlo_api.observatory_api.quality import fetch_quality_snapshot
 
 logger = get_logger(__name__)
@@ -531,12 +536,28 @@ async def graphql_request(
     """
     headers = {"Content-Type": "application/json"}
     correlation_id = get_bound_correlation_context().request_id
-    try:
+    if requires_http_authorization():
+        # Production control-plane calls must carry a verified workload
+        # identity; missing credentials fail before any HTTP request is made.
         headers.update(
-            build_service_headers("phlo-api", initiator=initiator, correlation_id=correlation_id)
+            build_scoped_service_headers(
+                "phlo-api",
+                audience="phlo-dagster",
+                scp=("dagster:control",),
+                credentials=load_service_identity_credentials(),
+                initiator=initiator,
+                correlation_id=correlation_id,
+            )
         )
-    except RuntimeError:
-        logger.debug("dagster_graphql_service_auth_unavailable")
+    else:
+        try:
+            headers.update(
+                build_service_headers(
+                    "phlo-api", initiator=initiator, correlation_id=correlation_id
+                )
+            )
+        except RuntimeError:
+            logger.debug("dagster_graphql_service_auth_unavailable")
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(

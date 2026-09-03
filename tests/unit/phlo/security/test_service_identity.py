@@ -23,14 +23,14 @@ import pytest
 from phlo.security.service_identity import (
     PHLO_CORRELATION_HEADER,
     PHLO_INITIATOR_HEADER,
-    PHLO_SERVICE_SECRET_ENV,
     PostgresNonceStore,
-    ServiceTokenCredential,
-    build_service_headers,
+    ServiceIdentityCredentials,
+    WorkloadKey,
+    WorkloadKeyRing,
+    WorkloadKeyState,
+    build_scoped_service_headers,
     create_scoped_service_token,
-    create_service_token,
     validate_scoped_service_token,
-    validate_service_token,
 )
 
 
@@ -50,284 +50,229 @@ class SharedNonceStore:
             return True
 
 
-def _credentials() -> dict[tuple[str, str], ServiceTokenCredential]:
-    return {
-        ("phlo-api", "dagster"): ServiceTokenCredential(secret="api-dagster-secret"),
-        ("phlo-api", "trino"): ServiceTokenCredential(secret="api-trino-secret"),
-        ("worker", "dagster"): ServiceTokenCredential(secret="worker-secret"),
-    }
-
-
-class TestCreateServiceToken:
-    def test_creates_valid_token(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        token = create_service_token("phlo-api")
-        parts = token.split(":", 3)
-        assert len(parts) == 4
-        assert parts[0] == "phlo-api"
-
-    def test_raises_without_secret(self, monkeypatch):
-        monkeypatch.delenv(PHLO_SERVICE_SECRET_ENV, raising=False)
-        with pytest.raises(RuntimeError, match=PHLO_SERVICE_SECRET_ENV):
-            create_service_token("phlo-api")
-
-    def test_different_services_different_tokens(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        t1 = create_service_token("phlo-api")
-        t2 = create_service_token("dagster")
-        assert t1 != t2
-
-
-class TestValidateServiceToken:
-    def test_validates_fresh_token(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        token = create_service_token("phlo-api")
-        result = validate_service_token(token)
-        assert result == "phlo-api"
-
-    def test_rejects_expired_token(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        import hashlib
-        import hmac
-
-        old_timestamp = str(int(time.time()) - 600)
-        nonce = "deadbeef" * 4
-        message = f"phlo-api:{old_timestamp}:{nonce}"
-        sig = hmac.new(b"test-secret-key", message.encode(), hashlib.sha256).hexdigest()
-        expired_token = f"phlo-api:{old_timestamp}:{nonce}:{sig}"
-        assert validate_service_token(expired_token) is None
-
-    def test_rejects_wrong_hmac(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        token = create_service_token("phlo-api")
-        parts = token.split(":", 3)
-        tampered = f"{parts[0]}:{parts[1]}:{parts[2]}:{'a' * 64}"
-        assert validate_service_token(tampered) is None
-
-    def test_rejects_malformed_token(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        assert validate_service_token("not-a-valid-token") is None
-        assert validate_service_token("") is None
-        assert validate_service_token("a:b") is None
-        assert validate_service_token("a:b:c") is None  # old 3-part format rejected
-
-    def test_rejects_non_numeric_timestamp(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        assert validate_service_token("phlo-api:not-a-number:nonce:abc") is None
-
-    def test_returns_none_without_secret(self, monkeypatch):
-        monkeypatch.delenv(PHLO_SERVICE_SECRET_ENV, raising=False)
-        assert validate_service_token("phlo-api:123:nonce:abc") is None
-
-    def test_custom_max_age(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        token = create_service_token("phlo-api")
-        # Valid with large max_age
-        assert validate_service_token(token, max_age_seconds=3600) == "phlo-api"
-        # Craft a 10-second-old token, validate with 5-second max_age
-        import hashlib
-        import hmac
-
-        old_ts = str(int(time.time()) - 10)
-        nonce = "cafebabe" * 4
-        message = f"phlo-api:{old_ts}:{nonce}"
-        sig = hmac.new(b"test-secret-key", message.encode(), hashlib.sha256).hexdigest()
-        old_token = f"phlo-api:{old_ts}:{nonce}:{sig}"
-        assert validate_service_token(old_token, max_age_seconds=5) is None
-        assert validate_service_token(old_token, max_age_seconds=30) == "phlo-api"
-
-
-class TestBuildServiceHeaders:
-    def test_basic_headers(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        headers = build_service_headers("phlo-api")
-        assert "Authorization" in headers
-        assert headers["Authorization"].startswith("Bearer phlo-api:")
-        assert PHLO_INITIATOR_HEADER not in headers
-        assert PHLO_CORRELATION_HEADER not in headers
-
-    def test_with_initiator(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        headers = build_service_headers("phlo-api", initiator="alice@example.com")
-        assert headers[PHLO_INITIATOR_HEADER] == "alice@example.com"
-
-    def test_with_correlation_id(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        headers = build_service_headers("phlo-api", correlation_id="req-123")
-        assert headers[PHLO_CORRELATION_HEADER] == "req-123"
-
-    def test_with_all_fields(self, monkeypatch):
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "test-secret-key")
-        headers = build_service_headers(
-            "phlo-api", initiator="alice@co.com", correlation_id="req-456"
-        )
-        assert headers["Authorization"].startswith("Bearer phlo-api:")
-        assert headers[PHLO_INITIATOR_HEADER] == "alice@co.com"
-        assert headers[PHLO_CORRELATION_HEADER] == "req-456"
+def _credentials() -> ServiceIdentityCredentials:
+    return ServiceIdentityCredentials(
+        rings={
+            ("phlo-api", "dagster"): WorkloadKeyRing(
+                caller="phlo-api",
+                audience="dagster",
+                scp=("dagster:control",),
+                keys={"k1": WorkloadKey(kid="k1", secret="api-dagster-secret")},
+            ),
+            ("phlo-api", "trino"): WorkloadKeyRing(
+                caller="phlo-api",
+                audience="trino",
+                scp=("trino:query",),
+                keys={"k1": WorkloadKey(kid="k1", secret="api-trino-secret")},
+            ),
+            ("worker", "dagster"): WorkloadKeyRing(
+                caller="worker",
+                audience="dagster",
+                scp=("dagster:control",),
+                keys={"k1": WorkloadKey(kid="k1", secret="worker-secret")},
+            ),
+        }
+    )
 
 
 class TestScopedServiceTokens:
+    def _token(
+        self,
+        caller: str = "phlo-api",
+        audience: str = "dagster",
+        scp: tuple[str, ...] = ("dagster:control",),
+        *,
+        now: int = 1_000,
+        credentials: ServiceIdentityCredentials | None = None,
+    ) -> str:
+        return create_scoped_service_token(
+            caller,
+            audience=audience,
+            scp=scp,
+            credentials=credentials or _credentials(),
+            now=now,
+        )
+
+    def _validate(
+        self,
+        token: str,
+        *,
+        caller: str = "phlo-api",
+        audience: str = "dagster",
+        scp: tuple[str, ...] = ("dagster:control",),
+        store: Any | None = None,
+        now: int = 1_001,
+        credentials: ServiceIdentityCredentials | None = None,
+        max_age_seconds: int | None = None,
+    ) -> str | None:
+        kwargs = {}
+        if max_age_seconds is not None:
+            kwargs["max_age_seconds"] = max_age_seconds
+        return validate_scoped_service_token(
+            token,
+            expected_audience=audience,
+            allowed_caller=caller,
+            expected_scp=scp,
+            credentials=credentials or _credentials(),
+            nonce_store=store or SharedNonceStore(),
+            now=now,
+            **kwargs,
+        )
+
     def test_binds_token_to_configured_caller_and_audience(self) -> None:
-        token = create_scoped_service_token(
-            "phlo-api", audience="dagster", credentials=_credentials(), now=1_000
-        )
-        assert (
-            validate_scoped_service_token(
-                token,
-                expected_audience="dagster",
-                credentials=_credentials(),
-                nonce_store=SharedNonceStore(),
-                now=1_001,
-            )
-            == "phlo-api"
-        )
+        assert self._validate(self._token()) == "phlo-api"
 
     def test_rejects_wrong_audience_before_consuming_nonce(self) -> None:
-        token = create_scoped_service_token(
-            "phlo-api", audience="dagster", credentials=_credentials(), now=1_000
-        )
         store = SharedNonceStore()
-        assert (
-            validate_scoped_service_token(
-                token,
-                expected_audience="trino",
-                credentials=_credentials(),
-                nonce_store=store,
-                now=1_001,
-            )
-            is None
-        )
+        assert self._validate(self._token(), audience="trino", store=store) is None
         assert not store.consumed
 
-    def test_rejects_unconfigured_caller(self) -> None:
-        credentials = _credentials()
-        token = create_scoped_service_token("worker", audience="dagster", credentials=credentials)
-        assert (
-            validate_scoped_service_token(
-                token,
-                expected_audience="dagster",
-                credentials={("phlo-api", "dagster"): credentials[("phlo-api", "dagster")]},
-                nonce_store=SharedNonceStore(),
-            )
-            is None
-        )
+    def test_rejects_wrong_caller_before_consuming_nonce(self) -> None:
+        store = SharedNonceStore()
+        assert self._validate(self._token(caller="worker"), store=store) is None
+        assert not store.consumed
 
-    def test_one_caller_has_distinct_credentials_for_each_audience(self) -> None:
-        credentials = _credentials()
-        dagster_token = create_scoped_service_token(
-            "phlo-api", audience="dagster", credentials=credentials, now=1_000
-        )
-        trino_token = create_scoped_service_token(
-            "phlo-api", audience="trino", credentials=credentials, now=1_000
-        )
+    def test_rejects_wrong_scope(self) -> None:
+        assert self._validate(self._token(), scp=("api:orchestrate",)) is None
 
-        assert (
-            validate_scoped_service_token(
-                dagster_token,
-                expected_audience="dagster",
-                credentials=credentials,
-                nonce_store=SharedNonceStore(),
-                now=1_001,
-            )
-            == "phlo-api"
-        )
-        assert (
-            validate_scoped_service_token(
-                trino_token,
-                expected_audience="trino",
-                credentials=credentials,
-                nonce_store=SharedNonceStore(),
-                now=1_001,
-            )
-            == "phlo-api"
-        )
-        assert (
-            validate_scoped_service_token(
-                dagster_token,
-                expected_audience="trino",
-                credentials=credentials,
-                nonce_store=SharedNonceStore(),
-                now=1_001,
-            )
-            is None
-        )
+    def test_rejects_missing_ring(self) -> None:
+        assert self._validate(self._token(), credentials=ServiceIdentityCredentials({})) is None
 
-    def test_rejects_service_name_impersonation(self) -> None:
-        token = create_scoped_service_token(
-            "worker", audience="dagster", credentials=_credentials()
+    def test_one_caller_has_distinct_rings_for_each_audience(self) -> None:
+        dagster_token = self._token(audience="dagster")
+        trino_token = self._token(audience="trino", scp=("trino:query",))
+        assert self._validate(dagster_token) == "phlo-api"
+        assert self._validate(trino_token, audience="trino", scp=("trino:query",)) == "phlo-api"
+        assert self._validate(dagster_token, audience="trino", scp=("trino:query",)) is None
+
+    def test_rejects_tampered_signature(self) -> None:
+        token = self._token()
+        head, _, sig = token.rpartition(".")
+        flipped = "a" if sig[0] != "a" else "b"
+        assert self._validate(head + "." + flipped + sig[1:]) is None
+
+    def test_rejects_unknown_kid(self) -> None:
+        token = self._token()
+        # A verifier with no key for this kid must reject before any replay use.
+        empty_ring = ServiceIdentityCredentials(
+            rings={
+                ("phlo-api", "dagster"): WorkloadKeyRing(
+                    caller="phlo-api",
+                    audience="dagster",
+                    scp=("dagster:control",),
+                    keys={},
+                )
+            }
         )
-        impersonating = "phlo-api:" + token.split(":", 1)[1]
-        assert (
-            validate_scoped_service_token(
-                impersonating,
-                expected_audience="dagster",
-                credentials=_credentials(),
-                nonce_store=SharedNonceStore(),
-            )
-            is None
-        )
+        assert self._validate(token, credentials=empty_ring) is None
 
     def test_rejects_expired_token(self) -> None:
-        token = create_scoped_service_token(
-            "phlo-api", audience="dagster", credentials=_credentials(), now=1_000
-        )
-        assert (
-            validate_scoped_service_token(
-                token,
-                expected_audience="dagster",
-                credentials=_credentials(),
-                nonce_store=SharedNonceStore(),
-                max_age_seconds=300,
-                now=1_301,
-            )
-            is None
-        )
+        # exp = 1300; at now=1400 the token is beyond expiry plus skew.
+        assert self._validate(self._token(now=1_000), now=1_400) is None
 
-    def test_replay_is_rejected_across_two_receiver_instances_and_restart(self) -> None:
-        backing_store = SharedNonceStore()
-        token = create_scoped_service_token(
-            "phlo-api", audience="dagster", credentials=_credentials(), now=1_000
-        )
-        assert (
-            validate_scoped_service_token(
-                token,
-                expected_audience="dagster",
-                credentials=_credentials(),
-                nonce_store=backing_store,
-                now=1_001,
-            )
-            == "phlo-api"
-        )
-        restarted_receiver = SharedNonceStore(backing_store.consumed, backing_store.lock)
-        assert (
-            validate_scoped_service_token(
-                token,
-                expected_audience="dagster",
-                credentials=_credentials(),
-                nonce_store=restarted_receiver,
-                now=1_001,
-            )
-            is None
-        )
+    def test_rejects_future_token(self) -> None:
+        # iat = 1000; at now=900 the token is issued too far in the future.
+        assert self._validate(self._token(now=1_000), now=900) is None
 
-    def test_shared_secret_compatibility_is_not_available_in_production(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "shared-secret")
-        monkeypatch.setenv("PHLO_ENVIRONMENT", "production")
-        with pytest.raises(RuntimeError, match="development-only"):
-            create_service_token("phlo-api")
-        assert validate_service_token("phlo-api:1:nonce:signature") is None
+    def test_rejects_token_longer_than_the_production_ceiling(self) -> None:
+        # exp - iat is 300s; a ceiling below that must reject.
+        assert self._validate(self._token(), max_age_seconds=100) is None
 
-    def test_shared_secret_compatibility_is_not_available_in_regulated_mode(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv(PHLO_SERVICE_SECRET_ENV, "shared-secret")
-        monkeypatch.setenv("PHLO_ENVIRONMENT", "dev")
-        monkeypatch.setenv("PHLO_REGULATED", "true")
-        with pytest.raises(RuntimeError, match="development-only"):
-            create_service_token("phlo-api")
-        assert validate_service_token("phlo-api:1:nonce:signature") is None
+    def test_replay_is_rejected_across_receivers_and_restart(self) -> None:
+        backing = SharedNonceStore()
+        token = self._token()
+        assert self._validate(token, store=backing) == "phlo-api"
+        restarted = SharedNonceStore(backing.consumed, backing.lock)
+        assert self._validate(token, store=restarted) is None
+
+    def test_rotation_accepts_retiring_key_and_rejects_retired_key(self) -> None:
+        # A signer ring that only ever had k1 active produces k1-signed tokens.
+        signer = ServiceIdentityCredentials(
+            rings={
+                ("phlo-api", "dagster"): WorkloadKeyRing(
+                    caller="phlo-api",
+                    audience="dagster",
+                    scp=("dagster:control",),
+                    keys={
+                        "k1": WorkloadKey(
+                            kid="k1", secret="old-secret", state=WorkloadKeyState.ACTIVE
+                        )
+                    },
+                )
+            }
+        )
+        # The verifier has rotated: k1 is retiring (until 1200) and k2 is active.
+        verifier = ServiceIdentityCredentials(
+            rings={
+                ("phlo-api", "dagster"): WorkloadKeyRing(
+                    caller="phlo-api",
+                    audience="dagster",
+                    scp=("dagster:control",),
+                    keys={
+                        "k1": WorkloadKey(
+                            kid="k1",
+                            secret="old-secret",
+                            state=WorkloadKeyState.RETIRING,
+                            activated_at=0,
+                            retiring_until=1_200,
+                        ),
+                        "k2": WorkloadKey(
+                            kid="k2",
+                            secret="new-secret",
+                            state=WorkloadKeyState.ACTIVE,
+                            activated_at=900,
+                        ),
+                    },
+                )
+            }
+        )
+        old_token = create_scoped_service_token(
+            "phlo-api",
+            audience="dagster",
+            scp=("dagster:control",),
+            credentials=signer,
+            now=1_000,
+        )
+        assert old_token.split(".")[1] == "k1"
+        # Accepted while the retiring key is still within its retirement interval.
+        assert self._validate(old_token, credentials=verifier, now=1_100) == "phlo-api"
+        # Rejected after the retirement interval elapses.
+        assert self._validate(old_token, credentials=verifier, now=1_300) is None
+
+    def test_retired_key_is_never_used_for_signing(self) -> None:
+        retired = ServiceIdentityCredentials(
+            rings={
+                ("phlo-api", "dagster"): WorkloadKeyRing(
+                    caller="phlo-api",
+                    audience="dagster",
+                    scp=("dagster:control",),
+                    keys={
+                        "k1": WorkloadKey(
+                            kid="k1",
+                            secret="old-secret",
+                            state=WorkloadKeyState.RETIRED,
+                        )
+                    },
+                )
+            }
+        )
+        import pytest
+
+        with pytest.raises(RuntimeError, match="No active key"):
+            self._token(credentials=retired)
+
+    def test_scoped_headers_preserve_initiator_and_correlation(self) -> None:
+        headers = build_scoped_service_headers(
+            "phlo-api",
+            audience="dagster",
+            scp=("dagster:control",),
+            credentials=_credentials(),
+            initiator="alice@co.com",
+            correlation_id="req-789",
+        )
+        assert headers["Authorization"].startswith("Bearer phlo1.")
+        assert headers[PHLO_INITIATOR_HEADER] == "alice@co.com"
+        assert headers[PHLO_CORRELATION_HEADER] == "req-789"
 
 
 def test_postgres_nonce_store_rejects_one_of_two_simultaneous_consumers() -> None:

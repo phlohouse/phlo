@@ -208,12 +208,32 @@ def get_request_correlation_id(request: Request) -> str:
 
 
 def build_downstream_service_headers(request: Request, service_id: str) -> dict[str, str]:
-    """Build authenticated headers for service-to-service requests from phlo-api."""
+    """Build authenticated headers for service-to-service requests from phlo-api.
+
+    In production the headers carry a verified phlo1 workload token for the
+    ``phlo-api`` caller and the receiver audience; missing credentials raise
+    before any HTTP call. Development keeps the legacy shared-secret path.
+    """
     correlation_id = get_request_correlation_id(request)
     initiator = None
     auth_principal = get_request_principal(request)
     if auth_principal is not None:
         initiator = auth_principal.subject
+
+    if requires_http_authorization():
+        from phlo.security.service_identity import (
+            build_scoped_service_headers,
+            load_service_identity_credentials,
+        )
+
+        return build_scoped_service_headers(
+            "phlo-api",
+            audience=service_id,
+            scp=("dagster:control",),
+            credentials=load_service_identity_credentials(),
+            initiator=initiator,
+            correlation_id=correlation_id,
+        )
     return build_service_headers(
         service_id=service_id,
         initiator=initiator,

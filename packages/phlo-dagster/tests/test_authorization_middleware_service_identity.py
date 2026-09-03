@@ -540,3 +540,117 @@ def test_resolve_skips_nested_mutation_fields(mock_enforce, _mock_regulated):
 
     assert result == "ok"
     mock_enforce.assert_not_called()
+
+
+class _AcceptingNonceStore:
+    """A deterministic durable replay store for middleware tests."""
+
+    def __init__(self) -> None:
+        self.consumed: set[str] = set()
+
+    def consume(self, nonce: str, *, expires_at) -> bool:
+        del expires_at
+        if nonce in self.consumed:
+            return False
+        self.consumed.add(nonce)
+        return True
+
+
+def _write_workload_credentials(tmp_path, secret: str) -> str:
+    import json
+
+    path = tmp_path / "workload-credentials.json"
+    path.write_text(
+        json.dumps(
+            {
+                "phlo-api": {
+                    "phlo-dagster": {
+                        "scp": ["dagster:control"],
+                        "keys": {"k1": {"secret": secret, "state": "active", "activated_at": 0}},
+                    }
+                }
+            }
+        )
+    )
+    return str(path)
+
+
+def test_extract_principal_accepts_scoped_workload_token_with_nonce_store(
+    monkeypatch, tmp_path
+) -> None:
+    from phlo.security.service_identity import (
+        create_scoped_service_token,
+        load_service_identity_credentials,
+    )
+
+    monkeypatch.setenv(
+        "PHLO_SERVICE_CREDENTIALS_FILE", _write_workload_credentials(tmp_path, "wls-secret")
+    )
+    token_text = create_scoped_service_token(
+        "phlo-api",
+        audience="phlo-dagster",
+        scp=("dagster:control",),
+        credentials=load_service_identity_credentials(),
+    )
+    middleware = DagsterGraphQLAuthorizationMiddleware(nonce_store=_AcceptingNonceStore())
+    principal = middleware._extract_principal(
+        _build_info({"Authorization": f"Bearer {token_text}"})
+    )
+
+    assert principal is not None
+    assert principal.subject == "service:phlo-api"
+    assert principal.principal_type == "service"
+    assert principal.attributes["authentication_source"] == "scoped_workload_token"
+
+
+def test_extract_principal_rejects_scoped_token_without_nonce_store(monkeypatch, tmp_path) -> None:
+    from phlo.security.service_identity import (
+        create_scoped_service_token,
+        load_service_identity_credentials,
+    )
+
+    monkeypatch.setenv(
+        "PHLO_SERVICE_CREDENTIALS_FILE", _write_workload_credentials(tmp_path, "wls-secret")
+    )
+    token_text = create_scoped_service_token(
+        "phlo-api",
+        audience="phlo-dagster",
+        scp=("dagster:control",),
+        credentials=load_service_identity_credentials(),
+    )
+    # No durable replay store means workload tokens fail closed.
+    assert (
+        DagsterGraphQLAuthorizationMiddleware()._extract_principal(
+            _build_info({"Authorization": f"Bearer {token_text}"})
+        )
+        is None
+    )
+
+
+def test_extract_principal_never_falls_through_failed_scoped_token_to_oidc(
+    monkeypatch, tmp_path
+) -> None:
+    from phlo.security.service_identity import (
+        create_scoped_service_token,
+        load_service_identity_credentials,
+    )
+
+    monkeypatch.setenv(
+        "PHLO_SERVICE_CREDENTIALS_FILE", _write_workload_credentials(tmp_path, "wls-secret")
+    )
+    token_text = create_scoped_service_token(
+        "phlo-api",
+        audience="phlo-dagster",
+        scp=("dagster:control",),
+        credentials=load_service_identity_credentials(),
+    )
+    # A phlo1 token signed under a different key must be rejected outright,
+    # never reinterpreted as a human OIDC token.
+    monkeypatch.setenv(
+        "PHLO_SERVICE_CREDENTIALS_FILE", _write_workload_credentials(tmp_path, "other-secret")
+    )
+    middleware = DagsterGraphQLAuthorizationMiddleware(nonce_store=_AcceptingNonceStore())
+    assert (
+        middleware._extract_principal(_build_info({"Authorization": f"Bearer {token_text}"}))
+        is None
+    )
