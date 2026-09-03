@@ -755,3 +755,15 @@ curl -X POST $SLACK_WEBHOOK_URL \
 - [Troubleshooting Guide](troubleshooting.md) - Common issues and solutions
 - [Configuration Reference](../reference/configuration-reference.md) - Detailed configuration
 - [Best Practices](best-practices.md) - Production patterns
+
+
+## Plan-First Maintenance
+
+Use `phlo operations maintenance` for v1 table maintenance (compaction, snapshot expiry):
+
+```bash
+phlo operations maintenance plan --operation compact --table <table> --ref <ref> --format json
+phlo operations maintenance apply --plan <plan-file> --confirmation-token <plan-token>
+```
+
+Planning is read-only and returns a plan token. Apply is bound to that exact plan token and target revision; a stale or expired plan is rejected. Orphan deletion is unsupported. Verification is read-only.

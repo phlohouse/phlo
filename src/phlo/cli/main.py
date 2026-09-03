@@ -60,6 +60,7 @@ if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
     from phlo.cli.commands.governance import governance_group
     from phlo.cli.commands.metrics import metrics_group
     from phlo.cli.commands.migrate import migrate_group
+    from phlo.cli.commands.operations import operations_group
     from phlo.cli.commands.plugin import plugin_group
     from phlo.cli.commands.schema_migrate import schema_migrate_group
     from phlo.cli.commands.schema_registry_cli import contracts
@@ -98,6 +99,7 @@ if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
     cli.add_command(audit_group)
     cli.add_command(logs_cmd)
     cli.add_command(services_group)
+    cli.add_command(operations_group)
     cli.add_command(workflow_group)
     cli.add_command(plugin_group)
     cli.add_command(schema_migrate_group)

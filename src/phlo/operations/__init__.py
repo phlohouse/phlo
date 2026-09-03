@@ -1,7 +1,8 @@
-"""Ingestion and transformation operation contracts for Phlo.
+"""Ingestion, transformation, and continuity operations for Phlo.
 
 Exposes sync and async ingester/transformer base classes plus adapters that
-bridge sync implementations into async pipelines and vice versa.
+bridge sync implementations into async pipelines and vice versa, and the
+durable operation journal (ADR 0049 §1).
 """
 
 from phlo.operations.adapters import (
@@ -11,17 +12,45 @@ from phlo.operations.adapters import (
     SyncToAsyncTransformerAdapter,
 )
 from phlo.operations.ingestion import AsyncIngester, BaseIngester, IngestionResult
-from phlo.operations.transformation import AsyncTransformer, BaseTransformer, TransformationResult
+from phlo.operations.journal import (
+    InMemoryOperationJournalStore,
+    OperationJournalEntry,
+    OperationJournalError,
+    OperationJournalState,
+    OperationJournalStore,
+    claim_operation,
+    complete_operation,
+    mark_submitted,
+    mark_unknown,
+    read_or_replay,
+    reconcile_unknown,
+)
+from phlo.operations.transformation import (
+    AsyncTransformer,
+    BaseTransformer,
+    TransformationResult,
+)
 
 __all__ = [
+    "AsyncIngester",
     "AsyncToSyncIngesterAdapter",
     "AsyncToSyncTransformerAdapter",
-    "AsyncIngester",
     "AsyncTransformer",
     "BaseIngester",
     "BaseTransformer",
+    "InMemoryOperationJournalStore",
     "IngestionResult",
+    "OperationJournalEntry",
+    "OperationJournalError",
+    "OperationJournalState",
+    "OperationJournalStore",
     "SyncToAsyncIngesterAdapter",
     "SyncToAsyncTransformerAdapter",
     "TransformationResult",
+    "claim_operation",
+    "complete_operation",
+    "mark_submitted",
+    "mark_unknown",
+    "read_or_replay",
+    "reconcile_unknown",
 ]
