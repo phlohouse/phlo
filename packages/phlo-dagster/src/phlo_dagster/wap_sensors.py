@@ -223,6 +223,26 @@ def _severity_label(value: Any) -> str:
     return str(raw or "error").lower()
 
 
+def _check_is_blocking(value: Any) -> bool:
+    """Whether a failed check blocks WAP promotion (single severity rule).
+
+    Only explicit warnings are non-blocking; anything else fails closed
+    through the neutral severity contract (error/critical block).
+    """
+    from phlo.capabilities.specs import CheckSeverity, is_blocking_severity
+
+    label = _severity_label(value)
+    mapping = {
+        "warn": CheckSeverity.WARNING,
+        "warning": CheckSeverity.WARNING,
+        "error": CheckSeverity.ERROR,
+        "critical": CheckSeverity.CRITICAL,
+        "severe": CheckSeverity.ERROR,
+    }
+    severity = mapping.get(label, CheckSeverity.ERROR)
+    return is_blocking_severity(severity)
+
+
 def _quality_check_records(instance: Any, run_id: str) -> list[dict[str, Any]] | None:
     """Return durable check outcomes with severity and blocking classification.
 
@@ -273,10 +293,10 @@ def _persist_aggregate_quality_decision(
     if any(not check.get("event_id") for check in checks):
         return None
     error_failures = [
-        c for c in checks if not c["passed"] and _severity_label(c.get("severity")) != "warn"
+        c for c in checks if not c["passed"] and _check_is_blocking(c.get("severity"))
     ]
     warn_failures = [
-        c for c in checks if not c["passed"] and _severity_label(c.get("severity")) == "warn"
+        c for c in checks if not c["passed"] and not _check_is_blocking(c.get("severity"))
     ]
     passed = not error_failures
     severity = "error" if error_failures else ("warn" if warn_failures else None)
