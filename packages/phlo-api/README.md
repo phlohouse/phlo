@@ -21,11 +21,19 @@ phlo plugin install api
 | `PHLO_API_PORT` | `4000`    | API server port |
 | `HOST`          | `0.0.0.0` | API server host |
 | `PHLO_AUTHORIZATION_BACKEND` | unset | Authorization backend capability name |
-| `PHLO_AUTHORIZATION_MODE` | `optional` | Guard behavior when no authorization backend exists |
+| `PHLO_AUTHORIZATION_MODE` | `required` in production, `optional` otherwise | Guard behavior when no authorization backend exists |
 
-With `PHLO_AUTHORIZATION_MODE=optional`, guarded routes remain reachable until an
-authorization backend is configured. Set `PHLO_AUTHORIZATION_MODE=required` to
-fail closed with HTTP `503` on guarded routes when no backend is available.
+`PHLO_AUTHORIZATION_MODE=optional` leaves guarded routes reachable until an
+authorization backend is configured. `PHLO_AUTHORIZATION_MODE=required` makes
+guarded routes fail closed with HTTP `503` when no backend is available.
+
+Production (`PHLO_ENVIRONMENT=production`, `prod`, `staging`, or `regulated`,
+or any regulated deployment) defaults to `required` and fails startup if you
+explicitly configure `optional`. Development stays opt-in unless you set the
+mode explicitly or enable regulated mode. Production requires an
+authentication provider and an authorization backend; the preflight report
+(`phlo services preflight --production`) verifies the locally inspectable part
+of that contract.
 
 You can also declare these settings in `phlo.yaml` via `api.authorization` or
 `services.phlo-api.authorization`.

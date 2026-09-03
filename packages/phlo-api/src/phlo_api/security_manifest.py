@@ -22,6 +22,8 @@ from phlo.capabilities import DecisionContext, ResourceRef
 from phlo.logging import bind_context, clear_context, get_logger
 from phlo.rbac.models import CanonicalAction
 from phlo.security import enforce, is_regulated
+from phlo.security.mode import requires_http_authorization
+from phlo.infrastructure.config import get_api_authorization_config
 
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.authorization import (
@@ -51,6 +53,10 @@ class OperationSpec:
 HTTP_ROUTE_KEY_MANIFEST: dict[tuple[str, str], OperationSpec] = {}
 logger = get_logger(__name__)
 RUN_REPORT_RESOURCE_ID_ATTRIBUTE = "phlo.run_report_resource_id"
+
+_AUTHORIZATION_MODE_ENV = "PHLO_AUTHORIZATION_MODE"
+_AUTHORIZATION_MODE_OPTIONAL = "optional"
+_AUTHORIZATION_MODE_REQUIRED = "required"
 
 
 def _specs(
@@ -715,9 +721,11 @@ async def enforce_http_operation(
     if spec.public:
         return
 
-    # Unregulated mode skips RBAC, but run-scoped service tokens must remain
-    # confined to their single report even without policy enforcement.
-    if not is_regulated():
+    # Access control runs when regulated mode is active OR production HTTP
+    # authorization is required (ADR 0047). Otherwise unregulated development
+    # keeps the historical behavior: RBAC is skipped, but run-scoped service
+    # tokens remain confined to their single report.
+    if not is_regulated() and not requires_http_authorization():
         if spec.operation_name == "get_observatory_run_report":
             auth_principal = get_request_principal(request)
             if (
@@ -908,9 +916,33 @@ async def _validate_request_payload(request: Request, spec: OperationSpec) -> No
         raise HTTPException(status_code=400, detail={"error": "unsupported_query"})
 
 
+def _reject_explicit_optional_in_production() -> None:
+    """Reject an explicitly configured ``optional`` authorization mode in production.
+
+    The unset default is resolved to ``required`` by ``get_authorization_mode()``;
+    an explicit ``optional`` in production is a configuration contradiction and
+    must fail startup with a clear error rather than being silently overridden.
+    """
+    explicit_mode = os.environ.get(_AUTHORIZATION_MODE_ENV)
+    if explicit_mode is None:
+        config = get_api_authorization_config()
+        explicit_mode = config.mode if config is not None and config.mode is not None else None
+    if (
+        explicit_mode is not None
+        and explicit_mode.strip().lower() == _AUTHORIZATION_MODE_OPTIONAL
+        and requires_http_authorization()
+    ):
+        raise RuntimeError(
+            f"{_AUTHORIZATION_MODE_ENV} cannot be {_AUTHORIZATION_MODE_OPTIONAL!r} "
+            "when production HTTP authorization is required; set it to "
+            f"{_AUTHORIZATION_MODE_REQUIRED!r}."
+        )
+
+
 def install_manifest_enforcement(app: Any) -> None:
     """Validate and install the mandatory pre-handler enforcement boundary."""
     validate_manifest(app)
+    _reject_explicit_optional_in_production()
 
     @app.middleware("http")
     async def _manifest_middleware(request: Request, call_next: Any) -> Any:

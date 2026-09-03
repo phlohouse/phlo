@@ -1373,7 +1373,7 @@ Configure the API using these environment variables:
 | `PHLO_API_PORT`          | `4000`                            | API server port                |
 | `HOST`                   | `0.0.0.0`                         | API server host                |
 | `PHLO_AUTHORIZATION_BACKEND` | unset                         | Authorization backend capability name |
-| `PHLO_AUTHORIZATION_MODE` | `optional`                      | Guard behavior when no authorization backend exists |
+| `PHLO_AUTHORIZATION_MODE` | `required` in production, `optional` otherwise | Guard behavior when no authorization backend exists |
 | `TRINO_URL`              | `http://trino:8080`               | Trino HTTP API URL             |
 | `DAGSTER_GRAPHQL_URL`    | `http://dagster:3000/graphql`     | Dagster GraphQL endpoint       |
 | `NESSIE_URL`             | `http://nessie:19120/api/v2`      | Nessie REST API URL            |
@@ -1384,6 +1384,13 @@ Configure the API using these environment variables:
 `PHLO_AUTHORIZATION_MODE=optional` leaves guarded routes open until an authorization
 backend is configured. `PHLO_AUTHORIZATION_MODE=required` makes those guarded routes
 return HTTP `503` when `PHLO_AUTHORIZATION_BACKEND` is unavailable.
+
+Production (`PHLO_ENVIRONMENT=production`, `prod`, `staging`, or `regulated`,
+or any regulated deployment) defaults the unset mode to `required` and fails
+startup if `optional` is configured explicitly. Development remains opt-in
+unless the mode is set or regulated mode is enabled. Production requires an
+authentication provider and an authorization backend; `phlo services preflight
+--production` verifies the locally inspectable part of that contract.
 
 These settings may also be declared in `phlo.yaml` under `api.authorization` or
 `services.phlo-api.authorization`.

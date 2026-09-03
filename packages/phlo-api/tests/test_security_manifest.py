@@ -694,3 +694,111 @@ def test_chunked_body_query_conflict_is_rejected_before_handler(monkeypatch) -> 
 
     assert messages[0]["status"] == 400
     assert called is False
+
+
+def _production_enforcement(
+    monkeypatch,
+    *,
+    principal=None,
+    canonical=None,
+    backend=None,
+):
+    """Switch the boundary to non-regulated production HTTP enforcement."""
+    monkeypatch.setattr("phlo_api.security_manifest.is_regulated", lambda: False)
+    monkeypatch.setenv("PHLO_ENVIRONMENT", "production")
+    monkeypatch.setattr(
+        "phlo_api.security_manifest.get_request_principal", lambda _request: principal
+    )
+    # The non-regulated enforcement path resolves the canonical principal via
+    # phlo_api.api.authorization.resolve_request_principal; pin that seam too.
+    monkeypatch.setattr(
+        "phlo_api.security_manifest.resolve_request_principal",
+        lambda _request, require_auth=True: canonical,
+    )
+    monkeypatch.setattr("phlo_api.security_manifest.get_authorization_backend", lambda: backend)
+
+
+def test_production_health_remains_public(monkeypatch) -> None:
+    _production_enforcement(monkeypatch, principal=None)
+    response = TestClient(app).get("/health", headers={})
+    assert response.status_code == 200
+
+
+def test_production_anonymous_non_public_request_is_401_before_handler(
+    monkeypatch, tmp_path
+) -> None:
+    from phlo_api import main
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    called = False
+
+    def load_config() -> dict[str, str]:
+        nonlocal called
+        called = True
+        return {"name": "should-not-run"}
+
+    monkeypatch.setattr(main, "load_phlo_config", load_config)
+    _production_enforcement(monkeypatch, principal=None)
+
+    response = TestClient(app).get("/api/config")
+    assert response.status_code == 401
+    assert called is False
+
+
+def test_production_authenticated_without_backend_is_503(monkeypatch, tmp_path) -> None:
+    from phlo_api import main
+
+    auth, canonical = _principal()
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setattr(main, "load_phlo_config", lambda: {"name": "development"})
+    _production_enforcement(monkeypatch, principal=auth, canonical=canonical, backend=None)
+
+    response = TestClient(app).get("/api/config", headers={})
+    assert response.status_code == 503
+    assert response.json()["reason"] == "authorization_unavailable"
+
+
+def test_production_denied_principal_is_403(monkeypatch, tmp_path) -> None:
+    from phlo_api import main
+
+    auth, canonical = _principal()
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setattr(main, "load_phlo_config", lambda: {"name": "development"})
+    _production_enforcement(
+        monkeypatch, principal=auth, canonical=canonical, backend=_Backend(allowed=False)
+    )
+
+    response = TestClient(app).get("/api/config", headers={})
+    assert response.status_code == 403
+
+
+def test_production_allowed_principal_reaches_handler(monkeypatch, tmp_path) -> None:
+    from phlo_api import main
+
+    auth, canonical = _principal()
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setattr(main, "load_phlo_config", lambda: {"name": "development"})
+    _production_enforcement(
+        monkeypatch, principal=auth, canonical=canonical, backend=_Backend(allowed=True)
+    )
+
+    response = TestClient(app).get("/api/config", headers={})
+    assert response.status_code == 200
+    assert response.json() == {"name": "development"}
+
+
+def test_production_explicit_optional_authorization_fails_startup(monkeypatch) -> None:
+    from phlo_api import security_manifest
+
+    monkeypatch.setenv("PHLO_ENVIRONMENT", "production")
+    monkeypatch.setenv("PHLO_AUTHORIZATION_MODE", "optional")
+    with pytest.raises(RuntimeError, match="PHLO_AUTHORIZATION_MODE"):
+        security_manifest._reject_explicit_optional_in_production()
+
+
+def test_production_unset_mode_does_not_fail_startup(monkeypatch) -> None:
+    from phlo_api import security_manifest
+
+    monkeypatch.setenv("PHLO_ENVIRONMENT", "production")
+    monkeypatch.delenv("PHLO_AUTHORIZATION_MODE", raising=False)
+    security_manifest._reject_explicit_optional_in_production()

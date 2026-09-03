@@ -15,6 +15,29 @@ logger = get_logger(__name__)
 PHLO_REGULATED_ENV = "PHLO_REGULATED"
 _PHLO_REGULATED_MODE_ENV_DEPRECATED = "PHLO_REGULATED_MODE"
 
+PHLO_ENVIRONMENT_ENV = "PHLO_ENVIRONMENT"
+# Environments that require HTTP authorization independently of regulated
+# mode (ADR 0047 decision 2). Development, test, blank, and absent values
+# stay opt-in.
+_PRODUCTION_HTTP_ENVIRONMENTS = frozenset({"prod", "production", "staging", "regulated"})
+
+
+def requires_http_authorization() -> bool:
+    """Return whether production HTTP authorization is required.
+
+    True for ``PHLO_ENVIRONMENT`` values ``prod``, ``production``,
+    ``staging``, or ``regulated``, and whenever regulated mode is active.
+    Development, test, blank, and absent values are false.
+
+    This is the production access-control predicate and is deliberately
+    separate from :func:`is_regulated`: production must fail closed without
+    claiming every regulated-compliance feature.
+    """
+    if is_regulated():
+        return True
+    environment = os.environ.get(PHLO_ENVIRONMENT_ENV, "").strip().lower()
+    return environment in _PRODUCTION_HTTP_ENVIRONMENTS
+
 
 def is_regulated(config_regulated: bool | None = None) -> bool:
     """Return whether regulated mode is enabled, resolving in precedence order:

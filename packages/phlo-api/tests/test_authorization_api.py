@@ -138,10 +138,48 @@ def test_get_authorization_backend_resolves_named_backend(monkeypatch) -> None:
     assert get_authorization_backend() is backend
 
 
-def test_get_authorization_mode_defaults_to_optional(monkeypatch) -> None:
+def test_get_authorization_mode_defaults_to_optional_in_development(monkeypatch) -> None:
     monkeypatch.delenv("PHLO_AUTHORIZATION_MODE", raising=False)
+    monkeypatch.delenv("PHLO_ENVIRONMENT", raising=False)
 
     assert get_authorization_mode() == "optional"
+
+
+def test_get_authorization_mode_defaults_to_required_in_production(monkeypatch) -> None:
+    monkeypatch.delenv("PHLO_AUTHORIZATION_MODE", raising=False)
+    monkeypatch.setenv("PHLO_ENVIRONMENT", "production")
+
+    assert get_authorization_mode() == "required"
+
+
+def test_requires_http_authorization_production_spellings(monkeypatch) -> None:
+    from phlo.security.mode import requires_http_authorization
+
+    monkeypatch.delenv("PHLO_REGULATED", raising=False)
+    monkeypatch.delenv("PHLO_REGULATED_MODE", raising=False)
+    for environment in ("prod", "production", "staging", "regulated"):
+        monkeypatch.setenv("PHLO_ENVIRONMENT", environment)
+        assert requires_http_authorization() is True, environment
+
+
+def test_requires_http_authorization_development_and_absent_are_false(monkeypatch) -> None:
+    from phlo.security.mode import requires_http_authorization
+
+    monkeypatch.delenv("PHLO_REGULATED", raising=False)
+    monkeypatch.delenv("PHLO_REGULATED_MODE", raising=False)
+    for environment in ("dev", "development", "test", "", "  "):
+        monkeypatch.setenv("PHLO_ENVIRONMENT", environment)
+        assert requires_http_authorization() is False, repr(environment)
+    monkeypatch.delenv("PHLO_ENVIRONMENT", raising=False)
+    assert requires_http_authorization() is False
+
+
+def test_requires_http_authorization_true_when_regulated(monkeypatch) -> None:
+    from phlo.security.mode import requires_http_authorization
+
+    monkeypatch.delenv("PHLO_ENVIRONMENT", raising=False)
+    monkeypatch.setenv("PHLO_REGULATED", "1")
+    assert requires_http_authorization() is True
 
 
 def test_get_authorization_mode_rejects_unknown_value(monkeypatch) -> None:
