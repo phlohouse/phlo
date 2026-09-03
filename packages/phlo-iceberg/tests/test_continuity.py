@@ -51,3 +51,46 @@ def test_contributor_never_writes_outside_its_prefix_or_finalizes(tmp_path: Path
 
     assert not (set_dir / SET_MANIFEST_NAME).exists()
     assert {path.name for path in set_dir.iterdir()} == {"iceberg"}
+
+
+# --- restore / reconcile (Plan 012 Step 3) --------------------------------
+
+
+def test_restore_succeeds_and_reconciles(tmp_path: Path) -> None:
+    from phlo.capabilities.continuity import BackupArtifact, RestoreTarget, sha256_file
+
+    payload = json.dumps(
+        {
+            "schema_version": "1",
+            "operation_id": "op",
+            "tables": [{"table_name": "lake.orders", "snapshot_id": 42}],
+        }
+    ).encode()
+    set_dir = tmp_path / "_set"
+    (set_dir / "iceberg").mkdir(parents=True)
+    artifact_path = set_dir / "iceberg" / "inventory.json"
+    artifact_path.write_bytes(payload)
+    artifact = BackupArtifact(
+        provider="iceberg",
+        name="inventory.json",
+        relative_path="iceberg/inventory.json",
+        size_bytes=len(payload),
+        sha256=sha256_file(artifact_path),
+        metadata={},
+    )
+    target = RestoreTarget.of(tmp_path / "target")
+    contributor = IcebergBackupContributor(inventory_fn=_inventory)
+    step = contributor.restore(target, [artifact], "tok", str(set_dir))
+    assert step.state.value == "succeeded"
+    reconciliation = contributor.reconcile(target, [artifact], "tok", str(set_dir))
+    assert reconciliation["ok"] is True
+
+
+def test_restore_missing_inventory_fails_in_preflight(tmp_path: Path) -> None:
+    from phlo.capabilities.continuity import RestoreTarget
+
+    contributor = IcebergBackupContributor(inventory_fn=_inventory)
+    step = contributor.restore(RestoreTarget.of(tmp_path / "target"), [], "tok", str(tmp_path))
+    assert step.state.value == "failed"
+    assert step.phase.value == "preflight"
+    assert step.retry_safe is False

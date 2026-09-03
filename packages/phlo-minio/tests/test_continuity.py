@@ -90,3 +90,58 @@ def test_contributor_never_writes_outside_its_prefix_or_finalizes(tmp_path: Path
 
     assert not (set_dir / SET_MANIFEST_NAME).exists()
     assert {path.name for path in set_dir.iterdir()} == {"minio"}
+
+
+# --- restore / reconcile (Plan 012 Step 3) --------------------------------
+
+
+def test_restore_succeeds_and_reconciles(tmp_path: Path) -> None:
+    from phlo.capabilities.continuity import BackupArtifact, RestoreTarget, sha256_bytes
+
+    content = b"parquet-bytes"
+    set_dir = tmp_path / "_set"
+    obj_dir = set_dir / "minio" / "lake" / "warehouse"
+    obj_dir.mkdir(parents=True)
+    (obj_dir / "t.parquet").write_bytes(content)
+    artifact = BackupArtifact(
+        provider="minio",
+        name="t.parquet",
+        relative_path="minio/lake/warehouse/t.parquet",
+        size_bytes=len(content),
+        sha256=sha256_bytes(content),
+        metadata={"bucket": "lake"},
+    )
+    target = RestoreTarget.of(tmp_path / "target")
+    contributor = MinioBackupContributor(mc_runner=_fake_mc())
+    step = contributor.restore(target, [artifact], "tok", str(set_dir))
+    assert step.state.value == "succeeded"
+    reconciliation = contributor.reconcile(target, [artifact], "tok", str(set_dir))
+    assert reconciliation["ok"] is True
+    assert (Path(target.location) / "minio" / "lake" / "warehouse" / "t.parquet").read_bytes() == (
+        content
+    )
+
+
+def test_restore_reconcile_detects_corrupted_object(tmp_path: Path) -> None:
+    from phlo.capabilities.continuity import BackupArtifact, RestoreTarget, sha256_bytes
+
+    content = b"parquet-bytes"
+    set_dir = tmp_path / "_set"
+    obj_dir = set_dir / "minio" / "lake"
+    obj_dir.mkdir(parents=True)
+    (obj_dir / "t.parquet").write_bytes(content)
+    artifact = BackupArtifact(
+        provider="minio",
+        name="t.parquet",
+        relative_path="minio/lake/t.parquet",
+        size_bytes=len(content),
+        sha256=sha256_bytes(content),
+        metadata={"bucket": "lake"},
+    )
+    target = RestoreTarget.of(tmp_path / "target")
+    contributor = MinioBackupContributor(mc_runner=_fake_mc())
+    contributor.restore(target, [artifact], "tok", str(set_dir))
+    (Path(target.location) / "minio" / "lake" / "t.parquet").write_bytes(b"evil")
+    reconciliation = contributor.reconcile(target, [artifact], "tok", str(set_dir))
+    assert reconciliation["ok"] is False
+    assert "digest_mismatch" in reconciliation["reason"]

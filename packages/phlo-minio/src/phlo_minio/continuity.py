@@ -11,7 +11,7 @@ prefix.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,9 @@ from phlo.capabilities.continuity import (
     BackupArtifact,
     BackupContributorResult,
     BackupContributorState,
+    RestoreStepPhase,
+    RestoreStepResult,
+    RestoreTarget,
     fail_contributor,
     redact_message,
     sha256_bytes,
@@ -154,3 +157,63 @@ class MinioBackupContributor:
             artifacts=tuple(artifacts),
             operation_id=operation_id,
         )
+
+    def restore(
+        self,
+        target: RestoreTarget,
+        artifacts: Sequence[BackupArtifact],
+        plan_token: str,
+        backup_set_dir: str,
+    ) -> RestoreStepResult:
+        object_artifacts = [
+            artifact for artifact in artifacts if artifact.name != LISTING_ARTIFACT_NAME
+        ]
+        try:
+            target_dir = Path(target.location) / PROVIDER
+            restored: list[str] = []
+            for artifact in object_artifacts:
+                src = Path(backup_set_dir) / artifact.relative_path
+                dest = target_dir / artifact.relative_path.removeprefix(f"{PROVIDER}/")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(src.read_bytes())
+                restored.append(str(dest))
+            return RestoreStepResult.ok(
+                PROVIDER,
+                evidence={
+                    "restored_objects": len(restored),
+                    "plan_token": plan_token,
+                },
+            )
+        except Exception as exc:
+            return RestoreStepResult.fail_step(
+                PROVIDER, RestoreStepPhase.SUBMISSION, redact_message(str(exc))
+            )
+
+    def reconcile(
+        self,
+        target: RestoreTarget,
+        artifacts: Sequence[BackupArtifact],
+        plan_token: str,
+        backup_set_dir: str,
+    ) -> dict[str, Any]:
+        object_artifacts = [
+            artifact for artifact in artifacts if artifact.name != LISTING_ARTIFACT_NAME
+        ]
+        mismatches: list[str] = []
+        for artifact in object_artifacts:
+            dest = (
+                Path(target.location)
+                / PROVIDER
+                / artifact.relative_path.removeprefix(f"{PROVIDER}/")
+            )
+            if not dest.is_file():
+                mismatches.append(f"{artifact.name}:missing")
+                continue
+            if sha256_file(dest) != artifact.sha256:
+                mismatches.append(f"{artifact.name}:digest_mismatch")
+        ok = not mismatches
+        return {
+            "ok": ok,
+            "reason": "" if ok else ";".join(mismatches),
+            "object_count": str(len(object_artifacts)),
+        }

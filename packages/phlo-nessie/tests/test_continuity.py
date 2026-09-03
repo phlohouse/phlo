@@ -57,3 +57,46 @@ def test_contributor_never_writes_outside_its_prefix_or_finalizes(tmp_path: Path
 
     assert not (set_dir / SET_MANIFEST_NAME).exists()
     assert {path.name for path in set_dir.iterdir()} == {"nessie"}
+
+
+# --- restore / reconcile (Plan 012 Step 3) --------------------------------
+
+
+def test_restore_succeeds_and_reconciles(tmp_path: Path) -> None:
+    from phlo.capabilities.continuity import BackupArtifact, RestoreTarget, sha256_file
+
+    payload = json.dumps(
+        {
+            "schema_version": "1",
+            "operation_id": "op",
+            "branches": [{"name": "main", "hash": "abc123"}],
+        }
+    ).encode()
+    set_dir = tmp_path / "_set"
+    (set_dir / "nessie").mkdir(parents=True)
+    artifact_path = set_dir / "nessie" / "catalog.json"
+    artifact_path.write_bytes(payload)
+    artifact = BackupArtifact(
+        provider="nessie",
+        name="catalog.json",
+        relative_path="nessie/catalog.json",
+        size_bytes=len(payload),
+        sha256=sha256_file(artifact_path),
+        metadata={},
+    )
+    target = RestoreTarget.of(tmp_path / "target")
+    contributor = NessieBackupContributor(client=_client())
+    step = contributor.restore(target, [artifact], "tok", str(set_dir))
+    assert step.state.value == "succeeded"
+    reconciliation = contributor.reconcile(target, [artifact], "tok", str(set_dir))
+    assert reconciliation["ok"] is True
+
+
+def test_restore_missing_catalog_fails_in_preflight(tmp_path: Path) -> None:
+    from phlo.capabilities.continuity import RestoreTarget
+
+    contributor = NessieBackupContributor(client=_client())
+    step = contributor.restore(RestoreTarget.of(tmp_path / "target"), [], "tok", str(tmp_path))
+    assert step.state.value == "failed"
+    assert step.phase.value == "preflight"
+    assert step.retry_safe is False

@@ -776,3 +776,12 @@ phlo operations backup verify --backup-set <set-dir> --format json
 ```
 
 `create` is authorized, quiesces writes, and captures one immutable set from every blessed provider (PostgreSQL dump, Nessie catalog export, MinIO object copy + checksum listing, Iceberg metadata inventory). The set manifest (`manifest.json`) is finalized atomically only after every provider artifact succeeds and every digest is recomputed by core; a set without that manifest is always unusable. `verify` is read-only and mutation-free: it independently checks identity, membership, versions, ownership, and per-artifact SHA-256 digests, and refuses partial, corrupt, mixed-run, wrong-owner, or foreign-schema sets with stable machine-readable reasons. Retention is the operator's responsibility; Phlo never deletes backup sets. No RTO/RPO is claimed.
+
+Use `phlo operations restore` to restore a verified set to an explicitly named, confirmed target (ADR 0049 §4):
+
+```bash
+phlo operations restore plan --backup-set <set-dir> --target <target-dir> --format json
+phlo operations restore apply --plan <plan-file> --confirmation-token <plan-token>
+```
+
+`plan` is mutation-free and binds the plan to the set digest and the explicit target. `apply` is authorized, reverifies the full set, revalidates the target, and restores providers in the reverse of backup order (metadata, then MinIO data, then Nessie catalog, then PostgreSQL), only after journaling `submitted` before the first mutation. Success requires explicit post-restore reconciliation: set metadata, per-object checksums, Nessie/Iceberg catalog identity, a final query, and run evidence — never container health or table existence alone. An implicit in-place or source-as-target restore is always refused; a failed restore records the failing provider and a repair (resume-as-new) state rather than claiming retry safety. No RTO/RPO is claimed.

@@ -8,21 +8,30 @@ finalizes a set and never touches another provider's prefix.
 from __future__ import annotations
 
 import gzip
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from phlo.capabilities.continuity import (
     BackupArtifact,
     BackupContributorResult,
     BackupContributorState,
+    RestoreStepPhase,
+    RestoreStepResult,
+    RestoreTarget,
     fail_contributor,
     redact_message,
+    sha256_bytes,
     sha256_file,
 )
 
 DumpRunner = Callable[[], str]
 
 PROVIDER = "postgres"
+
+
+def _pick_artifact(artifacts: Sequence[BackupArtifact], suffix: str) -> BackupArtifact | None:
+    return next((artifact for artifact in artifacts if artifact.name.endswith(suffix)), None)
 
 
 def _default_dump() -> str:
@@ -68,3 +77,60 @@ class PostgresBackupContributor:
             artifacts=(artifact,),
             operation_id=operation_id,
         )
+
+    def restore(
+        self,
+        target: RestoreTarget,
+        artifacts: Sequence[BackupArtifact],
+        plan_token: str,
+        backup_set_dir: str,
+    ) -> RestoreStepResult:
+        """Restore the dump decompressed into the explicit target."""
+        artifact = _pick_artifact(artifacts, "phlo.sql.gz")
+        if artifact is None:
+            return RestoreStepResult.fail_step(
+                PROVIDER, RestoreStepPhase.PREFLIGHT, "missing postgres dump artifact"
+            )
+        try:
+            source = Path(backup_set_dir) / artifact.relative_path
+            dump = gzip.decompress(source.read_bytes())
+            target_dir = Path(target.location) / PROVIDER
+            target_dir.mkdir(parents=True, exist_ok=True)
+            restored = target_dir / "restored.sql"
+            restored.write_bytes(dump)
+            evidence = {
+                "restored_path": str(restored),
+                "restored_sha256": sha256_bytes(dump),
+                "restored_size": len(dump),
+                "plan_token": plan_token,
+            }
+            return RestoreStepResult.ok(PROVIDER, evidence=evidence)
+        except Exception as exc:
+            return RestoreStepResult.fail_step(
+                PROVIDER,
+                RestoreStepPhase.SUBMISSION,
+                redact_message(str(exc)),
+            )
+
+    def reconcile(
+        self,
+        target: RestoreTarget,
+        artifacts: Sequence[BackupArtifact],
+        plan_token: str,
+        backup_set_dir: str,
+    ) -> dict[str, Any]:
+        """Verify the restored dump bytes match the verified set digest."""
+        artifact = _pick_artifact(artifacts, "phlo.sql.gz")
+        restored = Path(target.location) / PROVIDER / "restored.sql"
+        if artifact is None or not restored.is_file():
+            return {"ok": False, "reason": "missing_restored_dump"}
+        source_digest = sha256_bytes(
+            gzip.decompress((Path(backup_set_dir) / artifact.relative_path).read_bytes())
+        )
+        restored_digest = sha256_file(restored)
+        ok = restored_digest == source_digest
+        return {
+            "ok": ok,
+            "reason": "" if ok else "restored_dump_digest_mismatch",
+            "restored_sha256": restored_digest,
+        }

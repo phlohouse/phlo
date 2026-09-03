@@ -1,4 +1,4 @@
-"""Guarded plan-first maintenance operations (ADR 0049, Plans 010-011).
+"""Guarded plan-first operations (ADR 0049, Plans 010-012).
 
 `phlo operations maintenance inventory|plan|apply` — inventory is read-only,
 plan is mutation-free and returns a JSON envelope, apply is authorized and
@@ -7,6 +7,11 @@ bound to the exact plan token. Orphan deletion is always rejected.
 `phlo operations backup create|verify` — create is authorized and finalizes
 one immutable set manifest only after every provider artifact succeeds;
 verify is read-only and mutation-free.
+
+`phlo operations restore plan|apply` — plan is mutation-free and binds the
+set digest to an explicit target; apply is authorized, reverifies the set,
+and restores providers in reverse order with post-restore reconciliation.
+An implicit/in-place target is always refused.
 """
 
 from __future__ import annotations
@@ -25,6 +30,16 @@ logger = get_logger(__name__)
 
 def _emit(data: Any) -> None:
     click.echo(json.dumps(data, indent=2, sort_keys=False))
+
+
+def _read_json(path: str) -> Any:
+    from pathlib import Path
+
+    try:
+        with Path(path).open(encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise click.UsageError(f"could not read plan file {path}: {exc}") from exc
 
 
 @click.group("operations")
@@ -114,6 +129,93 @@ def backup_verify(backup_set: Path, expected_deployment: str | None, output_form
         click.echo(f"Backup set {result.set_id or '(unknown)'}: {result.state}")
         for reason in result.reasons:
             click.echo(f"  reason: {reason}")
+
+    if not result.accepted:
+        raise SystemExit(1)
+
+
+@operations_group.group("restore")
+def restore_group() -> None:
+    """Plan and apply an explicit-target restore (ADR 0049 §4)."""
+
+
+@restore_group.command("plan")
+@click.option(
+    "--backup-set",
+    "backup_set",
+    type=click.Path(file_okay=False, path_type=Path),
+    required=True,
+    help="Path to the finalized backup set directory.",
+)
+@click.option(
+    "--target",
+    type=click.Path(file_okay=False, path_type=Path),
+    required=True,
+    help="Explicit, new/empty target deployment directory.",
+)
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
+def restore_plan_cmd(backup_set: Path, target: Path, output_format: str) -> None:
+    """Create a mutation-free restore plan bound to set digest + target."""
+    from phlo.capabilities.continuity import RestoreTarget
+    from phlo.operations.restore import RestoreError, plan_restore
+
+    try:
+        plan = plan_restore(backup_set_dir=backup_set, target=RestoreTarget.of(target))
+    except RestoreError as exc:
+        raise click.ClickException(
+            f"restore plan failed: {exc.code} ({', '.join(exc.identifiers)})"
+        ) from exc
+
+    if output_format == "json":
+        _emit(plan.to_dict())
+    else:
+        click.echo(
+            f"Restore plan {plan.plan_token}: set {plan.backup_set_id} → {plan.target.target_id}"
+        )
+
+
+@restore_group.command("apply")
+@click.option(
+    "--plan",
+    "plan_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="Path to the JSON restore plan file.",
+)
+@click.option("--confirmation-token", required=True, help="The plan token from the plan step.")
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
+@require_mutation_authorization("operations.restore.apply")
+def restore_apply_cmd(plan_path: str, confirmation_token: str, output_format: str) -> None:
+    """Apply a plan only to its bound target (authorized, fail-before-mutation)."""
+    from phlo.capabilities.continuity import RestorePlan
+    from phlo.operations.backup import default_backup_contributors
+    from phlo.operations.journal import InMemoryOperationJournalStore
+    from phlo.operations.restore import RestoreError, restore_apply
+
+    plan = RestorePlan.from_dict(_read_json(plan_path))
+    contributors = dict(default_backup_contributors())
+    journal = InMemoryOperationJournalStore()
+    try:
+        result = restore_apply(
+            plan=plan,
+            confirmation_token=confirmation_token,
+            contributors=contributors,
+            journal=journal,
+        )
+    except RestoreError as exc:
+        raise click.ClickException(
+            f"restore apply failed: {exc.code} ({', '.join(exc.identifiers)})"
+        ) from exc
+
+    if output_format == "json":
+        _emit(result.to_dict())
+    else:
+        click.echo(f"Restore to {result.target_id}: {result.state}")
+        for step in result.steps:
+            click.echo(
+                f"  {step.provider}: {step.state.value} ({step.phase.value}, "
+                f"retry_safe={step.retry_safe})"
+            )
 
     if not result.accepted:
         raise SystemExit(1)

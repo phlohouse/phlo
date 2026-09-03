@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -279,6 +281,241 @@ class BackupContributor(Protocol):
         ...
 
 
+RESTORE_PLAN_SCHEMA_VERSION = "1"
+RESTORE_PLAN_TTL_SECONDS = 24 * 3600
+# Restore is the reverse of the backup order (ADR 0049 §4): Iceberg metadata
+# is restored with the object data, then MinIO/Nessie (data before catalog),
+# then PostgreSQL last.
+RESTORE_PROVIDER_ORDER: tuple[str, ...] = ("iceberg", "minio", "nessie", "postgres")
+
+
+class RestoreStepPhase(StrEnum):
+    """Provider restore phases used to classify where a failure occurred."""
+
+    PREFLIGHT = "preflight"
+    SUBMISSION = "submission"
+    RECONCILE = "reconcile"
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreTarget:
+    """An explicitly named and located restore destination (never implicit)."""
+
+    target_id: str
+    location: str
+
+    @classmethod
+    def of(cls, location: str | os.PathLike[str]) -> RestoreTarget:
+        from pathlib import Path as _Path
+
+        resolved = _Path(location).resolve()
+        return cls(target_id=str(resolved), location=str(resolved))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"target_id": self.target_id, "location": self.location}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> RestoreTarget:
+        return cls(
+            target_id=_required_str(data, "target_id"), location=_required_str(data, "location")
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreStepResult:
+    """One provider's restore outcome with phase and retry classification."""
+
+    provider: str
+    state: BackupContributorState
+    phase: RestoreStepPhase
+    retry_safe: bool
+    evidence: dict[str, Any] = field(default_factory=dict)
+    failure: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "state": self.state.value,
+            "phase": self.phase.value,
+            "retry_safe": self.retry_safe,
+            "evidence": self.evidence,
+            "failure": self.failure,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> RestoreStepResult:
+        try:
+            return cls(
+                provider=_required_str(data, "provider"),
+                state=BackupContributorState(_required_str(data, "state")),
+                phase=RestoreStepPhase(_required_str(data, "phase")),
+                retry_safe=bool(data.get("retry_safe", False)),
+                evidence=dict(data.get("evidence") or {}),
+                failure=data.get("failure"),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise BackupSetError(
+                BackupVerificationReason.CORRUPT_MANIFEST, f"invalid restore step: {exc}"
+            ) from exc
+
+    @staticmethod
+    def fail_step(
+        provider: str,
+        phase: RestoreStepPhase,
+        reason: str,
+        *,
+        retry_safe: bool = False,
+        evidence: dict[str, Any] | None = None,
+    ) -> RestoreStepResult:
+        return RestoreStepResult(
+            provider=provider,
+            state=BackupContributorState.FAILED,
+            phase=phase,
+            retry_safe=retry_safe,
+            evidence=evidence or {},
+            failure={"reason": redact_message(reason)},
+        )
+
+    @staticmethod
+    def ok(
+        provider: str,
+        phase: RestoreStepPhase = RestoreStepPhase.SUBMISSION,
+        *,
+        evidence: dict[str, Any] | None = None,
+    ) -> RestoreStepResult:
+        return RestoreStepResult(
+            provider=provider,
+            state=BackupContributorState.SUCCEEDED,
+            phase=phase,
+            retry_safe=True,
+            evidence=evidence or {},
+            failure=None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RestorePlan:
+    """A mutation-free restore plan bound to set digest, target, and expiry."""
+
+    schema_version: str
+    plan_token: str
+    backup_set_dir: str
+    backup_set_id: str
+    set_digest: str
+    target: RestoreTarget
+    provider_order: tuple[str, ...]
+    created_at: str
+    expires_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "plan_token": self.plan_token,
+            "backup_set_dir": self.backup_set_dir,
+            "backup_set_id": self.backup_set_id,
+            "set_digest": self.set_digest,
+            "target": self.target.to_dict(),
+            "provider_order": list(self.provider_order),
+            "created_at": self.created_at,
+            "expires_at": self.expires_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> RestorePlan:
+        try:
+            return cls(
+                schema_version=_required_str(data, "schema_version"),
+                plan_token=_required_str(data, "plan_token"),
+                backup_set_dir=_required_str(data, "backup_set_dir"),
+                backup_set_id=_required_str(data, "backup_set_id"),
+                set_digest=_required_str(data, "set_digest"),
+                target=RestoreTarget.from_dict(dict(data["target"])),
+                provider_order=tuple(
+                    str(item) for item in (data.get("provider_order") or RESTORE_PROVIDER_ORDER)
+                ),
+                created_at=_required_str(data, "created_at"),
+                expires_at=_required_str(data, "expires_at"),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise BackupSetError(
+                BackupVerificationReason.CORRUPT_MANIFEST, f"invalid plan: {exc}"
+            ) from exc
+
+    def is_expired(self, now: datetime | None = None) -> bool:
+        try:
+            expiry = datetime.fromisoformat(self.expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            return True
+        reference = now or datetime.now(UTC)
+        return expiry.tzinfo is None or reference.tzinfo is None or reference >= expiry
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreReconciliationResult:
+    """Post-restore verification across every evidence authority."""
+
+    ok: bool
+    checks: dict[str, bool]
+    reasons: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"ok": self.ok, "checks": self.checks, "reasons": list(self.reasons)}
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreResult:
+    """Provider-neutral evidence for one restore apply attempt."""
+
+    state: str
+    accepted: bool
+    target_id: str
+    plan_token: str
+    steps: tuple[RestoreStepResult, ...] = ()
+    reconciliation: RestoreReconciliationResult | None = None
+    failure: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "state": self.state,
+            "accepted": self.accepted,
+            "target_id": self.target_id,
+            "plan_token": self.plan_token,
+            "steps": [step.to_dict() for step in self.steps],
+            "reconciliation": self.reconciliation.to_dict() if self.reconciliation else None,
+            "failure": self.failure,
+        }
+
+
+class RestoreContributor(Protocol):
+    """A provider-owned restorer applying only its own artifacts to a target.
+
+    ``restore`` records before/after evidence and the phase; a failure before
+    submission is never retry-safe. ``reconcile`` returns explicit post-restore
+    checks across the provider's authority. Providers read their own verified
+    artifacts from ``backup_set_dir`` and write under ``target``.
+    """
+
+    def restore(
+        self,
+        target: RestoreTarget,
+        artifacts: Sequence[BackupArtifact],
+        plan_token: str,
+        backup_set_dir: str,
+    ) -> RestoreStepResult:
+        """Apply this provider's artifacts to ``target``."""
+        ...
+
+    def reconcile(
+        self,
+        target: RestoreTarget,
+        artifacts: Sequence[BackupArtifact],
+        plan_token: str,
+        backup_set_dir: str,
+    ) -> dict[str, Any]:
+        """Return post-restore evidence; must include ``ok`` and ``reasons``."""
+        ...
+
+
 def canonical_json_bytes(payload: Any) -> bytes:
     """Serialize to canonical JSON: sorted keys, tight separators, UTF-8."""
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
@@ -407,6 +644,9 @@ def _required_str(data: Mapping[str, Any], key: str) -> str:
 __all__ = [
     "BACKUP_PROVIDER_ORDER",
     "BACKUP_SET_SCHEMA_VERSION",
+    "RESTORE_PLAN_SCHEMA_VERSION",
+    "RESTORE_PLAN_TTL_SECONDS",
+    "RESTORE_PROVIDER_ORDER",
     "SET_MANIFEST_NAME",
     "SET_MANIFEST_STAGING_NAME",
     "SUPPORTED_MANIFEST_SCHEMA_VERSIONS",
@@ -419,6 +659,13 @@ __all__ = [
     "BackupSetManifest",
     "BackupVerificationReason",
     "BackupVerifyResult",
+    "RestoreContributor",
+    "RestorePlan",
+    "RestoreReconciliationResult",
+    "RestoreResult",
+    "RestoreStepPhase",
+    "RestoreStepResult",
+    "RestoreTarget",
     "canonical_json_bytes",
     "fail_contributor",
     "redact_failure",

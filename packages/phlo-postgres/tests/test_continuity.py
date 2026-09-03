@@ -58,3 +58,51 @@ def test_contributor_writes_only_beneath_destination(tmp_path: Path) -> None:
     contributor = PostgresBackupContributor(dump_runner=_dump_runner())
     contributor.contribute(tmp_path / "set" / "postgres", operation_id="op")
     assert list(outside.iterdir()) == []
+
+
+# --- restore / reconcile (Plan 012 Step 3) --------------------------------
+
+
+def _set_artifact(tmp_path: Path):
+    from phlo.capabilities.continuity import BackupArtifact, sha256_bytes
+
+    set_dir = tmp_path / "_set"
+    (set_dir / "postgres").mkdir(parents=True)
+    dump = b"CREATE TABLE t (id int);"
+    gz = gzip.compress(dump)
+    artifact_path = set_dir / "postgres" / "phlo.sql.gz"
+    artifact_path.write_bytes(gz)
+    artifact = BackupArtifact(
+        provider="postgres",
+        name="phlo.sql.gz",
+        relative_path="postgres/phlo.sql.gz",
+        size_bytes=len(gz),
+        sha256=sha256_bytes(gz),
+        metadata={},
+    )
+    return set_dir, artifact, dump
+
+
+def test_restore_succeeds_and_reconciles(tmp_path: Path) -> None:
+    from phlo.capabilities.continuity import RestoreTarget, sha256_bytes
+
+    set_dir, artifact, dump = _set_artifact(tmp_path)
+    target = RestoreTarget.of(tmp_path / "target")
+    contributor = PostgresBackupContributor(dump_runner=_dump_runner())
+
+    step = contributor.restore(target, [artifact], "plan-tok", str(set_dir))
+    assert step.state.value == "succeeded"
+    assert step.evidence["restored_sha256"] == sha256_bytes(dump)
+
+    reconciliation = contributor.reconcile(target, [artifact], "plan-tok", str(set_dir))
+    assert reconciliation["ok"] is True
+
+
+def test_restore_missing_dump_fails_in_preflight(tmp_path: Path) -> None:
+    from phlo.capabilities.continuity import RestoreTarget
+
+    contributor = PostgresBackupContributor(dump_runner=_dump_runner())
+    step = contributor.restore(RestoreTarget.of(tmp_path / "target"), [], "tok", str(tmp_path))
+    assert step.state.value == "failed"
+    assert step.phase.value == "preflight"
+    assert step.retry_safe is False

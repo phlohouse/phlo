@@ -33,6 +33,11 @@ from phlo.operations.journal import (
     read_or_replay,
     reconcile_unknown,
 )
+from phlo.operations.restore import (
+    RestoreError,
+    plan_restore,
+    restore_apply,
+)
 from phlo.operations.transformation import (
     AsyncTransformer,
     BaseTransformer,
@@ -57,13 +62,16 @@ __all__ = [
     "SyncToAsyncIngesterAdapter",
     "SyncToAsyncTransformerAdapter",
     "TransformationResult",
+    "RestoreError",
     "claim_operation",
     "complete_operation",
     "create_backup_set",
     "default_backup_contributors",
     "mark_submitted",
     "mark_unknown",
+    "plan_restore",
     "read_or_replay",
     "reconcile_unknown",
+    "restore_apply",
     "verify_backup_set",
 ]
