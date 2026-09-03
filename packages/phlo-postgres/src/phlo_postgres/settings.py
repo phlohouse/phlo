@@ -104,6 +104,18 @@ class PostgresSettings(BaseConfig):
         password = quote_plus(self.postgres_password)
         return f"postgresql://{user}:{password}@{self.postgres_host}:{self.postgres_port}{db_part}"
 
+    def to_sling_connection(self) -> dict[str, Any]:
+        """Return a Sling-compatible connection dict for this PostgreSQL."""
+        return {
+            "type": "postgres",
+            "host": self.postgres_host,
+            "port": self.postgres_port,
+            "database": self.postgres_db,
+            "user": self.postgres_user,
+            "password": self.postgres_password,
+            "schema": getattr(self, "postgres_schema", "public"),
+        }
+
 
 @project_root_cached
 def get_settings(project_root: Path) -> PostgresSettings:

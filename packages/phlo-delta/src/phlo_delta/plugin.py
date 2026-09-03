@@ -15,7 +15,13 @@ Registers Delta Lake table-store and schema-migration capabilities through phlo.
 
 from __future__ import annotations
 
-from phlo.capabilities import CapabilitySupport, ResourceSpec, SchemaMigrationSpec, TableStoreSpec
+from phlo.capabilities import (
+    CapabilitySupport,
+    ResourceSpec,
+    SchemaMigrationSpec,
+    SlingConnectionSpec,
+    TableStoreSpec,
+)
 from phlo.plugins.base import PluginMetadata, ResourceProviderPlugin
 
 from phlo_delta.resource import DeltaResource
@@ -23,6 +29,12 @@ from phlo_delta.schema_migrator import DeltaSchemaMigrator
 
 
 class DeltaResourceProvider(ResourceProviderPlugin):
+    def get_sling_connections(self) -> list[SlingConnectionSpec]:
+        """Expose the delta Sling connection through the neutral seam."""
+        from phlo_delta.settings import get_settings
+
+        return [SlingConnectionSpec(name="delta", provider=get_settings())]
+
     """Resource provider plugin exposing Delta Lake access to Phlo.
 
     Provides table storage, schema migration, and time travel capabilities

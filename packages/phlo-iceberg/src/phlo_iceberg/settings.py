@@ -37,6 +37,8 @@ and phlo.config.network; consumed through get_settings() rather than imported wi
 
 from __future__ import annotations
 
+from typing import Any
+
 from pathlib import Path
 
 from pydantic import AliasChoices, Field
@@ -196,6 +198,21 @@ class IcebergSettings(BaseConfig):
         }
         validate_pyiceberg_rest_catalog_config(config)
         return config
+
+    def to_sling_connection(self) -> dict[str, Any]:
+        """Return a Sling-compatible Iceberg REST catalog connection dict."""
+        config = self.get_pyiceberg_catalog_config(self.iceberg_default_ref)
+        return {
+            "type": "iceberg",
+            "catalog_type": "rest",
+            "rest_uri": config["uri"],
+            "rest_warehouse": config["warehouse"],
+            "s3_endpoint": config["s3.endpoint"],
+            "s3_access_key_id": config["s3.access-key-id"],
+            "s3_secret_access_key": config["s3.secret-access-key"],
+            "s3_region": config["s3.region"],
+            "schema": self.iceberg_default_namespace,
+        }
 
 
 @project_root_cached

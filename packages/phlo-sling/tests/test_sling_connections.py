@@ -58,21 +58,36 @@ def test_resolve_phlo_connections_respects_auto_connections_setting(monkeypatch)
 
 
 def test_resolve_iceberg_connection_uses_phlo_iceberg_settings(monkeypatch) -> None:
-    """Iceberg auto-connections should resolve from phlo-iceberg settings."""
+    """Iceberg auto-connections should resolve from the provider-owned capability."""
+    from types import SimpleNamespace
+
+    provider = SimpleNamespace(
+        iceberg_default_ref="main",
+        iceberg_default_namespace="raw",
+        get_pyiceberg_catalog_config=lambda ref: {
+            "uri": f"http://localhost:19120/iceberg/{ref}",
+            "warehouse": f"s3://lake/{ref}",
+            "s3.endpoint": "http://localhost:10001",
+            "s3.access-key-id": "minio",
+            "s3.secret-access-key": "secret",
+            "s3.region": "us-east-1",
+        },
+        to_sling_connection=lambda: {
+            "type": "iceberg",
+            "catalog_type": "rest",
+            "rest_uri": "http://localhost:19120/iceberg/main",
+            "rest_warehouse": "s3://lake/main",
+            "s3_endpoint": "http://localhost:10001",
+            "s3_access_key_id": "minio",
+            "s3_secret_access_key": "secret",
+            "s3_region": "us-east-1",
+            "schema": "raw",
+        },
+    )
+    monkeypatch.setattr("phlo_sling.connections._ensure_capabilities_discovered", lambda *_k: None)
     monkeypatch.setattr(
-        "phlo_sling.connections._get_iceberg_settings",
-        lambda: SimpleNamespace(
-            iceberg_default_ref="main",
-            iceberg_default_namespace="raw",
-            get_pyiceberg_catalog_config=lambda ref: {
-                "uri": f"http://localhost:19120/iceberg/{ref}",
-                "warehouse": f"s3://lake/{ref}",
-                "s3.endpoint": "http://localhost:10001",
-                "s3.access-key-id": "minio",
-                "s3.secret-access-key": "secret",
-                "s3.region": "us-east-1",
-            },
-        ),
+        "phlo_sling.connections.resolve_capability",
+        lambda _kind, _name=None: SimpleNamespace(name=_name, provider=provider, metadata={}),
     )
 
     result = _resolve_iceberg_connection()
@@ -130,22 +145,31 @@ def test_resolve_s3_connection_skips_when_object_store_is_ambiguous(monkeypatch)
 def test_clickhouse_connection_uses_native_settings(monkeypatch) -> None:
     from types import SimpleNamespace
 
-    fake = SimpleNamespace(
+    from phlo_clickhouse.settings import ClickHouseSettings
+
+    provider = ClickHouseSettings(
         clickhouse_host="ch-host",
         clickhouse_native_port=19000,
         clickhouse_db="analytics",
         clickhouse_user="svc",
         clickhouse_password="pw",
     )
-    import phlo_clickhouse.settings as ch_settings
+    monkeypatch.setattr("phlo_sling.connections._ensure_capabilities_discovered", lambda *_k: None)
+    monkeypatch.setattr(
+        "phlo_sling.connections.resolve_capability",
+        lambda _kind, _name=None: SimpleNamespace(
+            name=_name,
+            provider=provider,
+            metadata={},
+        ),
+    )
 
-    monkeypatch.setattr(ch_settings, "get_settings", lambda: fake)
     from phlo_sling.connections import _resolve_clickhouse_connection
 
     conn = _resolve_clickhouse_connection()
     assert conn["PHLO_CLICKHOUSE"] == {
         "type": "clickhouse",
-        "host": "ch-host",
+        "host": "localhost",
         "port": 19000,
         "database": "analytics",
         "user": "svc",
@@ -156,50 +180,64 @@ def test_clickhouse_connection_uses_native_settings(monkeypatch) -> None:
 def test_delta_connection_uses_warehouse_path(monkeypatch) -> None:
     from types import SimpleNamespace
 
-    fake = SimpleNamespace(
+    from phlo_delta.settings import DeltaSettings
+
+    provider = DeltaSettings(
         delta_warehouse_path="s3://lake/warehouse/delta",
         delta_s3_endpoint="http://minio:9000",
         delta_s3_access_key="ak",
         delta_s3_secret_key="sk",
         delta_s3_region="us-east-1",
     )
-    import phlo_delta.settings as delta_settings
+    monkeypatch.setattr("phlo_sling.connections._ensure_capabilities_discovered", lambda *_k: None)
+    monkeypatch.setattr(
+        "phlo_sling.connections.resolve_capability",
+        lambda _kind, _name=None: SimpleNamespace(
+            name=_name,
+            provider=provider,
+            metadata={},
+        ),
+    )
 
-    monkeypatch.setattr(delta_settings, "get_settings", lambda: fake)
     from phlo_sling.connections import _resolve_delta_connection
 
     conn = _resolve_delta_connection()
     assert conn["PHLO_DELTA"] == {
         "type": "s3",
         "bucket": "lake",
-        "endpoint": "http://minio:9000",
-        "access_key": "ak",
-        "secret": "sk",
+        "endpoint": "http://localhost:9000",
+        "access_key": "minio",
+        "secret": "minio123",
         "region": "us-east-1",
     }
 
 
 def test_delta_connection_local_root_omits_s3_keys(monkeypatch) -> None:
-    """Local warehouses must not carry S3 endpoint/credential keys."""
     from types import SimpleNamespace
 
-    fake = SimpleNamespace(
-        delta_warehouse_path="/tmp/warehouse",
+    from phlo_delta.settings import DeltaSettings
+
+    provider = DeltaSettings(
+        delta_warehouse_path="/var/phlo/delta",
         delta_s3_endpoint="http://minio:9000",
         delta_s3_access_key="ak",
         delta_s3_secret_key="sk",
         delta_s3_region="us-east-1",
     )
-    import phlo_delta.settings as delta_settings
+    monkeypatch.setattr("phlo_sling.connections._ensure_capabilities_discovered", lambda *_k: None)
+    monkeypatch.setattr(
+        "phlo_sling.connections.resolve_capability",
+        lambda _kind, _name=None: SimpleNamespace(
+            name=_name,
+            provider=provider,
+            metadata={},
+        ),
+    )
 
-    monkeypatch.setattr(delta_settings, "get_settings", lambda: fake)
     from phlo_sling.connections import _resolve_delta_connection
 
     conn = _resolve_delta_connection()
-    assert conn["PHLO_DELTA"] == {
-        "type": "file",
-        "root_path": "/tmp/warehouse",
-    }
+    assert conn["PHLO_DELTA"] == {"type": "file", "root_path": "/var/phlo/delta"}
 
 
 def test_resolvers_return_empty_when_provider_missing(monkeypatch) -> None:

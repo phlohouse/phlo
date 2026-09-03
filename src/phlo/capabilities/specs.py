@@ -162,6 +162,20 @@ class ObjectStoreSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class SlingConnectionSpec:
+    """A provider-owned Sling connection capability.
+
+    The provider exposes ``to_sling_connection()`` returning a
+    Sling-compatible connection dict, so Sling never imports another
+    provider package (ADR 0047: a provider never imports another).
+    """
+
+    name: str
+    provider: Any
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class QualityBackendSpec:
     """Quality backend capability used by quality checks."""
 

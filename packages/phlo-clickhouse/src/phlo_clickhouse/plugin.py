@@ -21,6 +21,7 @@ from phlo.capabilities import (
     CapabilitySupport,
     PublishTargetSpec,
     ResourceSpec,
+    SlingConnectionSpec,
     TableStoreSpec,
 )
 from phlo.capabilities.specs import QueryEngineSpec
@@ -52,6 +53,12 @@ ClickHouseSetupServicePlugin = service_plugin_class(
 
 
 class ClickHouseResourceProvider(ResourceProviderPlugin):
+    def get_sling_connections(self) -> list[SlingConnectionSpec]:
+        """Expose the clickhouse Sling connection through the neutral seam."""
+        from phlo_clickhouse.settings import get_settings
+
+        return [SlingConnectionSpec(name="clickhouse", provider=get_settings())]
+
     """Resource provider plugin for ClickHouse.
 
     Provides ClickHouse resources, table stores, query engines, and

@@ -45,6 +45,7 @@ from phlo.capabilities.specs import (
     SchemaMigrationSpec,
     SecretBackendSpec,
     SettingsStoreSpec,
+    SlingConnectionSpec,
     TableStoreSpec,
     UiContributionSpec,
     WorkflowAuthoringSpec,
@@ -105,6 +106,12 @@ CAPABILITY_FAMILIES: dict[str, CapabilityFamilyDefinition[Any, Any]] = {
         spec_type=ObjectStoreSpec,
         key=lambda spec: spec.name,
         provider_method="get_object_stores",
+    ),
+    "sling_connection": CapabilityFamilyDefinition(
+        name="sling_connection",
+        spec_type=SlingConnectionSpec,
+        key=lambda spec: spec.name,
+        provider_method="get_sling_connections",
     ),
     "quality_backend": CapabilityFamilyDefinition(
         name="quality_backend",

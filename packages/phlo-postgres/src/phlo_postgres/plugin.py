@@ -21,7 +21,12 @@ from __future__ import annotations
 import shlex
 from typing import Any
 
-from phlo.capabilities import PublishTargetSpec, ResourceSpec, SettingsStoreSpec
+from phlo.capabilities import (
+    PublishTargetSpec,
+    ResourceSpec,
+    SettingsStoreSpec,
+    SlingConnectionSpec,
+)
 from phlo.plugins import (
     PackageYamlServicePlugin,
     PluginMetadata,
@@ -143,6 +148,12 @@ class PostgresResourceProvider(ResourceProviderPlugin):
             version="0.1.0",
             description="Postgres resource for Phlo",
         )
+
+    def get_sling_connections(self) -> list[SlingConnectionSpec]:
+        """Expose the PostgreSQL Sling connection through the neutral seam."""
+        from phlo_postgres.settings import get_settings
+
+        return [SlingConnectionSpec(name="postgres", provider=get_settings())]
 
     def get_resources(self) -> list[ResourceSpec]:
         """Return resource specifications exposed by this provider.

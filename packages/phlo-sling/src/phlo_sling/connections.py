@@ -19,73 +19,6 @@ from phlo_sling.settings import get_settings
 logger = get_logger(__name__)
 
 
-def _resolve_clickhouse_connection() -> dict[str, dict[str, Any]]:
-    """Resolve ClickHouse connection from phlo-clickhouse settings.
-
-    Builds a Sling-compatible connection (native protocol) from the installed
-    phlo-clickhouse package settings; returns {"PHLO_CLICKHOUSE": ...} or an
-    empty dict when phlo-clickhouse is not installed or configured.
-    """
-    try:
-        from phlo_clickhouse.settings import get_settings as get_ch_settings
-
-        ch = get_ch_settings()
-        return {
-            "PHLO_CLICKHOUSE": {
-                "type": "clickhouse",
-                "host": ch.clickhouse_host,
-                "port": ch.clickhouse_native_port,
-                "database": ch.clickhouse_db,
-                "user": ch.clickhouse_user,
-                "password": ch.clickhouse_password,
-            }
-        }
-    except (ImportError, Exception) as exc:
-        logger.debug("clickhouse_connection_skipped", error=str(exc))
-        return {}
-
-
-def _resolve_delta_connection() -> dict[str, dict[str, Any]]:
-    """Resolve a Delta Lake connection from phlo-delta settings.
-
-    Returns ``{"PHLO_DELTA": ...}`` or an empty dict when phlo-delta is not
-    installed.
-
-    - ``s3://`` warehouses resolve to an ``s3`` connection (bucket split out
-      of the root path) carrying the endpoint and credentials from the Delta
-      settings. Callers build ``tgt_object`` relative to the bucket, keeping
-      the warehouse prefix: for the default
-      ``s3://lake/warehouse/delta`` root that prefix is
-      ``warehouse/delta``.
-    - Local paths keep a ``file`` connection rooted at the path.
-
-    The ``file`` label cannot host S3 endpoints - Sling routes such targets
-    through the default AWS chain and ignores custom endpoints, producing
-    ``InvalidAccessKeyId`` against MinIO.
-    """
-    try:
-        from phlo_delta.settings import get_settings as get_delta_settings
-
-        delta = get_delta_settings()
-        root = str(delta.delta_warehouse_path)
-        if root.startswith("s3://"):
-            bucket = root[len("s3://") :].partition("/")[0]
-            return {
-                "PHLO_DELTA": {
-                    "type": "s3",
-                    "bucket": bucket,
-                    "endpoint": delta.delta_s3_endpoint,
-                    "access_key": delta.delta_s3_access_key,
-                    "secret": delta.delta_s3_secret_key,
-                    "region": delta.delta_s3_region,
-                }
-            }
-        return {"PHLO_DELTA": {"type": "file", "root_path": root}}
-    except (ImportError, Exception) as exc:
-        logger.debug("delta_connection_skipped", error=str(exc))
-        return {}
-
-
 def resolve_phlo_connections() -> dict[str, dict[str, Any]]:
     """Build Sling connection definitions from installed Phlo package settings.
 
@@ -152,76 +85,43 @@ def _ensure_capabilities_discovered(*kinds: str) -> None:
     discover_capabilities()
 
 
-def _get_iceberg_settings():
-    """Import phlo-iceberg settings lazily for optional package installs.
+def _resolve_sling_connection_capability(
+    capability_name: str, connection_name: str
+) -> dict[str, dict[str, Any]]:
+    """Resolve one provider-owned Sling connection through the neutral seam.
 
-    Lazily imports phlo-iceberg settings so installs without the optional
-    package do not fail at import time. Raises ImportError when phlo-iceberg is
-    not installed; otherwise returns the settings instance.
-
+    Providers register a ``sling_connection`` capability exposing
+    ``to_sling_connection()``; Sling never imports another provider package.
     """
-    from phlo_iceberg.settings import get_settings as get_iceberg_settings
-
-    return get_iceberg_settings()
+    _ensure_capabilities_discovered("sling_connection")
+    resolution = resolve_capability("sling_connection", capability_name)
+    if resolution is None:
+        return {}
+    provider = resolution.provider
+    config = provider.to_sling_connection() if hasattr(provider, "to_sling_connection") else {}
+    if not config:
+        return {}
+    return {connection_name: config}
 
 
 def _resolve_postgres_connection() -> dict[str, dict[str, Any]]:
-    """Resolve Postgres connection from phlo-postgres settings.
-
-    Builds a Sling-compatible connection configuration from the installed
-    phlo-postgres package settings if available; returns {"PHLO_POSTGRES": ...}
-    or an empty dict when phlo-postgres is not installed or configured.
-
-    """
-    try:
-        from phlo_postgres.settings import get_settings as get_pg_settings
-
-        pg = get_pg_settings()
-        return {
-            "PHLO_POSTGRES": {
-                "type": "postgres",
-                "host": pg.postgres_host,
-                "port": pg.postgres_port,
-                "database": pg.postgres_db,
-                "user": pg.postgres_user,
-                "password": pg.postgres_password,
-                "schema": getattr(pg, "postgres_schema", "public"),
-            }
-        }
-    except (ImportError, Exception) as exc:
-        logger.debug("postgres_connection_skipped", error=str(exc))
-        return {}
+    """Resolve Postgres connection through the provider-owned capability."""
+    return _resolve_sling_connection_capability("postgres", "PHLO_POSTGRES")
 
 
 def _resolve_iceberg_connection() -> dict[str, dict[str, Any]]:
-    """Resolve an Iceberg REST catalog connection from phlo-iceberg settings.
+    """Resolve Iceberg REST catalog connection through the provider-owned capability."""
+    return _resolve_sling_connection_capability("iceberg", "PHLO_ICEBERG")
 
-    Builds a Sling-compatible connection configuration for Iceberg REST catalog
-    access from the installed phlo-iceberg package settings; returns
-    {"PHLO_ICEBERG": ...} or an empty dict when phlo-iceberg is not installed or
-    configured.
 
-    """
-    try:
-        settings = _get_iceberg_settings()
-        ref = settings.iceberg_default_ref
-        config = settings.get_pyiceberg_catalog_config(ref)
-        return {
-            "PHLO_ICEBERG": {
-                "type": "iceberg",
-                "catalog_type": "rest",
-                "rest_uri": config["uri"],
-                "rest_warehouse": config["warehouse"],
-                "s3_endpoint": config["s3.endpoint"],
-                "s3_access_key_id": config["s3.access-key-id"],
-                "s3_secret_access_key": config["s3.secret-access-key"],
-                "s3_region": config["s3.region"],
-                "schema": settings.iceberg_default_namespace,
-            }
-        }
-    except (ImportError, Exception) as exc:
-        logger.debug("iceberg_connection_skipped", error=str(exc))
-        return {}
+def _resolve_clickhouse_connection() -> dict[str, dict[str, Any]]:
+    """Resolve ClickHouse connection through the provider-owned capability."""
+    return _resolve_sling_connection_capability("clickhouse", "PHLO_CLICKHOUSE")
+
+
+def _resolve_delta_connection() -> dict[str, dict[str, Any]]:
+    """Resolve Delta Lake connection through the provider-owned capability."""
+    return _resolve_sling_connection_capability("delta", "PHLO_DELTA")
 
 
 def _resolve_s3_connection() -> dict[str, dict[str, Any]]:

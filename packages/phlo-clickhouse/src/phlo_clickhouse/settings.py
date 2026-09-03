@@ -18,6 +18,8 @@ Example:
 
 from __future__ import annotations
 
+from typing import Any
+
 from pathlib import Path
 
 from pydantic import Field
@@ -81,6 +83,17 @@ class ClickHouseSettings(BaseConfig):
 
         """
         return f"{self.clickhouse_host}:{self.clickhouse_native_port}"
+
+    def to_sling_connection(self) -> dict[str, Any]:
+        """Return a Sling-compatible native-protocol ClickHouse connection dict."""
+        return {
+            "type": "clickhouse",
+            "host": self.clickhouse_host,
+            "port": self.clickhouse_native_port,
+            "database": self.clickhouse_db,
+            "user": self.clickhouse_user,
+            "password": self.clickhouse_password,
+        }
 
 
 @project_root_cached

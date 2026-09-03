@@ -106,6 +106,26 @@ class DeltaSettings(BaseConfig):
             opts["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
         return opts
 
+    def to_sling_connection(self) -> dict[str, Any]:
+        """Return a Sling-compatible connection dict for this Delta warehouse.
+
+        ``s3://`` warehouses resolve to an ``s3`` connection (bucket split out
+        of the root path); local paths keep a ``file`` connection rooted at the
+        path. Callers build ``tgt_object`` relative to the bucket.
+        """
+        root = str(self.delta_warehouse_path)
+        if root.startswith("s3://"):
+            bucket = root[len("s3://") :].partition("/")[0]
+            return {
+                "type": "s3",
+                "bucket": bucket,
+                "endpoint": self.delta_s3_endpoint,
+                "access_key": self.delta_s3_access_key,
+                "secret": self.delta_s3_secret_key,
+                "region": self.delta_s3_region,
+            }
+        return {"type": "file", "root_path": root}
+
 
 @project_root_cached
 def get_settings(project_root: Path) -> DeltaSettings:
