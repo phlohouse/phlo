@@ -207,6 +207,21 @@ class BackendReadinessSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class BackupContributorSpec:
+    """A provider-owned backup contribution capability (ADR 0049 §3).
+
+    The provider exposes ``contribute(destination, operation_id)`` returning
+    artifact descriptors for its own state; core owns ordering, hashing, and
+    finalization, and never imports the provider package.
+    """
+
+    name: str
+    provider: Any
+    metadata: dict[str, Any] = field(default_factory=dict)
+    support: CapabilitySupport = field(default_factory=CapabilitySupport)
+
+
+@dataclass(frozen=True, slots=True)
 class QualityBackendSpec:
     """Quality backend capability used by quality checks."""
 

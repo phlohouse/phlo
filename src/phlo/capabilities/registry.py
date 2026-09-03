@@ -25,6 +25,7 @@ from phlo.capabilities.specs import (
     AuthenticationProviderSpec,
     AuthorizationPolicyBackendSpec,
     BackendReadinessSpec,
+    BackupContributorSpec,
     CatalogScannerSpec,
     CatalogSpec,
     DataMigrationSourceSpec,
@@ -120,6 +121,12 @@ CAPABILITY_FAMILIES: dict[str, CapabilityFamilyDefinition[Any, Any]] = {
         spec_type=BackendReadinessSpec,
         key=lambda spec: spec.name,
         provider_method="get_backend_readiness",
+    ),
+    "backup_contributor": CapabilityFamilyDefinition(
+        name="backup_contributor",
+        spec_type=BackupContributorSpec,
+        key=lambda spec: spec.name,
+        provider_method="get_backup_contributors",
     ),
     "evidence_profile_contribution": CapabilityFamilyDefinition(
         name="evidence_profile_contribution",

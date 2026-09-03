@@ -82,6 +82,25 @@ inventory, registry, resolver, runtime, specs, and workflow-wizard modules.
 
 from typing import TYPE_CHECKING
 
+from phlo.capabilities.continuity import (
+    BACKUP_PROVIDER_ORDER,
+    BACKUP_SET_SCHEMA_VERSION,
+    SET_MANIFEST_NAME,
+    BackupArtifact,
+    BackupContributor,
+    BackupContributorResult,
+    BackupContributorState,
+    BackupCreateResult,
+    BackupSetError,
+    BackupSetManifest,
+    BackupVerificationReason,
+    BackupVerifyResult,
+    canonical_json_bytes,
+    redact_failure,
+    sha256_bytes,
+    sha256_file,
+    sha256_tree,
+)
 from phlo.capabilities.interfaces import (
     AlertSink,
     AuthenticatedSession,
@@ -158,6 +177,7 @@ from phlo.capabilities.specs import (
     AuthenticationProviderSpec,
     AuthorizationPolicyBackendSpec,
     BackendReadinessSpec,
+    BackupContributorSpec,
     CatalogScannerSpec,
     CatalogSpec,
     CheckResult,
@@ -224,6 +244,19 @@ __all__ = [
     "AuthResult",
     "AuthenticationProvider",
     "AuthenticationProviderSpec",
+    "BACKUP_PROVIDER_ORDER",
+    "BACKUP_SET_SCHEMA_VERSION",
+    "SET_MANIFEST_NAME",
+    "BackupArtifact",
+    "BackupContributor",
+    "BackupContributorResult",
+    "BackupContributorSpec",
+    "BackupContributorState",
+    "BackupCreateResult",
+    "BackupSetError",
+    "BackupSetManifest",
+    "BackupVerificationReason",
+    "BackupVerifyResult",
     "BackendReadinessSpec",
     "EvidenceProfileContributionSpec",
     "CheckSeverity",
@@ -336,6 +369,11 @@ __all__ = [
     "validate_proposal_request",
     "iter_telemetry_events",
     "load_maintenance_status",
+    "canonical_json_bytes",
+    "redact_failure",
+    "sha256_bytes",
+    "sha256_file",
+    "sha256_tree",
 ]
 
 

@@ -499,30 +499,25 @@ def verify_evidence(store: Any, fixture: dict[str, Any]) -> None:
 
 
 def sha256_file(path: Path) -> str:
-    """Hash a file in 1 MiB blocks and return the hex digest."""
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    """Hash a file via the shared continuity primitive (ADR 0049 §3)."""
+    from phlo.capabilities.continuity import sha256_file as _sha256_file
+
+    return _sha256_file(path)
 
 
 def sha256_tree(root: Path) -> str:
-    """Digest every file under root in sorted path order, rejecting symlinks and specials."""
-    digest = hashlib.sha256(b"phlo-recovery-tree-v1\0")
-    paths = sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
-    for path in paths:
-        if path.is_symlink():
-            raise RecoveryDrillError(f"backup lake contains unsupported entry: {path}")
-        if path.is_dir():
-            continue
-        if not path.is_file():
-            raise RecoveryDrillError(f"backup lake contains unsupported entry: {path}")
-        relative = path.relative_to(root).as_posix().encode()
-        digest.update(len(relative).to_bytes(8, "big"))
-        digest.update(relative)
-        digest.update(bytes.fromhex(sha256_file(path)))
-    return digest.hexdigest()
+    """Digest a tree via the shared continuity primitive.
+
+    The shared primitive raises :class:`BackupSetError` for symlinks and
+    special files; the drill converts that to its own error type.
+    """
+    from phlo.capabilities.continuity import BackupSetError
+    from phlo.capabilities.continuity import sha256_tree as _sha256_tree
+
+    try:
+        return _sha256_tree(root)
+    except BackupSetError as exc:
+        raise RecoveryDrillError(f"backup lake contains unsupported entry: {exc}") from exc
 
 
 def write_manifest(backup_dir: Path, fixture: dict[str, Any], checksum: str) -> None:

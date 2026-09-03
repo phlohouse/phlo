@@ -767,3 +767,12 @@ phlo operations maintenance apply --plan <plan-file> --confirmation-token <plan-
 ```
 
 Planning is read-only and returns a plan token. Apply is bound to that exact plan token and target revision; a stale or expired plan is rejected. Orphan deletion is unsupported. Verification is read-only.
+
+Use `phlo operations backup` for v1 backup sets (ADR 0049 §3):
+
+```bash
+phlo operations backup create --target <new-target> --format json
+phlo operations backup verify --backup-set <set-dir> --format json
+```
+
+`create` is authorized, quiesces writes, and captures one immutable set from every blessed provider (PostgreSQL dump, Nessie catalog export, MinIO object copy + checksum listing, Iceberg metadata inventory). The set manifest (`manifest.json`) is finalized atomically only after every provider artifact succeeds and every digest is recomputed by core; a set without that manifest is always unusable. `verify` is read-only and mutation-free: it independently checks identity, membership, versions, ownership, and per-artifact SHA-256 digests, and refuses partial, corrupt, mixed-run, wrong-owner, or foreign-schema sets with stable machine-readable reasons. Retention is the operator's responsibility; Phlo never deletes backup sets. No RTO/RPO is claimed.

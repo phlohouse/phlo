@@ -1,13 +1,18 @@
-"""Guarded plan-first maintenance operations (ADR 0049, Plan 010).
+"""Guarded plan-first maintenance operations (ADR 0049, Plans 010-011).
 
 `phlo operations maintenance inventory|plan|apply` — inventory is read-only,
 plan is mutation-free and returns a JSON envelope, apply is authorized and
 bound to the exact plan token. Orphan deletion is always rejected.
+
+`phlo operations backup create|verify` — create is authorized and finalizes
+one immutable set manifest only after every provider artifact succeeds;
+verify is read-only and mutation-free.
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import click
@@ -30,6 +35,88 @@ def operations_group() -> None:
 @operations_group.group("maintenance")
 def maintenance_group() -> None:
     """Plan and apply v1 table maintenance (compaction, snapshot expiry)."""
+
+
+@operations_group.group("backup")
+def backup_group() -> None:
+    """Create and verify immutable v1 backup sets (ADR 0049 §3)."""
+
+
+@backup_group.command("create")
+@click.option(
+    "--target",
+    type=click.Path(file_okay=False, path_type=Path),
+    required=True,
+    help="New, empty directory that will own the backup set.",
+)
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
+@require_mutation_authorization("operations.backup.create")
+def backup_create(target: Path, output_format: str) -> None:
+    """Create one verified backup set for all v1-owned state (authorized)."""
+    from phlo.capabilities.continuity import BACKUP_PROVIDER_ORDER
+    from phlo.operations.backup import create_backup_set, default_backup_contributors
+    from phlo.operations.journal import InMemoryOperationJournalStore, OperationJournalError
+
+    try:
+        contributors = default_backup_contributors()
+    except LookupError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    # Order contributors by the frozen ADR 0049 sequence.
+    contributors = sorted(contributors, key=lambda item: BACKUP_PROVIDER_ORDER.index(item[0]))
+
+    journal = InMemoryOperationJournalStore()
+    try:
+        result = create_backup_set(
+            target=target,
+            contributors=contributors,
+            journal=journal,
+        )
+    except OperationJournalError as exc:
+        raise click.ClickException(
+            f"journal error: {exc.code} ({', '.join(exc.identifiers)})"
+        ) from exc
+    except Exception as exc:
+        raise click.ClickException(f"backup create failed: {exc}") from exc
+
+    if output_format == "json":
+        _emit(result.to_dict())
+    else:
+        click.echo(f"Backup set {result.set_id}: {result.state}")
+        if result.manifest:
+            click.echo(f"  artifacts: {len(result.manifest.get('artifacts', []))}")
+
+
+@backup_group.command("verify")
+@click.option(
+    "--backup-set",
+    "backup_set",
+    type=click.Path(file_okay=False, path_type=Path),
+    required=True,
+    help="Path to the finalized backup set directory.",
+)
+@click.option(
+    "--expected-deployment",
+    "expected_deployment",
+    default=None,
+    help="Reject sets whose recorded source deployment does not match.",
+)
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
+def backup_verify(backup_set: Path, expected_deployment: str | None, output_format: str) -> None:
+    """Independently verify a backup set (read-only, no service mutation)."""
+    from phlo.operations.backup import verify_backup_set
+
+    result = verify_backup_set(backup_set, expected_deployment_id=expected_deployment)
+
+    if output_format == "json":
+        _emit(result.to_dict())
+    else:
+        click.echo(f"Backup set {result.set_id or '(unknown)'}: {result.state}")
+        for reason in result.reasons:
+            click.echo(f"  reason: {reason}")
+
+    if not result.accepted:
+        raise SystemExit(1)
 
 
 @maintenance_group.command("inventory")

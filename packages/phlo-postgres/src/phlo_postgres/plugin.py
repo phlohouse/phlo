@@ -27,6 +27,7 @@ from phlo.capabilities import (
     SettingsStoreSpec,
     SlingConnectionSpec,
     BackendReadinessSpec,
+    BackupContributorSpec,
 )
 from phlo.plugins import (
     PackageYamlServicePlugin,
@@ -125,6 +126,12 @@ class PostgresResourceProvider(ResourceProviderPlugin):
         from phlo_postgres.security_readiness import PostgresReadinessProvider
 
         return [BackendReadinessSpec(name="postgres", provider=PostgresReadinessProvider())]
+
+    def get_backup_contributors(self) -> list[BackupContributorSpec]:
+        """Expose the postgres backup contribution capability (ADR 0049 §3)."""
+        from phlo_postgres.continuity import PostgresBackupContributor
+
+        return [BackupContributorSpec(name="postgres", provider=PostgresBackupContributor())]
 
     """Resource provider plugin that exposes PostgreSQL capabilities.
 

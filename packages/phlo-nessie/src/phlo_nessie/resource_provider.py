@@ -23,6 +23,7 @@ from __future__ import annotations
 from phlo.capabilities import (
     EvidenceProfileContributionSpec,
     BackendReadinessSpec,
+    BackupContributorSpec,
     CapabilitySupport,
     CatalogScannerSpec,
     CatalogSpec,
@@ -61,6 +62,12 @@ class NessieResourceProvider(ResourceProviderPlugin):
         from phlo_nessie.security_readiness import NessieReadinessProvider
 
         return [BackendReadinessSpec(name="nessie", provider=NessieReadinessProvider())]
+
+    def get_backup_contributors(self) -> list[BackupContributorSpec]:
+        """Expose the nessie catalog backup contribution capability (ADR 0049 §3)."""
+        from phlo_nessie.continuity import NessieBackupContributor
+
+        return [BackupContributorSpec(name="nessie", provider=NessieBackupContributor())]
 
     """Expose Nessie as a capability-native catalog/versioning provider.
     This plugin registers Nessie with the Phlo capability system, exposing
