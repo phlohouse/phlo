@@ -10,6 +10,7 @@ compatibility is refused in production and regulated mode.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -23,6 +24,7 @@ import pytest
 from phlo.security.service_identity import (
     PHLO_CORRELATION_HEADER,
     PHLO_INITIATOR_HEADER,
+    PHLO_SERVICE_CREDENTIALS_FILE_ENV,
     PostgresNonceStore,
     ServiceIdentityCredentials,
     WorkloadKey,
@@ -30,6 +32,7 @@ from phlo.security.service_identity import (
     WorkloadKeyState,
     build_scoped_service_headers,
     create_scoped_service_token,
+    load_service_identity_credentials,
     validate_scoped_service_token,
 )
 
@@ -134,6 +137,37 @@ class TestScopedServiceTokens:
 
     def test_rejects_wrong_scope(self) -> None:
         assert self._validate(self._token(), scp=("api:orchestrate",)) is None
+
+    def test_rejects_undeclared_scope_at_signing(self) -> None:
+        with pytest.raises(RuntimeError, match="declared scope"):
+            self._token(scp=("api:orchestrate",))
+
+    def test_accepts_exact_declared_scope(self) -> None:
+        assert self._validate(self._token(scp=("dagster:control",))) == "phlo-api"
+
+    def test_rejects_subset_of_declared_scopes(self) -> None:
+        # Even a strict subset must be refused: only the exact declared set is allowed.
+        subset_creds = ServiceIdentityCredentials(
+            rings={
+                ("phlo-api", "dagster"): WorkloadKeyRing(
+                    caller="phlo-api",
+                    audience="dagster",
+                    scp=("dagster:control", "dagster:monitor"),
+                    keys={"k1": WorkloadKey(kid="k1", secret="api-dagster-secret")},
+                )
+            }
+        )
+        with pytest.raises(RuntimeError, match="declared scope"):
+            self._token(scp=("dagster:control",), credentials=subset_creds)
+        # The full declared set (in any order) is accepted.
+        assert (
+            self._validate(
+                self._token(scp=("dagster:monitor", "dagster:control"), credentials=subset_creds),
+                scp=("dagster:monitor", "dagster:control"),
+                credentials=subset_creds,
+            )
+            == "phlo-api"
+        )
 
     def test_rejects_missing_ring(self) -> None:
         assert self._validate(self._token(), credentials=ServiceIdentityCredentials({})) is None
@@ -273,6 +307,147 @@ class TestScopedServiceTokens:
         assert headers["Authorization"].startswith("Bearer phlo1.")
         assert headers[PHLO_INITIATOR_HEADER] == "alice@co.com"
         assert headers[PHLO_CORRELATION_HEADER] == "req-789"
+
+
+class TestWorkloadKeyLifecycle:
+    def test_can_sign_requires_active_and_activated(self) -> None:
+        key = WorkloadKey(kid="k1", secret="s", state=WorkloadKeyState.ACTIVE, activated_at=100)
+        assert key.can_sign(50) is False  # future-active: not yet activated
+        assert key.can_sign(100) is True
+        assert key.can_sign(200) is True
+
+    def test_can_sign_rejects_retiring_and_retired(self) -> None:
+        retiring = WorkloadKey(
+            kid="k1", secret="s", state=WorkloadKeyState.RETIRING, activated_at=0
+        )
+        retired = WorkloadKey(kid="k1", secret="s", state=WorkloadKeyState.RETIRED, activated_at=0)
+        assert retiring.can_sign(100) is False
+        assert retired.can_sign(100) is False
+
+    def test_can_verify_requires_activation(self) -> None:
+        key = WorkloadKey(kid="k1", secret="s", state=WorkloadKeyState.ACTIVE, activated_at=100)
+        assert key.can_verify(50) is False  # future-active: not yet activated
+        assert key.can_verify(100) is True
+
+    def test_can_verify_retiring_within_interval_and_retired(self) -> None:
+        retiring = WorkloadKey(
+            kid="k1",
+            secret="s",
+            state=WorkloadKeyState.RETIRING,
+            activated_at=0,
+            retiring_until=200,
+        )
+        assert retiring.can_verify(100) is True
+        assert retiring.can_verify(200) is True
+        assert retiring.can_verify(201) is False
+        retired = WorkloadKey(kid="k1", secret="s", state=WorkloadKeyState.RETIRED, activated_at=0)
+        assert retired.can_verify(100) is False
+
+    def test_future_active_key_rejected_on_verify(self) -> None:
+        # A token signed by a future-active key is rejected before its
+        # activation window opens, matching the can_sign/can_verify contract.
+        creds = ServiceIdentityCredentials(
+            rings={
+                ("phlo-api", "dagster"): WorkloadKeyRing(
+                    caller="phlo-api",
+                    audience="dagster",
+                    scp=("dagster:control",),
+                    keys={
+                        "k1": WorkloadKey(
+                            kid="k1",
+                            secret="s",
+                            state=WorkloadKeyState.ACTIVE,
+                            activated_at=1_000,
+                        )
+                    },
+                )
+            }
+        )
+        token = create_scoped_service_token(
+            "phlo-api",
+            audience="dagster",
+            scp=("dagster:control",),
+            credentials=creds,
+            now=1_000,
+        )
+        # Now=900: the key is not yet activated, so verification must reject.
+        result = validate_scoped_service_token(
+            token,
+            expected_audience="dagster",
+            allowed_caller="phlo-api",
+            expected_scp=("dagster:control",),
+            credentials=creds,
+            nonce_store=SharedNonceStore(),
+            now=900,
+        )
+        assert result is None
+        # Now=1000: activated, so it verifies.
+        assert (
+            validate_scoped_service_token(
+                token,
+                expected_audience="dagster",
+                allowed_caller="phlo-api",
+                expected_scp=("dagster:control",),
+                credentials=creds,
+                nonce_store=SharedNonceStore(),
+                now=1_000,
+            )
+            == "phlo-api"
+        )
+
+
+class TestCredentialFileLoading:
+    def _valid_credentials_json(self) -> str:
+        return json.dumps(
+            {
+                "phlo-api": {
+                    "dagster": {
+                        "scp": ["dagster:control"],
+                        "keys": {
+                            "k1": {
+                                "secret": "api-dagster-secret",
+                                "state": "active",
+                                "activated_at": 0,
+                            }
+                        },
+                    }
+                }
+            }
+        )
+
+    def test_world_readable_credential_file_rejected(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "credentials.json"
+        path.write_text(self._valid_credentials_json())
+        path.chmod(0o644)
+        monkeypatch.setenv(PHLO_SERVICE_CREDENTIALS_FILE_ENV, str(path))
+        with pytest.raises(RuntimeError, match="not group/world readable"):
+            load_service_identity_credentials()
+
+    def test_symlink_credential_file_rejected(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        target = tmp_path / "target.json"
+        target.write_text(self._valid_credentials_json())
+        target.chmod(0o600)
+        link = tmp_path / "link.json"
+        link.symlink_to(target)
+        monkeypatch.setenv(PHLO_SERVICE_CREDENTIALS_FILE_ENV, str(link))
+        with pytest.raises(RuntimeError, match="regular file"):
+            load_service_identity_credentials()
+
+    def test_owner_only_credential_file_loads(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "credentials.json"
+        path.write_text(self._valid_credentials_json())
+        path.chmod(0o600)
+        monkeypatch.setenv(PHLO_SERVICE_CREDENTIALS_FILE_ENV, str(path))
+        credentials = load_service_identity_credentials()
+        ring = credentials.ring_for("phlo-api", "dagster")
+        assert ring is not None
+        assert ring.scp == ("dagster:control",)
 
 
 def test_postgres_nonce_store_rejects_one_of_two_simultaneous_consumers() -> None:

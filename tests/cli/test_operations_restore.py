@@ -76,11 +76,16 @@ def _make_set(tmp_path: Path) -> Path:
     return Path(result.target) / result.set_id
 
 
-def _invoke(args: list[str]) -> Any:
-    return CliRunner().invoke(restore_group, args)
+def _invoke(args: list[str], journal_dir: Path | None = None) -> Any:
+    return CliRunner().invoke(
+        restore_group,
+        args,
+        env={"PHLO_OPERATIONS_JOURNAL_DIR": str(journal_dir)} if journal_dir else {},
+    )
 
 
 def test_plan_apply_round_trip(stubbed, tmp_path) -> None:
+    journal_dir = tmp_path / "journal"
     set_dir = _make_set(tmp_path)
     target = tmp_path / "target"
 
@@ -95,12 +100,36 @@ def test_plan_apply_round_trip(stubbed, tmp_path) -> None:
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(json.dumps(plan), encoding="utf-8")
     apply_result = _invoke(
-        ["apply", "--plan", str(plan_path), "--confirmation-token", plan["plan_token"]]
+        [
+            "apply",
+            "--plan",
+            str(plan_path),
+            "--confirmation-token",
+            plan["plan_token"],
+            "--fixture-substrate",
+        ],
+        journal_dir=journal_dir,
     )
     assert apply_result.exit_code == 0, apply_result.output
     payload = json.loads(apply_result.output)
     assert payload["accepted"] is True
     assert payload["reconciliation"]["ok"] is True
+    assert payload["operational"] is False
+    assert payload["substrate"] == "fixture"
+
+
+def test_apply_requires_fixture_substrate(stubbed, tmp_path) -> None:
+    set_dir = _make_set(tmp_path)
+    plan_result = _invoke(["plan", "--backup-set", str(set_dir), "--target", str(tmp_path / "t")])
+    plan = json.loads(plan_result.output)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    apply_result = _invoke(
+        ["apply", "--plan", str(plan_path), "--confirmation-token", plan["plan_token"]],
+        journal_dir=tmp_path / "journal",
+    )
+    assert apply_result.exit_code == 1
+    assert "fixture substrate" in apply_result.output
 
 
 def test_apply_fails_when_reconciliation_is_corrupt(stubbed, tmp_path) -> None:
@@ -113,7 +142,15 @@ def test_apply_fails_when_reconciliation_is_corrupt(stubbed, tmp_path) -> None:
     plan_path.write_text(json.dumps(plan), encoding="utf-8")
 
     apply_result = _invoke(
-        ["apply", "--plan", str(plan_path), "--confirmation-token", plan["plan_token"]]
+        [
+            "apply",
+            "--plan",
+            str(plan_path),
+            "--confirmation-token",
+            plan["plan_token"],
+            "--fixture-substrate",
+        ],
+        journal_dir=tmp_path / "journal",
     )
     assert apply_result.exit_code == 1
     assert "reconciliation" in apply_result.output
@@ -126,6 +163,16 @@ def test_apply_rejects_mismatched_token(stubbed, tmp_path) -> None:
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(json.dumps(plan), encoding="utf-8")
 
-    apply_result = _invoke(["apply", "--plan", str(plan_path), "--confirmation-token", "nope"])
+    apply_result = _invoke(
+        [
+            "apply",
+            "--plan",
+            str(plan_path),
+            "--confirmation-token",
+            "nope",
+            "--fixture-substrate",
+        ],
+        journal_dir=tmp_path / "journal",
+    )
     assert apply_result.exit_code == 1
     assert "token_mismatch" in apply_result.output

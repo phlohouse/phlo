@@ -47,8 +47,12 @@ def provider(monkeypatch):
     return executor
 
 
-def _invoke(args: list[str]) -> Any:
-    return CliRunner().invoke(maintenance_group, args)
+def _invoke(args: list[str], journal_dir: Path | None = None) -> Any:
+    return CliRunner().invoke(
+        maintenance_group,
+        args,
+        env={"PHLO_OPERATIONS_JOURNAL_DIR": str(journal_dir)} if journal_dir else {},
+    )
 
 
 def test_plan_returns_json_without_mutation(provider) -> None:
@@ -65,26 +69,43 @@ def test_plan_fails_without_executor(monkeypatch) -> None:
     assert "no maintenance executor" in result.output
 
 
-def test_apply_succeeds_with_matching_token(provider) -> None:
+def test_apply_succeeds_with_matching_token(provider, tmp_path) -> None:
     p = Path("plan.json")
     p.write_text(_plan_json())
-    result = _invoke(["apply", "--plan", str(p), "--confirmation-token", "plan-tok-1"])
+    result = _invoke(
+        ["apply", "--plan", str(p), "--confirmation-token", "plan-tok-1"],
+        journal_dir=tmp_path / "journal",
+    )
     assert result.exit_code == 0
 
 
-def test_apply_with_mismatched_token_fails(provider) -> None:
+def test_apply_with_mismatched_token_fails(provider, tmp_path) -> None:
     p = Path("plan.json")
     p.write_text(_plan_json(token="plan-tok-A"))
-    result = _invoke(["apply", "--plan", str(p), "--confirmation-token", "plan-tok-B"])
+    result = _invoke(
+        ["apply", "--plan", str(p), "--confirmation-token", "plan-tok-B"],
+        journal_dir=tmp_path / "journal",
+    )
     assert result.exit_code != 0
 
 
-def test_apply_rejects_orphan_deletion(provider) -> None:
+def test_apply_fails_closed_without_a_durable_journal(provider, tmp_path) -> None:
+    p = Path("plan.json")
+    p.write_text(_plan_json())
+    result = _invoke(["apply", "--plan", str(p), "--confirmation-token", "plan-tok-1"])
+    assert result.exit_code != 0
+    assert "PHLO_OPERATIONS_JOURNAL_DIR" in result.output
+
+
+def test_apply_rejects_orphan_deletion(provider, tmp_path) -> None:
     p = Path("orphan-plan.json")
     p.write_text(
         json.dumps(
             {"operation": "orphan_delete", "table_name": "t", "ref": "main", "plan_token": "tok"}
         )
     )
-    result = _invoke(["apply", "--plan", str(p), "--confirmation-token", "tok"])
+    result = _invoke(
+        ["apply", "--plan", str(p), "--confirmation-token", "tok"],
+        journal_dir=tmp_path / "journal",
+    )
     assert result.exit_code != 0

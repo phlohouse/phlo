@@ -9,7 +9,11 @@ import pytest
 
 from phlo.capabilities.continuity import RestoreTarget
 from phlo.operations.backup import create_backup_set
-from phlo.operations.journal import InMemoryOperationJournalStore, claim_operation
+from phlo.operations.journal import (
+    InMemoryOperationJournalStore,
+    OperationJournalError,
+    claim_operation,
+)
 from phlo.operations.upgrade import (
     ROLLBACK_SAFE_LAST_STEP,
     SUPPORTED_FROM_VERSION,
@@ -273,3 +277,111 @@ def test_apply_conflicting_claim_is_rejected(tmp_path) -> None:
 def test_pipeline_boundary_step_is_rollback_safe() -> None:
     names = [defn.name for defn in UPGRADE_PIPELINE]
     assert ROLLBACK_SAFE_LAST_STEP in names
+
+
+def test_plan_rejects_backup_recorded_from_another_version(tmp_path) -> None:
+    from phlo_iceberg.continuity import IcebergBackupContributor
+    from phlo_minio.continuity import MinioBackupContributor
+    from phlo_nessie.continuity import NessieBackupContributor
+    from phlo_postgres.continuity import PostgresBackupContributor
+
+    from phlo.operations.backup import create_backup_set as cbs
+
+    nessie = NessieBackupContributor(
+        client=SimpleNamespace(list_branches=lambda: [SimpleNamespace(name="main", hash="abc")])
+    )
+    result = cbs(
+        target=tmp_path / "backup",
+        contributors=[
+            ("postgres", PostgresBackupContributor(dump_runner=lambda: "…")),
+            ("nessie", nessie),
+            ("minio", MinioBackupContributor(mc_runner=lambda args: "")),
+            ("iceberg", IcebergBackupContributor(inventory_fn=list)),
+        ],
+        journal=InMemoryOperationJournalStore(),
+        deployment_id="deploy-source",
+        versions={"phlo": "0.13.0"},  # wrong source version
+    )
+    assert result.accepted
+    set_dir = Path(result.target) / result.set_id
+    with pytest.raises(UpgradeError, match="backup_version_mismatch"):
+        _plan(set_dir, tmp_path)
+
+
+def test_apply_requires_complete_contributor_roster(tmp_path) -> None:
+    set_dir = _make_set(tmp_path)
+    plan = _plan(set_dir, tmp_path)
+    with pytest.raises(UpgradeError, match="missing_required_contributor"):
+        upgrade_apply(
+            plan=plan,
+            confirmation_token=plan.plan_token,
+            contributors={},
+            journal=InMemoryOperationJournalStore(),
+        )
+    partial = {defn.owner: UpgradeStub(defn.owner) for defn in UPGRADE_PIPELINE[:-1]}
+    with pytest.raises(UpgradeError, match="missing_required_contributor"):
+        upgrade_apply(
+            plan=plan,
+            confirmation_token=plan.plan_token,
+            contributors=partial,
+            journal=InMemoryOperationJournalStore(),
+        )
+
+
+class ThrowingReconcileStub(UpgradeStub):
+    def upgrade_reconcile(self, target, to_version, plan_token):
+        self.reconcile_calls += 1
+        raise RuntimeError("provider reconcile exploded")
+
+
+def test_apply_reconcile_exception_marks_unknown_and_blocks_replay(tmp_path) -> None:
+    set_dir = _make_set(tmp_path)
+    plan = _plan(set_dir, tmp_path)
+    journal = InMemoryOperationJournalStore()
+    providers = {defn.owner: ThrowingReconcileStub(defn.owner) for defn in UPGRADE_PIPELINE}
+    result = upgrade_apply(
+        plan=plan,
+        confirmation_token=plan.plan_token,
+        contributors=providers,
+        journal=journal,
+    )
+    assert result.accepted is False
+    assert result.state == "unknown"
+    assert result.failure is not None and result.failure.get("requires_manual_reconciliation")
+    from phlo.operations import upgrade as upgrade_module
+
+    assert journal.read(upgrade_module._operation_id(plan)).state.name == "UNKNOWN"
+    # Replay is blocked once unknown, not silently retried.
+    with pytest.raises(OperationJournalError):
+        upgrade_apply(
+            plan=plan,
+            confirmation_token=plan.plan_token,
+            contributors=providers,
+            journal=journal,
+        )
+
+
+@pytest.mark.parametrize(
+    ("fail_step", "expected_remaining"),
+    [
+        ("nessie.catalog", ["iceberg.metadata", "minio.policy"]),
+        ("iceberg.metadata", ["minio.policy"]),
+        ("minio.policy", []),
+    ],
+)
+def test_forward_repair_lists_only_steps_after_failure(
+    tmp_path, fail_step: str, expected_remaining: list[str]
+) -> None:
+    set_dir = _make_set(tmp_path)
+    plan = _plan(set_dir, tmp_path)
+    providers = _providers(fail_step=fail_step)
+    result = upgrade_apply(
+        plan=plan,
+        confirmation_token=plan.plan_token,
+        contributors=providers,
+        journal=InMemoryOperationJournalStore(),
+    )
+    assert result.accepted is False
+    assert result.forward_repair is not None
+    assert result.forward_repair["remaining_steps"] == expected_remaining
+    assert result.forward_repair["must_not_rollback"] is True

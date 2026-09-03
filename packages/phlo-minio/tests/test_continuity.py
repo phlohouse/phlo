@@ -9,24 +9,24 @@ from pathlib import Path
 from phlo.capabilities.continuity import SET_MANIFEST_NAME, sha256_bytes
 from phlo_minio.continuity import MinioBackupContributor
 
-_OBJECTS: dict[tuple[str, str], str] = {
-    ("evidence", "runs/run-1/report.json"): '{"ok": true}',
-    ("lake", "warehouse/db/table/data.parquet"): "parquet-bytes",
-    ("lake", "warehouse/db/table/metadata/0.json"): "{}",
+_OBJECTS: dict[tuple[str, str], bytes] = {
+    ("evidence", "runs/run-1/report.json"): b'{"ok": true}',
+    ("lake", "warehouse/db/table/data.parquet"): b"parquet-bytes",
+    ("lake", "warehouse/db/table/metadata/0.json"): b"{}",
 }
 
 _BUCKETS = ["evidence", "lake", "minio"]
 
 
 def _fake_mc(
-    objects: dict[tuple[str, str], str] | None = None,
+    objects: dict[tuple[str, str], bytes] | None = None,
     buckets: list[str] | None = None,
     error: Exception | None = None,
-) -> Callable[[list[str]], str]:
+) -> Callable[[list[str]], str | bytes]:
     resolved_objects = objects if objects is not None else _OBJECTS
     resolved_buckets = buckets if buckets is not None else _BUCKETS
 
-    def mc(args: list[str]) -> str:
+    def mc(args: list[str]) -> str | bytes:
         if error is not None:
             raise error
         if args[:2] == ["ls", "--json"]:
@@ -41,14 +41,25 @@ def _fake_mc(
         if args[:1] == ["cat"]:
             target = args[1].removeprefix("local/")
             bucket, key = target.split("/", 1)
+            # Raw object bytes, unfaithful to any text mould.
             return resolved_objects[(bucket, key)]
         raise AssertionError(f"unexpected mc invocation: {args}")
 
     return mc
 
 
+def _contributor(
+    objects: dict[tuple[str, str], bytes] | None = None,
+    buckets: list[str] | None = None,
+    error: Exception | None = None,
+) -> MinioBackupContributor:
+    """Build a contributor injecting the same fake as both text and bytes runner."""
+    mc = _fake_mc(objects=objects, buckets=buckets, error=error)
+    return MinioBackupContributor(mc_runner=mc, mc_bytes_runner=mc)
+
+
 def test_contributor_copies_objects_and_writes_listing(tmp_path: Path) -> None:
-    contributor = MinioBackupContributor(mc_runner=_fake_mc())
+    contributor = _contributor()
     destination = tmp_path / "set" / "minio"
     result = contributor.contribute(destination, operation_id="backup.create:set-1")
 
@@ -73,9 +84,7 @@ def test_contributor_copies_objects_and_writes_listing(tmp_path: Path) -> None:
 
 
 def test_contributor_failure_is_sanitized(tmp_path: Path) -> None:
-    contributor = MinioBackupContributor(
-        mc_runner=_fake_mc(error=RuntimeError("mc denied access_key=AKIASECRET"))
-    )
+    contributor = _contributor(error=RuntimeError("mc denied access_key=AKIASECRET"))
     result = contributor.contribute(tmp_path / "set" / "minio", operation_id="op")
 
     assert result.state.value == "failed"
@@ -84,12 +93,67 @@ def test_contributor_failure_is_sanitized(tmp_path: Path) -> None:
 
 
 def test_contributor_never_writes_outside_its_prefix_or_finalizes(tmp_path: Path) -> None:
-    contributor = MinioBackupContributor(mc_runner=_fake_mc())
+    contributor = _contributor()
     set_dir = tmp_path / "set"
     contributor.contribute(set_dir / "minio", operation_id="op")
 
     assert not (set_dir / SET_MANIFEST_NAME).exists()
     assert {path.name for path in set_dir.iterdir()} == {"minio"}
+
+
+# --- binary object content (byte-faithful capture) -------------------------
+
+
+def _binary_objects() -> dict[tuple[str, str], bytes]:
+    return {
+        ("lake", "b/invalid-utf8.bin"): b"\xff\xfe\x00\x80binary\xc3\x28",
+        ("lake", "b/nul.bin"): b"head\x00mid\x00tail",
+        ("lake", "b/parquet.parquet"): bytes(range(256)),
+    }
+
+
+def test_contributor_captures_non_utf8_bytes_byte_faithfully(tmp_path: Path) -> None:
+    contributor = _contributor(objects=_binary_objects(), buckets=["lake"])
+    destination = tmp_path / "set" / "minio"
+    result = contributor.contribute(destination, operation_id="op")
+
+    assert result.state.value == "succeeded"
+    listing = json.loads((destination / "objects.json").read_text(encoding="utf-8"))
+    assert len(listing["objects"]) == 3
+    listed = {entry["key"]: entry for entry in listing["objects"]}
+    artifacts = {
+        artifact.name: artifact for artifact in result.artifacts if artifact.name != "objects.json"
+    }
+
+    for (bucket, key), payload in _binary_objects().items():
+        rel = destination / bucket / key
+        # Object lands on disk as the exact source bytes (no text round-trip).
+        assert rel.read_bytes() == payload
+        entry = listed[key]
+        assert entry["size_bytes"] == len(payload)
+        assert entry["sha256"] == sha256_bytes(payload)
+        assert artifacts[key.rsplit("/", 1)[-1]].sha256 == sha256_bytes(payload)
+
+
+def test_contributor_roundtrips_arbitrary_binary_content(tmp_path: Path) -> None:
+    payload = b"\x00\x01\xff\xfeGIF89a\n\x00binary-arbitrary\x00\xff"
+    contributor = _contributor(objects={("lake", "blob/asset.dat"): payload}, buckets=["lake"])
+    destination = tmp_path / "set" / "minio"
+    result = contributor.contribute(destination, operation_id="op")
+
+    assert result.state.value == "succeeded"
+    restored_file = destination / "lake" / "blob" / "asset.dat"
+    assert restored_file.read_bytes() == payload
+
+    # Captured bytes survive a restore + reconcile digest check intact.
+    from phlo.capabilities.continuity import RestoreTarget
+
+    artifact = next(a for a in result.artifacts if a.name == "asset.dat")
+    target = RestoreTarget.of(tmp_path / "target")
+    step = contributor.restore(target, [artifact], "tok", str(destination.parent))
+    assert step.state.value == "succeeded"
+    assert contributor.reconcile(target, [artifact], "tok", str(destination.parent))["ok"] is True
+    assert (Path(target.location) / "minio" / "lake" / "blob" / "asset.dat").read_bytes() == payload
 
 
 # --- restore / reconcile (Plan 012 Step 3) --------------------------------

@@ -102,3 +102,68 @@ def test_read_or_replay_returns_stored_result_for_succeeded(store) -> None:
     result = read_or_replay(store, "op:1")
     assert result is not None
     assert result["accepted"] is True
+
+
+# --- durable (cross-process) store ---------------------------------------
+
+
+def test_file_journal_survives_across_store_instances(tmp_path) -> None:
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    first = FileOperationJournalStore(tmp_path / "journal")
+    _claim(
+        first,
+        operation_id="op:durable",
+        action="restore.apply",
+        target="/srv/target",
+        token="tok-1",
+    )
+    mark_submitted(first, "op:durable")
+    complete_operation(first, "op:durable", {"accepted": True})
+
+    # A brand-new instance (simulating a fresh process) observes the same state.
+    second = FileOperationJournalStore(tmp_path / "journal")
+    entry = second.read("op:durable")
+    assert entry is not None
+    assert entry.state is OperationJournalState.SUCCEEDED
+    assert entry.result == {"accepted": True}
+    entry = _claim(
+        second, operation_id="op:other", action="restore.apply", target="/srv/target", token="tok-2"
+    )
+    assert entry.state is OperationJournalState.CLAIMED
+
+
+def test_file_journal_rejects_active_conflict_across_processes(tmp_path) -> None:
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    first = FileOperationJournalStore(tmp_path / "journal")
+    _claim(
+        first,
+        operation_id="op:a",
+        action="upgrade.apply",
+        target="deploy-1",
+        token="tok",
+    )
+    second = FileOperationJournalStore(tmp_path / "journal")
+    with pytest.raises(OperationJournalError, match="conflicting_claim"):
+        _claim(
+            second,
+            operation_id="op:b",
+            action="upgrade.apply",
+            target="deploy-1",
+            token="tok",
+        )
+
+
+def test_file_journal_allows_new_claim_after_terminal_state(tmp_path) -> None:
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    store = FileOperationJournalStore(tmp_path / "journal")
+    _claim(store, operation_id="op:1", action="backup.create", target="/srv/backup", token="s1")
+    complete_operation(store, "op:1", {"accepted": True})
+    # A later, unrelated operation over the same (action, target) is permitted
+    # once the earlier claim is terminal.
+    entry = _claim(
+        store, operation_id="op:2", action="backup.create", target="/srv/backup", token="s2"
+    )
+    assert entry.state is OperationJournalState.CLAIMED

@@ -39,6 +39,7 @@ from phlo_dagster.webserver import (
     GraphQLWebSocketAuthenticationASGI,
     PhloDagsterWebserver,
     build_dagster_http_manifest,
+    build_durable_nonce_store,
 )
 from _oidc_test_helpers import (
     AUDIENCE,
@@ -657,3 +658,137 @@ def test_server_info_readiness_tracks_expired_jwks_refresh(monkeypatch) -> None:
     assert healthy.status_code == 200
     assert unhealthy.status_code == 503
     assert unhealthy.body == b'{"status":"unhealthy","reason":"oidc_unready"}'
+
+
+class _DurableNonceStore:
+    """Replay store used by webserver wiring tests; records schema init."""
+
+    def __init__(self) -> None:
+        self.consumed: set[str] = set()
+        self.schema_initialized = False
+
+    def consume(self, nonce: str, *, expires_at) -> bool:
+        del expires_at
+        if nonce in self.consumed:
+            return False
+        self.consumed.add(nonce)
+        return True
+
+    def ensure_schema(self) -> None:
+        self.schema_initialized = True
+
+
+def _write_workload_credentials(tmp_path, secret: str) -> None:
+    import json
+
+    path = tmp_path / "workload-credentials.json"
+    path.write_text(
+        json.dumps(
+            {
+                "phlo-api": {
+                    "phlo-dagster": {
+                        "scp": ["dagster:control"],
+                        "keys": {"k1": {"secret": secret, "state": "active", "activated_at": 0}},
+                    }
+                }
+            }
+        )
+    )
+    path.chmod(0o600)
+    return str(path)
+
+
+def test_regulated_webserver_wires_durable_nonce_store_and_initializes_schema(monkeypatch) -> None:
+    monkeypatch.setenv("PHLO_REGULATED", "true")
+    store = _DurableNonceStore()
+    monkeypatch.setattr("phlo_dagster.webserver.build_durable_nonce_store", lambda: store)
+
+    server = object.__new__(PhloDagsterWebserver)
+    middleware = server._get_graphql_authorization_middleware()
+
+    assert middleware._nonce_store is store
+    assert store.schema_initialized  # receiver-owned lifecycle ran ensure_schema
+    assert server._get_graphql_authorization_middleware() is middleware
+    assert store.schema_initialized
+
+
+def test_development_webserver_builds_no_durable_nonce_store(monkeypatch) -> None:
+    monkeypatch.setenv("PHLO_REGULATED", "false")
+    store = _DurableNonceStore()
+    monkeypatch.setattr("phlo_dagster.webserver.build_durable_nonce_store", lambda: store)
+
+    server = object.__new__(PhloDagsterWebserver)
+    middleware = server._get_graphql_authorization_middleware()
+
+    assert middleware._nonce_store is None
+    assert not store.schema_initialized
+
+
+def test_build_durable_nonce_store_returns_postgres_nonce_store(monkeypatch) -> None:
+    from phlo.security.service_identity import PostgresNonceStore
+
+    monkeypatch.setenv("PHLO_SERVICE_NONCE_DB_URL", "postgresql://u:p@h:5432/db")
+    pool = object()
+    monkeypatch.setattr("psycopg2.pool.ThreadedConnectionPool", lambda *a, **k: pool)
+
+    store = build_durable_nonce_store()
+
+    assert isinstance(store, PostgresNonceStore)
+    assert store._connection_or_pool is pool
+
+
+def test_build_durable_nonce_store_returns_none_without_dsn(monkeypatch) -> None:
+    monkeypatch.delenv("PHLO_SERVICE_NONCE_DB_URL", raising=False)
+    monkeypatch.delenv("PHLO_RUN_EVIDENCE_DB_URL", raising=False)
+    assert build_durable_nonce_store() is None
+
+
+def test_regulated_graphql_http_accepts_scoped_phlo1_token_through_webserver_wiring(
+    monkeypatch, tmp_path
+) -> None:
+    from phlo.security.service_identity import (
+        create_scoped_service_token,
+        load_service_identity_credentials,
+    )
+
+    secret = "wls-secret"
+    _write_workload_credentials(tmp_path, secret)
+    monkeypatch.setenv("PHLO_SERVICE_CREDENTIALS_FILE", str(tmp_path / "workload-credentials.json"))
+    monkeypatch.setenv("PHLO_REGULATED", "true")
+    store = _DurableNonceStore()
+    monkeypatch.setattr("phlo_dagster.webserver.build_durable_nonce_store", lambda: store)
+
+    token_text = create_scoped_service_token(
+        "phlo-api",
+        audience="phlo-dagster",
+        scp=("dagster:control",),
+        credentials=load_service_identity_credentials(),
+    )
+
+    async def endpoint(request):  # noqa: ANN001
+        principal = request.scope.get("phlo_authenticated_principal")
+        return JSONResponse(
+            {
+                "subject": principal.subject if principal else None,
+                "type": principal.principal_type if principal else None,
+            }
+        )
+
+    downstream = Starlette(routes=[Route("/graphql", endpoint, methods=["POST"])])
+    monkeypatch.setattr(DagsterWebserver, "create_asgi_app", lambda *_a, **_k: downstream)
+
+    server = object.__new__(PhloDagsterWebserver)
+    secured = server.create_asgi_app()
+
+    # The middleware handed to the ASGI boundary carries the durable store.
+    assert server._get_graphql_authorization_middleware()._nonce_store is store
+    assert store.schema_initialized
+
+    with TestClient(secured) as client:
+        accepted = client.post("/graphql", headers={"Authorization": f"Bearer {token_text}"})
+        # The same token cannot be replayed once its nonce is consumed.
+        replayed = client.post("/graphql", headers={"Authorization": f"Bearer {token_text}"})
+
+    assert accepted.status_code == 200
+    assert accepted.json() == {"subject": "service:phlo-api", "type": "service"}
+    assert replayed.status_code == 401

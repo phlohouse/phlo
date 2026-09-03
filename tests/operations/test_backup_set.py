@@ -152,6 +152,35 @@ def test_create_refuses_duplicate_providers(tmp_path) -> None:
     assert duplicate.calls == 0
 
 
+@pytest.mark.parametrize(
+    "roster",
+    [
+        # incomplete: missing a blessed provider
+        [("postgres", "p"), ("nessie", "n"), ("minio", "m")],
+        [("postgres", "p")],
+        # unknown provider
+        [("postgres", "p"), ("nessie", "n"), ("minio", "m"), ("iceberg", "i"), ("oracle", "o")],
+        [("oracle", "o")],
+        # wrongly ordered but complete
+        [("minio", "m"), ("iceberg", "i"), ("postgres", "p"), ("nessie", "n")],
+    ],
+)
+def test_create_rejects_non_exact_roster_before_mutation(tmp_path, roster) -> None:
+    stubs = {
+        "postgres": FakeContributor("postgres"),
+        "nessie": FakeContributor("nessie"),
+        "minio": FakeContributor("minio"),
+        "iceberg": FakeContributor("iceberg"),
+        "oracle": FakeContributor("oracle"),
+    }
+    contributors = [(name, stubs[name]) for name, _ in roster]
+    target = tmp_path / "backup"
+    with pytest.raises(BackupSetError):
+        _create(tmp_path, target=target, contributors=contributors)
+    assert not target.exists()
+    assert all(stub.calls == 0 for name, stub in stubs.items())
+
+
 # --- create: journal integration ------------------------------------------
 
 

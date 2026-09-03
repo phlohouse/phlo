@@ -36,6 +36,7 @@ LISTING_ARTIFACT_NAME = "objects.json"
 _SYSTEM_BUCKETS = frozenset({"minio", "minioadmin"})
 
 McRunner = Callable[[list[str]], str]
+McBytesRunner = Callable[[list[str]], bytes]
 
 
 def _default_mc(args: list[str]) -> str:
@@ -45,6 +46,30 @@ def _default_mc(args: list[str]) -> str:
 
     cmd = [*_mc_shell_exec_base(tty=False), *_mc_with_local_alias(args)]
     result = run_command(cmd, timeout_seconds=600, capture_output=True, check=True)
+    return result.stdout
+
+
+def _default_mc_bytes(args: list[str]) -> bytes:
+    """Run an ``mc`` command inside the MinIO container, returning raw stdout bytes.
+
+    ``mc cat`` emits arbitrary object content, so this path must never round-trip
+    the payload through text decoding; hashes are computed over the raw bytes.
+    Redaction conventions mirror ``run_command`` (CommandError with redacted cmd).
+    """
+    import subprocess
+
+    from phlo.cli.infrastructure.command import CommandError
+    from phlo_minio.cli import _mc_shell_exec_base, _mc_with_local_alias
+
+    cmd = [*_mc_shell_exec_base(tty=False), *_mc_with_local_alias(args)]
+    result = subprocess.run(cmd, capture_output=True, timeout=600)
+    if result.returncode != 0:
+        raise CommandError(
+            cmd=tuple(cmd),
+            returncode=result.returncode,
+            stdout=result.stdout.decode("utf-8", errors="replace"),
+            stderr=result.stderr.decode("utf-8", errors="replace"),
+        )
     return result.stdout
 
 
@@ -70,9 +95,11 @@ class MinioBackupContributor:
     def __init__(
         self,
         mc_runner: McRunner | None = None,
+        mc_bytes_runner: McBytesRunner | None = None,
         buckets: list[str] | None = None,
     ) -> None:
         self._mc_runner = mc_runner
+        self._mc_bytes_runner = mc_bytes_runner
         self._buckets = buckets
 
     def contribute(self, destination: Path, operation_id: str) -> BackupContributorResult:
@@ -82,6 +109,18 @@ class MinioBackupContributor:
         listing: list[dict[str, Any]] = []
         try:
             mc = self._mc_runner or _default_mc
+
+            if self._mc_bytes_runner is not None:
+                mc_bytes = self._mc_bytes_runner
+            elif self._mc_runner is not None:
+                # A str-returning runner was injected without a bytes runner
+                # (unit-test convenience); object payloads are plain ASCII there.
+                def _runner_bytes_from_text(args: list[str]) -> bytes:
+                    return mc(args).encode("utf-8")
+
+                mc_bytes = _runner_bytes_from_text
+            else:
+                mc_bytes = _default_mc_bytes
             buckets = self._buckets
             if buckets is None:
                 buckets = sorted(
@@ -101,7 +140,7 @@ class MinioBackupContributor:
                 ]
                 for obj in sorted(objects, key=lambda item: str(item["key"])):
                     key = str(obj["key"])
-                    body = mc(["cat", f"local/{bucket}/{key}"]).encode("utf-8")
+                    body = mc_bytes(["cat", f"local/{bucket}/{key}"])
                     local = destination / bucket / key
                     local.parent.mkdir(parents=True, exist_ok=True)
                     local.write_bytes(body)

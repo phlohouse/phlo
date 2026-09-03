@@ -108,6 +108,30 @@ def create_backup_set(
             )
         seen_providers.add(provider)
 
+    # The creator and the verifier must enforce the same invariant: the full
+    # frozen ADR 0049 roster in canonical order. An incomplete, unknown,
+    # duplicated, or wrongly-ordered roster is rejected before we claim the
+    # journal or touch the target, so a partial set can never be finalized.
+    provided_order = [provider for provider, _contributor in contributors]
+    if provided_order != list(BACKUP_PROVIDER_ORDER):
+        missing = [p for p in BACKUP_PROVIDER_ORDER if p not in provided_order]
+        unknown = [p for p in provided_order if p not in BACKUP_PROVIDER_ORDER]
+        if unknown:
+            raise BackupSetError(
+                BackupVerificationReason.UNKNOWN_PROVIDER,
+                f"unknown backup providers in roster: {unknown}",
+            )
+        if missing:
+            raise BackupSetError(
+                BackupVerificationReason.MISSING_PROVIDER,
+                f"backup contributor roster must cover the frozen ADR 0049 order; "
+                f"missing providers: {missing}",
+            )
+        raise BackupSetError(
+            BackupVerificationReason.MIXED_RUN,
+            f"backup contributor roster is out of canonical ADR 0049 order: {provided_order}",
+        )
+
     stored = read_or_replay(journal, operation_id)
     if stored is not None:
         return _result_from_dict(stored)

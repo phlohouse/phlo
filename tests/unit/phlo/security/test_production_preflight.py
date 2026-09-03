@@ -511,3 +511,54 @@ def test_backend_readiness_unavailable_blocks(monkeypatch, tmp_path: Path) -> No
     check = next(c for c in report.checks if c.id is ProductionReadinessCheckId.BACKEND_READINESS)
     assert check.state is ProductionReadinessState.FAILED
     assert check.reason_code == ProductionReadinessReasonCode.BACKEND_READINESS_BLOCKED.value
+
+
+def test_jwks_only_verification_material_passes_authorization(monkeypatch, tmp_path: Path) -> None:
+    """A JWKS URL (plus issuer/audience) is valid verification material.
+
+    The HTTP authorization readiness check must accept a JWKS-backed path even
+    when no shared JWT secret is configured, mirroring the OIDC check.
+    """
+    for key in (
+        "PHLO_ENVIRONMENT",
+        "PHLO_AUTH_DEV_MODE",
+        "PHLO_AUTH_JWT_SECRET",
+        "PHLO_AUTH_JWT_ISSUER",
+        "PHLO_AUTH_JWT_AUDIENCE",
+        "PHLO_AUTH_JWT_JWKS_URL",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "MINIO_ROOT_USER",
+        "MINIO_ROOT_PASSWORD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    _write(
+        tmp_path,
+        (
+            ".phlo/.env",
+            "PHLO_ENVIRONMENT=production\nPOSTGRES_USER=lakehouse\nMINIO_ROOT_USER=object-admin\n",
+        ),
+        (
+            ".phlo/.env.local",
+            "POSTGRES_PASSWORD=pg-secret-1\nMINIO_ROOT_PASSWORD=minio-secret-1\n"
+            "PHLO_AUTH_JWT_ISSUER=https://issuer.example\n"
+            "PHLO_AUTH_JWT_AUDIENCE=phlo-api\n"
+            "PHLO_AUTH_JWT_JWKS_URL=https://issuer.example/.well-known/jwks.json\n",
+        ),
+        (".phlo/docker-compose.yml", "# Dev mode: false\nservices:\n  postgres:\n    image: x\n"),
+    )
+    (tmp_path / ".phlo" / ".env.local").chmod(0o600)
+
+    report = run_production_readiness(
+        plan=_plan(tmp_path, service_names=["postgres"]),
+        project_root=tmp_path,
+        environment="production",
+    )
+    check = next(
+        c for c in report.checks if c.id is ProductionReadinessCheckId.HTTP_AUTHORIZATION_REQUIRED
+    )
+    assert check.state is ProductionReadinessState.PASSED
+    oidc = next(
+        c for c in report.checks if c.id is ProductionReadinessCheckId.OIDC_ISSUER_AUDIENCE_JWKS
+    )
+    assert oidc.state is ProductionReadinessState.PASSED

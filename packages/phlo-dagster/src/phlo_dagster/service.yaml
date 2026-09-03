@@ -83,6 +83,7 @@ compose:
     POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:-phlo}}
     POSTGRES_DB: ${POSTGRES_DB:-phlo}
     PHLO_RUN_EVIDENCE_DB_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:-phlo}@postgres:5432/${POSTGRES_DB:-phlo}
+    PHLO_SERVICE_NONCE_DB_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:-phlo}@postgres:5432/${POSTGRES_DB:-phlo}
     WORKFLOWS_PATH: /app/workflows
     PHLO_WORKFLOWS_PATH: /app/workflows
     PHLO_PROJECT_PATH: /app

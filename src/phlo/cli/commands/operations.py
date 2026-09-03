@@ -33,6 +33,43 @@ from phlo.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _durable_journal():
+    """Resolve the configured durable journal; fail closed when none is present.
+
+    An authorized mutation must never silently fall back to an ephemeral
+    in-memory journal, or the exactly-once contract disappears with the
+    process. Callers that cannot resolve a durable store are refused.
+    """
+    import os
+
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    directory = os.environ.get("PHLO_OPERATIONS_JOURNAL_DIR")
+    if not directory:
+        raise click.ClickException(
+            "no durable operation journal configured: set PHLO_OPERATIONS_JOURNAL_DIR "
+            "before running an authorized mutation"
+        )
+    return FileOperationJournalStore(directory)
+
+
+def _require_fixture_substrate(fixture_substrate: bool, action: str) -> None:
+    """Force explicit acknowledgement that restore/upgrade apply is a fixture substrate.
+
+    The provider restore/upgrade adapters in this stack mutate only staged
+    files beneath the filesystem target; they do not connect to and migrate
+    live deployment services. They therefore must never be presented as an
+    operational recovery/upgrade. Callers must pass ``--fixture-substrate`` to
+    confirm they are proving the journey against a non-live target.
+    """
+    if not fixture_substrate:
+        raise click.ClickException(
+            f"{action} apply is a fixture substrate only (it stages files, it does "
+            "not mutate a live deployment). Pass --fixture-substrate to confirm you "
+            "are not targeting a live deployment."
+        )
+
+
 def _emit(data: Any) -> None:
     click.echo(json.dumps(data, indent=2, sort_keys=False))
 
@@ -75,7 +112,7 @@ def backup_create(target: Path, output_format: str) -> None:
     """Create one verified backup set for all v1-owned state (authorized)."""
     from phlo.capabilities.continuity import BACKUP_PROVIDER_ORDER
     from phlo.operations.backup import create_backup_set, default_backup_contributors
-    from phlo.operations.journal import InMemoryOperationJournalStore, OperationJournalError
+    from phlo.operations.journal import OperationJournalError
 
     try:
         contributors = default_backup_contributors()
@@ -85,7 +122,7 @@ def backup_create(target: Path, output_format: str) -> None:
     # Order contributors by the frozen ADR 0049 sequence.
     contributors = sorted(contributors, key=lambda item: BACKUP_PROVIDER_ORDER.index(item[0]))
 
-    journal = InMemoryOperationJournalStore()
+    journal = _durable_journal()
     try:
         result = create_backup_set(
             target=target,
@@ -188,18 +225,26 @@ def restore_plan_cmd(backup_set: Path, target: Path, output_format: str) -> None
     help="Path to the JSON restore plan file.",
 )
 @click.option("--confirmation-token", required=True, help="The plan token from the plan step.")
+@click.option(
+    "--fixture-substrate",
+    is_flag=True,
+    help="Acknowledge this restore stage only files beneath the target and does not mutate a live deployment.",
+)
 @click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
 @require_mutation_authorization("operations.restore.apply")
-def restore_apply_cmd(plan_path: str, confirmation_token: str, output_format: str) -> None:
+def restore_apply_cmd(
+    plan_path: str, confirmation_token: str, fixture_substrate: bool, output_format: str
+) -> None:
     """Apply a plan only to its bound target (authorized, fail-before-mutation)."""
     from phlo.capabilities.continuity import RestorePlan
     from phlo.operations.backup import default_backup_contributors
-    from phlo.operations.journal import InMemoryOperationJournalStore
     from phlo.operations.restore import RestoreError, restore_apply
+
+    _require_fixture_substrate(fixture_substrate, "restore")
 
     plan = RestorePlan.from_dict(_read_json(plan_path))
     contributors = dict(default_backup_contributors())
-    journal = InMemoryOperationJournalStore()
+    journal = _durable_journal()
     try:
         result = restore_apply(
             plan=plan,
@@ -213,9 +258,19 @@ def restore_apply_cmd(plan_path: str, confirmation_token: str, output_format: st
         ) from exc
 
     if output_format == "json":
-        _emit(result.to_dict())
+        _emit(
+            {
+                **result.to_dict(),
+                "operational": False,
+                "substrate": "fixture",
+                "note": "fixture substrate only: staged files under the target, not a live deployment restore",
+            }
+        )
     else:
-        click.echo(f"Restore to {result.target_id}: {result.state}")
+        click.echo(
+            f"Restore to {result.target_id}: {result.state} "
+            f"(FIXTURE SUBSTRATE — not a live deployment restore)"
+        )
         for step in result.steps:
             click.echo(
                 f"  {step.provider}: {step.state.value} ({step.phase.value}, "
@@ -270,22 +325,31 @@ def upgrade_plan_cmd(
 @upgrade_group.command("apply")
 @click.option("--plan", "plan_path", type=click.Path(exists=True), required=True)
 @click.option("--confirmation-token", required=True)
+@click.option(
+    "--fixture-substrate",
+    is_flag=True,
+    help="Acknowledge this upgrade stages version markers only and does not migrate a live deployment.",
+)
 @click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
 @require_mutation_authorization("operations.upgrade.apply")
-def upgrade_apply_cmd(plan_path: str, confirmation_token: str, output_format: str) -> None:
+def upgrade_apply_cmd(
+    plan_path: str, confirmation_token: str, fixture_substrate: bool, output_format: str
+) -> None:
     """Apply the bound upgrade (authorized, requires verified backup)."""
     from phlo.operations.backup import default_backup_contributors
-    from phlo.operations.journal import InMemoryOperationJournalStore
     from phlo.operations.upgrade import UpgradeError, UpgradePlan, upgrade_apply
+
+    _require_fixture_substrate(fixture_substrate, "upgrade")
 
     plan = UpgradePlan.from_dict(_read_json(plan_path))
     contributors = dict(default_backup_contributors())
+    journal = _durable_journal()
     try:
         result = upgrade_apply(
             plan=plan,
             confirmation_token=confirmation_token,
             contributors=contributors,
-            journal=InMemoryOperationJournalStore(),
+            journal=journal,
         )
     except UpgradeError as exc:
         raise click.ClickException(
@@ -293,9 +357,19 @@ def upgrade_apply_cmd(plan_path: str, confirmation_token: str, output_format: st
         ) from exc
 
     if output_format == "json":
-        _emit(result.to_dict())
+        _emit(
+            {
+                **result.to_dict(),
+                "operational": False,
+                "substrate": "fixture",
+                "note": "fixture substrate only: staged version markers, not a live deployment upgrade",
+            }
+        )
     else:
-        click.echo(f"Upgrade {result.from_version} → {result.to_version}: {result.state}")
+        click.echo(
+            f"Upgrade {result.from_version} → {result.to_version}: {result.state} "
+            f"(FIXTURE SUBSTRATE — not a live deployment upgrade)"
+        )
         for step in result.steps:
             click.echo(f"  {step.name}: {step.state.value} ({step.phase.value})")
 
@@ -409,9 +483,7 @@ def maintenance_apply(plan_path: str, confirmation_token: str, output_format: st
             f"maintenance executor {resolution.name!r} does not support execution"
         )
 
-    from phlo.operations.journal import InMemoryOperationJournalStore
-
-    journal = InMemoryOperationJournalStore()
+    journal = _durable_journal()
     operation_id = f"{operation}:{table}:{ref}"
     try:
         claim_operation(

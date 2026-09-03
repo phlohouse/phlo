@@ -35,10 +35,42 @@ from phlo_dagster.authorization import (
 from phlo_dagster.authorization_middleware import DagsterGraphQLAuthorizationMiddleware
 from phlo_dagster.oidc_identity import OIDC_REQUIRED_ENV
 from phlo.security import is_regulated
+from phlo.security.service_identity import PostgresNonceStore
 
 GRAPHQL_WS_INIT_TIMEOUT_ENV = "PHLO_DAGSTER_GRAPHQL_WS_INIT_TIMEOUT_SECONDS"
 _DEFAULT_GRAPHQL_WS_INIT_TIMEOUT = 10.0
 _MAX_GRAPHQL_WS_INIT_TIMEOUT = 60.0
+
+# The Dagster webserver is the receiver of phlo1 service tokens sent by
+# phlo-api. Its replay state lives in a durable PostgreSQL store (ADR 0047)
+# so authenticated requests survive across webserver replicas and restarts.
+PHLO_SERVICE_NONCE_DB_URL_ENV = "PHLO_SERVICE_NONCE_DB_URL"
+_RUN_EVIDENCE_DB_URL_ENV = "PHLO_RUN_EVIDENCE_DB_URL"
+
+
+def _durable_nonce_store_dsn() -> str | None:
+    """Resolve the PostgreSQL DSN backing the durable nonce store.
+
+    Prefer the dedicated nonce-store DSN; fall back to the run-evidence DSN,
+    which already points at the shared `phlo` database the receiver owns.
+    """
+    return os.environ.get(PHLO_SERVICE_NONCE_DB_URL_ENV) or os.environ.get(_RUN_EVIDENCE_DB_URL_ENV)
+
+
+def build_durable_nonce_store() -> PostgresNonceStore | None:
+    """Build a durable nonce store backed by the receiver's PostgreSQL pool.
+
+    Returns None when no DSN is configured so regulated receivers without a
+    database continue to fail closed rather than accepting tokens without a
+    replay guard. Construction does not create a global connection; the caller
+    (the webserver receiver) owns this store and its schema lifecycle.
+    """
+    dsn = _durable_nonce_store_dsn()
+    if not dsn:
+        return None
+    from psycopg2.pool import ThreadedConnectionPool
+
+    return PostgresNonceStore(ThreadedConnectionPool(1, 1, dsn))
 
 
 @dataclass(frozen=True)
@@ -456,9 +488,28 @@ class PhloDagsterWebserver(DagsterWebserver):
     def _get_graphql_authorization_middleware(self) -> DagsterGraphQLAuthorizationMiddleware:
         middleware = getattr(self, "_phlo_graphql_authorization_middleware", None)
         if middleware is None:
-            middleware = DagsterGraphQLAuthorizationMiddleware()
+            middleware = DagsterGraphQLAuthorizationMiddleware(
+                nonce_store=self._build_durable_nonce_store()
+            )
             self._phlo_graphql_authorization_middleware = middleware
         return middleware
+
+    def _build_durable_nonce_store(self) -> PostgresNonceStore | None:
+        """Build the webserver-owned durable nonce store once per process.
+
+        Regulated receivers initialize the durable schema through this lifecycle
+        hook so replay state survives restarts and is shared across replicas.
+        Unregulated receivers (development) need no nonce store at all.
+        """
+        if not is_regulated():
+            return None
+        store = getattr(self, "_phlo_durable_nonce_store", None)
+        if store is None:
+            store = build_durable_nonce_store()
+            if store is not None:
+                store.ensure_schema()
+            self._phlo_durable_nonce_store = store
+        return store
 
     async def execute_graphql_subscription(
         self,

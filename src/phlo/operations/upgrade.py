@@ -32,6 +32,7 @@ from phlo.operations.journal import (
     claim_operation,
     complete_operation,
     mark_submitted,
+    mark_unknown,
     read_or_replay,
 )
 
@@ -289,6 +290,7 @@ def plan_upgrade(
     """Create a mutation-free upgrade plan after a verified backup."""
     validate_upgrade_pair(from_version, to_version)
     manifest = _verified_manifest(backup_set_dir)
+    _require_source_version(manifest, from_version)
     reference = now or datetime.now(UTC)
     return UpgradePlan(
         schema_version=UPGRADE_PLAN_SCHEMA_VERSION,
@@ -330,6 +332,8 @@ def upgrade_apply(
         raise UpgradeError("backup_digest_mismatch", (plan.backup_set_id,))
     if plan.migration_digest != migration_digest():
         raise UpgradeError("migration_digest_mismatch", ())
+    _require_source_version(manifest, plan.from_version)
+    _require_complete_contributors(contributors)
 
     try:
         claim_operation(
@@ -375,7 +379,7 @@ def upgrade_apply(
                     operation_id,
                     plan,
                     steps,
-                    forward_repair=_forward_repair(defn.name, plan),
+                    forward_repair=_forward_repair(index, plan),
                     failure={
                         "reason": "upgrade failed after rollback boundary",
                         "failed_step": defn.name,
@@ -392,15 +396,35 @@ def upgrade_apply(
 
     checks: dict[str, bool] = {}
     reasons: list[str] = []
-    for defn in UPGRADE_PIPELINE:
-        contributor = contributors.get(defn.owner)
-        if contributor is None:
-            continue
-        evidence = contributor.upgrade_reconcile(plan.target, plan.to_version, plan.plan_token)
-        ok = bool(evidence.get("ok"))
-        checks[defn.name] = ok
-        if not ok:
-            reasons.append(defn.name + ":" + (str(evidence.get("reason")) or "reconcile_failed"))
+    try:
+        for defn in UPGRADE_PIPELINE:
+            contributor = contributors.get(defn.owner)
+            if contributor is None:
+                checks[defn.name] = False
+                reasons.append(defn.name + ":missing_contributor")
+                continue
+            evidence = contributor.upgrade_reconcile(plan.target, plan.to_version, plan.plan_token)
+            ok = bool(evidence.get("ok"))
+            checks[defn.name] = ok
+            if not ok:
+                reasons.append(
+                    defn.name + ":" + (str(evidence.get("reason")) or "reconcile_failed")
+                )
+    except Exception as exc:
+        # Migrations may have partially applied; the outcome is not decidable
+        # here. Explicitly mark UNKNOWN so automatic replay is blocked and an
+        # operator must reconcile by hand (never a silent automatic retry).
+        mark_unknown(journal, operation_id)
+        return UpgradeResult(
+            state="unknown",
+            accepted=False,
+            plan_token=plan.plan_token,
+            from_version=plan.from_version,
+            to_version=plan.to_version,
+            steps=tuple(steps),
+            reconciliation={"ok": False, "checks": checks, "reasons": reasons, "unknown": True},
+            failure={"reason": redact_message(str(exc)), "requires_manual_reconciliation": True},
+        )
 
     final_result = UpgradeResult(
         state="succeeded",
@@ -413,6 +437,20 @@ def upgrade_apply(
     )
     complete_operation(journal, operation_id, final_result.to_dict())
     return final_result
+
+
+def _require_source_version(manifest: BackupSetManifest, from_version: str) -> None:
+    """Bind the plan/apply to the backup's exact recorded source version."""
+    source_version = manifest.versions.get("phlo")
+    if source_version != from_version:
+        raise UpgradeError("backup_version_mismatch", (from_version, source_version or ""))
+
+
+def _require_complete_contributors(contributors: Mapping[str, Any]) -> None:
+    """Every pipeline owner is required for the supported pair; no omission is allowed."""
+    missing = tuple(defn.owner for defn in UPGRADE_PIPELINE if defn.owner not in contributors)
+    if missing:
+        raise UpgradeError("missing_required_contributor", missing)
 
 
 def _verified_manifest(backup_set_dir: str | Path) -> BackupSetManifest:
@@ -438,8 +476,11 @@ def _max_rollback_safe_index() -> int:
     return -1
 
 
-def _forward_repair(failed_step: str, plan: UpgradePlan) -> dict[str, Any]:
-    remaining = [step.name for step in UPGRADE_PIPELINE if step.name != failed_step]
+def _forward_repair(failed_index: int, plan: UpgradePlan) -> dict[str, Any]:
+    # Only steps after the failed index remain; completed steps are never
+    # listed as remaining so an operator is not prompted to re-run an
+    # already-applied (possibly irreversible) migration.
+    remaining = [step.name for step in UPGRADE_PIPELINE[failed_index + 1 :]]
     return {
         "instruction": "complete the declared migrations then reconcile",
         "remaining_steps": remaining,

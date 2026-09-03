@@ -33,6 +33,7 @@ from phlo.operations.journal import (
     read_or_replay,
     reconcile_unknown,
 )
+from phlo.operations.journal_store import FileOperationJournalStore
 from phlo.operations.restore import (
     RestoreError,
     plan_restore,
@@ -66,6 +67,7 @@ __all__ = [
     "BackupVerifyResult",
     "BaseIngester",
     "BaseTransformer",
+    "FileOperationJournalStore",
     "InMemoryOperationJournalStore",
     "IngestionResult",
     "OperationJournalEntry",

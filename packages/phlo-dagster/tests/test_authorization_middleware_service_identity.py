@@ -572,6 +572,8 @@ def _write_workload_credentials(tmp_path, secret: str) -> str:
             }
         )
     )
+    # The loader refuses world/group-readable credential files (mode 0600).
+    path.chmod(0o600)
     return str(path)
 
 

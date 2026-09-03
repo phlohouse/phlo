@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -66,13 +67,20 @@ def stubbed_contributors(monkeypatch):
     return contributors
 
 
-def _invoke(args: list[str]) -> Any:
-    return CliRunner().invoke(backup_group, args)
+def _invoke(args: list[str], journal_dir: Path | None = None) -> Any:
+    return CliRunner().invoke(
+        backup_group,
+        args,
+        env={"PHLO_OPERATIONS_JOURNAL_DIR": str(journal_dir)} if journal_dir else {},
+    )
 
 
 def test_create_and_verify_round_trip(stubbed_contributors, tmp_path) -> None:
     target = tmp_path / "backup"
-    result = _invoke(["create", "--target", str(target), "--format", "json"])
+    result = _invoke(
+        ["create", "--target", str(target), "--format", "json"],
+        journal_dir=tmp_path / "journal",
+    )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["state"] == "succeeded"
@@ -97,9 +105,28 @@ def test_create_fails_when_a_provider_is_missing(monkeypatch, tmp_path) -> None:
     assert "backup contributor" in result.output
 
 
+def test_create_fails_closed_without_a_durable_journal(stubbed_contributors, tmp_path) -> None:
+    result = _invoke(["create", "--target", str(tmp_path / "backup")])
+    assert result.exit_code != 0
+    assert "PHLO_OPERATIONS_JOURNAL_DIR" in result.output
+
+
+def test_create_records_in_a_durable_journal(stubbed_contributors, tmp_path) -> None:
+    journal_dir = tmp_path / "journal"
+    target = tmp_path / "backup"
+    result = _invoke(
+        ["create", "--target", str(target), "--format", "json"], journal_dir=journal_dir
+    )
+    assert result.exit_code == 0, result.output
+    assert list(journal_dir.glob("backup.create_*.json"))
+
+
 def test_verify_reports_partial_set_with_nonzero_exit(stubbed_contributors, tmp_path) -> None:
     target = tmp_path / "backup"
-    result = _invoke(["create", "--target", str(target), "--format", "json"])
+    result = _invoke(
+        ["create", "--target", str(target), "--format", "json"],
+        journal_dir=tmp_path / "journal",
+    )
     payload = json.loads(result.output)
     set_dir = target / payload["set_id"]
     manifest_path = set_dir / "manifest.json"

@@ -387,11 +387,13 @@ def _check_http_authorization_required(context: _CheckContext) -> ProductionRead
             remediation="Disable the development authentication bypass for production.",
             source=source,
         )
-    has_verified_path = bool(
-        effective_env.get(_AUTH_JWT_SECRET_ENV)
-        and effective_env.get(_AUTH_JWT_ISSUER_ENV)
+    shared_secret = bool(effective_env.get(_AUTH_JWT_SECRET_ENV))
+    issuer_audience_jwks = bool(
+        effective_env.get(_AUTH_JWT_ISSUER_ENV)
         and effective_env.get(_AUTH_JWT_AUDIENCE_ENV)
+        and effective_env.get(_AUTH_JWT_JWKS_URL_ENV)
     )
+    has_verified_path = shared_secret or issuer_audience_jwks
     if has_verified_path:
         return ProductionReadinessCheck(
             id=ProductionReadinessCheckId.HTTP_AUTHORIZATION_REQUIRED,

@@ -25,6 +25,7 @@ import hashlib
 import hmac
 import json
 import os
+import stat
 import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -164,6 +165,8 @@ class WorkloadKey:
         return self.state is WorkloadKeyState.ACTIVE and self.activated_at <= now
 
     def can_verify(self, now: int) -> bool:
+        if self.activated_at > now:
+            return False
         if self.state is WorkloadKeyState.RETIRED:
             return False
         return not (
@@ -292,8 +295,19 @@ def load_service_identity_credentials() -> ServiceIdentityCredentials:
     raw_path = os.environ.get(PHLO_SERVICE_CREDENTIALS_FILE_ENV)
     if not raw_path:
         return ServiceIdentityCredentials({})
+    path = Path(raw_path)
     try:
-        payload = json.loads(Path(raw_path).read_text(encoding="utf-8"))
+        st = os.lstat(path)
+    except OSError as exc:
+        raise RuntimeError(f"cannot stat service identity credentials: {exc}") from exc
+    if not stat.S_ISREG(st.st_mode):
+        raise RuntimeError("service identity credentials must be a regular file (not a symlink)")
+    if stat.S_IMODE(st.st_mode) & 0o077:
+        raise RuntimeError(
+            "service identity credentials must be owner-controlled and not group/world readable"
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise RuntimeError(f"cannot load service identity credentials: {exc}") from exc
     if not isinstance(payload, dict):
@@ -356,6 +370,12 @@ def create_scoped_service_token(
     if ring is None:
         raise RuntimeError(
             f"No service credential configured for caller {caller!r} and audience {audience!r}"
+        )
+    requested = tuple(sorted(scp))
+    if requested != tuple(sorted(ring.scp)):
+        raise RuntimeError(
+            f"Requested scopes {requested!r} for caller {caller!r} and audience {audience!r} "
+            f"do not match the declared scope set {tuple(sorted(ring.scp))!r}"
         )
     now_int = int(time.time()) if now is None else now
     key = ring.active_key(now_int)
