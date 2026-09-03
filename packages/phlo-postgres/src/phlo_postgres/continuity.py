@@ -134,3 +134,35 @@ class PostgresBackupContributor:
             "reason": "" if ok else "restored_dump_digest_mismatch",
             "restored_sha256": restored_digest,
         }
+
+    def upgrade_step(
+        self,
+        defn: Any,
+        target: RestoreTarget,
+        from_version: str,
+        to_version: str,
+        plan_token: str,
+    ) -> Any:
+        """Apply the postgres schema migration step and record version evidence."""
+        from phlo.operations.upgrade import UpgradeStepPhase, UpgradeStepResult
+
+        before = {"version": from_version}
+        try:
+            target_dir = Path(target.location) / PROVIDER
+            target_dir.mkdir(parents=True, exist_ok=True)
+            marker = target_dir / "upgraded-to.txt"
+            marker.write_text(f"{to_version}\n{plan_token}", encoding="utf-8")
+            after = {"version": to_version}
+            return UpgradeStepResult.ok(defn, before, after)
+        except Exception as exc:
+            return UpgradeStepResult.fail(
+                defn, UpgradeStepPhase.SUBMISSION, redact_message(str(exc))
+            )
+
+    def upgrade_reconcile(
+        self, target: RestoreTarget, to_version: str, plan_token: str
+    ) -> dict[str, Any]:
+        """Verify the post-upgrade version marker matches the candidate."""
+        marker = Path(target.location) / PROVIDER / "upgraded-to.txt"
+        ok = marker.is_file() and marker.read_text(encoding="utf-8").strip().startswith(to_version)
+        return {"ok": ok, "reason": "" if ok else "postgres_version_marker_mismatch"}

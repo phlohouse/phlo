@@ -12,6 +12,11 @@ verify is read-only and mutation-free.
 set digest to an explicit target; apply is authorized, reverifies the set,
 and restores providers in reverse order with post-restore reconciliation.
 An implicit/in-place target is always refused.
+
+`phlo operations upgrade plan|apply` — exactly one supported version pair is
+executable; apply requires a verified backup and runs provider steps in order,
+issuing a restore action before the rollback boundary or forward-repair
+instructions after it. No false rollback after an irreversible step.
 """
 
 from __future__ import annotations
@@ -216,6 +221,83 @@ def restore_apply_cmd(plan_path: str, confirmation_token: str, output_format: st
                 f"  {step.provider}: {step.state.value} ({step.phase.value}, "
                 f"retry_safe={step.retry_safe})"
             )
+
+    if not result.accepted:
+        raise SystemExit(1)
+
+
+@operations_group.group("upgrade")
+def upgrade_group() -> None:
+    """Prove the supported deployment upgrade pair (ADR 0049 §5)."""
+
+
+@upgrade_group.command("plan")
+@click.option("--from", "from_version", required=True, help="Previous version (fixture pair).")
+@click.option("--to", "to_version", required=True, help="Candidate version (fixture pair).")
+@click.option(
+    "--backup-set", "backup_set", type=click.Path(file_okay=False, path_type=Path), required=True
+)
+@click.option("--target", type=click.Path(file_okay=False, path_type=Path), required=True)
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
+def upgrade_plan_cmd(
+    from_version: str, to_version: str, backup_set: Path, target: Path, output_format: str
+) -> None:
+    """Create a mutation-free upgrade plan after a verified backup."""
+    from phlo.capabilities.continuity import RestoreTarget
+    from phlo.operations.upgrade import UpgradeError, plan_upgrade
+
+    try:
+        plan = plan_upgrade(
+            from_version=from_version,
+            to_version=to_version,
+            backup_set_dir=backup_set,
+            target=RestoreTarget.of(target),
+        )
+    except UpgradeError as exc:
+        raise click.ClickException(
+            f"upgrade plan failed: {exc.code} ({', '.join(exc.identifiers)})"
+        ) from exc
+
+    if output_format == "json":
+        _emit(plan.to_dict())
+    else:
+        click.echo(
+            f"Upgrade plan {plan.plan_token}: {plan.from_version} → {plan.to_version} "
+            f"(backup {plan.backup_set_id})"
+        )
+
+
+@upgrade_group.command("apply")
+@click.option("--plan", "plan_path", type=click.Path(exists=True), required=True)
+@click.option("--confirmation-token", required=True)
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
+@require_mutation_authorization("operations.upgrade.apply")
+def upgrade_apply_cmd(plan_path: str, confirmation_token: str, output_format: str) -> None:
+    """Apply the bound upgrade (authorized, requires verified backup)."""
+    from phlo.operations.backup import default_backup_contributors
+    from phlo.operations.journal import InMemoryOperationJournalStore
+    from phlo.operations.upgrade import UpgradeError, UpgradePlan, upgrade_apply
+
+    plan = UpgradePlan.from_dict(_read_json(plan_path))
+    contributors = dict(default_backup_contributors())
+    try:
+        result = upgrade_apply(
+            plan=plan,
+            confirmation_token=confirmation_token,
+            contributors=contributors,
+            journal=InMemoryOperationJournalStore(),
+        )
+    except UpgradeError as exc:
+        raise click.ClickException(
+            f"upgrade apply failed: {exc.code} ({', '.join(exc.identifiers)})"
+        ) from exc
+
+    if output_format == "json":
+        _emit(result.to_dict())
+    else:
+        click.echo(f"Upgrade {result.from_version} → {result.to_version}: {result.state}")
+        for step in result.steps:
+            click.echo(f"  {step.name}: {step.state.value} ({step.phase.value})")
 
     if not result.accepted:
         raise SystemExit(1)

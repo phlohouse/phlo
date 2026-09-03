@@ -217,3 +217,35 @@ class MinioBackupContributor:
             "reason": "" if ok else ";".join(mismatches),
             "object_count": str(len(object_artifacts)),
         }
+
+    def upgrade_step(
+        self,
+        defn: Any,
+        target: RestoreTarget,
+        from_version: str,
+        to_version: str,
+        plan_token: str,
+    ) -> Any:
+        """Apply the minio policy step with version evidence."""
+        from phlo.operations.upgrade import UpgradeStepPhase, UpgradeStepResult
+
+        before = {"version": from_version}
+        try:
+            target_dir = Path(target.location) / PROVIDER
+            target_dir.mkdir(parents=True, exist_ok=True)
+            marker = target_dir / "upgraded-to.txt"
+            marker.write_text(f"{to_version}\n{plan_token}", encoding="utf-8")
+            return UpgradeStepResult.ok(defn, before, {"version": to_version})
+        except Exception as exc:
+            return UpgradeStepResult.fail(
+                defn, UpgradeStepPhase.SUBMISSION, redact_message(str(exc))
+            )
+
+    def upgrade_reconcile(
+        self, target: RestoreTarget, to_version: str, plan_token: str
+    ) -> dict[str, Any]:
+        marker = Path(target.location) / PROVIDER / "upgraded-to.txt"
+        ok = bool(
+            marker.is_file() and marker.read_text(encoding="utf-8").strip().startswith(to_version)
+        )
+        return {"ok": ok, "reason": "" if ok else "minio_policy_marker_mismatch"}

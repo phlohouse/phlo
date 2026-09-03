@@ -106,3 +106,32 @@ def test_restore_missing_dump_fails_in_preflight(tmp_path: Path) -> None:
     assert step.state.value == "failed"
     assert step.phase.value == "preflight"
     assert step.retry_safe is False
+
+
+# --- upgrade (Plan 013 Step 3) ---------------------------------------------
+
+
+def test_upgrade_step_succeeds_and_reconciles(tmp_path: Path) -> None:
+    from phlo.capabilities.continuity import RestoreTarget
+    from phlo.operations.upgrade import SUPPORTED_TO_VERSION, UpgradeStepDef
+
+    defn = UpgradeStepDef("postgres", "postgres.schema", "migration", True, True)
+    target = RestoreTarget.of(tmp_path / "deploy")
+    contributor = PostgresBackupContributor(dump_runner=_dump_runner())
+    step = contributor.upgrade_step(defn, target, "0.14.0", SUPPORTED_TO_VERSION, "plan-tok")
+    assert step.state.value == "succeeded"
+    assert step.after["version"] == SUPPORTED_TO_VERSION
+    assert contributor.upgrade_reconcile(target, SUPPORTED_TO_VERSION, "plan-tok")["ok"] is True
+
+
+def test_upgrade_step_submission_failure_phase(tmp_path: Path) -> None:
+    from phlo.capabilities.continuity import RestoreTarget
+    from phlo.operations.upgrade import UpgradeStepDef
+
+    defn = UpgradeStepDef("postgres", "postgres.schema", "migration", True, True)
+    blocker = tmp_path / "is-a-file"
+    blocker.write_text("x")
+    contributor = PostgresBackupContributor(dump_runner=_dump_runner())
+    step = contributor.upgrade_step(defn, RestoreTarget.of(blocker), "0.14.0", "0.15.0", "t")
+    assert step.state.value == "failed"
+    assert step.phase.value == "submission"

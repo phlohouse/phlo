@@ -43,6 +43,19 @@ from phlo.operations.transformation import (
     BaseTransformer,
     TransformationResult,
 )
+from phlo.operations.upgrade import (
+    SUPPORTED_FROM_VERSION,
+    SUPPORTED_TO_VERSION,
+    UPGRADE_PIPELINE,
+    UpgradeError,
+    UpgradePlan,
+    UpgradeResult,
+    UpgradeStepResult,
+    migration_digest,
+    plan_upgrade,
+    upgrade_apply,
+    validate_upgrade_pair,
+)
 
 __all__ = [
     "AsyncIngester",
@@ -62,6 +75,13 @@ __all__ = [
     "SyncToAsyncIngesterAdapter",
     "SyncToAsyncTransformerAdapter",
     "TransformationResult",
+    "SUPPORTED_FROM_VERSION",
+    "SUPPORTED_TO_VERSION",
+    "UPGRADE_PIPELINE",
+    "UpgradeError",
+    "UpgradePlan",
+    "UpgradeResult",
+    "UpgradeStepResult",
     "RestoreError",
     "claim_operation",
     "complete_operation",
@@ -69,9 +89,13 @@ __all__ = [
     "default_backup_contributors",
     "mark_submitted",
     "mark_unknown",
+    "migration_digest",
     "plan_restore",
+    "plan_upgrade",
     "read_or_replay",
     "reconcile_unknown",
     "restore_apply",
+    "upgrade_apply",
+    "validate_upgrade_pair",
     "verify_backup_set",
 ]
