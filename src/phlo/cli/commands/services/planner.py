@@ -37,6 +37,7 @@ class StartPreflightPlan:
     project_name: str
     service_names: list[str]
     backend_name: str | None
+    environment: str | None = None
 
 
 def build_service_selection_plan(
@@ -100,6 +101,7 @@ def build_start_preflight_plan(
     backend_name: str | None,
     services: list[ServiceDefinition] | None = None,
     service_names: list[str] | None = None,
+    environment: str | None = None,
 ) -> StartPreflightPlan:
     """Assemble the inputs needed by services start preflight checks.
 
@@ -118,4 +120,5 @@ def build_start_preflight_plan(
         project_name=project_name,
         service_names=resolved_service_names,
         backend_name=backend_name,
+        environment=environment,
     )

@@ -546,6 +546,47 @@ def test_compose_generator_sets_host_user_for_project_writing_services(
     assert data["services"]["trino"]["user"] == "root"
 
 
+@pytest.mark.parametrize(
+    ("host_platform", "expected_user"),
+    [
+        ("Linux", "1234:2345"),
+        ("Darwin", None),
+        ("Windows", None),
+    ],
+)
+def test_compose_generator_runs_phlo_api_as_host_user_on_linux(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    host_platform: str,
+    expected_user: str | None,
+) -> None:
+    monkeypatch.setattr(generator_module.platform, "system", lambda: host_platform)
+    monkeypatch.setattr(generator_module.os, "getuid", lambda: 1234, raising=False)
+    monkeypatch.setattr(generator_module.os, "getgid", lambda: 2345, raising=False)
+
+    service = ServiceDefinition(
+        name="phlo-api",
+        description="phlo-api",
+        category="api",
+        default=False,
+        phlo_dev=True,
+        image="ghcr.io/phlohouse/phlo-api:0.14.0",
+        compose={},
+    )
+
+    generator = ComposeGenerator(cast(ServiceDiscovery, FakeDiscovery()))
+    data = yaml.safe_load(
+        generator.generate_compose(
+            services=[service],
+            output_dir=tmp_path,
+        )
+    )
+
+    # The API reads host-owned mode-0600 secrets (.phlo/.env, .phlo/.env.local)
+    # from the read-only project mount, so on Linux it runs as the host user.
+    assert data["services"]["phlo-api"].get("user") == expected_user
+
+
 def test_compose_generator_adds_home_to_list_environment_on_linux(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
@@ -1218,3 +1259,92 @@ def test_services_init_uses_lifecycle_planner_for_profiles(
 
     assert result.exit_code == 0
     assert copied == ["postgres", "grafana"]
+
+
+def test_services_init_production_writes_env_local_at_0600(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    postgres = _service("postgres", default=True)
+    discovery = FakeDiscovery({postgres.name: postgres}, default_names=(postgres.name,))
+
+    class _FakeComposer:
+        def __init__(self, _discovery) -> None:
+            pass
+
+        def generate_compose(self, _services, _output_dir, **_kwargs) -> str:
+            return "# Dev mode: false\nservices: {}\n"
+
+        def generate_env(self, _services, **kwargs) -> str:
+            return ""
+
+        def generate_env_local(self, _services, **kwargs) -> str:
+            return "POSTGRES_PASSWORD=independent-secret\n"
+
+        def generate_gitignore(self, _services) -> str:
+            return ""
+
+        def copy_service_files(self, _services, _output_dir) -> list[str]:
+            return []
+
+    (tmp_path / "phlo.yaml").write_text(
+        "env:\n  POSTGRES_USER: lakehouse\n  MINIO_ROOT_USER: object-admin\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    from phlo.cli.commands.services import init as init_module
+
+    monkeypatch.setattr(init_module, "ServiceDiscovery", lambda: discovery)
+    monkeypatch.setattr(init_module, "ComposeGenerator", _FakeComposer)
+
+    result = CliRunner().invoke(init_module.init_cmd, ["--production"])
+    assert result.exit_code == 0, result.output
+
+    env_local = tmp_path / ".phlo" / ".env.local"
+    assert env_local.exists()
+    assert env_local.stat().st_mode & 0o7777 == 0o600
+    assert "independent-secret" in env_local.read_text()
+
+
+def test_services_init_replaces_permissive_env_local_at_0600(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    postgres = _service("postgres", default=True)
+    discovery = FakeDiscovery({postgres.name: postgres}, default_names=(postgres.name,))
+
+    class _FakeComposer:
+        def __init__(self, _discovery) -> None:
+            pass
+
+        def generate_compose(self, _services, _output_dir, **_kwargs) -> str:
+            return "# Dev mode: false\nservices: {}\n"
+
+        def generate_env(self, _services, **kwargs) -> str:
+            return ""
+
+        def generate_env_local(self, _services, **kwargs) -> str:
+            return "POSTGRES_PASSWORD=independent-secret\n"
+
+        def generate_gitignore(self, _services) -> str:
+            return ""
+
+        def copy_service_files(self, _services, _output_dir) -> list[str]:
+            return []
+
+    (tmp_path / "phlo.yaml").write_text(
+        "env:\n  POSTGRES_USER: lakehouse\n  MINIO_ROOT_USER: object-admin\n"
+    )
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    env_local = phlo_dir / ".env.local"
+    env_local.write_text("POSTGRES_PASSWORD=independent-secret\n")
+    env_local.chmod(0o644)
+
+    monkeypatch.chdir(tmp_path)
+    from phlo.cli.commands.services import init as init_module
+
+    monkeypatch.setattr(init_module, "ServiceDiscovery", lambda: discovery)
+    monkeypatch.setattr(init_module, "ComposeGenerator", _FakeComposer)
+
+    result = CliRunner().invoke(init_module.init_cmd, ["--force", "--production"])
+    assert result.exit_code == 0, result.output
+    assert env_local.exists()
+    assert env_local.stat().st_mode & 0o7777 == 0o600

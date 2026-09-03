@@ -465,6 +465,40 @@ def _preflight_required_env_vars(
     )
 
 
+def _resolve_start_environment(phlo_dir: Path, project_root: Path) -> str:
+    """Resolve the effective environment for the startup preflight gate."""
+    env = _load_environment(phlo_dir, _load_project_config(project_root))
+    return env.get("PHLO_ENVIRONMENT", "dev").strip().lower() or "dev"
+
+
+def _run_production_preflight(plan: StartPreflightPlan) -> None:
+    """Run the production readiness evaluator before any backend contact."""
+    from phlo.security.production_preflight import (
+        ProductionReadinessState,
+        run_production_readiness,
+    )
+
+    report = run_production_readiness(
+        plan=plan,
+        project_root=plan.project_root,
+        environment=plan.environment or "production",
+    )
+
+    # Reuse the human rendering owned by `phlo services preflight`.
+    from phlo.cli.commands.services.preflight import _render_report
+
+    _render_report(report)
+
+    if not report.passed:
+        failed_ids = [
+            check.id.value
+            for check in report.checks
+            if check.state
+            in (ProductionReadinessState.FAILED, ProductionReadinessState.UNAVAILABLE)
+        ]
+        raise click.ClickException("production readiness failed; checks: " + ", ".join(failed_ids))
+
+
 @click.command("start", help="Start Phlo infrastructure services.")
 @click.option(
     "-d",
@@ -592,6 +626,8 @@ def start_cmd(
         services=resolved_services,
     )
 
+    environment = _resolve_start_environment(phlo_dir, Path.cwd())
+
     # If native dev services are enabled, start Docker services excluding native ones,
     # then start native processes for the excluded services.
     native_service_names: set[str] = set()
@@ -681,7 +717,6 @@ def start_cmd(
         )
 
     if not skip_docker_compose:
-        require_container_backend(backend_name)
         preflight_plan = build_start_preflight_plan(
             phlo_dir=phlo_dir,
             compose_file=compose_file,
@@ -690,7 +725,11 @@ def start_cmd(
             services=resolved_services,
             backend_name=backend_name,
             service_names=docker_service_names,
+            environment=environment,
         )
+        if environment == "production":
+            _run_production_preflight(preflight_plan)
+        require_container_backend(backend_name)
         _preflight_requested_host_ports(
             plan=preflight_plan,
         )

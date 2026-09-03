@@ -27,6 +27,7 @@ def _register_commands() -> None:
     from phlo.cli.commands.services.list import list_cmd
     from phlo.cli.commands.services.logs import logs_cmd
     from phlo.cli.commands.services.ports import ports_cmd
+    from phlo.cli.commands.services.preflight import preflight_cmd
     from phlo.cli.commands.services.remove import remove_cmd
     from phlo.cli.commands.services.reset import reset_cmd
     from phlo.cli.commands.services.restart import restart_cmd
@@ -37,6 +38,7 @@ def _register_commands() -> None:
     services_group.add_command(init_cmd)
     services_group.add_command(list_cmd)
     services_group.add_command(ports_cmd)
+    services_group.add_command(preflight_cmd)
     services_group.add_command(start_cmd)
     services_group.add_command(stop_cmd)
     services_group.add_command(reset_cmd)

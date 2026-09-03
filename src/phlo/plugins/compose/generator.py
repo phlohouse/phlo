@@ -341,6 +341,13 @@ class ComposeGenerator:
             else:
                 config.pop("user", None)
 
+        if service.name == "phlo-api" and platform.system() == "Linux":
+            # The API reads project secrets (.phlo/.env, .phlo/.env.local) from
+            # the read-only project mount through pydantic settings. Those files
+            # are host-owned with restrictive permissions (ADR 0047), so the
+            # container must run as the generating host user to read them.
+            config["user"] = f"{os.getuid()}:{os.getgid()}"
+
         # Dependencies
         if service.depends_on:
             depends_config: dict[str, dict[str, str]] = {}

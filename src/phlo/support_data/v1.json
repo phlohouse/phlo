@@ -1682,11 +1682,12 @@
       "Generated credentials and convenient host ports are for a trusted local development machine only.",
       "Current service images and tags are implementation metadata, not release artifact guarantees."
     ],
-    "reason": "Authorization bypasses and unsafe generated service defaults block the v1 production profile.",
+    "reason": "Mandatory HTTP authorization, scoped workload identities, and backend-native readiness contributors remain unverified; the production preflight report currently surfaces these as failed or unavailable.",
     "release_cut_note": "production.status is required_before_release because release BOM resolution, supply-chain checks, and final release-cut evidence are outside this support boundary.",
     "evidence": [
       "docs/setup/security.md",
-      "docs/reference/auth-and-access.md"
+      "docs/reference/auth-and-access.md",
+      "docs/operations/production-readiness.md"
     ]
   },
   "exclusions": [

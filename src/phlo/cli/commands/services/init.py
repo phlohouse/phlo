@@ -26,6 +26,7 @@ from phlo.cli.commands.services.utils import (
     get_phlo_dir,
     resolve_phlo_package_dir,
 )
+from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.infrastructure.utils import parse_env_file
 from phlo.cli.output import user_error
 from phlo.plugins.compose import ComposeGenerator
@@ -398,7 +399,7 @@ def init_cmd(
     )
     env_file.write_text(env_content)
     click.echo(f"Created: {env_file.relative_to(Path.cwd())}")
-    env_local_file.write_text(env_local_content)
+    write_sensitive_file(env_local_file, env_local_content)
     click.echo(f"Created: {env_local_file.relative_to(Path.cwd())}")
 
     # Generate .gitignore

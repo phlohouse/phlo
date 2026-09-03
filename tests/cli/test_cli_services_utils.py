@@ -163,3 +163,50 @@ def test_regenerate_compose_writes_compose_and_env_files(
     assert (phlo_dir / "docker-compose.yml").read_text() == "services:\n  postgres: {}\n"
     assert (phlo_dir / ".env").read_text() == "POSTGRES_PORT=5432\n"
     assert (phlo_dir / ".env.local").read_text() == "POSTGRES_PASSWORD=secret\n"
+    assert (phlo_dir / ".env.local").stat().st_mode & 0o7777 == 0o600
+
+
+def test_regenerate_compose_replaces_permissive_env_local_at_0600(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    env_local = phlo_dir / ".env.local"
+    env_local.write_text("POSTGRES_PASSWORD=old-secret\n")
+    env_local.chmod(0o644)
+    service = _service("postgres", default=True)
+
+    class DiscoveryFake(FakeDiscovery):
+        def __init__(self) -> None:
+            super().__init__({service.name: service}, default_names=(service.name,))
+
+    class ComposeGeneratorFake:
+        def __init__(self, discovery) -> None:
+            self.discovery = discovery
+
+        def generate_compose(self, services_to_install, _phlo_dir, **kwargs) -> str:
+            return "services:\n  postgres: {}\n"
+
+        def generate_env(self, services_to_install, **kwargs) -> str:
+            return "POSTGRES_PORT=5432\n"
+
+        def generate_env_local(self, services_to_install, **kwargs) -> str:
+            return "POSTGRES_PASSWORD=new-secret\n"
+
+        def copy_service_files(self, services_to_install, _phlo_dir) -> list[str]:
+            return []
+
+    monkeypatch.setattr(
+        "phlo.cli.infrastructure.selection.select_services_to_install",
+        lambda **_kwargs: [service],
+    )
+    monkeypatch.setattr(
+        service_utils, "expand_service_dependencies", lambda _discovery, services: services
+    )
+    monkeypatch.setattr("phlo.plugins.compose.ComposeGenerator", ComposeGeneratorFake)
+
+    service_utils._regenerate_compose(DiscoveryFake(), {}, phlo_dir)
+
+    assert env_local.read_text() == "POSTGRES_PASSWORD=new-secret\n"
+    assert env_local.stat().st_mode & 0o7777 == 0o600

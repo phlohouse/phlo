@@ -20,6 +20,7 @@ import click
 
 from phlo.cli.infrastructure.command import run_command
 from phlo.cli.infrastructure.container_backend import select_project_container_backend
+from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.output import missing_compose_file_error, missing_phlo_project_error, user_error
 from phlo.infrastructure.containers import resolve_container_name as _resolve_container_name
 from phlo.logging import get_logger
@@ -725,7 +726,7 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     )
     env_file.write_text(env_content)
     click.echo("Updated: .phlo/.env")
-    env_local_file.write_text(env_local_content)
+    write_sensitive_file(env_local_file, env_local_content)
     click.echo("Updated: .phlo/.env.local")
 
     # Copy any new service files

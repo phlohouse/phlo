@@ -1290,3 +1290,133 @@ def _wait_for_process_exit(pids: list[int]) -> bool:
             return True
         time.sleep(0.05)
     return False
+
+
+def _invoke_start_with_production(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    *,
+    environment: str,
+    preflight_behaviour: str,
+    snapshots: list[list[ServiceStatus]] | None = None,
+):
+    """Invoke services start with a controlled production preflight seam."""
+    from phlo.cli.commands.services import start as start_module
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / ".env").write_text(f"PHLO_ENVIRONMENT={environment}\n")
+    (phlo_dir / "docker-compose.yml").write_text(
+        "# Dev mode: false\nservices:\n  postgres:\n    image: x\n"
+    )
+    (phlo_dir / ".env.local").write_text("POSTGRES_PASSWORD=independent-secret\n")
+    backend_calls: list[str] = []
+    backend = _ReadinessBackend(snapshots or [])
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(start_module, "ensure_phlo_dir", lambda: phlo_dir)
+    monkeypatch.setattr(start_module, "get_project_name", lambda: "demo")
+    monkeypatch.setattr(start_module, "compose_base_cmd", lambda **_kwargs: ["docker", "compose"])
+    monkeypatch.setattr(
+        start_module,
+        "require_container_backend",
+        lambda *_args, **_kwargs: backend_calls.append("require_container_backend"),
+    )
+    monkeypatch.setattr(start_module, "select_project_container_backend", lambda **_kwargs: backend)
+    monkeypatch.setattr(
+        start_module,
+        "run_command",
+        lambda cmd, **_kwargs: CompletedProcess(args=cmd, returncode=0),
+    )
+    monkeypatch.setattr(
+        start_module, "_emit_service_lifecycle_events", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(start_module, "_run_service_hooks", lambda *_args, **_kwargs: None)
+
+    preflight_calls: list[str] = []
+
+    if preflight_behaviour == "fail":
+
+        def _fail(plan):  # noqa: ANN001
+            preflight_calls.append("preflight")
+            import click
+
+            raise click.ClickException("production readiness failed; checks: env.production")
+
+        monkeypatch.setattr(start_module, "_run_production_preflight", _fail)
+    elif preflight_behaviour == "pass":
+
+        def _pass(plan):  # noqa: ANN001
+            preflight_calls.append("preflight")
+
+        monkeypatch.setattr(start_module, "_run_production_preflight", _pass)
+    else:
+        monkeypatch.setattr(start_module, "_run_production_preflight", lambda plan: None)
+
+    result = CliRunner().invoke(start_module.start_cmd, [])
+    return result, backend_calls, preflight_calls
+
+
+def test_start_production_failing_preflight_never_contacts_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    result, backend_calls, preflight_calls = _invoke_start_with_production(
+        monkeypatch,
+        tmp_path,
+        environment="production",
+        preflight_behaviour="fail",
+    )
+    assert preflight_calls == ["preflight"]
+    assert backend_calls == []
+    assert result.exit_code != 0
+    assert "production readiness failed" in result.output
+
+
+def test_start_production_passing_preflight_preserves_startup_ordering(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    result, backend_calls, preflight_calls = _invoke_start_with_production(
+        monkeypatch,
+        tmp_path,
+        environment="production",
+        preflight_behaviour="pass",
+        snapshots=[
+            [ServiceStatus(service="postgres", state="running", health=None)],
+        ],
+    )
+    assert preflight_calls == ["preflight"]
+    assert backend_calls == ["require_container_backend"]
+    assert result.exit_code == 0, result.output
+
+
+def test_start_production_preflight_runs_only_when_production(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    dev_dir = tmp_path / "dev"
+    prod_dir = tmp_path / "prod"
+    result_dev, backend_calls_dev, preflight_calls_dev = _invoke_start_with_production(
+        monkeypatch,
+        dev_dir,
+        environment="dev",
+        preflight_behaviour="pass",
+        snapshots=[
+            [ServiceStatus(service="postgres", state="running", health=None)],
+        ],
+    )
+    assert preflight_calls_dev == []
+    assert backend_calls_dev == ["require_container_backend"]
+    assert result_dev.exit_code == 0, result_dev.output
+
+    result_prod, backend_calls_prod, preflight_calls_prod = _invoke_start_with_production(
+        monkeypatch,
+        prod_dir,
+        environment="production",
+        preflight_behaviour="pass",
+        snapshots=[
+            [ServiceStatus(service="postgres", state="running", health=None)],
+        ],
+    )
+    assert preflight_calls_prod == ["preflight"]
+    assert backend_calls_prod == ["require_container_backend"]
+    assert result_prod.exit_code == 0, result_prod.output
