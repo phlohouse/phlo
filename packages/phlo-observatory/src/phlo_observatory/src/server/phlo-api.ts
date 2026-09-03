@@ -48,7 +48,14 @@ async function request<T>(
 
   const headers = new Headers()
   const hasHeaders = Boolean(authorization) || body !== undefined
-  if (authorization) headers.set('Authorization', authorization)
+  if (authorization !== undefined) {
+    // Never forward a header-injection vector. A credential containing a
+    // line break is malformed, not "credential-like"; reject it outright.
+    if (/[\r\n]/.test(authorization)) {
+      throw new Error('Malformed authorization header rejected')
+    }
+    headers.set('Authorization', authorization)
+  }
   if (body !== undefined) headers.set('Content-Type', 'application/json')
 
   const response = await fetch(url.toString(), {
@@ -85,8 +92,14 @@ export async function apiPost<T>(
   endpoint: string,
   body?: unknown,
   timeoutMs = 30000,
+  authorization?: string,
 ): Promise<T> {
-  return request<T>(endpoint, { method: 'POST', body, timeoutMs })
+  return request<T>(endpoint, {
+    method: 'POST',
+    body,
+    timeoutMs,
+    authorization,
+  })
 }
 
 /**
@@ -96,6 +109,7 @@ export async function apiPut<T>(
   endpoint: string,
   body?: unknown,
   timeoutMs = 30000,
+  authorization?: string,
 ): Promise<T> {
-  return request<T>(endpoint, { method: 'PUT', body, timeoutMs })
+  return request<T>(endpoint, { method: 'PUT', body, timeoutMs, authorization })
 }

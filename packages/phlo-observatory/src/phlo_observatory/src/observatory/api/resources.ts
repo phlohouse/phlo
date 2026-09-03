@@ -56,6 +56,7 @@ import type {
   ObservatoryWorkflowWizardPayload,
 } from './types'
 import { apiGet, apiPost } from '@/server/phlo-api'
+import { mutationAuthorization } from '@/server/authenticated-mutation'
 
 const Observatory_API_PREFIX = '/api/observatory'
 
@@ -131,6 +132,11 @@ async function browserApiPost<T>(
   body: unknown,
   timeoutMs = 12000,
 ): Promise<T> {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Direct browser mutations are disabled in production; route through the server function',
+    )
+  }
   const base = browserApiBase()
   if (base === null) {
     throw new Error('Browser API fallback is unavailable during SSR')
@@ -169,6 +175,11 @@ async function browserApiPut<T>(
   body: unknown,
   timeoutMs = 12000,
 ): Promise<T> {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Direct browser mutations are disabled in production; route through the server function',
+    )
+  }
   const base = browserApiBase()
   if (base === null) {
     throw new Error('Browser API fallback is unavailable during SSR')
@@ -932,16 +943,19 @@ export async function searchObservatoryDirect({
 }
 
 export const runObservatoryAction = createServerFn()
+  .middleware([mutationAuthorization])
   .inputValidator((input: { actionId: string }) => input)
   .handler(
     async ({
       data: { actionId },
+      context,
     }): Promise<ObservatoryResourceResult<ObservatoryActionResult>> => {
       try {
         const data = await apiPost<ObservatoryActionResult>(
           `${Observatory_API_PREFIX}/actions`,
           { action_id: actionId },
           130000,
+          context.authorization,
         )
         return { data, error: null }
       } catch (error) {
@@ -968,16 +982,19 @@ export async function runObservatoryActionDirect({
 }
 
 export const installObservatoryPackage = createServerFn()
+  .middleware([mutationAuthorization])
   .inputValidator((input: { packageName: string }) => input)
   .handler(
     async ({
       data: { packageName },
+      context,
     }): Promise<ObservatoryResourceResult<ObservatoryPackageInstallResult>> => {
       try {
         const data = await apiPost<ObservatoryPackageInstallResult>(
           `${Observatory_API_PREFIX}/packages/install`,
           { package_name: packageName },
           310000,
+          context.authorization,
         )
         return { data, error: null }
       } catch (error) {
@@ -1004,16 +1021,19 @@ export async function installObservatoryPackageDirect({
 }
 
 export const runObservatoryBranchAction = createServerFn()
+  .middleware([mutationAuthorization])
   .inputValidator((input: { actionId: string }) => input)
   .handler(
     async ({
       data: { actionId },
+      context,
     }): Promise<ObservatoryResourceResult<ObservatoryActionResult>> => {
       try {
         const data = await apiPost<ObservatoryActionResult>(
           `${Observatory_API_PREFIX}/branches/actions`,
           { action_id: actionId },
           12000,
+          context.authorization,
         )
         return { data, error: null }
       } catch (error) {

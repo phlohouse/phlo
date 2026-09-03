@@ -429,3 +429,65 @@ function stubBrowserPost(payload: unknown) {
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
+
+describe('guarded mutation transport (plan 003B)', () => {
+  beforeEach(() => {
+    apiPost.mockReset()
+  })
+
+  it('forwards the inbound bearer credential on guarded mutations', async () => {
+    apiPost.mockResolvedValue({ data: { message: 'ok' }, error: null })
+
+    const { runObservatoryAction } = await import('./resources')
+    const result = await runObservatoryAction({
+      data: { actionId: 'a1' },
+      headers: { authorization: 'Bearer token-x' },
+    })
+
+    expect(result.error).toBeNull()
+    expect(apiPost).toHaveBeenCalledWith(
+      '/api/observatory/actions',
+      { action_id: 'a1' },
+      130000,
+      'Bearer token-x',
+    )
+  })
+
+  it('omits the credential when the inbound request carries none', async () => {
+    apiPost.mockResolvedValue({ data: { message: 'ok' }, error: null })
+
+    const { runObservatoryAction } = await import('./resources')
+    await runObservatoryAction({ data: { actionId: 'a1' }, headers: {} })
+
+    const [, , , authorization] = apiPost.mock.calls[0]
+    expect(authorization).toBeUndefined()
+  })
+
+  it('forwards the inbound bearer credential on package install', async () => {
+    apiPost.mockResolvedValue({ data: { message: 'installed' }, error: null })
+
+    const { installObservatoryPackage } = await import('./resources')
+    await installObservatoryPackage({
+      data: { packageName: 'phlo-iceberg' },
+      headers: { authorization: 'Bearer token-y' },
+    })
+
+    expect(apiPost).toHaveBeenCalledWith(
+      '/api/observatory/packages/install',
+      { package_name: 'phlo-iceberg' },
+      310000,
+      'Bearer token-y',
+    )
+  })
+
+  it('rejects direct-browser mutations in production builds', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+
+    const { runObservatoryActionDirect } = await import('./resources')
+    const result = await runObservatoryActionDirect({ actionId: 'a1' })
+
+    expect(result.data).toBeNull()
+    expect(result.error).toMatch(/production/)
+    vi.unstubAllEnvs()
+  })
+})
