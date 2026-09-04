@@ -6,6 +6,7 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import {
   Activity,
+  ArchiveRestore,
   Boxes,
   CirclePlay,
   Clipboard,
@@ -79,6 +80,7 @@ const fallbackPages: Array<ObservatoryCapabilityPage> = [
   corePage('query-history', 'Query History', '/query-history'),
   corePage('ingestion', 'Ingestion', '/ingestion'),
   corePage('operations', 'Recovery', '/operations'),
+  corePage('continuity', 'Continuity', '/continuity'),
   corePage('tables', 'Tables', '/tables'),
   corePage('lineage', 'Lineage', '/lineage'),
   corePage('workflows', 'Workflow Builder', '/workflows/new'),
@@ -109,6 +111,7 @@ const navOrder = [
   'pipelines',
   'runs',
   'operations',
+  'continuity',
   'logs',
   'publishing',
   'branches',
@@ -141,7 +144,7 @@ const navGroupDefinitions = [
   {
     label: 'Investigate',
     sections: [
-      { label: 'Triage', ids: ['quality', 'operations'] },
+      { label: 'Triage', ids: ['quality', 'operations', 'continuity'] },
       { label: 'Evidence', ids: ['runs', 'pipelines', 'logs'] },
     ],
   },
@@ -186,6 +189,7 @@ const iconByPageId: Record<string, typeof LayoutDashboard> = {
   ingestion: Import,
   services: Server,
   operations: Activity,
+  continuity: ArchiveRestore,
   runs: CirclePlay,
   tables: Database,
   lineage: Boxes,
@@ -214,6 +218,7 @@ const navSubtitleByPageId: Record<string, string> = {
   ingestion: 'Source onboarding, freshness, and next actions.',
   services: 'Runtime services and stack status.',
   operations: 'Failed work, recovery evidence, and next actions.',
+  continuity: 'Plan-first backup, restore, maintenance, and upgrade actions.',
   runs: 'Orchestrator history and outcomes.',
   tables: 'Tables, previews, and query surfaces.',
   lineage: 'Lineage, dependencies, and metadata.',
@@ -702,6 +707,7 @@ function isKnownObservatoryPath(pathname: string): boolean {
     '/logs',
     '/observability',
     '/operations',
+    '/continuity',
     '/pipelines',
     '/publishing',
     '/quality',

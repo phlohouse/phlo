@@ -14,6 +14,7 @@ import { Route as SplatRouteImport } from './routes/$'
 import { Route as ApisRouteImport } from './routes/apis'
 import { Route as BiRouteImport } from './routes/bi'
 import { Route as BranchesRouteImport } from './routes/branches'
+import { Route as ContinuityRouteImport } from './routes/continuity'
 import { Route as DatasetsRouteImport } from './routes/datasets'
 import { Route as ExtensionsRouteImport } from './routes/extensions'
 import { Route as GovernanceRouteImport } from './routes/governance'
@@ -63,6 +64,11 @@ const BiRoute = BiRouteImport.update({
 const BranchesRoute = BranchesRouteImport.update({
   id: '/branches',
   path: '/branches',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContinuityRoute = ContinuityRouteImport.update({
+  id: '/continuity',
+  path: '/continuity',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DatasetsRoute = DatasetsRouteImport.update({
@@ -198,6 +204,7 @@ export interface FileRoutesByFullPath {
   '/apis': typeof ApisRoute
   '/bi': typeof BiRoute
   '/branches': typeof BranchesRoute
+  '/continuity': typeof ContinuityRoute
   '/datasets': typeof DatasetsRouteWithChildren
   '/extensions': typeof ExtensionsRouteWithChildren
   '/governance': typeof GovernanceRoute
@@ -230,6 +237,7 @@ export interface FileRoutesByTo {
   '/apis': typeof ApisRoute
   '/bi': typeof BiRoute
   '/branches': typeof BranchesRoute
+  '/continuity': typeof ContinuityRoute
   '/datasets': typeof DatasetsRouteWithChildren
   '/extensions': typeof ExtensionsRouteWithChildren
   '/governance': typeof GovernanceRoute
@@ -263,6 +271,7 @@ export interface FileRoutesById {
   '/apis': typeof ApisRoute
   '/bi': typeof BiRoute
   '/branches': typeof BranchesRoute
+  '/continuity': typeof ContinuityRoute
   '/datasets': typeof DatasetsRouteWithChildren
   '/extensions': typeof ExtensionsRouteWithChildren
   '/governance': typeof GovernanceRoute
@@ -297,6 +306,7 @@ export interface FileRouteTypes {
     | '/apis'
     | '/bi'
     | '/branches'
+    | '/continuity'
     | '/datasets'
     | '/extensions'
     | '/governance'
@@ -329,6 +339,7 @@ export interface FileRouteTypes {
     | '/apis'
     | '/bi'
     | '/branches'
+    | '/continuity'
     | '/datasets'
     | '/extensions'
     | '/governance'
@@ -361,6 +372,7 @@ export interface FileRouteTypes {
     | '/apis'
     | '/bi'
     | '/branches'
+    | '/continuity'
     | '/datasets'
     | '/extensions'
     | '/governance'
@@ -394,6 +406,7 @@ export interface RootRouteChildren {
   ApisRoute: typeof ApisRoute
   BiRoute: typeof BiRoute
   BranchesRoute: typeof BranchesRoute
+  ContinuityRoute: typeof ContinuityRoute
   DatasetsRoute: typeof DatasetsRouteWithChildren
   ExtensionsRoute: typeof ExtensionsRouteWithChildren
   GovernanceRoute: typeof GovernanceRoute
@@ -453,6 +466,13 @@ declare module '@tanstack/react-router' {
       path: '/branches'
       fullPath: '/branches'
       preLoaderRoute: typeof BranchesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/continuity': {
+      id: '/continuity'
+      path: '/continuity'
+      fullPath: '/continuity'
+      preLoaderRoute: typeof ContinuityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/datasets': {
@@ -674,6 +694,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApisRoute: ApisRoute,
   BiRoute: BiRoute,
   BranchesRoute: BranchesRoute,
+  ContinuityRoute: ContinuityRoute,
   DatasetsRoute: DatasetsRouteWithChildren,
   ExtensionsRoute: ExtensionsRouteWithChildren,
   GovernanceRoute: GovernanceRoute,
