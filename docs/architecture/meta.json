@@ -2,6 +2,7 @@
   "title": "Architecture",
   "pages": [
     "index",
-    "public-system-design"
+    "public-system-design",
+    "decisions/index"
   ]
 }

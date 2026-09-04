@@ -179,7 +179,6 @@ apps/phlo-agent/node_modules/
 !apps/phlo-agent/.env.example
 
 # Local-only docs
-docs/architecture/decisions/
 agents.md
 docs/architecture/goals
 docs/architecture/specs
