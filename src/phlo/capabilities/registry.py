@@ -29,6 +29,8 @@ from phlo.capabilities.specs import (
     CatalogScannerSpec,
     CatalogSpec,
     DataMigrationSourceSpec,
+    DatasetEvidenceSourceSpec,
+    DatasetStateStoreSpec,
     EvidenceProfileContributionSpec,
     GovernanceBackendSpec,
     LineageSinkSpec,
@@ -263,6 +265,18 @@ CAPABILITY_FAMILIES: dict[str, CapabilityFamilyDefinition[Any, Any]] = {
         spec_type=SettingsStoreSpec,
         key=lambda spec: spec.name,
         provider_method="get_settings_stores",
+    ),
+    "dataset_evidence": CapabilityFamilyDefinition(
+        name="dataset_evidence",
+        spec_type=DatasetEvidenceSourceSpec,
+        key=lambda spec: spec.name,
+        provider_method="get_dataset_evidence_sources",
+    ),
+    "dataset_state_store": CapabilityFamilyDefinition(
+        name="dataset_state_store",
+        spec_type=DatasetStateStoreSpec,
+        key=lambda spec: spec.name,
+        provider_method="get_dataset_state_stores",
     ),
 }
 

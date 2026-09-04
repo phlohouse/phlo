@@ -510,6 +510,26 @@ class SettingsStoreSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class DatasetEvidenceSourceSpec:
+    """Dataset evidence source capability with neutral evidence inputs."""
+
+    name: str
+    provider: Any
+    metadata: dict[str, Any] = field(default_factory=dict)
+    support: CapabilitySupport = field(default_factory=CapabilitySupport)
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetStateStoreSpec:
+    """Dataset state store capability with durable compare-and-set semantics."""
+
+    name: str
+    provider: Any
+    metadata: dict[str, Any] = field(default_factory=dict)
+    support: CapabilitySupport = field(default_factory=CapabilitySupport)
+
+
+@dataclass(frozen=True, slots=True)
 class UiContributionSpec:
     """UI contribution declared by a capability provider."""
 
