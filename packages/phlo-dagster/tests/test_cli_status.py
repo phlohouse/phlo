@@ -411,13 +411,86 @@ class TestStatusEdgeCases:
             "post",
             lambda *_args, **_kwargs: FakeResponse(),
         )
-        monkeypatch.setattr(status_module, "_get_asset_last_run", lambda _asset_name: None)
+        monkeypatch.setattr(
+            status_module,
+            "_get_asset_last_run",
+            lambda _asset_name: status_module.AssetRunEvidence(available=True, last_run=None),
+        )
 
         assets = _get_asset_status()
 
         assert assets[0]["name"] == "dlt_events"
         assert assets[0]["group"] == ""
         assert assets[0]["status"] == "never_run"
+        assert assets[0]["evidence_available"] is True
+
+    def test_unwired_evidence_source_is_declared(self, monkeypatch: pytest.MonkeyPatch):
+        """An unwired evidence source declares unavailability, not run data."""
+        evidence = status_module._get_asset_last_run("dlt_events")
+
+        assert evidence.available is False
+        assert evidence.last_run is None
+
+    def test_unwired_assets_are_excluded_from_stale_filter(self, monkeypatch: pytest.MonkeyPatch):
+        """Unknown evidence never satisfies the --stale filter."""
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "data": {
+                        "assetsOrError": {
+                            "nodes": [
+                                {"key": {"path": ["dlt_events"]}, "definition": {"groupName": ""}}
+                            ]
+                        }
+                    }
+                }
+
+        monkeypatch.setattr(status_module, "_dagster_graphql_url", lambda: "http://dagster")
+        monkeypatch.setattr(
+            status_module.http_requests,
+            "post",
+            lambda *_args, **_kwargs: FakeResponse(),
+        )
+
+        assets = _get_asset_status(stale=True)
+
+        assert assets == []
+
+    def test_unwired_asset_json_states_are_unknown(self, monkeypatch: pytest.MonkeyPatch):
+        """JSON rows for unwired assets carry unknown status/freshness."""
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "data": {
+                        "assetsOrError": {
+                            "nodes": [
+                                {"key": {"path": ["dlt_events"]}, "definition": {"groupName": ""}}
+                            ]
+                        }
+                    }
+                }
+
+        monkeypatch.setattr(status_module, "_dagster_graphql_url", lambda: "http://dagster")
+        monkeypatch.setattr(
+            status_module.http_requests,
+            "post",
+            lambda *_args, **_kwargs: FakeResponse(),
+        )
+
+        assets = _get_asset_status()
+
+        assert assets[0]["status"] == "unknown"
+        assert assets[0]["freshness"] == "unknown"
+        assert assets[0]["is_stale"] is None
+        assert assets[0]["evidence_available"] is False
 
     def test_status_with_all_flags(self):
         """Test status with all filtering flags combined."""

@@ -1,9 +1,11 @@
 """Capability resolver for runtime provider selection.
 
 Resolution is deterministic and never raises: an explicit name wins, then
-runtime/env/config overrides, and an unnamed request only resolves when
-exactly one provider is installed — otherwise it returns None so callers can
-surface guidance. Also reports unsatisfied plugin capability requirements.
+runtime/env/config overrides, then a family-level deterministic default
+(object_store resolves to MinIO), and an unnamed request only falls back to
+positional resolution when exactly one provider is installed — otherwise it
+returns None so callers can surface guidance. Also reports unsatisfied plugin
+capability requirements.
 Imported by phlo core (capabilities package, migrations executor) and phlo-dagster to resolve
 runtime capability providers deterministically.
 """
@@ -24,6 +26,11 @@ if TYPE_CHECKING:
     from phlo.plugins.base.plugin import PluginMetadata
 
 logger = get_logger(__name__)
+
+# MinIO is the deterministic default object store when no explicit choice is
+# configured and multiple object-store providers are installed. This avoids
+# ambiguity and install-order-dependent resolution.
+FAMILY_DEFAULT_CAPABILITIES: dict[str, str] = {"object_store": "minio"}
 
 
 @dataclass(frozen=True)
@@ -69,6 +76,18 @@ def resolve_capability(
 
     requested_name = name or configured_capability_name(capability_type, runtime=runtime)
     specs = registry.list(capability_type)
+    if requested_name is None and len(specs) != 1:
+        # An ambiguous (or empty) unnamed request uses the family's
+        # deterministic default when that provider is installed.
+        default_name = FAMILY_DEFAULT_CAPABILITIES.get(capability_type)
+        if default_name and any(spec.name == default_name for spec in specs):
+            logger.debug(
+                "capability_resolution_family_default",
+                capability_type=capability_type,
+                default_name=default_name,
+                candidate_names=[spec.name for spec in specs],
+            )
+            requested_name = default_name
     if requested_name is not None:
         for spec in specs:
             if spec.name == requested_name:

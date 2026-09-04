@@ -98,6 +98,8 @@ def test_package_install_openapi_contract_is_unchanged() -> None:
 def test_observatory_package_install_uses_trusted_registry_package(
     monkeypatch, tmp_path: Path
 ) -> None:
+    from importlib.metadata import version
+
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setenv(
         "PHLO_API_TOKENS",
@@ -111,7 +113,6 @@ def test_observatory_package_install_uses_trusted_registry_package(
                 "openmetadata": {
                     "type": "service",
                     "package": "phlo-openmetadata",
-                    "version": "0.1.0",
                 }
             }
         },
@@ -134,7 +135,8 @@ def test_observatory_package_install_uses_trusted_registry_package(
     assert response.status_code == 200
     assert response.json()["status"] == "succeeded"
     assert response.json()["package_name"] == "phlo-openmetadata"
-    assert installed == ["phlo-openmetadata==0.1.0"]
+    # The install spec derives its pin from installed package metadata.
+    assert installed == [f"phlo-openmetadata=={version('phlo-openmetadata')}"]
 
 
 def test_observatory_package_install_rejects_unknown_package_before_execution(

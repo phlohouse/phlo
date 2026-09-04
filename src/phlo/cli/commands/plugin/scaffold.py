@@ -146,10 +146,12 @@ def _build_init_content(plugin_name: str, plugin_type: str, module_name: str) ->
 Plugin type: {plugin_type}
 """
 
+from importlib.metadata import version
+
 from phlo_{module_name}.plugin import {class_name}
 
 __all__ = ["{class_name}"]
-__version__ = "0.1.0"
+__version__ = version("{plugin_name}")
 '''
 
 

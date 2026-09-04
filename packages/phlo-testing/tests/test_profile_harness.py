@@ -95,14 +95,7 @@ def test_bundled_stack_harness_materialize_adds_partition(monkeypatch) -> None:
         captured["kwargs"] = kwargs
         return "ok"
 
-    monkeypatch.setattr(
-        "phlo_testing.profile_harness._load_golden_path_module",
-        lambda: type(
-            "StubGoldenPathModule",
-            (),
-            {"run_phlo": staticmethod(fake_run_phlo)},
-        )(),
-    )
+    monkeypatch.setattr("phlo_testing.profile_harness.run_phlo", fake_run_phlo)
 
     harness = BundledStackHarness(
         project_dir=Path("/tmp/project"),
@@ -145,20 +138,12 @@ def test_bundled_stack_harness_read_env_merges_local_secrets(monkeypatch, tmp_pa
     )
 
     monkeypatch.setattr(
-        "phlo_testing.profile_harness._load_golden_path_module",
-        lambda: type(
-            "StubGoldenPathModule",
-            (),
-            {
-                "read_env_file": staticmethod(
-                    lambda path: dict(
-                        line.split("=", 1)
-                        for line in Path(path).read_text(encoding="utf-8").splitlines()
-                        if line
-                    )
-                )
-            },
-        )(),
+        "phlo_testing.profile_harness.read_env_file",
+        lambda path: dict(
+            line.split("=", 1)
+            for line in Path(path).read_text(encoding="utf-8").splitlines()
+            if line
+        ),
     )
     harness = BundledStackHarness(
         project_dir=tmp_path,
@@ -179,16 +164,8 @@ def test_bundled_stack_harness_cleanup_skips_kept_stack(monkeypatch) -> None:
     removed_paths: list[Path] = []
 
     monkeypatch.setattr(
-        "phlo_testing.profile_harness._load_golden_path_module",
-        lambda: type(
-            "StubGoldenPathModule",
-            (),
-            {
-                "force_remove_directory": staticmethod(
-                    lambda path: removed_paths.append(path) or True
-                )
-            },
-        )(),
+        "phlo_testing.profile_harness.force_remove_directory",
+        lambda path: removed_paths.append(path) or True,
     )
 
     harness = BundledStackHarness(
@@ -223,16 +200,8 @@ def test_bundled_stack_harness_cleanup_force_stops_kept_stack(monkeypatch) -> No
     removed_paths: list[Path] = []
 
     monkeypatch.setattr(
-        "phlo_testing.profile_harness._load_golden_path_module",
-        lambda: type(
-            "StubGoldenPathModule",
-            (),
-            {
-                "force_remove_directory": staticmethod(
-                    lambda path: removed_paths.append(path) or True
-                )
-            },
-        )(),
+        "phlo_testing.profile_harness.force_remove_directory",
+        lambda path: removed_paths.append(path) or True,
     )
 
     harness = BundledStackHarness(
@@ -408,14 +377,7 @@ def test_bundled_stack_harness_installs_optional_workspace_packages(monkeypatch)
         captured["kwargs"] = kwargs
         return "ok"
 
-    monkeypatch.setattr(
-        "phlo_testing.profile_harness._load_golden_path_module",
-        lambda: type(
-            "StubGoldenPathModule",
-            (),
-            {"run_command": staticmethod(fake_run_command)},
-        )(),
-    )
+    monkeypatch.setattr("phlo_testing.profile_harness.run_command", fake_run_command)
 
     harness = BundledStackHarness(
         project_dir=Path("/tmp/project"),
@@ -620,19 +582,12 @@ def test_cleanup_existing_bundled_stack_projects_stops_native_and_docker(
     docker_calls: list[tuple[str, ...]] = []
 
     monkeypatch.setattr(
-        "phlo_testing.profile_harness._load_golden_path_module",
-        lambda: type(
-            "StubGoldenPathModule",
-            (),
-            {
-                "run_phlo": staticmethod(
-                    lambda args, **kwargs: run_calls.append((tuple(args), kwargs["cwd"]))
-                ),
-                "force_remove_directory": staticmethod(
-                    lambda path: removed_paths.append(path) or True
-                ),
-            },
-        )(),
+        "phlo_testing.profile_harness.run_phlo",
+        lambda args, **kwargs: run_calls.append((tuple(args), kwargs["cwd"])),
+    )
+    monkeypatch.setattr(
+        "phlo_testing.profile_harness.force_remove_directory",
+        lambda path: removed_paths.append(path) or True,
     )
     monkeypatch.setattr(
         "phlo_testing.profile_harness.subprocess.run",

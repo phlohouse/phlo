@@ -122,7 +122,7 @@ COPY dagster/dagster.yaml /opt/dagster/dagster.yaml
 
 # The entrypoint installs the mounted project, then drops to the phlo account.
 # Keep the image startup user explicit so a base-image change cannot bypass that
-# bootstrap phase.
+# bootstrap stage.
 # hadolint ignore=DL3002
 USER root
 

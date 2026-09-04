@@ -5,7 +5,9 @@ into Dagster asset materialization status, freshness, and service health.
 It queries the Dagster GraphQL API to retrieve real-time state information.
 
 Features:
-    - Asset status: Materialization state, last run time, freshness indicators
+    - Asset status: Materialization state, last run time, and freshness
+      indicators derived only from wired evidence sources; assets without a
+      wired evidence source report unknown
     - Service health: Dagster, Trino, MinIO, Nessie connectivity checks
     - Filtering: By asset group, stale status
     - Output formats: Rich tables or JSON for scripting
@@ -31,6 +33,7 @@ Example:
 
 import json
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -254,20 +257,34 @@ def _get_asset_status(
                     if group and asset_group != group:
                         continue
 
-                    # Get last materialization
-                    last_run = _get_asset_last_run(asset_name)
+                    # Get last materialization from the wired evidence source
+                    evidence = _get_asset_last_run(asset_name)
+                    if evidence.available:
+                        last_run = evidence.last_run
+                        is_stale: bool | None = _check_if_stale(last_run)
+                        status_value = (
+                            last_run.get("status", "unknown") if last_run else "never_run"
+                        )
+                        freshness = _get_freshness_indicator(last_run)
+                    else:
+                        # No wired evidence source: report unknown, never a
+                        # stub-derived never_run/stale state.
+                        last_run = None
+                        is_stale = None
+                        status_value = "unknown"
+                        freshness = "unknown"
 
-                    is_stale = _check_if_stale(last_run)
-                    if stale and not is_stale:
+                    if stale and is_stale is not True:
                         continue
 
                     status_info = {
                         "name": asset_name,
                         "group": asset_group,
                         "last_run": last_run,
-                        "status": (last_run.get("status", "unknown") if last_run else "never_run"),
-                        "freshness": _get_freshness_indicator(last_run),
+                        "status": status_value,
+                        "freshness": freshness,
                         "is_stale": is_stale,
+                        "evidence_available": evidence.available,
                     }
                     assets.append(status_info)
         except requests_exceptions.RequestException as exc:
@@ -297,11 +314,29 @@ def _get_asset_status(
     return assets
 
 
-def _get_asset_last_run(asset_name: str) -> dict[str, Any] | None:
-    """Get last run info for an asset."""
-    # Not wired up yet: always returns no run data, so every asset is
-    # reported as never_run/stale regardless of actual materializations.
-    return None
+@dataclass(frozen=True, slots=True)
+class AssetRunEvidence:
+    """Per-asset run evidence behind the status report.
+
+    ``available`` is False when no wired evidence source backs the asset. An
+    unwired asset must display as unknown and must never inherit
+    ``never_run``/``stale`` from a stub, a default, or an empty snapshot. When
+    ``available`` is True, ``last_run`` is the wired record, or None when the
+    wired source has no run for the asset (a legitimate ``never_run``).
+    """
+
+    available: bool
+    last_run: dict[str, Any] | None = None
+
+
+def _get_asset_last_run(asset_name: str) -> AssetRunEvidence:
+    """Return the wired run evidence for an asset.
+
+    No per-asset run-evidence source is wired into this command yet. The
+    command therefore reports unknown instead of fabricating ``never_run`` or
+    ``stale`` for every asset.
+    """
+    return AssetRunEvidence(available=False)
 
 
 def _check_if_stale(last_run: dict[str, Any] | None) -> bool:
@@ -536,12 +571,17 @@ def _display_asset_status(
             freshness_str = "[red]Stale[/red]"
         elif freshness == "failed":
             freshness_str = "[red]Failed[/red]"
+        elif freshness == "unknown":
+            # No wired evidence source: never present unknown as never-run.
+            freshness_str = "[dim]— unknown[/dim]"
         else:
             freshness_str = "[dim]Never run[/dim]"
 
         # Last run time
         last_run = asset.get("last_run")
-        if last_run and last_run.get("timestamp"):
+        if freshness == "unknown":
+            last_run_str = "[dim]—[/dim]"
+        elif last_run and last_run.get("timestamp"):
             ts = last_run["timestamp"]
             age = datetime.now(timezone.utc) - ts
             if age < timedelta(hours=1):

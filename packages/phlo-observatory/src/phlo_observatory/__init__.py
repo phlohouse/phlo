@@ -64,4 +64,6 @@ __all__ = [
     "get_settings",
     "get_settings_service",
 ]
-__version__ = "0.14.0"
+from importlib.metadata import version
+
+__version__ = version("phlo-observatory")

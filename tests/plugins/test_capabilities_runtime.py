@@ -14,6 +14,7 @@ from phlo.capabilities import (
     MaintenanceOperationResult,
     MaintenanceOperationState,
     MetadataCatalogSpec,
+    ObjectStoreSpec,
     ObservabilityBackendSpec,
     PublishTargetSpec,
     QueryEngineSpec,
@@ -555,3 +556,45 @@ def test_observability_support_flags_round_trip() -> None:
     assert resolved.support.supports_logs is True
     assert resolved.support.supports_dashboards is True
     assert resolved.support.supports_alerts is True
+
+
+def test_resolve_object_store_defaults_to_minio_when_ambiguous() -> None:
+    """Multiple object stores resolve deterministically to MinIO by default."""
+    register_capability(
+        "object_store", ObjectStoreSpec(name="rustfs", provider={"endpoint": "rustfs"})
+    )
+    register_capability(
+        "object_store", ObjectStoreSpec(name="minio", provider={"endpoint": "minio"})
+    )
+
+    resolved = resolve_capability("object_store")
+
+    assert resolved is not None
+    assert resolved.name == "minio"
+
+
+def test_resolve_object_store_single_preview_store_still_resolves() -> None:
+    """A single installed (preview) object store resolves without a default."""
+    register_capability(
+        "object_store", ObjectStoreSpec(name="rustfs", provider={"endpoint": "rustfs"})
+    )
+
+    resolved = resolve_capability("object_store")
+
+    assert resolved is not None
+    assert resolved.name == "rustfs"
+
+
+def test_resolve_object_store_explicit_choice_overrides_minio_default() -> None:
+    """An explicit PHLO_OBJECT_STORE-style selection wins over the default."""
+    register_capability(
+        "object_store", ObjectStoreSpec(name="rustfs", provider={"endpoint": "rustfs"})
+    )
+    register_capability(
+        "object_store", ObjectStoreSpec(name="minio", provider={"endpoint": "minio"})
+    )
+
+    resolved = resolve_capability("object_store", "rustfs")
+
+    assert resolved is not None
+    assert resolved.name == "rustfs"

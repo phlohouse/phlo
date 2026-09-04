@@ -6,4 +6,6 @@ server, models, and config.
 
 __all__ = ["__version__"]
 
-__version__ = "0.14.0"
+from importlib.metadata import version
+
+__version__ = version("phlo-mcp")

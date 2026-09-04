@@ -84,6 +84,15 @@ Reference suites for each pattern: `tests/observability/test_run_reconciliation.
 `packages/phlo-dagster/tests/test_oidc_identity.py`,
 `packages/phlo-postgres/tests/test_postgres_cli.py`.
 
+## Maintainer interface
+
+The root `Makefile` is a dev-tooling interface only: `make check`, `make lint`,
+`make test`, and the docs targets. There are no root Compose targets — a
+repository checkout has no root `compose.yaml`, so `make up` and friends never
+worked from the root. Project lifecycle (init, start, stop, logs, service
+health) belongs to the `phlo` CLI (`phlo services init|start|stop|logs`,
+`phlo doctor`) run inside a Phlo project.
+
 ## Contributor Licence Agreement
 
 The [Contributor Licence Agreement](CLA.md) describes the additional rights

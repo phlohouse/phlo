@@ -8,4 +8,6 @@ service lifecycle management within the Phlo platform. Auto-discovered via the
 version string. See https://grafana.com/docs/alloy/latest/ for Alloy docs.
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import version
+
+__version__ = version("phlo-alloy")

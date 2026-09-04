@@ -1,12 +1,11 @@
 {
   "$schema": "https://registry.phlohouse.com/schema/v1.json",
   "version": "1.0.0",
-  "updated_at": "2025-12-22T00:00:00Z",
+  "updated_at": "2026-09-03T00:00:00Z",
   "plugins": {
     "dagster": {
       "type": "service",
       "package": "phlo-dagster",
-      "version": "0.1.0",
       "description": "Data orchestration platform for workflows and pipelines",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-dagster",
@@ -17,7 +16,6 @@
     "postgres": {
       "type": "service",
       "package": "phlo-postgres",
-      "version": "0.1.0",
       "description": "PostgreSQL database for metadata and operational storage",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-postgres",
@@ -28,7 +26,6 @@
     "minio": {
       "type": "service",
       "package": "phlo-minio",
-      "version": "0.1.0",
       "description": "S3-compatible object storage for data lake",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-minio",
@@ -39,7 +36,6 @@
     "rustfs": {
       "type": "service",
       "package": "phlo-rustfs",
-      "version": "0.1.0",
       "description": "RustFS S3-compatible object storage for data lake",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-rustfs",
@@ -50,7 +46,6 @@
     "nessie": {
       "type": "service",
       "package": "phlo-nessie",
-      "version": "0.1.0",
       "description": "Git-like catalog for Iceberg tables with branch/merge support",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-nessie",
@@ -61,7 +56,6 @@
     "trino": {
       "type": "service",
       "package": "phlo-trino",
-      "version": "0.1.0",
       "description": "Distributed SQL query engine for the data lake",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-trino",
@@ -72,7 +66,6 @@
     "rest_api": {
       "type": "source",
       "package": "phlo-core-plugins",
-      "version": "0.1.0",
       "description": "Generic REST API source connector",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-core-plugins",
@@ -83,7 +76,6 @@
     "null_check": {
       "type": "quality",
       "package": "phlo-core-plugins",
-      "version": "0.1.0",
       "description": "Null checks for column completeness",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-core-plugins",
@@ -94,7 +86,6 @@
     "uniqueness_check": {
       "type": "quality",
       "package": "phlo-core-plugins",
-      "version": "0.1.0",
       "description": "Uniqueness validation for primary keys",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-core-plugins",
@@ -105,7 +96,6 @@
     "freshness_check": {
       "type": "quality",
       "package": "phlo-core-plugins",
-      "version": "0.1.0",
       "description": "Freshness checks for timestamped data",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-core-plugins",
@@ -116,7 +106,6 @@
     "schema_check": {
       "type": "quality",
       "package": "phlo-core-plugins",
-      "version": "0.1.0",
       "description": "Schema validation for expected columns and types",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-core-plugins",
@@ -127,7 +116,6 @@
     "dagster-daemon": {
       "type": "service",
       "package": "phlo-dagster",
-      "version": "0.1.0",
       "description": "Dagster daemon for background scheduling and sensors",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-dagster",
@@ -138,7 +126,6 @@
     "minio-setup": {
       "type": "service",
       "package": "phlo-minio",
-      "version": "0.1.0",
       "description": "Initialize MinIO buckets for data lake",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-minio",
@@ -149,7 +136,6 @@
     "rustfs-setup": {
       "type": "service",
       "package": "phlo-rustfs",
-      "version": "0.1.0",
       "description": "Initialize RustFS buckets for data lake",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-rustfs",
@@ -160,7 +146,6 @@
     "pgweb": {
       "type": "service",
       "package": "phlo-pgweb",
-      "version": "0.1.0",
       "description": "Web-based PostgreSQL database browser",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-pgweb",
@@ -170,7 +155,6 @@
     "superset": {
       "type": "service",
       "package": "phlo-superset",
-      "version": "0.1.0",
       "description": "Apache Superset for business intelligence and data visualization",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-superset",
@@ -180,7 +164,6 @@
     "hasura": {
       "type": "service",
       "package": "phlo-hasura",
-      "version": "0.1.0",
       "description": "GraphQL API engine with real-time subscriptions",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-hasura",
@@ -190,7 +173,6 @@
     "phlo-api": {
       "type": "service",
       "package": "phlo-api",
-      "version": "0.1.0",
       "description": "Backend API exposing Phlo internals to Observatory",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-api",
@@ -200,7 +182,6 @@
     "postgrest": {
       "type": "service",
       "package": "phlo-postgrest",
-      "version": "0.1.0",
       "description": "RESTful API automatically generated from PostgreSQL schema",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-postgrest",
@@ -210,7 +191,6 @@
     "loki": {
       "type": "service",
       "package": "phlo-loki",
-      "version": "0.1.0",
       "description": "Log aggregation and querying",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-loki",
@@ -220,7 +200,6 @@
     "grafana": {
       "type": "service",
       "package": "phlo-grafana",
-      "version": "0.1.0",
       "description": "Metrics visualization and dashboards",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-grafana",
@@ -230,7 +209,6 @@
     "prometheus": {
       "type": "service",
       "package": "phlo-prometheus",
-      "version": "0.1.0",
       "description": "Metrics collection and monitoring",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-prometheus",
@@ -240,7 +218,6 @@
     "alloy": {
       "type": "service",
       "package": "phlo-alloy",
-      "version": "0.1.0",
       "description": "Grafana Alloy for log collection and shipping to Loki",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-alloy",
@@ -250,7 +227,6 @@
     "observatory": {
       "type": "service",
       "package": "phlo-observatory",
-      "version": "0.1.0",
       "description": "Phlo Observatory - Data platform visibility and lineage UI",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-observatory",
@@ -260,7 +236,6 @@
     "delta": {
       "type": "resource",
       "package": "phlo-delta",
-      "version": "0.1.0",
       "description": "Delta Lake table-store capability plugin for the data lakehouse",
       "author": "Phlo Team",
       "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-delta",
@@ -270,7 +245,6 @@
     "openmetadata": {
       "type": "hooks",
       "package": "phlo-openmetadata",
-      "version": "0.1.0",
       "description": "OpenMetadata hook handlers for lineage and quality sync",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-openmetadata",
@@ -280,7 +254,6 @@
     "alerting": {
       "type": "hooks",
       "package": "phlo-alerting",
-      "version": "0.1.0",
       "description": "Alerting hooks for quality and telemetry events",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-alerting",
@@ -290,7 +263,6 @@
     "lineage": {
       "type": "hooks",
       "package": "phlo-lineage",
-      "version": "0.1.0",
       "description": "Lineage hooks for asset dependency tracking",
       "author": "Phlo Team",
       "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-lineage",
@@ -300,7 +272,6 @@
     "clickhouse": {
       "type": "service",
       "package": "phlo-clickhouse",
-      "version": "0.1.0",
       "description": "ClickHouse analytical database for data plane",
       "author": "Phlo Team",
       "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-clickhouse",
@@ -311,7 +282,6 @@
     "clickhouse-setup": {
       "type": "service",
       "package": "phlo-clickhouse",
-      "version": "0.1.0",
       "description": "Initialize ClickHouse databases for data plane",
       "author": "Phlo Team",
       "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-clickhouse",
@@ -322,7 +292,6 @@
     "sling": {
       "type": "ingestion_providers",
       "package": "phlo-sling",
-      "version": "0.1.0",
       "description": "Sling database replication ingestion provider for Phlo",
       "author": "Phlo Team",
       "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-sling",

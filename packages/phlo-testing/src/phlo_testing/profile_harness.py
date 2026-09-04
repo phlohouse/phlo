@@ -24,7 +24,6 @@ Key Components:
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import json
 import os
 import socket
@@ -44,6 +43,23 @@ import requests
 from dagster import DagsterRunStatus
 from dagster._core.storage.tags import PARTITION_NAME_TAG
 from dagster_graphql.client.client import DagsterGraphQLClient
+
+from phlo_testing.harness_utils import (
+    apply_env_updates,
+    force_remove_directory,
+    http_get,
+    http_post,
+    openmetadata_get_with_fallback,
+    openmetadata_login,
+    read_env_file,
+    resolve_port,
+    run_command,
+    run_phlo,
+    setup_project_venv,
+    wait_for_http,
+    wait_for_tcp,
+    write_file,
+)
 
 BUNDLED_STACK_CORE_SERVICES = (
     "postgres",
@@ -124,31 +140,10 @@ _BUNDLED_STACK_PORT_DEFAULTS = {
 }
 # Default port mappings for bundled stack services.
 
-_GOLDEN_PATH_MODULE: Any | None = None
-
 
 def _repo_root() -> Path:
     """Return the repository root directory."""
     return Path(__file__).resolve().parents[4]
-
-
-def _load_golden_path_module() -> Any:
-    """Load the golden path module from the scripts directory.
-
-    Raises: RuntimeError when the module cannot be loaded.
-    """
-    global _GOLDEN_PATH_MODULE
-    if _GOLDEN_PATH_MODULE is not None:
-        return _GOLDEN_PATH_MODULE
-
-    module_path = _repo_root() / "scripts" / "run_golden_path.py"
-    spec = importlib.util.spec_from_file_location("phlo_testing_run_golden_path", module_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Unable to load golden-path utilities from {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    _GOLDEN_PATH_MODULE = module
-    return module
 
 
 def _repo_python_executable() -> Path:
@@ -250,14 +245,13 @@ def _cleanup_existing_bundled_stack_projects(base_dir: Path, *, stream_output: b
     stopping their services and removing containers and networks.
 
     """
-    utils = _load_golden_path_module()
     for project_dir in sorted(base_dir.glob("phlo-bundled-stack-*")):
         phlo_dir = project_dir / ".phlo"
         python_executable = project_dir / ".venv" / "bin" / "python"
 
         if phlo_dir.exists() and python_executable.exists():
             with contextlib.suppress(Exception):
-                utils.run_phlo(
+                run_phlo(
                     ["services", "stop", "--native"],
                     cwd=project_dir,
                     timeout=120,
@@ -266,7 +260,7 @@ def _cleanup_existing_bundled_stack_projects(base_dir: Path, *, stream_output: b
                     python_exe=python_executable,
                 )
             with contextlib.suppress(Exception):
-                utils.run_phlo(
+                run_phlo(
                     ["services", "stop"],
                     cwd=project_dir,
                     timeout=180,
@@ -276,7 +270,7 @@ def _cleanup_existing_bundled_stack_projects(base_dir: Path, *, stream_output: b
                 )
 
         with contextlib.suppress(Exception):
-            utils.force_remove_directory(project_dir)
+            force_remove_directory(project_dir)
 
     with contextlib.suppress(Exception):
         container_result = subprocess.run(
@@ -500,8 +494,7 @@ class BundledStackHarness:
 
         Raises: RuntimeError when the command fails and check is true.
         """
-        utils = _load_golden_path_module()
-        return utils.run_phlo(
+        return run_phlo(
             args,
             cwd=self.project_dir,
             timeout=timeout,
@@ -514,21 +507,16 @@ class BundledStackHarness:
         """Return resolved environment variables from the project's .phlo files, with
         .env.local overriding .env.
         """
-        utils = _load_golden_path_module()
         phlo_dir = self.project_dir / ".phlo"
-        env_vars = cast(dict[str, str], utils.read_env_file(phlo_dir / ".env"))
+        env_vars = read_env_file(phlo_dir / ".env")
         local_env_path = phlo_dir / ".env.local"
         if local_env_path.exists():
-            env_vars.update(cast(dict[str, str], utils.read_env_file(local_env_path)))
+            env_vars.update(read_env_file(local_env_path))
         return env_vars
 
     def default_partition_date(self) -> str:
         """Return yesterday's date as an ISO string, the default partition for materializations."""
         return (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
-
-    def _utils(self) -> Any:
-        """Load and return the golden path utilities module."""
-        return _load_golden_path_module()
 
     @contextlib.contextmanager
     def _temporary_env(self, updates: Mapping[str, str | None]) -> Any:
@@ -575,7 +563,7 @@ class BundledStackHarness:
             if not package_path.exists():
                 raise RuntimeError(f"Workspace package not found: {package_name}")
             install_args.extend(["-e", str(package_path)])
-        self._utils().run_command(install_args, cwd=self.project_dir, timeout=timeout)
+        run_command(install_args, cwd=self.project_dir, timeout=timeout)
 
     def ensure_full_stack_packages(self) -> None:
         """Install all optional packages for full stack testing."""
@@ -616,7 +604,7 @@ class BundledStackHarness:
 
         Raises: RuntimeError when the endpoint does not become ready within timeout.
         """
-        if not self._utils().wait_for_http(url, name=name, timeout=timeout):
+        if not wait_for_http(url, name=name, timeout=timeout):
             raise RuntimeError(f"{name} did not become ready: {url}")
 
     def http_get(
@@ -631,7 +619,7 @@ class BundledStackHarness:
         """
         return cast(
             dict[str, Any] | list[Any] | str,
-            self._utils().http_get(url, headers=headers, timeout=timeout),
+            http_get(url, headers=headers, timeout=timeout),
         )
 
     def http_post(
@@ -647,7 +635,7 @@ class BundledStackHarness:
         """
         return cast(
             dict[str, Any] | list[Any] | str,
-            self._utils().http_post(url, data, headers=headers, timeout=timeout),
+            http_post(url, data, headers=headers, timeout=timeout),
         )
 
     def run_python(
@@ -1031,14 +1019,14 @@ LineageEventEmitter(LineageEventContext(tags={{"source": "bundled_stack_contract
         om_user = env_vars.get("OPENMETADATA_USERNAME", "admin")
         om_pass = env_vars.get("OPENMETADATA_PASSWORD", "admin")
         om_base_url = f"http://127.0.0.1:{self.ports.openmetadata}"
-        om_token = self._utils().openmetadata_login(
+        om_token = openmetadata_login(
             om_base_url,
             username=om_user,
             password=om_pass,
         )
         table_fqn = f"{om_service}.{om_database}.raw_marts.posts_mart"
         source_fqn = f"{om_service}.{om_database}.raw.posts"
-        table = self._utils().openmetadata_get_with_fallback(
+        table = openmetadata_get_with_fallback(
             [f"{om_base_url}/api/v1/tables/name/{urllib.parse.quote(table_fqn, safe='')}"],
             token=om_token,
             username=om_user,
@@ -1084,7 +1072,7 @@ QualityResultEventEmitter(
         # events before querying them back.
         time.sleep(2)
 
-        lineage = self._utils().openmetadata_get_with_fallback(
+        lineage = openmetadata_get_with_fallback(
             [f"{om_base_url}/api/v1/lineage/table/{table['id']}?upstreamDepth=1&downstreamDepth=0"],
             token=om_token,
             username=om_user,
@@ -1096,7 +1084,7 @@ QualityResultEventEmitter(
         assert isinstance(edges, list)
         assert edges
 
-        test_cases = self._utils().openmetadata_get_with_fallback(
+        test_cases = openmetadata_get_with_fallback(
             [
                 f"{om_base_url}/api/v1/dataQuality/testCases?limit=100",
                 f"{om_base_url}/api/v1/testCases?limit=100",
@@ -1400,10 +1388,9 @@ QualityResultEventEmitter(
         """
         if self.keep_running and not force:
             return
-        utils = _load_golden_path_module()
         self.stop_services(stream_output=stream_output)
         with contextlib.suppress(Exception):
-            utils.force_remove_directory(self.project_dir)
+            force_remove_directory(self.project_dir)
 
 
 def _write_bundled_stack_workflow(
@@ -1415,10 +1402,9 @@ def _write_bundled_stack_workflow(
     """Write default workflow files for bundled stack testing: sample ingestion,
     transformation, and publishing assets.
     """
-    utils = _load_golden_path_module()
-    env_vars = cast(dict[str, str], utils.read_env_file(project_dir / ".phlo" / ".env"))
+    env_vars = read_env_file(project_dir / ".phlo" / ".env")
 
-    utils.run_phlo(
+    run_phlo(
         [
             "workflow",
             "create",
@@ -1447,12 +1433,12 @@ def _write_bundled_stack_workflow(
         python_exe=python_executable,
     )
 
-    utils.write_file(
+    write_file(
         project_dir / "workflows" / "ingestion" / "jsonplaceholder" / "posts.py",
         '''"""Jsonplaceholder posts ingestion asset."""\n\nimport time\n\nfrom dlt.sources.rest_api import rest_api\nfrom phlo_dlt import phlo_ingestion\nfrom workflows.schemas.jsonplaceholder import RawPosts\n\n\n@phlo_ingestion(\n    table_name="posts",\n    unique_key="id",\n    validation_schema=RawPosts,\n    group="jsonplaceholder",\n    cron="0 */1 * * *",\n    freshness_hours=(1, 24),\n    validate=True,\n)\ndef posts(partition_date: str):\n    time.sleep(2)\n    base_url = "https://jsonplaceholder.typicode.com"\n    return rest_api(\n        client={"base_url": base_url},\n        resources=[{"name": "posts", "endpoint": {"path": "posts"}}],\n    )\n''',
     )
 
-    utils.write_file(
+    write_file(
         project_dir / "workflows" / "transforms" / "dbt" / "profiles" / "profiles.yml",
         f"""phlo:
   target: dev
@@ -1469,7 +1455,7 @@ def _write_bundled_stack_workflow(
       threads: 2
 """,
     )
-    utils.write_file(
+    write_file(
         project_dir / "workflows" / "transforms" / "dbt" / "models" / "sources" / "raw.yml",
         f"""version: 2\n\nsources:
   - name: raw
@@ -1484,15 +1470,15 @@ def _write_bundled_stack_workflow(
           - name: body
 """,
     )
-    utils.write_file(
+    write_file(
         project_dir / "workflows" / "transforms" / "dbt" / "models" / "marts" / "posts_mart.sql",
         "{{ config(materialized='table', schema='marts') }}\nselect\n  cast(src.id as varchar) as id,\n  src.user_id,\n  src.title,\n  src.body\nfrom {{ source('raw', 'posts') }} as src\n",
     )
-    utils.write_file(
+    write_file(
         project_dir / "workflows" / "publishing" / "__init__.py",
         '"""Publishing assets."""\n',
     )
-    utils.write_file(
+    write_file(
         project_dir / "workflows" / "publishing" / "jsonplaceholder.py",
         """import dagster as dg
 import psycopg2
@@ -1535,24 +1521,23 @@ def _wait_for_bundled_stack_services(ports: BundledStackPorts) -> None:
 
     Raises: RuntimeError when any service fails to become ready.
     """
-    utils = _load_golden_path_module()
-    if not utils.wait_for_tcp("127.0.0.1", ports.dagster, name="Dagster", timeout=120):
+    if not wait_for_tcp("127.0.0.1", ports.dagster, name="Dagster", timeout=120):
         raise RuntimeError("Dagster did not become ready")
-    if not utils.wait_for_http(
+    if not wait_for_http(
         f"http://127.0.0.1:{ports.minio_api}/minio/health/live",
         name="MinIO",
         timeout=60,
     ):
         raise RuntimeError("MinIO did not become ready")
-    if not utils.wait_for_http(
+    if not wait_for_http(
         f"http://127.0.0.1:{ports.trino}/v1/info",
         name="Trino",
         timeout=120,
     ):
         raise RuntimeError("Trino did not become ready")
-    if not utils.wait_for_tcp("127.0.0.1", ports.postgres, name="Postgres", timeout=120):
+    if not wait_for_tcp("127.0.0.1", ports.postgres, name="Postgres", timeout=120):
         raise RuntimeError("Postgres did not become ready")
-    if not utils.wait_for_tcp("127.0.0.1", ports.nessie, name="Nessie", timeout=120):
+    if not wait_for_tcp("127.0.0.1", ports.nessie, name="Nessie", timeout=120):
         raise RuntimeError("Nessie did not become ready")
     _wait_for_dagster_graphql(ports)
 
@@ -1605,7 +1590,6 @@ def bootstrap_bundled_stack_harness(
         >>> harness.verify_api_stack()
         >>> harness.cleanup()
     """
-    utils = _load_golden_path_module()
     phlo_source = _repo_root()
     target_project_dir = project_dir or default_bundled_stack_project_dir()
     should_keep_running = keep_bundled_stack_running() if keep_running is None else keep_running
@@ -1623,7 +1607,7 @@ def bootstrap_bundled_stack_harness(
     _cleanup_existing_bundled_stack_projects(target_project_dir.parent, stream_output=stream_output)
     _verify_bind_mount_parent(target_project_dir.parent)
 
-    if target_project_dir.exists() and not utils.force_remove_directory(target_project_dir):
+    if target_project_dir.exists() and not force_remove_directory(target_project_dir):
         raise RuntimeError(f"Unable to remove existing contract test project: {target_project_dir}")
 
     project_name = target_project_dir.name
@@ -1635,17 +1619,17 @@ def bootstrap_bundled_stack_harness(
             timeout=120,
             stream_output=stream_output,
         )
-        python_executable = Path(utils.setup_project_venv(target_project_dir, phlo_source))
-        utils.run_phlo(
+        python_executable = Path(setup_project_venv(target_project_dir, phlo_source))
+        run_phlo(
             ["services", "init", "--dev", "--phlo-source", str(phlo_source), "--force"],
             cwd=target_project_dir,
             timeout=180,
             stream_output=stream_output,
             python_exe=python_executable,
         )
-        utils.apply_env_updates(
+        apply_env_updates(
             target_project_dir / ".phlo",
-            build_bundled_stack_env_updates(utils.resolve_port, project_name=project_name),
+            build_bundled_stack_env_updates(resolve_port, project_name=project_name),
         )
         _write_bundled_stack_workflow(
             project_dir=target_project_dir,
@@ -1655,7 +1639,7 @@ def bootstrap_bundled_stack_harness(
         start_args = ["services", "start"]
         for service_name in BUNDLED_STACK_CORE_SERVICES:
             start_args.extend(["--service", service_name])
-        utils.run_phlo(
+        run_phlo(
             start_args,
             cwd=target_project_dir,
             timeout=600,
@@ -1663,7 +1647,7 @@ def bootstrap_bundled_stack_harness(
             python_exe=python_executable,
         )
 
-        env_vars = cast(dict[str, str], utils.read_env_file(target_project_dir / ".phlo" / ".env"))
+        env_vars = read_env_file(target_project_dir / ".phlo" / ".env")
         ports = BundledStackPorts.from_env(env_vars)
         _wait_for_bundled_stack_services(ports)
         return BundledStackHarness(
@@ -1676,7 +1660,7 @@ def bootstrap_bundled_stack_harness(
     except Exception:
         if not should_keep_running:
             with contextlib.suppress(Exception):
-                utils.run_phlo(
+                run_phlo(
                     ["services", "stop"],
                     cwd=target_project_dir,
                     timeout=300,
@@ -1685,7 +1669,7 @@ def bootstrap_bundled_stack_harness(
                     python_exe=target_project_dir / ".venv" / "bin" / "python",
                 )
             with contextlib.suppress(Exception):
-                utils.force_remove_directory(target_project_dir)
+                force_remove_directory(target_project_dir)
         raise
 
 

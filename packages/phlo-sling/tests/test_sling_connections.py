@@ -127,8 +127,12 @@ def test_resolve_s3_connection_uses_object_store_capability(monkeypatch) -> None
     assert result["PHLO_S3"]["secret_access_key"] == "secret"
 
 
-def test_resolve_s3_connection_skips_when_object_store_is_ambiguous(monkeypatch) -> None:
-    """Auto-connections should not guess when multiple object_store capabilities exist."""
+def test_resolve_s3_connection_skips_when_object_store_unresolved(monkeypatch) -> None:
+    """Auto-connections skip S3 when the resolver cannot resolve an object store.
+
+    The MinIO deterministic default for ambiguous installs lives in the
+    capability resolver; connections.py never guesses.
+    """
     monkeypatch.setattr("phlo_sling.connections._ensure_capabilities_discovered", lambda *_k: None)
     monkeypatch.setattr(
         "phlo_sling.connections.list_capabilities",

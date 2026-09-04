@@ -154,7 +154,7 @@ def test_ingestion_creates_table(mock_iceberg_catalog, test_dataframe):
 
 ### Contract harnesses
 
-`phlo-testing` now includes profile-level harnesses for cross-package contract tests.
+`phlo-testing` includes profile-level harnesses for cross-package contract tests.
 
 - `BundledStackHarness`
   Boots a real generated project against the bundled service stack using local
@@ -164,6 +164,16 @@ def test_ingestion_creates_table(mock_iceberg_catalog, test_dataframe):
 
 These harnesses are useful when unit tests are not enough and you need to prove
 that the supported capability combination actually wires together correctly.
+
+### Support status
+
+`phlo-testing` is supported as an **internal test contract**: first-party Phlo
+packages and this repository's test suites consume it, but it is not a runtime
+v1 guarantee for end users. Its harness helpers (`phlo_testing.harness_utils`,
+`phlo_testing.profile_harness`) are bundled inside the package, so the
+installed distribution is self-contained and does not depend on repository
+scripts. The repo's golden-path E2E runner remains a standalone repo-only
+debugging tool.
 
 ### Testing Quality Checks
 

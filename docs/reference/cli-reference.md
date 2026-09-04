@@ -1924,6 +1924,10 @@ phlo env export --include-secrets --output env.full
 
 Show asset status and freshness.
 
+Asset `never_run`/`stale` states are derived only from wired evidence
+sources. Components whose evidence source is not wired are shown as
+`unknown` (`—`), never as a stub-derived state.
+
 ```bash
 phlo status [OPTIONS]
 ```

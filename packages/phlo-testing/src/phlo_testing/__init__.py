@@ -4,9 +4,9 @@ Phlo Testing Infrastructure
 Comprehensive testing module for validating Phlo workflows without Docker.
 Provides mock implementations of Iceberg, Trino, and DLT for fast, isolated tests.
 
-## Phase 1: Core Mocks (✅ Implemented)
+## Core mocks
 
-### MockIcebergCatalog (Task 1.1)
+### MockIcebergCatalog
 In-memory Iceberg catalog backed by DuckDB for fast table operations.
 
 ```python
@@ -17,7 +17,7 @@ schema = pa.schema([("id", pa.int32()), ("name", pa.string())])
 table = catalog.create_table("raw.users", schema=schema)
 ```
 
-### mock_dlt_source (Task 1.2)
+### mock_dlt_source
 Mock DLT sources that return predefined data without API calls.
 
 ```python
@@ -27,9 +27,9 @@ data = [{"id": 1, "name": "Alice"}]
 source = mock_dlt_source(data, resource_name="users")
 ```
 
-## Phase 2: Execution & Resources (✅ Implemented)
+## Execution and resources
 
-### test_asset_execution (Task 1.3)
+### test_asset_execution
 Execute assets with mocked dependencies and capture results.
 
 ```python
@@ -44,7 +44,7 @@ assert result.success
 assert len(result.data) == 1
 ```
 
-### MockTrinoResource (Task 1.4)
+### MockTrinoResource
 Mock Trino resource backed by DuckDB for SQL testing.
 
 ```python
@@ -55,7 +55,7 @@ cursor = trino.cursor()
 cursor.execute("SELECT * FROM users")
 ```
 
-### pytest Fixtures (Task 1.5)
+### pytest Fixtures
 Reusable fixtures for common test scenarios.
 
 ```python
@@ -64,7 +64,7 @@ def test_my_asset(mock_iceberg_catalog, mock_trino, sample_partition_date):
     pass
 ```
 
-### Local Test Mode (Task 1.6)
+### Local Test Mode
 Enable `phlo test --local` without Docker.
 
 ```python
@@ -147,10 +147,11 @@ For comprehensive testing patterns and best practices, see:
 `docs/TESTING_GUIDE.md`
 """
 
+from importlib.metadata import version
 import importlib
 from phlo.logging import get_logger
 
-# Phase 1: Core Mocks
+# Core mocks
 from phlo_testing.conftest_template import (
     CONFTEST_TEMPLATE,
     get_conftest_template,
@@ -191,7 +192,7 @@ from phlo_testing.mock_iceberg import (
     MockTableScan,
 )
 
-# Phase 2: Execution & Resources
+# Execution and resources
 from phlo_testing.mock_trino import (
     MockConnection,
     MockCursor,
@@ -282,7 +283,7 @@ else:
         )
 
 __all__ = [
-    # Phase 1: Core Mocks
+    # Core mocks
     "MockIcebergCatalog",
     "MockTable",
     "MockTableScan",
@@ -294,7 +295,7 @@ __all__ = [
     "mock_dlt_pipeline",
     "create_mock_dlt_dataframe",
     "MockDLTError",
-    # Phase 2: Execution & Resources
+    # Execution and resources
     "MockTrinoResource",
     "MockConnection",
     "MockCursor",
@@ -341,4 +342,4 @@ __all__ = [
 if _FIXTURES_AVAILABLE:
     __all__.extend(_FIXTURE_EXPORTS)
 
-__version__ = "0.14.0"
+__version__ = version("phlo-testing")

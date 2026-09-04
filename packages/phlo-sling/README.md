@@ -102,7 +102,7 @@ The following environment variables can be used to configure Sling:
 - `SLING_DEFAULT_NAMESPACE` - Default namespace for generated replication table names (default: "raw")
 - `SLING_DEFAULT_MODE` - Default replication mode (default: "incremental")
 - `SLING_AUTO_CONNECTIONS` - Auto-generate Sling connections from Phlo capability metadata (default: true)
-- `PHLO_OBJECT_STORE` - Select the active `object_store` capability when more than one is installed
+- `PHLO_OBJECT_STORE` - Select the active `object_store` capability when more than one is installed. MinIO is the deterministic default when no explicit choice is set (SP9-DECISION-03).
 
 Notes:
 

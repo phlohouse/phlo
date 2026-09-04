@@ -66,4 +66,6 @@ __all__ = [
     "authorize_daemon_run",
     "create_daemon_principal",
 ]
-__version__ = "0.14.0"
+from importlib.metadata import version
+
+__version__ = version("phlo-dagster")

@@ -133,6 +133,7 @@ Plugins are loaded from installed Python packages only. Ensure you:
 """
 
 import importlib
+from importlib.metadata import version
 from typing import TYPE_CHECKING
 
 from phlo.plugins.base import (
@@ -277,4 +278,4 @@ __all__ = [
     "PluginRegistry",
 ]
 
-__version__ = "0.14.0"
+__version__ = version("phlo")

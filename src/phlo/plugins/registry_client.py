@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from importlib import metadata as importlib_metadata
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -55,13 +56,28 @@ def _is_cache_valid(now: float, ttl_seconds: int) -> bool:
     return (now - _REGISTRY_CACHE["loaded_at"]) < ttl_seconds
 
 
+def _plugin_version(package: str) -> str:
+    """Derive a plugin version from installed package metadata.
+
+    The registry carries no hand-maintained version column: package metadata
+    is the single version authority per distribution. A package that is not
+    installed reports an empty version.
+    """
+    if not package:
+        return ""
+    try:
+        return importlib_metadata.version(package)
+    except importlib_metadata.PackageNotFoundError:
+        return ""
+
+
 def _normalize_registry(registry: dict[str, Any]) -> list[RegistryPlugin]:
     return [
         RegistryPlugin(
             name=name,
             type=info.get("type", ""),
             package=info.get("package", ""),
-            version=info.get("version", ""),
+            version=_plugin_version(info.get("package", "")),
             description=info.get("description", ""),
             author=info.get("author", ""),
             homepage=info.get("homepage"),
