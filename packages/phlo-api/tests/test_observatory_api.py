@@ -1624,10 +1624,10 @@ def test_observatory_run_operational_routes_use_observatory_paths(
             "operation": "retry_failed_run",
             "dry_run": payload.dry_run,
             "accepted": True,
-            "run_id": run_id,
-            "status": "DRY_RUN",
-            "message": "Run retry request is valid.",
-            "details": {"run_status": "FAILURE"},
+            "run_id": "run-new-456",
+            "status": "STARTED",
+            "message": "Dagster accepted retry_failed_run.",
+            "details": {},
         }
 
     async def fake_cancel(run_id: str, payload, dagster_url: str | None = None):
@@ -1653,7 +1653,9 @@ def test_observatory_run_operational_routes_use_observatory_paths(
     headers = {"Authorization": "Bearer operate-token"}
     status = client.get("/api/observatory/runs/run-123/status")
     retry = client.post(
-        "/api/observatory/runs/run-123/retry", json={"dry_run": False}, headers=headers
+        "/api/observatory/runs/run-123/retry",
+        json={"dry_run": False, "idempotency_key": "retry-key"},
+        headers=headers,
     )
     cancel = client.post(
         "/api/observatory/runs/run-123/cancel",
@@ -1663,10 +1665,22 @@ def test_observatory_run_operational_routes_use_observatory_paths(
 
     assert status.status_code == 200
     assert status.json()["status"] == "FAILURE"
+    # Run actions answer with the provider-neutral run-action contract (v1);
+    # the raw provider payload is preserved under "provider".
     assert retry.status_code == 200
-    assert retry.json()["run_id"] == "run-123"
+    retry_body = retry.json()
+    assert retry_body["contract_version"] == 1
+    assert retry_body["action_kind"] == "run.retry"
+    assert retry_body["status"] == "accepted"
+    assert retry_body["resulting_run"]["run_id"] == "run-new-456"
+    assert retry_body["verification_handle"].startswith("vh-")
+    assert retry_body["provider"]["run_id"] == "run-new-456"
     assert cancel.status_code == 200
-    assert cancel.json()["status"] == "CANCELING"
+    cancel_body = cancel.json()
+    assert cancel_body["action_kind"] == "run.cancel"
+    assert cancel_body["status"] == "accepted"
+    assert cancel_body["target"]["run_id"] == "run-123"
+    assert cancel_body["provider"]["status"] == "CANCELING"
     assert calls == [
         ("status", "run-123", None),
         ("retry", "run-123", False),

@@ -130,6 +130,15 @@ from phlo_api.observatory_api.observatory_operation_journal import (
 )
 from phlo_api.observatory_api.orchestrator_operations import resolve_orchestrator_operations
 from phlo_api.observatory_api.observatory_runs import load_durable_runs, load_runs
+from phlo_api.observatory_api.run_action_contract import (
+    CANCEL_RUN_ACTION,
+    RETRY_RUN_ACTION,
+    RunActionResult,
+    normalize_run_action_result,
+    observatory_action,
+    require_idempotency_key,
+    resolve_run_action_reconciliation,
+)
 from phlo_api.observatory_api.observatory_saved_queries import (
     dedupe_saved_queries as _dedupe_saved_queries_impl,
     load_saved_queries as _load_saved_queries_impl,
@@ -212,6 +221,7 @@ class ObservatoryRetryRunRequest(BaseModel):
     strategy: str = "FROM_FAILURE"
     idempotency_key: str | None = None
     tags: dict[str, str] = Field(default_factory=dict)
+    project_id: str | None = None
 
 
 class ObservatoryCancelRunRequest(BaseModel):
@@ -219,6 +229,7 @@ class ObservatoryCancelRunRequest(BaseModel):
 
     reason: str | None = None
     idempotency_key: str | None = None
+    project_id: str | None = None
 
 
 class ObservatoryBackfillAssetRequest(BaseModel):
@@ -1938,26 +1949,8 @@ def _pipeline_actions(operation: ObservatoryOperation | None) -> list[Observator
     is_failed = operation is not None and operation.status == "failed"
     is_running = operation is not None and operation.status == "running"
     return [
-        ObservatoryAction(
-            id="retry",
-            label="Retry",
-            kind="run.retry",
-            enabled=is_failed,
-            reason=None if is_failed else "Retry is available only for failed runs.",
-            required_capability="orchestrator_operations",
-            expected_evidence=["new run id", "retry request"],
-            background_operation_id=run_id,
-        ),
-        ObservatoryAction(
-            id="cancel",
-            label="Cancel",
-            kind="run.cancel",
-            enabled=is_running,
-            reason=None if is_running else "Cancel is available only for running runs.",
-            required_capability="orchestrator_operations",
-            expected_evidence=["cancellation result"],
-            background_operation_id=run_id,
-        ),
+        observatory_action(RETRY_RUN_ACTION, enabled=is_failed, run_id=run_id),
+        observatory_action(CANCEL_RUN_ACTION, enabled=is_running, run_id=run_id),
         ObservatoryAction(
             id="materialize",
             label="Materialize",
@@ -4377,19 +4370,41 @@ async def get_observatory_run_status(run_id: str) -> Any:
     return await provider.get_run_status(run_id)
 
 
-@router.post("/runs/{run_id:path}/retry")
+@router.post(
+    "/runs/{run_id:path}/retry",
+    response_model=RunActionResult,
+    response_model_exclude_none=True,
+)
 async def post_observatory_run_retry(
-    run_id: str, request: ObservatoryRetryRunRequest, http_request: Request
-) -> Any:
-    """Validate or request retry for a failed run through the active orchestrator provider."""
-    auth = require_scope(http_request, "lakehouse:operate")
+    run_id: str,
+    request: ObservatoryRetryRunRequest,
+    http_request: Request,
+    store: RunEvidenceStore = Depends(get_run_evidence_store),
+) -> RunActionResult:
+    """Retry a failed run through the active orchestrator provider.
+
+    The guarded endpoint enforces scope, rate limit, and a mandatory
+    idempotency key before any provider invocation, then normalizes the
+    provider reply into the neutral run-action result so replays are identical.
+    """
+    auth = require_scope(http_request, RETRY_RUN_ACTION.required_permission)
     enforce_rate_limit(auth["subject"], "retry_failed_run")
+    require_idempotency_key(request.idempotency_key)
     provider = resolve_orchestrator_operations()
 
     async def execute() -> dict[str, Any]:
-        """Run the guarded retry call and render its result as JSON-safe output."""
+        """Run the guarded retry call and normalize its result contractually."""
         result = await provider.retry_run(run_id, request.model_dump())
-        return _jsonable_result(result)
+        normalized = normalize_run_action_result(
+            action_kind=RETRY_RUN_ACTION.kind,
+            target_run_id=run_id,
+            provider_result=result,
+            idempotency_key=request.idempotency_key or "",
+        )
+        normalized = resolve_run_action_reconciliation(
+            normalized, store, project_id=request.project_id
+        )
+        return _jsonable_result(normalized)
 
     payload = await replay_or_execute_async(
         idempotency_key=request.idempotency_key,
@@ -4405,22 +4420,44 @@ async def post_observatory_run_retry(
             result=result,
         ),
     )
-    return payload
+    return RunActionResult.model_validate(payload)
 
 
-@router.post("/runs/{run_id:path}/cancel")
+@router.post(
+    "/runs/{run_id:path}/cancel",
+    response_model=RunActionResult,
+    response_model_exclude_none=True,
+)
 async def post_observatory_run_cancel(
-    run_id: str, request: ObservatoryCancelRunRequest, http_request: Request
-) -> Any:
-    """Request cancellation for a run through the active orchestrator provider."""
-    auth = require_scope(http_request, "lakehouse:operate")
+    run_id: str,
+    request: ObservatoryCancelRunRequest,
+    http_request: Request,
+    store: RunEvidenceStore = Depends(get_run_evidence_store),
+) -> RunActionResult:
+    """Cancel a run through the active orchestrator provider.
+
+    Shares the retry endpoint's guard chain: scope, rate limit, and a
+    mandatory idempotency key are checked before invocation, and the provider
+    reply is normalized into the same neutral run-action result.
+    """
+    auth = require_scope(http_request, CANCEL_RUN_ACTION.required_permission)
     enforce_rate_limit(auth["subject"], "cancel_run")
+    require_idempotency_key(request.idempotency_key)
     provider = resolve_orchestrator_operations()
 
     async def execute() -> dict[str, Any]:
-        """Run the guarded cancel call and render its result as JSON-safe output."""
+        """Run the guarded cancel call and normalize its result contractually."""
         result = await provider.cancel_run(run_id, request.model_dump())
-        return _jsonable_result(result)
+        normalized = normalize_run_action_result(
+            action_kind=CANCEL_RUN_ACTION.kind,
+            target_run_id=run_id,
+            provider_result=result,
+            idempotency_key=request.idempotency_key or "",
+        )
+        normalized = resolve_run_action_reconciliation(
+            normalized, store, project_id=request.project_id
+        )
+        return _jsonable_result(normalized)
 
     payload = await replay_or_execute_async(
         idempotency_key=request.idempotency_key,
@@ -4436,7 +4473,7 @@ async def post_observatory_run_cancel(
             result=result,
         ),
     )
-    return payload
+    return RunActionResult.model_validate(payload)
 
 
 @router.get("/storage", response_model=ObservatorySurfaceList)
