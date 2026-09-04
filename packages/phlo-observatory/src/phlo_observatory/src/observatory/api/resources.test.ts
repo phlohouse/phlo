@@ -4,6 +4,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { defaultDatasetFilters } from './datasetDiscovery'
+
 type ServerFnBuilderMock = {
   middleware: (middlewares: Array<RequestMiddleware>) => ServerFnBuilderMock
   inputValidator: <TInputValidator>(
@@ -116,6 +118,101 @@ describe('observatory dataset resources', () => {
     ])
     expect(apiGet).toHaveBeenCalledWith(
       '/api/observatory/datasets',
+      undefined,
+      8000,
+    )
+  })
+
+  it('preserves the Dataset list envelope including next_cursor', async () => {
+    apiGet.mockResolvedValue({
+      items: [
+        {
+          id: 'gold.orders',
+          name: 'gold.orders',
+          classifications: [],
+          publication_state: 'published',
+          readiness_state: 'ok',
+          candidate: false,
+          kinds: ['table'],
+          source_refs: [],
+          metadata: {},
+        },
+      ],
+      next_cursor: 'cursor-page-2',
+    })
+
+    const { getObservatoryDatasetPage } = await import('./resources')
+    const result = await getObservatoryDatasetPage({
+      cursor: 'cursor-page-1',
+      filters: {
+        ...defaultDatasetFilters,
+        query: 'orders',
+        candidate: 'true',
+      },
+    })
+
+    expect(result.error).toBeNull()
+    expect(result.data).toEqual({
+      items: [expect.objectContaining({ id: 'gold.orders' })],
+      nextCursor: 'cursor-page-2',
+    })
+    // Filters travel with every page request so server-side,
+    // filter-before-pagination cursors stay stable.
+    expect(apiGet).toHaveBeenCalledWith(
+      '/api/observatory/datasets?q=orders&candidate=true&limit=100&cursor=cursor-page-1',
+      undefined,
+      8000,
+    )
+  })
+
+  it('fetches full-collection Dataset facets from the facets endpoint', async () => {
+    apiGet.mockResolvedValue({
+      owners: ['data-platform'],
+      classifications: ['internal'],
+      publication_states: ['draft', 'published'],
+      readiness_states: ['ok', 'warning'],
+      candidate_states: [false, true],
+    })
+
+    const { getObservatoryDatasetFacets } = await import('./resources')
+    const result = await getObservatoryDatasetFacets()
+
+    expect(result.error).toBeNull()
+    expect(result.data).toEqual(
+      expect.objectContaining({ owners: ['data-platform'] }),
+    )
+    expect(apiGet).toHaveBeenCalledWith(
+      '/api/observatory/datasets/facets',
+      undefined,
+      8000,
+    )
+  })
+
+  it('preserves the search list envelope including next_cursor and filters', async () => {
+    apiGet.mockResolvedValue({
+      items: [
+        {
+          id: 'dataset:gold.orders',
+          label: 'gold.orders',
+          kind: 'dataset',
+          metadata: {},
+        },
+      ],
+      next_cursor: 'search-cursor-2',
+    })
+
+    const { searchObservatoryPage } = await import('./resources')
+    const result = await searchObservatoryPage({
+      filters: { query: 'orders', kind: 'dataset', owner: 'data-platform' },
+    })
+
+    expect(result.error).toBeNull()
+    expect(result.data).toEqual({
+      items: [expect.objectContaining({ id: 'dataset:gold.orders' })],
+      nextCursor: 'search-cursor-2',
+    })
+    expect(apiGet).toHaveBeenCalledWith(
+      '/api/observatory/search?q=orders&kind=dataset&owner=data-platform&limit=100',
       undefined,
       8000,
     )

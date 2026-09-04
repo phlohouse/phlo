@@ -768,6 +768,58 @@ export interface ObservatorySearchResult {
   metadata: ObservatoryMetadata
 }
 
+/**
+ * List envelope for the paginated Dataset collection. Mirrors the phlo-api
+ * `ObservatoryDatasetList` response model including its `next_cursor`
+ * continuation token; unlike `getRawCollection` consumers, cursor-aware
+ * callers see the full envelope.
+ */
+export interface ObservatoryDatasetListPage {
+  items: Array<ObservatoryDataset>
+  next_cursor?: string | null
+}
+
+/**
+ * Client-normalized Dataset page: the wire envelope's `next_cursor` is
+ * exposed as a required `nextCursor` (null when exhausted).
+ */
+export interface ObservatoryDatasetPage {
+  items: Array<ObservatoryDataset>
+  nextCursor: string | null
+}
+
+/**
+ * Filterable facet values across the full Dataset collection. Mirrors the
+ * phlo-api `ObservatoryDatasetFacets` response model: choices are computed
+ * server-side over the whole collection, independent of any page.
+ */
+export interface ObservatoryDatasetFacets {
+  owners: Array<string>
+  classifications: Array<string>
+  publication_states: Array<string>
+  readiness_states: Array<string>
+  candidate_states: Array<boolean>
+}
+
+/**
+ * List envelope for the paginated Observatory search result collection.
+ * Mirrors the phlo-api `ObservatorySearchList` response model including its
+ * `next_cursor` continuation token.
+ */
+export interface ObservatorySearchListPage {
+  items: Array<ObservatorySearchResult>
+  next_cursor?: string | null
+}
+
+/**
+ * Client-normalized search page: the wire envelope's `next_cursor` is exposed
+ * as a required `nextCursor` (null when exhausted).
+ */
+export interface ObservatorySearchPage {
+  items: Array<ObservatorySearchResult>
+  nextCursor: string | null
+}
+
 export interface ObservatoryResourceResult<T> {
   data: T | null
   error: string | null

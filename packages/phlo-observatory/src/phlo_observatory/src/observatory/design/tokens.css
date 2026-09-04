@@ -1583,6 +1583,24 @@ a.phlo-observatory-lineage-summary-cell:hover {
   padding: 10px 12px;
 }
 
+.phlo-observatory-load-more {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--v2-sheet-border);
+  border-radius: 8px;
+  background: var(--v2-sheet);
+  color: var(--v2-text);
+  font: inherit;
+  font-size: var(--v2-font-sm);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.phlo-observatory-load-more:disabled {
+  color: var(--v2-muted);
+  cursor: default;
+}
+
 .phlo-observatory-dataset-queue-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
