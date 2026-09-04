@@ -116,11 +116,13 @@ Live outcomes asserted by `run_scenario.py`:
 - concurrent_runs: both reports `promoted` on different branches; per-partition
   counts are multiples of 12 / 8; total delta 20 on a fresh catalog; both
   branches cleaned up.
-- warning_only: relaxed run succeeds despite its failed check; relaxed table
-  gains 7 rows ON MAIN while the report records `promotion_blocked` /
-  `asset_checks_failed`. See scenarios/warning_only/SCENARIO.md - this contrast
-  is the lab's core lesson: non-strict validation writes straight to main,
-  bypassing branch isolation entirely.
+- warning_only: relaxed run succeeds despite its failed check; the relaxed
+  table gains 7 rows ON MAIN. Under the neutral severity contract (ADR 0048 /
+  #817) the WARN-only failure is non-blocking, so the promotion sensor merges
+  the branch and the report ends `promoted` with `passed_with_warnings`
+  aggregate quality evidence (severity `warn`, not blocking). See
+  scenarios/warning_only/SCENARIO.md - warnings are durable evidence, never a
+  promotion gate.
 
 ## Known scenario quirks observed live
 
@@ -129,10 +131,11 @@ Live outcomes asserted by `run_scenario.py`:
   observed doubling physical rows once - under investigation upstream.
 - `concurrent_runs` partition B occasionally misses its promotion report
   window under load; rerunning the scenario resolves it.
-- The warning-only contrast documents observed platform behavior: a failed
-  non-blocking check still produces durable failed evidence and the
-  promotion gate refuses on any failed check - warnings are never silent,
-  they are simply not fatal at ingest time.
+- warning_only (live-proven 2026-09-03): a failed WARN-severity check is
+  durable, non-blocking evidence under the neutral severity contract. The run
+  succeeds, the promotion sensor merges the WAP branch with
+  `passed_with_warnings` aggregate evidence, and main advances - warnings are
+  recorded, never fatal; only ERROR-severity failures block promotion.
 
 ## Expected failures
 
@@ -183,16 +186,17 @@ staging); batch_date becomes a timestamptz daily identity partition.
 
 ### Platform gaps observed (for release notes)
 
-1. **Failed Dagster runs have no terminal WAP report state.** The auto-promotion
-   sensor scans SUCCESS runs only, so a run that fails during ingestion leaves
-   its report at status `launched` forever and retains its branch. No writer in
-   phlo-dagster emits `status="failed"` or
-   `failure_reason="dagster_run_failed"` for run-level failures
-   (`failure_reason` values that exist today: `asset_checks_failed`,
+1. **Failed Dagster runs terminalize (live-proven 2026-09-03).** The
+   auto-promotion sensor scans SUCCESS, FAILURE, and CANCELED runs and
+   transitions a failed run's WAP report to `status="failed"` with
+   `failure_reason="dagster_run_failed"`, retaining the branch and query
+   catalog for audit until the cleanup sensor's retention policy applies.
+   Verified live against the blessed stack: the quality_failure run reached
+   Dagster `FAILURE` and its report terminalized as
+   `failed`/`dagster_run_failed` with main untouched (`failure_reason` values
+   that exist today: `dagster_run_failed`, `asset_checks_failed`,
    `quality_evidence_unavailable`, `launch_manifest_or_immutable_tags_invalid`,
-   `merge_branch_returned_false`, `branch_cleanup_incomplete`). The runner
-   therefore treats "not promoted + main unchanged + branch retained" as the
-   failure signature, with a shorter wait timeout.
+   `merge_branch_returned_false`, `branch_cleanup_incomplete`).
 2. **pyiceberg's REST catalog exposes no reference enumeration.**
    `phlo_iceberg.get_catalog()` (pyiceberg 0.12.0rc1 RestCatalog) offers no way
    to list branches or read hashes, so ref inspection uses
@@ -203,14 +207,17 @@ staging); batch_date becomes a timestamptz daily identity partition.
    scenario routing and retry arming use files on the shared project filesystem
    (`generated-data/inbound/`, `.phlo/wap-lab/*`) with env overrides honored
    only for in-process runs.
-4. **Non-blocking checks do not block the data path, but do block the
-   promotion bookkeeping.** A successful run with any failed asset check is
-   marked `promotion_blocked` and retains an empty branch even though
-   `strict_validation=False` already wrote the rows directly to main. Main
-   advances while the report says blocked; retention cleanup eventually removes
-   the residual branch.
-5. Live scenario execution requires the Docker stack and was NOT executed while
-   building this example (no containers in the build environment). All
-   assertions encoded in `run_scenario.py` derive from verified platform
-   sources (wap_launch.py, wap_sensors.py, cli_materialize.py, dlt_helpers.py);
-   the integrator should run the six scenarios end to end.
+4. **Non-blocking checks never gate promotion (live-proven 2026-09-03).**
+   Under the neutral severity contract (#817) a failed WARN-severity check is
+   non-blocking: `_all_checks_passed` treats only ERROR-severity failures as
+   blocking, the successful run promotes with `passed_with_warnings` aggregate
+   quality evidence (severity `warn`, `blocking=false`), and the report ends
+   `promoted` with no failure reason. Verified live: the warning_only run
+   promoted, main gained exactly 7 rows, and the durable aggregate quality
+   result recorded `passed=true, severity=warn, blocking=false`.
+5. Live scenario execution was completed 2026-09-03 against the Docker stack
+   (blessed MinIO + Nessie + Trino + Dagster). Five of the six scenarios were
+   run end to end for the live WAP proof (issue #832): valid_publish,
+   warning_only, quality_failure, an evidence-sink outage/recovery case, and
+   retry_recovery; schema_change and concurrent_runs remain asserted by the
+   container-free suite only.

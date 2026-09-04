@@ -80,9 +80,10 @@ def classify_report(payload: dict | None) -> str:
 
     Returns ``promoted``, ``blocked``, ``failed``, ``in_flight`` or
     ``missing``. ``failed`` covers ``status="failed"`` and any report whose
-    ``failure_reason`` is ``dagster_run_failed``; note that no writer in
-    phlo-dagster emits those values yet (see README platform gaps), so real
-    failed Dagster runs stay ``in_flight`` forever.
+    ``failure_reason`` is ``dagster_run_failed``; the promotion sensor
+    terminalizes failed Dagster runs this way (live-proven 2026-09-03), so a
+    genuine run-level failure reaches the ``failed`` classification instead of
+    lingering ``in_flight``.
     """
     if payload is None:
         return "missing"

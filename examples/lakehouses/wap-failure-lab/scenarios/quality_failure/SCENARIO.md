@@ -34,11 +34,12 @@ Trino state.
   identical before/after: nothing leaked.
 - A WAP report exists with `schema_version=phlo.wap_report.v2`, a recorded
   `dagster_run_id`, and NO promoted status.
-- **Platform reality (documented gap):** no writer in phlo-dagster currently
-  transitions a failed run's report to a terminal status or emits
-  `failure_reason="dagster_run_failed"`; the auto-promotion sensor only scans
-  SUCCESS runs. The report therefore stays at `launched`. The runner treats
-  "not promoted + main unchanged + branch retained" as the failure signature.
+- **Platform reality (live-proven 2026-09-03):** the auto-promotion sensor
+  scans SUCCESS, FAILURE, and CANCELED runs and transitions the failed run's
+  report to terminal `status="failed"` with
+  `failure_reason="dagster_run_failed"`. The runner observes the terminal
+  `failed` classification; "main unchanged + branch retained" remains the
+  data-integrity signature.
 - The violating branch (`pipeline-run-*`) is STILL PRESENT for audit - retained
   refs are the audit trail. List it via:
   ```bash
