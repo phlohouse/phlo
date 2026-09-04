@@ -68,6 +68,8 @@ MUTATION_COMMANDS: frozenset[str] = frozenset(
         "schema_migrate.scaffold_yaml_recent",
         "contracts.snapshot",
         "init",
+        "dataset.migrate_overlay_apply",
+        "dataset.migrate_overlay_discard",
     }
 )
 
@@ -119,6 +121,8 @@ COMMAND_RESOURCE_MAP: dict[str, str] = {
     "schema_migrate.scaffold_yaml_recent": "schema_migration",
     "contracts.snapshot": "schema_contract",
     "init": "project",
+    "dataset.migrate_overlay_apply": "dataset_workflow",
+    "dataset.migrate_overlay_discard": "dataset_workflow",
 }
 
 COMMAND_ACTION_MAP: dict[str, str] = {
@@ -143,6 +147,8 @@ COMMAND_ACTION_MAP: dict[str, str] = {
     "schema_migrate.scaffold_yaml_recent": "schema_migration.scaffold",
     "contracts.snapshot": "schema_contract.snapshot",
     "init": "project.create",
+    "dataset.migrate_overlay_apply": "dataset_workflow.migrate_overlay.apply",
+    "dataset.migrate_overlay_discard": "dataset_workflow.migrate_overlay.discard",
 }
 
 

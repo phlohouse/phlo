@@ -16,6 +16,14 @@ from phlo.dataset.evidence import (
     DatasetEvidenceSource,
     EvidenceRecord,
 )
+from phlo.dataset.migration import (
+    LegacyOverlayError,
+    MigrationEntry,
+    MigrationPlan,
+    MigrationStore,
+    import_action_id,
+    plan_migration,
+)
 from phlo.dataset.models import (
     CANDIDATE_ID_PREFIX,
     DATASET_STATE_SCHEMA_VERSION,
@@ -86,6 +94,10 @@ __all__ = [
     "DatasetStateStore",
     "EvidenceCondition",
     "EvidenceRecord",
+    "LegacyOverlayError",
+    "MigrationEntry",
+    "MigrationPlan",
+    "MigrationStore",
     "MissingEvidence",
     "PolicyFinding",
     "PolicyRule",
@@ -104,6 +116,8 @@ __all__ = [
     "candidate_dataset_id",
     "dataset_table_id",
     "evaluate_policy",
+    "import_action_id",
     "is_candidate_dataset_id",
+    "plan_migration",
     "state_store_namespace",
 ]

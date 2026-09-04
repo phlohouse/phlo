@@ -28,6 +28,7 @@ from phlo.capabilities import (
     SlingConnectionSpec,
     BackendReadinessSpec,
     BackupContributorSpec,
+    DatasetStateStoreSpec,
 )
 from phlo.plugins import (
     PackageYamlServicePlugin,
@@ -36,6 +37,7 @@ from phlo.plugins import (
     service_plugin_class,
 )
 
+from phlo_postgres.dataset_state_store import get_dataset_state_stores
 from phlo_postgres.publish_target import PostgresPublishTarget
 from phlo_postgres.resource import PostgresResource
 from phlo_postgres.settings_store import get_settings_stores
@@ -209,3 +211,13 @@ class PostgresResourceProvider(ResourceProviderPlugin):
         that persists Observatory settings to PostgreSQL.
         """
         return get_settings_stores()
+
+    def get_dataset_state_stores(self) -> list[DatasetStateStoreSpec]:
+        """Return dataset state store capability specs.
+
+        Wraps the provider-owned durable Dataset workflow store built on the
+        transactional settings service; registered through the
+        ``dataset_state_store`` capability family so core never imports this
+        package.
+        """
+        return get_dataset_state_stores()

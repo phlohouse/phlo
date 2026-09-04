@@ -143,6 +143,8 @@ class CandidateRecord:
     policy_version: str | None = None
     schema_version: int = DATASET_STATE_SCHEMA_VERSION
     last_action_id: str | None = None
+    migration_note: str | None = None
+    legacy_fields: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.dataset_id != candidate_dataset_id(self.table_id):
@@ -170,6 +172,8 @@ class CandidateRecord:
             "policy_version": self.policy_version,
             "schema_version": self.schema_version,
             "last_action_id": self.last_action_id,
+            "migration_note": self.migration_note,
+            "legacy_fields": self.legacy_fields,
         }
 
 
@@ -185,6 +189,8 @@ class DatasetRecord:
     policy_version: str | None = None
     schema_version: int = DATASET_STATE_SCHEMA_VERSION
     last_action_id: str | None = None
+    migration_note: str | None = None
+    legacy_fields: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if is_candidate_dataset_id(self.dataset_id):
@@ -208,6 +214,8 @@ class DatasetRecord:
             "policy_version": self.policy_version,
             "schema_version": self.schema_version,
             "last_action_id": self.last_action_id,
+            "migration_note": self.migration_note,
+            "legacy_fields": self.legacy_fields,
         }
 
 
