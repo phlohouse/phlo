@@ -30,6 +30,14 @@ const runActionClients = vi.hoisted(() => ({
 
 vi.mock('@/observatory/api/runActions', () => runActionClients)
 
+const resourceClients = vi.hoisted(() => ({
+  getObservatoryPipelineRecords: vi.fn(),
+  getObservatoryRunRecords: vi.fn(),
+  getObservatoryRunReport: vi.fn(),
+}))
+
+vi.mock('@/observatory/api/resources', () => resourceClients)
+
 const retryObservatoryRun = runActionClients.retryObservatoryRun
 const cancelObservatoryRun = runActionClients.cancelObservatoryRun
 
@@ -81,6 +89,42 @@ function result(overrides: Partial<RunActionResult> = {}): RunActionResult {
     provider: {},
     message: '',
     ...overrides,
+  }
+}
+
+/** A complete canonical run report for the retried run's new attempt. */
+function completeReport() {
+  return {
+    schema_version: 1,
+    project_id: 'finance',
+    run_id: 'run-new-456',
+    attempt: 2,
+    lifecycle: {
+      run: {
+        project_id: 'finance',
+        run_id: 'run-new-456',
+        attempt: 2,
+        status: 'success',
+        evidence_completeness: 'complete',
+      },
+      events: [],
+    },
+    stages: [],
+    inputs: [],
+    staging: [],
+    outputs: [],
+    lineage: [],
+    transformations: [],
+    quality: [],
+    iceberg_snapshots: [],
+    catalog_changes: [],
+    artifacts: [],
+    terminal_outcome: {
+      status: 'success',
+      source: 'dagster',
+      evidence_id: 'e1',
+    },
+    gaps: [],
   }
 }
 
@@ -149,6 +193,21 @@ describe('RunActionDialog', () => {
   beforeEach(() => {
     retryObservatoryRun.mockReset()
     cancelObservatoryRun.mockReset()
+    resourceClients.getObservatoryRunRecords.mockReset()
+    resourceClients.getObservatoryRunReport.mockReset()
+    resourceClients.getObservatoryRunRecords.mockResolvedValue({
+      data: [],
+      error: null,
+    })
+    resourceClients.getObservatoryRunReport.mockResolvedValue({
+      data: null,
+      error: 'No report was found for the requested project, run, and attempt.',
+      errorCode: 'not_found',
+    })
+    resourceClients.getObservatoryPipelineRecords.mockResolvedValue({
+      data: [],
+      error: null,
+    })
   })
 
   afterEach(cleanup)
@@ -261,5 +320,154 @@ describe('RunActionDialog', () => {
     await waitFor(() =>
       expect(screen.getByText('Cancel reconciled.')).toBeTruthy(),
     )
+  })
+
+  it('proves a retried run only from complete durable evidence, never from acceptance', async () => {
+    retryObservatoryRun.mockResolvedValue({ data: result(), error: null })
+    resourceClients.getObservatoryRunRecords.mockResolvedValue({
+      data: [
+        {
+          id: 'finance/run-new-456',
+          name: 'run-new-456',
+          status: 'running',
+          assets: [],
+          checks: [],
+          logs: [],
+          metadata: {},
+          report_identity: {
+            project_id: 'finance',
+            run_id: 'finance/daily-orders-2',
+            attempt: 2,
+          },
+        },
+      ],
+      error: null,
+    })
+    resourceClients.getObservatoryRunReport.mockResolvedValue({
+      data: completeReport(),
+      error: null,
+    })
+    render(
+      <RunActionDialog
+        action={action()}
+        onClose={() => {}}
+        pipeline={pipeline}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm retry' }))
+    await waitFor(() => expect(retryObservatoryRun).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'Retry proven: durable evidence records the new run succeeded.',
+        ),
+      ).toBeTruthy(),
+    )
+    // The outcome card still records only acceptance; the success claim comes
+    // solely from the verification pane's complete canonical evidence.
+    expect(screen.getByText('Retry accepted.')).toBeTruthy()
+    // The report link renders only from the exact durable identity.
+    expect(screen.getAllByText('Open canonical run report').length).toBe(1)
+    // Verification is read-only: the mutation is never resubmitted.
+    expect(retryObservatoryRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps an unknown provider outcome explicitly pending without fabricating a report link', async () => {
+    retryObservatoryRun.mockResolvedValue({
+      data: result({ status: 'pending', resulting_run: null }),
+      error: null,
+    })
+    render(
+      <RunActionDialog
+        action={action()}
+        onClose={() => {}}
+        pipeline={pipeline}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm retry' }))
+    await waitFor(() =>
+      expect(screen.getByText('Retry cannot be verified yet.')).toBeTruthy(),
+    )
+    expect(screen.queryByText('Open canonical run report')).toBeNull()
+    expect(resourceClients.getObservatoryRunRecords).not.toHaveBeenCalled()
+    expect(resourceClients.getObservatoryRunReport).not.toHaveBeenCalled()
+  })
+
+  it('lets the operator stop bounded verification without claiming success', async () => {
+    retryObservatoryRun.mockResolvedValue({ data: result(), error: null })
+    // The new run exists durably but its report never becomes readable:
+    // evidence stays missing for the whole bounded window.
+    resourceClients.getObservatoryRunRecords.mockResolvedValue({
+      data: [
+        {
+          id: 'finance/finance/daily-orders-2',
+          name: 'finance/daily-orders-2',
+          status: 'running',
+          assets: [],
+          checks: [],
+          logs: [],
+          metadata: {},
+          report_identity: {
+            project_id: 'finance',
+            run_id: 'finance/daily-orders-2',
+            attempt: 2,
+          },
+        },
+      ],
+      error: null,
+    })
+    render(
+      <RunActionDialog
+        action={action()}
+        onClose={() => {}}
+        pipeline={pipeline}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm retry' }))
+    await waitFor(() =>
+      expect(resourceClients.getObservatoryRunReport).toHaveBeenCalled(),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Stop verifying' }),
+      ).toBeTruthy(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Stop verifying' }))
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Verification stopped before complete evidence/),
+      ).toBeTruthy(),
+    )
+    // No proven or failed headline may appear after a stopped window: the
+    // stopped dialog claims nothing about recovery.
+    expect(
+      screen.queryByText(/durable evidence records the new run succeeded/),
+    ).toBeNull()
+    expect(screen.queryByText(/Retry proven/)).toBeNull()
+  })
+
+  it('does not start verification for a rejected action', async () => {
+    retryObservatoryRun.mockResolvedValue({
+      data: result({ status: 'rejected', message: 'Run is not retryable.' }),
+      error: null,
+    })
+    render(
+      <RunActionDialog
+        action={action()}
+        onClose={() => {}}
+        pipeline={pipeline}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm retry' }))
+    await waitFor(() =>
+      expect(screen.getByText('Retry rejected by the provider.')).toBeTruthy(),
+    )
+    expect(screen.queryByText('Verification')).toBeNull()
+    expect(resourceClients.getObservatoryRunRecords).not.toHaveBeenCalled()
+    expect(resourceClients.getObservatoryRunReport).not.toHaveBeenCalled()
   })
 })

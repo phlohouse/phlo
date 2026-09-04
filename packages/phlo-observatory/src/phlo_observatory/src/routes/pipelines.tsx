@@ -10,7 +10,7 @@ import {
   Clock3,
   PlayCircle,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type {
@@ -20,12 +20,21 @@ import type {
   ObservatoryResourceResult,
 } from '@/observatory/api/types'
 import type { RunActionResult } from '@/observatory/api/runActions'
+import type { RunActionVerification } from '@/observatory/api/runActionVerification'
 import {
   cancelObservatoryRun,
   newRunActionIdempotencyKey,
   retryObservatoryRun,
 } from '@/observatory/api/runActions'
-import { getObservatoryPipelineRecords } from '@/observatory/api/resources'
+import {
+  getObservatoryPipelineRecords,
+  getObservatoryRunRecords,
+  getObservatoryRunReport,
+} from '@/observatory/api/resources'
+import {
+  resolveVerificationTarget,
+  startRunActionVerification,
+} from '@/observatory/api/runActionVerification'
 import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import {
   invalidateCachedResources,
@@ -62,6 +71,16 @@ export function isRunActionControl(action: ObservatoryAction): boolean {
     typeof action.background_operation_id === 'string' &&
     action.background_operation_id.trim().length > 0
   )
+}
+
+/** Verification card tone per frozen verification state. */
+const VERIFICATION_TONES: Record<
+  RunActionVerification['state'],
+  'ok' | 'warning' | 'error'
+> = {
+  proven: 'ok',
+  'pending-incomplete': 'warning',
+  failed: 'error',
 }
 
 /** Safe, human-renderable summary of one guarded run-action outcome. */
@@ -516,6 +535,56 @@ export function RunActionDialog({
   const [submitting, setSubmitting] = useState(false)
   const [outcome, setOutcome] =
     useState<ObservatoryResourceResult<RunActionResult> | null>(null)
+  // Bounded verify-after-action: after a guarded result, poll durable
+  // run/report reads until complete canonical evidence proves or refutes
+  // recovery. Verification never resubmits the mutation and is cancellable by
+  // the operator or when the dialog closes.
+  const [verification, setVerification] =
+    useState<RunActionVerification | null>(null)
+  const [verifying, setVerifying] = useState(false)
+  const [verificationStopped, setVerificationStopped] = useState(false)
+  const cancelVerificationRef = useRef<(() => void) | null>(null)
+
+  useEffect(() => () => cancelVerificationRef.current?.(), [])
+
+  const stopVerification = () => {
+    cancelVerificationRef.current?.()
+    cancelVerificationRef.current = null
+    setVerifying(false)
+    setVerificationStopped(true)
+  }
+
+  const startVerification = (resultData: RunActionResult) => {
+    cancelVerificationRef.current?.()
+    cancelVerificationRef.current = null
+    if (resultData.status === 'rejected' || resultData.status === 'skipped') {
+      // The provider refused or nothing executed: there is no outcome claim
+      // to verify against durable evidence.
+      setVerification(null)
+      setVerifying(false)
+      return
+    }
+    setVerification(null)
+    setVerificationStopped(false)
+    setVerifying(true)
+    cancelVerificationRef.current = startRunActionVerification({
+      actionKind: resultData.action_kind,
+      target: resolveVerificationTarget(
+        resultData,
+        pipeline.dataset?.id ?? null,
+      ),
+      lookups: {
+        listRuns: async () => (await getObservatoryRunRecords()).data,
+        getReport: async (identity) =>
+          (await getObservatoryRunReport({ data: identity })).data,
+      },
+      onState: setVerification,
+      onDone: () => {
+        cancelVerificationRef.current = null
+        setVerifying(false)
+      },
+    })
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -541,6 +610,7 @@ export function RunActionDialog({
       .then((next) => {
         setOutcome(next)
         invalidateCachedResources([...RUN_ACTION_CACHE_KEYS])
+        if (next.data) startVerification(next.data)
         if (typeof window !== 'undefined') {
           // The live-resource hooks refresh on focus; nudge mounted
           // Pipelines/Runs/Operations readers to re-read their projections.
@@ -558,6 +628,16 @@ export function RunActionDialog({
   // idempotency key, so the durable claim store replays instead of
   // re-invoking the provider. A real guarded result closes the intent.
   const submitted = outcome !== null && !outcome.error
+  // Verify-after-action applies to results that claim an outcome: accepted,
+  // pending, and reconciled results must be proven from durable evidence
+  // before any success is claimed. Rejected and skipped results name no
+  // outcome claim to verify.
+  const needsVerification =
+    outcome?.data !== null &&
+    outcome?.data !== undefined &&
+    (outcome.data.status === 'accepted' ||
+      outcome.data.status === 'pending' ||
+      outcome.data.status === 'reconciled')
 
   return (
     <div
@@ -630,6 +710,48 @@ export function RunActionDialog({
               >
                 Open canonical run report
               </Link>
+            )}
+          </div>
+        )}
+        {needsVerification && (
+          <div
+            className="phlo-observatory-operation-recovery-card"
+            data-state={
+              verification ? VERIFICATION_TONES[verification.state] : 'warning'
+            }
+          >
+            <span>Verification</span>
+            {verification ? (
+              <>
+                <strong>{verification.headline}</strong>
+                <small>{verification.detail}</small>
+                {verification.identity && (
+                  <Link
+                    params={{
+                      attempt: String(verification.identity.attempt),
+                      projectId: verification.identity.project_id,
+                      runId: verification.identity.run_id,
+                    }}
+                    to="/runs/$projectId/$runId/attempts/$attempt/report"
+                  >
+                    Open canonical run report
+                  </Link>
+                )}
+              </>
+            ) : (
+              <strong>Checking durable run evidence…</strong>
+            )}
+            {verifying && (
+              <button onClick={stopVerification} type="button">
+                Stop verifying
+              </button>
+            )}
+            {verificationStopped && (
+              <small>
+                Verification stopped before complete evidence arrived. The
+                action outcome above remains the record; nothing is claimed as
+                proven.
+              </small>
             )}
           </div>
         )}
