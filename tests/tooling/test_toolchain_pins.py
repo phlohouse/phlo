@@ -148,7 +148,7 @@ def test_releasex_prepares_derived_workspace_versions_transactionally() -> None:
     ]
 
     replacements = config["release"]["replacements"]
-    assert len(replacements) == 7
+    assert len(replacements) == 11
 
     package_versions = {}
     manifests = [REPO_ROOT / "pyproject.toml", *REPO_ROOT.glob("packages/*/pyproject.toml")]
