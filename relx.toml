@@ -82,6 +82,34 @@ search = "image: ghcr.io/phlohouse/{name}:{current_version}"
 replace = "image: ghcr.io/phlohouse/{name}:{next_version}"
 expected_matches = 1
 
+[[release.replacements]]
+files = ["examples/lakehouses/retail-files/pyproject.toml"]
+packages = ["phlo"]
+search = "phlo[defaults]=={current_version}"
+replace = "phlo[defaults]=={next_version}"
+expected_matches = 1
+
+[[release.replacements]]
+files = ["examples/lakehouses/retail-files/pyproject.toml"]
+packages = ["phlo-dagster", "phlo-dbt", "phlo-pandera"]
+search = "{name}=={current_version}"
+replace = "{name}=={next_version}"
+expected_matches = 1
+
+[[release.replacements]]
+files = ["examples/lakehouses/retail-files/src/phlo_retail_files/blueprint_contract.json"]
+packages = ["phlo"]
+search = "phlo[defaults]=={current_version}"
+replace = "phlo[defaults]=={next_version}"
+expected_matches = 2
+
+[[release.replacements]]
+files = ["examples/lakehouses/retail-files/src/phlo_retail_files/blueprint_contract.json"]
+packages = ["phlo-dagster", "phlo-dbt", "phlo-pandera"]
+search = "{name}=={current_version}"
+replace = "{name}=={next_version}"
+expected_matches = 2
+
 [changelog]
 sections.feat = "Added"
 sections.fix = "Fixed"
