@@ -3085,6 +3085,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+blueprints = [
+    { name = "phlo-retail-files" },
+]
 codemods = [
     { name = "libcst" },
 ]
@@ -3210,6 +3213,7 @@ requires-dist = [
     { name = "phlo-pandera", marker = "extra == 'defaults'", editable = "packages/phlo-pandera" },
     { name = "phlo-postgres", marker = "extra == 'core-services'", editable = "packages/phlo-postgres" },
     { name = "phlo-postgres", marker = "extra == 'defaults'", editable = "packages/phlo-postgres" },
+    { name = "phlo-retail-files", marker = "extra == 'blueprints'", directory = "examples/lakehouses/retail-files" },
     { name = "phlo-trino", marker = "extra == 'core-services'", editable = "packages/phlo-trino" },
     { name = "phlo-trino", marker = "extra == 'defaults'", editable = "packages/phlo-trino" },
     { name = "psycopg2-binary", marker = "extra == 'runtime'", specifier = ">=2.9.11" },
@@ -3218,7 +3222,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0" },
     { name = "structlog", specifier = ">=25.5.0" },
 ]
-provides-extras = ["codemods", "core-services", "defaults", "openmetadata", "runtime"]
+provides-extras = ["blueprints", "codemods", "core-services", "defaults", "openmetadata", "runtime"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -4125,6 +4129,34 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "phlo-retail-files"
+version = "0.1.0"
+source = { directory = "examples/lakehouses/retail-files" }
+dependencies = [
+    { name = "pandas" },
+    { name = "phlo", extra = ["defaults"] },
+    { name = "phlo-dagster" },
+    { name = "phlo-dbt" },
+    { name = "pyarrow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pandas", specifier = ">=2.3,<3.1" },
+    { name = "phlo", extras = ["defaults"], specifier = "==0.14.0" },
+    { name = "phlo-dagster", specifier = "==0.14.0" },
+    { name = "phlo-dbt", specifier = "==0.14.0" },
+    { name = "pyarrow", specifier = ">=21,<26" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "dbt-duckdb", specifier = ">=1.10,<1.12" },
+    { name = "duckdb", specifier = ">=1.4,<1.6" },
+    { name = "phlo-pandera", specifier = "==0.14.0" },
+]
 
 [[package]]
 name = "phlo-rustfs"

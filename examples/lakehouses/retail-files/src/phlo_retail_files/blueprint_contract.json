@@ -1,0 +1,71 @@
+{
+  "contract": "phlo.blueprint.v1",
+  "distribution": "phlo-retail-files",
+  "package": "phlo_retail_files",
+  "template": "retail-files",
+  "version": "0.1.0",
+  "entry_point_group": "phlo.project_templates",
+  "entry_point": "phlo_retail_files.provider:templates",
+  "phlo_family_pins": [
+    "phlo[defaults]==0.14.0",
+    "phlo-dagster==0.14.0",
+    "phlo-dbt==0.14.0",
+    "phlo-pandera==0.14.0"
+  ],
+  "third_party_dependencies": {
+    "runtime": [
+      "pandas>=2.3,<3.1",
+      "pyarrow>=21,<26"
+    ],
+    "dev": [
+      "duckdb>=1.4,<1.6",
+      "dbt-duckdb>=1.10,<1.12"
+    ]
+  },
+  "third_party_allowlist": [
+    "pandas",
+    "pyarrow",
+    "duckdb",
+    "dbt-duckdb"
+  ],
+  "support_promise_boundaries": {
+    "in_defaults_extra": false,
+    "in_core_services_extra": false,
+    "in_blessed_support_release_set": false
+  },
+  "starter": {
+    "fixture_scale": "25 stores x 500 products x 30 days x 80 sales lines per store/day",
+    "network_independent": true,
+    "failure_leaves_published_data_unchanged": true,
+    "published_table_count": 12,
+    "published_table_rows": {
+      "retail_products": 500,
+      "retail_stores": 25,
+      "retail_promotions": 2,
+      "retail_inventory": 12560,
+      "retail_sales_lines": 4000,
+      "product_dimension": 500,
+      "store_dimension": 25,
+      "sales_facts": 4000,
+      "inventory_balances": 12500,
+      "daily_store_mart": 50,
+      "product_category_performance": 120,
+      "stockout_reorder": 12500
+    }
+  },
+  "resources_digest": "sha256:93df8f387da25c8328481a028782134510be4f9af3cd3033d2a56f0be0a389e8",
+  "rendered_dependencies": {
+    "runtime": [
+      "phlo[defaults]==0.14.0",
+      "phlo-dagster==0.14.0",
+      "phlo-dbt==0.14.0",
+      "pandas>=2.3,<3.1",
+      "pyarrow>=21,<26"
+    ],
+    "dev": [
+      "phlo-pandera==0.14.0",
+      "duckdb>=1.4,<1.6",
+      "dbt-duckdb>=1.10,<1.12"
+    ]
+  }
+}

@@ -4,7 +4,6 @@ import argparse
 from pathlib import Path
 
 import duckdb
-
 from workflows.ingestion.retail.files import (
     read_historical_archive,
     read_inventory,

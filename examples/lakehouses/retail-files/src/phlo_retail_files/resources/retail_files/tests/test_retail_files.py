@@ -5,7 +5,6 @@ import pandas as pd
 import pandera.pandas as pa
 import pytest
 from phlo_dlt import get_ingestion_assets
-
 from scripts.generate_fixtures import generate
 from workflows.ingestion.retail import files as retail_files
 from workflows.ingestion.retail.files import read_inventory, read_reference, read_sales
