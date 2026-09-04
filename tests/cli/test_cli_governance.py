@@ -22,6 +22,16 @@ from phlo.cli.main import cli
 pytestmark = pytest.mark.core_regression
 
 
+def _assert_ok_payload(payload: dict) -> None:
+    assert payload["ok"] is True
+    assert payload["warning_count"] == 0
+    assert payload["warnings"] == []
+    # The canonical Dataset section is always present; without a durable
+    # state store it reports unavailability instead of failing the check.
+    assert payload["datasets"]["available"] is False
+    assert "reason" in payload["datasets"]
+
+
 @pytest.fixture(autouse=True)
 def _clear_flow_declarations() -> Iterator[None]:
     # Decorator-declared flows accumulate in global registry state, so every
@@ -70,7 +80,7 @@ def test_governance_check_passes_for_governed_publish() -> None:
 
     assert result.exit_code == 0
     payload = json.loads(result.output)
-    assert payload == {"ok": True, "warning_count": 0, "warnings": []}
+    _assert_ok_payload(payload)
 
 
 def test_governance_export_emits_read_model() -> None:
@@ -118,7 +128,7 @@ def customer_health_access():
     )
 
     assert result.exit_code == 0
-    assert json.loads(result.output) == {"ok": True, "warning_count": 0, "warnings": []}
+    _assert_ok_payload(json.loads(result.output))
 
 
 def test_governance_check_with_module_clears_previous_declarations(tmp_path: Path) -> None:
@@ -148,7 +158,7 @@ def customer_health_access():
     )
 
     assert result.exit_code == 0
-    assert json.loads(result.output) == {"ok": True, "warning_count": 0, "warnings": []}
+    _assert_ok_payload(json.loads(result.output))
 
 
 def test_governance_check_bad_module_is_clean_error(tmp_path: Path) -> None:
@@ -169,4 +179,4 @@ def test_governance_group_is_registered_on_root_cli() -> None:
     result = CliRunner().invoke(cli, ["governance", "check", "--json"])
 
     assert result.exit_code == 0
-    assert json.loads(result.output) == {"ok": True, "warning_count": 0, "warnings": []}
+    _assert_ok_payload(json.loads(result.output))

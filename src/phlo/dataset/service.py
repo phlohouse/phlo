@@ -81,11 +81,28 @@ class DatasetService:
         self._evidence_source = evidence_source
         self._policy_source = policy_source
 
+    @property
+    def store(self) -> DatasetStateStore:
+        """The injected durable state store."""
+        return self._store
+
     # -- Reads -----------------------------------------------------------
 
     def record(self, dataset_id: str) -> DatasetStateRecord | None:
         """Return the durable record for one canonical Dataset ID."""
         return self._store.load(_validated_resource_id(dataset_id))
+
+    def policy_for(self, dataset_id: str) -> DatasetPolicy:
+        """Return the project policy governing one Dataset."""
+        return self._policy_source.policy_for(_validated_resource_id(dataset_id))
+
+    def evidence(self, dataset_id: str, kinds: Collection[str]) -> tuple[EvidenceRecord, ...]:
+        """Return the evidence of the requested kinds for one Dataset."""
+        return self._evidence(_validated_resource_id(dataset_id), kinds)
+
+    def required_evidence_kinds(self, dataset_id: str, action: str) -> Collection[str]:
+        """Return the evidence kinds the project policy requires for an action."""
+        return _policy_evidence_kinds(self.policy_for(dataset_id), action)
 
     def readiness(self, dataset_id: str, action: str | None = None) -> PolicyVerdict:
         """Evaluate the project policy for one Dataset's default or given action.
@@ -368,7 +385,7 @@ def _plan_writes(
         table_id = dataset_table_id(resource_id)
         transitions = WORKFLOW_TRANSITIONS
         to_state = transitions[request.action][1]
-        owner = record.owner if record else None
+        owner = record.owner if record else (request.owner or request.actor)
         schema_version = record.schema_version if record else DATASET_STATE_SCHEMA_VERSION
         if to_state == WorkflowState.PROMOTED.value:
             candidate = CandidateRecord(

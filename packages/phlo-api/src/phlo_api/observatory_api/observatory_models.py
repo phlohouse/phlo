@@ -505,6 +505,8 @@ class ObservatoryDatasetProfile(BaseModel):
         default_factory=ObservatoryPublishingReadiness
     )
     pipeline: ObservatoryDatasetPipeline = Field(default_factory=ObservatoryDatasetPipeline)
+    canonical: dict[str, Any] | None = None
+    """Canonical Dataset projection; identical to `phlo dataset show --json`."""
     sections: dict[str, bool] = Field(default_factory=dict)
 
 

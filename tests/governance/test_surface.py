@@ -94,6 +94,7 @@ def test_surface_derives_complete_table_from_existing_declarations() -> None:
             "row_count_change": {},
             "checks": ["freshness_hours"],
         },
+        "classifications": [],
         "warnings": [],
     }
 

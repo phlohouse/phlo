@@ -239,6 +239,12 @@ class TransitionRequest:
     actor: str | None = None
     scope: str | None = None
     expected_state: str | None = None
+    owner: str | None = None
+    """Operating owner recorded when a claim creates the candidate record.
+
+    Advisory: an existing record keeps its owner; a new record takes this
+    owner, falling back to the actor.
+    """
 
     def __post_init__(self) -> None:
         if not self.action_id:

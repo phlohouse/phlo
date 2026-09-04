@@ -212,6 +212,30 @@ class MemoryDatasetStateStore:
         with self._lock:
             self._audit.append(event.to_read_model())
 
+    def write_workflow_config(
+        self,
+        *,
+        config: Mapping[str, Any],
+        actor: str | None = None,
+        scope: str | None = None,
+    ) -> None:
+        """Persist the workflow configuration atomically with an audit event."""
+        with self._lock:
+            self._config = dict(config)
+            self._audit.append(
+                TransitionAuditEvent(
+                    actor=actor,
+                    scope=scope,
+                    action_id=f"workflow-config-{len(self._audit)}",
+                    resource_id="overlay",
+                    action="write-workflow-config",
+                    before_state=None,
+                    after_state="updated",
+                    outcome="committed",
+                    detail="Updated the Dataset workflow configuration.",
+                ).to_read_model()
+            )
+
     # -- Migration transaction ----------------------------------------------
 
     def commit_migration(

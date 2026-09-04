@@ -8,6 +8,7 @@ build. Merged values are deep-copied into JSON-serializable form.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -97,6 +98,7 @@ class GovernedTable:
     pii: bool = False
     published: bool = False
     audience: tuple[str, ...] = ()
+    classifications: tuple[str, ...] = ()
     consumers: tuple[dict[str, Any], ...] = ()
     sla: dict[str, Any] | None = None
     access_policies: tuple[AccessPolicyReadModel, ...] = ()
@@ -111,6 +113,7 @@ class GovernedTable:
             "pii": self.pii,
             "published": self.published,
             "audience": list(self.audience),
+            "classifications": list(self.classifications),
             "consumers": [_copy_json_like(consumer) for consumer in self.consumers],
             "sla": _copy_json_like(self.sla),
             "access_policies": [policy.to_read_model() for policy in self.access_policies],
@@ -161,6 +164,7 @@ class _TableBuilder:
     consumers: list[dict[str, Any]] = field(default_factory=list)
     sla: dict[str, Any] | None = None
     access_policies: list[AccessPolicyReadModel] = field(default_factory=list)
+    classifications: list[str] = field(default_factory=list)
     observability: GovernanceObservability = field(default_factory=GovernanceObservability)
     declared: bool = False
 
@@ -171,10 +175,16 @@ class _TableBuilder:
         self.pii = self.pii or spec.pii
         self.consumers = _merge_dict_lists(self.consumers, spec.consumers, key="name")
         self.sla = self.sla or _copy_json_like(spec.sla)
+        self.classifications = _merge_strings(
+            self.classifications, _metadata_classifications(spec.metadata)
+        )
 
     def apply_publish(self, metadata: dict[str, Any]) -> None:
         self.declared = True
         self.published = True
+        self.classifications = _merge_strings(
+            self.classifications, _metadata_classifications(metadata)
+        )
         owner = metadata.get("owner")
         if isinstance(owner, str) and owner:
             self.owner = self.owner or owner
@@ -220,6 +230,7 @@ class _TableBuilder:
             pii=self.pii,
             published=self.published,
             audience=tuple(sorted(self.audience)),
+            classifications=tuple(sorted(self.classifications)),
             # Dict consumers have no natural ordering; repr provides a stable
             # total order so repeated builds yield identical output.
             consumers=tuple(sorted((_copy_json_like(item) for item in self.consumers), key=repr)),
@@ -337,6 +348,26 @@ def _merge_strings(current: list[str], incoming: list[str]) -> list[str]:
         if item not in result:
             result.append(item)
     return result
+
+
+_CLASSIFICATION_METADATA_KEYS = ("classification", "classifications", "sensitivity", "tags")
+
+
+def _metadata_classifications(metadata: dict[str, Any]) -> list[str]:
+    """Extract classification strings from declaration metadata.
+
+    Reads the same metadata keys the Observatory Dataset surface reads, so
+    every surface derives classifications from one canonical rule.
+    """
+    values: list[str] = []
+    for key in _CLASSIFICATION_METADATA_KEYS:
+        value = metadata.get(key)
+        if isinstance(value, str):
+            if value.strip():
+                values.append(value.strip())
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            values.extend(str(item).strip() for item in value if str(item).strip())
+    return values
 
 
 def _merge_dict_lists(

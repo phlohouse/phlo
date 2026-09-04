@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections import Counter, deque
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
 import heapq
 import importlib
@@ -22,7 +21,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import threading
 from typing import Any, cast
 from urllib.parse import quote
 from uuid import uuid4
@@ -172,6 +170,20 @@ from phlo_api.api.operation_controls import (
     replay_or_execute_async,
     require_scope,
 )
+from phlo.dataset.evidence import EvidenceRecord
+from phlo.dataset.models import (
+    CandidateRecord,
+    TransitionRequest,
+    candidate_dataset_id,
+)
+from phlo.dataset_projection import (
+    CapabilityEvidenceSource,
+    CompositeEvidenceSource,
+    DatasetAuthority,
+    GovernanceSurfaceEvidenceSource,
+    build_dataset_authority,
+)
+from phlo.governance import build_governance_surface
 from phlo_api.pagination import paginate_items
 from phlo_api.run_evidence import RunEvidenceStore, get_run_evidence_store
 from types import ModuleType
@@ -337,67 +349,90 @@ def _lakehouse_manifest_path() -> Path:
     return _observatory_state_dir() / "lakehouse_manifest.json"
 
 
-def _dataset_workflow_path() -> Path:
-    return _observatory_state_dir() / "dataset_workflow.json"
+def _dataset_authority() -> DatasetAuthority:
+    """Resolve the canonical Dataset authority.
 
-
-_DATASET_WORKFLOW_LOCK = threading.RLock()
-
-
-@contextmanager
-def _dataset_workflow_write_lock():
-    """Serialize workflow state updates across threads and POSIX workers."""
-    lock_path = _dataset_workflow_path().with_suffix(".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with _DATASET_WORKFLOW_LOCK, lock_path.open("a+") as lock_file:
-        if fcntl is not None:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            if fcntl is not None:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-
-def _load_dataset_workflow_state() -> dict[str, Any]:
-    path = _dataset_workflow_path()
-    if not path.exists():
-        return {"datasets": {}, "candidates": {}, "config": {}}
+    Every Dataset read model and transition goes through this one authority
+    over the durable state store; the legacy ``dataset_workflow.json`` overlay
+    is never read or written on a request path. Observatory contributes its
+    quality checks as neutral evidence; when no durable store capability is
+    installed the request fails closed with guidance.
+    """
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"datasets": {}, "candidates": {}, "config": {}}
-    if not isinstance(payload, dict):
-        return {"datasets": {}, "candidates": {}, "config": {}}
-    return {
-        "datasets": payload.get("datasets") if isinstance(payload.get("datasets"), dict) else {},
-        "candidates": payload.get("candidates")
-        if isinstance(payload.get("candidates"), dict)
-        else {},
-        "config": payload.get("config") if isinstance(payload.get("config"), dict) else {},
-    }
+        surface = build_governance_surface()
+        return build_dataset_authority(
+            str(_project_root()),
+            surface=surface,
+            evidence_source=CompositeEvidenceSource(
+                GovernanceSurfaceEvidenceSource(surface),
+                CapabilityEvidenceSource(),
+                _QualityEvidenceSource(),
+            ),
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "dataset_authority_unavailable",
+                "reason": str(exc),
+                "guidance": (
+                    "Install a dataset state store provider (phlo-postgres) or set "
+                    "PHLO_DATASET_STATE_STORE=memory for the explicit test mode."
+                ),
+            },
+        ) from exc
 
 
-def _write_dataset_workflow_state(state: Mapping[str, Any]) -> None:
-    path = _dataset_workflow_path()
-    temporary_path = path.with_suffix(".tmp")
-    temporary_path.write_text(
-        json.dumps(state, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    temporary_path.replace(path)
+class _QualityEvidenceSource:
+    """Observatory quality checks crossing the neutral evidence interface.
+
+    Maps blocking quality checks for one table to the neutral
+    ``quality_checks`` evidence kind. No blocking check failing means the
+    control passes; a table with no checks yields no record, which the policy
+    evaluator reports as missing evidence and blocks readiness. The check
+    collection is loaded once per authority so one read model costs one load.
+    """
+
+    def __init__(self) -> None:
+        self._checks: Sequence[ObservatoryQualityCheck] | None = None
+
+    def evidence(self, subject: str, kinds: Sequence[str]) -> tuple[EvidenceRecord, ...]:
+        if "quality_checks" not in kinds:
+            return ()
+        if self._checks is None:
+            self._checks = _load_quality()
+        checks = [check for check in self._checks if check.asset_id == subject]
+        if not checks:
+            return ()
+        blocking = [check for check in checks if check.blocking]
+        failing = [check for check in blocking if check.status == "failing"]
+        return (
+            EvidenceRecord(
+                kind="quality_checks",
+                subject=subject,
+                payload={
+                    "passed": not failing,
+                    "blocking": len(blocking),
+                    "failing": len(failing),
+                },
+                source="observatory quality",
+            ),
+        )
 
 
 def _workflow_default_owner() -> str:
-    owner = _dataset_workflow_config().default_owner
-    return owner or os.environ.get("USER") or "local-user"
+    config = _dataset_workflow_config()
+    return config.default_owner
 
 
 def _dataset_workflow_config() -> ObservatoryDatasetWorkflowConfig:
-    state = _load_dataset_workflow_state()
-    config = state.get("config") if isinstance(state.get("config"), Mapping) else {}
-    owner = config.get("default_owner") if isinstance(config, Mapping) else None
-    approval_states = config.get("approval_states") if isinstance(config, Mapping) else None
+    """Dataset workflow defaults from the durable store's imported config."""
+    try:
+        config = _dataset_authority().workflow_config()
+    except HTTPException:
+        config = {}
+    owner = config.get("default_owner")
+    approval_states = config.get("approval_states")
     states = (
         [str(item).strip() for item in approval_states if str(item).strip()]
         if isinstance(approval_states, list)
@@ -413,24 +448,6 @@ def _dataset_workflow_config() -> ObservatoryDatasetWorkflowConfig:
         default_owner=default_owner,
         approval_states=states,
     )
-
-
-def _workflow_dataset_overlay(dataset_id: str) -> Mapping[str, Any]:
-    raw_state = _load_dataset_workflow_state()
-    state: dict[str, Any] = raw_state if isinstance(raw_state, dict) else {}
-    raw_datasets = state.get("datasets")
-    datasets = raw_datasets if isinstance(raw_datasets, Mapping) else {}
-    overlay = datasets.get(dataset_id)
-    return overlay if isinstance(overlay, Mapping) else {}
-
-
-def _workflow_candidate_overlay(table_id: str) -> Mapping[str, Any]:
-    raw_state = _load_dataset_workflow_state()
-    state: dict[str, Any] = raw_state if isinstance(raw_state, dict) else {}
-    raw_candidates = state.get("candidates")
-    candidates = raw_candidates if isinstance(raw_candidates, Mapping) else {}
-    overlay = candidates.get(table_id)
-    return overlay if isinstance(overlay, Mapping) else {}
 
 
 def _load_lakehouse_manifest() -> Mapping[str, Any]:
@@ -543,6 +560,26 @@ def _dataset_kinds(values: Iterable[Any]) -> list[str]:
 
 def _dataset_metadata(value: Mapping[str, Any]) -> dict[str, Any]:
     return _safe_metadata(value)
+
+
+def _metadata_strings(metadata: Mapping[str, Any], *keys: str) -> list[str]:
+    values: list[str] = []
+    for key in keys:
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            values.append(value.strip())
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            values.extend(str(item).strip() for item in value if str(item).strip())
+    return sorted(set(values))
+
+
+def _asset_publication_state(metadata: Mapping[str, Any]) -> str:
+    value = metadata.get("publication_state") or metadata.get("publishing_state")
+    if isinstance(value, str) and value.lower() in {"draft", "published", "retired"}:
+        return value.lower()
+    if metadata.get("published") is True:
+        return "published"
+    return "draft"
 
 
 def _dataset_text(value: str) -> str:
@@ -1118,26 +1155,6 @@ def _load_quality() -> list[ObservatoryQualityCheck]:
     return sorted(_merge_by_id(checks), key=lambda item: item.id)
 
 
-def _metadata_strings(metadata: Mapping[str, Any], *keys: str) -> list[str]:
-    values: list[str] = []
-    for key in keys:
-        value = metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            values.append(value.strip())
-        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-            values.extend(str(item).strip() for item in value if str(item).strip())
-    return sorted(set(values))
-
-
-def _publication_state(metadata: Mapping[str, Any]) -> str:
-    value = metadata.get("publication_state") or metadata.get("publishing_state")
-    if isinstance(value, str) and value.lower() in {"draft", "published", "retired"}:
-        return value.lower()
-    if metadata.get("published") is True:
-        return "published"
-    return "draft"
-
-
 def _readiness_state(checks: Sequence[ObservatoryQualityCheck]) -> str:
     if not checks:
         return "unknown"
@@ -1156,7 +1173,6 @@ def _dataset_from_asset(
     quality: Sequence[ObservatoryQualityCheck],
 ) -> ObservatoryDataset:
     metadata = asset.metadata if isinstance(asset.metadata, Mapping) else {}
-    owner = metadata.get("owner") or metadata.get("team") or metadata.get("maintainer")
     dataset_tables = [table for table in tables if table.asset_id == asset.id]
     dataset_quality = [check for check in quality if check.asset_id == asset.id]
     source_refs = [ObservatoryResourceRef(kind="asset", id=asset.id, label=asset.name)]
@@ -1164,50 +1180,74 @@ def _dataset_from_asset(
         ObservatoryResourceRef(kind="table", id=table.id, label=table.name)
         for table in dataset_tables
     )
-    overlay = _workflow_dataset_overlay(asset.id)
-    metadata = _dataset_metadata({**metadata, **_safe_metadata(overlay)})
-    owner = overlay.get("owner") or owner
-    publication_state = overlay.get("publication_state") or _publication_state(metadata)
-    return ObservatoryDataset(
-        id=asset.id,
-        name=_coerce_str(metadata.get("dataset_name"), asset.name),
-        description=_dataset_text(asset.description) if asset.description else None,
-        owner=_coerce_str(owner, "") or None,
-        classifications=_metadata_strings(
+    authority = _dataset_authority()
+    governed = authority.governed_table(asset.id)
+    record = authority.record(asset.id)
+    owner = record.owner if record is not None and record.owner else None
+    if owner is None and governed is not None:
+        owner = governed.owner
+    if owner is None:
+        owner = metadata.get("owner") or metadata.get("team") or metadata.get("maintainer")
+    classifications = (
+        list(governed.classifications)
+        if governed is not None
+        else _metadata_strings(
             metadata,
             "classification",
             "classifications",
             "sensitivity",
             "tags",
-        ),
+        )
+    )
+    publication_state = (
+        record.publication_state
+        if record is not None
+        else "draft"
+        if governed is not None
+        else _asset_publication_state(metadata)
+    )
+    return ObservatoryDataset(
+        id=asset.id,
+        name=_coerce_str(metadata.get("dataset_name"), asset.name),
+        description=_dataset_text(asset.description) if asset.description else None,
+        owner=_coerce_str(owner, "") or None,
+        classifications=classifications,
         publication_state=cast(PublicationState, publication_state),
         readiness_state=cast(HealthState, _readiness_state(dataset_quality)),
         candidate=False,
         kinds=_dataset_kinds([*asset.kinds, "asset"]),
         source_refs=source_refs,
-        metadata=metadata,
+        metadata=_dataset_metadata(metadata),
     )
 
 
 def _candidate_dataset_from_table(table: ObservatoryTable) -> ObservatoryDataset:
     metadata = table.metadata if isinstance(table.metadata, Mapping) else {}
-    overlay = _workflow_candidate_overlay(table.id)
-    owner = overlay.get("owner")
-    promoted = overlay.get("state") == "promoted"
-    dataset_id = _coerce_str(
-        overlay.get("dataset_id"),
-        table.id if promoted else f"candidate:{table.id}",
+    authority = _dataset_authority()
+    record = authority.record(candidate_dataset_id(table.id))
+    # Candidate ids resolve to CandidateRecord or nothing; the isinstance
+    # narrowing also proves promotion for ty.
+    promoted_id = record.promoted_dataset_id if isinstance(record, CandidateRecord) else None
+    promoted = promoted_id is not None
+    dataset_id = promoted_id or candidate_dataset_id(table.id)
+    owner = record.owner if record is not None else None
+    governed = authority.governed_table(table.id)
+    if owner is None and governed is not None:
+        owner = governed.owner
+    publication_state = (
+        record.publication_state
+        if isinstance(record, CandidateRecord) and record.publication_state
+        else "draft"
     )
-    metadata = _dataset_metadata({**metadata, **_safe_metadata(overlay)})
     return ObservatoryDataset(
         id=dataset_id,
         name=table.name,
         description=None,
         owner=_coerce_str(owner, "") or None,
-        classifications=_metadata_strings(metadata, "classification", "classifications"),
+        classifications=list(governed.classifications) if governed else [],
         publication_state=cast(
             PublicationState,
-            _coerce_str(overlay.get("publication_state"), "draft"),
+            publication_state,
         ),
         readiness_state="unknown",
         candidate=not promoted,
@@ -1236,12 +1276,13 @@ def _datasets_from_sources(
     tables: Sequence[ObservatoryTable],
     quality: Sequence[ObservatoryQualityCheck],
 ) -> list[ObservatoryDataset]:
+    authority = _dataset_authority()
     datasets = [_dataset_from_asset(asset, tables=tables, quality=quality) for asset in assets]
     datasets.extend(
         _candidate_dataset_from_table(table)
         for table in tables
         if (table.asset_id is None or not any(asset.id == table.asset_id for asset in assets))
-        and _workflow_candidate_overlay(table.id).get("state") != "rejected"
+        and _candidate_workflow_state(authority, table.id) != "rejected"
     )
     return sorted(_merge_by_id(datasets), key=lambda item: item.name.lower())
 
@@ -1310,27 +1351,28 @@ def _publication_state_order(state: str) -> int:
     return order.index(state) if state in order else len(order)
 
 
+def _candidate_workflow_state(authority: DatasetAuthority, table_id: str) -> str:
+    """Return the durable workflow state of one candidate (open when absent)."""
+    record = authority.record(candidate_dataset_id(table_id))
+    return record.current_state if record is not None else "open"
+
+
 def _load_publishing_readiness() -> ObservatoryPublishingReadinessList:
     """Build publishing readiness from one shared set of source collections."""
     assets = _load_assets()
     tables = _load_tables_without_catalog()
     quality = _load_quality()
+    authority = _dataset_authority()
     items: list[ObservatoryPublishingReadinessItem] = []
     for dataset in _datasets_from_sources(assets, tables, quality):
         if dataset.candidate:
             continue
-        dataset_quality = [
-            check
-            for check in quality
-            if any(ref.id == check.asset_id for ref in dataset.source_refs)
-        ]
         items.append(
             ObservatoryPublishingReadinessItem(
                 dataset_id=dataset.id,
                 publishing=_publishing_readiness(
                     dataset,
-                    _governance_controls_for_dataset(dataset, dataset_quality),
-                    dataset_quality,
+                    authority.readiness(dataset.id, "publish"),
                 ),
             )
         )
@@ -1366,7 +1408,7 @@ def _load_dataset_profile(dataset_id: str) -> ObservatoryDatasetProfile:
                 table
                 for table in tables
                 if table.id == dataset_id
-                and _workflow_candidate_overlay(table.id).get("state") == "promoted"
+                and _candidate_workflow_state(_dataset_authority(), table.id) == "promoted"
             ),
             None,
         )
@@ -1399,9 +1441,11 @@ def _load_dataset_profile(dataset_id: str) -> ObservatoryDatasetProfile:
         dataset = listed_dataset or _dataset_from_asset(asset, tables=tables, quality=quality)
         dataset_tables = [table for table in tables if table.asset_id == asset.id]
         dataset_quality = [check for check in quality if check.asset_id == asset.id]
-    governance = _governance_controls_for_dataset(dataset, dataset_quality)
+    authority = _dataset_authority()
+    projection = authority.projection(dataset_id)
+    governance = _governance_controls_for_dataset(dataset, projection, dataset_quality)
     usage = _load_dataset_usage(dataset, asset=asset, tables=dataset_tables)
-    publishing = _publishing_readiness(dataset, governance, dataset_quality)
+    publishing = _publishing_readiness(dataset, authority.readiness(dataset_id))
     related_ids = {
         dataset.id,
         *([asset.id] if asset is not None else []),
@@ -1442,6 +1486,7 @@ def _load_dataset_profile(dataset_id: str) -> ObservatoryDatasetProfile:
         usage=usage,
         publishing=publishing,
         pipeline=pipeline,
+        canonical=projection,
         sections={
             "overview": True,
             "contract": bool(dataset.owner or dataset.description),
@@ -1457,11 +1502,13 @@ def _load_dataset_profile(dataset_id: str) -> ObservatoryDatasetProfile:
 
 
 def _load_governance_matrix() -> ObservatoryGovernanceMatrix:
-    datasets = _load_datasets()
+    authority = _dataset_authority()
     quality = _load_quality()
+    datasets = _load_datasets()
     rows = [
         _governance_row_for_dataset(
             dataset,
+            authority.projection(dataset.id),
             [
                 check
                 for check in quality
@@ -1472,7 +1519,7 @@ def _load_governance_matrix() -> ObservatoryGovernanceMatrix:
     ]
     status_counts = Counter(row.status for row in rows)
     return ObservatoryGovernanceMatrix(
-        controls=["owner", "classification", "blocking_quality"],
+        controls=list(_load_governance_matrix_controls()),
         rows=rows,
         status_counts={status: status_counts.get(status, 0) for status in CONTROL_STATUSES},
     )
@@ -1489,9 +1536,10 @@ CONTROL_STATUSES: tuple[ControlStatus, ...] = (
 
 def _governance_row_for_dataset(
     dataset: ObservatoryDataset,
+    projection: dict[str, Any],
     quality: Sequence[ObservatoryQualityCheck],
 ) -> ObservatoryGovernanceRow:
-    controls = _governance_controls_for_dataset(dataset, quality)
+    controls = _governance_controls_for_dataset(dataset, projection, quality)
     return ObservatoryGovernanceRow(
         dataset=dataset,
         owner=dataset.owner,
@@ -1501,10 +1549,25 @@ def _governance_row_for_dataset(
     )
 
 
+_CONTROL_LABELS = {
+    "governance_declarations_present": "Declarations present",
+    "owner_recorded": "Owner assigned",
+    "classification_declared": "Classification declared",
+    "quality_checks_passed": "Blocking quality clear",
+}
+
+
 def _governance_controls_for_dataset(
     dataset: ObservatoryDataset,
+    projection: dict[str, Any],
     quality: Sequence[ObservatoryQualityCheck],
 ) -> list[ObservatoryDatasetControl]:
+    """Render the canonical projection controls for one Dataset.
+
+    Statuses come verbatim from the core policy evaluation (the projection's
+    ordered ``controls``); only labels, messages, and evidence rendering are
+    Observatory presentation.
+    """
     dataset_ref = ObservatoryResourceRef(kind="dataset", id=dataset.id, label=dataset.name)
     owner_evidence = (
         [
@@ -1542,33 +1605,65 @@ def _governance_controls_for_dataset(
         for check in blocking_quality
     ]
     quality_status = _quality_control_status(dataset, blocking_quality)
-    return [
-        ObservatoryDatasetControl(
-            id="owner",
-            label="Owner assigned",
-            status="pass" if dataset.owner else "fail",
-            message="One owner is assigned." if dataset.owner else "No owner assigned.",
-            evidence=owner_evidence,
+    evidence_by_control = {
+        "owner_recorded": owner_evidence,
+        "classification_declared": classification_evidence,
+        "quality_checks_passed": quality_evidence,
+        "governance_declarations_present": [],
+    }
+    messages = {
+        "owner_recorded": ("One owner is assigned." if dataset.owner else "No owner assigned."),
+        "classification_declared": (
+            "Classification evidence is present."
+            if classification_evidence
+            else "Classification evidence is missing."
         ),
-        ObservatoryDatasetControl(
-            id="classification",
-            label="Classification declared",
-            status="pass" if classification_evidence else "fail",
-            message=(
-                "Classification evidence is present."
-                if classification_evidence
-                else "Classification evidence is missing."
-            ),
-            evidence=classification_evidence,
+        "quality_checks_passed": _quality_control_message(
+            dataset, blocking_quality, quality_status
         ),
-        ObservatoryDatasetControl(
-            id="blocking_quality",
-            label="Blocking quality clear",
-            status=quality_status,
-            message=_quality_control_message(dataset, blocking_quality, quality_status),
-            evidence=quality_evidence,
+        "governance_declarations_present": (
+            "The table carries @phlo declarations."
+            if projection.get("declared")
+            else "The table has no @phlo.contract, @phlo.publish, or @phlo.access declaration."
         ),
-    ]
+    }
+    controls: list[ObservatoryDatasetControl] = []
+    for entry in projection["controls"]:
+        control_id = str(entry["control"])
+        if control_id == "quality_checks_passed" and dataset.candidate:
+            status: ControlStatus = "not_applicable"
+        elif entry["status"] == "passed":
+            status = "pass"
+        elif entry["status"] == "failed":
+            status = "fail"
+        else:
+            status = "unknown"
+        controls.append(
+            ObservatoryDatasetControl(
+                id=control_id,
+                label=_CONTROL_LABELS.get(control_id, control_id),
+                status=status,
+                message=messages.get(control_id),
+                evidence=evidence_by_control.get(control_id, []),
+            )
+        )
+    # Present controls in the canonical display order (the governance matrix
+    # header order); statuses stay verbatim from the projection.
+    canonical_order = {
+        control_id: index for index, control_id in enumerate(_load_governance_matrix_controls())
+    }
+    controls.sort(key=lambda control: canonical_order.get(control.id, len(canonical_order)))
+    return controls
+
+
+def _load_governance_matrix_controls() -> tuple[str, ...]:
+    """Return the canonical display order of Dataset governance controls."""
+    return (
+        "governance_declarations_present",
+        "owner_recorded",
+        "classification_declared",
+        "quality_checks_passed",
+    )
 
 
 def _quality_control_status(
@@ -1814,21 +1909,17 @@ def _has_usage(usage: ObservatoryDatasetUsage) -> bool:
 
 def _publishing_readiness(
     dataset: ObservatoryDataset,
-    governance: Sequence[ObservatoryDatasetControl],
-    quality: Sequence[ObservatoryQualityCheck],
+    verdict: Any,
 ) -> ObservatoryPublishingReadiness:
-    blockers: list[str] = []
-    warnings: list[str] = []
-    missing_evidence: list[str] = []
-    for control in governance:
-        if control.status == "fail":
-            blockers.append(control.message or control.label)
-        elif control.status == "warning":
-            warnings.append(control.message or control.label)
-        elif control.status == "unknown":
-            missing_evidence.append(control.message or control.label)
-    if not quality:
-        missing_evidence.append("Quality evidence is missing.")
+    """Render one core policy verdict as the Dataset publishing readiness.
+
+    Blockers, warnings, and missing evidence come from the canonical verdict
+    in the evaluator's deterministic order; only the action labels and
+    consequences are Observatory presentation.
+    """
+    blockers = [finding.message for finding in verdict.blockers]
+    warnings = [finding.message for finding in verdict.warnings]
+    missing_evidence = [missing.message for missing in verdict.missing_evidence]
     state: HealthState = "ok"
     if blockers:
         state = "error"
@@ -1836,13 +1927,15 @@ def _publishing_readiness(
         state = "warning"
     elif missing_evidence:
         state = "unknown"
-    is_publishable = state in {"ok", "warning"} and dataset.publication_state != "published"
+    is_publishable = (
+        state in {"ok", "warning"} and verdict.ready and dataset.publication_state != "published"
+    )
     actions = [
         ObservatoryPublishingAction(
             id="publish",
             label="Publish internally",
             enabled=is_publishable,
-            reason=None if is_publishable else _publish_disabled_reason(dataset, blockers),
+            reason=None if is_publishable else _publish_disabled_reason(dataset, verdict),
             consequences=[
                 "Sets the Dataset publication state to published.",
                 "Makes the dataset visible as internally published in Observatory.",
@@ -1861,19 +1954,19 @@ def _publishing_readiness(
     ]
     return ObservatoryPublishingReadiness(
         state=state,
-        policy_name=_coerce_str(dataset.metadata.get("readiness_policy"), "default"),
+        policy_name=verdict.policy_version,
         internal_only=True,
-        blockers=_sorted_strings(blockers),
-        warnings=_sorted_strings(warnings),
-        missing_evidence=_sorted_strings(missing_evidence),
+        blockers=blockers,
+        warnings=warnings,
+        missing_evidence=missing_evidence,
         actions=actions,
     )
 
 
-def _publish_disabled_reason(dataset: ObservatoryDataset, blockers: Sequence[str]) -> str:
+def _publish_disabled_reason(dataset: ObservatoryDataset, verdict: Any) -> str:
     if dataset.publication_state == "published":
         return "This Dataset is already published."
-    if blockers:
+    if verdict.blockers:
         return "Readiness policy has blockers."
     return "Readiness policy needs more evidence."
 
@@ -4016,6 +4109,7 @@ def _execute_branch_action(request: ObservatoryActionRequest) -> ObservatoryActi
 
 def _execute_dataset_workflow_action(
     request: ObservatoryActionRequest,
+    http_request: Request,
 ) -> ObservatoryActionResult | None:
     if request.action_id.startswith("dataset:"):
         resource_id, separator, action_name = request.action_id.removeprefix("dataset:").rpartition(
@@ -4023,15 +4117,15 @@ def _execute_dataset_workflow_action(
         )
         if not separator or action_name not in {"publish", "retire"}:
             return None
-        return _execute_dataset_publication_action(request, resource_id, action_name)
+        return _execute_dataset_publication_action(request, resource_id, action_name, http_request)
 
     if request.action_id.startswith("candidate:"):
         table_id, separator, action_name = request.action_id.removeprefix("candidate:").rpartition(
             ":"
         )
-        if not separator or action_name not in {"claim", "promote", "reject"}:
+        if not separator or action_name not in {"claim", "review", "promote", "reject"}:
             return None
-        return _execute_candidate_workflow_action(request, table_id, action_name)
+        return _execute_candidate_workflow_action(request, table_id, action_name, http_request)
 
     return None
 
@@ -4040,74 +4134,48 @@ def _execute_dataset_publication_action(
     request: ObservatoryActionRequest,
     dataset_id: str,
     action_name: str,
+    http_request: Request,
 ) -> ObservatoryActionResult:
-    try:
-        profile = _load_dataset_profile(dataset_id)
-    except HTTPException as exc:
-        return _workflow_action_result(
-            request,
-            label="Update publication",
-            kind="dataset.workflow",
-            status="failed",
-            message=str(exc.detail),
-            target=ObservatoryResourceRef(kind="dataset", id=dataset_id, label=dataset_id),
-        )
+    """Dispatch one publication transition through the core service.
 
-    action = next(
-        (item for item in profile.publishing.actions if item.id == action_name),
-        None,
-    )
-    if action is None:
-        return _workflow_action_result(
-            request,
-            label="Update publication",
-            kind="dataset.workflow",
-            status="failed",
-            message=f"Unsupported publication action: {action_name}",
-            target=ObservatoryResourceRef(
-                kind="dataset", id=profile.dataset.id, label=profile.dataset.name
-            ),
+    Scoped and audited like its sibling mutation routes: the
+    ``lakehouse:operate`` scope is required, the transition is an authorized
+    compare-and-set keyed by the client ``action_id``, and the ordered policy
+    reasons are surfaced verbatim when the core policy blocks.
+    """
+    label = "Publish internally" if action_name == "publish" else "Retire"
+    target = ObservatoryResourceRef(kind="dataset", id=dataset_id, label=dataset_id)
+    auth = require_scope(http_request, "lakehouse:operate")
+    enforce_rate_limit(auth["subject"], f"dataset_{action_name}")
+    authority = _dataset_authority()
+    outcome = authority.transition(
+        TransitionRequest(
+            resource_id=dataset_id,
+            action=action_name,
+            action_id=request.action_id,
+            actor=auth["subject"],
+            scope="lakehouse:operate",
         )
-    if not action.enabled:
-        return _workflow_action_result(
-            request,
-            label=action.label,
-            kind=f"dataset.{action_name}",
-            status="skipped",
-            message=action.reason or "Publication action is not currently available.",
-            target=ObservatoryResourceRef(
-                kind="dataset", id=profile.dataset.id, label=profile.dataset.name
-            ),
-        )
-
-    next_publication_state = "published" if action_name == "publish" else "retired"
-    next_approval_state = "approved" if action_name == "publish" else "retired"
-    with _dataset_workflow_write_lock():
-        state = _load_dataset_workflow_state()
-        datasets = dict(state.get("datasets", {}))
-        current = datasets.get(profile.dataset.id)
-        current = current if isinstance(current, dict) else {}
-        datasets[profile.dataset.id] = {
-            **current,
-            "publication_state": next_publication_state,
-            "approval_state": next_approval_state,
-        }
-        state["datasets"] = datasets
-        _write_dataset_workflow_state(state)
-    _record_observatory_telemetry(
-        name=f"observatory.dataset.{action_name}",
-        resource_id=profile.dataset.id,
-        action_id=request.action_id,
     )
+    _audit_dataset_transition(
+        auth=auth,
+        operation=f"dataset.{action_name}",
+        outcome=outcome,
+    )
+    status, message = _transition_result_status(action_name, outcome)
+    if status == "succeeded":
+        _record_observatory_telemetry(
+            name=f"observatory.dataset.{action_name}",
+            resource_id=dataset_id,
+            action_id=request.action_id,
+        )
     return _workflow_action_result(
         request,
-        label=action.label,
+        label=label,
         kind=f"dataset.{action_name}",
-        status="succeeded",
-        message=f"{profile.dataset.name} marked {next_publication_state}.",
-        target=ObservatoryResourceRef(
-            kind="dataset", id=profile.dataset.id, label=profile.dataset.name
-        ),
+        status=status,
+        message=message,
+        target=target,
     )
 
 
@@ -4115,7 +4183,9 @@ def _execute_candidate_workflow_action(
     request: ObservatoryActionRequest,
     table_id: str,
     action_name: str,
+    http_request: Request,
 ) -> ObservatoryActionResult:
+    """Dispatch one candidate workflow transition through the core service."""
     table = next((item for item in _load_tables_without_catalog() if item.id == table_id), None)
     if table is None:
         return _workflow_action_result(
@@ -4127,49 +4197,76 @@ def _execute_candidate_workflow_action(
             target=ObservatoryResourceRef(kind="table", id=table_id, label=table_id),
         )
 
-    with _dataset_workflow_write_lock():
-        state = _load_dataset_workflow_state()
-        candidates = dict(state.get("candidates", {}))
-        current = candidates.get(table.id)
-        current = current if isinstance(current, dict) else {}
-        owner = _coerce_str(current.get("owner"), "") or _workflow_default_owner()
-        next_state = {
-            **current,
-            "owner": owner,
-            "approval_state": "claimed" if action_name == "claim" else "review",
-        }
-        if action_name == "claim":
-            next_state["state"] = "claimed"
-            message = f"{table.name} claimed by {owner}."
-        elif action_name == "promote":
-            next_state.update(
-                {
-                    "state": "promoted",
-                    "dataset_id": table.id,
-                    "publication_state": "draft",
-                    "approval_state": "review",
-                }
-            )
-            message = f"{table.name} promoted to a draft Dataset."
-        else:
-            next_state["state"] = "rejected"
-            next_state["approval_state"] = "rejected"
-            message = f"{table.name} rejected from the candidate queue."
-        candidates[table.id] = next_state
-        state["candidates"] = candidates
-        _write_dataset_workflow_state(state)
-    _record_observatory_telemetry(
-        name=f"observatory.candidate.{action_name}",
-        resource_id=table.id,
-        action_id=request.action_id,
+    auth = require_scope(http_request, "lakehouse:operate")
+    enforce_rate_limit(auth["subject"], f"candidate_{action_name}")
+    authority = _dataset_authority()
+    outcome = authority.transition(
+        TransitionRequest(
+            resource_id=candidate_dataset_id(table_id),
+            action=action_name,
+            action_id=request.action_id,
+            actor=auth["subject"],
+            scope="lakehouse:operate",
+            owner=_workflow_default_owner(),
+        )
     )
+    _audit_dataset_transition(
+        auth=auth,
+        operation=f"candidate.{action_name}",
+        outcome=outcome,
+    )
+    status, message = _transition_result_status(action_name, outcome)
+    if status == "succeeded":
+        message = _candidate_success_message(table.name, action_name, outcome)
+        _record_observatory_telemetry(
+            name=f"observatory.candidate.{action_name}",
+            resource_id=table.id,
+            action_id=request.action_id,
+        )
     return _workflow_action_result(
         request,
         label=action_name.title(),
         kind=f"dataset.candidate.{action_name}",
-        status="succeeded",
+        status=status,
         message=message,
         target=ObservatoryResourceRef(kind="table", id=table.id, label=table.name),
+    )
+
+
+def _transition_result_status(action_name: str, outcome: Any) -> tuple[str, str]:
+    """Map a core transition outcome onto an Observatory action result."""
+    reasons = list(outcome.verdict.reasons) if outcome.verdict is not None else []
+    if outcome.status.value in {"committed", "replayed", "idempotent"}:
+        suffix = f" ({outcome.status.value})" if outcome.status.value != "committed" else ""
+        return "succeeded", f"{outcome.message}{suffix}"
+    if outcome.status.value == "blocked":
+        joined = "; ".join(reasons) if reasons else outcome.message
+        return "skipped", f"Policy blocked {action_name!r}: {joined}"
+    return "failed", outcome.message
+
+
+def _candidate_success_message(table_name: str, action_name: str, outcome: Any) -> str:
+    owner = outcome.record.owner if outcome.record is not None else None
+    if action_name == "claim":
+        return f"{table_name} claimed by {owner or 'unknown'}."
+    if action_name == "promote":
+        return f"{table_name} promoted to a draft Dataset."
+    return f"{table_name} rejected from the candidate queue."
+
+
+def _audit_dataset_transition(*, auth: dict[str, Any], operation: str, outcome: Any) -> None:
+    """Append the API-side audit record for one Dataset transition attempt."""
+    audit_operation(
+        operation=operation,
+        target=outcome.request.resource_id,
+        dry_run=False,
+        auth=auth,
+        payload={"action_id": outcome.request.action_id, "action": outcome.request.action},
+        result={
+            "status": outcome.status.value,
+            "before_state": outcome.before_state,
+            "after_state": outcome.after_state,
+        },
     )
 
 
@@ -4211,7 +4308,7 @@ def _workflow_action_result(
             target=target,
             metadata={
                 "action_id": request.action_id,
-                "workflow_state_path": str(_dataset_workflow_path()),
+                "authority": "core.dataset",
             },
         ),
     )
@@ -4623,18 +4720,22 @@ def get_observatory_dataset_workflow_config() -> ObservatoryDatasetWorkflowConfi
 @router.put("/dataset-workflow/config", response_model=ObservatoryDatasetWorkflowConfig)
 def put_observatory_dataset_workflow_config(
     payload: ObservatoryDatasetWorkflowConfig,
+    http_request: Request,
 ) -> ObservatoryDatasetWorkflowConfig:
-    """Persist configurable Dataset workflow defaults."""
+    """Persist configurable Dataset workflow defaults in the durable store."""
+    auth = require_scope(http_request, "project:write")
     approval_states = [state.strip() for state in payload.approval_states if state.strip()]
     if not approval_states:
         raise HTTPException(status_code=422, detail="approval_states must not be empty")
-    with _dataset_workflow_write_lock():
-        state = _load_dataset_workflow_state()
-        state["config"] = {
+    authority = _dataset_authority()
+    authority.write_workflow_config(
+        {
             "default_owner": payload.default_owner.strip() or _workflow_default_owner(),
             "approval_states": approval_states,
-        }
-        _write_dataset_workflow_state(state)
+        },
+        actor=auth["subject"],
+        scope="project:write",
+    )
     _clear_read_model_cache()
     return _dataset_workflow_config()
 
@@ -5091,7 +5192,9 @@ def get_observatory_search(
 
 
 @router.post("/actions", response_model=ObservatoryActionResult)
-def post_observatory_action(request: ObservatoryActionRequest) -> ObservatoryActionResult:
+def post_observatory_action(
+    request: ObservatoryActionRequest, http_request: Request
+) -> ObservatoryActionResult:
     """Execute a guarded Observatory action."""
     dispatch_request = request
     if request.action_id.startswith("service:"):
@@ -5105,7 +5208,7 @@ def post_observatory_action(request: ObservatoryActionRequest) -> ObservatoryAct
         and action_name in {"add", "start", "stop", "restart"}
         and any(service.id == resource_id for service in services)
     )
-    workflow_result = _execute_dataset_workflow_action(dispatch_request)
+    workflow_result = _execute_dataset_workflow_action(dispatch_request, http_request)
     result = (
         _execute_action(dispatch_request)
         if is_service_control_action

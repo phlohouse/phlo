@@ -170,6 +170,36 @@ class SettingsDatasetStateStore:
 
         self._mutate(apply)
 
+    def write_workflow_config(
+        self,
+        *,
+        config: Mapping[str, Any],
+        actor: str | None = None,
+        scope: str | None = None,
+    ) -> None:
+        """Persist the workflow configuration atomically with an audit event."""
+
+        def apply(state: dict[str, Any] | None) -> dict[str, Any]:
+            current = _validated_state(state)
+            next_state = _copy_state(current)
+            next_state["config"] = dict(config)
+            next_state["audit"].append(
+                TransitionAuditEvent(
+                    actor=actor,
+                    scope=scope,
+                    action_id=f"workflow-config-{len(next_state['audit'])}",
+                    resource_id="overlay",
+                    action="write-workflow-config",
+                    before_state=None,
+                    after_state="updated",
+                    outcome="committed",
+                    detail="Updated the Dataset workflow configuration.",
+                ).to_read_model()
+            )
+            return next_state
+
+        self._mutate(apply)
+
     # -- Migration transaction ----------------------------------------------
 
     def commit_migration(

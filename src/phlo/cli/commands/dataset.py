@@ -1,5 +1,19 @@
 """Dataset workflow CLI commands.
 
+Canonical Dataset authority commands:
+
+- ``phlo dataset show <dataset_id>`` returns the one canonical Dataset
+  projection built by :mod:`phlo.dataset_projection` over the core service:
+  identity, owner, classifications, workflow/publication state, controls and
+  evidence, ordered readiness reasons, and allowed transitions. ``--json``
+  emits the projection verbatim so CLI JSON and the API Profile agree.
+- ``phlo dataset list`` projects every governed table on the surface.
+- ``phlo dataset transition <dataset_id> <action>`` applies one authorized
+  compare-and-set transition through the core service: the client
+  ``--action-id`` idempotency key drives replay, every attempt is audited in
+  the durable store, and blocked attempts print the ordered policy reasons
+  without writing.
+
 `phlo dataset migrate-overlay` runs the explicit overlay migration:
 
 - ``plan`` is read-only: it maps every legacy Observatory workflow record in
@@ -14,14 +28,16 @@
   overlay is discarded, the legacy file is retained, and the discard is
   journaled in the durable store's audit stream.
 
-Apply and discard require CLI mutation authorization; plan is a read.
-Registered into the phlo CLI by src/phlo/cli/main.py.
+Apply, discard, and transition require CLI mutation authorization;
+plan, show, and list are reads. Registered into the phlo CLI by
+src/phlo/cli/main.py.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -37,20 +53,170 @@ from phlo.dataset.migration import (
     plan_migration,
     source_file_digest,
 )
+from phlo.dataset.models import PUBLICATION_ACTIONS, WORKFLOW_ACTIONS, TransitionRequest
 from phlo.dataset.store import StoreWriteStatus
+from phlo.dataset_projection import DatasetAuthority, build_dataset_authority
 from phlo.dataset_state import resolve_dataset_state_store
 
 APPLY_COMMAND = "dataset.migrate_overlay_apply"
 DISCARD_COMMAND = "dataset.migrate_overlay_discard"
+TRANSITION_COMMAND = "dataset.transition"
 TRANSITION_SCOPE = "lakehouse:operate"
 
 MIGRATE_OVERLAY_APPLY = "apply"
 MIGRATE_OVERLAY_DISCARD = "discard"
 
+_TRANSITION_ACTIONS = sorted(WORKFLOW_ACTIONS | PUBLICATION_ACTIONS)
+
 
 @click.group(name="dataset")
 def dataset_group() -> None:
     """Dataset workflow commands."""
+
+
+@dataset_group.command(name="show")
+@click.argument("dataset_id")
+@click.option("--action", "action", default=None, help="Evaluate readiness for this action.")
+@click.option(
+    "--store-mode",
+    "store_mode",
+    type=click.Choice(["durable", "memory"]),
+    default=None,
+    help="Override the store mode (default: durable; memory is the explicit test mode).",
+)
+@click.option("--json", "output_json", is_flag=True, help="Emit the canonical projection as JSON.")
+def show_cmd(
+    dataset_id: str, action: str | None, store_mode: str | None, output_json: bool
+) -> None:
+    """Show the canonical Dataset projection for one Dataset ID."""
+    authority = _authority(store_mode)
+    projection = authority.projection(dataset_id, action)
+    if output_json:
+        click.echo(json.dumps(projection, indent=2, sort_keys=True))
+        return
+    readiness = projection["readiness"]
+    state = projection["publication_state"] or projection["workflow_state"] or "open"
+    click.echo(f"Dataset:      {projection['dataset_id']}")
+    click.echo(f"Table:        {projection['table_id']}")
+    click.echo(f"Owner:        {projection['owner'] or '-'}")
+    click.echo(f"Classified:   {', '.join(projection['classifications']) or '-'}")
+    click.echo(f"State:        {state}")
+    click.echo(f"Ready ({readiness['action']}): {readiness['ready']}")
+    for reason in readiness["reasons"]:
+        click.echo(f"  - {reason}")
+
+
+@dataset_group.command(name="list")
+@click.option(
+    "--store-mode",
+    "store_mode",
+    type=click.Choice(["durable", "memory"]),
+    default=None,
+    help="Override the store mode (default: durable; memory is the explicit test mode).",
+)
+@click.option("--json", "output_json", is_flag=True, help="Emit canonical projections as JSON.")
+def list_cmd(store_mode: str | None, output_json: bool) -> None:
+    """List canonical projections for every governed table."""
+    authority = _authority(store_mode)
+    projections = [authority.projection(table) for table in sorted(authority.surface.tables)]
+    if output_json:
+        click.echo(json.dumps({"datasets": projections}, indent=2, sort_keys=True))
+        return
+    for projection in projections:
+        state = projection["publication_state"] or projection["workflow_state"] or "open"
+        readiness = projection["readiness"]
+        flag = "ready" if readiness["ready"] else f"blocked ({len(readiness['reasons'])})"
+        click.echo(f"{projection['dataset_id']}: state={state} {readiness['action']}={flag}")
+
+
+@dataset_group.command(name="transition")
+@click.argument("dataset_id")
+@click.argument("action", type=click.Choice(_TRANSITION_ACTIONS))
+@click.option(
+    "--action-id",
+    "action_id",
+    default=None,
+    help="Client idempotency key; reuse it to replay the committed outcome (default: generated).",
+)
+@click.option(
+    "--expected-state",
+    "expected_state",
+    default=None,
+    help="Compare-and-set pre-state the caller observed (default: read from the store).",
+)
+@click.option(
+    "--owner",
+    "owner",
+    default=None,
+    help="Operating owner recorded when a claim creates the candidate (default: the operator).",
+)
+@click.option(
+    "--store-mode",
+    "store_mode",
+    type=click.Choice(["durable", "memory"]),
+    default=None,
+    help="Override the store mode (default: durable; memory is the explicit test mode).",
+)
+@click.option("--json", "output_json", is_flag=True, help="Emit machine-readable JSON.")
+@require_mutation_authorization(TRANSITION_COMMAND)
+def transition_cmd(
+    dataset_id: str,
+    action: str,
+    action_id: str | None,
+    expected_state: str | None,
+    owner: str | None,
+    store_mode: str | None,
+    output_json: bool,
+) -> None:
+    """Apply one authorized Dataset transition through the core service."""
+    actor = _actor()
+    resolved_action_id = action_id or f"cli-{uuid.uuid4()}"
+    authority = _authority(store_mode)
+    outcome = authority.transition(
+        TransitionRequest(
+            resource_id=dataset_id,
+            action=action,
+            action_id=resolved_action_id,
+            actor=actor,
+            scope=TRANSITION_SCOPE,
+            expected_state=expected_state,
+            owner=owner or actor,
+        )
+    )
+    payload = _transition_payload(outcome)
+    if output_json:
+        click.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        click.echo(f"{payload['status']}: {payload['message']}")
+        for reason in payload["reasons"]:
+            click.echo(f"  - {reason}")
+        if payload["status"] in {"conflict", "blocked"}:
+            raise click.exceptions.Exit(1)
+
+
+def _transition_payload(outcome: Any) -> dict[str, Any]:
+    verdict = outcome.verdict
+    return {
+        "status": outcome.status.value,
+        "action_id": outcome.request.action_id,
+        "resource_id": outcome.request.resource_id,
+        "action": outcome.request.action,
+        "actor": outcome.request.actor,
+        "before_state": outcome.before_state,
+        "after_state": outcome.after_state,
+        "message": outcome.message,
+        "reasons": list(verdict.reasons) if verdict is not None else [],
+        "record": outcome.record.to_read_model() if outcome.record else None,
+        "audit": outcome.audit.to_read_model() if outcome.audit else None,
+    }
+
+
+def _authority(store_mode: str | None) -> DatasetAuthority:
+    """Build the canonical authority, failing closed with guidance."""
+    try:
+        return build_dataset_authority(_project_root(), store_mode=store_mode)
+    except Exception as exc:
+        raise click.ClickException(f"Dataset authority unavailable: {exc}") from exc
 
 
 @dataset_group.group(name="migrate-overlay")

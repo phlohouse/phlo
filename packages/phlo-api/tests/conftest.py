@@ -19,11 +19,25 @@ if TEST_DIR not in sys.path:
 
 @pytest.fixture(autouse=True)
 def use_memory_observatory_settings_store(monkeypatch) -> None:
-    """API unit tests explicitly use the non-durable development backend."""
+    """API unit tests explicitly use the non-durable development backends."""
     monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "memory")
+    monkeypatch.setenv("PHLO_DATASET_STATE_STORE", "memory")
     from phlo.plugins.observatory_settings import _reset_memory_service
 
     _reset_memory_service()
+    from phlo.dataset_state import reset_memory_store
+
+    reset_memory_store()
+    yield
+    reset_memory_store()
+    # Importing the API app runs capability discovery, which registers
+    # provider-owned dataset capabilities into the global registry. Clear
+    # them so the leak cannot reach cross-suite registry assertions.
+    from phlo.capabilities.registry import get_capability_registry
+
+    registry = get_capability_registry()
+    registry.clear("dataset_state_store")
+    registry.clear("dataset_evidence")
 
 
 _OBSERVATORY_LOADER_SEAMS: tuple[str, ...] = (
@@ -39,7 +53,6 @@ _OBSERVATORY_LOADER_SEAMS: tuple[str, ...] = (
     "capabilities",
     "dataset_profile",
     "dataset_usage",
-    "dataset_workflow_state",
     "datasets",
     "extension_detail",
     "extensions",
