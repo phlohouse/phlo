@@ -319,6 +319,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
     *_specs(
         (
             "get_observatory_datasets",
+            "get_observatory_dataset_facets",
             "get_observatory_publishing_readiness",
             "get_observatory_tables",
             "get_observatory_pipelines",

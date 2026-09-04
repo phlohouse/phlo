@@ -1,16 +1,19 @@
 """Search result composition for Observatory.
 
-Ranks services, assets, tables, operations, quality checks, and extensions
-against a free-text query and maps each hit to its route path segment.
+Ranks services, Datasets, assets, tables, operations, quality checks, and
+extensions against a free-text query and maps each hit to its route path
+segment.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 from urllib.parse import quote
 
 from phlo_api.observatory_api.observatory_models import (
     ObservatoryAsset,
+    ObservatoryDataset,
     ObservatoryExtension,
     ObservatoryOperation,
     ObservatoryQualityCheck,
@@ -29,17 +32,51 @@ def search_results(
     operations: Sequence[ObservatoryOperation],
     quality: Sequence[ObservatoryQualityCheck] = (),
     extensions: Sequence[ObservatoryExtension] = (),
+    datasets: Sequence[ObservatoryDataset] = (),
 ) -> list[ObservatorySearchResult]:
-    """Match services, assets, tables, operations, quality checks, and extensions to a query.
+    """Match services, Datasets, assets, tables, operations, quality checks, and extensions to a query.
 
     Performs a case-insensitive substring match over each record's identifying fields and
-    returns up to 25 results; returns an empty list when the query is blank.
+    returns every match in collection order; returns an empty list when the query is blank.
     """
     needle = query.strip().lower()
     if not needle:
         return []
 
     results: list[ObservatorySearchResult] = []
+
+    for dataset in datasets:
+        haystack = " ".join(
+            [
+                dataset.id,
+                dataset.name,
+                dataset.description or "",
+                dataset.owner or "",
+                *dataset.classifications,
+                *dataset.kinds,
+                *(ref.label for ref in dataset.source_refs),
+            ]
+        ).lower()
+        if needle in haystack:
+            metadata: dict[str, Any] = {
+                "classifications": dataset.classifications,
+                "candidate": dataset.candidate,
+                "publication_state": dataset.publication_state,
+                "readiness_state": dataset.readiness_state,
+            }
+            if dataset.owner:
+                metadata["owner"] = dataset.owner
+            results.append(
+                ObservatorySearchResult(
+                    id=f"dataset:{dataset.id}",
+                    label=dataset.name,
+                    kind="dataset",
+                    summary=f"{dataset.publication_state} · {dataset.readiness_state}",
+                    href=f"/datasets/{route_path_segment(dataset.id)}",
+                    metadata=metadata,
+                )
+            )
+
     for service in services:
         haystack = " ".join([service.id, service.name, service.kind, service.status]).lower()
         if needle in haystack:
@@ -126,7 +163,7 @@ def search_results(
                 )
             )
 
-    return results[:25]
+    return results
 
 
 def route_path_segment(resource_id: str) -> str:

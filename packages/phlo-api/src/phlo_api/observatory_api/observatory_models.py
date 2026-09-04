@@ -854,6 +854,16 @@ class ObservatoryDatasetList(BaseModel):
     next_cursor: str | None = None
 
 
+class ObservatoryDatasetFacets(BaseModel):
+    """Filterable facet values across the full Dataset collection."""
+
+    owners: list[str] = Field(default_factory=list)
+    classifications: list[str] = Field(default_factory=list)
+    publication_states: list[str] = Field(default_factory=list)
+    readiness_states: list[str] = Field(default_factory=list)
+    candidate_states: list[bool] = Field(default_factory=list)
+
+
 class ObservatoryTableList(BaseModel):
     """List envelope for v2 tables."""
 

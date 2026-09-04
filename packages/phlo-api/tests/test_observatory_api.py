@@ -3718,6 +3718,214 @@ def test_observatory_search_endpoint_returns_provider_neutral_payload() -> None:
     _assert_no_provider_url_settings(payload)
 
 
+def _dataset_seed_asset(index: int, *, owner: str = "analytics") -> ObservatoryAsset:
+    return ObservatoryAsset(
+        id=f"gold.orders-{index:03d}",
+        name=f"orders {index:03d}",
+        group="gold",
+        description="Curated orders",
+        kinds=["table"],
+        metadata={"owner": owner, "classification": "internal", "published": True},
+    )
+
+
+def _dataset_seed_fixtures(
+    count: int,
+) -> tuple[list[ObservatoryAsset], list[ObservatoryQualityCheck]]:
+    """Seed Datasets split across two owners with a passing-readiness subset."""
+    assets = [
+        _dataset_seed_asset(index, owner="analytics" if index % 2 == 0 else "data-team")
+        for index in range(count)
+    ]
+    quality = [
+        ObservatoryQualityCheck(
+            id=f"gold.orders-{index:03d}:not_null",
+            name="not_null",
+            asset_id=f"gold.orders-{index:03d}",
+            status="passing",
+        )
+        for index in range(min(10, count))
+    ]
+    return assets, quality
+
+
+def test_observatory_search_endpoint_returns_dataset_results(
+    monkeypatch, observatory_loaders
+) -> None:
+    client = authenticated_client("admin")
+    observatory_loaders(
+        services=[],
+        assets=[_dataset_seed_asset(0)],
+        tables_without_catalog=[],
+        quality=[],
+        extensions=[],
+    )
+    observatory._clear_read_model_cache()
+
+    response = client.get("/api/observatory/search", params={"q": "orders"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload) <= {"items", "next_cursor"}
+    dataset_hits = [item for item in payload["items"] if item["kind"] == "dataset"]
+    assert len(dataset_hits) == 1
+    hit = dataset_hits[0]
+    assert hit["id"] == "dataset:gold.orders-000"
+    assert hit["label"] == "orders 000"
+    assert hit["href"] == "/datasets/gold.orders-000"
+    assert hit["metadata"]["owner"] == "analytics"
+    assert hit["metadata"]["classifications"] == ["internal"]
+    assert hit["metadata"]["publication_state"] == "published"
+    _assert_no_provider_url_settings(payload)
+
+
+def test_observatory_search_endpoint_filters_apply_before_pagination(
+    monkeypatch, observatory_loaders
+) -> None:
+    client = authenticated_client("admin")
+    assets, quality = _dataset_seed_fixtures(12)
+    observatory_loaders(
+        services=[],
+        assets=assets,
+        tables_without_catalog=[],
+        quality=quality,
+        extensions=[],
+    )
+    observatory._clear_read_model_cache()
+
+    collected: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        params: dict[str, Any] = {
+            "q": "orders",
+            "kind": "dataset",
+            "owner": "data-team",
+            "limit": 2,
+        }
+        if cursor is not None:
+            params["cursor"] = cursor
+        response = client.get("/api/observatory/search", params=params)
+        assert response.status_code == 200
+        payload = response.json()
+        assert set(payload) <= {"items", "next_cursor"}
+        collected.extend(payload["items"])
+        cursor = payload.get("next_cursor")
+        if cursor is None:
+            break
+
+    ids = [item["id"] for item in collected]
+    assert len(ids) == 6
+    assert len(set(ids)) == 6
+    assert all(item["metadata"]["owner"] == "data-team" for item in collected)
+    _assert_no_provider_url_settings(collected)
+
+
+def test_observatory_datasets_endpoint_walks_filtered_matches_exactly_once(
+    monkeypatch, observatory_loaders
+) -> None:
+    client = authenticated_client("admin")
+    assets, quality = _dataset_seed_fixtures(110)
+    observatory_loaders(
+        assets=assets,
+        tables_without_catalog=[],
+        quality=quality,
+    )
+    observatory._clear_read_model_cache()
+
+    first = client.get(
+        "/api/observatory/datasets",
+        params={"owner": "analytics", "readiness_state": "unknown", "limit": 30},
+    )
+    assert first.status_code == 200
+    payload = first.json()
+    assert set(payload) == {"items", "next_cursor"}
+    assert len(payload["items"]) == 30
+
+    collected = list(payload["items"])
+    cursor = payload["next_cursor"]
+    while cursor is not None:
+        page = client.get(
+            "/api/observatory/datasets",
+            params={
+                "owner": "analytics",
+                "readiness_state": "unknown",
+                "cursor": cursor,
+                "limit": 30,
+            },
+        )
+        assert page.status_code == 200
+        page_payload = page.json()
+        assert set(page_payload) <= {"items", "next_cursor"}
+        collected.extend(page_payload["items"])
+        cursor = page_payload.get("next_cursor")
+
+    ids = [item["id"] for item in collected]
+    assert len(ids) == 50
+    assert len(set(ids)) == 50
+    assert all(item["owner"] == "analytics" for item in collected)
+    assert all(item["readiness_state"] == "unknown" for item in collected)
+    _assert_no_provider_url_settings(collected)
+
+
+def test_observatory_datasets_endpoint_applies_catalog_filters(
+    monkeypatch, observatory_loaders
+) -> None:
+    client = authenticated_client("admin")
+    observatory_loaders(
+        assets=_dataset_seed_fixtures(4)[0],
+        tables_without_catalog=[],
+        quality=[],
+    )
+    observatory._clear_read_model_cache()
+
+    by_owner = client.get("/api/observatory/datasets", params={"owner": "data-team"}).json()
+    assert {item["id"] for item in by_owner["items"]} == {
+        "gold.orders-001",
+        "gold.orders-003",
+    }
+
+    by_query = client.get("/api/observatory/datasets", params={"q": "orders 002"}).json()
+    assert [item["id"] for item in by_query["items"]] == ["gold.orders-002"]
+
+    by_readiness = client.get(
+        "/api/observatory/datasets", params={"readiness_state": "unknown", "limit": 500}
+    ).json()
+    assert len(by_readiness["items"]) == 4
+
+    by_classification = client.get(
+        "/api/observatory/datasets", params={"classification": "internal"}
+    ).json()
+    assert len(by_classification["items"]) == 4
+
+    by_publication = client.get(
+        "/api/observatory/datasets", params={"publication_state": "published", "limit": 500}
+    ).json()
+    assert len(by_publication["items"]) == 4
+
+
+def test_observatory_dataset_facets_describe_full_collection(
+    monkeypatch, observatory_loaders
+) -> None:
+    client = authenticated_client("admin")
+    assets, quality = _dataset_seed_fixtures(110)
+    observatory_loaders(
+        assets=assets,
+        tables_without_catalog=[],
+        quality=quality,
+    )
+    observatory._clear_read_model_cache()
+
+    response = client.get("/api/observatory/datasets/facets")
+
+    assert response.status_code == 200
+    facets = response.json()
+    assert facets["owners"] == ["analytics", "data-team"]
+    assert facets["classifications"] == ["internal"]
+    assert facets["publication_states"] == ["published"]
+    assert facets["readiness_states"] == ["ok", "unknown"]
+    assert facets["candidate_states"] == [False]
+
+
 def test_observatory_search_endpoint_url_encodes_resource_href_segments(monkeypatch) -> None:
     client = authenticated_client("admin")
     asset = ObservatoryAsset(id="silver/demo", name="silver/demo", group="silver", kinds=["table"])

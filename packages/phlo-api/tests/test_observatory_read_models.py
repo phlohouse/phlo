@@ -13,7 +13,9 @@ import threading
 from phlo_api.observatory_api.observatory_cache import ReadModelCache
 from phlo_api.observatory_api.observatory_models import (
     ObservatoryAsset,
+    ObservatoryDataset,
     ObservatoryHealth,
+    ObservatoryResourceRef,
     ObservatoryService,
 )
 from phlo_api.observatory_api.observatory_saved_queries import validate_saved_query_sql
@@ -253,3 +255,83 @@ def test_search_results_matches_services_and_assets() -> None:
     )
 
     assert [result.id for result in results] == ["service:postgres"]
+
+
+def test_search_results_includes_datasets_with_stable_ids_and_profile_hrefs() -> None:
+    results = search_results(
+        query="orders",
+        services=[],
+        assets=[],
+        tables=[],
+        operations=[],
+        datasets=[
+            ObservatoryDataset(
+                id="gold.orders",
+                name="gold.orders",
+                description="Curated orders",
+                owner="analytics",
+                classifications=["internal"],
+                publication_state="published",
+                readiness_state="ok",
+                source_refs=[
+                    ObservatoryResourceRef(kind="asset", id="gold.orders", label="gold.orders")
+                ],
+            )
+        ],
+    )
+
+    assert len(results) == 1
+    result = results[0]
+    assert result.id == "dataset:gold.orders"
+    assert result.kind == "dataset"
+    assert result.label == "gold.orders"
+    assert result.href == "/datasets/gold.orders"
+    assert result.metadata["owner"] == "analytics"
+    assert result.metadata["classifications"] == ["internal"]
+    assert result.metadata["publication_state"] == "published"
+    assert result.metadata["readiness_state"] == "ok"
+
+
+def test_search_results_match_dataset_source_refs_and_kinds() -> None:
+    results = search_results(
+        query="parquet",
+        services=[],
+        assets=[],
+        tables=[],
+        operations=[],
+        datasets=[
+            ObservatoryDataset(
+                id="gold.orders",
+                name="gold.orders",
+                kinds=["table", "parquet"],
+            ),
+            ObservatoryDataset(
+                id="gold.clicks",
+                name="gold.clicks",
+                source_refs=[
+                    ObservatoryResourceRef(kind="table", id="clicks", label="clicks.parquet")
+                ],
+            ),
+        ],
+    )
+
+    assert [result.id for result in results] == ["dataset:gold.orders", "dataset:gold.clicks"]
+
+
+def test_search_results_does_not_truncate_matches() -> None:
+    datasets = [
+        ObservatoryDataset(id=f"gold.orders-{index:03d}", name=f"orders {index:03d}")
+        for index in range(31)
+    ]
+
+    results = search_results(
+        query="orders",
+        services=[],
+        assets=[],
+        tables=[],
+        operations=[],
+        datasets=datasets,
+    )
+
+    assert len(results) == 31
+    assert len({result.id for result in results}) == 31

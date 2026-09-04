@@ -63,6 +63,7 @@ from phlo_api.observatory_api.observatory_models import (
     ObservatoryConsumerAdoption,
     ObservatoryDataset,
     ObservatoryDatasetControl,
+    ObservatoryDatasetFacets,
     ObservatoryDatasetList,
     ObservatoryDatasetPipeline,
     ObservatoryDatasetProfile,
@@ -1232,6 +1233,70 @@ def _datasets_from_sources(
         and _workflow_candidate_overlay(table.id).get("state") != "rejected"
     )
     return sorted(_merge_by_id(datasets), key=lambda item: item.name.lower())
+
+
+def _filter_datasets(
+    datasets: Sequence[ObservatoryDataset],
+    *,
+    q: str | None = None,
+    owner: str | None = None,
+    classification: str | None = None,
+    publication_state: str | None = None,
+    readiness_state: str | None = None,
+    candidate: bool | None = None,
+) -> list[ObservatoryDataset]:
+    """Apply Catalog-style Dataset filters to the full collection.
+
+    Mirrors the owner/classification/publication/readiness/query semantics of the
+    Catalog UI so filters can run server-side, before pagination.
+    """
+    needle = q.strip().lower() if q else ""
+    filtered: list[ObservatoryDataset] = []
+    for dataset in datasets:
+        if needle:
+            haystack = " ".join(
+                [
+                    dataset.name,
+                    dataset.description or "",
+                    dataset.owner or "",
+                    *dataset.classifications,
+                    *(ref.label for ref in dataset.source_refs),
+                ]
+            ).lower()
+            if needle not in haystack:
+                continue
+        if owner and dataset.owner != owner:
+            continue
+        if classification and classification not in dataset.classifications:
+            continue
+        if publication_state and dataset.publication_state != publication_state:
+            continue
+        if readiness_state and dataset.readiness_state != readiness_state:
+            continue
+        if candidate is not None and dataset.candidate != candidate:
+            continue
+        filtered.append(dataset)
+    return filtered
+
+
+def _load_dataset_facets(datasets: Sequence[ObservatoryDataset]) -> ObservatoryDatasetFacets:
+    """Describe filterable values across the full Dataset collection."""
+    return ObservatoryDatasetFacets(
+        owners=sorted({dataset.owner for dataset in datasets if dataset.owner}),
+        classifications=sorted(
+            {value for dataset in datasets for value in dataset.classifications}
+        ),
+        publication_states=sorted(
+            {dataset.publication_state for dataset in datasets}, key=_publication_state_order
+        ),
+        readiness_states=sorted({dataset.readiness_state for dataset in datasets}),
+        candidate_states=sorted({dataset.candidate for dataset in datasets}),
+    )
+
+
+def _publication_state_order(state: str) -> int:
+    order = ("draft", "published", "retired")
+    return order.index(state) if state in order else len(order)
 
 
 def _load_publishing_readiness() -> ObservatoryPublishingReadinessList:
@@ -3285,6 +3350,7 @@ def _search_results(query: str) -> list[ObservatorySearchResult]:
     return _search_results_impl(
         query=query,
         services=_load_services(),
+        datasets=_load_datasets(),
         assets=_load_assets(),
         tables=_load_tables_without_catalog(),
         operations=_load_operations(),
@@ -4443,15 +4509,48 @@ def get_observatory_assets(limit: int = 100, cursor: str | None = None) -> Obser
     response_model=ObservatoryDatasetList,
     response_model_exclude_none=True,
 )
-def get_observatory_datasets(limit: int = 100, cursor: str | None = None) -> ObservatoryDatasetList:
-    """List provider-neutral Observatory Datasets."""
+def get_observatory_datasets(
+    limit: int = 100,
+    cursor: str | None = None,
+    q: str | None = None,
+    owner: str | None = None,
+    classification: str | None = None,
+    publication_state: str | None = None,
+    readiness_state: str | None = None,
+    candidate: bool | None = None,
+) -> ObservatoryDatasetList:
+    """List provider-neutral Observatory Datasets.
+
+    Query and filter parameters apply to the full collection before
+    pagination so cursor offsets stay stable. Supply them with every page
+    request, as with ``limit``.
+    """
     result = _cached_read_model(
         "datasets",
         _EXPENSIVE_READ_MODEL_TTL_SECONDS,
         lambda: ObservatoryDatasetList(items=_load_datasets()),
     )
-    page, next_cursor = paginate_items(result.items, limit=limit, cursor=cursor)
+    matches = _filter_datasets(
+        result.items,
+        q=q,
+        owner=owner,
+        classification=classification,
+        publication_state=publication_state,
+        readiness_state=readiness_state,
+        candidate=candidate,
+    )
+    page, next_cursor = paginate_items(matches, limit=limit, cursor=cursor)
     return ObservatoryDatasetList(items=page, next_cursor=next_cursor)
+
+
+@router.get("/datasets/facets", response_model=ObservatoryDatasetFacets)
+def get_observatory_dataset_facets() -> ObservatoryDatasetFacets:
+    """Get filterable Dataset facet values across the full collection."""
+    return _cached_read_model(
+        "dataset-facets",
+        _EXPENSIVE_READ_MODEL_TTL_SECONDS,
+        lambda: _load_dataset_facets(_load_datasets()),
+    )
 
 
 @router.get("/datasets/publishing-readiness", response_model=ObservatoryPublishingReadinessList)
@@ -4932,10 +5031,25 @@ def post_observatory_workflow_wizard_action(
 
 @router.get("/search", response_model=ObservatorySearchList, response_model_exclude_none=True)
 def get_observatory_search(
-    q: str, limit: int = 100, cursor: str | None = None
+    q: str,
+    limit: int = 100,
+    cursor: str | None = None,
+    kind: str | None = None,
+    owner: str | None = None,
 ) -> ObservatorySearchList:
-    """Search provider-neutral Observatory resources."""
-    page, next_cursor = paginate_items(_search_results(q), limit=limit, cursor=cursor)
+    """Search provider-neutral Observatory resources.
+
+    ``kind`` (comma-separated result kinds) and ``owner`` filters apply to the
+    full result list before pagination so cursor offsets stay stable. Supply
+    them with every page request, as with ``q``.
+    """
+    results = _search_results(q)
+    kinds = {value.strip().lower() for value in (kind or "").split(",") if value.strip()}
+    if kinds:
+        results = [item for item in results if item.kind in kinds]
+    if owner:
+        results = [item for item in results if item.metadata.get("owner") == owner]
+    page, next_cursor = paginate_items(results, limit=limit, cursor=cursor)
     return ObservatorySearchList(items=page, next_cursor=next_cursor)
 
 
