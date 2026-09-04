@@ -14,16 +14,110 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type {
+  ObservatoryAction,
   ObservatoryDatasetPipeline,
   ObservatoryPipelineStage,
+  ObservatoryResourceResult,
 } from '@/observatory/api/types'
+import type { RunActionResult } from '@/observatory/api/runActions'
+import {
+  cancelObservatoryRun,
+  newRunActionIdempotencyKey,
+  retryObservatoryRun,
+} from '@/observatory/api/runActions'
 import { getObservatoryPipelineRecords } from '@/observatory/api/resources'
 import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
-import { useLiveResource } from '@/observatory/routes/liveResource'
+import {
+  invalidateCachedResources,
+  useLiveResource,
+} from '@/observatory/routes/liveResource'
 
 export const Route = createFileRoute('/pipelines')({
   component: Pipelines,
 })
+
+/** Resources a run action touches; invalidated so projections re-read. */
+const RUN_ACTION_CACHE_KEYS = [
+  'observatory:pipelines',
+  'observatory:operations',
+  'observatory:runs',
+  'observatory:quality',
+] as const
+
+type RunActionDialogTarget = {
+  pipeline: ObservatoryDatasetPipeline
+  action: ObservatoryAction
+}
+
+/**
+ * A contract action becomes a control only when the contract itself marks it
+ * available: run.retry/run.cancel kind, enabled, and an exact run target.
+ * A label alone never creates availability — capability-missing or ambiguous
+ * actions stay informational so the UI cannot fake provider support.
+ */
+export function isRunActionControl(action: ObservatoryAction): boolean {
+  return (
+    (action.kind === 'run.retry' || action.kind === 'run.cancel') &&
+    action.enabled &&
+    typeof action.background_operation_id === 'string' &&
+    action.background_operation_id.trim().length > 0
+  )
+}
+
+/** Safe, human-renderable summary of one guarded run-action outcome. */
+export function describeRunActionOutcome(result: RunActionResult): {
+  tone: 'ok' | 'warning' | 'error'
+  headline: string
+  detail: string
+} {
+  const intent = result.action_kind === 'run.cancel' ? 'Cancel' : 'Retry'
+  const handle = `Verification handle ${result.verification_handle}.`
+  switch (result.status) {
+    case 'accepted':
+      return {
+        tone: 'ok',
+        headline: `${intent} accepted.`,
+        detail: [
+          result.resulting_run?.run_id
+            ? `Resulting run ${result.resulting_run.run_id}.`
+            : null,
+          handle,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      }
+    case 'pending':
+      return {
+        tone: 'warning',
+        headline: `${intent} pending reconciliation.`,
+        detail:
+          'The provider claimed success without naming a distinct resulting run. Durable run evidence will resolve the canonical report identity. ' +
+          handle,
+      }
+    case 'reconciled':
+      return {
+        tone: 'ok',
+        headline: `${intent} reconciled.`,
+        detail: result.canonical_report
+          ? `Canonical report identity ${result.canonical_report.project_id}/${result.canonical_report.run_id}/${result.canonical_report.attempt}. ${handle}`
+          : handle,
+      }
+    case 'rejected':
+      return {
+        tone: 'error',
+        headline: `${intent} rejected by the provider.`,
+        detail: [result.message || 'The provider refused the action.', handle]
+          .filter(Boolean)
+          .join(' '),
+      }
+    case 'skipped':
+      return {
+        tone: 'warning',
+        headline: `${intent} skipped.`,
+        detail: `Nothing was executed (dry run). ${handle}`,
+      }
+  }
+}
 
 export function Pipelines() {
   const result = useLiveResource(
@@ -47,6 +141,7 @@ export function Pipelines() {
     sortedPipelines[0] ??
     null
   const counts = useMemo(() => countPipelines(pipelines), [pipelines])
+  const [runAction, setRunAction] = useState<RunActionDialogTarget | null>(null)
   const selectPipeline = useCallback((pipelineId: string) => {
     setSelectedId(pipelineId)
     if (typeof window === 'undefined') return
@@ -137,6 +232,9 @@ export function Pipelines() {
               {sortedPipelines.map((pipeline, index) => (
                 <PipelineRow
                   key={pipelineKey(pipeline) || `pipeline-${index}`}
+                  onOpenRunAction={(action) =>
+                    setRunAction({ action, pipeline })
+                  }
                   onSelect={() => selectPipeline(pipelineKey(pipeline))}
                   pipeline={pipeline}
                   selected={pipelineKey(pipeline) === pipelineKey(selected)}
@@ -152,7 +250,12 @@ export function Pipelines() {
             Selected pipeline
           </div>
           {selected ? (
-            <PipelineInspector pipeline={selected} />
+            <PipelineInspector
+              onOpenRunAction={(action) =>
+                setRunAction({ action, pipeline: selected })
+              }
+              pipeline={selected}
+            />
           ) : (
             <>
               <h2>
@@ -169,29 +272,44 @@ export function Pipelines() {
           )}
         </aside>
       </section>
+      {runAction && (
+        <RunActionDialog
+          action={runAction.action}
+          onClose={() => setRunAction(null)}
+          pipeline={runAction.pipeline}
+        />
+      )}
     </ObservatoryPage>
   )
 }
 
 function PipelineRow({
+  onOpenRunAction,
   onSelect,
   pipeline,
   selected,
 }: {
+  onOpenRunAction: (action: ObservatoryAction) => void
   onSelect: () => void
   pipeline: ObservatoryDatasetPipeline
   selected: boolean
 }) {
   const dataset = pipeline.dataset
   const readyActions = pipeline.actions.filter((action) => action.enabled)
+  const selectWithKeyboard = (event: React.KeyboardEvent) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    onSelect()
+  }
   return (
-    <button
+    <div
       className="phlo-observatory-pipeline-row"
       data-active={selected}
       data-state={pipeline.freshness_state}
       onClick={onSelect}
+      onKeyDown={selectWithKeyboard}
       role="row"
-      type="button"
+      tabIndex={0}
     >
       <span
         className="phlo-observatory-dot"
@@ -224,25 +342,43 @@ function PipelineRow({
       </div>
       <div className="phlo-observatory-pipeline-actions">
         {readyActions.length > 0
-          ? readyActions.map((action) => (
-              <span
-                className="phlo-observatory-pipeline-action"
-                data-enabled={action.enabled}
-                key={action.id}
-              >
-                {action.label}
-              </span>
-            ))
+          ? readyActions.map((action) =>
+              isRunActionControl(action) ? (
+                <button
+                  className="phlo-observatory-pipeline-action"
+                  data-enabled="true"
+                  key={action.id}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onOpenRunAction(action)
+                  }}
+                  title={`${action.label} run ${action.background_operation_id ?? ''}`.trim()}
+                  type="button"
+                >
+                  {action.label}
+                </button>
+              ) : (
+                <span
+                  className="phlo-observatory-pipeline-action"
+                  data-enabled={action.enabled}
+                  key={action.id}
+                >
+                  {action.label}
+                </span>
+              ),
+            )
           : nextActionFallback(pipeline)}
       </div>
       <span>{pipeline.last_run?.id ?? runEvidenceFallback(pipeline)}</span>
-    </button>
+    </div>
   )
 }
 
 function PipelineInspector({
+  onOpenRunAction,
   pipeline,
 }: {
+  onOpenRunAction: (action: ObservatoryAction) => void
   pipeline: ObservatoryDatasetPipeline
 }) {
   const dataset = pipeline.dataset
@@ -325,7 +461,20 @@ function PipelineInspector({
             data-state={action.enabled ? 'ok' : 'unknown'}
             key={action.id}
           >
-            <span>{action.label}</span>
+            <span>
+              {isRunActionControl(action) ? (
+                <button
+                  className="phlo-observatory-pipeline-action"
+                  data-enabled="true"
+                  onClick={() => onOpenRunAction(action)}
+                  type="button"
+                >
+                  {action.label} run
+                </button>
+              ) : (
+                action.label
+              )}
+            </span>
             <small>
               {action.enabled
                 ? [
@@ -342,6 +491,188 @@ function PipelineInspector({
           </div>
         ))}
       </div>
+    </>
+  )
+}
+
+/**
+ * Pipeline-local explain > confirm > act > verify dialog for one guarded run
+ * action. The explain pane renders the contract's guard metadata (capability,
+ * permission, risk, confirmation, exact target run, expected evidence); the
+ * confirm button submits dry_run=false exactly once per intent under a stable
+ * idempotency key, and the outcome pane renders the normalized RunActionResult.
+ */
+export function RunActionDialog({
+  action,
+  onClose,
+  pipeline,
+}: {
+  action: ObservatoryAction
+  onClose: () => void
+  pipeline: ObservatoryDatasetPipeline
+}) {
+  const runId = action.background_operation_id ?? ''
+  const [idempotencyKey] = useState(() => newRunActionIdempotencyKey())
+  const [submitting, setSubmitting] = useState(false)
+  const [outcome, setOutcome] =
+    useState<ObservatoryResourceResult<RunActionResult> | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  const confirm = () => {
+    if (submitting) return
+    setSubmitting(true)
+    const request =
+      action.kind === 'run.cancel' ? cancelObservatoryRun : retryObservatoryRun
+    void request({
+      data: {
+        idempotencyKey,
+        projectId: pipeline.dataset?.id ?? null,
+        runId,
+      },
+    })
+      .then((next) => {
+        setOutcome(next)
+        invalidateCachedResources([...RUN_ACTION_CACHE_KEYS])
+        if (typeof window !== 'undefined') {
+          // The live-resource hooks refresh on focus; nudge mounted
+          // Pipelines/Runs/Operations readers to re-read their projections.
+          window.dispatchEvent(new Event('focus'))
+        }
+      })
+      .finally(() => setSubmitting(false))
+  }
+
+  const outcomeSummary = outcome?.data
+    ? describeRunActionOutcome(outcome.data)
+    : null
+  const canonical = outcome?.data?.canonical_report ?? null
+  // A transport failure keeps the intent open: resubmitting reuses the same
+  // idempotency key, so the durable claim store replays instead of
+  // re-invoking the provider. A real guarded result closes the intent.
+  const submitted = outcome !== null && !outcome.error
+
+  return (
+    <div
+      aria-label={`${action.label} run`}
+      aria-modal="true"
+      className="phlo-observatory-command-overlay"
+      role="dialog"
+    >
+      <button
+        aria-label="Close dialog"
+        className="phlo-observatory-command-backdrop"
+        onClick={onClose}
+        type="button"
+      />
+      <div className="phlo-observatory-search-popover">
+        <div className="phlo-observatory-workspace-toolbar">
+          <span className="phlo-observatory-row-title">{action.label} run</span>
+          <span className="phlo-observatory-pill">
+            {action.risk_level} risk
+          </span>
+        </div>
+        <p>
+          Guarded orchestration action for run <strong>{runId}</strong> on{' '}
+          {pipeline.dataset?.name ?? 'this pipeline'}. Review the guard evidence
+          before confirming; the request is idempotent, so resubmitting the same
+          intent can never double-invoke the provider.
+        </p>
+        <dl className="phlo-observatory-facts">
+          <Fact
+            label="Capability"
+            value={action.required_capability ?? 'not reported'}
+          />
+          <Fact
+            label="Permission"
+            value={action.required_permission ?? 'not reported'}
+          />
+          <Fact
+            label="Confirmation"
+            value={action.requires_confirmation ? 'required' : 'not required'}
+          />
+          <Fact label="Target run" value={runId} />
+        </dl>
+        <div className="phlo-observatory-detail-list">
+          <div className="phlo-observatory-mini-row">
+            <span>Expected evidence</span>
+            <small>{action.expected_evidence.join(' · ')}</small>
+          </div>
+          <div className="phlo-observatory-mini-row">
+            <span>Idempotency key</span>
+            <small>{idempotencyKey}</small>
+          </div>
+        </div>
+        {outcomeSummary && outcome?.data && (
+          <div
+            className="phlo-observatory-operation-recovery-card"
+            data-state={outcomeSummary.tone}
+          >
+            <span>Outcome</span>
+            <strong>{outcomeSummary.headline}</strong>
+            <small>{outcomeSummary.detail}</small>
+            {outcome.data.message && <small>{outcome.data.message}</small>}
+            {canonical && (
+              <Link
+                params={{
+                  attempt: String(canonical.attempt),
+                  projectId: canonical.project_id,
+                  runId: canonical.run_id,
+                }}
+                to="/runs/$projectId/$runId/attempts/$attempt/report"
+              >
+                Open canonical run report
+              </Link>
+            )}
+          </div>
+        )}
+        {outcome?.error && (
+          <div className="phlo-observatory-failure-callout">
+            <strong>Action could not be completed</strong>
+            <span>{outcome.error}</span>
+          </div>
+        )}
+        <div className="phlo-observatory-action-row">
+          <button
+            disabled={submitting || submitted}
+            onClick={confirm}
+            type="button"
+          >
+            {submitting
+              ? 'Submitting…'
+              : submitted
+                ? 'Submitted'
+                : outcome?.error
+                  ? 'Retry submission'
+                  : `Confirm ${action.label.toLowerCase()}`}
+          </button>
+          <button onClick={onClose} type="button">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Fact({
+  label,
+  value,
+}: {
+  label: string
+  value: string | number | boolean | null
+}) {
+  return (
+    <>
+      <dt>{label}</dt>
+      <dd>{value === null || value === '' ? 'not reported' : String(value)}</dd>
     </>
   )
 }
