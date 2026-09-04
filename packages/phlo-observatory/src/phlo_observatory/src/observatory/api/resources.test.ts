@@ -527,7 +527,7 @@ function stubBrowserPost(payload: unknown) {
   return fetchMock
 }
 
-describe('guarded mutation transport (plan 003B)', () => {
+describe('guarded mutation transport', () => {
   beforeEach(() => {
     apiPost.mockReset()
   })

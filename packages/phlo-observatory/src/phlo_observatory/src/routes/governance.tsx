@@ -444,16 +444,15 @@ function controlSummary(row: ObservatoryGovernanceRow): string {
   return 'clear'
 }
 
+/**
+ * Canonical-only next action: derived from the server-rendered
+ * control verdicts in the matrix, never re-inferred from owner or
+ * classification fields.
+ */
 function governanceNextAction(row: ObservatoryGovernanceRow): string {
-  if (!row.owner) return 'Assign one owner.'
-  if (row.classifications.length === 0) return 'Declare classification.'
-  if (
-    row.controls.some(
-      (control) =>
-        control.id === 'blocking_quality' && control.status === 'fail',
-    )
-  ) {
-    return 'Open the failing quality check.'
+  const failing = row.controls.find((control) => control.status === 'fail')
+  if (failing) {
+    return failing.message ?? `Resolve the failing ${failing.label} control.`
   }
   if (
     row.controls.some(
@@ -468,9 +467,6 @@ function governanceNextAction(row: ObservatoryGovernanceRow): string {
 function governanceNextActionHref(
   row: ObservatoryGovernanceRow,
 ): string | null {
-  if (!row.owner || row.classifications.length === 0) {
-    return `/datasets/${encodeURIComponent(row.dataset.id)}`
-  }
   const blockingQuality = controlById(row, 'blocking_quality')
   const linkedCheck = blockingQuality?.evidence.find(
     (evidence) => evidence.resource?.kind === 'quality',

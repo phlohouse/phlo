@@ -33,6 +33,7 @@ import type { ReactNode } from 'react'
 import type {
   ObservatoryDataset,
   ObservatoryDatasetFacets,
+  ObservatoryPublishingReadiness,
 } from '@/observatory/api/types'
 import type {
   DatasetCandidateFilter,
@@ -41,6 +42,7 @@ import type {
 import {
   getObservatoryDatasetFacets,
   getObservatoryDatasetPage,
+  getObservatoryPublishingReadinessDirect,
   runObservatoryActionDirect,
 } from '@/observatory/api/resources'
 import {
@@ -115,6 +117,12 @@ export function Datasets() {
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [facets, setFacets] = useState<ObservatoryDatasetFacets | null>(null)
+  // Canonical publication readiness per dataset, served by phlo-api's bulk
+  // readiness endpoint (the canonical verdict). Rows render these reasons
+  // verbatim and never infer blockers from owner or classification fields.
+  const [readinessMap, setReadinessMap] = useState<
+    Record<string, ObservatoryPublishingReadiness | undefined>
+  >({})
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   // Bumping this re-runs the collection walk after a candidate action.
   const [refreshTick, setRefreshTick] = useState(0)
@@ -138,6 +146,26 @@ export function Datasets() {
       cancelled = true
     }
   }, [])
+
+  // One bulk request serves the canonical readiness verdict for the
+  // inspector and row reasons; no per-dataset eligibility is computed here.
+  useEffect(() => {
+    let cancelled = false
+    void getObservatoryPublishingReadinessDirect().then((bulkResult) => {
+      if (cancelled) return
+      setReadinessMap(
+        Object.fromEntries(
+          (bulkResult.data ?? []).map((item) => [
+            item.dataset_id,
+            item.publishing,
+          ]),
+        ),
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [refreshTick])
 
   useEffect(() => {
     const guard = guardRef.current
@@ -367,6 +395,7 @@ export function Datasets() {
             error={collectionError}
             isLoading={isLoading}
             datasets={filtered}
+            readinessMap={readinessMap}
           />
           {!isLoading && nextCursor !== null && (
             <button
@@ -393,7 +422,10 @@ export function Datasets() {
           </h2>
           <p>
             {selectedDataset
-              ? datasetInspectorSummary(selectedDataset)
+              ? canonicalInspectorSummary(
+                  selectedDataset,
+                  readinessMap[selectedDataset.id] ?? null,
+                )
               : 'Use the queue to inspect readiness, ownership, publication, and candidate state.'}
           </p>
           {selectedDataset && (
@@ -403,8 +435,19 @@ export function Datasets() {
                 data-state={selectedDataset.readiness_state}
               >
                 <span>Blocker</span>
-                <strong>{datasetQueueReason(selectedDataset)}</strong>
-                <small>Next: {datasetNextAction(selectedDataset)}</small>
+                <strong>
+                  {canonicalQueueReason(
+                    selectedDataset,
+                    readinessMap[selectedDataset.id] ?? null,
+                  )}
+                </strong>
+                <small>
+                  Next:{' '}
+                  {canonicalNextAction(
+                    selectedDataset,
+                    readinessMap[selectedDataset.id] ?? null,
+                  )}
+                </small>
               </div>
               <dl className="phlo-observatory-facts">
                 <dt>Owner</dt>
@@ -547,10 +590,12 @@ function DatasetList({
   error,
   isLoading,
   datasets,
+  readinessMap,
 }: {
   error: string | null
   isLoading: boolean
   datasets: Array<ObservatoryDataset>
+  readinessMap: Record<string, ObservatoryPublishingReadiness | undefined>
 }) {
   if (isLoading) {
     return (
@@ -636,10 +681,10 @@ function DatasetList({
             {dataset.owner ?? 'unassigned'}
           </span>
           <span className="phlo-observatory-dataset-row-blocker">
-            {datasetQueueReason(dataset)}
+            {canonicalQueueReason(dataset, readinessMap[dataset.id] ?? null)}
           </span>
           <span className="phlo-observatory-dataset-row-next">
-            {datasetNextAction(dataset)}
+            {canonicalNextAction(dataset, readinessMap[dataset.id] ?? null)}
           </span>
         </article>
       ))}
@@ -746,15 +791,56 @@ function publishedCount(datasets: Array<ObservatoryDataset>): number {
     .length
 }
 
-function datasetInspectorSummary(dataset: ObservatoryDataset): string {
+/**
+ * Canonical-only queue reason: the blocker, evidence gap, or
+ * warning comes verbatim from the canonical readiness verdict phlo-api
+ * serves. Candidates are a server identity fact. Nothing is inferred from
+ * owner or classification fields, and an unloaded verdict renders as
+ * pending rather than assumed-clear.
+ */
+function canonicalQueueReason(
+  dataset: ObservatoryDataset,
+  readiness: ObservatoryPublishingReadiness | null,
+): string {
+  if (dataset.candidate) {
+    return 'Candidate table needs review before it becomes governed.'
+  }
+  if (!readiness) {
+    return 'Canonical readiness loading from phlo-api.'
+  }
+  return (
+    readiness.blockers[0] ??
+    readiness.missing_evidence[0] ??
+    readiness.warnings[0] ??
+    'Readiness evidence is available.'
+  )
+}
+
+function canonicalNextAction(
+  dataset: ObservatoryDataset,
+  readiness: ObservatoryPublishingReadiness | null,
+): string {
+  if (dataset.candidate) return 'claim, promote, or reject'
+  if (!readiness) return 'await canonical readiness'
+  if (readiness.blockers.length > 0) return 'resolve release blockers'
+  if (readiness.missing_evidence.length > 0) return 'collect evidence'
+  if (dataset.publication_state === 'published') return 'retire if obsolete'
+  if (readiness.warnings.length > 0) return 'review warning evidence'
+  return 'review publishing readiness'
+}
+
+function canonicalInspectorSummary(
+  dataset: ObservatoryDataset,
+  readiness: ObservatoryPublishingReadiness | null,
+): string {
   if (dataset.candidate) {
     return 'Candidate dataset awaiting owner review, promotion, or rejection.'
   }
-  if (dataset.readiness_state === 'error') {
-    return 'Release is blocked until readiness evidence is resolved.'
+  if (readiness && readiness.blockers.length > 0) {
+    return 'Release is blocked by the canonical readiness verdict.'
   }
-  if (!dataset.owner || dataset.classifications.length === 0) {
-    return 'Governance evidence is incomplete before publication.'
+  if (readiness && readiness.missing_evidence.length > 0) {
+    return 'Canonical readiness is waiting on missing evidence.'
   }
   return (
     dataset.description ?? 'Governed dataset with readiness evidence available.'
@@ -779,34 +865,4 @@ function firstResourceHref(
     return `/tables?tableId=${encodeURIComponent(resource.id)}`
   }
   return null
-}
-
-function datasetQueueReason(dataset: ObservatoryDataset): string {
-  if (dataset.candidate) {
-    return 'Candidate table needs review before it becomes governed.'
-  }
-  if (dataset.readiness_state === 'error') {
-    return 'Publication is blocked by unresolved readiness evidence.'
-  }
-  if (!dataset.owner) {
-    return 'Ownership is missing.'
-  }
-  if (dataset.classifications.length === 0) {
-    return 'Classification is missing.'
-  }
-  if (dataset.readiness_state === 'warning') {
-    return 'Readiness has warnings that should be reviewed.'
-  }
-  return 'Readiness evidence is available.'
-}
-
-function datasetNextAction(dataset: ObservatoryDataset): string {
-  if (dataset.candidate) return 'claim, promote, or reject'
-  if (dataset.readiness_state === 'error') return 'open readiness cockpit'
-  if (!dataset.owner) return 'assign owner'
-  if (dataset.classifications.length === 0) return 'declare classification'
-  if (dataset.readiness_state === 'warning') return 'review warning evidence'
-  if (dataset.publication_state === 'draft')
-    return 'review publishing readiness'
-  return 'monitor evidence'
 }

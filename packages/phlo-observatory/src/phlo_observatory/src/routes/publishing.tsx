@@ -1,23 +1,29 @@
 /**
- * /publishing route. Promoted dataset publication queue with bulk readiness
- * checks and publish/archive actions that invalidate cached resources.
+ * /publishing route. Publication readiness rendered from the canonical
+ * verdict phlo-api serves: one bulk readiness request feeds every row, and
+ * publish/retire run explain-then-execute against the exact observed state
+ * The route computes no eligibility of its own — blocked
+ * publishes display the canonical ordered reasons before and after the
+ * attempt, and every result reloads durable API state.
  */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Archive, FileText, ShieldAlert, UploadCloud } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import type { DatasetTransitionAction } from '@/observatory/api/datasetProjection'
 import type {
   ObservatoryDataset,
-  ObservatoryHealthState,
   ObservatoryPublishingReadiness,
-  ObservatoryResourceResult,
 } from '@/observatory/api/types'
+import {
+  classifyDatasetTransitionResult,
+  datasetTransitionActionId,
+} from '@/observatory/api/datasetProjection'
 import {
   getObservatoryDatasetRecords,
   getObservatoryPublishingReadinessDirect,
   runObservatoryActionDirect,
 } from '@/observatory/api/resources'
-import { ActionButton } from '@/observatory/components/ActionButton'
 import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { StatusBadge } from '@/observatory/components/StatusBadge'
 import {
@@ -29,11 +35,23 @@ export const Route = createFileRoute('/publishing')({
   component: Publishing,
 })
 
+type ReadinessMap = Record<string, ObservatoryPublishingReadiness | undefined>
+
+/** A transition opened for explain; execution happens only after review. */
+type PendingTransition = {
+  datasetId: string
+  action: DatasetTransitionAction
+}
+
 export function Publishing() {
   const [actionMessage, setActionMessage] = useState<string | null>(null)
-  const [profileResults, setProfileResults] = useState<
-    Record<string, ObservatoryResourceResult<ObservatoryPublishingReadiness>>
-  >({})
+  const [actionState, setActionState] = useState<'ok' | 'error' | 'unknown'>(
+    'unknown',
+  )
+  const [pending, setPending] = useState<PendingTransition | null>(null)
+  const [readinessMap, setReadinessMap] = useState<ReadinessMap>({})
+  const [readinessError, setReadinessError] = useState<string | null>(null)
+  const [readinessTick, setReadinessTick] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const result = useLiveResource(
     getObservatoryDatasetRecords,
@@ -55,18 +73,46 @@ export function Publishing() {
     () => promoted.filter((dataset) => dataset.publication_state === 'draft'),
     [promoted],
   )
+
+  // One bulk request serves the canonical verdict for every row; the map is
+  // keyed by dataset id and only ever holds server-provided readiness.
+  useEffect(() => {
+    let cancelled = false
+    void getObservatoryPublishingReadinessDirect().then((bulkResult) => {
+      if (cancelled) return
+      setReadinessMap(
+        Object.fromEntries(
+          (bulkResult.data ?? []).map((item) => [
+            item.dataset_id,
+            item.publishing,
+          ]),
+        ),
+      )
+      setReadinessError(bulkResult.error)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [readinessTick])
+
+  // Durable reload after any transition: bump the readiness walk and
+  // invalidate the cached dataset collection, then re-render from the API.
+  const reloadDurableState = useCallback(() => {
+    invalidateCachedResources([
+      'observatory:datasets',
+      'observatory:operations',
+    ])
+    window.dispatchEvent(new Event('focus'))
+    setReadinessTick((tick) => tick + 1)
+  }, [])
+
   const selected =
     promoted.find((dataset) => dataset.id === selectedId) ??
     promoted.find(
-      (dataset) =>
-        publicationReadiness(dataset, profileResults[dataset.id]?.data)
-          .state !== 'ok',
+      (dataset) => (readinessMap[dataset.id]?.blockers.length ?? 0) > 0,
     ) ??
     promoted[0] ??
     null
-  const selectedProfile = selected
-    ? (profileResults[selected.id]?.data ?? null)
-    : null
   const selectDataset = useCallback((datasetId: string) => {
     setSelectedId(datasetId)
     if (typeof window === 'undefined') return
@@ -74,25 +120,6 @@ export function Publishing() {
     url.searchParams.set('datasetId', datasetId)
     window.history.replaceState(null, '', `${url.pathname}${url.search}`)
   }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    if (promoted.length === 0 || Object.keys(profileResults).length > 0) return
-    void getObservatoryPublishingReadinessDirect().then((bulkResult) => {
-      if (cancelled) return
-      setProfileResults(
-        Object.fromEntries(
-          (bulkResult.data ?? []).map((item) => [
-            item.dataset_id,
-            { data: item.publishing, error: bulkResult.error },
-          ]),
-        ),
-      )
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [profileResults, promoted])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -117,11 +144,45 @@ export function Publishing() {
     selectDataset(selected.id)
   }, [promoted, selectDataset, selected, selectedId])
 
+  // Explain-then-execute: the explain panel names the exact dataset, the
+  // exact observed version, and the canonical ordered reasons before the
+  // confirm button submits the transition. The server stays authoritative.
+  const executeTransition = useCallback(
+    async (transition: PendingTransition, expectedState: string | null) => {
+      const actionId = datasetTransitionActionId(
+        transition.datasetId,
+        transition.action,
+      )
+      const next = await runObservatoryActionDirect({
+        actionId,
+        expectedState,
+      })
+      const verdict = next.data
+        ? classifyDatasetTransitionResult(next.data)
+        : null
+      setActionMessage(
+        verdict?.message ?? next.error ?? 'Transition result unavailable.',
+      )
+      setActionState(
+        verdict?.durable
+          ? 'ok'
+          : verdict?.outcome === 'blocked'
+            ? 'unknown'
+            : 'error',
+      )
+      // Unknown, conflict, and blocked results never become optimistic
+      // success: the durable state is reloaded and rendered as-is.
+      reloadDurableState()
+      return verdict
+    },
+    [reloadDurableState],
+  )
+
   return (
     <ObservatoryPage
       kicker="Publishing"
       title="Publication readiness"
-      description="Review internal publication state, blockers, and guarded publish or retire actions."
+      description="Review internal publication state, canonical blockers, and explain-then-execute publish or retire transitions."
       action={
         <span className="phlo-observatory-pill">
           {isLoading ? 'Loading' : `${published.length} published`}
@@ -147,7 +208,7 @@ export function Publishing() {
                 datasets={promoted}
                 promoted={promoted.length}
                 published={published.length}
-                profiles={profileResults}
+                readinessMap={readinessMap}
               />
               <div className="phlo-observatory-publication-head">
                 <span>Dataset</span>
@@ -160,59 +221,46 @@ export function Publishing() {
                 {promoted.map((dataset) => (
                   <PublishingRow
                     key={dataset.id}
-                    onAction={(actionId) => {
-                      setActionMessage('Requesting publication action...')
-                      void runObservatoryActionDirect({ actionId }).then(
-                        (next) => {
-                          invalidateCachedResources([
-                            'observatory:datasets',
-                            'observatory:operations',
-                          ])
-                          window.dispatchEvent(new Event('focus'))
-                          setActionMessage(
-                            next.data?.message ??
-                              next.error ??
-                              'Action requested',
-                          )
-                        },
-                      )
-                    }}
                     dataset={dataset}
+                    onExplain={(action) => {
+                      selectDataset(dataset.id)
+                      setPending({ datasetId: dataset.id, action })
+                    }}
                     onSelect={selectDataset}
-                    profile={profileResults[dataset.id]?.data ?? null}
+                    readiness={readinessMap[dataset.id] ?? null}
                     selected={selected?.id === dataset.id}
                   />
                 ))}
               </div>
+              {readinessError && (
+                <div className="phlo-observatory-panel-footer">
+                  Canonical readiness unavailable: {readinessError}
+                </div>
+              )}
             </>
           ) : (
             <EmptyPublishing detail="No promoted Datasets are ready for publication review." />
           )}
           {actionMessage && (
-            <div className="phlo-observatory-panel-footer">{actionMessage}</div>
+            <div
+              className="phlo-observatory-panel-footer"
+              data-state={actionState}
+            >
+              {actionMessage}
+            </div>
           )}
         </div>
 
         <PublishingInspector
           drafts={drafts.length}
           isLoading={isLoading}
-          onAction={(actionId) => {
-            setActionMessage('Requesting publication action...')
-            void runObservatoryActionDirect({ actionId }).then((next) => {
-              invalidateCachedResources([
-                'observatory:datasets',
-                'observatory:operations',
-              ])
-              window.dispatchEvent(new Event('focus'))
-              setActionMessage(
-                next.data?.message ?? next.error ?? 'Action requested',
-              )
-            })
-          }}
-          profile={selectedProfile}
+          pending={pending}
           promoted={promoted.length}
           published={published.length}
+          readinessMap={readinessMap}
           selected={selected}
+          onCancelPending={() => setPending(null)}
+          onExecute={executeTransition}
         />
       </section>
     </ObservatoryPage>
@@ -220,41 +268,33 @@ export function Publishing() {
 }
 
 function PublicationSummary({
-  datasets,
   drafts,
-  profiles,
   promoted,
   published,
+  readinessMap,
+  datasets,
 }: {
   datasets: Array<ObservatoryDataset>
   drafts: number
-  profiles: Record<
-    string,
-    ObservatoryResourceResult<ObservatoryPublishingReadiness>
-  >
   promoted: number
   published: number
+  readinessMap: ReadinessMap
 }) {
-  const readinessList = datasets.map((dataset) =>
-    publicationReadiness(dataset, profiles[dataset.id]?.data ?? null),
+  // Counts come from the canonical verdict only; datasets whose readiness has
+  // not loaded count as pending rather than inferred.
+  const withReadiness = datasets.filter(
+    (dataset) => readinessMap[dataset.id] !== undefined,
   )
-  const loadedProfiles = Object.values(profiles)
-    .map((result) => result.data)
-    .filter((profile): profile is ObservatoryPublishingReadiness =>
-      Boolean(profile),
-    )
-  const blocked = readinessList.filter(
-    (readiness) => readiness.blockers.length > 0,
+  const blocked = withReadiness.filter(
+    (dataset) => (readinessMap[dataset.id]?.blockers.length ?? 0) > 0,
   ).length
-  const needsEvidence = readinessList.filter(
-    (readiness) => readiness.missingEvidence.length > 0,
+  const needsEvidence = withReadiness.filter(
+    (dataset) => (readinessMap[dataset.id]?.missing_evidence.length ?? 0) > 0,
   ).length
-  const warning = readinessList.filter(
-    (readiness) => readiness.warnings.length > 0,
+  const warning = withReadiness.filter(
+    (dataset) => (readinessMap[dataset.id]?.warnings.length ?? 0) > 0,
   ).length
-  const actionReady = loadedProfiles.filter((profile) =>
-    profile.actions.some((action) => action.enabled),
-  ).length
+  const pendingCount = datasets.length - withReadiness.length
   return (
     <div className="phlo-observatory-publication-summary">
       <PublicationSummaryCell label="Promoted" state="ok" value={promoted} />
@@ -279,9 +319,9 @@ function PublicationSummary({
         value={warning}
       />
       <PublicationSummaryCell
-        label="Action ready"
-        state={actionReady ? 'ok' : 'unknown'}
-        value={actionReady}
+        label="Readiness pending"
+        state={pendingCount ? 'unknown' : 'ok'}
+        value={pendingCount}
       />
       <PublicationSummaryCell label="Published" state="ok" value={published} />
     </div>
@@ -309,28 +349,28 @@ function PublicationSummaryCell({
 }
 
 function PublishingRow({
-  onAction,
-  onSelect,
   dataset,
-  profile,
+  onExplain,
+  onSelect,
+  readiness,
   selected,
 }: {
-  onAction: (actionId: string) => void
-  onSelect: (datasetId: string) => void
   dataset: ObservatoryDataset
-  profile: ObservatoryPublishingReadiness | null
+  onExplain: (action: DatasetTransitionAction) => void
+  onSelect: (datasetId: string) => void
+  readiness: ObservatoryPublishingReadiness | null
   selected: boolean
 }) {
-  const publication = publicationReadiness(dataset, profile)
-  const approval = approvalState(dataset, publication)
-  const nextAction = publicationNextAction(dataset, publication)
-  const issueCount = publicationIssueCount(publication)
-  const primaryIssue = publicationPrimaryIssue(publication)
-  const publishAction = profile?.actions.find(
-    (action) => action.id === 'publish',
-  )
-  const retireAction = profile?.actions.find((action) => action.id === 'retire')
-
+  // Rows render server facts only: publication state and the canonical
+  // verdict read model. No locally inferred blockers or next actions.
+  const canonicalIssues = readiness
+    ? [
+        ...readiness.blockers,
+        ...readiness.missing_evidence,
+        ...readiness.warnings,
+      ]
+    : []
+  const approval = approvalState(dataset)
   return (
     <div
       className="phlo-observatory-dataset-row phlo-observatory-publication-row"
@@ -342,7 +382,10 @@ function PublishingRow({
         if (event.key === 'Enter' || event.key === ' ') onSelect(dataset.id)
       }}
     >
-      <span className="phlo-observatory-dot" data-state={publication.state} />
+      <span
+        className="phlo-observatory-dot"
+        data-state={readiness?.state ?? 'unknown'}
+      />
       <div>
         <Link
           className="phlo-observatory-row-title"
@@ -359,51 +402,50 @@ function PublishingRow({
             dataset.publication_state,
           ].join(' · ')}
         </div>
-        {primaryIssue && (
-          <div className="phlo-observatory-row-evidence">{primaryIssue}</div>
+        {readiness === null ? (
+          <div className="phlo-observatory-row-evidence">
+            Canonical readiness loading from phlo-api
+          </div>
+        ) : (
+          canonicalIssues[0] && (
+            <div className="phlo-observatory-row-evidence">
+              {canonicalIssues[0]}
+            </div>
+          )
         )}
       </div>
       <span className="phlo-observatory-publication-cell">
         {dataset.owner ?? 'unassigned'}
       </span>
       <span className="phlo-observatory-publication-cell">{approval}</span>
-      <span className="phlo-observatory-publication-cell">{issueCount}</span>
+      <span className="phlo-observatory-publication-cell">
+        {readiness ? canonicalIssues.length : '—'}
+      </span>
       <div className="phlo-observatory-publication-actions">
         <StatusBadge
           label={dataset.publication_state}
-          state={publication.state}
+          state={readiness?.state ?? 'unknown'}
         />
-        <span>{nextAction}</span>
         <div className="phlo-observatory-inline-actions">
           <button
-            disabled={publishAction ? !publishAction.enabled : issueCount > 0}
+            disabled={readiness === null}
             onClick={(event) => {
               event.stopPropagation()
-              onAction(`dataset:${dataset.id}:publish`)
+              onExplain('publish')
             }}
-            title={
-              publishAction?.reason ??
-              (publicationIssues(publication).join(', ') ||
-                'Publish internally')
-            }
+            title="Explain the publish transition before executing"
             type="button"
           >
             <UploadCloud className="size-3.5" />
             Publish
           </button>
           <button
-            disabled={
-              retireAction
-                ? !retireAction.enabled
-                : dataset.publication_state !== 'published'
-            }
+            disabled={readiness === null}
             onClick={(event) => {
               event.stopPropagation()
-              onAction(`dataset:${dataset.id}:retire`)
+              onExplain('retire')
             }}
-            title={
-              retireAction?.reason ?? 'Only published datasets can be retired'
-            }
+            title="Explain the retire transition before executing"
             type="button"
           >
             <Archive className="size-3.5" />
@@ -415,79 +457,9 @@ function PublishingRow({
   )
 }
 
-type PublicationReadiness = {
-  blockers: Array<string>
-  missingEvidence: Array<string>
-  state: ObservatoryHealthState
-  warnings: Array<string>
-}
-
-function publicationReadiness(
-  dataset: ObservatoryDataset,
-  profile: ObservatoryPublishingReadiness | null,
-): PublicationReadiness {
-  if (profile) {
-    return {
-      blockers: profile.blockers,
-      missingEvidence: profile.missing_evidence,
-      state: profile.state,
-      warnings: profile.warnings,
-    }
-  }
-  const blockers: Array<string> = []
-  const missingEvidence: Array<string> = []
-  const warnings: Array<string> = []
-  if (!dataset.owner) blockers.push('owner missing')
-  if (dataset.classifications.length === 0)
-    blockers.push('classification missing')
-  if (dataset.readiness_state === 'error') blockers.push('quality blocking')
-  if (dataset.readiness_state === 'unknown')
-    missingEvidence.push('readiness evidence missing')
-  if (dataset.readiness_state === 'warning')
-    warnings.push('readiness warning requires review')
-  return { blockers, missingEvidence, state: dataset.readiness_state, warnings }
-}
-
-function publicationIssues(readiness: PublicationReadiness): Array<string> {
-  return [
-    ...readiness.blockers,
-    ...readiness.missingEvidence,
-    ...readiness.warnings,
-  ]
-}
-
-function publicationIssueCount(readiness: PublicationReadiness): number {
-  return publicationIssues(readiness).length
-}
-
-function publicationPrimaryIssue(
-  readiness: PublicationReadiness,
-): string | null {
-  return publicationIssues(readiness)[0] ?? null
-}
-
-function approvalState(
-  dataset: ObservatoryDataset,
-  readiness: PublicationReadiness,
-): string {
+function approvalState(dataset: ObservatoryDataset): string {
   const explicit = dataset.metadata.approval_state
-  if (typeof explicit === 'string' && explicit.trim()) return explicit
-  if (dataset.publication_state === 'published') return 'approved'
-  if (readiness.blockers.length > 0) return 'blocked'
-  if (readiness.missingEvidence.length > 0) return 'needs evidence'
-  if (readiness.warnings.length > 0) return 'review'
-  return 'ready'
-}
-
-function publicationNextAction(
-  dataset: ObservatoryDataset,
-  readiness: PublicationReadiness,
-): string {
-  if (dataset.publication_state === 'published') return 'Retire if obsolete'
-  if (readiness.blockers.length > 0) return 'Resolve blockers'
-  if (readiness.missingEvidence.length > 0) return 'Collect evidence'
-  if (readiness.warnings.length > 0) return 'Review warning'
-  return 'Publish internally'
+  return typeof explicit === 'string' && explicit.trim() ? explicit : '—'
 }
 
 function EmptyPublishing({ detail }: { detail: string }) {
@@ -508,20 +480,28 @@ function EmptyPublishing({ detail }: { detail: string }) {
 function PublishingInspector({
   drafts,
   isLoading,
-  onAction,
-  profile,
+  onCancelPending,
+  onExecute,
+  pending,
   promoted,
   published,
+  readinessMap,
   selected,
 }: {
   drafts: number
   isLoading: boolean
-  onAction: (actionId: string) => void
-  profile: ObservatoryPublishingReadiness | null
+  onCancelPending: () => void
+  onExecute: (
+    transition: PendingTransition,
+    expectedState: string | null,
+  ) => Promise<{ message: string } | null>
+  pending: PendingTransition | null
   promoted: number
   published: number
+  readinessMap: ReadinessMap
   selected: ObservatoryDataset | null
 }) {
+  const [executing, setExecuting] = useState(false)
   if (isLoading) {
     return (
       <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
@@ -544,13 +524,16 @@ function PublishingInspector({
       </aside>
     )
   }
-  const publishing = profile
-  const readiness = publicationReadiness(selected, profile)
-  const nextAction = publishing
-    ? (publishing.actions.find((action) => action.enabled)?.label ??
-      publishing.actions[0]?.reason ??
-      publicationNextAction(selected, readiness))
-    : publicationNextAction(selected, readiness)
+
+  const readiness = readinessMap[selected.id] ?? null
+  const canonicalIssues = readiness
+    ? [
+        ...readiness.blockers,
+        ...readiness.missing_evidence,
+        ...readiness.warnings,
+      ]
+    : []
+
   return (
     <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
       <div className="phlo-observatory-inspector-label">Policy</div>
@@ -571,11 +554,9 @@ function PublishingInspector({
         <dt>Published</dt>
         <dd>{published}</dd>
         <dt>Policy</dt>
-        <dd>{publishing?.policy_name ?? 'loading'}</dd>
+        <dd>{readiness?.policy_name ?? 'loading'}</dd>
         <dt>Readiness</dt>
-        <dd>{publishing?.state ?? selected.readiness_state}</dd>
-        <dt>Next action</dt>
-        <dd>{nextAction}</dd>
+        <dd>{readiness?.state ?? 'loading'}</dd>
       </dl>
       <div className="phlo-observatory-detail-list">
         <Link
@@ -589,79 +570,152 @@ function PublishingInspector({
           </span>
           <small>{selected.publication_state}</small>
         </Link>
-        {readiness.blockers.map((blocker) => (
-          <div
-            className="phlo-observatory-mini-row"
-            data-state="error"
-            key={blocker}
-          >
-            <span>{blocker}</span>
-            <small>blocker</small>
+        {readiness === null ? (
+          <div className="phlo-observatory-mini-row" data-state="unknown">
+            <span>Canonical readiness loading from phlo-api</span>
+            <small>no local readiness is assumed</small>
           </div>
-        ))}
-        {readiness.missingEvidence.map((item) => (
-          <div
-            className="phlo-observatory-mini-row"
-            data-state="unknown"
-            key={item}
-          >
-            <span>{item}</span>
-            <small>missing evidence</small>
+        ) : canonicalIssues.length === 0 ? (
+          <div className="phlo-observatory-mini-row" data-state="ok">
+            <span>No canonical release issues</span>
+            <small>readiness verdict is clear</small>
           </div>
-        ))}
-        {readiness.warnings.map((warning) => (
-          <div
-            className="phlo-observatory-mini-row"
-            data-state="warning"
-            key={warning}
-          >
-            <span>{warning}</span>
-            <small>warning</small>
-          </div>
-        ))}
-        {readiness.blockers.length === 0 &&
-          readiness.missingEvidence.length === 0 &&
-          readiness.warnings.length === 0 && (
-            <div className="phlo-observatory-mini-row" data-state="ok">
-              <span>No release issues</span>
-              <small>ready for publication action</small>
+        ) : (
+          canonicalIssues.map((issue, index) => (
+            <div
+              className="phlo-observatory-mini-row"
+              data-state={
+                readiness.blockers.includes(issue)
+                  ? 'error'
+                  : readiness.missing_evidence.includes(issue)
+                    ? 'unknown'
+                    : 'warning'
+              }
+              key={`${issue}:${index}`}
+            >
+              <span>{issue}</span>
+              <small>
+                {readiness.blockers.includes(issue)
+                  ? 'blocker'
+                  : readiness.missing_evidence.includes(issue)
+                    ? 'missing evidence'
+                    : 'warning'}
+              </small>
             </div>
-          )}
+          ))
+        )}
       </div>
-      {publishing && (
-        <>
-          <div className="phlo-observatory-action-row">
-            {publishing.actions.map((action) => (
-              <ActionButton
-                action={{
-                  ...action,
-                  id: `dataset:${selected.id}:${action.id}`,
-                  kind: `dataset.${action.id}`,
-                  requires_confirmation: true,
-                  risk_level: action.id === 'retire' ? 'medium' : 'low',
-                  expected_evidence: [],
-                }}
-                key={action.id}
-                onRun={onAction}
-              />
-            ))}
+      {pending && pending.datasetId === selected.id && (
+        <TransitionExplainPanel
+          action={pending.action}
+          dataset={selected}
+          executing={executing}
+          readiness={readiness}
+          onCancel={onCancelPending}
+          onConfirm={async () => {
+            setExecuting(true)
+            try {
+              await onExecute(pending, selected.publication_state)
+            } finally {
+              setExecuting(false)
+            }
+          }}
+        />
+      )}
+      {!pending && (
+        <div className="phlo-observatory-detail-list">
+          <div className="phlo-observatory-mini-row" data-state="unknown">
+            <span>Explain a transition to enable it</span>
+            <small>Publish or Retire on the selected row</small>
           </div>
-          <div className="phlo-observatory-detail-list">
-            {publishing.actions
-              .filter((action) => !action.enabled && action.reason)
-              .map((action) => (
-                <div
-                  className="phlo-observatory-mini-row"
-                  data-state="unknown"
-                  key={action.id}
-                >
-                  <span>{action.label} unavailable</span>
-                  <small>{action.reason}</small>
-                </div>
-              ))}
-          </div>
-        </>
+        </div>
       )}
     </aside>
+  )
+}
+
+/**
+ * Explain panel for one pending transition: exact dataset identity, exact
+ * observed compare-and-set version, canonical ordered reasons, and the
+ * action's server-provided consequences before the confirm executes it.
+ */
+function TransitionExplainPanel({
+  action,
+  dataset,
+  executing,
+  onConfirm,
+  onCancel,
+  readiness,
+}: {
+  action: DatasetTransitionAction
+  dataset: ObservatoryDataset
+  executing: boolean
+  onConfirm: () => void | Promise<void>
+  onCancel: () => void
+  readiness: ObservatoryPublishingReadiness | null
+}) {
+  const orderedReasons = readiness
+    ? [
+        ...readiness.blockers,
+        ...readiness.missing_evidence,
+        ...readiness.warnings,
+      ]
+    : []
+  const serverAction = readiness?.actions.find((item) => item.id === action)
+  return (
+    <div className="phlo-observatory-detail-list" data-state="warning">
+      <div className="phlo-observatory-mini-row">
+        <span>Explain before execute</span>
+        <small>transition runs only after confirmation</small>
+      </div>
+      <div className="phlo-observatory-mini-row">
+        <span>Action</span>
+        <small>{serverAction?.label ?? action}</small>
+      </div>
+      <div className="phlo-observatory-mini-row">
+        <span>Dataset</span>
+        <small>{dataset.id}</small>
+      </div>
+      <div className="phlo-observatory-mini-row">
+        <span>Exact version</span>
+        <small>{dataset.publication_state}</small>
+      </div>
+      {orderedReasons.map((reason, index) => (
+        <div
+          className="phlo-observatory-mini-row"
+          data-state={
+            readiness?.blockers.includes(reason)
+              ? 'error'
+              : readiness?.missing_evidence.includes(reason)
+                ? 'unknown'
+                : 'warning'
+          }
+          key={`${reason}:${index}`}
+        >
+          <span>{reason}</span>
+          <small>canonical reason</small>
+        </div>
+      ))}
+      {(serverAction?.consequences ?? []).map((consequence) => (
+        <div className="phlo-observatory-mini-row" key={consequence}>
+          <span>{consequence}</span>
+          <small>consequence</small>
+        </div>
+      ))}
+      <div className="phlo-observatory-inline-actions">
+        <button
+          disabled={executing}
+          onClick={() => {
+            void onConfirm()
+          }}
+          type="button"
+        >
+          {executing ? 'Executing…' : `Confirm ${action}`}
+        </button>
+        <button disabled={executing} onClick={onCancel} type="button">
+          Cancel
+        </button>
+      </div>
+    </div>
   )
 }

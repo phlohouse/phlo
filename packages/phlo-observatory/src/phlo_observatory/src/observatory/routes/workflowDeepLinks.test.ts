@@ -231,15 +231,13 @@ describe('Observatory workflow deep links', () => {
     const source = routeSource('publishing.tsx')
     const datasetSource = routeSource('datasets.$datasetId.tsx')
 
-    expect(source).toContain('profile.missing_evidence')
-    expect(source).toContain('missingEvidence')
+    // Missing evidence is surfaced from the canonical verdict as its own
+    // pending state, never folded into a ready claim.
+    expect(source).toContain('readiness.missing_evidence')
     expect(source).toContain('Needs evidence')
     expect(source).toContain('missing evidence')
-    expect(source).toContain('Collect evidence')
-    expect(source).toContain('publicationIssueCount(publication)')
-    expect(source).not.toContain(
-      'blockers.length === 0 &&\n          failingQuality.length === 0',
-    )
+    expect(source).toContain("data-state={readiness?.state ?? 'unknown'}")
+    expect(source).not.toContain("'owner missing'")
     expect(datasetSource).toContain('datasetPublishingIssues(profile)')
     expect(datasetSource).toContain('profile.publishing.missing_evidence')
     expect(datasetSource).toContain('evidence gap')

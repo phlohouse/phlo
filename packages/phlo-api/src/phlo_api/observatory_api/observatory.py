@@ -4155,6 +4155,7 @@ def _execute_dataset_publication_action(
             action_id=request.action_id,
             actor=auth["subject"],
             scope="lakehouse:operate",
+            expected_state=request.expected_state,
         )
     )
     _audit_dataset_transition(
@@ -4207,6 +4208,7 @@ def _execute_candidate_workflow_action(
             action_id=request.action_id,
             actor=auth["subject"],
             scope="lakehouse:operate",
+            expected_state=request.expected_state,
             owner=_workflow_default_owner(),
         )
     )

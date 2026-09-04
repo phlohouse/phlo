@@ -29,6 +29,8 @@ import {
   getObservatoryDatasetProfileDirect,
   runObservatoryActionDirect,
 } from '@/observatory/api/resources'
+import { profileProjection } from '@/observatory/api/datasetProjection'
+import { DatasetProjectionPanel } from '@/observatory/components/DatasetProjectionPanel'
 import { ActionButton } from '@/observatory/components/ActionButton'
 import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { StatusBadge } from '@/observatory/components/StatusBadge'
@@ -100,6 +102,9 @@ function ProfileContent({
   profile: ObservatoryDatasetProfile
 }) {
   const { dataset } = profile
+  // The canonical projection the API embeds; the shared panel renders it
+  // verbatim and the route never re-derives its facts.
+  const canonical = profileProjection(profile)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   const onAction = (actionId: string) => {
     setActionMessage('Requesting workflow action...')
@@ -188,6 +193,7 @@ function ProfileContent({
         <div className="phlo-observatory-detail-list">
           <ReadinessInspectorRows onAction={onAction} profile={profile} />
           <ExactEvidenceRows profile={profile} />
+          {canonical && <DatasetProjectionPanel projection={canonical} />}
           {profile.tables.map((table) => (
             <LinkedMiniRow
               detail={table.namespace ?? 'table'}
@@ -982,25 +988,11 @@ function datasetBlocker(profile: ObservatoryDatasetProfile): {
   label: string
   state: string
 } {
-  const failedQuality = profile.quality.find(
-    (check) => check.blocking && check.status !== 'passing',
-  )
-  const failedOperation = profile.operations.find(
-    (operation) => operation.status === 'failed',
-  )
-  const failedControl = profile.governance.find(
-    (control) => control.status === 'fail',
-  )
+  // Canonical-only: the blocker comes from the canonical
+  // readiness verdict the profile embeds; nothing is re-inferred from
+  // quality, operations, owner, or classification fields here.
   if (profile.publishing.blockers[0]) {
     return { label: profile.publishing.blockers[0], state: 'error' }
-  }
-  if (failedQuality) return { label: failedQuality.name, state: 'error' }
-  if (failedOperation) return { label: failedOperation.name, state: 'error' }
-  if (failedControl) return { label: failedControl.label, state: 'error' }
-  if (!profile.dataset.owner)
-    return { label: 'Owner missing', state: 'warning' }
-  if (!profile.dataset.classifications.length) {
-    return { label: 'Classification missing', state: 'warning' }
   }
   if (profile.publishing.missing_evidence[0]) {
     return { label: profile.publishing.missing_evidence[0], state: 'warning' }

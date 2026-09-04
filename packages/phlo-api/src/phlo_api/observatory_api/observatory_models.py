@@ -165,6 +165,13 @@ class ObservatoryActionRequest(BaseModel):
     """Request to execute a guarded Observatory action."""
 
     action_id: str
+    expected_state: str | None = None
+    """Exact observed current state for Dataset workflow transitions.
+
+    Compare-and-set guard: the client repeats back the state it
+    saw when it explained the transition; a moved state conflicts instead of
+    applying. Ignored by non-Dataset actions.
+    """
 
 
 class ObservatoryActionResult(BaseModel):

@@ -250,6 +250,111 @@ def test_authorized_publish_is_idempotent_audited_and_durable(
     assert projection["record"]["last_action_id"] == "dataset:gold.orders:publish"
 
 
+def test_publish_against_exact_version_conflicts_on_mismatch_and_replays_on_match(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    observatory_loaders,
+    _declared_orders,
+) -> None:
+    """The /actions route executes publish/retire against the exact version.
+
+    The client repeats back the state it observed when it explained the
+    transition (the CLI's ``--expected-state`` CAS guard): a
+    moved state conflicts without writing, the exact state commits, and a
+    replay of the committed key reloads durable state.
+    """
+    from phlo.dataset_state import memory_store
+    from phlo_api.observatory_api import observatory as observatory_module
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    observatory_loaders(
+        assets=[_asset("gold.orders")],
+        tables_without_catalog=[],
+        quality=[_passing_quality_check()],
+    )
+    authority = observatory_module._dataset_authority()
+    seed = authority.service.store.compare_and_set(
+        writes=(
+            StoreWrite(
+                record_id="gold.orders",
+                expected_state="open",
+                next_record=DatasetRecord(
+                    dataset_id="gold.orders",
+                    table_id="gold.orders",
+                    publication_state="draft",
+                    owner="analytics",
+                ),
+            ),
+        ),
+        action_id="versioned-seed-promotion",
+        action="promote",
+        fingerprint="versioned-seed-promotion",
+    )
+    assert seed.status.value == "committed"
+    client = authenticated_client("admin")
+
+    # A stale expectation (the Dataset has moved on) conflicts without
+    # writing: no success is fabricated for a version that no longer holds.
+    stale = client.post(
+        "/api/observatory/actions",
+        json={
+            "action_id": "dataset:gold.orders:publish",
+            "expected_state": "published",
+        },
+    )
+    assert stale.status_code == 200
+    assert stale.json()["status"] == "failed"
+    assert "'published'" in stale.json()["message"]
+    assert "'draft'" in stale.json()["message"]
+
+    # The exact observed version commits...
+    exact = client.post(
+        "/api/observatory/actions",
+        json={
+            "action_id": "dataset:gold.orders:publish",
+            "expected_state": "draft",
+        },
+    )
+    assert exact.status_code == 200
+    assert exact.json()["status"] == "succeeded"
+    assert "(replayed)" not in exact.json()["message"]
+
+    # ...and repeating the same intent after re-observing the moved durable
+    # state never re-applies or diverges: the committed action key conflicts
+    # with the changed request, and the durable state stays published.
+    reobserved = client.post(
+        "/api/observatory/actions",
+        json={
+            "action_id": "dataset:gold.orders:publish",
+            "expected_state": "published",
+        },
+    )
+    assert reobserved.status_code == 200
+    assert reobserved.json()["status"] == "failed"
+
+    store = memory_store()
+    audits = [
+        event for event in store.audit_events() if event.action_id == "dataset:gold.orders:publish"
+    ]
+    # Every attempt is audited in order: the stale probe conflicts, the exact
+    # version commits, the re-observed repeat conflicts without re-applying.
+    assert [event.outcome for event in audits] == [
+        "conflict",
+        "committed",
+        "conflict",
+    ]
+
+    # Durable: a freshly built authority (a restarted process) sees the
+    # published state; neither the stale probe nor the re-observed repeat
+    # wrote anything.
+    from phlo.dataset_projection import build_dataset_authority
+
+    restarted = build_dataset_authority(str(tmp_path), store_mode="memory")
+    projection = restarted.projection("gold.orders")
+    assert projection["publication_state"] == "published"
+    assert projection["last_action_id"] == "dataset:gold.orders:publish"
+
+
 def _asset(asset_id: str):
     from phlo_api.observatory_api.observatory_models import ObservatoryAsset
 

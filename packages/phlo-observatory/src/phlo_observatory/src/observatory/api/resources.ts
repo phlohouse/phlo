@@ -1018,16 +1018,23 @@ export async function searchObservatoryPage({
 
 export const runObservatoryAction = createServerFn()
   .middleware([mutationAuthorization])
-  .inputValidator((input: { actionId: string }) => input)
+  .inputValidator(
+    (input: { actionId: string; expectedState?: string | null }) => input,
+  )
   .handler(
     async ({
-      data: { actionId },
+      data: { actionId, expectedState },
       context,
     }): Promise<ObservatoryResourceResult<ObservatoryActionResult>> => {
       try {
         const data = await apiPost<ObservatoryActionResult>(
           `${Observatory_API_PREFIX}/actions`,
-          { action_id: actionId },
+          // Dataset transitions carry the exact observed state as the
+          // compare-and-set version; other actions ignore the field.
+          {
+            action_id: actionId,
+            ...(expectedState ? { expected_state: expectedState } : {}),
+          },
           130000,
           context.authorization,
         )
@@ -1040,13 +1047,20 @@ export const runObservatoryAction = createServerFn()
 
 export async function runObservatoryActionDirect({
   actionId,
+  expectedState,
 }: {
   actionId: string
+  expectedState?: string | null
 }): Promise<ObservatoryResourceResult<ObservatoryActionResult>> {
   try {
     const data = await browserApiPost<ObservatoryActionResult>(
       `${Observatory_API_PREFIX}/actions`,
-      { action_id: actionId },
+      // Dataset transitions carry the exact observed state as the
+      // compare-and-set version; other actions ignore the field.
+      {
+        action_id: actionId,
+        ...(expectedState ? { expected_state: expectedState } : {}),
+      },
       130000,
     )
     return { data, error: null }

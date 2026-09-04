@@ -300,6 +300,7 @@ export interface ObservatoryDatasetProfile {
   usage: ObservatoryDatasetUsage
   publishing: ObservatoryPublishingReadiness
   pipeline: ObservatoryDatasetPipeline
+  canonical?: CanonicalDatasetProjection | null
   sections: Record<string, boolean>
 }
 
@@ -823,4 +824,81 @@ export interface ObservatorySearchPage {
 export interface ObservatoryResourceResult<T> {
   data: T | null
   error: string | null
+}
+
+/**
+ * Canonical Dataset projection read models. These mirror the dict
+ * `DatasetAuthority.projection()` emits — the same facts the CLI
+ * `phlo dataset show --json` prints and the Observatory API profile embeds
+ * under `canonical`. Observatory renders them verbatim; it never re-derives
+ * controls, readiness, or publication state from other fields.
+ */
+export interface CanonicalDatasetControlEntry {
+  control: string
+  status: string
+  severity?: string
+  evidence_kind?: string
+}
+
+export interface CanonicalDatasetFinding {
+  control: string
+  severity: string
+  message: string
+  evidence_kind: string
+}
+
+export interface CanonicalDatasetMissingEvidence {
+  kind: string
+  control?: string | null
+  message: string
+  blocks: boolean
+}
+
+export interface CanonicalDatasetReadiness {
+  action?: string | null
+  ready: boolean
+  policy_version: string
+  reasons: Array<string>
+  blockers: Array<CanonicalDatasetFinding>
+  warnings: Array<CanonicalDatasetFinding>
+  missing_evidence: Array<CanonicalDatasetMissingEvidence>
+}
+
+export interface CanonicalDatasetEvidenceEntry {
+  kind: string
+  subject: string
+  status: string
+  source: string
+}
+
+export interface CanonicalDatasetRecord {
+  dataset_id: string
+  table_id: string
+  state?: string
+  publication_state?: string | null
+  owner?: string | null
+  approval_state?: string | null
+  promoted_dataset_id?: string | null
+  policy_version?: string | null
+  last_action_id?: string | null
+  schema_version?: number
+}
+
+export interface CanonicalDatasetProjection {
+  dataset_id: string
+  table_id: string
+  candidate: boolean
+  owner?: string | null
+  classifications: Array<string>
+  workflow_state?: string | null
+  publication_state?: string | null
+  approval_state?: string | null
+  policy_version?: string | null
+  last_action_id?: string | null
+  declared: boolean
+  controls: Array<CanonicalDatasetControlEntry>
+  evidence: Array<CanonicalDatasetEvidenceEntry>
+  readiness: CanonicalDatasetReadiness
+  allowed_transitions: Array<string>
+  record?: CanonicalDatasetRecord | null
 }
