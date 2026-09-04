@@ -24,6 +24,7 @@ from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.output import missing_compose_file_error, missing_phlo_project_error, user_error
 from phlo.infrastructure.containers import resolve_container_name as _resolve_container_name
 from phlo.logging import get_logger
+from phlo.plugins.compose.generator import UV_LOCK_METADATA_FILES
 from phlo.plugins.discovery._service_definition import ServiceDefinition
 from phlo.plugins.discovery.service_manifest import ServiceManifestResolver
 from phlo.plugins.discovery.services import ServiceDiscovery
@@ -33,6 +34,8 @@ logger = get_logger(__name__)
 
 PHLO_CONFIG_FILE = "phlo.yaml"
 NATIVE_STATE_FILE = "native-processes.json"
+
+UV_LOCKED_ENV_VAR = "PHLO_UV_LOCKED"
 
 PHLO_CONFIG_TEMPLATE = """# Phlo Project Configuration
 name: {name}
@@ -99,6 +102,42 @@ def ensure_compose_project() -> Path:
             run="phlo services init",
         )
     return phlo_dir
+
+
+def stage_uv_lock_metadata(project_root: Path, phlo_dir: Path) -> bool:
+    """Stage the project's uv lock metadata into the generated build context.
+
+    Generated service images build with ``.phlo`` as the Docker build context,
+    so the root ``pyproject.toml``/``uv.lock`` consumed by lock-aware image
+    builds are copied into it. Returns True when the project is uv-managed
+    (both files present). Staging refreshes the copies on every
+    ``phlo services init``/``start`` so an image rebuild consumes the project's
+    current lockfile; a lockfile out of sync with its ``pyproject.toml`` fails
+    the image build instead of silently resolving a fresh dependency graph.
+    """
+    sources = [project_root / name for name in UV_LOCK_METADATA_FILES]
+    if not all(source.is_file() for source in sources):
+        return False
+    phlo_dir.mkdir(parents=True, exist_ok=True)
+    for source in sources:
+        shutil.copy2(source, phlo_dir / source.name)
+    return True
+
+
+def apply_uv_lock_env_override(
+    phlo_dir: Path, env_overrides: dict[str, object]
+) -> dict[str, object]:
+    """Flag generated service image builds as lock-aware for uv-managed projects.
+
+    Stages lock metadata from the project root and sets ``PHLO_UV_LOCKED=true``
+    unless the project already overrides that variable in phlo.yaml. With the
+    flag set but no staged lockfile, the image build fails clearly rather than
+    silently resolving an alternative dependency graph.
+    """
+    staged = stage_uv_lock_metadata(phlo_dir.parent, phlo_dir)
+    if staged:
+        env_overrides.setdefault(UV_LOCKED_ENV_VAR, "true")
+    return env_overrides
 
 
 def check_docker_available() -> bool:
@@ -698,6 +737,9 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     # Get user service overrides from config
     user_overrides = config.get("services", {})
     env_overrides = _get_env_overrides(config)
+    # Keep the lock-aware build flag and staged lock metadata in sync with the
+    # project root across regeneration.
+    env_overrides = apply_uv_lock_env_override(phlo_dir, env_overrides)
     env_local_file = phlo_dir / ".env.local"
     existing_env_local = parse_env_file(env_local_file)
 

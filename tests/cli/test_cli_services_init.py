@@ -1394,3 +1394,104 @@ def test_production_compose_rejects_shared_or_default_workload_identity_referenc
         },
     )
     assert "services:" in compose
+
+
+class _RecordingComposer:
+    """Fake composer that records generated files and env overrides."""
+
+    def __init__(self, _discovery):
+        self.env_overrides: dict | None = None
+
+    def generate_compose(self, services, output_dir, **_kwargs):
+        return "services: {}\n"
+
+    def generate_env(self, _services, env_overrides=None):
+        self.env_overrides = env_overrides
+        return ""
+
+    def generate_env_local(self, _services, env_overrides=None, existing_values=None):
+        return ""
+
+    def generate_gitignore(self, _services):
+        return ""
+
+    def copy_service_files(self, _services, _output_dir):
+        return []
+
+
+def _run_services_init_with_composer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    composer_cls: type,
+) -> None:
+    postgres = _service("postgres", default=True)
+    fake_discovery = FakeDiscovery({postgres.name: postgres}, default_names=(postgres.name,))
+    monkeypatch.chdir(tmp_path)
+    from phlo.cli.commands.services import init as init_module
+
+    monkeypatch.setattr(init_module, "ServiceDiscovery", lambda: fake_discovery)
+    monkeypatch.setattr(init_module, "ComposeGenerator", composer_cls)
+    result = CliRunner().invoke(init_module.init_cmd, [])
+    assert result.exit_code == 0, result.output
+
+
+def test_services_init_stages_uv_lock_metadata_for_lock_aware_builds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """uv-managed projects get staged lock metadata and a lock-aware build flag."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "lake"\nversion = "0.1.0"\n')
+    (tmp_path / "uv.lock").write_text("version = 1\n")
+    composer = _RecordingComposer.__new__(_RecordingComposer)
+
+    _run_services_init_with_composer(monkeypatch, tmp_path, lambda discovery: composer)
+
+    phlo_dir = tmp_path / ".phlo"
+    assert (phlo_dir / "pyproject.toml").read_text().startswith("[project]")
+    assert (phlo_dir / "uv.lock").read_text().startswith("version = 1")
+    assert composer.env_overrides is not None
+    assert composer.env_overrides.get("PHLO_UV_LOCKED") == "true"
+
+
+def test_services_init_without_uv_metadata_keeps_default_build_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Projects without uv metadata are not flagged lock-aware and stage nothing."""
+    composer = _RecordingComposer.__new__(_RecordingComposer)
+
+    _run_services_init_with_composer(monkeypatch, tmp_path, lambda discovery: composer)
+
+    phlo_dir = tmp_path / ".phlo"
+    assert not (phlo_dir / "pyproject.toml").exists()
+    assert not (phlo_dir / "uv.lock").exists()
+    assert composer.env_overrides is not None
+    assert "PHLO_UV_LOCKED" not in composer.env_overrides
+
+
+def test_services_init_respects_explicit_uv_lock_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """An explicit phlo.yaml env override wins over the staged-lock default."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "lake"\nversion = "0.1.0"\n')
+    (tmp_path / "uv.lock").write_text("version = 1\n")
+    (tmp_path / "phlo.yaml").write_text(
+        'name: lake\ndescription: lake\nenv:\n  PHLO_UV_LOCKED: "false"\n'
+    )
+    composer = _RecordingComposer.__new__(_RecordingComposer)
+
+    _run_services_init_with_composer(monkeypatch, tmp_path, lambda discovery: composer)
+
+    assert composer.env_overrides is not None
+    assert composer.env_overrides.get("PHLO_UV_LOCKED") == "false"
+
+
+def test_generate_gitignore_ignores_staged_uv_lock_metadata(tmp_path) -> None:
+    """Staged lock copies are regenerable artifacts and stay out of version control."""
+    discovery = ServiceDiscovery()
+    dagster = discovery.get_service("dagster")
+    assert dagster is not None
+
+    content = ComposeGenerator(discovery).generate_gitignore([dagster])
+
+    assert "# Staged uv lock metadata (source of truth lives at the project root)" in content
+    assert "pyproject.toml" in content
+    assert "uv.lock" in content

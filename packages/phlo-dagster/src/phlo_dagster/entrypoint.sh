@@ -4,6 +4,15 @@
 
 set -eo pipefail
 
+# Lock-aware image builds install the locked dependency set into
+# /opt/phlo-project-venv (PATH already prefers it); installs for the mounted
+# project must land in that venv rather than the system interpreter.
+if [ -d /opt/phlo-project-venv ]; then
+    uv_target=(--python /opt/phlo-project-venv/bin/python)
+else
+    uv_target=(--system)
+fi
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "Dagster bootstrap must start as root so it can install mounted project dependencies." >&2
     exit 1
@@ -12,13 +21,13 @@ fi
 # If dev mode is enabled, sync dependencies from mounted pyproject.toml
 if [ "$PHLO_DEV_MODE" = "true" ] && [ -f /opt/phlo-dev/pyproject.toml ]; then
     echo "Dev mode: syncing dependencies from pyproject.toml..."
-    # Install into the container's system Python, degrading through weaker
+    # Install phlo into the target Python environment, degrading through weaker
     # install modes (defaults extra -> editable -> non-editable). A total
     # failure only warns rather than aborting bootstrap.
     cd /opt/phlo-dev
-    uv pip install --system -e ".[defaults]" 2>/dev/null || \
-      uv pip install --system -e . 2>/dev/null || \
-      uv pip install --system . || \
+    uv pip install "${uv_target[@]}" -e ".[defaults]" 2>/dev/null || \
+      uv pip install "${uv_target[@]}" -e . 2>/dev/null || \
+      uv pip install "${uv_target[@]}" . || \
       echo "Warning: Could not sync dependencies"
     cd /opt/dagster
     echo "Dev mode: dependencies synced"
@@ -33,9 +42,9 @@ if [ "$PHLO_DEV_MODE" = "true" ] && [ -n "$PHLO_DEV_EXTRA_PACKAGES" ]; then
         fi
         local_path="/opt/phlo-dev/packages/$pkg"
         if [ -d "$local_path" ]; then
-            uv pip install --system -e "$local_path" || echo "Warning: Could not install $pkg"
+            uv pip install "${uv_target[@]}" -e "$local_path" || echo "Warning: Could not install $pkg"
         else
-            uv pip install --system "$pkg" || echo "Warning: Could not install $pkg"
+            uv pip install "${uv_target[@]}" "$pkg" || echo "Warning: Could not install $pkg"
         fi
     done
 fi
@@ -70,12 +79,18 @@ PY
         local_path="/opt/phlo-dev/packages/$package"
         if [ -d "$local_path" ]; then
             echo "Installing declared local package: $package"
-            uv pip install --system -e "$local_path"
+            uv pip install "${uv_target[@]}" -e "$local_path"
         fi
     done <<< "$project_local_packages"
     # uv reads the mounted project's [tool.uv] configuration from its working
-    # directory, not from the absolute editable target.
-    (cd /app && uv pip install --system -e .)
+    # directory, not from the absolute editable target. Lock-aware builds keep
+    # the locked dependency graph authoritative: install the project package
+    # itself without re-resolving its dependencies.
+    if [ -d /opt/phlo-project-venv ]; then
+        (cd /app && uv pip install "${uv_target[@]}" --no-deps -e .)
+    else
+        (cd /app && uv pip install "${uv_target[@]}" -e .)
+    fi
     echo "Mounted Phlo project installed"
 fi
 

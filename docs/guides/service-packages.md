@@ -99,6 +99,31 @@ services:
 | `command`        | Replaces package defaults     |
 | `enabled: false` | Excludes service entirely     |
 
+### Lock-aware service images (uv projects)
+
+When your project contains both `pyproject.toml` and `uv.lock`, `phlo services
+init` stages that lock metadata into the generated build context and sets
+`PHLO_UV_LOCKED=true` in `.phlo/.env`. Generated service images (the Dagster
+webserver and daemon) then build with `uv sync --locked --no-dev
+--no-install-project` instead of resolving a fresh dependency graph at
+image-build time, so the container uses exactly the locked versions that
+`uv sync --locked` produces in the repository and in CI. Project source stays
+bind-mounted at `/app`; the image never installs an editable copy.
+
+Behavior details:
+
+- A lockfile that is out of sync with `pyproject.toml` fails the image build
+  (`uv sync --locked`) rather than silently resolving a different graph.
+- Setting `PHLO_UV_LOCKED=true` without staged lock metadata also fails the
+  build; re-run `phlo services init` to stage the project lock metadata.
+- Every `phlo services start` refreshes the staged copies from the project
+  root, so image rebuilds consume the project's current lockfile. The staged
+  `.phlo/pyproject.toml` and `.phlo/uv.lock` copies are regenerable artifacts
+  and are excluded from the generated `.phlo/.gitignore`.
+- Projects without uv metadata keep the documented compatible fallback: the
+  image installs `phlo[defaults]` from PyPI (or a supplied wheelhouse).
+- Opt out explicitly by setting `PHLO_UV_LOCKED: "false"` in `phlo.yaml` (`env:`).
+
 ## Discovering Services
 
 ```bash

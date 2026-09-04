@@ -41,6 +41,7 @@ from phlo.cli.commands.services.utils import (
     get_enabled_disabled_service_names,
     get_profile_service_names,
     require_container_backend,
+    stage_uv_lock_metadata,
 )
 from phlo.cli.infrastructure.command import run_command
 from phlo.cli.infrastructure.compose import compose_base_cmd
@@ -554,6 +555,9 @@ def start_cmd(
     compose_file = phlo_dir / "docker-compose.yml"
     project_name = get_project_name()
     lifecycle_request_id = uuid4().hex
+    # Refresh the staged uv lock metadata so image rebuilds consume the
+    # project's current lockfile rather than an init-time copy.
+    stage_uv_lock_metadata(Path.cwd(), phlo_dir)
     logger.info(
         "services_start_requested",
         project_name=project_name,

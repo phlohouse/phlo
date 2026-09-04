@@ -18,6 +18,7 @@ build:
     PHLO_DBT_VERSION: ${PHLO_DBT_VERSION:-}
     PHLO_DAGSTER_VERSION: ${PHLO_DAGSTER_VERSION:-}
     PHLO_WHEELHOUSE: ${PHLO_WHEELHOUSE:-}
+    PHLO_UV_LOCKED: ${PHLO_UV_LOCKED:-}
 
 depends_on:
   - postgres
@@ -127,6 +128,11 @@ env_vars:
   PHLO_VERSION:
     default: ""
     description: Phlo version to install (empty for latest)
+  PHLO_UV_LOCKED:
+    default: ""
+    description: >-
+      Build the image from the project's staged uv.lock instead of resolving
+      dependencies at build time (staged by phlo services init)
   PHLO_DBT_VERSION:
     default: ""
     package: phlo-dbt

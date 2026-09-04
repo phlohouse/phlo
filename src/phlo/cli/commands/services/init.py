@@ -19,8 +19,10 @@ from phlo.cli.commands.services.planner import build_service_selection_plan
 from phlo.cli.commands.services.utils import (
     PHLO_CONFIG_FILE,
     PHLO_CONFIG_TEMPLATE,
+    UV_LOCK_METADATA_FILES,
     _get_env_overrides,
     _warn_secret_env_overrides,
+    apply_uv_lock_env_override,
     detect_phlo_source_path,
     expand_service_dependencies,
     get_phlo_dir,
@@ -52,7 +54,7 @@ def _expand_selected_services(
 
 def _is_uninitialized_phlo_dir(phlo_dir: Path) -> bool:
     """Return true when `.phlo` only contains runtime artifacts created before init."""
-    allowed_files = {".DS_Store"}
+    allowed_files = {".DS_Store", *UV_LOCK_METADATA_FILES}
     for path in phlo_dir.rglob("*"):
         if path.is_dir():
             if path.relative_to(phlo_dir).parts[:1] == ("logs",):
@@ -338,6 +340,10 @@ def init_cmd(
     if production:
         _validate_production_credentials(env_overrides, existing_env_local)
         env_overrides = {**env_overrides, "PHLO_ENVIRONMENT": "production"}
+
+    # Stage the project's uv lock metadata into the generated build context and
+    # flag generated image builds as lock-aware for uv-managed projects.
+    env_overrides = apply_uv_lock_env_override(phlo_dir, env_overrides)
 
     # Collect inline custom services (those with type: inline)
     inline_services = [

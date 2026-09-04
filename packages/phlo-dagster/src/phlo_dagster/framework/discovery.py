@@ -54,6 +54,8 @@ from __future__ import annotations
 import importlib.metadata
 import importlib.util
 import sys
+import textwrap
+import traceback
 import warnings
 from pathlib import Path
 from typing import Any
@@ -217,7 +219,8 @@ def _import_workflow_modules(workflows_path: Path) -> list[Any]:
 
     if failures:
         details = "\n".join(
-            f"  - module={module_name}, path={path}, error={type(error).__name__}: {error}"
+            f"  - module={module_name}, path={path}, error={type(error).__name__}: {error}\n"
+            f"{textwrap.indent(''.join(traceback.format_exception(error)).rstrip(), '    ')}"
             for module_name, path, error in failures
         )
         raise PhloDiscoveryError(

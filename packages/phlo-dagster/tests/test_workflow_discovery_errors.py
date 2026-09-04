@@ -68,6 +68,9 @@ def test_workflow_import_failures_name_the_module_path_and_root_error(
     assert f"path={broken_path}" in message
     assert exception_name in message
     assert exception_detail in message
+    # Failure-oriented context: the traceback itself, not only the root error line.
+    assert "Traceback (most recent call last):" in message
+    assert f'File "{broken_path}"' in message
     assert imported_marker.exists()
 
 
