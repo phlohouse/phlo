@@ -166,7 +166,7 @@ def test_csv_batch_template_generates_runnable_files(tmp_path) -> None:
     assert workflow_file.exists()
     workflow_text = workflow_file.read_text()
     assert "import phlo" in workflow_text
-    assert "@phlo.ingestion(" in workflow_text
+    assert "@phlo.ingest.dlt(" in workflow_text
     assert 'unique_key="event_id"' in workflow_text
     assert 'events["event_id"]' in workflow_text
     assert "freshness_hours=(1, 24)" in workflow_text

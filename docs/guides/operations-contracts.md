@@ -136,6 +136,11 @@ improves runtime.
 
 **Module:** `phlo.operations.adapters`
 
+> **Deprecated (#837 row 10 / S-10):** the adapter quartet has zero production
+> callers and will be removed in an upcoming release. Instantiating any of the
+> four classes emits a `DeprecationWarning`; implement the target sync or
+> async contract directly instead. No shim is provided.
+
 Phlo provides adapters for gradual migration between sync and async engines:
 
 - `SyncToAsyncIngesterAdapter`

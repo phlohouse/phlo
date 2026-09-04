@@ -3,10 +3,19 @@
 publish(), observe(), backfill(), contract(), access(), and schedule() append
 specs to module-level registries; get_* accessors drain them and clear_*
 resets them. Declaration order at import time is the only ordering guarantee.
+
+The governance-metadata plane is supported: publish/observe/contract/access
+specs are drained into the governance surface. The execution decorators are
+deprecated because no adapter bridges flow specs into orchestration, so
+decorated functions never execute there. backfill(), schedule(), and
+phlo.transform.sql() emit a DeprecationWarning at decoration time and will be
+removed in an upcoming release; users needing orchestration should define
+explicit assets through provider plugins (for example phlo.ingest.dlt) instead.
 """
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -185,9 +194,21 @@ def backfill(
     owner: str | None = None,
     description: str | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Register a repeatable backfill job."""
+    """Register a repeatable backfill job.
+
+    Deprecated: nothing executes registered backfills. The decorator will be
+    removed in an upcoming release; use explicit asset/provider definitions for
+    orchestration instead.
+    """
 
     def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        warnings.warn(
+            "phlo.backfill is deprecated and will be removed in an upcoming "
+            "release: nothing executes registered backfills. Define "
+            "explicit assets through provider plugins instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         append_asset(
             _BACKFILL_ASSETS,
             AssetSpec(
@@ -285,9 +306,20 @@ def schedule(
 
     The decorated function is stored as a dynamic parameter hook. Adapters can
     call it at run time for partition values, config, or tags.
+
+    Deprecated: no schedule is ever created from the declaration. The
+    decorator will be removed in an upcoming release; use the orchestrator's
+    native scheduling instead.
     """
 
     def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        warnings.warn(
+            "phlo.schedule is deprecated and will be removed in an upcoming "
+            "release: no schedule is ever created from the declaration. "
+            "Use the orchestrator's native scheduling instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         _SCHEDULES.append(
             ScheduleSpec(
                 key=asset_key("schedule", name),

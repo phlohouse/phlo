@@ -22,7 +22,7 @@ from phlo.operations import (
     TransformationResult,
 )
 
-pytestmark = pytest.mark.core_regression
+pytestmark = [pytest.mark.core_regression, pytest.mark.filterwarnings("ignore::DeprecationWarning")]
 
 
 class _TestLogger:
@@ -144,3 +144,20 @@ async def test_async_to_sync_transformer_adapter_rejects_running_loop() -> None:
     adapter = AsyncToSyncTransformerAdapter(transformer)
     with pytest.raises(RuntimeError, match="event loop is running"):
         adapter.run_transform("2026-03-01", {})
+
+
+def test_adapter_quartet_emits_deprecation_warning() -> None:
+    """Instantiating any deprecated adapter emits a warning."""
+    ingester = _SyncIngester(context=object(), logger=_TestLogger())
+    async_ingester = _AsyncIngester(context=object(), logger=object())
+    transformer = _SyncTransformer(context=object(), logger=_TestLogger())
+    async_transformer = _AsyncTransformer(context=object(), logger=_TestLogger())
+
+    for adapter_cls, wrapped in [
+        (SyncToAsyncIngesterAdapter, ingester),
+        (AsyncToSyncIngesterAdapter, async_ingester),
+        (SyncToAsyncTransformerAdapter, transformer),
+        (AsyncToSyncTransformerAdapter, async_transformer),
+    ]:
+        with pytest.warns(DeprecationWarning, match=f"{adapter_cls.__name__} is deprecated"):
+            adapter_cls(wrapped)  # type: ignore[arg-type]

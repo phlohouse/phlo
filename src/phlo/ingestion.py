@@ -1,26 +1,48 @@
-"""Backward-compatible DLT ingestion alias.
+"""Deprecated DLT ingestion compatibility alias.
 
-New code should prefer ``phlo.ingest.dlt`` or ``phlo.ingest.provider(name)``.
-This module remains callable so existing ``@phlo.ingestion(...)`` workflows keep
-working while the public API moves toward provider-neutral ingestion.
+New code must use ``phlo.ingest.dlt`` or ``phlo.ingest.provider(name)``. This
+module remains callable so existing ``@phlo.ingestion(...)`` workflows keep
+working until the alias is removed, but every call emits a DeprecationWarning.
+
+Migrate with the bundled codemod::
+
+    phlo migrate decorators-2026-05 PATH
+
+which rewrites ``@phlo.ingestion(...)`` and ``@phlo_ingestion(...)`` to
+``@phlo.ingest.dlt(...)``.
 """
 
 from __future__ import annotations
 
 import sys
+import warnings
 from types import ModuleType
 from typing import Any
 
+_DEPRECATION_MESSAGE = (
+    "phlo.ingestion is deprecated and will be removed in an upcoming release; "
+    "use phlo.ingest.dlt (or phlo.ingest.provider) instead. Migrate with: "
+    "phlo migrate decorators-2026-05"
+)
+
 
 def phlo_ingestion(*args: Any, **kwargs: Any) -> Any:
-    """Return the DLT ingestion decorator for compatibility."""
+    """Return the DLT ingestion decorator for compatibility.
+
+    Deprecated: use ``phlo.ingest.dlt`` instead.
+    """
+    warnings.warn(_DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=2)
     from phlo import ingest
 
     return ingest.dlt(*args, **kwargs)
 
 
 def get_ingestion_assets() -> list[Any]:
-    """Return registered DLT ingestion assets for compatibility."""
+    """Return registered DLT ingestion assets for compatibility.
+
+    Deprecated: use ``phlo.ingest.assets("dlt")`` instead.
+    """
+    warnings.warn(_DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=2)
     from phlo import ingest
 
     return ingest.assets("dlt")

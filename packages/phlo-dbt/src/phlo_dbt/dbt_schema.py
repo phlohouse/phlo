@@ -21,8 +21,8 @@ Example:
     >>> validated_df = Schema.validate(df)
     >>>
     >>> # Schema can also be used with Phlo's quality checks
-    >>> from phlo.quality import phlo_quality
-    >>> @phlo_quality(schema=Schema)
+    >>> from phlo.quality import pandera
+    >>> @pandera(schema=Schema)
     ... def load_orders():
     ...     return df
 

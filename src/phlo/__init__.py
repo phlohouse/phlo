@@ -24,7 +24,7 @@ Direct Exports:
     - :class:`SLA`: Service level agreement contract
     - :func:`phlo_ingestion`: Ingestion decorator
     - :func:`get_ingestion_assets`: Retrieve ingestion assets
-    - :func:`phlo_quality`: Quality decorator
+    - :func:`phlo_quality`: Quality decorator (deprecated third name; use ``phlo.quality.pandera``)
     - :func:`get_quality_checks`: Retrieve quality checks
     - Quality check classes: NullCheck, RangeCheck, FreshnessCheck, etc.
 
@@ -51,12 +51,12 @@ Example:
     import phlo
 
     # Access ingestion decorator
-    @phlo.ingestion(source="api", table_name="events")
+    @phlo.ingest.dlt(source="api", table_name="events")
     def load_events():
         return fetch_events()
 
     # Access quality decorator
-    @phlo.quality.phlo_quality(schema=UserSchema)
+    @phlo.quality.pandera(schema=UserSchema)
     def validate_users():
         return load_users()
 

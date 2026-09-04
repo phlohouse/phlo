@@ -9,13 +9,18 @@ Phlo's plugin system allows you to extend the platform with custom functionality
 - **Service Plugins**: Add infrastructure services (databases, query engines, etc.)
 - **Source Connectors**: Fetch data from external systems
 - **Quality Checks**: Implement custom validation rules
-- **Transformations**: Create reusable data transformation logic
+- **Transformations**: Create reusable data transformation logic *(deprecated — see the note below)*
 - **Dagster Extensions**: Add custom resources, sensors, or schedules
 - **CLI Extensions**: Add custom CLI commands
 - **Hook Plugins**: Subscribe to pipeline events without direct dependencies
 - **Asset Providers**: Publish orchestrator-agnostic asset specs
 - **Resource Providers**: Publish orchestrator-agnostic resource specs
 - **Orchestrator Adapters**: Translate capability specs into orchestrator definitions
+
+> **Transformation plugins are deprecated (#837 SP9-DECISION-01):** the legacy
+> transformation SDK family has no bundled implementation and no roadmap
+> investment. Subclassing `TransformationPlugin` emits a `DeprecationWarning`;
+> build asset-provider plugins for new integrations.
 
 This guide walks through creating each type of plugin.
 

@@ -4,15 +4,33 @@ Adapt ingesters and transformers in both directions: sync implementations run
 on worker threads behind the async contract, async implementations run on a
 private event loop behind the sync contract. The sync wrappers refuse to run
 inside an active event loop instead of failing opaquely.
+
+Deprecated: the adapter quartet (SyncToAsyncIngesterAdapter, AsyncToSyncIngesterAdapter,
+SyncToAsyncTransformerAdapter, AsyncToSyncTransformerAdapter) has zero
+production callers. Instantiating any of them emits a DeprecationWarning and
+they will be removed in an upcoming release; implement the target contract
+directly instead. No shim is provided.
 """
 
 from __future__ import annotations
 
 import asyncio
+import warnings
 from typing import Any
 
 from phlo.operations.ingestion import AsyncIngester, BaseIngester, IngestionResult
 from phlo.operations.transformation import AsyncTransformer, BaseTransformer, TransformationResult
+
+
+def _warn_adapter_deprecated(class_name: str) -> None:
+    """Emit the deprecation warning for one adapter use."""
+    warnings.warn(
+        f"{class_name} is deprecated and will be removed in an upcoming "
+        "release: implement the target ingestion/transform "
+        "contract directly instead. No shim is provided.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 def _ensure_no_running_event_loop() -> None:
@@ -33,6 +51,7 @@ class SyncToAsyncIngesterAdapter(AsyncIngester):
 
     def __init__(self, ingester: BaseIngester):
         super().__init__(context=ingester.context, logger=ingester.logger)
+        _warn_adapter_deprecated(type(self).__name__)
         self._ingester = ingester
 
     async def run_ingestion(
@@ -53,6 +72,7 @@ class AsyncToSyncIngesterAdapter(BaseIngester):
 
     def __init__(self, ingester: AsyncIngester):
         super().__init__(context=ingester.context, logger=ingester.logger)
+        _warn_adapter_deprecated(type(self).__name__)
         self._ingester = ingester
 
     def run_ingestion(
@@ -74,6 +94,7 @@ class SyncToAsyncTransformerAdapter(AsyncTransformer[Any]):
 
     def __init__(self, transformer: BaseTransformer[Any]):
         super().__init__(context=transformer.context, logger=transformer.logger)
+        _warn_adapter_deprecated(type(self).__name__)
         self._transformer = transformer
 
     async def run_transform(
@@ -94,6 +115,7 @@ class AsyncToSyncTransformerAdapter(BaseTransformer[Any]):
 
     def __init__(self, transformer: AsyncTransformer[Any]):
         super().__init__(context=transformer.context, logger=transformer.logger)
+        _warn_adapter_deprecated(type(self).__name__)
         self._transformer = transformer
 
     def run_transform(

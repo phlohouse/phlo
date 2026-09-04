@@ -15,6 +15,7 @@ import pytest
 from phlo.plugins import (
     PluginMetadata,
     SourceConnectorPlugin,
+    TransformationPlugin,
     discover_plugins,
     get_plugin,
     get_plugin_info,
@@ -470,3 +471,22 @@ class TestPluginIntegration:
         # Get info
         info = clean_registry.get_plugin_metadata("source_connector", "test_source")
         assert info["name"] == "test_source"
+
+
+def test_transformation_plugin_subclassing_warns_deprecation():
+    """Subclassing the deprecated transformation base warns but still works."""
+    with pytest.warns(DeprecationWarning, match="TransformationPlugin is deprecated"):
+
+        class _DeprecatedTransform(TransformationPlugin):
+            @property
+            def metadata(self):
+                return PluginMetadata(
+                    name="deprecated_transform",
+                    version="1.0.0",
+                    description="Deprecation pin",
+                )
+
+            def transform(self, df, config):
+                return df
+
+    assert _DeprecatedTransform is not None

@@ -319,6 +319,13 @@ or provider-specific aliases, but they cannot back `phlo.quality.rules(...)`.
 
 **Inherits:** `Plugin`, `ABC`
 
+> **Deprecated (#837 SP9-DECISION-01):** the legacy transformation SDK family
+> has no bundled implementation and no roadmap investment. Subclassing emits a
+> `DeprecationWarning`, and the family will be removed in an upcoming release.
+> Build asset-provider plugins for new integrations. The family stays
+> discoverable, scaffoldable, and importable in the meantime (community tier,
+> `legacy_verified`).
+
 Custom data processing steps that compose into data pipelines.
 
 ### Abstract methods

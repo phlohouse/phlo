@@ -1,0 +1,1 @@
+{"operation": "compact", "table_name": "lake.orders", "ref": "main", "plan_token": "plan-tok-1", "thresholds": {"target_size_mb": 512}}

@@ -16,7 +16,7 @@ import pytest
 from phlo.contracts import SLA, Consumer
 from phlo.helpers.testing import FakeRuntimeContext
 
-pytestmark = pytest.mark.core_regression
+pytestmark = [pytest.mark.core_regression, pytest.mark.filterwarnings("ignore::DeprecationWarning")]
 
 
 def test_transform_sql_registers_provider_neutral_asset() -> None:
@@ -389,3 +389,72 @@ def test_top_level_exports_lazy_load_new_authoring_surfaces() -> None:
     assert callable(phlo.access)
     assert callable(phlo.schedule)
     assert callable(phlo.transform.sql)
+
+
+def test_deprecated_dormant_decorators_warn_at_decoration_time() -> None:
+    """Deprecated decorators warn but retain their registration behavior."""
+    import phlo
+
+    transform = importlib.import_module("phlo.transform")
+    transform.clear_transform_assets()
+    phlo.clear_backfill_assets()
+    phlo.clear_schedules()
+
+    with pytest.warns(DeprecationWarning, match="phlo.backfill is deprecated"):
+
+        @phlo.backfill(target="silver.orders", partitions={"start": "2026-01-01"})
+        def _backfill() -> str:
+            return "orders_sql"
+
+    with pytest.warns(DeprecationWarning, match="phlo.schedule is deprecated"):
+
+        @phlo.schedule(name="daily", cron="0 6 * * *", targets=["transform_silver_orders"])
+        def _schedule() -> None:
+            return None
+
+    with pytest.warns(DeprecationWarning, match="phlo.transform.sql is deprecated"):
+
+        @transform.sql(table="silver.orders")
+        def _transform() -> str:
+            return "select 1"
+
+    # Deprecated does not mean dead: registration behavior is unchanged.
+    assert len(phlo.get_backfill_assets()) == 1
+    assert len(phlo.get_schedules()) == 1
+    assert len(transform.get_transform_assets()) == 1
+
+
+def test_governance_metadata_decorators_do_not_warn() -> None:
+    """Supported governance decorators do not emit deprecation warnings."""
+    import warnings
+
+    import phlo
+
+    phlo.clear_publish_assets()
+    phlo.clear_observe_assets()
+    phlo.clear_contract_specs()
+    phlo.clear_access_policies()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+
+        @phlo.publish(table="gold.orders")
+        def _publish() -> str:
+            return "gold.orders"
+
+        @phlo.observe(table="bronze.events")
+        def _observe() -> None:
+            return None
+
+        @phlo.contract(table="gold.orders", owner="data-platform")
+        def _contract() -> None:
+            return None
+
+        @phlo.access(table="gold.orders", roles=["cs_read"])
+        def _access() -> None:
+            return None
+
+    assert len(phlo.get_publish_assets()) == 1
+    assert len(phlo.get_observe_assets()) == 1
+    assert len(phlo.get_contract_specs()) == 1
+    assert len(phlo.get_access_policies()) == 1

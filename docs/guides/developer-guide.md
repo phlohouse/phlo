@@ -824,12 +824,23 @@ schemas or checks.
 
 ## Flow Authoring Decorators
 
-Use these decorators when you want to describe the rest of the flow without
-hand-writing orchestration metadata. They register provider-neutral asset specs
-that adapters can turn into Dagster assets, lineage nodes, catalog entries, or
-operational jobs.
+These decorators register provider-neutral metadata: governance contracts,
+published-dataset marks, access-policy intents, operational checks, backfill
+and schedule declarations. The governance metadata is real and supported —
+`phlo governance check` drains it — but the decorators do **not** wire anything
+into orchestration: decorated functions never execute as Dagster assets or
+jobs (#837 rows 1–4). For orchestration, define explicit assets through
+provider plugins (for example `@phlo.ingest.dlt`).
+
+`@phlo.backfill`, `@phlo.schedule`, and `@phlo.transform.sql` are **deprecated**
+(they emit a `DeprecationWarning` at decoration time) and will be removed in an
+upcoming release.
 
 ### SQL Transform
+
+> **Deprecated (#837 row 4 / B-34):** the registered asset never reaches the
+> pipeline. Define transformations in dbt or through explicit asset-provider
+> plugins instead.
 
 ```python
 import phlo
@@ -873,6 +884,9 @@ def events_observability():
 ```
 
 ### Repeatable Backfills
+
+> **Deprecated (#837 row 2 / B-30):** nothing executes registered backfills.
+> Use explicit asset/provider definitions for orchestration instead.
 
 ```python
 @phlo.backfill(
@@ -948,6 +962,9 @@ durable value used in the `table=` argument on `@phlo.contract`,
 `@phlo.publish`, `@phlo.access`, and `@phlo.observe`.
 
 ### Schedules
+
+> **Deprecated (#837 row 3 / B-31):** no schedule is ever created from the
+> declaration. Use the orchestrator's native scheduling instead.
 
 Use `@phlo.schedule` to declare when a set of static targets should run. The
 `targets` list is the durable contract: it names the assets or jobs an adapter

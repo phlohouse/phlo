@@ -86,8 +86,10 @@ def api_events(partition_date: str):
     )
 ```
 
-The `phlo.ingestion(...)` compatibility alias still exists for older workflows, but
-new code should use the provider-neutral `phlo.ingest.dlt(...)` API.
+The `phlo.ingestion(...)` compatibility alias is **deprecated** (it emits a
+`DeprecationWarning`) and will be removed in an upcoming release. Migrate older
+workflows to the provider-neutral `phlo.ingest.dlt(...)` API; the bundled
+codemod does the rewrite for you (`phlo migrate decorators-2026-05 PATH`).
 
 ```python
 import phlo

@@ -1,10 +1,17 @@
 """Transformation plugin classes.
 
 This module defines plugin types for custom data transformations.
+
+Deprecated: the legacy ``transformation`` SDK family has no bundled
+implementation. Subclassing ``TransformationPlugin`` emits a
+DeprecationWarning; new integrations should use asset-provider plugins. The
+family stays discoverable, scaffoldable, and importable as a community-tier
+(``legacy_verified``) surface.
 """
 
 from __future__ import annotations
 
+import warnings
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -16,6 +23,9 @@ class TransformationPlugin(Plugin, ABC):
 
     Transformation plugins enable custom data processing steps
     that can be composed in data pipelines.
+
+    Deprecated: subclassing emits a DeprecationWarning; use asset-provider
+    plugins for new integrations.
 
     Example:
         ```python
@@ -46,6 +56,17 @@ class TransformationPlugin(Plugin, ABC):
         ```
 
     """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        warnings.warn(
+            "TransformationPlugin is deprecated and will be removed in an "
+            "upcoming release: the legacy transformation SDK family has no "
+            "bundled implementation. Build asset-provider plugins for new "
+            "integrations.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     @abstractmethod
     def transform(self, df: Any, config: dict[str, Any]) -> Any:

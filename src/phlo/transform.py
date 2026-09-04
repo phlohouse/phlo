@@ -5,11 +5,17 @@ captured eagerly by calling the function with no arguments, and
 functions with required parameters yield no static SQL rather than
 deferring evaluation. Assets accumulate in a module-level list owned by
 the core provider; clear_transform_assets() exists for test isolation.
+
+Deprecated: no provider bridges transform specs to the orchestrator, so the
+registered asset is unreachable at runtime. sql() emits a DeprecationWarning
+at decoration time and will be removed in an upcoming release; define
+transformations in dbt or through explicit asset-provider plugins instead.
 """
 
 from __future__ import annotations
 
 import inspect
+import warnings
 from collections.abc import Callable
 
 from phlo._flow_authoring import (
@@ -37,9 +43,22 @@ def sql(
     sla: SLA | None = None,
     description: str | None = None,
 ) -> Callable[[Callable[..., str]], Callable[..., str]]:
-    """Register a SQL transform asset."""
+    """Register a SQL transform asset.
+
+    Deprecated: the registered asset never reaches the pipeline. The decorator
+    will be removed in an upcoming release; define transformations in dbt or
+    through explicit asset-provider plugins instead.
+    """
 
     def _decorator(fn: Callable[..., str]) -> Callable[..., str]:
+        warnings.warn(
+            "phlo.transform.sql is deprecated and will be removed in an "
+            "upcoming release: the registered asset never reaches the "
+            "pipeline. Define transformations in dbt or through "
+            "explicit asset-provider plugins instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         sql_text = _static_sql_text(fn)
         append_asset(
             _TRANSFORM_ASSETS,

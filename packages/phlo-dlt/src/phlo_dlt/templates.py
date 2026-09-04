@@ -71,7 +71,7 @@ import phlo
 from workflows.schemas.csv import EventsSchema
 
 
-@phlo.ingestion(
+@phlo.ingest.dlt(
     table_name="events",
     unique_key="event_id",
     validation_schema=EventsSchema,
@@ -133,7 +133,7 @@ import dlt
 from workflows.schemas.api import EventsSchema
 
 
-@phlo.ingestion(
+@phlo.ingest.dlt(
     table_name="events",
     unique_key="event_id",
     validation_schema=EventsSchema,
@@ -179,7 +179,7 @@ from workflows.schemas.csv import EventsSchema
 logger = logging.getLogger(__name__)
 
 
-@phlo.ingestion(
+@phlo.ingest.dlt(
     table_name="observability_events",
     unique_key="event_id",
     validation_schema=EventsSchema,

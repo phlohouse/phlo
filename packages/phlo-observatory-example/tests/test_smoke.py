@@ -2,7 +2,14 @@
 
 Checks that the extension manifest builds with expected fields and that static
 assets ship inside the package.
+
+The example installs via the ``phlo`` ``examples`` extra, so these tests skip
+when the package is not installed in the current environment.
 """
+
+import pytest
+
+pytest.importorskip("phlo_observatory_example")
 
 from phlo.plugins.observatory import ObservatoryExtensionManifest
 from phlo_observatory_example.observatory_plugin import ExampleObservatoryExtension

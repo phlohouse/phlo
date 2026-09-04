@@ -85,7 +85,7 @@ import phlo
 from workflows.schemas.csv import EventsSchema
 
 
-@phlo.ingestion(
+@phlo.ingest.dlt(
     table_name="events",
     unique_key="event_id",
     validation_schema=EventsSchema,
