@@ -584,6 +584,28 @@ def _mark_idempotency_unknown(*, key_hash: str, operation: str, target: str) -> 
         conn.close()
 
 
+def idempotency_key_target(idempotency_key: str, operation: str) -> str | None:
+    """Return the target an idempotency key is already durably bound to, if any.
+
+    Used to reject a reused key that conflicts with a different target (e.g. a
+    different plan token) before any provider invocation, instead of silently
+    claiming a second identity for the same key.
+    """
+    conn = _idempotency_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT target FROM operations
+            WHERE project = ? AND key_hash = ? AND operation = ?
+            LIMIT 1
+            """,
+            (str(project_root()), _idempotency_hash(idempotency_key), operation),
+        ).fetchone()
+        return str(row[0]) if row is not None else None
+    finally:
+        conn.close()
+
+
 def _principal_scopes(claims: dict[str, Any], attributes: dict[str, Any], groups: Any) -> set[str]:
     raw_scopes: list[Any] = []
     for source in (claims, attributes):

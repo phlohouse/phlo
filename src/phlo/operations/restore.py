@@ -239,6 +239,15 @@ def _artifacts_for(manifest: BackupSetManifest, provider: str) -> Sequence[Backu
     return tuple(artifact for artifact in manifest.artifacts if artifact.provider == provider)
 
 
+def restore_operation_id(plan: RestorePlan) -> str:
+    """Canonical, durable journal id for one restore plan.
+
+    Public so every surface (CLI, HTTP) resolves the same verification handle
+    for a plan instead of re-deriving the digest format.
+    """
+    return _operation_id(plan)
+
+
 def _operation_id(plan: RestorePlan) -> str:
     digest = sha256_bytes(canonical_json_bytes(plan.to_dict()))[:12]
     return f"restore.apply:{plan.target.target_id}:{digest}"

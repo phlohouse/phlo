@@ -286,15 +286,21 @@ def plan_upgrade(
     backup_set_dir: str | Path,
     target: RestoreTarget,
     now: datetime | None = None,
+    plan_token: str | None = None,
 ) -> UpgradePlan:
-    """Create a mutation-free upgrade plan after a verified backup."""
+    """Create a mutation-free upgrade plan after a verified backup.
+
+    ``plan_token`` lets a projection surface (e.g. the HTTP continuity API)
+    derive an immutable, deterministic token for identical inputs; core
+    generates a random token when omitted.
+    """
     validate_upgrade_pair(from_version, to_version)
     manifest = _verified_manifest(backup_set_dir)
     _require_source_version(manifest, from_version)
     reference = now or datetime.now(UTC)
     return UpgradePlan(
         schema_version=UPGRADE_PLAN_SCHEMA_VERSION,
-        plan_token=uuid4().hex,
+        plan_token=plan_token or uuid4().hex,
         from_version=from_version,
         to_version=to_version,
         backup_set_dir=str(Path(backup_set_dir).resolve()),
@@ -512,6 +518,15 @@ def _finish_failed(
     )
     complete_operation(journal, operation_id, result.to_dict())
     return result
+
+
+def upgrade_operation_id(plan: UpgradePlan) -> str:
+    """Canonical, durable journal id for one upgrade plan.
+
+    Public so every surface (CLI, HTTP) resolves the same verification handle
+    for a plan instead of re-deriving the digest format.
+    """
+    return _operation_id(plan)
 
 
 def _operation_id(plan: UpgradePlan) -> str:
