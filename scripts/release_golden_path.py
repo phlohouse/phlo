@@ -21,6 +21,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import tomllib
@@ -29,6 +30,17 @@ import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# The candidate-mode modules live beside this script; running as a script puts
+# this directory on sys.path already, but importlib-based test loads do not.
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+import platform as platform_module  # noqa: E402
+
+import release_candidate_bom as bom_module  # noqa: E402
+import release_evidence  # noqa: E402
 
 PARTITION = "2025-01-15"
 FIXTURE_ROW_COUNT = 2
@@ -53,6 +65,27 @@ RUNTIME_DIAGNOSTIC_SERVICES = (
     "phlo-api",
 )
 
+# Candidate mode: the quality gate reads this directive file inside
+# the Dagster container at check time, so the harness can flip one owned file
+# between the promoted run and the deliberately rejected run.
+QUALITY_DIRECTIVE_CONTAINER_PATH = "/app/.phlo/quality_gate.json"
+OPERATOR_SERVICE_ACCOUNT = "release-golden-path-operator"
+UPGRADE_FROM_VERSION = "0.14.0"
+UPGRADE_TO_VERSION = "0.15.0"
+# Compose service name -> (container port, published-port env var).
+COMPOSE_PORT_PROBES: tuple[tuple[str, int, str], ...] = (
+    ("postgres", 5432, "POSTGRES_PORT"),
+    ("minio", 9000, "MINIO_API_PORT"),
+    ("minio", 9001, "MINIO_CONSOLE_PORT"),
+    ("nessie", 19120, "NESSIE_PORT"),
+    ("trino", 8080, "TRINO_PORT"),
+    ("dagster", 3000, "DAGSTER_PORT"),
+    ("phlo-api", 4000, "PHLO_API_PORT"),
+)
+# First-party packages the operator venv needs for the complete runtime journey.
+OPERATOR_PACKAGES = ("phlo", "phlo-api", "phlo-iceberg", "phlo-dbt", "phlo-dlt", "phlo-pandera")
+PROJECT_PACKAGES = ("phlo-dbt", "phlo-dlt", "phlo-pandera")
+
 
 @dataclass(frozen=True)
 class RunConfig:
@@ -64,6 +97,8 @@ class RunConfig:
     operator_env: Path
     project_name: str
     partition: str = PARTITION
+    bom: dict[str, object] | None = None
+    staging_dir: Path | None = None
     report_token: str = field(default_factory=lambda: secrets.token_hex(32), repr=False)
     rejection_report_token: str = field(default_factory=lambda: secrets.token_hex(32), repr=False)
 
@@ -931,6 +966,983 @@ def cleanup(
     return errors
 
 
+# ---------------------------------------------------------------------------
+# Candidate mode: the complete runtime journey is bound to one
+# immutable candidate BOM, producing one canonical evidence bundle.
+# ---------------------------------------------------------------------------
+
+
+class CandidateError(RuntimeError):
+    """The candidate journey cannot continue against the staged BOM."""
+
+
+def bom_artifacts(bom: dict[str, object], kind: str) -> list[dict[str, object]]:
+    """Return every BOM artifact of one kind."""
+    return [dict(artifact) for artifact in bom["artifacts"] if artifact["kind"] == kind]  # type: ignore[arg-type]
+
+
+def bom_release_version(bom: dict[str, object]) -> str:
+    """Return the candidate's release version from the source artifact."""
+    sources = bom_artifacts(bom, bom_module.KIND_SOURCE)
+    if len(sources) != 1:
+        raise CandidateError("BOM must carry exactly one source identity artifact")
+    return str(sources[0]["version"])
+
+
+def verify_candidate_bom(config: RunConfig) -> tuple[dict[str, object], list[dict[str, object]]]:
+    """Re-derive every BOM invariant and verify every staged distribution digest."""
+    bom = config.bom
+    assert bom is not None and config.staging_dir is not None
+    bom_module.verify_staged_distributions(bom, config.staging_dir)
+    distributions = bom_artifacts(bom, bom_module.KIND_SDIST) + bom_artifacts(
+        bom, bom_module.KIND_WHEEL
+    )
+    first_party = bom_artifacts(bom, bom_module.KIND_FIRST_PARTY_IMAGE)
+    providers = bom_artifacts(bom, bom_module.KIND_PROVIDER_IMAGE)
+    result = {
+        "canonical_candidate_digest": bom["canonical_candidate_digest"],
+        "release_commit": bom["release_commit"],
+        "distribution_count": len(distributions),
+        "first_party_image_count": len(first_party),
+        "provider_image_count": len(providers),
+        "staging_dir": str(config.staging_dir),
+        "source_checkout": False,
+    }
+    exercised = bom_artifacts(bom, bom_module.KIND_SUPPORT_MANIFEST) + bom_artifacts(
+        bom, bom_module.KIND_SOURCE
+    )
+    return result, exercised
+
+
+def write_hashed_requirements(config: RunConfig, path: Path) -> Path:
+    """Pin every BOM wheel with its exact digest for hash-enforced installation."""
+    bom = config.bom
+    assert bom is not None
+    lines = []
+    for artifact in sorted(bom_artifacts(bom, bom_module.KIND_WHEEL), key=lambda a: str(a["name"])):
+        lines.append(
+            f"{artifact['name']}=={artifact['version']} --hash=sha256:{artifact['digest']}"
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def install_operator_from_bom(
+    config: RunConfig,
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    """Install the operator venv from exact BOM bytes with installer-side hashes."""
+    bom = config.bom
+    assert bom is not None and config.staging_dir is not None
+    distributions = config.staging_dir / "distributions"
+    requirements = write_hashed_requirements(
+        config, config.operator_env.parent / "candidate-requirements.txt"
+    )
+    run(command("uv", "venv", str(config.operator_env), "--python", "3.11"), cwd=config.repo_root)
+    # Exact bytes first: the installer itself rejects any wheel whose content
+    # does not hash to its BOM digest.
+    run(
+        command(
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(config.operator_python),
+            "--no-index",
+            "--no-deps",
+            "--require-hashes",
+            "--find-links",
+            str(distributions),
+            "-r",
+            str(requirements),
+        ),
+        cwd=config.repo_root,
+    )
+    # Dependency closure from PyPI with first-party packages version-pinned;
+    # the final force-local reinstall below restores exact BOM bytes.
+    run(
+        command(
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(config.operator_python),
+            "--find-links",
+            str(distributions),
+            *[f"{name}=={bom_release_version(bom)}" for name in OPERATOR_PACKAGES],
+        ),
+        cwd=config.repo_root,
+    )
+    force_local_install(config, config.operator_python, *OPERATOR_PACKAGES)
+    installed = verify_installed_versions(config)
+    return (
+        {
+            "requirement_hashes_enforced": True,
+            "installed_versions": installed,
+            "no_source_import": True,
+        },
+        bom_artifacts(bom, bom_module.KIND_SDIST) + bom_artifacts(bom, bom_module.KIND_WHEEL),
+    )
+
+
+def verify_installed_versions(config: RunConfig) -> dict[str, str]:
+    """Require every installed first-party distribution to match its BOM version."""
+    bom = config.bom
+    assert bom is not None
+    result = run(
+        command("uv", "pip", "freeze", "--python", str(config.operator_python)),
+        cwd=config.repo_root,
+        capture_output=True,
+    )
+    installed: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        name, separator, version = line.strip().partition("==")
+        if separator:
+            installed[name.lower().replace("_", "-")] = version
+    mismatches = {}
+    for artifact in bom_artifacts(bom, bom_module.KIND_WHEEL):
+        name, version = str(artifact["name"]), str(artifact["version"])
+        actual = installed.get(name)
+        if actual != version:
+            mismatches[name] = f"expected {version}, installed {actual!r}"
+    if mismatches:
+        raise CandidateError(f"installed artifacts do not match the BOM: {mismatches!r}")
+    return {
+        name: installed[name]
+        for name in installed
+        if name in {str(artifact["name"]) for artifact in bom_artifacts(bom, bom_module.KIND_WHEEL)}
+    }
+
+
+def install_project_dependencies_from_bom(config: RunConfig) -> None:
+    """Install plugin dependencies into the generated project venv from the BOM."""
+    bom = config.bom
+    assert bom is not None
+    run(command("uv", "venv", str(config.project_env), "--python", "3.11"), cwd=config.project_dir)
+    run(
+        command(
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(config.project_python),
+            "--find-links",
+            str(config.wheelhouse),
+            *[f"{name}=={bom_release_version(bom)}" for name in PROJECT_PACKAGES],
+        ),
+        cwd=config.project_dir,
+    )
+    force_local_install(config, config.project_python, *PROJECT_PACKAGES)
+
+
+def write_quality_gate_fixture(config: RunConfig) -> None:
+    """Install the directive-driven WAP quality check used by candidate mode."""
+    fixture = config.project_dir / "workflows" / "ingestion" / "csv" / "release_wap_check.py"
+    fixture.write_text(
+        f"""import json
+from pathlib import Path
+
+import dagster as dg
+
+
+@dg.asset_check(asset="dlt_events")
+def release_golden_path_wap_check(context) -> dg.AssetCheckResult:
+    directive = {{}}
+    try:
+        directive = json.loads(Path("{QUALITY_DIRECTIVE_CONTAINER_PATH}").read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    rejected = directive.get("reject_next_run") is True
+    return dg.AssetCheckResult(
+        passed=not rejected,
+        metadata={{"reason": "intentional_quality_rejection" if rejected else "happy_path"}},
+    )
+""",
+        encoding="utf-8",
+    )
+
+
+def write_operations_policy(config: RunConfig) -> None:
+    """Grant the run's service principal the required operations actions."""
+    authorization_dir = config.project_dir / ".phlo" / "authorization"
+    roles_path = authorization_dir / "roles.yaml"
+    if not roles_path.exists():
+        roles_path.write_text(
+            "version: 1\n"
+            "roles:\n"
+            "  operators:\n"
+            "    description: Release golden-path operator principal\n"
+            "subjects:\n"
+            "  services:\n"
+            f"    {OPERATOR_SERVICE_ACCOUNT}:\n"
+            "      - operators\n",
+            encoding="utf-8",
+        )
+    policies_path = authorization_dir / "policies.yaml"
+    if not policies_path.exists():
+        policies_path.write_text("policies: []\n", encoding="utf-8")
+    with policies_path.open("a", encoding="utf-8") as stream:
+        stream.write(
+            "  - policy_id: release-golden-path-operations\n"
+            "    effect: allow\n"
+            "    principal:\n"
+            "      roles:\n"
+            "        - operators\n"
+            "    action: operations.*\n"
+            "    resource:\n"
+            '      type: "*"\n'
+            '      id_pattern: "*"\n'
+        )
+
+
+def compose_config_json(config: RunConfig) -> dict[str, object]:
+    """Return the normalized Compose configuration as JSON."""
+    result = run(
+        compose_command(config, "--profile", "api", "config", "--format", "json"),
+        cwd=config.project_dir,
+        capture_output=True,
+    )
+    return dict(json.loads(result.stdout))
+
+
+def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dict[str, object]]]:
+    """Rewrite every generated image reference to its exact BOM digest."""
+    bom = config.bom
+    assert bom is not None
+    first_party = {
+        str(artifact["name"]): artifact
+        for artifact in bom_artifacts(bom, bom_module.KIND_FIRST_PARTY_IMAGE)
+    }
+    providers = {
+        (str(artifact["name"]), str(artifact["digest"])): artifact
+        for artifact in bom_artifacts(bom, bom_module.KIND_PROVIDER_IMAGE)
+    }
+    compose = compose_config_json(config)
+    services = compose.get("services")
+    if not isinstance(services, dict) or not services:
+        raise CandidateError("generated Compose configuration has no services")
+    replacements: dict[str, str] = {}
+    pinned: list[dict[str, object]] = []
+    for service_name, service in sorted(services.items()):
+        if not isinstance(service, dict):
+            continue
+        image = service.get("image")
+        if not isinstance(image, str) or not image:
+            raise CandidateError(f"service {service_name!r} has no image reference")
+        name, tag, digest = bom_module.parse_image_reference(image)
+        if name.startswith(bom_module.FIRST_PARTY_IMAGE_PREFIX):
+            entry = first_party.get(name)
+            if entry is None:
+                raise CandidateError(
+                    f"first-party image {image!r} is not part of the candidate BOM"
+                )
+            if str(entry["version"]) != tag:
+                raise CandidateError(
+                    f"first-party image {image!r} does not match the BOM version "
+                    f"{entry['version']!r}"
+                )
+            replacement = f"{name}@{entry['digest']}"
+        else:
+            if digest is None or (name, digest) not in providers:
+                raise CandidateError(
+                    f"image {image!r} is not pinned in the candidate BOM; "
+                    "candidate mode never consumes a mutable tag"
+                )
+            replacement = image
+        if image not in replacements:
+            replacements[image] = replacement
+        pinned.append(
+            {
+                "kind": entry["kind"]
+                if name.startswith(bom_module.FIRST_PARTY_IMAGE_PREFIX)
+                else bom_module.KIND_PROVIDER_IMAGE,
+                "name": name,
+                "digest": replacement.split("@", 1)[1] if "@" in replacement else str(digest),
+                "service": service_name,
+            }
+        )
+    compose_file = config.compose_file
+    lines = compose_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    replaced = 0
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith("image:"):
+            continue
+        value = stripped[len("image:") :].strip().strip("'\"")
+        if value in replacements:
+            indent = line[: len(line) - len(line.lstrip())]
+            lines[index] = f"{indent}image: {replacements[value]}\n"
+            replaced += 1
+    if replaced != len(replacements):
+        raise CandidateError(
+            f"compose image pinning replaced {replaced} of {len(replacements)} references"
+        )
+    compose_file.write_text("".join(lines), encoding="utf-8")
+    normalized = compose_config_json(config)
+    normalized_services = normalized.get("services", {})
+    for service_name, service in sorted(normalized_services.items()):  # type: ignore[union-attr]
+        if not isinstance(service, dict):
+            continue
+        image = str(service.get("image", ""))
+        if "@sha256:" not in image:
+            raise CandidateError(
+                f"service {service_name!r} still references mutable image {image!r}"
+            )
+    return (
+        {
+            "digest_pinned_images": sorted(set(replacements.values())),
+            "build_fallback": "disabled (--no-build; every reference is a digest)",
+        },
+        pinned,
+    )
+
+
+def start_stack_candidate(config: RunConfig) -> None:
+    """Pull exact digests and start the stack without any build fallback."""
+    try:
+        run(compose_command(config, "--profile", "api", "pull"), cwd=config.project_dir)
+        run(
+            compose_command(config, "--profile", "api", "up", "--detach", "--no-build"),
+            cwd=config.project_dir,
+        )
+    except subprocess.CalledProcessError:
+        for parts in (("ps",), ("logs", "--no-color", "--timestamps")):
+            try:
+                run(compose_command(config, *parts), cwd=config.project_dir)
+            except Exception as exc:
+                print(f"release golden path diagnostics failed: {exc}", file=sys.stderr)
+        raise
+
+
+def production_preflight(config: RunConfig) -> dict[str, object]:
+    """Require the production readiness report to pass."""
+    result = subprocess.run(
+        command(str(config.operator_bin), "services", "preflight", "--production", "--json"),
+        cwd=config.project_dir,
+        env=ops_environment(config, authorized=False),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    try:
+        report = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise CandidateError(
+            f"preflight (exit {result.returncode}) returned no JSON report: "
+            f"{result.stdout!r} {result.stderr!r}"
+        ) from exc
+    if result.returncode != 0 or not report.get("passed"):
+        raise CandidateError(
+            f"production preflight failed (exit {result.returncode}): {report!r} {result.stderr!r}"
+        )
+    return {
+        "environment": report.get("environment"),
+        "checks": [
+            {"id": check.get("id"), "state": str(check.get("state"))}
+            for check in report.get("checks", [])
+            if isinstance(check, dict)
+        ],
+    }
+
+
+def parse_env_values(path: Path) -> dict[str, str]:
+    """Parse a KEY=VALUE environment file."""
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        values[key.strip()] = value.strip().strip("'\"")
+    return values
+
+
+def compose_service_port(config: RunConfig, service: str, container_port: int) -> str:
+    """Resolve one published dynamic host port for a Compose service."""
+    result = run(
+        compose_command(config, "port", service, str(container_port)),
+        cwd=config.project_dir,
+        capture_output=True,
+    )
+    address = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+    try:
+        return address.rsplit(":", 1)[1]
+    except IndexError as exc:
+        raise CandidateError(
+            f"could not resolve {service} port {container_port}: {address!r}"
+        ) from exc
+
+
+def ops_environment(config: RunConfig, *, authorized: bool = False) -> dict[str, str]:
+    """Build the operator environment for guarded operations against the stack."""
+    environment = dict(os.environ)
+    environment.pop("PHLO_SERVICE_ACCOUNT", None)
+    environment.pop("PHLO_AUTH_SUBJECT", None)
+    if authorized:
+        environment["PHLO_SERVICE_ACCOUNT"] = OPERATOR_SERVICE_ACCOUNT
+    for service, container_port, variable in COMPOSE_PORT_PROBES:
+        environment[variable] = compose_service_port(config, service, container_port)
+    values = parse_env_values(config.project_dir / ".phlo" / ".env.local")
+    for key in (
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_DB",
+        "MINIO_ROOT_USER",
+        "MINIO_ROOT_PASSWORD",
+    ):
+        if key in values:
+            environment[key] = values[key]
+    environment.setdefault("POSTGRES_USER", "phlo")
+    environment.setdefault("POSTGRES_DB", "phlo")
+    minio_user = environment.get("MINIO_ROOT_USER", "minio")
+    minio_password = environment.get("MINIO_ROOT_PASSWORD", "")
+    if minio_password:
+        environment["ICEBERG_S3_ACCESS_KEY"] = minio_user
+        environment["ICEBERG_S3_SECRET_KEY"] = minio_password
+    environment["PHLO_OPERATIONS_JOURNAL_DIR"] = str(
+        config.project_dir / ".phlo" / "operations-journal"
+    )
+    return environment
+
+
+def run_operations(
+    config: RunConfig,
+    *args: str,
+    environment: dict[str, str],
+) -> dict[str, object]:
+    """Run one operations CLI command and parse its JSON envelope."""
+    result = run(
+        command(str(config.operator_bin), "operations", *args),
+        cwd=config.project_dir,
+        env=environment,
+        capture_output=True,
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise CandidateError(
+            f"operations {' '.join(args[:2])} returned no JSON envelope: "
+            f"{result.stdout!r} {result.stderr!r}"
+        ) from exc
+    if isinstance(payload, dict) and payload.get("accepted") is False:
+        raise CandidateError(f"operations {' '.join(args[:2])} was not accepted: {payload!r}")
+    return dict(payload)
+
+
+def negative_security(config: RunConfig) -> dict[str, object]:
+    """Require an unauthenticated operations mutation to be refused."""
+    environment = ops_environment(config, authorized=False)
+    result = subprocess.run(
+        command(
+            str(config.operator_bin),
+            "operations",
+            "maintenance",
+            "apply",
+            "--plan",
+            str(config.project_dir / ".phlo" / "no-such-plan.json"),
+            "--confirmation-token",
+            "not-a-token",
+        ),
+        cwd=config.project_dir,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        raise CandidateError("unauthorized operations mutation was allowed")
+    if "Authorization denied" not in result.stderr + result.stdout:
+        raise CandidateError(
+            f"unauthorized mutation failed for the wrong reason: "
+            f"{result.stdout!r} {result.stderr!r}"
+        )
+    return {
+        "denied_command": "operations.maintenance.apply",
+        "denial": "authorization_denied",
+        "exit_code": result.returncode,
+    }
+
+
+def run_plan_first_maintenance(config: RunConfig) -> dict[str, object]:
+    """Prove inventory, mutation-free planning, and a token-bound maintenance apply."""
+    environment = ops_environment(config, authorized=True)
+    inventory = run_operations(
+        config, "maintenance", "inventory", "--format", "json", environment=environment
+    )
+    tables = inventory.get("tables")
+    if not isinstance(tables, list) or not tables:
+        raise CandidateError("maintenance inventory is empty")
+    plan = run_operations(
+        config,
+        "maintenance",
+        "plan",
+        "--operation",
+        "snapshot_expiry",
+        "--table",
+        "raw.events",
+        "--ref",
+        "main",
+        "--format",
+        "json",
+        environment=environment,
+    )
+    plan_path = config.project_dir / ".phlo" / "maintenance-plan.json"
+    plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True), encoding="utf-8")
+    applied = run_operations(
+        config,
+        "maintenance",
+        "apply",
+        "--plan",
+        str(plan_path),
+        "--confirmation-token",
+        str(plan.get("plan_token", "")),
+        "--format",
+        "json",
+        environment=environment,
+    )
+    return {"inventory_tables": len(tables), "operation": "snapshot_expiry", "apply": applied}
+
+
+def create_backup_set(config: RunConfig) -> tuple[dict[str, object], Path]:
+    """Create one immutable, verified backup set of the candidate deployment."""
+    environment = ops_environment(config, authorized=True)
+    target = config.project_dir.parent / "backup-set"
+    payload = run_operations(
+        config,
+        "backup",
+        "create",
+        "--target",
+        str(target),
+        "--format",
+        "json",
+        environment=environment,
+    )
+    set_id = payload.get("set_id")
+    if not isinstance(set_id, str) or not set_id:
+        raise CandidateError(f"backup create returned no set id: {payload!r}")
+    set_dir = Path(str(payload.get("target", target))) / set_id
+    return payload, set_dir
+
+
+def verify_backup_set(config: RunConfig, set_dir: Path) -> dict[str, object]:
+    """Independently verify the backup set (read-only)."""
+    payload = run_operations(
+        config,
+        "backup",
+        "verify",
+        "--backup-set",
+        str(set_dir),
+        "--format",
+        "json",
+        environment=ops_environment(config, authorized=True),
+    )
+    if payload.get("accepted") is not True:
+        raise CandidateError(f"backup verification rejected the set: {payload!r}")
+    return payload
+
+
+def restore_to_explicit_target(
+    config: RunConfig, set_dir: Path, target_dir: Path
+) -> dict[str, object]:
+    """Plan and apply a restore bound to one explicit, new target directory."""
+    environment = ops_environment(config, authorized=True)
+    plan = run_operations(
+        config,
+        "restore",
+        "plan",
+        "--backup-set",
+        str(set_dir),
+        "--target",
+        str(target_dir),
+        "--format",
+        "json",
+        environment=environment,
+    )
+    plan_path = target_dir.parent / f"restore-plan-{target_dir.name}.json"
+    plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True), encoding="utf-8")
+    return run_operations(
+        config,
+        "restore",
+        "apply",
+        "--plan",
+        str(plan_path),
+        "--confirmation-token",
+        str(plan.get("plan_token", "")),
+        "--fixture-substrate",
+        "--format",
+        "json",
+        environment=environment,
+    )
+
+
+def run_supported_upgrade(config: RunConfig, set_dir: Path, target_dir: Path) -> dict[str, object]:
+    """Prove the supported version pair upgrade on a verified backup."""
+    environment = ops_environment(config, authorized=True)
+    plan = run_operations(
+        config,
+        "upgrade",
+        "plan",
+        "--from",
+        UPGRADE_FROM_VERSION,
+        "--to",
+        UPGRADE_TO_VERSION,
+        "--backup-set",
+        str(set_dir),
+        "--target",
+        str(target_dir),
+        "--format",
+        "json",
+        environment=environment,
+    )
+    plan_path = target_dir.parent / f"upgrade-plan-{target_dir.name}.json"
+    plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True), encoding="utf-8")
+    return run_operations(
+        config,
+        "upgrade",
+        "apply",
+        "--plan",
+        str(plan_path),
+        "--confirmation-token",
+        str(plan.get("plan_token", "")),
+        "--fixture-substrate",
+        "--format",
+        "json",
+        environment=environment,
+    )
+
+
+def verify_support_boundary(config: RunConfig) -> dict[str, object]:
+    """Run the committed support validator against the release commit tree."""
+    bom = config.bom
+    assert bom is not None and config.staging_dir is not None
+    release_ref = str(bom.get("release_ref") or bom.get("release_commit"))
+    tree_dir = config.staging_dir.parent / f"release-tree-{str(bom['release_commit'])[:12]}"
+    archive_path = tree_dir.with_suffix(".tar")
+    if not tree_dir.exists():
+        run(
+            command("git", "archive", "--format=tar", "-o", str(archive_path), release_ref),
+            cwd=config.repo_root,
+        )
+        tree_dir.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(archive_path) as archive:
+            archive.extractall(tree_dir, filter="data")  # noqa: S202
+    result = run(
+        command(sys.executable, str(tree_dir / "scripts" / "validate_support_manifest.py")),
+        cwd=tree_dir,
+        capture_output=True,
+    )
+    return {
+        "validator": "scripts/validate_support_manifest.py",
+        "release_ref": release_ref,
+        "exit_code": result.returncode,
+    }
+
+
+class EvidenceRecorder:
+    """Record one structured result per journey step into the evidence bundle."""
+
+    def __init__(self, bundle: dict[str, object]) -> None:
+        self.bundle = bundle
+
+    def step(
+        self,
+        demonstration_id: str,
+        title: str,
+        action,
+    ) -> None:
+        """Run one journey step, recording its structured result or failure."""
+        started = release_evidence.utc_now()
+        try:
+            result, artifacts = action()
+        except Exception as exc:
+            release_evidence.record_demonstration(
+                self.bundle,
+                demonstration_id=demonstration_id,
+                title=title,
+                status=release_evidence.STATUS_FAILED,
+                result={},
+                error=f"{type(exc).__name__}: {exc}",
+                started_utc=started,
+            )
+            raise
+        release_evidence.record_demonstration(
+            self.bundle,
+            demonstration_id=demonstration_id,
+            title=title,
+            status=release_evidence.STATUS_PASSED,
+            result=result,
+            artifacts=artifacts,
+            started_utc=started,
+        )
+
+
+def main_candidate(args: argparse.Namespace) -> int:
+    """Run the artifact-bound candidate journey and emit its evidence bundle."""
+    repo_root = args.repo_root.resolve()
+    bom_path = args.candidate_bom.resolve()
+    evidence_path = args.evidence_output.resolve()
+    staging_dir = bom_path.parent
+    temporary_root = Path(tempfile.mkdtemp(prefix=".phlo-release-candidate-", dir=repo_root))
+    project_dir = temporary_root / f"csv-batch-{os.getpid()}"
+    project_dir.parent.mkdir(parents=True, exist_ok=True)
+    config = RunConfig(
+        repo_root=repo_root,
+        project_dir=project_dir,
+        wheelhouse=staging_dir / "distributions",
+        operator_env=temporary_root / "operator-env",
+        project_name=project_name(),
+        partition=args.partition,
+        staging_dir=staging_dir,
+    )
+    bundle = release_evidence.new_bundle(
+        release_commit="pending",
+        canonical_candidate_digest="pending",
+        artifact_count=0,
+        environment={
+            "runner": "scripts/release_golden_path.py --candidate-bom",
+            "host": platform_module.node(),
+            "platform": f"{platform_module.system()} {platform_module.machine()}",
+            "python": sys.version.split()[0],
+            "promoting": False,
+        },
+    )
+    recorder = EvidenceRecorder(bundle)
+    primary_error: Exception | None = None
+    cleanup_errors: list[Exception] = []
+    stack_started = False
+    journey: dict[str, object] = {}
+
+    def bind_candidate() -> tuple[dict[str, object], list[dict[str, object]]]:
+        bom = bom_module.load_bom(bom_path)
+        bundle["candidate"] = {
+            "release_commit": bom["release_commit"],
+            "canonical_candidate_digest": bom["canonical_candidate_digest"],
+            "artifact_count": len(bom["artifacts"]),
+        }
+        bundle["checksum"] = {
+            "algorithm": "sha256",
+            "value": release_evidence.bundle_checksum(bundle),
+        }
+        config.__dict__.update(bom=bom)
+        return verify_candidate_bom(config)
+
+    def scaffold_project() -> tuple[dict[str, object], list[dict[str, object]]]:
+        create_project(config)
+        write_transform_fixture(config)
+        write_quality_gate_fixture(config)
+        align_project_name(config)
+        install_project_dependencies_from_bom(config)
+        configure_non_dev_compose(config)
+        write_report_policy_fixture(config)
+        write_operations_policy(config)
+        return {}, []
+
+    def start_candidate_stack() -> tuple[dict[str, object], list[dict[str, object]]]:
+        nonlocal stack_started
+        pinned, pinned_artifacts = pin_candidate_images(config)
+        start_stack_candidate(config)
+        stack_started = True
+        return pinned, pinned_artifacts
+
+    def promote_wap() -> tuple[dict[str, object], list[dict[str, object]]]:
+        wap_run = materialize_wap(config)
+        wait_for_wap_promotion(config, wap_run)
+        journey["promoted_wap_run"] = wap_run
+        return {
+            "logical_run_id": wap_run.logical_run_id,
+            "dagster_run_id": wap_run.dagster_run_id,
+            "promoted": True,
+        }, []
+
+    def reject_wap() -> tuple[dict[str, object], list[dict[str, object]]]:
+        directive = config.project_dir / ".phlo" / "quality_gate.json"
+        directive.parent.mkdir(parents=True, exist_ok=True)
+        directive.write_text('{"reject_next_run": true}\n', encoding="utf-8")
+        try:
+            wap_run = materialize_wap(config)
+            verify_rejected_wap_report(config, wap_run)
+        finally:
+            directive.unlink(missing_ok=True)
+        return {
+            "logical_run_id": wap_run.logical_run_id,
+            "dagster_run_id": wap_run.dagster_run_id,
+            "merge_outcome": "rejected_quality",
+            "promoted": False,
+        }, []
+
+    def prove_run_report() -> tuple[dict[str, object], list[dict[str, object]]]:
+        wap_run = journey["promoted_wap_run"]
+        assert isinstance(wap_run, WapRun)
+        fetch_run_report(config, wap_run, config.report_token)
+        return {"logical_run_id": wap_run.logical_run_id, "scope_mismatch_denied": True}, []
+
+    def create_backup() -> tuple[dict[str, object], list[dict[str, object]]]:
+        payload, set_dir = create_backup_set(config)
+        journey["backup_set_dir"] = set_dir
+        return payload, []
+
+    def backup_set_dir() -> Path:
+        set_dir = journey.get("backup_set_dir")
+        if not isinstance(set_dir, Path):
+            raise CandidateError("backup set was not created by an earlier demonstration")
+        return set_dir
+
+    try:
+        recorder.step("candidate_bom_verification", "Candidate BOM verification", bind_candidate)
+        recorder.step(
+            "operator_installation",
+            "Exact BOM artifact installation",
+            lambda: install_operator_from_bom(config),
+        )
+        recorder.step(
+            "project_scaffold", "Project scaffold from installed artifacts", scaffold_project
+        )
+        recorder.step(
+            "stack_start", "Exact image digest stack start without build", start_candidate_stack
+        )
+        recorder.step(
+            "production_preflight",
+            "Production readiness preflight",
+            lambda: (production_preflight(config), []),
+        )
+        recorder.step(
+            "negative_security",
+            "Negative security enforcement",
+            lambda: (negative_security(config), []),
+        )
+
+        def materialize() -> tuple[dict[str, object], list[dict[str, object]]]:
+            materialize_partition(config)
+            return {"partition": config.partition, "asset": "dlt_events"}, []
+
+        recorder.step("ingestion_materialization", "Ingestion materialization", materialize)
+
+        def storage() -> tuple[dict[str, object], list[dict[str, object]]]:
+            verify_minio_storage(config)
+            return {"probe": "minio-ready-and-owned-write"}, []
+
+        recorder.step("storage_probe", "Object storage readiness and owned write", storage)
+        recorder.step(
+            "row_query_initial",
+            "Initial row query",
+            lambda: (_verify_rows_result(config, "raw.events"), []),
+        )
+
+        def transform() -> tuple[dict[str, object], list[dict[str, object]]]:
+            materialize_transform(config)
+            return {"partition": config.partition, "asset": "events_mart"}, []
+
+        recorder.step("transformation_materialization", "Transformation materialization", transform)
+        recorder.step(
+            "row_query_transform",
+            "Transformed row query",
+            lambda: (_verify_rows_result(config, "raw_marts.events_mart"), []),
+        )
+
+        def wap_config() -> tuple[dict[str, object], list[dict[str, object]]]:
+            configure_wap(config)
+            return {"wap": "enabled", "job": "__ASSET_JOB"}, []
+
+        recorder.step("wap_configuration", "WAP configuration", wap_config)
+        recorder.step("wap_promotion", "WAP materialization and promotion", promote_wap)
+        recorder.step("wap_rejection", "WAP quality rejection", reject_wap)
+        recorder.step("run_report", "Run report and scoped denial", prove_run_report)
+        recorder.step(
+            "plan_first_maintenance",
+            "Plan-first table maintenance",
+            lambda: (run_plan_first_maintenance(config), []),
+        )
+        recorder.step("backup_creation", "Verified backup set creation", create_backup)
+        recorder.step(
+            "backup_verification",
+            "Independent backup verification",
+            lambda: (verify_backup_set(config, backup_set_dir()), []),
+        )
+        recorder.step(
+            "restore_explicit_target",
+            "Restore to explicit target",
+            lambda: (
+                restore_to_explicit_target(
+                    config, backup_set_dir(), config.project_dir.parent / "restore-target"
+                ),
+                [],
+            ),
+        )
+        recorder.step(
+            "supported_upgrade",
+            "Supported pair upgrade",
+            lambda: (
+                run_supported_upgrade(
+                    config, backup_set_dir(), config.project_dir.parent / "upgrade-target"
+                ),
+                [],
+            ),
+        )
+        recorder.step(
+            "upgrade_recovery",
+            "Upgrade recovery reconciliation",
+            lambda: (
+                restore_to_explicit_target(
+                    config, backup_set_dir(), config.project_dir.parent / "recovery-target"
+                ),
+                [],
+            ),
+        )
+        recorder.step(
+            "row_query_final",
+            "Final row query",
+            lambda: (
+                {
+                    "raw_events": _verify_rows_result(config, "raw.events"),
+                    "events_mart": _verify_rows_result(config, "raw_marts.events_mart"),
+                },
+                [],
+            ),
+        )
+        recorder.step(
+            "support_boundary_consistency",
+            "Support-boundary consistency",
+            lambda: (verify_support_boundary(config), []),
+        )
+    except Exception as exc:
+        primary_error = exc
+    finally:
+        release_evidence.finalize_bundle(bundle)
+        try:
+            release_evidence.write_bundle(bundle, evidence_path)
+        except Exception as exc:
+            print(f"release golden path could not write evidence: {exc}", file=sys.stderr)
+        if not args.keep_project:
+            cleanup_errors = cleanup(
+                config,
+                owned_paths={project_dir, config.operator_env},
+                temporary_root=temporary_root,
+            )
+        else:
+            print(f"kept project at {project_dir}")
+
+    if primary_error:
+        print(f"release candidate golden path failed: {primary_error}", file=sys.stderr)
+        if stack_started and config.compose_file.exists():
+            emit_runtime_diagnostics(config)
+    for error in cleanup_errors:
+        print(f"release golden path cleanup failed: {error}", file=sys.stderr)
+    if primary_error or cleanup_errors:
+        return 1
+    print(
+        f"release candidate golden path passed: candidate "
+        f"{bundle['candidate']['canonical_candidate_digest']}, "
+        f"evidence at {evidence_path}"
+    )
+    return 0
+
+
+def _verify_rows_result(config: RunConfig, table: str) -> dict[str, object]:
+    verify_rows(config, table=table, expected_count=FIXTURE_ROW_COUNT)
+    return {"table": table, "expected_count": FIXTURE_ROW_COUNT}
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse release golden path CLI arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -938,12 +1950,37 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--project-dir", type=Path)
     parser.add_argument("--keep-project", action="store_true")
     parser.add_argument("--partition", default=PARTITION)
+    parser.add_argument(
+        "--candidate-bom",
+        type=Path,
+        help=(
+            "Run the artifact-bound candidate mode against one staged immutable "
+            "candidate BOM (the staging directory next to it must hold distributions/)."
+        ),
+    )
+    parser.add_argument(
+        "--evidence-output",
+        type=Path,
+        help="Path for the canonical evidence bundle (required with --candidate-bom).",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     """Run the full release golden path and return its exit code."""
     args = parse_args(argv)
+    if args.candidate_bom or args.evidence_output:
+        if not (args.candidate_bom and args.evidence_output):
+            print(
+                "candidate mode requires both --candidate-bom and --evidence-output",
+                file=sys.stderr,
+            )
+            return 2
+        return main_candidate(args)
+    return main_source(args)
+
+
+def main_source(args: argparse.Namespace) -> int:
     repo_root = args.repo_root.resolve()
     temporary_root: Path | None = None
     if args.project_dir:

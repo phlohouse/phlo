@@ -955,3 +955,299 @@ def test_configure_non_dev_compose_uses_docker_ephemeral_ports(tmp_path: Path, m
     )
     configured_tokens = json.loads(token_config.split("=", 1)[1])
     assert configured_tokens == {}
+
+
+# ---------------------------------------------------------------------------
+# Candidate mode: artifact-bound journey and evidence bundle.
+# ---------------------------------------------------------------------------
+
+
+def _candidate_bom() -> dict[str, object]:
+    return {
+        "schema": "phlo.release-candidate-bom/v1",
+        "release_commit": "e" * 40,
+        "release_ref": "v0.14.0",
+        "artifacts": [
+            {
+                "kind": "sdist",
+                "name": "phlo",
+                "version": "0.14.0",
+                "digest": "b" * 64,
+                "source": "pypi:phlo/0.14.0",
+            },
+            {
+                "kind": "wheel",
+                "name": "phlo",
+                "version": "0.14.0",
+                "digest": "c" * 64,
+                "source": "pypi:phlo/0.14.0",
+            },
+            {
+                "kind": "first-party-image",
+                "name": "ghcr.io/phlohouse/phlo-api",
+                "version": "0.14.0",
+                "digest": "sha256:" + "d" * 64,
+                "source": "packages/phlo-api/src/phlo_api/service.yaml",
+            },
+            {
+                "kind": "provider-image",
+                "name": "postgres",
+                "version": "18.4-alpine3.24",
+                "digest": "sha256:" + "1" * 64,
+                "source": "packages/phlo-postgres/src/phlo_postgres/service.yaml",
+            },
+        ],
+        "canonical_candidate_digest": "a" * 64,
+    }
+
+
+def _compose_services(config: release_golden_path.RunConfig) -> dict[str, object]:
+    """Parse a minimal generated compose file into a Compose-config JSON shape."""
+    services: dict[str, object] = {}
+    current: str | None = None
+    for line in config.compose_file.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped == "services:":
+            continue
+        if stripped.endswith(":") and not stripped.startswith(("image", "-", '"')):
+            current = stripped[:-1]
+            services.setdefault(current, {})
+        elif stripped.startswith("image:") and current:
+            services[current] = {"image": stripped[len("image:") :].strip().strip("'\"")}
+    return {"services": services}
+
+
+def test_candidate_mode_requires_both_flags(capsys) -> None:
+    assert release_golden_path.main(["--repo-root", "x", "--candidate-bom", "bom.json"]) == 2
+    assert "requires both" in capsys.readouterr().err
+
+
+def test_main_candidate_writes_failure_evidence_and_exits_nonzero(
+    tmp_path: Path, monkeypatch
+) -> None:
+    bom = _candidate_bom()
+    monkeypatch.setattr(release_golden_path.bom_module, "load_bom", lambda path: bom)
+    monkeypatch.setattr(
+        release_golden_path,
+        "verify_candidate_bom",
+        lambda config: ({"canonical_candidate_digest": "a" * 64}, []),
+    )
+
+    def explode(config: object) -> object:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(release_golden_path, "install_operator_from_bom", explode)
+    bom_path = tmp_path / "bom.json"
+    bom_path.write_text(json.dumps(bom), encoding="utf-8")
+    evidence_path = tmp_path / "evidence.json"
+
+    exit_code = release_golden_path.main_candidate(
+        SimpleNamespace(
+            repo_root=tmp_path,
+            candidate_bom=bom_path,
+            evidence_output=evidence_path,
+            keep_project=False,
+            partition="2025-01-15",
+        )
+    )
+
+    assert exit_code == 1
+    bundle = json.loads(evidence_path.read_text(encoding="utf-8"))
+    assert bundle["conclusion"] == "failed"
+    assert bundle["candidate"]["canonical_candidate_digest"] == "a" * 64
+    assert bundle["failure"]["demonstration"] == "operator_installation"
+    assert bundle["failure"]["error"] == "RuntimeError: boom"
+    statuses = {d["id"]: d["status"] for d in bundle["demonstrations"]}
+    assert statuses == {
+        "candidate_bom_verification": "passed",
+        "operator_installation": "failed",
+    }
+    # The staged BOM directory is owned by staging, never by the run.
+    assert (tmp_path / "bom.json").exists()
+
+
+def test_pin_candidate_images_rewrites_first_party_and_keeps_pinned_providers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path)
+    config.__dict__.update(bom=_candidate_bom())
+    config.compose_file.parent.mkdir(parents=True, exist_ok=True)
+    config.compose_file.write_text(
+        "services:\n"
+        "  phlo-api:\n"
+        "    image: ghcr.io/phlohouse/phlo-api:0.14.0\n"
+        "  postgres:\n"
+        "    image: postgres:18.4-alpine3.24@sha256:" + "1" * 64 + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        release_golden_path, "compose_config_json", lambda cfg: _compose_services(cfg)
+    )
+
+    result, pinned = release_golden_path.pin_candidate_images(config)
+
+    rewritten = config.compose_file.read_text(encoding="utf-8")
+    assert "ghcr.io/phlohouse/phlo-api@sha256:" + "d" * 64 in rewritten
+    assert "ghcr.io/phlohouse/phlo-api:0.14.0" not in rewritten
+    assert "postgres:18.4-alpine3.24@sha256:" + "1" * 64 in rewritten
+    assert result["digest_pinned_images"] == [
+        "ghcr.io/phlohouse/phlo-api@sha256:" + "d" * 64,
+        "postgres:18.4-alpine3.24@sha256:" + "1" * 64,
+    ]
+    assert {entry["kind"] for entry in pinned} == {
+        release_golden_path.bom_module.KIND_FIRST_PARTY_IMAGE,
+        release_golden_path.bom_module.KIND_PROVIDER_IMAGE,
+    }
+
+
+def test_pin_candidate_images_rejects_an_image_outside_the_bom(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    config.__dict__.update(bom=_candidate_bom())
+    config.compose_file.parent.mkdir(parents=True, exist_ok=True)
+    config.compose_file.write_text(
+        "services:\n  trino:\n    image: trinodb/trino:latest\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        release_golden_path, "compose_config_json", lambda cfg: _compose_services(cfg)
+    )
+
+    with pytest.raises(release_golden_path.CandidateError, match="not pinned in the candidate BOM"):
+        release_golden_path.pin_candidate_images(config)
+
+
+def test_pin_candidate_images_rejects_a_version_mismatch(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    config.__dict__.update(bom=_candidate_bom())
+    config.compose_file.parent.mkdir(parents=True, exist_ok=True)
+    config.compose_file.write_text(
+        "services:\n  phlo-api:\n    image: ghcr.io/phlohouse/phlo-api:9.9.9\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        release_golden_path, "compose_config_json", lambda cfg: _compose_services(cfg)
+    )
+
+    with pytest.raises(release_golden_path.CandidateError, match="does not match the BOM version"):
+        release_golden_path.pin_candidate_images(config)
+
+
+def test_hashed_requirements_pin_every_bom_wheel_with_its_digest(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.__dict__.update(bom=_candidate_bom())
+    destination = tmp_path / "requirements.txt"
+
+    path = release_golden_path.write_hashed_requirements(config, destination)
+
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    assert lines == [
+        "phlo==0.14.0 --hash=sha256:" + "c" * 64,
+    ]
+    assert path == destination
+
+
+def test_verify_installed_versions_requires_exact_bom_versions(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    config.__dict__.update(bom=_candidate_bom())
+    monkeypatch.setattr(
+        release_golden_path,
+        "run",
+        lambda args, **_: SimpleNamespace(stdout="phlo==0.14.0\nnumpy==1.0.0\n", stderr=""),
+    )
+    assert release_golden_path.verify_installed_versions(config) == {"phlo": "0.14.0"}
+
+    def mismatched(args, **_):
+        return SimpleNamespace(stdout="phlo==0.13.0\n", stderr="")
+
+    monkeypatch.setattr(release_golden_path, "run", mismatched)
+    with pytest.raises(release_golden_path.CandidateError, match="do not match the BOM"):
+        release_golden_path.verify_installed_versions(config)
+
+
+def test_negative_security_requires_an_authorization_denial(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    monkeypatch.setattr(release_golden_path, "ops_environment", lambda cfg, **_: {})
+
+    def allowed(args, **_):
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(release_golden_path.subprocess, "run", allowed)
+    with pytest.raises(release_golden_path.CandidateError, match="was allowed"):
+        release_golden_path.negative_security(config)
+
+    def wrong_reason(args, **_):
+        return SimpleNamespace(returncode=1, stdout="", stderr="FileNotFoundError")
+
+    monkeypatch.setattr(release_golden_path.subprocess, "run", wrong_reason)
+    with pytest.raises(release_golden_path.CandidateError, match="wrong reason"):
+        release_golden_path.negative_security(config)
+
+    def denied(args, **_):
+        return SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="Error: Authorization denied for 'operations.maintenance.apply'",
+        )
+
+    monkeypatch.setattr(release_golden_path.subprocess, "run", denied)
+    result = release_golden_path.negative_security(config)
+    assert result["denial"] == "authorization_denied"
+
+
+def test_quality_gate_fixture_reads_an_owned_directive_file(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    fixture_dir = config.project_dir / "workflows" / "ingestion" / "csv"
+    fixture_dir.mkdir(parents=True, exist_ok=True)
+
+    release_golden_path.write_quality_gate_fixture(config)
+
+    fixture = (fixture_dir / "release_wap_check.py").read_text(encoding="utf-8")
+    assert release_golden_path.QUALITY_DIRECTIVE_CONTAINER_PATH in fixture
+    assert "reject_next_run" in fixture
+
+
+def test_operations_policy_grants_the_operator_service_account(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.compose_file.parent.mkdir(parents=True, exist_ok=True)
+    authorization_dir = config.project_dir / ".phlo" / "authorization"
+    authorization_dir.mkdir(parents=True)
+    (authorization_dir / "policies.yaml").write_text("policies: []\n", encoding="utf-8")
+
+    release_golden_path.write_operations_policy(config)
+
+    policy = (authorization_dir / "policies.yaml").read_text(encoding="utf-8")
+    assert "release-golden-path-operations" in policy
+    assert "operators" in policy
+    assert "operations.*" in policy
+
+
+def test_ops_environment_resolves_dynamic_ports_and_journal_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path)
+    config.compose_file.parent.mkdir(parents=True, exist_ok=True)
+    env_local = config.project_dir / ".phlo" / ".env.local"
+    env_local.parent.mkdir(parents=True, exist_ok=True)
+    env_local.write_text(
+        "MINIO_ROOT_USER=minio\nMINIO_ROOT_PASSWORD=derived-secret\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        release_golden_path,
+        "compose_service_port",
+        lambda cfg, service, port: {"nessie": "31999"}.get(service, "31000"),
+    )
+    monkeypatch.delenv("PHLO_SERVICE_ACCOUNT", raising=False)
+
+    environment = release_golden_path.ops_environment(config)
+
+    assert environment["NESSIE_PORT"] == "31999"
+    assert environment["POSTGRES_PORT"] == "31000"
+    assert environment["PHLO_OPERATIONS_JOURNAL_DIR"] == str(
+        config.project_dir / ".phlo" / "operations-journal"
+    )
+    assert environment["ICEBERG_S3_ACCESS_KEY"] == "minio"
+    assert environment["ICEBERG_S3_SECRET_KEY"] == "derived-secret"
+    assert "PHLO_SERVICE_ACCOUNT" not in environment
+
+    authorized = release_golden_path.ops_environment(config, authorized=True)
+    assert authorized["PHLO_SERVICE_ACCOUNT"] == release_golden_path.OPERATOR_SERVICE_ACCOUNT

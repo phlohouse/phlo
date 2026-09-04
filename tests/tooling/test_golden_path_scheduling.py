@@ -57,6 +57,7 @@ def test_release_golden_path_is_required_candidate_evidence() -> None:
     assert nightly["jobs"]["nightly-status"]["needs"] == [
         "full-integration",
         "release-golden-path",
+        "release-artifact-acceptance",
     ]
 
 
