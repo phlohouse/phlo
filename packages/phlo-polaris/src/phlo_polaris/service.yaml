@@ -1,0 +1,66 @@
+name: polaris
+description: Apache Polaris Iceberg REST catalog with OAuth/RBAC and credential vending
+category: catalog
+default: false
+
+image: apache/polaris:1.7.0@sha256:3495f67f38cca33892a045f7dd3f46eb52387f0fd52d4145538a772fd8aedad7
+
+depends_on:
+  - postgres
+  - minio
+
+compose:
+  restart: unless-stopped
+  labels:
+    phlo.metrics.enabled: "true"
+    phlo.metrics.port: "polaris:8182"
+    phlo.metrics.path: "/q/metrics"
+  environment:
+    quarkus.datasource.jdbc.url: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-phlo}
+    quarkus.datasource.username: ${POSTGRES_USER:-phlo}
+    quarkus.datasource.password: ${POSTGRES_PASSWORD:-phlo}
+    polaris.persistence.type: in-memory
+    JAVA_OPTS_APPEND: "-Djava.security.egd=file:/dev/urandom"
+    AWS_REGION: ${ICEBERG_S3_REGION:-us-east-1}
+    AWS_ACCESS_KEY_ID: ${ICEBERG_S3_ACCESS_KEY:-minio}
+    AWS_SECRET_ACCESS_KEY: ${ICEBERG_S3_SECRET_KEY:-minio123}
+  ports:
+    - "${POLARIS_PORT:-10018}:8181"
+  healthcheck:
+    test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://localhost:8181/api/catalog"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 90s
+
+env_vars:
+  POLARIS_PORT:
+    default: 10018
+    description: Polaris API host port
+  POLARIS_ROOT_CREDENTIALS:
+    default: root:s3cr3t
+    description: Polaris bootstrap principal credentials (client_id:client_secret)
+    secret: true
+  POLARIS_WRITER_CLIENT_ID:
+    default: phlo_writer
+    description: Principal client id granted write access to the Phlo catalog
+  POLARIS_WRITER_CLIENT_SECRET:
+    default: phlo-writer-secret
+    description: Principal client secret granted write access to the Phlo catalog
+    secret: true
+  POLARIS_READER_CLIENT_ID:
+    default: phlo_reader
+    description: Principal client id granted read access to the Phlo catalog
+  POLARIS_READER_CLIENT_SECRET:
+    default: phlo-reader-secret
+    description: Principal client secret granted read access to the Phlo catalog
+    secret: true
+
+hooks:
+  post_start:
+    - name: bootstrap-catalog
+      requires: phlo_polaris
+      command: [python3, -m, phlo_polaris.hooks, bootstrap]
+      timeout_seconds: 120
+
+files:

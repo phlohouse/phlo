@@ -28,9 +28,11 @@ These versions come from the current package manifests on the checked-in release
 | `phlo-dagster` | `0.6.0` | Dagster service plugin for Phlo |
 | `phlo-dbt` | `0.6.1` | dbt integration capability plugin for Phlo |
 | `phlo-delta` | `0.5.0` | Delta Lake table-store capability plugin for Phlo |
+| `phlo-airbyte` | `0.14.0` | Airbyte control-plane integration plugin for Phlo |
 | `phlo-dlt` | `0.7.0` | DLT ingestion engine capability plugin for Phlo |
 | `phlo-grafana` | `0.3.0` | grafana service plugin for Phlo |
 | `phlo-hasura` | `0.3.0` | hasura service plugin for Phlo |
+| `phlo-kafka` | `0.14.0` | Kafka ingestion service plugin for Phlo |
 | `phlo-iceberg` | `0.6.0` | Iceberg table-store capability plugin for Phlo |
 | `phlo-lineage` | `0.4.0` | Lineage tracking and visualization for Phlo |
 | `phlo-loki` | `0.3.0` | loki service plugin for Phlo |
@@ -41,6 +43,7 @@ These versions come from the current package manifests on the checked-in release
 | `phlo-observatory` | `0.7.0` | Phlo Observatory - Data platform UI (bundled with phlo core) |
 | `phlo-observatory-example` | `0.3.0` | Example Observatory extension plugin |
 | `phlo-openmetadata` | `0.5.0` | OpenMetadata integration for Phlo |
+| `phlo-polaris` | `0.14.0` | Apache Polaris catalog service plugin for Phlo |
 | `phlo-otel` | `0.3.0` | OpenTelemetry traces and metrics for Phlo |
 | `phlo-pandera` | `0.6.0` | Quality checks and schema utilities for Phlo |
 | `phlo-pgweb` | `0.2.3` | pgweb service plugin for Phlo |
@@ -78,13 +81,15 @@ notes match the installed code.
 
 ---
 
-### Data Processing & Orchestration (7 packages)
+### Data Processing & Orchestration (9 packages)
 
 | Package | Description | Category |
 |---------|-------------|----------|
+| [phlo-airbyte](phlo-airbyte.md) | Airbyte connector-managed ingestion control plane | Ingestion |
 | [phlo-dagster](phlo-dagster.md) | Orchestration adapter for Dagster pipelines | Orchestration |
 | [phlo-dbt](phlo-dbt.md) | dbt integration for SQL transformations | Transformation |
 | [phlo-dlt](phlo-dlt.md) | Data Load Tool integration for data ingestion | Ingestion |
+| [phlo-kafka](phlo-kafka.md) | Checkpoint-driven Kafka streaming ingestion | Ingestion |
 | [phlo-sling](phlo-sling.md) | Sling-based data replication pipelines | Ingestion |
 | [phlo-iceberg](phlo-iceberg.md) | Apache Iceberg table format and catalog | Storage |
 | [phlo-delta](phlo-delta.md) | Delta Lake table format support | Storage |
@@ -110,11 +115,12 @@ notes match the installed code.
 
 ---
 
-### Storage & Catalog (4 packages)
+### Storage & Catalog (5 packages)
 
 | Package | Description | Protocol |
 |---------|-------------|----------|
 | [phlo-nessie](phlo-nessie.md) | Git-like catalog for Iceberg tables | Nessie API |
+| [phlo-polaris](phlo-polaris.md) | Apache Polaris Iceberg REST catalog with snapshot WAP | Iceberg REST |
 | [phlo-postgres](phlo-postgres.md) | PostgreSQL metadata and state store | PostgreSQL |
 | [phlo-minio](phlo-minio.md) | S3-compatible object storage | S3 API |
 | [phlo-rustfs](phlo-rustfs.md) | High-performance S3-compatible storage | S3 API |

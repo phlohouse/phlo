@@ -1,0 +1,59 @@
+name: kafka
+description: KRaft-mode Kafka broker for streaming ingestion into Iceberg
+category: ingestion
+default: false
+
+image: apache/kafka:4.2.1@sha256:9916d60eca5d599550e2c320230808fda342124ba550bb4ac4ea8591803262a0
+
+compose:
+  restart: unless-stopped
+  labels:
+    phlo.metrics.enabled: "false"
+  environment:
+    KAFKA_NODE_ID: "1"
+    KAFKA_PROCESS_ROLES: broker,controller
+    KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+    KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+    KAFKA_ADVERTISED_LISTENERS: ${KAFKA_ADVERTISED_LISTENERS:-INTERNAL://kafka:9092,EXTERNAL://localhost:${KAFKA_PORT:-10021}}
+    KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+    KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+    KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+    KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+    KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+    KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+    KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+    KAFKA_LOG_RETENTION_MS: ${KAFKA_RETENTION_MS:-604800000}
+    CLUSTER_ID: ${KAFKA_CLUSTER_ID:-5L6g3nShT-eMCtK--X86sw}
+  ports:
+    - "${KAFKA_PORT:-10021}:9094"
+  volumes:
+    - kafka-data:/var/lib/kafka/data
+  healthcheck:
+    test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+    interval: 10s
+    timeout: 10s
+    retries: 12
+    start_period: 30s
+
+env_vars:
+  KAFKA_PORT:
+    default: 10021
+    description: Kafka broker host port
+  KAFKA_RETENTION_MS:
+    default: 604800000
+    description: Source topic retention in milliseconds
+  KAFKA_CLUSTER_ID:
+    default: 5L6g3nShT-eMCtK--X86sw
+    description: KRaft cluster id (base64 UUID) used for formatting storage
+  KAFKA_ADVERTISED_LISTENERS:
+    default: "INTERNAL://kafka:9092,EXTERNAL://localhost:10021"
+    description: Broker advertised listeners (internal DNS plus host-reachable external)
+
+hooks:
+  post_start:
+    - name: init-topics
+      requires: phlo_kafka
+      command: [python3, -m, phlo_kafka.hooks, init-topics]
+      timeout_seconds: 90
+
+files:

@@ -1,0 +1,52 @@
+name: polaris-streaming
+description: >
+  Streaming lakehouse showcasing the snapshot-WAP stack: Apache Polaris as
+  the Iceberg REST catalog with credential principals, Kafka events landing
+  through durable checkpoints into candidate branches, audited releases
+  exposed through a CAS release pointer, and the Airbyte control plane for
+  connector-managed ingestion.
+
+env:
+  PHLO_PROJECT: polaris-streaming
+  POSTGRES_PORT: 13000
+  MINIO_API_PORT: 13001
+  MINIO_CONSOLE_PORT: 13002
+  NESSIE_PORT: 13003
+  POLARIS_PORT: 13018
+  KAFKA_PORT: 13021
+  ICEBERG_S3_ENDPOINT: http://minio:9000/
+  ICEBERG_WAREHOUSE_PATH: s3://lake/warehouse
+  WAREHOUSE_TABLE: bronze.events
+
+services:
+  nessie:
+    enabled: false
+  trino:
+    enabled: false
+  dagster:
+    enabled: false
+  dagster-daemon:
+    enabled: false
+  observatory:
+    enabled: false
+  polaris:
+    enabled: true
+  kafka:
+    enabled: true
+  airbyte:
+    enabled: true
+  airbyte-temporal:
+    enabled: true
+  airbyte-manifest:
+    enabled: true
+  airbyte-bootloader:
+    enabled: false
+
+wap:
+  enabled: true
+  strategy: snapshot
+
+capabilities:
+  defaults:
+    catalog: polaris
+    ingestion_checkpoints: ingestion_checkpoints

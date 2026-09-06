@@ -6,6 +6,7 @@ requires = ["hatchling"]
 dev = [
     "phlo-alerting>=0.1.0",
     "phlo-alloy>=0.1.0",
+    "phlo-airbyte>=0.1.0",
     "phlo-api>=0.1.0",
     "phlo-core-plugins>=0.1.0",
     "phlo-dagster>=0.3.2",
@@ -20,6 +21,7 @@ dev = [
     "phlo-dbt>=0.1.0",
     "phlo-grafana>=0.1.0",
     "phlo-hasura>=0.1.0",
+    "phlo-kafka>=0.1.0",
     "phlo-lineage>=0.3.2",
     "phlo-loki>=0.1.0",
     "phlo-mcp>=0.1.0",
@@ -27,6 +29,7 @@ dev = [
     "phlo-sling>=0.1.0",
     "phlo-nessie>=0.3.2",
     "phlo-observatory>=0.1.0",
+    "phlo-polaris>=0.1.0",
     "phlo-observatory-example>=0.1.0",
     "phlo-openmetadata>=0.1.0",
     "phlo-otel>=0.1.0",
@@ -191,6 +194,7 @@ select = [
 
 [tool.ty.environment]
 extra-paths = [
+    "packages/phlo-airbyte/src",
     "packages/phlo-alerting/src",
     "packages/phlo-alloy/src",
     "packages/phlo-api/src",
@@ -209,6 +213,8 @@ extra-paths = [
     "packages/phlo-loki/src",
     "packages/phlo-mcp/src",
     "packages/phlo-otel/src",
+    "packages/phlo-polaris/src",
+    "packages/phlo-kafka/src",
     "packages/phlo-minio/src",
     "packages/phlo-nessie/src",
     "packages/phlo-observatory-example/src",
@@ -248,6 +254,9 @@ unsupported-operator = "error"
 exclude = ["**/testing/**"]
 
 [tool.uv.sources.phlo]
+workspace = true
+
+[tool.uv.sources.phlo-airbyte]
 workspace = true
 
 [tool.uv.sources.phlo-alerting]
@@ -301,6 +310,9 @@ workspace = true
 [tool.uv.sources.phlo-minio]
 workspace = true
 
+[tool.uv.sources.phlo-kafka]
+workspace = true
+
 [tool.uv.sources.phlo-nessie]
 workspace = true
 
@@ -317,6 +329,9 @@ workspace = true
 workspace = true
 
 [tool.uv.sources.phlo-otel]
+workspace = true
+
+[tool.uv.sources.phlo-polaris]
 workspace = true
 
 [tool.uv.sources.phlo-pandera]

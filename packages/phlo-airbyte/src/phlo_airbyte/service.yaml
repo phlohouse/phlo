@@ -1,0 +1,60 @@
+name: airbyte
+description: Self-managed Airbyte control plane for connector-managed ingestion
+category: ingestion
+default: false
+
+image: airbyte/server:2.2.0@sha256:70e125498a1c110bc3e9444ccf9b373cc82517a3cfc68b8d4c54dbc553a4f4eb
+
+depends_on:
+  - postgres
+  - airbyte-temporal
+  - airbyte-manifest
+compose:
+  restart: unless-stopped
+  labels:
+    phlo.metrics.enabled: "false"
+  environment:
+    AIRBYTE_VERSION: "2.2.0"
+    MANIFEST_SERVER_API_HOST: http://airbyte-manifest:8080
+    AIRBYTE_API_HOST: http://localhost:8001/api/public
+    AIRBYTE_URL: ${AIRBYTE_URL:-http://localhost:8001}
+    CONFIG_ROOT: /data
+    WORKSPACE_ROOT: /data
+    DATABASE_USER: ${POSTGRES_USER:-phlo}
+    DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-phlo}
+    DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-phlo}
+    CONFIG_DATABASE_REPLICA_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-phlo}
+    CONFIG_DATABASE_REPLICA_USER: ${POSTGRES_USER:-phlo}
+    CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION: "0.35.15.001"
+    JOBS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION: "0.29.15.001"
+    ENTERPRISE_SOURCE_STUBS_URL: https://connectors.airbyte.com/files/resources/connector_stubs/v1/connector_stubs.json
+    STORAGE_TYPE: minio
+    STORAGE_BUCKET_LOG: airbyte-bucket
+    STORAGE_BUCKET_STATE: airbyte-bucket
+    STORAGE_BUCKET_AUDIT_LOGGING: airbyte-bucket
+    STORAGE_BUCKET_WORKLOAD_OUTPUT: airbyte-bucket
+    STORAGE_BUCKET_ACTIVITY_PAYLOAD: airbyte-bucket
+    AWS_ACCESS_KEY_ID: ${ICEBERG_S3_ACCESS_KEY:-minio}
+    AWS_SECRET_ACCESS_KEY: ${ICEBERG_S3_SECRET_KEY:-minio123}
+    AWS_DEFAULT_REGION: ${ICEBERG_S3_REGION:-us-east-1}
+    MINIO_ENDPOINT: http://minio:9000
+    S3_PATH_STYLE_ACCESS: "true"
+    WORKSPACE_ID: ${AIRBYTE_WORKSPACE_ID:-}
+  ports:
+    - "${AIRBYTE_PORT:-10020}:8001"
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8001/api/v1/health"]
+    interval: 15s
+    timeout: 5s
+    retries: 12
+    start_period: 60s
+
+env_vars:
+  AIRBYTE_PORT:
+    default: 10020
+    description: Airbyte server API host port
+  AIRBYTE_WORKSPACE_ID:
+    default: ""
+    description: Airbyte workspace id used for connection lookups
+
+files:

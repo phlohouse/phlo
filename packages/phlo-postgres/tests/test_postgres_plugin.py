@@ -98,8 +98,9 @@ def test_postgres_resource_provider():
     provider = PostgresResourceProvider()
     resources = provider.get_resources()
 
-    assert len(resources) == 1
+    assert len(resources) == 2
     assert resources[0].name == "postgres"
+    assert resources[1].name == "ingestion_checkpoints"
 
 
 def test_postgres_resource_provider_exposes_publish_target() -> None:

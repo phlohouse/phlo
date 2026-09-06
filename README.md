@@ -110,9 +110,9 @@ Phlo's core stays small. Installed provider packages contribute capabilities thr
 
 | Area | Intent | Provider examples |
 | --- | --- | --- |
-| Pipeline authoring | Define ingestion assets, schemas, checks, and transforms | `phlo-dlt`, `phlo-sling`, `phlo-pandera`, `phlo-dbt` |
+| Pipeline authoring | Define ingestion assets, schemas, checks, and transforms | `phlo-dlt`, `phlo-sling`, `phlo-airbyte`, `phlo-kafka`, `phlo-pandera`, `phlo-dbt` |
 | Runtime services | Start the local lakehouse stack without hand-written Compose files | `phlo-dagster`, `phlo-postgres`, `phlo-minio`, `phlo-nessie`, `phlo-trino` |
-| Table & catalog layer | Store, version, and query lakehouse tables | `phlo-iceberg`, `phlo-delta`, `phlo-clickhouse`, `phlo-openmetadata` |
+| Table & catalog layer | Store, version, and query lakehouse tables | `phlo-iceberg`, `phlo-nessie`, `phlo-polaris`, `phlo-delta`, `phlo-clickhouse`, `phlo-openmetadata` |
 | Product surfaces | Inspect and control assets, tables, lineage, quality, services, and logs | `phlo-api`, `phlo-observatory`, `phlo-mcp` |
 | Serving & BI | Expose lakehouse data to apps and analysts | `phlo-hasura`, `phlo-postgrest`, `phlo-pgweb`, `phlo-superset` |
 | Observability | Export telemetry, logs, metrics, and alerts | `phlo-otel`, `phlo-prometheus`, `phlo-loki`, `phlo-grafana`, `phlo-alerting` |

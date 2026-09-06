@@ -201,10 +201,16 @@ from phlo.helpers.tables import (
 from phlo.helpers.testing import FakeRuntimeContext, assert_materialize_result
 from phlo.helpers.wap import (
     StageDiff,
+    abort_candidates,
     branch_for_run,
+    candidate_namespace_for_run,
     ensure_branch,
+    ensure_candidate,
+    promote_snapshots,
     publish_branch,
     publish_if_checks_pass,
+    resolve_snapshot_promotion_catalog,
+    snapshot_write_audit_publish,
     write_audit_publish,
 )
 
@@ -246,7 +252,10 @@ __all__ = [
     "assert_valid_transition",
     "audit_event",
     "bitemporal_predicate",
+    "abort_candidates",
     "branch_for_run",
+    "candidate_namespace_for_run",
+    "ensure_candidate",
     "build_backfill_plan",
     "build_crosswalk",
     "canonical_groups",
@@ -317,7 +326,10 @@ __all__ = [
     "previous_partition",
     "publish_branch",
     "publish_eligibility_report",
+    "promote_snapshots",
     "publish_if_checks_pass",
+    "resolve_snapshot_promotion_catalog",
+    "snapshot_write_audit_publish",
     "publish_many",
     "publish_table",
     "qualified_table_name",

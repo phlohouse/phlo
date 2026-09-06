@@ -1,0 +1,35 @@
+name: airbyte-bootloader
+description: One-shot Airbyte database bootloader (migrations + seeds) run before the control plane
+category: ingestion
+default: false
+
+image: airbyte/bootloader:2.2.0@sha256:f71cf4e185d5513e24cb6462368878c6c08040fd1cb79ee62f2185c356d984a5
+
+depends_on:
+  - postgres
+
+compose:
+  restart: "no"
+  labels:
+    phlo.metrics.enabled: "false"
+  environment:
+    AB_AUTH_SECRET_CREATION_ENABLED: "false"
+    AIRBYTE_VERSION: "2.2.0"
+    DATABASE_USER: ${POSTGRES_USER:-phlo}
+    DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-phlo}
+    DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-phlo}
+    CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION: "0.35.15.001"
+    JOBS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION: "0.29.15.001"
+    STORAGE_TYPE: minio
+    STORAGE_BUCKET_LOG: airbyte-bucket
+    STORAGE_BUCKET_STATE: airbyte-bucket
+    STORAGE_BUCKET_AUDIT_LOGGING: airbyte-bucket
+    STORAGE_BUCKET_WORKLOAD_OUTPUT: airbyte-bucket
+    STORAGE_BUCKET_ACTIVITY_PAYLOAD: airbyte-bucket
+    AWS_ACCESS_KEY_ID: ${ICEBERG_S3_ACCESS_KEY:-minio}
+    AWS_SECRET_ACCESS_KEY: ${ICEBERG_S3_SECRET_KEY:-minio123}
+    AWS_DEFAULT_REGION: ${ICEBERG_S3_REGION:-us-east-1}
+    MINIO_ENDPOINT: http://minio:9000
+    S3_PATH_STYLE_ACCESS: "true"
+
+files:

@@ -1,0 +1,8 @@
+# Extra project service: the Airbyte control plane is provided by the
+# phlo-airbyte package; this override only documents the host port when the
+# project compose is rendered. The pinned image lives in
+# packages/phlo-airbyte/src/phlo_airbyte/service.yaml.
+services:
+  airbyte:
+    ports:
+      - "10020:8006"

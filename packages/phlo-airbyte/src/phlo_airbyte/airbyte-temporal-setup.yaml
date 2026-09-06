@@ -1,0 +1,35 @@
+name: airbyte-temporal
+description: Temporal workflow engine backing Airbyte control-plane job orchestration
+category: ingestion
+default: false
+
+image: temporalio/auto-setup:1.22.3@sha256:48a2ee4befe9662f1b5056c5c03464b2eec6dd6855e299ef7dd72c8daafa0a02
+
+depends_on:
+  - postgres
+
+compose:
+  restart: unless-stopped
+  labels:
+    phlo.metrics.enabled: "false"
+  environment:
+    DB: postgresql
+    DB_PORT: "5432"
+    POSTGRES_USER: ${POSTGRES_USER:-phlo}
+    POSTGRES_PWD: ${POSTGRES_PASSWORD:-phlo}
+    POSTGRES_SEEDS: postgres
+  ports:
+    - "${AIRBYTE_TEMPORAL_PORT:-7233}:7233"
+  healthcheck:
+    test: ["CMD-SHELL", "tctl --address airbyte-temporal:7233 cluster health"]
+    interval: 15s
+    timeout: 10s
+    retries: 20
+    start_period: 60s
+
+env_vars:
+  AIRBYTE_TEMPORAL_PORT:
+    default: 7233
+    description: Temporal frontend gRPC host port (Airbyte server dials airbyte-temporal:7233)
+
+files:

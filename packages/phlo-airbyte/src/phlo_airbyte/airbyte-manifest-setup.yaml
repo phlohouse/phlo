@@ -1,0 +1,26 @@
+name: airbyte-manifest
+description: Airbyte manifest server rendering connector manifests for the control plane
+category: ingestion
+default: false
+
+image: airbyte/manifest-server:7.28.2@sha256:deec511b51c35f8bb304223b42f46b9cff67bd3b19f11e2f0e298f8dfaa0cd3a
+
+compose:
+  restart: unless-stopped
+  labels:
+    phlo.metrics.enabled: "false"
+  ports:
+    - "${AIRBYTE_MANIFEST_PORT:-8007}:8080"
+  healthcheck:
+    test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+    interval: 15s
+    timeout: 5s
+    retries: 12
+    start_period: 30s
+
+env_vars:
+  AIRBYTE_MANIFEST_PORT:
+    default: 8007
+    description: Airbyte manifest server host port
+
+files:

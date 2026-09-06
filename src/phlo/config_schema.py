@@ -69,6 +69,14 @@ class WapConfig(BaseModel):
         default=False,
         description="Launch materialize and backfill runs through the WAP GraphQL lifecycle.",
     )
+    strategy: Literal["branch", "snapshot"] = Field(
+        default="branch",
+        description=(
+            "Staging strategy: 'branch' merges versioned-catalog branches (Nessie); "
+            "'snapshot' promotes audited Iceberg snapshots through a release pointer "
+            "(snapshot-promotion catalogs such as Polaris)."
+        ),
+    )
     job_name: str = Field(
         default="__ASSET_JOB",
         description="Dagster asset job used for WAP launches.",

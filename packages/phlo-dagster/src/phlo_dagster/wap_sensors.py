@@ -56,7 +56,11 @@ from typing import Any
 import dagster as dg
 
 from phlo._correlation import ProjectIdentity, resolve_project_identity
-from phlo.capabilities.interfaces import RefQueryCatalogManager, VersionedCatalog
+from phlo.capabilities.interfaces import (
+    RefQueryCatalogManager,
+    SnapshotPromotionCatalog,
+    VersionedCatalog,
+)
 from phlo.capabilities.resolver import resolve_capability
 from phlo._attempt import attempt_from_tags
 from phlo.hooks import HookCorrelation, QualityResultEvent, get_hook_bus
@@ -75,6 +79,8 @@ from phlo_dagster.wap_launch import (
     WAP_PROJECT_ID_TAG,
     WAP_REF_TAG,
     WAP_RUN_ID_TAG,
+    WAP_STRATEGY_BRANCH,
+    WAP_STRATEGY_SNAPSHOT,
     _report_path,
     _report_snapshot_path,
     read_wap_launch_manifest,
@@ -146,6 +152,62 @@ def _load_versioned_catalog() -> VersionedCatalog:
     if not isinstance(provider, VersionedCatalog):
         raise RuntimeError("WAP sensors require a VersionedCatalog-compatible provider.")
     return provider
+
+
+def _load_snapshot_promotion_catalog() -> SnapshotPromotionCatalog:
+    """Resolve the active snapshot-promotion catalog capability for WAP flows.
+
+    Raises RuntimeError when no catalog capability is available or it does
+    not support snapshot-based release promotion.
+    """
+    resolution = resolve_capability("catalog")
+    if resolution is None:
+        raise RuntimeError("WAP sensors require a catalog capability with promotion support.")
+    if not (resolution.support.supports_promote and resolution.support.supports_snapshots):
+        raise RuntimeError(
+            "WAP snapshot sensors require a catalog capability that supports snapshot promotion."
+        )
+    provider = resolution.provider
+    if not isinstance(provider, SnapshotPromotionCatalog):
+        raise RuntimeError(
+            "WAP snapshot sensors require a SnapshotPromotionCatalog-compatible provider."
+        )
+    return provider
+
+
+def _load_wap_catalog():
+    """Resolve the catalog provider matching the configured WAP strategy."""
+    from phlo.infrastructure import load_wap_config
+
+    if load_wap_config().strategy == WAP_STRATEGY_SNAPSHOT:
+        return _load_snapshot_promotion_catalog()
+    return _load_versioned_catalog()
+
+
+def _release_revision(catalog: Any) -> int:
+    """Read the promotion catalog's release-pointer revision."""
+    try:
+        return int(catalog.release_revision())
+    except Exception:
+        logger.warning("wap_release_revision_read_failed", exc_info=True)
+        return -1
+
+
+def _cleanup_owned_candidates(catalog: SnapshotPromotionCatalog, namespace: str) -> bool:
+    """Abort one owned candidate namespace after its release (or rejection).
+
+    Aborting drops the run-scoped candidate refs so the staged snapshots can
+    no longer be promoted; on success the release pointer is what consumers
+    resolve. Providers must make abort idempotent for the retry path.
+    """
+    if not _is_owned_wap_branch(namespace):
+        logger.warning("wap_candidate_cleanup_rejected_unowned_ref", namespace=namespace)
+        return False
+    try:
+        return bool(catalog.abort_candidates(namespace=namespace))
+    except Exception:
+        logger.warning("wap_candidate_cleanup_failed", namespace=namespace, exc_info=True)
+        return False
 
 
 def _load_ref_query_catalog_manager() -> RefQueryCatalogManager | None:
@@ -675,6 +737,310 @@ def _emit_wap_observation(
 # ---------------------------------------------------------------------------
 
 
+def _release_resolved_for_run(
+    catalog: SnapshotPromotionCatalog, namespace: str, release_id: str
+) -> bool:
+    """Return whether every candidate in ``namespace`` resolved to our release."""
+    try:
+        candidates = catalog.list_candidates(namespace=namespace)
+    except Exception:
+        return False
+    if not candidates:
+        return False
+    for candidate in candidates:
+        try:
+            record = catalog.resolve_release(table_name=candidate.table_name)
+        except Exception:
+            return False
+        if record is None or record.release_id != release_id:
+            return False
+    return True
+
+
+def _advance_snapshot_promotion(
+    *,
+    catalog: SnapshotPromotionCatalog,
+    run: Any,
+    branch_name: str,
+    logical_run_id: str,
+    prior_report: dict[str, Any] | None,
+    quality_decision_id: str | None,
+    quality_metadata: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Advance one snapshot-strategy run through promote → candidate abort.
+
+    Mirrors the branch outbox: persist intent before crossing the catalog
+    boundary, promote with a compare-and-swap guard on the release pointer,
+    and checkpoint candidate cleanup separately. Returns the promotion state
+    for the shared finalize tail, or None when the run was terminalized here
+    (the caller must skip to its next run).
+    """
+    already_merged = prior_report is not None and prior_report.get("merge_state") == "merged"
+    merge_started = prior_report is not None and prior_report.get("merge_state") == "merge_started"
+    current_revision = _release_revision(catalog)
+    target_hash_before = str(current_revision) if current_revision >= 0 else None
+    try:
+        candidates = catalog.list_candidates(namespace=branch_name)
+    except Exception:
+        logger.warning(
+            "wap_candidate_listing_failed",
+            run_id=run.run_id,
+            branch_name=branch_name,
+            exc_info=True,
+        )
+        candidates = []
+    candidate_rows = [
+        {"table": candidate.table_name, "snapshot_id": str(candidate.snapshot_id)}
+        for candidate in candidates
+    ]
+    # The audited evidence is the exact set of candidate snapshot IDs the
+    # release pointer is advanced to; join deterministically for the record.
+    source_hash = ",".join(sorted(row["snapshot_id"] for row in candidate_rows)) or None
+
+    resumed = already_merged or (
+        merge_started
+        and prior_report is not None
+        and prior_report.get("target_hash_before") != target_hash_before
+        and _release_resolved_for_run(catalog, branch_name, logical_run_id)
+    )
+    if (
+        merge_started
+        and not resumed
+        and prior_report is not None
+        and prior_report.get("target_hash_before") != target_hash_before
+    ):
+        # The release pointer moved after our durable intent and our release
+        # did not resolve: someone else published. Refuse to guess.
+        write_wap_report(
+            logical_run_id,
+            status="promotion_failed",
+            branch=branch_name,
+            source_hash=source_hash,
+            target_branch="main",
+            target_hash_before=prior_report.get("target_hash_before"),
+            failure_reason="release_pointer_conflict",
+        )
+        _emit_wap_observation(
+            run=run,
+            status="failed",
+            run_status="success",
+            operation="promotion",
+            catalog_ref="main",
+            source_hash=source_hash,
+            target_hash=prior_report.get("target_hash_before"),
+            merge_outcome="failed",
+            quality_decision_id=quality_decision_id,
+            metadata={
+                **quality_metadata,
+                "changed_content_keys": {"status": "unavailable"},
+            },
+        )
+        logger.error(
+            "wap_promotion_release_conflict",
+            run_id=run.run_id,
+            branch_name=branch_name,
+        )
+        return None
+
+    if not resumed:
+        launch_revision = (prior_report or {}).get("launch_target_hash_before")
+        try:
+            expected_revision = int(launch_revision) if launch_revision is not None else -1
+        except (TypeError, ValueError):
+            expected_revision = -1
+        if expected_revision < 0 or expected_revision != current_revision:
+            write_wap_report(
+                logical_run_id,
+                status="promotion_failed",
+                branch=branch_name,
+                failure_reason="release_pointer_conflict",
+            )
+            return None
+        if not write_wap_report(
+            logical_run_id,
+            status="promotion_pending",
+            merge_state="merge_started",
+            branch=branch_name,
+            source_hash=source_hash,
+            target_branch="main",
+            target_hash_before=target_hash_before,
+            candidates=candidate_rows,
+        ):
+            logger.warning("wap_promotion_outbox_write_failed", run_id=run.run_id)
+            return None
+        try:
+            promoted_records = catalog.promote_candidates(
+                namespace=branch_name,
+                release_id=logical_run_id,
+                expected_revision=expected_revision,
+            )
+            merged = bool(promoted_records)
+        except Exception:
+            logger.warning(
+                "wap_promotion_raise_failed",
+                run_id=run.run_id,
+                branch_name=branch_name,
+                exc_info=True,
+            )
+            merged = False
+        if not merged:
+            write_wap_report(
+                logical_run_id,
+                status="promotion_failed",
+                branch=branch_name,
+                source_hash=source_hash,
+                target_branch="main",
+                target_hash_before=target_hash_before,
+                failure_reason="release_promotion_failed",
+            )
+            _emit_wap_observation(
+                run=run,
+                status="failed",
+                run_status="success",
+                operation="promotion",
+                catalog_ref="main",
+                source_hash=source_hash,
+                target_hash=target_hash_before,
+                merge_outcome="failed",
+                quality_decision_id=quality_decision_id,
+                metadata={
+                    **quality_metadata,
+                    "changed_content_keys": {"status": "unavailable"},
+                },
+            )
+            logger.error(
+                "wap_promotion_merge_failed",
+                run_id=run.run_id,
+                branch_name=branch_name,
+            )
+            return None
+        target_hash_after = str(_release_revision(catalog))
+        # This acknowledged transition is what makes a subsequent sensor
+        # evaluation replay evidence/cleanup rather than promote again.
+        if not write_wap_report(
+            logical_run_id,
+            status="promotion_pending",
+            merge_state="merged",
+            branch=branch_name,
+            source_hash=source_hash,
+            target_branch="main",
+            target_hash_before=target_hash_before,
+            target_hash_after=target_hash_after,
+            release_id=logical_run_id,
+            candidates=candidate_rows,
+        ):
+            logger.warning("wap_promotion_merge_receipt_write_failed", run_id=run.run_id)
+            return None
+    else:
+        target_hash_after = str(_release_revision(catalog))
+
+    source_deleted = bool(prior_report and prior_report.get("source_deleted"))
+    if not source_deleted:
+        source_deleted = _cleanup_owned_candidates(catalog, branch_name)
+    if not source_deleted:
+        write_wap_report(
+            logical_run_id,
+            status="promotion_pending",
+            merge_state="merged",
+            branch=branch_name,
+            source_hash=source_hash,
+            target_branch="main",
+            target_hash_before=target_hash_before,
+            target_hash_after=target_hash_after,
+            source_deleted=False,
+        )
+        logger.warning("wap_promotion_cleanup_pending", run_id=run.run_id, branch_name=branch_name)
+        return None
+    # Checkpoint cleanup independently of the terminal report.  A retry
+    # after reconciliation or tag failure must not try to abort it again.
+    if not write_wap_report(
+        logical_run_id,
+        status="promotion_pending",
+        merge_state="merged",
+        branch=branch_name,
+        source_hash=source_hash,
+        target_branch="main",
+        target_hash_before=target_hash_before,
+        target_hash_after=target_hash_after,
+        source_deleted=True,
+    ):
+        logger.warning("wap_promotion_cleanup_receipt_write_failed", run_id=run.run_id)
+        return None
+    return {
+        "source_hash": source_hash,
+        "target_hash_before": target_hash_before,
+        "target_hash_after": target_hash_after,
+        "source_deleted": True,
+    }
+
+
+def _finalize_wap_promotion(
+    run: Any,
+    instance: Any,
+    *,
+    logical_run_id: str,
+    branch_name: str,
+    source_hash: str | None,
+    target_hash_before: str | None,
+    target_hash_after: str | None,
+    source_deleted: bool,
+    target_catalog_ref: str,
+) -> bool:
+    """Write the terminal promotion report, mark the run, and emit evidence.
+
+    Shared by both WAP strategies; returns False when a durable write failed
+    so the caller retries on a later tick instead of guessing completion.
+    """
+    if not write_wap_report(
+        logical_run_id,
+        status="promoted",
+        merge_state="merged",
+        branch=branch_name,
+        source_hash=source_hash,
+        target_branch="main",
+        target_hash_before=target_hash_before,
+        target_hash_after=target_hash_after,
+        source_deleted=source_deleted,
+    ):
+        logger.warning("wap_promotion_terminal_evidence_write_failed", run_id=run.run_id)
+        return False
+    instance.add_run_tags(run.run_id, {"phlo/wap_promoted": "true"})
+    quality_decision_id, quality_metadata = _quality_evidence(
+        run.run_id,
+        instance,
+        project_id=_project_id_for_run(run),
+        attempt=_attempt_for_run(run),
+        evidence_run_id=_logical_run_id(run),
+    )
+    _emit_wap_observation(
+        run=run,
+        status="success",
+        run_status="success",
+        operation="promotion",
+        catalog_ref=target_catalog_ref,
+        source_hash=source_hash,
+        target_hash=target_hash_after,
+        merge_outcome="promoted",
+        quality_decision_id=quality_decision_id,
+        metadata={
+            **quality_metadata,
+            "changed_content_keys": {"status": "unavailable"},
+            "commit": {"status": "unavailable"},
+        },
+    )
+    _emit_wap_observation(
+        run=run,
+        status="success" if source_deleted else "incomplete",
+        run_status="success",
+        operation="cleanup",
+        catalog_ref=branch_name,
+        source_hash=source_hash,
+        merge_outcome="deleted" if source_deleted else "failed",
+        metadata={"target_ref": target_catalog_ref},
+    )
+    return True
+
+
 @dg.sensor(
     name="wap_auto_promotion_sensor",
     description="Merges WAP branches to main when all asset checks pass (WAP publish phase)",
@@ -693,8 +1059,13 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
 
     """
     instance = context.instance
-    catalog = _load_versioned_catalog()
-    query_catalog_manager = _load_ref_query_catalog_manager()
+    from phlo.infrastructure import load_wap_config
+
+    configured_strategy = load_wap_config().strategy
+    catalog = _load_wap_catalog()
+    query_catalog_manager = (
+        None if configured_strategy == WAP_STRATEGY_SNAPSHOT else _load_ref_query_catalog_manager()
+    )
 
     evaluation_time = datetime.now(timezone.utc)
     cursor_ts = None
@@ -760,6 +1131,27 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
                 "wap_promotion_blocked_launch_manifest_invalid",
                 run_id=run.run_id,
                 branch_name=branch_name,
+            )
+            blocked += 1
+            continue
+
+        manifest_logical_run_id, manifest_payload = manifest
+        # Fail closed on configuration drift: a run launched under a different
+        # strategy must never be advanced with the wrong catalog contract.
+        report_strategy = manifest_payload.get("strategy", WAP_STRATEGY_BRANCH)
+        if report_strategy != configured_strategy:
+            write_wap_report(
+                manifest_logical_run_id,
+                status="promotion_blocked",
+                branch=branch_name,
+                failure_reason="wap_strategy_mismatch",
+            )
+            logger.warning(
+                "wap_promotion_blocked_strategy_mismatch",
+                run_id=run.run_id,
+                branch_name=branch_name,
+                report_strategy=report_strategy,
+                configured_strategy=configured_strategy,
             )
             blocked += 1
             continue
@@ -882,6 +1274,36 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
 
         logical_run_id = _logical_run_id(run)
         prior_report = _read_wap_report(logical_run_id)
+        if report_strategy == WAP_STRATEGY_SNAPSHOT:
+            advance = _advance_snapshot_promotion(
+                catalog=catalog,
+                run=run,
+                branch_name=branch_name,
+                logical_run_id=logical_run_id,
+                prior_report=prior_report,
+                quality_decision_id=quality_decision_id,
+                quality_metadata=quality_metadata,
+            )
+            if advance is None:
+                continue
+            if _finalize_wap_promotion(
+                run,
+                instance,
+                logical_run_id=logical_run_id,
+                branch_name=branch_name,
+                source_hash=advance["source_hash"],
+                target_hash_before=advance["target_hash_before"],
+                target_hash_after=advance["target_hash_after"],
+                source_deleted=advance["source_deleted"],
+                target_catalog_ref=f"release:{logical_run_id}",
+            ):
+                promoted += 1
+                logger.info(
+                    "wap_candidate_promoted",
+                    run_id=run.run_id,
+                    branch_name=branch_name,
+                )
+            continue
         source_hash = _branch_hash(catalog, branch_name)
         target_hash_before = _branch_hash(catalog, "main")
         already_merged = prior_report is not None and prior_report.get("merge_state") == "merged"
@@ -1018,59 +1440,23 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
         if not _reconcile_promoted_wap_run(run, instance):
             logger.warning("wap_promotion_reconciliation_pending", run_id=run.run_id)
             continue
-        if not write_wap_report(
-            logical_run_id,
-            status="promoted",
-            merge_state="merged",
-            branch=branch_name,
+        if _finalize_wap_promotion(
+            run,
+            instance,
+            logical_run_id=logical_run_id,
+            branch_name=branch_name,
             source_hash=source_hash,
-            target_branch="main",
             target_hash_before=target_hash_before,
             target_hash_after=target_hash_after,
             source_deleted=source_deleted,
+            target_catalog_ref="main",
         ):
-            logger.warning("wap_promotion_terminal_evidence_write_failed", run_id=run.run_id)
-            continue
-        instance.add_run_tags(run.run_id, {"phlo/wap_promoted": "true"})
-        quality_decision_id, quality_metadata = _quality_evidence(
-            run.run_id,
-            instance,
-            project_id=_project_id_for_run(run),
-            attempt=_attempt_for_run(run),
-            evidence_run_id=_logical_run_id(run),
-        )
-        _emit_wap_observation(
-            run=run,
-            status="success",
-            run_status="success",
-            operation="promotion",
-            catalog_ref="main",
-            source_hash=source_hash,
-            target_hash=target_hash_after,
-            merge_outcome="promoted",
-            quality_decision_id=quality_decision_id,
-            metadata={
-                **quality_metadata,
-                "changed_content_keys": {"status": "unavailable"},
-                "commit": {"status": "unavailable"},
-            },
-        )
-        _emit_wap_observation(
-            run=run,
-            status="success" if source_deleted else "incomplete",
-            run_status="success",
-            operation="cleanup",
-            catalog_ref=branch_name,
-            source_hash=source_hash,
-            merge_outcome="deleted" if source_deleted else "failed",
-            metadata={"target_ref": "main"},
-        )
-        promoted += 1
-        logger.info(
-            "wap_branch_promoted",
-            run_id=run.run_id,
-            branch_name=branch_name,
-        )
+            promoted += 1
+            logger.info(
+                "wap_branch_promoted",
+                run_id=run.run_id,
+                branch_name=branch_name,
+            )
 
     if promoted or blocked:
         logger.info(
@@ -1306,19 +1692,155 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
 # ---------------------------------------------------------------------------
 
 
+def _iter_snapshot_strategy_reports() -> list[dict[str, Any]]:
+    """List durable reports launched under the snapshot strategy."""
+    try:
+        report_dir = _report_path("probe").parent
+        paths = sorted(report_dir.glob("*.json"))
+    except OSError:
+        return []
+    reports: list[dict[str, Any]] = []
+    for path in paths:
+        if path.parent.name != "wap-reports":
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict) and payload.get("strategy") == WAP_STRATEGY_SNAPSHOT:
+            reports.append(payload)
+    return reports
+
+
+@dg.sensor(
+    name="wap_candidate_cleanup_sensor",
+    description="Aborts stale snapshot-strategy candidate namespaces past retention",
+    minimum_interval_seconds=DEFAULT_CLEANUP_INTERVAL_SECONDS,
+    default_status=dg.DefaultSensorStatus.RUNNING,
+)
+def wap_candidate_cleanup_sensor(context: dg.SensorEvaluationContext):
+    """Abort stale snapshot-strategy candidate namespaces past retention.
+
+    Correlates each snapshot-strategy report to exactly one terminal Dagster
+    run through the logical ``phlo/run_id`` tag plus the exact ``phlo/wap_branch``
+    tag, mirroring the branch cleanup sensor. Candidate namespaces of runs
+    that are active, ambiguous, or uncorrelated are retained for audit.
+    """
+    catalog = _load_snapshot_promotion_catalog()
+    retention_cutoff = datetime.now(timezone.utc) - timedelta(hours=DEFAULT_RETENTION_HOURS)
+
+    aborted = 0
+    skipped = 0
+
+    for report in _iter_snapshot_strategy_reports():
+        namespace = report.get("branch")
+        logical_run_id = report.get("run_id")
+        if not namespace or not logical_run_id:
+            continue
+        updated_at = report.get("updated_at")
+        try:
+            report_time = (
+                datetime.fromisoformat(updated_at) if isinstance(updated_at, str) else None
+            )
+        except ValueError:
+            report_time = None
+        if report_time is None or report_time > retention_cutoff:
+            skipped += 1
+            continue
+
+        candidate_runs = list(
+            context.instance.get_runs(
+                filters=dg.RunsFilter(tags={WAP_RUN_ID_TAG: str(logical_run_id)})
+            )
+        )
+        exact_matches = [
+            run
+            for run in candidate_runs
+            if (getattr(run, "tags", {}) or {}).get(WAP_BRANCH_TAG) == namespace
+        ]
+        if len(exact_matches) != 1:
+            _record_uncorrelated_gap(
+                str(logical_run_id),
+                branch=str(namespace),
+                missing=["run_status"],
+                reason="cleanup_ambiguous_or_missing_tagged_run",
+            )
+            continue
+
+        selected_run = exact_matches[0]
+        run_status = _normalized_dagster_status(selected_run)
+        if run_status is None:
+            skipped += 1
+            continue
+
+        cleanup_run = type(
+            "CleanupRun",
+            (),
+            {
+                "run_id": logical_run_id,
+                "tags": dict(getattr(selected_run, "tags", {}) or {}),
+            },
+        )()
+        cleanup_complete = _cleanup_owned_candidates(catalog, str(namespace))
+        write_wap_report(
+            str(logical_run_id),
+            status="cleanup_complete" if cleanup_complete else "cleanup_incomplete",
+            branch=namespace,
+            cleanup_complete=cleanup_complete,
+            failure_reason=None if cleanup_complete else "candidate_cleanup_incomplete",
+        )
+        if cleanup_complete:
+            aborted += 1
+            logger.info(
+                "wap_candidates_cleaned_up",
+                branch_name=namespace,
+                dagster_run_id=selected_run.run_id,
+            )
+            _emit_wap_observation(
+                run=cleanup_run,
+                status="success",
+                run_status=run_status,
+                operation="cleanup",
+                catalog_ref=str(namespace),
+                source_hash=None,
+                merge_outcome="deleted",
+                metadata={"retention_hours": DEFAULT_RETENTION_HOURS},
+            )
+        else:
+            logger.warning("wap_candidate_cleanup_failed", branch_name=namespace)
+
+    if aborted or skipped:
+        logger.info(
+            "wap_candidate_cleanup_sensor_completed",
+            aborted=aborted,
+            skipped=skipped,
+        )
+
+
 def get_wap_definitions() -> dg.Definitions:
     """Return Dagster definitions for the WAP lifecycle sensors.
 
     Merge into your project definitions to enable automated Write-Audit-Publish.
+    The cleanup sensor matches the configured strategy: branch retention for
+    versioned catalogs, candidate-namespace retention for snapshot promotion.
 
     """
+    from phlo.infrastructure import load_wap_config
+
+    strategy = load_wap_config().strategy
+    cleanup_sensor = (
+        wap_candidate_cleanup_sensor
+        if strategy == WAP_STRATEGY_SNAPSHOT
+        else wap_branch_cleanup_sensor
+    )
     logger.info(
         "dagster_wap_definitions_built",
         sensor_count=2,
+        strategy=strategy,
     )
     return dg.Definitions(
         sensors=[
             wap_auto_promotion_sensor,
-            wap_branch_cleanup_sensor,
+            cleanup_sensor,
         ],
     )

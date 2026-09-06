@@ -38,7 +38,7 @@ from typing import Any
 
 import dagster as dg
 
-from phlo.capabilities.interfaces import VersionedCatalog
+from phlo.capabilities.interfaces import SnapshotPromotionCatalog, VersionedCatalog
 from phlo.capabilities.resolver import resolve_capability
 from phlo.exceptions import PhloCapabilitySetupError
 from phlo.infrastructure import load_wap_config
@@ -56,8 +56,9 @@ logger = get_logger(__name__)
 
 
 def _collect_wap_definitions() -> dg.Definitions | None:
-    """Load WAP sensors when a versioned catalog capability is available."""
-    if not load_wap_config().enabled:
+    """Load WAP sensors when a catalog capability matching the strategy is available."""
+    wap_config = load_wap_config()
+    if not wap_config.enabled:
         logger.info("dagster_wap_definitions_disabled_by_project_policy")
         return None
 
@@ -65,15 +66,24 @@ def _collect_wap_definitions() -> dg.Definitions | None:
     if resolution is None:
         return None
 
-    if not (resolution.support.supports_refs and resolution.support.supports_promote):
-        return None
+    if wap_config.strategy == "snapshot":
+        # Snapshot promotion catalogs deliberately do not implement branch
+        # semantics; they must expose snapshot-based release promotion.
+        if not (resolution.support.supports_promote and resolution.support.supports_snapshots):
+            return None
+        provider_ok = isinstance(resolution.provider, SnapshotPromotionCatalog)
+    else:
+        if not (resolution.support.supports_refs and resolution.support.supports_promote):
+            return None
+        provider_ok = isinstance(resolution.provider, VersionedCatalog)
 
     provider = resolution.provider
-    if not isinstance(provider, VersionedCatalog):
+    if not provider_ok:
         logger.warning(
             "dagster_wap_catalog_provider_incompatible",
             capability_name=resolution.name,
             provider_type=type(provider).__name__,
+            strategy=wap_config.strategy,
         )
         return None
 

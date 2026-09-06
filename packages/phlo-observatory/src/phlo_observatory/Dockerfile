@@ -22,7 +22,7 @@ WORKDIR /app
 
 # Required for service discovery/status code paths that run `docker ps`.
 RUN apk upgrade --no-cache \
-    && apk add --no-cache docker-cli=29.5.3-r0
+    && apk add --no-cache docker-cli=29.5.3-r1
 
 # Install only the runtime dependency graph. The build-only Vite, Nitro, and
 # scaffolding packages remain in the builder stage.

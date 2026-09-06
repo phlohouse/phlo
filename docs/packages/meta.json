@@ -3,6 +3,9 @@
   "pages": [
     "index",
     "phlo-dagster",
+    "phlo-kafka",
+    "phlo-airbyte",
+    "phlo-polaris",
     "phlo-dlt",
     "phlo-dbt",
     "phlo-iceberg",

@@ -181,7 +181,15 @@ class PostgresResourceProvider(ResourceProviderPlugin):
             postgres
 
         """
-        return [ResourceSpec(name="postgres", resource=PostgresResource())]
+        from phlo_postgres.checkpoints import PostgresIngestionCheckpointStore
+
+        return [
+            ResourceSpec(name="postgres", resource=PostgresResource()),
+            ResourceSpec(
+                name="ingestion_checkpoints",
+                resource=PostgresIngestionCheckpointStore(),
+            ),
+        ]
 
     def get_publish_targets(self) -> list[PublishTargetSpec]:
         """Return publish target capability specs exposed by this provider.

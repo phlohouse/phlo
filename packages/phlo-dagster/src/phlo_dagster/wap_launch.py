@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from phlo._correlation import resolve_project_identity
-from phlo.capabilities.interfaces import VersionedCatalog
+from phlo.capabilities.interfaces import SnapshotPromotionCatalog, VersionedCatalog
 from phlo.capabilities.resolver import resolve_capability
 from phlo.config import get_settings
 from phlo.exceptions import PhloConfigError
@@ -32,6 +32,8 @@ WAP_RUN_ID_TAG = "phlo/run_id"
 WAP_PROJECT_ID_TAG = "phlo/project_id"
 WAP_ATTEMPT_TAG = "phlo/attempt"
 WAP_BRANCH_PREFIX = "pipeline-run-"
+WAP_STRATEGY_BRANCH = "branch"
+WAP_STRATEGY_SNAPSHOT = "snapshot"
 _PROMOTED_OUTCOME_FIELDS = frozenset({"failure_reason"})
 logger = get_logger(__name__)
 
@@ -179,20 +181,26 @@ def read_wap_report(logical_run_id: str) -> dict[str, Any] | None:
 
 @dataclass(frozen=True)
 class WapLaunch:
-    """The logical identity and branch prepared before a Dagster run starts."""
+    """The logical identity and staging ref prepared before a Dagster run starts.
+
+    ``branch`` carries the staging ref for both strategies: a versioned-catalog
+    branch under the ``branch`` strategy, or a candidate namespace under the
+    ``snapshot`` strategy. ``catalog`` is the provider bound to that strategy.
+    """
 
     logical_run_id: str
     branch: str
-    catalog: VersionedCatalog
+    catalog: Any
     created_branch: bool
     source_hash: str | None
     target_hash_before: str | None
     project_id: str
     attempt: int
+    strategy: str = WAP_STRATEGY_BRANCH
 
     @property
     def tags(self) -> dict[str, str]:
-        """Return the Dagster tags that bind stages to this WAP branch."""
+        """Return the Dagster tags that bind stages to this WAP staging ref."""
         return {
             WAP_RUN_ID_TAG: self.logical_run_id,
             WAP_BRANCH_TAG: self.branch,
@@ -202,12 +210,16 @@ class WapLaunch:
         }
 
     def cleanup_if_created(self) -> None:
-        """Remove only the branch created by this launch attempt.
+        """Remove only the staging ref created by this launch attempt.
 
         Normal WAP callers intentionally do not invoke this method: retained
         refs and their reports are the audit trail for failed checks.
         """
-        if self.created_branch:
+        if not self.created_branch:
+            return
+        if self.strategy == WAP_STRATEGY_SNAPSHOT:
+            self.catalog.abort_candidates(namespace=self.branch)
+        else:
             self.catalog.delete_branch(self.branch)
 
     def record_launch_result(
@@ -217,13 +229,16 @@ class WapLaunch:
         dagster_run_id: str | None = None,
         error: str | None = None,
     ) -> bool:
-        """Update the pre-created manifest without changing its branch binding."""
+        """Update the pre-created manifest without changing its staging binding."""
         updates: dict[str, Any] = {
             "status": status,
+            "strategy": self.strategy,
             "branch": self.branch,
             "launch_tags": self.tags,
             # These are immutable launch facts.  Promotion's source_hash and
             # target_hash_before instead describe the current merge attempt.
+            # Under the snapshot strategy they record the release-pointer
+            # revision the promotion CAS guard compares against.
             "launch_source_hash": self.source_hash,
             "launch_target_hash_before": self.target_hash_before,
             "source_hash": self.source_hash,
@@ -249,8 +264,59 @@ class WapLaunch:
         return write_wap_report(self.logical_run_id, **updates)
 
 
+def _prepare_snapshot_wap_launch(
+    *, logical_run_id: str, project_id: str, attempt: int
+) -> WapLaunch:
+    """Open a run-scoped candidate namespace on a snapshot-promotion catalog."""
+    resolution = resolve_capability("catalog")
+    if resolution is None or not (
+        resolution.support.supports_promote and resolution.support.supports_snapshots
+    ):
+        raise PhloConfigError(
+            message=("WAP snapshot strategy requires a catalog with snapshot promotion support."),
+            suggestions=[
+                "Configure a snapshot-promotion catalog such as phlo-polaris, or set "
+                "wap.strategy to 'branch' for a versioned catalog such as phlo-nessie."
+            ],
+        )
+    catalog: Any = resolution.provider
+    if not isinstance(catalog, SnapshotPromotionCatalog):
+        raise PhloConfigError(
+            message="Configured catalog does not implement snapshot-based WAP promotion.",
+            suggestions=[
+                "Configure a SnapshotPromotionCatalog-compatible provider, or set "
+                "wap.strategy to 'branch'."
+            ],
+        )
+
+    namespace = f"{WAP_BRANCH_PREFIX}{logical_run_id}"
+    revision = int(catalog.release_revision())
+    launch = WapLaunch(
+        logical_run_id=logical_run_id,
+        branch=namespace,
+        catalog=catalog,
+        created_branch=True,
+        source_hash=str(revision),
+        target_hash_before=str(revision),
+        project_id=project_id,
+        attempt=attempt,
+        strategy=WAP_STRATEGY_SNAPSHOT,
+    )
+    if not launch.record_launch_result(status="branch_created"):
+        raise PhloConfigError(
+            message=f"Could not persist the WAP launch report for namespace {namespace!r}.",
+            suggestions=[
+                "Repair .phlo/wap-reports storage before retrying; the candidate namespace "
+                "was retained."
+            ],
+        )
+    return launch
+
+
 def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
-    """Create a WAP branch and tags before asking Dagster to start work."""
+    """Create a WAP staging ref and tags before asking Dagster to start work."""
+    from phlo.infrastructure import load_wap_config
+
     project = resolve_project_identity(configured_project=get_settings().phlo_project)
     if not project.project_id:
         raise PhloConfigError(
@@ -258,6 +324,12 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
             suggestions=["Set PHLO_PROJECT before retrying the WAP materialization."],
         )
     attempt = 1
+    strategy = load_wap_config().strategy
+    if strategy == WAP_STRATEGY_SNAPSHOT:
+        return _prepare_snapshot_wap_launch(
+            logical_run_id=logical_run_id, project_id=project.project_id, attempt=attempt
+        )
+
     resolution = resolve_capability("catalog")
     if resolution is None or not (
         resolution.support.supports_refs and resolution.support.supports_promote

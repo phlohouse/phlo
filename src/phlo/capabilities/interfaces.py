@@ -1,9 +1,9 @@
 """Runtime capability interfaces used by capability providers.
 
 Declares the Protocol contracts every provider-backed capability must satisfy
-(table stores, versioned catalogs, governance, authn/authz, orchestration,
-query engines, maintenance, lineage sinks) plus the neutral dataclasses
-exchanged across them.
+(table stores, versioned catalogs, snapshot-promotion catalogs, ingestion
+checkpoint stores, governance, authn/authz, orchestration, query engines,
+maintenance, lineage sinks) plus the neutral dataclasses exchanged across them.
 Imported by phlo-api (observatory lineage), phlo-dagster (framework definitions),
 and phlo-delta; builds its object inventory on phlo.capabilities.inventory.
 """
@@ -190,6 +190,189 @@ class VersionedCatalog(Protocol):
 
     def delete_branch(self, name: str) -> bool:
         """Delete a branch reference."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateSnapshot:
+    """One run-scoped candidate result awaiting release promotion.
+
+    ``namespace`` is the immutable run-scoped candidate group the snapshot
+    belongs to; ``snapshot_id`` is the provider-native immutable snapshot the
+    audit phase must read and promotion must publish.
+    """
+
+    table_name: str
+    snapshot_id: int | str
+    run_id: str
+    namespace: str = ""
+    created_at: datetime | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseRecord:
+    """Durable pointer exposing one promoted table snapshot to consumers.
+
+    Consumers resolve tables through the release record rather than reading a
+    catalog's latest state, so a multi-table release becomes consumer-atomic:
+    a release is readable once every member table's pointer carries the same
+    ``release_id``.
+    """
+
+    table_name: str
+    snapshot_id: int | str
+    release_id: str
+    revision: int
+    promoted_at: datetime | None = None
+    run_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class PromotionOutcome:
+    """Result of one candidate promotion attempt."""
+
+    promoted: bool
+    release: ReleaseRecord | None = None
+    failure_reason: str | None = None
+
+
+@runtime_checkable
+class SnapshotPromotionCatalog(Protocol):
+    """Protocol for snapshot-based write-audit-publish catalogs.
+
+    Unlike :class:`VersionedCatalog` (branch/merge on a mutable ref), a
+    snapshot-promotion catalog writes immutable candidate snapshots, audits
+    those exact snapshots, and publishes them through a durable release
+    pointer advanced with compare-and-swap protection. Providers implement
+    this contract instead of faking branch semantics on a catalog that has
+    none.
+    """
+
+    def create_candidate(self, *, table_name: str, run_id: str) -> CandidateSnapshot:
+        """Create or reopen the run-scoped candidate for ``table_name``."""
+        ...
+
+    def list_candidates(self, *, namespace: str) -> list[CandidateSnapshot]:
+        """List candidate snapshots recorded under a candidate namespace."""
+        ...
+
+    def promote_candidates(
+        self,
+        *,
+        namespace: str,
+        release_id: str,
+        expected_revision: int | None = None,
+        tables: list[str] | None = None,
+    ) -> list[ReleaseRecord]:
+        """Publish audited candidate snapshots by advancing the release pointer.
+
+        ``expected_revision`` is a compare-and-swap guard: when supplied and
+        the release pointer has moved, the catalog must refuse to promote
+        rather than publish against a stale view.
+        """
+        ...
+
+    def resolve_release(self, *, table_name: str) -> ReleaseRecord | None:
+        """Return the release record consumers currently resolve, if any."""
+        ...
+
+    def release_revision(self) -> int:
+        """Return the current release-pointer revision for compare-and-swap guards."""
+        ...
+
+    def abort_candidates(self, *, namespace: str) -> bool:
+        """Drop a candidate namespace so its snapshots can never be promoted."""
+        ...
+
+    def prune_candidates(self, *, older_than: datetime) -> list[str]:
+        """Drop candidate namespaces created before the retention cutoff."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class SourceOffsetRange:
+    """Half-open source offset range consumed by one checkpoint unit."""
+
+    topic: str
+    partition: int
+    start_offset: int
+    end_offset: int
+
+
+@dataclass(frozen=True, slots=True)
+class CheckpointRecord:
+    """Durable ingestion checkpoint binding source ranges to output evidence.
+
+    ``status`` follows the claim→staged→audited→committed lifecycle; a
+    ``committed`` record proves the exact offset range is represented by
+    ``snapshot_id`` in the destination table, so replaying it must produce no
+    duplicate logical records.
+    """
+
+    checkpoint_id: str
+    source_id: str
+    target_table: str
+    status: str
+    ranges: tuple[SourceOffsetRange, ...] = ()
+    snapshot_id: int | str | None = None
+    release_id: str | None = None
+    idempotency_key: str | None = None
+    failure_reason: str | None = None
+    updated_at: datetime | None = None
+
+
+@runtime_checkable
+class IngestionCheckpointStore(Protocol):
+    """Protocol for durable stream-ingestion checkpoints.
+
+    Implementations persist, per source identity, which offset ranges were
+    claimed, which output snapshot represents them, and whether they are
+    committed. Streams commit offsets only after their candidate snapshot is
+    audited and promoted, so a crash between write and commit replays ranges
+    into idempotent merges rather than losing or duplicating records.
+    """
+
+    def claim(
+        self,
+        *,
+        source_id: str,
+        target_table: str,
+        ranges: list[SourceOffsetRange],
+        idempotency_key: str | None = None,
+    ) -> CheckpointRecord:
+        """Record an exclusive claim on the supplied ranges."""
+        ...
+
+    def record_snapshot(
+        self,
+        *,
+        checkpoint_id: str,
+        snapshot_id: int | str,
+        release_id: str | None = None,
+    ) -> CheckpointRecord:
+        """Bind the claimed ranges to the output snapshot that represents them."""
+        ...
+
+    def commit(self, *, checkpoint_id: str) -> CheckpointRecord:
+        """Mark a snapshot-bound checkpoint as durably committed."""
+        ...
+
+    def fail(self, *, checkpoint_id: str, reason: str) -> CheckpointRecord:
+        """Mark a checkpoint failed while retaining its claimed ranges."""
+        ...
+
+    def latest_committed(self, *, source_id: str, target_table: str) -> CheckpointRecord | None:
+        """Return the newest committed checkpoint for one source/table pair."""
+        ...
+
+    def find_by_idempotency_key(self, *, idempotency_key: str) -> CheckpointRecord | None:
+        """Resolve an existing claim by its deterministic idempotency key."""
+        ...
+
+    def list_open(self, *, source_id: str) -> list[CheckpointRecord]:
+        """List claimed-but-uncommitted checkpoints needing reconciliation."""
         ...
 
 

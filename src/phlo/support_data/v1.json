@@ -110,19 +110,28 @@
     "preview": {
       "status": "available_without_v1_guarantee",
       "components": [
+        "package:phlo-airbyte",
         "package:phlo-alloy",
         "package:phlo-clickhouse",
         "package:phlo-clickstack",
         "package:phlo-delta",
         "package:phlo-grafana",
+        "package:phlo-kafka",
         "package:phlo-loki",
         "package:phlo-mcp",
         "package:phlo-openmetadata",
+        "package:phlo-polaris",
         "package:phlo-prometheus",
         "package:phlo-rustfs",
         "package:phlo-superset",
+        "service:polaris",
+        "service:airbyte",
+        "service:kafka",
         "service:postgres-exporter",
         "service:alloy",
+        "service:airbyte-temporal",
+        "service:airbyte-manifest",
+        "service:airbyte-bootloader",
         "service:grafana",
         "service:loki",
         "service:prometheus",
@@ -351,6 +360,39 @@
       "evidence": [
         "packages/phlo-otel/pyproject.toml",
         "packages/phlo-otel/tests"
+      ]
+    },
+    {
+      "name": "phlo-airbyte",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Control-plane integration is implemented and unit-tested; the Iceberg destination contract still requires the pinned-release compatibility pass before any support claim.",
+      "evidence": [
+        "packages/phlo-airbyte/pyproject.toml",
+        "packages/phlo-airbyte/tests"
+      ]
+    },
+    {
+      "name": "phlo-kafka",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Checkpoint-driven consumer lifecycle is implemented and unit-tested; broker compatibility and capacity fixtures still require the pinned-release pass.",
+      "evidence": [
+        "packages/phlo-kafka/pyproject.toml",
+        "packages/phlo-kafka/tests"
+      ]
+    },
+    {
+      "name": "phlo-polaris",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Snapshot promotion catalog is implemented and unit-tested; Polaris service, Trino, and credential-vending behavior still require the pinned-release compatibility pass.",
+      "evidence": [
+        "packages/phlo-polaris/pyproject.toml",
+        "packages/phlo-polaris/tests"
       ]
     },
     {
@@ -841,6 +883,78 @@
       "reason": "Local development utility, not a production support guarantee.",
       "evidence": [
         "packages/phlo-pgweb/src/phlo_pgweb/service.yaml"
+      ]
+    },
+    {
+      "name": "polaris",
+      "package": "phlo-polaris",
+      "source": "packages/phlo-polaris/src/phlo_polaris/service.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-polaris/src/phlo_polaris/service.yaml"
+      ]
+    },
+    {
+      "name": "airbyte",
+      "package": "phlo-airbyte",
+      "source": "packages/phlo-airbyte/src/phlo_airbyte/service.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-airbyte/src/phlo_airbyte/service.yaml"
+      ]
+    },
+    {
+      "name": "airbyte-temporal",
+      "package": "phlo-airbyte",
+      "source": "packages/phlo-airbyte/src/phlo_airbyte/airbyte-temporal-setup.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-airbyte/src/phlo_airbyte/airbyte-temporal-setup.yaml"
+      ]
+    },
+    {
+      "name": "airbyte-manifest",
+      "package": "phlo-airbyte",
+      "source": "packages/phlo-airbyte/src/phlo_airbyte/airbyte-manifest-setup.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-airbyte/src/phlo_airbyte/airbyte-manifest-setup.yaml"
+      ]
+    },
+    {
+      "name": "airbyte-bootloader",
+      "package": "phlo-airbyte",
+      "source": "packages/phlo-airbyte/src/phlo_airbyte/airbyte-bootloader-setup.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-airbyte/src/phlo_airbyte/airbyte-bootloader-setup.yaml"
+      ]
+    },
+    {
+      "name": "kafka",
+      "package": "phlo-kafka",
+      "source": "packages/phlo-kafka/src/phlo_kafka/service.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-kafka/src/phlo_kafka/service.yaml"
       ]
     },
     {

@@ -3,6 +3,33 @@
   "version": "1.0.0",
   "updated_at": "2026-09-03T00:00:00Z",
   "plugins": {
+    "airbyte": {
+      "type": "service",
+      "package": "phlo-airbyte",
+      "description": "Self-managed Airbyte control plane for connector-managed ingestion",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-airbyte",
+      "tags": ["ingestion", "airbyte", "connectors"],
+      "verified": false
+    },
+    "kafka": {
+      "type": "service",
+      "package": "phlo-kafka",
+      "description": "KRaft-mode Kafka broker for streaming ingestion into Iceberg",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-kafka",
+      "tags": ["ingestion", "kafka", "streaming"],
+      "verified": false
+    },
+    "polaris": {
+      "type": "service",
+      "package": "phlo-polaris",
+      "description": "Apache Polaris Iceberg REST catalog with OAuth/RBAC and credential vending",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/iamgp/phlo/tree/main/packages/phlo-polaris",
+      "tags": ["catalog", "iceberg", "polaris"],
+      "verified": false
+    },
     "dagster": {
       "type": "service",
       "package": "phlo-dagster",

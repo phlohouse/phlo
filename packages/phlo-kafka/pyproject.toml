@@ -1,0 +1,66 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [
+    "setuptools>=45",
+    "wheel",
+]
+
+[project]
+dependencies = [
+    "phlo>=0.14.0,<0.15",
+]
+description = "Kafka ingestion service plugin for Phlo"
+name = "phlo-kafka"
+requires-python = ">=3.11"
+version = "0.14.0"
+
+[[project.authors]]
+email = "team@phlo.dev"
+name = "Phlo Team"
+
+[project.entry-points."phlo.plugins.assets"]
+kafka = "phlo_kafka.plugin:KafkaAssetProvider"
+
+[project.entry-points."phlo.plugins.cli"]
+kafka = "phlo_kafka.cli_plugin:KafkaCliPlugin"
+
+[project.entry-points."phlo.plugins.ingestion_providers"]
+kafka = "phlo_kafka.plugin:KafkaIngestionProvider"
+
+[project.entry-points."phlo.plugins.resources"]
+kafka = "phlo_kafka.resource_provider:KafkaResourceProvider"
+
+[project.entry-points."phlo.plugins.services"]
+kafka = "phlo_kafka.plugin:KafkaServicePlugin"
+
+[project.license]
+text = "MIT"
+
+[project.optional-dependencies]
+consumer = ["confluent-kafka>=2.0"]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.1.0",
+]
+
+[project.readme]
+content-type = "text/plain"
+text = "Kafka ingestion service plugin for Phlo."
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+phlo_kafka = [
+    "service.yaml",
+]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
