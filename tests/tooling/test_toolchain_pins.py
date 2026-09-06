@@ -144,7 +144,13 @@ def test_releasex_prepares_derived_workspace_versions_transactionally() -> None:
             "dependents": ["packages/*"],
             "when": "dependency_selected",
             "range": ">={version},<{next_minor}",
-        }
+        },
+        {
+            "dependency": "phlo-postgres",
+            "dependents": ["packages/phlo-polaris"],
+            "when": "dependency_selected",
+            "range": ">={version},<{next_minor}",
+        },
     ]
 
     replacements = config["release"]["replacements"]

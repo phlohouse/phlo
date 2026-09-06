@@ -9,7 +9,7 @@ gitignore:
   - dagster/schedules/
   - dagster/logs/
 
-image: ghcr.io/phlohouse/phlo-dagster:0.14.0
+image: ghcr.io/phlohouse/phlo-dagster:0.15.0
 build:
   context: .
   dockerfile: dagster/Dockerfile

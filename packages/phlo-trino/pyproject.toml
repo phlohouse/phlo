@@ -7,7 +7,7 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.14.0,<0.15",
+    "phlo>=0.15.0,<0.16",
     "pandas>=2.0.0",
     "psycopg2-binary>=2.9.11",
     "trino>=0.336.0",
@@ -15,7 +15,7 @@ dependencies = [
 description = "Trino service plugin for Phlo"
 name = "phlo-trino"
 requires-python = ">=3.11"
-version = "0.14.0"
+version = "0.15.0"
 
 [[project.authors]]
 email = "team@phlo.dev"

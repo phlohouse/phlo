@@ -4,14 +4,14 @@ requires = ["hatchling"]
 
 [project]
 dependencies = [
-    "phlo>=0.14.0,<0.15",
+    "phlo>=0.15.0,<0.16",
     "phlo-observatory>=0.1.0",
 ]
 description = "Example Observatory extension plugin"
 name = "phlo-observatory-example"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.14.0"
+version = "0.15.0"
 
 [[project.authors]]
 email = "team@phlo.dev"

@@ -25,7 +25,10 @@ SPEC.loader.exec_module(VALIDATOR)
 
 
 def _run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, check=check, capture_output=True, text=True)
+    result = subprocess.run(args, check=False, capture_output=True, text=True)
+    if check:
+        assert result.returncode == 0, f"{args} failed:\n{result.stdout}\n{result.stderr}"
+    return result
 
 
 def _providers() -> list[tuple[str, Path]]:

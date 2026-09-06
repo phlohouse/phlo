@@ -5,37 +5,37 @@
   "release_line": "1.x",
   "artifact_pinning": "not_yet_published",
   "current_release": {
-    "version": "0.14.0",
+    "version": "0.15.0",
     "maturity": "alpha",
     "production_ready": false
   },
   "release_set": {
     "packages": [
-      {"name": "phlo", "version": "0.14.0"},
-      {"name": "phlo-api", "version": "0.14.0"},
+      {"name": "phlo", "version": "0.15.0"},
+      {"name": "phlo-api", "version": "0.15.0"},
       {"name": "phlo-core-plugins", "version": "0.14.0"},
-      {"name": "phlo-dagster", "version": "0.14.0"},
-      {"name": "phlo-dbt", "version": "0.14.0"},
-      {"name": "phlo-dlt", "version": "0.14.0"},
-      {"name": "phlo-iceberg", "version": "0.14.0"},
-      {"name": "phlo-minio", "version": "0.14.0"},
-      {"name": "phlo-nessie", "version": "0.14.0"},
-      {"name": "phlo-observatory", "version": "0.14.0"},
-      {"name": "phlo-pandera", "version": "0.14.0"},
-      {"name": "phlo-postgres", "version": "0.14.0"},
-      {"name": "phlo-trino", "version": "0.14.0"}
+      {"name": "phlo-dagster", "version": "0.15.0"},
+      {"name": "phlo-dbt", "version": "0.15.0"},
+      {"name": "phlo-dlt", "version": "0.15.0"},
+      {"name": "phlo-iceberg", "version": "0.15.0"},
+      {"name": "phlo-minio", "version": "0.15.0"},
+      {"name": "phlo-nessie", "version": "0.15.0"},
+      {"name": "phlo-observatory", "version": "0.15.0"},
+      {"name": "phlo-pandera", "version": "0.15.0"},
+      {"name": "phlo-postgres", "version": "0.15.0"},
+      {"name": "phlo-trino", "version": "0.15.0"}
     ],
     "services": [
-      {"name": "dagster", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.14.0"},
-      {"name": "dagster-daemon", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.14.0"},
+      {"name": "dagster", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.15.0"},
+      {"name": "dagster-daemon", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.15.0"},
       {"name": "postgres", "image_reference": "postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"},
       {"name": "postgres-volume-setup", "image_reference": "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"},
       {"name": "minio", "image_reference": "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"},
       {"name": "minio-setup", "image_reference": "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727"},
       {"name": "nessie", "image_reference": "ghcr.io/projectnessie/nessie:0.108.3@sha256:219709df809fcfac7abe0491b2070c8d56178ed29828fb30968a4365b62bcc8a"},
       {"name": "trino", "image_reference": "trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534"},
-      {"name": "phlo-api", "image_reference": "ghcr.io/phlohouse/phlo-api:0.14.0"},
-      {"name": "observatory", "image_reference": "ghcr.io/phlohouse/phlo-observatory:0.14.0"}
+      {"name": "phlo-api", "image_reference": "ghcr.io/phlohouse/phlo-api:0.15.0"},
+      {"name": "observatory", "image_reference": "ghcr.io/phlohouse/phlo-observatory:0.15.0"}
     ],
     "schemas": {
       "configuration": {

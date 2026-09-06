@@ -7,10 +7,10 @@
   "entry_point_group": "phlo.project_templates",
   "entry_point": "phlo_retail_files.provider:templates",
   "phlo_family_pins": [
-    "phlo[defaults]==0.14.0",
-    "phlo-dagster==0.14.0",
-    "phlo-dbt==0.14.0",
-    "phlo-pandera==0.14.0"
+    "phlo[defaults]==0.15.0",
+    "phlo-dagster==0.15.0",
+    "phlo-dbt==0.15.0",
+    "phlo-pandera==0.15.0"
   ],
   "third_party_dependencies": {
     "runtime": [
@@ -56,14 +56,14 @@
   "resources_digest": "sha256:93df8f387da25c8328481a028782134510be4f9af3cd3033d2a56f0be0a389e8",
   "rendered_dependencies": {
     "runtime": [
-      "phlo[defaults]==0.14.0",
-      "phlo-dagster==0.14.0",
-      "phlo-dbt==0.14.0",
+      "phlo[defaults]==0.15.0",
+      "phlo-dagster==0.15.0",
+      "phlo-dbt==0.15.0",
       "pandas>=2.3,<3.1",
       "pyarrow>=21,<26"
     ],
     "dev": [
-      "phlo-pandera==0.14.0",
+      "phlo-pandera==0.15.0",
       "duckdb>=1.4,<1.6",
       "dbt-duckdb>=1.10,<1.12"
     ]

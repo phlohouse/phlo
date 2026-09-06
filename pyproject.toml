@@ -88,7 +88,7 @@ license = "AGPL-3.0-or-later"
 name = "phlo"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.14.0"
+version = "0.15.0"
 
 [project.entry-points."phlo.plugins.quality"]
 
@@ -298,6 +298,9 @@ workspace = true
 [tool.uv.sources.phlo-iceberg]
 workspace = true
 
+[tool.uv.sources.phlo-kafka]
+workspace = true
+
 [tool.uv.sources.phlo-lineage]
 workspace = true
 
@@ -308,9 +311,6 @@ workspace = true
 workspace = true
 
 [tool.uv.sources.phlo-minio]
-workspace = true
-
-[tool.uv.sources.phlo-kafka]
 workspace = true
 
 [tool.uv.sources.phlo-nessie]
@@ -331,13 +331,13 @@ workspace = true
 [tool.uv.sources.phlo-otel]
 workspace = true
 
-[tool.uv.sources.phlo-polaris]
-workspace = true
-
 [tool.uv.sources.phlo-pandera]
 workspace = true
 
 [tool.uv.sources.phlo-pgweb]
+workspace = true
+
+[tool.uv.sources.phlo-polaris]
 workspace = true
 
 [tool.uv.sources.phlo-postgres]

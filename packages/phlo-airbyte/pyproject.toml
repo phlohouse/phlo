@@ -7,13 +7,13 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.14.0,<0.15",
+    "phlo>=0.15.0,<0.16",
     "requests>=2.32.5",
 ]
 description = "Airbyte control-plane integration plugin for Phlo"
 name = "phlo-airbyte"
 requires-python = ">=3.11"
-version = "0.14.0"
+version = "0.15.0"
 
 [[project.authors]]
 email = "team@phlo.dev"
@@ -55,9 +55,7 @@ target-version = "py311"
 include-package-data = true
 
 [tool.setuptools.package-data]
-phlo_airbyte = [
-    "service.yaml",
-]
+phlo_airbyte = ["service.yaml"]
 
 [tool.setuptools.package-dir]
 "" = "src"

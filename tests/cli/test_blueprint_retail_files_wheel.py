@@ -4,12 +4,13 @@ Builds the `phlo-retail-files` wheel, installs it with its real dependencies
 into a throwaway virtual environment, and proves the template is discovered
 and rendered by the installed package's entry point — not from the repository.
 
-Marked `integration`: it builds a wheel and resolves dependencies from PyPI.
+Marked `integration`: it builds candidate wheels and resolves external dependencies from PyPI.
 """
 
 from __future__ import annotations
 
 import subprocess
+import tomllib
 import venv
 from pathlib import Path
 
@@ -38,12 +39,28 @@ def _build_wheel(out_dir: Path) -> Path:
 def clean_env(tmp_path: Path) -> tuple[Path, Path]:
     """A throwaway venv with the built blueprint wheel and its dependencies."""
     env_dir = tmp_path / "clean-env"
-    venv.create(env_dir, with_pip=False)
+    venv.create(env_dir, with_pip=False, symlinks=True)
     pip_python = env_dir / "bin" / "python"
 
     dist_dir = tmp_path / "dist"
+    # A release candidate's exact workspace dependencies may not be published yet.
+    _run(
+        ["uv", "build", "--all-packages", "--wheel", "--out-dir", str(dist_dir)],
+        cwd=REPO_ROOT,
+    )
     wheel = _build_wheel(dist_dir)
-    _run(["uv", "pip", "install", "--python", str(pip_python), str(wheel)])
+    _run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(pip_python),
+            "--find-links",
+            str(dist_dir),
+            str(wheel),
+        ]
+    )
     return env_dir, tmp_path / "generated"
 
 
@@ -63,5 +80,11 @@ def test_installed_wheel_discovers_and_renders_template(clean_env: tuple[Path, P
 
     rendered = (generated_dir / "pyproject.toml").read_text(encoding="utf-8")
     assert 'name = "phlo-retail-files"' not in rendered  # rendered, not the package metadata
-    assert "phlo[defaults]==0.14.0" in rendered
+    blueprint = tomllib.loads((BLUEPRINT_DIR / "pyproject.toml").read_text(encoding="utf-8"))
+    core_requirement = next(
+        dependency
+        for dependency in blueprint["project"]["dependencies"]
+        if dependency.startswith("phlo[defaults]==")
+    )
+    assert core_requirement in tomllib.loads(rendered)["project"]["dependencies"]
     assert "git+" not in rendered and "file://" not in rendered

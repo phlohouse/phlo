@@ -525,9 +525,17 @@ def test_upgrade_plan_and_apply_prove_the_supported_pair(
     client,
     contributors,
     journal_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,  # noqa: ANN001
 ) -> None:
-    set_dir, _ = _create_backup(client, tmp_path, "bk-upgrade")
+    # The backup belongs to the source deployment, regardless of the version
+    # installed in this test runner. Restore normal discovery for the upgrade.
+    with monkeypatch.context() as source_deployment:
+        source_deployment.setattr(
+            "phlo.operations.backup.get_package_versions",
+            lambda: {"phlo": SUPPORTED_FROM_VERSION, "backup_set_schema": "1"},
+        )
+        set_dir, _ = _create_backup(client, tmp_path, "bk-upgrade")
     target = tmp_path / "upgrade-target"
 
     planned = client.post(

@@ -162,6 +162,12 @@ dependents = ["packages/*"]
 when = "dependency_selected"
 range = ">={version},<{next_minor}"
 
+[[workspace.dependencies.rules]]
+dependency = "phlo-postgres"
+dependents = ["packages/phlo-polaris"]
+when = "dependency_selected"
+range = ">={version},<{next_minor}"
+
 [prerelease]
 enabled = true
 

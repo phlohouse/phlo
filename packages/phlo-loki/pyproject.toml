@@ -6,7 +6,7 @@ requires = [
 ]
 
 [project]
-dependencies = ["phlo>=0.14.0,<0.15"]
+dependencies = ["phlo>=0.15.0,<0.16"]
 description = "loki service plugin for Phlo"
 name = "phlo-loki"
 requires-python = ">=3.11"

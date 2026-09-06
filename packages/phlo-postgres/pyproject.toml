@@ -7,13 +7,13 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.14.0,<0.15",
+    "phlo>=0.15.0,<0.16",
     "psycopg2-binary>=2.9.11",
 ]
 description = "Postgres service plugin for Phlo"
 name = "phlo-postgres"
 requires-python = ">=3.11"
-version = "0.14.0"
+version = "0.15.0"
 
 [[project.authors]]
 email = "team@phlo.dev"
