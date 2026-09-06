@@ -75,15 +75,8 @@ def test_container_security_and_rescan_lanes_reference_real_inputs_and_registry(
     rescan = _load_workflow("container-rescan.yml")
 
     security_triggers = _triggers(security)
-    assert {"pull_request", "workflow_dispatch", "schedule"} <= set(security_triggers)
-    assert {
-        "packages/**",
-        "scripts/container_security.py",
-        "scripts/generated_image_matrix.py",
-        "security/**",
-        "pyproject.toml",
-        "uv.lock",
-    } <= set(security_triggers["pull_request"]["paths"])
+    assert {"workflow_call", "workflow_dispatch", "schedule"} <= set(security_triggers)
+    assert "pull_request" not in security_triggers
     assert (REPO_ROOT / "packages").is_dir()
     assert (REPO_ROOT / "security").is_dir()
     for name in (

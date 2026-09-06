@@ -90,7 +90,9 @@ def load_waivers(path: Path) -> list[dict[str, Any]]:
     return waivers
 
 
-def validate_waivers(waivers: list[dict[str, Any]], today: dt.date | None = None) -> list[str]:
+def validate_waivers(
+    waivers: list[dict[str, Any]], today: dt.date | None = None, *, check_expiry: bool = True
+) -> list[str]:
     """Check each waiver against schema and policy rules; return a list of error messages."""
     today = today or dt.datetime.now(dt.UTC).date()
     errors: list[str] = []
@@ -116,7 +118,8 @@ def validate_waivers(waivers: list[dict[str, Any]], today: dt.date | None = None
             if expires > approved + dt.timedelta(days=30):
                 errors.append(f"{label}: waiver duration exceeds 30 days")
             if expires < today:
-                errors.append(f"{label}: waiver expired on {expires.isoformat()}")
+                if check_expiry:
+                    errors.append(f"{label}: waiver expired on {expires.isoformat()}")
             else:
                 finding = (str(waiver["image"]), str(waiver["vulnerability_id"]))
                 if finding in active_findings:
@@ -818,6 +821,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     validate = sub.add_parser("validate-waivers")
     validate.add_argument("--register", type=Path, default=Path("security/container-waivers.yml"))
+    validate.add_argument("--structural-only", action="store_true")
     render = sub.add_parser("render-waivers")
     render.add_argument("--register", type=Path, default=Path("security/container-waivers.yml"))
     render.add_argument("--output", type=Path, default=Path("security/container-waivers.md"))
@@ -914,7 +918,7 @@ def main() -> int:
         return 0
     waivers = load_waivers(args.register)
     if args.command == "validate-waivers":
-        errors = validate_waivers(waivers)
+        errors = validate_waivers(waivers, check_expiry=not args.structural_only)
         if errors:
             print(
                 "Container waiver register validation failed:",

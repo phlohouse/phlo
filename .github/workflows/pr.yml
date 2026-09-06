@@ -1,0 +1,77 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main, beta]
+  merge_group:
+    types: [checks_requested]
+
+# Cancel only an obsolete revision of the same PR. Merge groups have distinct
+# refs and must not cancel one another or a reusable child workflow.
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  integration:
+    uses: ./.github/workflows/integration.yml
+
+  containers:
+    uses: ./.github/workflows/container-security.yml
+
+  security:
+    name: security / introduced dependency risk
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Audit workflow hardening
+        run: make zizmor
+      - name: Compare locked dependencies with the tested base
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: >-
+          python3 scripts/dependency_delta.py --base "$BASE_SHA" --head "$HEAD_SHA"
+          --output "$RUNNER_TEMP/dependency-delta.json"
+      - name: Upload dependency assessment
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: dependency-delta
+          path: ${{ runner.temp }}/dependency-delta.json
+          if-no-files-found: error
+
+  required:
+    name: pr / required
+    if: always()
+    needs: [ci, integration, containers, security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all correctness and introduced-risk checks
+        env:
+          CI: ${{ needs.ci.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+          CONTAINERS: ${{ needs.containers.result }}
+          SECURITY: ${{ needs.security.result }}
+        run: |
+          set -euo pipefail
+          for result in "$CI" "$INTEGRATION" "$CONTAINERS" "$SECURITY"; do
+            if [ "$result" != success ]; then
+              echo "::error::Required PR lane did not succeed: $result"
+              exit 1
+            fi
+          done

@@ -73,6 +73,19 @@ def _waiver(**overrides: object) -> dict[str, object]:
     return waiver
 
 
+def test_pr_waiver_validation_is_structural_but_monitoring_still_rejects_expiry() -> None:
+    today = dt.date(2026, 9, 6)
+    assert container_security.validate_waivers([_waiver()], today, check_expiry=False) == []
+    assert any(
+        "expired" in error for error in container_security.validate_waivers([_waiver()], today)
+    )
+    assert container_security.validate_waivers([_waiver(owner="")], today, check_expiry=False)
+    renewal = _waiver(id="CW-002", approval_date="2026-09-01", expiry_date="2026-09-15")
+    assert (
+        container_security.validate_waivers([_waiver(), renewal], today, check_expiry=False) == []
+    )
+
+
 def test_waiver_validation_rejects_expired_long_and_duplicate_entries() -> None:
     errors = container_security.validate_waivers(
         [

@@ -47,7 +47,10 @@ def test_ci_keeps_core_regression_attributable_and_disjoint() -> None:
     assert "id: core_regression" in workflow
     assert "make test-core-regression" in workflow
     assert "id: core_tests" in workflow
-    assert 'uv run --locked pytest tests -m "not integration and not core_regression"' in workflow
+    assert (
+        'uv run --locked python -m pytest tests -m "not integration and not core_regression"'
+        in workflow
+    )
 
     core_regression = _collect_node_ids("core_regression")
     remaining = _collect_node_ids("not integration and not core_regression")

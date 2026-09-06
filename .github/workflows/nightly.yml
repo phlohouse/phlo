@@ -17,6 +17,29 @@ permissions:
   contents: read
 
 jobs:
+  upstream-compatibility:
+    name: nightly / fresh provider dependencies
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Probe fresh dependency resolution from installed wheels
+        run: >-
+          python3 scripts/verify_installed_provider_artifacts.py
+          --output "$RUNNER_TEMP/upstream-compatibility.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: upstream-compatibility
+          path: ${{ runner.temp }}/upstream-compatibility.json
+          if-no-files-found: error
+
   full-integration:
     name: nightly / full integration
     runs-on: ubuntu-latest

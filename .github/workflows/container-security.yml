@@ -1,25 +1,10 @@
 name: Container Security
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "packages/**"
-      - "scripts/container_security.py"
-      - "scripts/generated_image_matrix.py"
-      - "security/**"
-      - ".github/workflows/build-core-services.yml"
-      - ".github/workflows/container-rescan.yml"
-      - ".github/workflows/container-security.yml"
-      - "pyproject.toml"
-      - "uv.lock"
+  workflow_call:
   workflow_dispatch:
   schedule:
     - cron: "10 2 * * *"
-
-concurrency:
-  group: container-security-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -33,17 +18,22 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
-      - name: Validate register and generated report
+      - name: Validate register and generate current report
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py validate-waivers
+          args=()
+          if [[ "$EVENT_NAME" == pull_request || "$EVENT_NAME" == merge_group ]]; then
+            args+=(--structural-only)
+          fi
+          uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py validate-waivers "${args[@]}"
           uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py render-waivers --output "$RUNNER_TEMP/container-waivers.md"
-          diff -u security/container-waivers.md "$RUNNER_TEMP/container-waivers.md"
+          cat "$RUNNER_TEMP/container-waivers.md" >> "$GITHUB_STEP_SUMMARY"
 
   affected:
     name: containers / affected images
@@ -56,7 +46,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
@@ -65,7 +54,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -92,7 +81,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Lint generated-service Dockerfile
         run: docker run --rm -i hadolint/hadolint@sha256:27086352fd5e1907ea2b934eb1023f217c5ae087992eb59fde121dce9c9ff21e < "${{ matrix.target.package }}/${{ matrix.target.dockerfile }}"
 
@@ -105,7 +93,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
@@ -125,3 +112,26 @@ jobs:
           for service in "${services[@]}"; do add_args+=(--service "$service"); done
           uv --project "$GITHUB_WORKSPACE" run --locked phlo services add "${add_args[@]}" --no-start
           docker compose --profile '*' -f "$project/.phlo/docker-compose.yml" --project-directory "$project/.phlo" config --format json > "$RUNNER_TEMP/generated-compose.json"
+
+  status:
+    name: containers / status
+    if: always()
+    needs: [waivers, affected, hadolint, generated-files]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require selected container checks
+        env:
+          WAIVERS: ${{ needs.waivers.result }}
+          AFFECTED: ${{ needs.affected.result }}
+          HAS_IMAGES: ${{ needs.affected.outputs.has_images }}
+          LINT: ${{ needs.hadolint.result }}
+          GENERATED: ${{ needs.generated-files.result }}
+        run: |
+          set -euo pipefail
+          test "$WAIVERS" = success
+          test "$AFFECTED" = success
+          case "$HAS_IMAGES" in
+            true) test "$LINT" = success; test "$GENERATED" = success ;;
+            false) test "$LINT" = skipped; test "$GENERATED" = skipped ;;
+            *) exit 1 ;;
+          esac

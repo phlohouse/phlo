@@ -167,8 +167,9 @@ def record_demonstration(
     if isinstance(existing, list):
         for artifact in existing:
             exercised.add(json.dumps(artifact, sort_keys=True))
-    bundle["artifacts_exercised"] = sorted(json.dumps(item) for item in exercised)
-    bundle["artifacts_exercised"] = [json.loads(item) for item in bundle["artifacts_exercised"]]
+    # The set already contains canonical JSON strings. Decode once so later
+    # demonstrations deduplicate objects instead of repeatedly escaping strings.
+    bundle["artifacts_exercised"] = [json.loads(item) for item in sorted(exercised)]
     bundle["checksum"] = {"algorithm": "sha256", "value": bundle_checksum(bundle)}
 
 

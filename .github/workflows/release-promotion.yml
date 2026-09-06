@@ -139,7 +139,7 @@ jobs:
           persist-credentials: false
 
       - name: Download collected promotion inputs
-        uses: actions/download-artifact@fa0a91b85d4f404e1c2a63688a9c70d6b71fca9c
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: promotion-inputs-${{ github.run_id }}
           path: inputs
@@ -173,7 +173,7 @@ jobs:
           persist-credentials: false
 
       - name: Download collected promotion inputs
-        uses: actions/download-artifact@fa0a91b85d4f404e1c2a63688a9c70d6b71fca9c
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: promotion-inputs-${{ github.run_id }}
           path: inputs

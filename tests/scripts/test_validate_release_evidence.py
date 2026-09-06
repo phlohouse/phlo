@@ -64,6 +64,28 @@ def test_completed_bundle_is_valid_and_bom_bound() -> None:
     assert bundle["conclusion"] == release_evidence.CONCLUSION_PASSED
 
 
+def test_repeated_demonstrations_keep_unique_artifact_objects() -> None:
+    bundle = release_evidence.new_bundle(
+        release_commit="e" * 40,
+        canonical_candidate_digest="a" * 64,
+        artifact_count=1,
+        environment={"host": "clean-host"},
+    )
+    artifact = {"kind": "sdist", "name": "phlo", "digest": "b" * 64}
+    for index in range(len(release_evidence.REQUIRED_DEMONSTRATIONS)):
+        release_evidence.record_demonstration(
+            bundle,
+            demonstration_id=f"demo-{index}",
+            title="Repeated artifact",
+            status=release_evidence.STATUS_PASSED,
+            result={"ok": True},
+            artifacts=[artifact, dict(reversed(list(artifact.items())))],
+        )
+        # Check each append so recursive string encoding fails before it grows.
+        assert bundle["artifacts_exercised"] == [artifact]
+        assert bundle["checksum"]["value"] == release_evidence.bundle_checksum(bundle)
+
+
 def test_bundle_checksum_covers_the_canonical_content() -> None:
     import hashlib
 

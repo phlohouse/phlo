@@ -2,9 +2,6 @@ name: CI
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, beta]
-  pull_request:
   workflow_call:
 
 permissions:
@@ -36,8 +33,31 @@ jobs:
       - name: Lint workflows with actionlint
         run: make actionlint
 
+  provider-wheelhouse:
+    name: python / provider wheelhouse
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Build wheels and export locked external constraints once
+        run: |
+          uv build --all-packages --wheel --out-dir provider-wheelhouse
+          uv export --all-packages --no-dev --locked --no-emit-workspace --no-hashes \
+            --output-file provider-wheelhouse/constraints.txt
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: provider-wheelhouse
+          path: provider-wheelhouse/
+          if-no-files-found: error
+
   installed-provider-artifacts:
     name: python / installed provider artifacts (${{ matrix.docker-shard }})
+    needs: provider-wheelhouse
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -54,12 +74,19 @@ jobs:
         with:
           version: "0.12.1"
 
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: provider-wheelhouse
+          path: provider-wheelhouse
+
       - name: Verify installed provider artifacts
         id: installed_provider_artifacts
         shell: bash
         run: |
           mkdir -p provider-artifacts
           python3 scripts/verify_installed_provider_artifacts.py \
+            --wheelhouse provider-wheelhouse \
+            --constraints provider-wheelhouse/constraints.txt \
             --include-docker-builds \
             --include-docker-health \
             --docker-shard-index ${{ matrix.docker-shard }} \
@@ -112,12 +139,16 @@ jobs:
           fi
 
   python-core-tests:
-    name: python / core tests (${{ matrix.python-version }})
+    name: python / core tests (${{ matrix.python-version }}, shard ${{ matrix.shard }})
+    timeout-minutes: 20
     runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
+        shard: [0, 1, 2]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -135,12 +166,25 @@ jobs:
         run: uv sync --dev --locked
 
       - name: Run core regression suite
+        if: matrix.shard == 0
         id: core_regression
         run: make test-core-regression
 
       - name: Run core tests
         id: core_tests
-        run: uv run --locked pytest tests -m "not integration and not core_regression" --tb=short --cov=phlo --cov-report=term-missing
+        run: >-
+          uv run --locked python -m pytest tests -m "not integration and not core_regression"
+          -p scripts.ci_shard --ci-shard-index=${{ matrix.shard }} --ci-shard-count=3
+          --tb=short --durations=25 --junitxml=test-results/core.xml
+          --cov=phlo --cov-report=xml:test-results/coverage.xml
+
+      - name: Upload core test timings and coverage
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: core-tests-${{ matrix.python-version }}-${{ matrix.shard }}
+          path: test-results/
+          if-no-files-found: error
 
   postgres-concurrency-gates:
     name: python / postgres concurrency gates
@@ -359,11 +403,14 @@ jobs:
         run: ./tests/scripts/test_release_golden_path.ps1
 
   python-package-tests:
-    name: python / package tests (${{ matrix.group }})
+    name: python / package tests (${{ matrix.group }}, ${{ matrix.python-version }})
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        python-version: ["3.11", "3.12"]
+        group: [platform, data, runtime, interfaces]
         include:
           - group: platform
             packages: phlo-alerting phlo-clickstack phlo-delta phlo-iceberg phlo-minio phlo-observatory-example phlo-pgweb phlo-rustfs phlo-traefik
@@ -384,7 +431,7 @@ jobs:
           version: "0.12.1"
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Run package test group
         env:
@@ -404,7 +451,7 @@ jobs:
 
             echo "::group::${package}"
             set +e
-            uv run --locked --package "${package}" --with-editable ./packages/phlo-testing --with pytest \
+            uv run --python ${{ matrix.python-version }} --locked --package "${package}" --with-editable ./packages/phlo-testing --with pytest \
               pytest -m "not integration" --tb=short "${test_dir}"
             exit_code=$?
             set -e

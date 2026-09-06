@@ -38,9 +38,9 @@ def test_candidate_status_fails_closed_on_every_release_critical_lane() -> None:
     candidate = yaml.safe_load((WORKFLOW_ROOT / "release-candidate.yml").read_text())
 
     triggers = candidate.get("on") or candidate[True]
-    assert triggers["pull_request"]["branches"] == ["main", "beta"]
+    assert "pull_request" not in triggers
     assert triggers["push"]["branches"] == ["main", "beta"]
-    assert "merge_group" in triggers
+    assert "merge_group" not in triggers
     assert candidate["jobs"]["status"]["name"] == "release candidate / status"
     assert candidate["jobs"]["status"]["if"] == "always()"
     assert candidate["jobs"]["status"]["needs"] == ["ci", "integration", "security", "nightly"]
@@ -167,16 +167,7 @@ def test_versioned_ruleset_requires_review_and_candidate_status() -> None:
 
     assert ruleset["enforcement"] == "active"
     assert ruleset["conditions"]["ref_name"]["include"] == ["refs/heads/main", "refs/heads/beta"]
-    assert ruleset["bypass_actors"] == [
-        {
-            "actor_id": "REPLACE_WITH_RELEASE_EMERGENCY_TEAM_ID",
-            "actor_type": "Team",
-            "bypass_mode": "always",
-        }
-    ]
+    assert ruleset["bypass_actors"] == []
     rule_types = {rule["type"] for rule in ruleset["rules"]}
     assert {"pull_request", "required_status_checks"} <= rule_types
-    assert (
-        "release candidate / status"
-        in (REPO_ROOT / "security/release-candidate-ruleset.json").read_text()
-    )
+    assert "pr / required" in (REPO_ROOT / "security/release-candidate-ruleset.json").read_text()

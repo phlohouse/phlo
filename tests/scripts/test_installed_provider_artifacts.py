@@ -51,6 +51,55 @@ def test_missing_inventory_entries_are_reported(tmp_path: Path) -> None:
     assert checks["missing_wheels"] == ["phlo-example"]
 
 
+def test_external_constraints_select_versions_from_real_wheels(tmp_path, monkeypatch):
+    import json
+    import subprocess
+    import venv
+    import zipfile
+
+    wheelhouse = tmp_path / "wheels"
+    wheelhouse.mkdir()
+    for name, version in (("example", "1.0.0"), ("example", "2.0.0"), ("phlo", "1.0.0")):
+        dist_info = f"{name}-{version}.dist-info"
+        with zipfile.ZipFile(wheelhouse / f"{name}-{version}-py3-none-any.whl", "w") as wheel:
+            wheel.writestr(f"{name}.py", "")
+            wheel.writestr(
+                f"{dist_info}/METADATA",
+                f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n",
+            )
+            wheel.writestr(
+                f"{dist_info}/WHEEL",
+                "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+            )
+            wheel.writestr(f"{dist_info}/RECORD", "")
+    constraints = tmp_path / "constraints.txt"
+    constraints.write_text("example==1.0.0\n")
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("UV_OFFLINE", "true")
+    monkeypatch.setenv("UV_FIND_LINKS", str(wheelhouse))
+    for constraint, expected in ((constraints, "1.0.0"), (None, "2.0.0")):
+        environment = tmp_path / expected
+        venv.EnvBuilder(symlinks=True).create(environment)
+        HARNESS.install_dependencies(
+            environment=environment,
+            consumer=tmp_path,
+            packages=[HARNESS.WorkspacePackage("phlo", tmp_path, ("example>=1",), {})],
+            wheelhouse=wheelhouse,
+            constraints=constraint,
+        )
+        inventory = json.loads(
+            subprocess.check_output(
+                [
+                    str(HARNESS.executable(environment, "python")),
+                    "-c",
+                    "import json; from importlib.metadata import version; "
+                    "print(json.dumps({name:version(name) for name in ('example','phlo')}))",
+                ]
+            )
+        )
+        assert inventory == {"example": expected, "phlo": "1.0.0"}
+
+
 def test_health_shard_marks_a_service_without_a_healthcheck_not_applicable(tmp_path: Path) -> None:
     results = HARNESS.health_shard(
         {"services": {"generated": {"build": {"context": "."}}}},

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from phlo.capabilities.registry import CAPABILITY_FAMILIES, get_capability_registry
+from phlo.capabilities.registry import CAPABILITY_FAMILIES, CapabilityRegistry
 from phlo.capabilities.specs import (
     DatasetEvidenceSourceSpec,
     DatasetStateStoreSpec,
@@ -63,12 +63,10 @@ def test_dataset_capability_families_are_registered_provider_free(
     assert definition.spec_type is spec_type
     assert definition.provider_method == provider_method
     spec = spec_type(name=f"test-{family}", provider=object())
-    registry = get_capability_registry()
+    # Discovery in other modules may populate the process-global registry.
+    registry = CapabilityRegistry()
     registry.register(family, spec)
-    try:
-        assert registry.list(family) == [spec]
-    finally:
-        registry.clear(family)
+    assert registry.list(family) == [spec]
 
 
 def test_dataset_state_store_namespace_is_project_scoped() -> None:

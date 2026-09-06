@@ -2,18 +2,14 @@ name: Integration Lane
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, beta]
-  pull_request:
-    branches: [main, beta]
   workflow_call:
     secrets:
       POSTGRES_PASSWORD:
-        required: true
+        required: false
       MINIO_ROOT_PASSWORD:
-        required: true
+        required: false
       SUPERSET_ADMIN_PASSWORD:
-        required: true
+        required: false
 
 permissions:
   contents: read
@@ -40,9 +36,9 @@ jobs:
 
       - name: Run integration suites
         env:
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
-          SUPERSET_ADMIN_PASSWORD: ${{ secrets.SUPERSET_ADMIN_PASSWORD }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'phlo_ci_ephemeral_password' }}
+          MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD || 'phlo_ci_ephemeral_password' }}
+          SUPERSET_ADMIN_PASSWORD: ${{ secrets.SUPERSET_ADMIN_PASSWORD || 'phlo_ci_ephemeral_password' }}
         shell: bash
         run: |
           set -euo pipefail

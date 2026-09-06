@@ -127,6 +127,7 @@ def install_dependencies(
     consumer: Path,
     packages: list[WorkspacePackage],
     wheelhouse: Path,
+    constraints: Path | None = None,
 ) -> None:
     """Install every workspace wheel plus external dependencies into the clean venv."""
     workspace_names = {canonicalize_name(package.name) for package in packages}
@@ -140,7 +141,11 @@ def install_dependencies(
     )
     python = executable(environment, "python")
     if requirements:
-        _run(["uv", "pip", "install", "--python", str(python), *requirements], cwd=consumer)
+        constraint_args = ["--constraint", str(constraints)] if constraints else []
+        _run(
+            ["uv", "pip", "install", "--python", str(python), *constraint_args, *requirements],
+            cwd=consumer,
+        )
     # Third-party dependencies first, from the normal index. Workspace packages
     # then install with --no-index/--no-deps so they can only come from the
     # built wheels and cannot pull a same-named package from PyPI.
@@ -399,13 +404,21 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
     packages = workspace_packages(repo_root)
     temporary = Path(tempfile.mkdtemp(prefix="phlo-installed-artifacts-"))
     try:
-        wheelhouse = build_wheelhouse(repo_root, temporary / "wheelhouse")
+        wheelhouse_path = temporary / "wheelhouse"
+        if getattr(args, "wheelhouse", None):
+            shutil.copytree(Path(args.wheelhouse).resolve(), wheelhouse_path)
+            wheelhouse = wheel_inventory(wheelhouse_path)
+        else:
+            wheelhouse = build_wheelhouse(repo_root, wheelhouse_path)
         environment, consumer = clean_environment(temporary)
         install_dependencies(
             environment=environment,
             consumer=consumer,
             packages=packages,
-            wheelhouse=temporary / "wheelhouse",
+            wheelhouse=wheelhouse_path,
+            constraints=Path(args.constraints).resolve()
+            if getattr(args, "constraints", None)
+            else None,
         )
         installed = installed_distributions(environment)
         checks = assert_installed_artifacts(
@@ -501,12 +514,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--include-docker-builds", action="store_true")
     parser.add_argument("--include-docker-health", action="store_true")
+    parser.add_argument("--wheelhouse", type=Path, help="Reuse wheels built for this exact CI run")
+    parser.add_argument("--constraints", type=Path, help="Lock external dependencies for CI checks")
     parser.add_argument("--docker-shard-index", type=int, default=0)
     parser.add_argument("--docker-shard-count", type=int, default=1)
     parser.add_argument("--keep-temp", action="store_true")
     args = parser.parse_args(argv)
     if not 0 <= args.docker_shard_index < args.docker_shard_count:
         parser.error("docker shard index must be within docker shard count")
+    report: dict[str, Any]
     try:
         report = verify(args)
     except (OSError, subprocess.CalledProcessError, ValueError, json.JSONDecodeError) as error:

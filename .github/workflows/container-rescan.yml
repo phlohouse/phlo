@@ -59,16 +59,24 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p reports
-          jq -c '.[]' published/generated-service-images.json | while read -r target; do
+          failed=0
+          jq -ce 'if type == "array" and length > 0 then .[] else error("empty fleet") end' \
+            published/generated-service-images.json > "$RUNNER_TEMP/rescan-targets.jsonl"
+          while read -r target; do
             image="$(jq -r .image <<< "$target")"
             digest="$(jq -r .digest <<< "$target")"
             safe="$(tr -d '\n' <<< "$image" | tr '/:@' '___')"
             report="reports/${safe}.json"
-            docker run --rm -v "$PWD:/work" -w /work aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
-              image --format json --output "/work/$report" --scanners vuln "$image@$digest"
+            if ! docker run --rm -v "$PWD:/work" -w /work aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+              image --format json --output "/work/$report" --scanners vuln "$image@$digest"; then
+              echo "::error::Scanner failed for $image@$digest"
+              failed=1
+              continue
+            fi
             uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py \
-              apply-policy --image "$image@$digest" --report "$report"
-          done
+              apply-policy --image "$image@$digest" --report "$report" || failed=1
+          done < "$RUNNER_TEMP/rescan-targets.jsonl"
+          exit "$failed"
       - name: Upload rescan reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f

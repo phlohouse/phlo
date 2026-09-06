@@ -2,9 +2,6 @@ name: Release Candidate
 
 on:
   workflow_dispatch:
-  merge_group:
-  pull_request:
-    branches: [main, beta]
   push:
     branches: [main, beta]
 
