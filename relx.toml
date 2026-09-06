@@ -151,7 +151,7 @@ enabled = true
 release_mode = "release_set"
 
 [workspace]
-cascade_bumps = false
+cascade_bumps = true
 
 [workspace.dependencies]
 enabled = true

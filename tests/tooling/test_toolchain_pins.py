@@ -137,6 +137,7 @@ def test_releasex_prepares_derived_workspace_versions_transactionally() -> None:
         config = tomllib.load(handle)
 
     dependencies = config["workspace"]["dependencies"]
+    assert config["workspace"]["cascade_bumps"] is True
     assert dependencies["enabled"] is True
     assert dependencies["rules"] == [
         {

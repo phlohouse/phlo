@@ -5,7 +5,7 @@ category: orchestration
 default: true
 phlo_dev: true
 
-image: ghcr.io/phlohouse/phlo-dagster:0.15.0
+image: ghcr.io/phlohouse/phlo-dagster:0.15.1
 build:
   context: .
   dockerfile: dagster/Dockerfile

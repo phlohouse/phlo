@@ -117,6 +117,21 @@ queue enrollment authorizes automatic merging once requirements pass.
 
 ## Release and recovery
 
+The publisher builds the whole workspace, so a new root release must assign a
+fresh version to every package under `packages/`, even if its source is unchanged.
+Rebuilding an already published version is not guaranteed to reproduce its exact
+archive hash. `workspace.cascade_bumps = true` makes ReleaseX include dependent
+packages when core changes; the required Python quality job compares a proposed
+release against the previous reachable root version tag and rejects any reused
+or regressed package version. Ordinary development without a root version change
+does not require version bumps. This check performs no PyPI requests.
+
+The 0.15.1 corrective release advances all 38 published projects after the 0.15.0
+publish preflight rejected rebuilt 0.14.0 artifacts. It preserves the existing
+0.15.0 tag and published PyPI artifacts. Remote artifact identity checking remains
+mandatory immediately before upload; never bypass a hash conflict with a generic
+skip-existing option.
+
 `release candidate / status` continues to require CI (including every provider
 shard and recovery drill), integration, security, and the release golden path for
 the same candidate SHA. It uploads `release-candidate-evidence-<sha>`.

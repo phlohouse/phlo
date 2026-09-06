@@ -108,6 +108,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
@@ -119,6 +120,11 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --dev --locked
+
+      - name: Validate fresh release package versions
+        run: |
+          baseline="$(git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD^)"
+          uv run --locked python scripts/release_identity.py candidate --base-ref "$baseline"
 
       - name: Lint with ruff
         run: uv run --locked ruff check .

@@ -6,11 +6,11 @@ requires = [
 ]
 
 [project]
-dependencies = ["phlo>=0.15.0,<0.16"]
+dependencies = ["phlo>=0.15.1,<0.16"]
 description = "oauth2-proxy service plugin for Phlo"
 name = "phlo-oauth2-proxy"
 requires-python = ">=3.11"
-version = "0.14.0"
+version = "0.15.1"
 
 [[project.authors]]
 email = "team@phlo.dev"

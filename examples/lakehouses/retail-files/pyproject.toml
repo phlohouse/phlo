@@ -9,9 +9,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 version = "0.1.0"
 dependencies = [
-    "phlo[defaults]==0.15.0",
-    "phlo-dagster==0.15.0",
-    "phlo-dbt==0.15.0",
+    "phlo[defaults]==0.15.1",
+    "phlo-dagster==0.15.1",
+    "phlo-dbt==0.15.1",
     "pandas>=2.3,<3.1",
     "pyarrow>=21,<26",
 ]
@@ -21,7 +21,7 @@ retail_files = "phlo_retail_files.provider:templates"
 
 [dependency-groups]
 dev = [
-    "phlo-pandera==0.15.0",
+    "phlo-pandera==0.15.1",
     "duckdb>=1.4,<1.6",
     "dbt-duckdb>=1.10,<1.12",
 ]

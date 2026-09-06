@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import posixpath
+import subprocess
 import tarfile
 import tempfile
 import tomllib
@@ -103,6 +104,60 @@ def validate_source(root: Path, tag: str) -> dict[str, object]:
                 f"support release_set package {name!r} does not match its source project version"
             )
     return {"tag": tag, "projects": [asdict(project) for project in projects]}
+
+
+def validate_candidate(root: Path, base_ref: str) -> dict[str, object]:
+    """Require fresh workspace versions when preparing a new whole-workspace release."""
+
+    def git(*args: str) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args], capture_output=True, text=True, check=False
+        )
+        if result.returncode:
+            raise ReleaseIdentityError(f"cannot read release baseline: {result.stderr.strip()}")
+        return result.stdout
+
+    # Resolve once and read only immutable objects; an absent/broken baseline
+    # must not silently turn a reused version into a new package.
+    base_sha = git("rev-parse", "--verify", f"{base_ref}^{{commit}}").strip()
+    paths = git("ls-tree", "-r", "--name-only", base_sha).splitlines()
+    previous: dict[str, str] = {}
+    root_version = None
+    for path in paths:
+        parts = Path(path).parts
+        if path != "pyproject.toml" and not (
+            len(parts) == 3 and parts[0] == "packages" and parts[2] == "pyproject.toml"
+        ):
+            continue
+        project = tomllib.loads(git("show", f"{base_sha}:{path}"))["project"]
+        previous[canonicalize_name(project["name"])] = project["version"]
+        if path == "pyproject.toml":
+            root_version = project["version"]
+    if root_version is None:
+        raise ReleaseIdentityError("release baseline has no root project version")
+
+    projects = source_projects(root)
+    current = next(project for project in projects if project.source == "pyproject.toml")
+    if Version(current.version) == Version(root_version):
+        return {"release_candidate": False, "baseline": base_sha}
+    if Version(current.version) < Version(root_version):
+        raise ReleaseIdentityError("root version is older than the release baseline")
+
+    reused = [
+        f"{project.name} {project.version} (previously {previous[project.name]})"
+        for project in projects
+        if project.name in previous and Version(project.version) <= Version(previous[project.name])
+    ]
+    if reused:
+        raise ReleaseIdentityError(
+            "whole-workspace publication requires a fresh version for every package: "
+            + "; ".join(reused)
+        )
+    return {
+        "release_candidate": True,
+        "baseline": base_sha,
+        **validate_source(root, f"v{current.version}"),
+    }
 
 
 def _metadata_from_wheel(path: Path) -> tuple[str, str]:
@@ -328,6 +383,10 @@ def main() -> None:
     source.add_argument("--root", type=Path, default=Path())
     source.add_argument("--tag", required=True)
     source.add_argument("--output", type=Path)
+    candidate = subparsers.add_parser("candidate")
+    candidate.add_argument("--root", type=Path, default=Path())
+    candidate.add_argument("--base-ref", required=True)
+    candidate.add_argument("--output", type=Path)
     built = subparsers.add_parser("artifacts")
     built.add_argument("--root", type=Path, default=Path())
     built.add_argument("--tag", required=True)
@@ -341,6 +400,8 @@ def main() -> None:
     try:
         if args.command == "source":
             _write_json(args.output, validate_source(args.root.resolve(), args.tag))
+        elif args.command == "candidate":
+            _write_json(args.output, validate_candidate(args.root.resolve(), args.base_ref))
         elif args.command == "artifacts":
             source_manifest = validate_source(args.root.resolve(), args.tag)
             source_manifest["artifacts"] = [

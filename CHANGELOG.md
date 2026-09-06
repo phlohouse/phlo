@@ -1,3 +1,11 @@
+## 0.15.1 (2026-09-06)
+
+### Fixed
+
+- Advance every published workspace package to a fresh version after the 0.15.0 publication preflight rejected reused 0.14.0 identities.
+- Enable dependency-driven release bumps and reject reused workspace versions before merging a release.
+- Preserve the existing PyPI artifact hash checks and the v0.15.0 tag.
+
 # Changelog
 
 ## [phlo 0.15.0 + 18 packages] - 2026-09-06

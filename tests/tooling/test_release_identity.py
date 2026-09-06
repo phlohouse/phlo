@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -70,6 +71,81 @@ def test_source_manifest_rejects_packaged_support_copy_mismatch(tmp_path: Path) 
 
     with pytest.raises(ReleaseIdentityError, match="packaged support manifest"):
         validate_source(tmp_path, "v1.2.3")
+
+
+def _candidate_baseline(root: Path) -> None:
+    _write_release(root)
+    for args in (
+        ("init",),
+        ("add", "."),
+        ("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "baseline"),
+        ("tag", "v1.2.3"),
+    ):
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "tag.gpgsign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+
+
+def _advance_candidate(root: Path, *, provider_version: str = "4.5.7") -> None:
+    path = root / "pyproject.toml"
+    path.write_text(path.read_text().replace('"1.2.3"', '"1.2.4"'))
+    path = root / "packages/example/pyproject.toml"
+    path.write_text(path.read_text().replace('"4.5.6"', f'"{provider_version}"'))
+    for relative in ("registry/support/v1.json", "src/phlo/support_data/v1.json"):
+        path = root / relative
+        path.write_text(
+            path.read_text()
+            .replace('"1.2.3"', '"1.2.4"')
+            .replace('"4.5.6"', f'"{provider_version}"')
+        )
+
+
+def test_candidate_rejects_reused_version_after_dependency_metadata_changes(tmp_path: Path) -> None:
+    _candidate_baseline(tmp_path)
+    _advance_candidate(tmp_path, provider_version="4.5.6")
+    manifest = tmp_path / "packages/example/pyproject.toml"
+    manifest.write_text(manifest.read_text() + 'dependencies = ["phlo>=1.2.4"]\n')
+    with pytest.raises(ReleaseIdentityError, match="phlo-example 4.5.6"):
+        release_identity.validate_candidate(tmp_path, "v1.2.3")
+
+
+def test_candidate_also_rejects_rebuilding_unchanged_published_versions(tmp_path: Path) -> None:
+    _candidate_baseline(tmp_path)
+    _advance_candidate(tmp_path, provider_version="4.5.6")
+    with pytest.raises(ReleaseIdentityError, match="fresh version for every package"):
+        release_identity.validate_candidate(tmp_path, "v1.2.3")
+
+
+def test_candidate_accepts_fresh_versions_for_the_whole_workspace(tmp_path: Path) -> None:
+    _candidate_baseline(tmp_path)
+    _advance_candidate(tmp_path)
+    assert release_identity.validate_candidate(tmp_path, "v1.2.3")["release_candidate"] is True
+
+
+def test_candidate_skips_ordinary_development_without_a_root_version_bump(tmp_path: Path) -> None:
+    _candidate_baseline(tmp_path)
+    assert release_identity.validate_candidate(tmp_path, "v1.2.3")["release_candidate"] is False
+
+
+def test_candidate_fails_closed_when_baseline_is_missing(tmp_path: Path) -> None:
+    _candidate_baseline(tmp_path)
+    with pytest.raises(ReleaseIdentityError, match="cannot read release baseline"):
+        release_identity.validate_candidate(tmp_path, "missing-tag")
 
 
 def _write_wheel(path: Path, name: str, version: str, support: bytes | None = None) -> None:
