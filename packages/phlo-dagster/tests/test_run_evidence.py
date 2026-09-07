@@ -102,7 +102,7 @@ def test_dagster_source_maps_durable_run_and_event_log_records() -> None:
     assert observation.status == "success"
     assert observation.attempt == 2
     assert observation.pipeline_name == "orders"
-    assert [event.event_id for event in observation.events] == ["10", "11"]
+    assert [event.event_id for event in observation.events] == ["dagster-run:10", "dagster-run:11"]
     assert observation.events[1].event_type == "stage.materialization"
     assert observation.events[1].stage_id == observation.stages[0].stage_id
     assert observation.events[1].payload["stage_id"] == observation.stages[0].stage_id
@@ -160,7 +160,11 @@ def test_dagster_source_consumes_all_event_log_pages() -> None:
 
     observation = source.observe_run("project", "dagster-run")
 
-    assert [event.event_id for event in observation.events] == ["10", "11", "12"]
+    assert [event.event_id for event in observation.events] == [
+        "dagster-run:10",
+        "dagster-run:11",
+        "dagster-run:12",
+    ]
     assert observation.stages[-1].status == "success"
 
 
@@ -448,3 +452,75 @@ def test_provider_outage_is_distinct_from_authoritative_absence() -> None:
 
     with pytest.raises(RunEvidenceUnavailable):
         source.observe_run("project", "dagster-run")
+
+
+def test_local_sqlite_runs_have_independent_replay_safe_event_ids(tmp_path):
+    from dagster import DagsterInstance, job, op
+
+    @op
+    def emit_value():
+        return 1
+
+    @job
+    def example():
+        emit_value()
+
+    (tmp_path / "dagster").mkdir()
+    with DagsterInstance.local_temp(
+        str(tmp_path / "dagster"), overrides={"telemetry": {"enabled": False}}
+    ) as instance:
+        runs = [example.execute_in_process(instance=instance) for _ in range(2)]
+        records = [instance.get_records_for_run(run.run_id).records for run in runs]
+        assert {r.storage_id for r in records[0]} & {r.storage_id for r in records[1]}
+        store = SQLiteRunEvidenceStore(str(tmp_path / "evidence.sqlite"))
+        source = DagsterRunEvidenceSource(instance, project_id="project")
+        reconciler = RunReconciler(store, source)
+        for run in runs:
+            for _ in range(2):
+                reconciler.reconcile("project", run.run_id, RequiredEvidenceProfile("profile", "1"))
+            assert store.count_events("project", run.run_id) == len(
+                source.observe_run("project", run.run_id).events
+            )
+
+
+def test_legacy_bare_event_replay_preserves_stage_and_terminal_report():
+    from dataclasses import replace
+    from datetime import UTC, datetime
+    from phlo.run_evidence import build_run_report
+
+    source = DagsterRunEvidenceSource(
+        _Instance(
+            _run(),
+            [
+                _record(10, "ASSET_MATERIALIZATION", asset="raw/orders"),
+                _record(11, "RUN_SUCCESS"),
+            ],
+        ),
+        project_id="project",
+    )
+    observation = source.observe_run("project", "dagster-run")
+    legacy = replace(
+        observation,
+        events=tuple(
+            replace(event, event_id=str(event.payload["storage_id"]))
+            for event in observation.events
+        ),
+    )
+    store = SQLiteRunEvidenceStore(":memory:")
+    profile = RequiredEvidenceProfile("profile", "1")
+    store.reconcile_observation(legacy, profile, now=datetime.now(UTC), stale_after=None)
+    before = build_run_report(store, "project", "root-run", 2)
+    for _ in range(2):
+        RunReconciler(store, source).reconcile("project", "dagster-run", profile)
+    after = build_run_report(store, "project", "root-run", 2)
+    assert after.stages == before.stages
+    assert after.terminal_outcome.status == before.terminal_outcome.status == "success"
+    assert store.count_events("project", "root-run") == 4
+    events = store.list_events("project", "root-run")
+    for legacy_id in ("10", "11"):
+        checksums = {
+            row["payload_checksum"]
+            for row in events
+            if row["event_id"] in {legacy_id, f"dagster-run:{legacy_id}"}
+        }
+        assert len(checksums) == 1

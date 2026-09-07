@@ -10,8 +10,8 @@ Two assets share one reader and one contract:
 - ``dlt_sensor_batches`` is strict: every check is blocking, writes land on
   the WAP branch, and only clean runs promote.
 - ``dlt_sensor_batches_relaxed`` sets ``strict_validation=False``: identical
-  checks still evaluate and fail loudly, but nothing blocks - and because the
-  write branch resolution skips WAP isolation, rows reach main immediately.
+  checks still evaluate as warnings, while WAP branch isolation remains in
+  force and publication proceeds when no blocking errors exist.
 """
 
 from __future__ import annotations

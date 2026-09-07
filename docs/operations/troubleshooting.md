@@ -646,6 +646,32 @@ curl http://localhost:10003/api/v1/trees
 docker-compose restart nessie
 ```
 
+### WAP promotion has an unknown merge outcome
+
+**Symptom:** `.phlo/wap-reports/<logical-run-id>.json` records
+`status: promotion_pending`, `merge_state: merge_started`, and
+`failure_reason: merge_outcome_unknown`.
+
+The catalog merge may have completed before the worker lost its acknowledgement
+or failed to persist its receipt. A changed main hash does not prove that this
+run was published: another writer could have advanced main. Phlo therefore
+retains the source branch, skips automatic merge replay, and exempts this
+unresolved intent from retention cleanup.
+
+Preserve the report and source branch. Inspect catalog history and the exact
+source content/snapshots against the target to establish whether this batch was
+published. Do not mark the report merged or delete the branch merely because
+main moved. If the outcome cannot be proved, keep the branch for recovery;
+reingesting the batch could duplicate data if the original merge succeeded.
+There is currently no automatic receipt reconstruction or operator resolution
+command for this state. A verified catalog outcome must be reconciled before
+resuming promotion. A durable `merge_state: merged` receipt already allows
+normal evidence and cleanup retries without repeating the catalog merge.
+
+An explicitly rejected merge is recorded as `merge_state: merge_failed` and
+remains eligible for a later merge attempt; its source follows the normal
+failed-run retention policy.
+
 ### Branch Issues
 
 **List branches:**

@@ -589,7 +589,10 @@ def _register_wap_contributions() -> None:
         )
 
 
-def test_wap_successful_promotion_uses_recorded_check_event_identity(monkeypatch, tmp_path):
+@pytest.mark.parametrize("checkpoint_failure", [None, "merge_receipt", "cleanup"])
+def test_wap_successful_promotion_uses_recorded_check_event_identity(
+    monkeypatch, tmp_path, checkpoint_failure
+):
     """A passing run promotion references its durable aggregate quality result."""
     _register_wap_contributions()
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
@@ -619,7 +622,11 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(monkeypatch
     ]
     instance.get_records_for_run.return_value = SimpleNamespace(records=[check_record])
     catalog = MagicMock()
-    catalog.get_branch_hash.side_effect = ["source-before", "target-before", "target-after"]
+    catalog.get_branch_hash.side_effect = lambda ref: (
+        ("target-after" if catalog.merge_branch.called else "target-before")
+        if ref == "main"
+        else "source-before"
+    )
     catalog.merge_branch.return_value = True
     catalog.delete_branch.return_value = True
     context = MagicMock()
@@ -643,11 +650,39 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(monkeypatch
     reconciler_class = MagicMock(return_value=reconciler)
     monkeypatch.setattr("phlo_dagster.wap_sensors.RunReconciler", reconciler_class)
 
+    if checkpoint_failure == "merge_receipt":
+
+        def fail_merge_receipt(logical_run_id, **updates):
+            if updates.get("merge_state") == "merged":
+                return False
+            return write_wap_report(logical_run_id, **updates)
+
+        monkeypatch.setattr("phlo_dagster.wap_sensors.write_wap_report", fail_merge_receipt)
+    elif checkpoint_failure == "cleanup":
+        catalog.delete_branch.side_effect = [False, True]
+
     wap_auto_promotion_sensor._raw_fn(context)
+    if checkpoint_failure:
+        wap_auto_promotion_sensor._raw_fn(context)
+    if checkpoint_failure == "merge_receipt":
+        # The catalog acknowledged the merge but its durable receipt was lost.
+        # A subsequent tick must preserve the branch and avoid a second merge.
+        catalog.merge_branch.assert_called_once_with(source=branch, target="main")
+        catalog.delete_branch.assert_not_called()
+        query_catalog_manager.drop_ref_query_catalog.assert_not_called()
+        report = read_wap_report(logical_run_id)
+        assert report["status"] == "promotion_pending"
+        assert report["merge_state"] == "merge_started"
+        assert report["failure_reason"] == "merge_outcome_unknown"
+        instance.add_run_tags.assert_not_called()
+        return
 
     catalog.merge_branch.assert_called_once_with(source=branch, target="main")
-    query_catalog_manager.drop_ref_query_catalog.assert_called_once_with(branch)
-    catalog.delete_branch.assert_called_once_with(branch)
+    expected_cleanup_attempts = 2 if checkpoint_failure == "cleanup" else 1
+    assert query_catalog_manager.drop_ref_query_catalog.call_count == expected_cleanup_attempts
+    query_catalog_manager.drop_ref_query_catalog.assert_called_with(branch)
+    assert catalog.delete_branch.call_count == expected_cleanup_attempts
+    catalog.delete_branch.assert_called_with(branch)
     manifest = json.loads(
         (tmp_path / ".phlo" / "wap-reports" / f"{logical_run_id}.json").read_text()
     )
@@ -980,7 +1015,10 @@ def test_wap_quality_evidence_persists_decision_without_a_preexisting_report(mon
     assert metadata["quality_evidence"]["checksum"] is None
 
 
-def test_wap_merge_failure_preserves_successful_dagster_run_status(monkeypatch, tmp_path):
+@pytest.mark.parametrize("retry_target", ["main-h1", "unrelated-main-h2"])
+def test_wap_merge_failure_preserves_successful_dagster_run_status(
+    monkeypatch, tmp_path, retry_target
+):
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     run_id = "run-merge-failure"
     branch = _wap_branch_name(run_id)
@@ -1016,7 +1054,7 @@ def test_wap_merge_failure_preserves_successful_dagster_run_status(monkeypatch, 
         "branch-h1",
         "main-h1",
         "branch-h1",
-        "main-h1",
+        retry_target,
     ]
     catalog.merge_branch.return_value = False
     store = SQLiteRunEvidenceStore(":memory:")
@@ -1040,8 +1078,10 @@ def test_wap_merge_failure_preserves_successful_dagster_run_status(monkeypatch, 
         == "failed"
     )
     assert catalog.merge_branch.call_count == 2
+    catalog.delete_branch.assert_not_called()
     report = json.loads((tmp_path / ".phlo" / "wap-reports" / f"{run_id}.json").read_text())
     assert report["status"] == "promotion_failed"
+    assert report["merge_state"] == "merge_failed"
     assert report["source_hash"] == "branch-h1"
     assert report["launch_source_hash"] == "launch-h0"
 
@@ -1644,3 +1684,95 @@ def test_quality_check_records_normalizes_severity_enum():
     )
     checks = _quality_check_records(instance, "run-1")
     assert checks[0]["severity"] == "warn"
+
+
+@pytest.mark.parametrize("target_hash", ["main-before", "main-after"])
+def test_wap_unacknowledged_merge_retains_branch_without_replay(monkeypatch, tmp_path, target_hash):
+    """Neither unchanged main nor unrelated commits prove an intent completed."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    run_id = "run-ambiguous-merge"
+    branch = _wap_branch_name(run_id)
+    _write_launch_manifest(run_id, run_id, branch)
+    write_wap_report(
+        run_id,
+        status="promotion_pending",
+        merge_state="merge_started",
+        source_hash="source-head",
+        target_hash_before="main-before",
+    )
+    run = SimpleNamespace(
+        run_id=run_id,
+        tags={
+            "phlo/wap_branch": branch,
+            "phlo/run_id": run_id,
+            "phlo/ref": branch,
+            "phlo/project_id": "project",
+            "phlo/attempt": "1",
+        },
+    )
+    instance = MagicMock()
+    instance.get_runs.return_value = [run]
+    instance.get_records_for_run.return_value = SimpleNamespace(
+        records=[
+            SimpleNamespace(
+                storage_id=42,
+                event_log_entry=SimpleNamespace(
+                    asset_check_evaluation=SimpleNamespace(passed=True),
+                ),
+            ),
+        ]
+    )
+    catalog = MagicMock()
+    catalog.get_branch_hash.side_effect = lambda ref: (
+        target_hash if ref == "main" else "source-head"
+    )
+    manager = MagicMock()
+    monkeypatch.setattr("phlo_dagster.wap_sensors._load_versioned_catalog", lambda: catalog)
+    monkeypatch.setattr("phlo_dagster.wap_sensors._load_ref_query_catalog_manager", lambda: manager)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors._quality_evidence", lambda *a, **k: ("quality-id", {})
+    )
+    context = MagicMock(instance=instance, cursor=None, evaluation_time=datetime.now(timezone.utc))
+
+    wap_auto_promotion_sensor._raw_fn(context)
+    wap_auto_promotion_sensor._raw_fn(context)
+
+    report = read_wap_report(run_id)
+    assert report["status"] == "promotion_pending"
+    assert report["merge_state"] == "merge_started"
+    assert report["failure_reason"] == "merge_outcome_unknown"
+    assert report["source_hash"] == "source-head"
+    assert report["target_hash_before"] == "main-before"
+    catalog.merge_branch.assert_not_called()
+    catalog.delete_branch.assert_not_called()
+    manager.drop_ref_query_catalog.assert_not_called()
+    instance.add_run_tags.assert_not_called()
+
+
+def test_wap_cleanup_retains_unacknowledged_merge_past_retention(monkeypatch, tmp_path):
+    """A terminal Dagster run does not prove that catalog publication completed."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    logical_run_id = "logical-ambiguous-cleanup"
+    branch = _cleanup_branch(logical_run_id)
+    run = _cleanup_run(logical_run_id, "physical-run", branch.name)
+    write_wap_report(
+        logical_run_id,
+        status="promotion_pending",
+        merge_state="merge_started",
+        branch=branch.name,
+        failure_reason="merge_outcome_unknown",
+    )
+    instance = MagicMock()
+    instance.get_runs.return_value = [run]
+    catalog = MagicMock()
+    catalog.list_branches.return_value = [branch]
+    manager = MagicMock()
+    context = _patch_cleanup_sensor(monkeypatch, catalog, manager, instance)
+
+    wap_branch_cleanup_sensor._raw_fn(context)
+
+    catalog.delete_branch.assert_not_called()
+    manager.drop_ref_query_catalog.assert_not_called()
+    report = read_wap_report(logical_run_id)
+    assert report["status"] == "promotion_pending"
+    assert report["merge_state"] == "merge_started"

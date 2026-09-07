@@ -351,6 +351,23 @@ class NessieResource:
             timeout=30,
         )
         status_code = self._status_code(response)
+        if status_code == 404:
+            # Nessie cannot merge against its no-ancestor sentinel. A conditional
+            # fast-forward is safe only while the target still denotes that empty
+            # state; it must never overwrite another publisher's first commit.
+            config_response = self._request("GET", self._url("/api/v2/config"), timeout=10)
+            if self._status_code(config_response) == 200:
+                config = config_response.json()
+                empty_hash = config.get("noAncestorHash") if isinstance(config, dict) else None
+                if isinstance(empty_hash, str) and empty_hash and target_hash == empty_hash:
+                    response = self._request(
+                        "PUT",
+                        self._url(f"/api/v1/trees/branch/{target}"),
+                        params={"expectedHash": target_hash},
+                        json={"type": "BRANCH", "name": source, "hash": source_hash},
+                        timeout=30,
+                    )
+                    status_code = self._status_code(response)
         merged = status_code < 300
         logger.info(
             "nessie_resource_merge_branch_completed",

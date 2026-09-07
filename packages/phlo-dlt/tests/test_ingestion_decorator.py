@@ -312,12 +312,12 @@ def test_blessed_decorator_persists_runtime_correlation_through_sqlite(
     def events(partition_date: str):
         return []
 
-    tags = {"phlo/attempt": "2"}
+    tags = {"phlo/attempt": "2", "phlo/run_id": "run-durable"}
     from phlo_dagster.adapter import DagsterRuntime
 
     runtime_context = SimpleNamespace(
         tags=tags,
-        run=SimpleNamespace(run_id="run-durable", tags=tags),
+        run=SimpleNamespace(run_id="provider-run-durable", tags=tags),
         has_partition_key=True,
         partition_key="2026-07-14",
         log=get_logger("test_durable_decorator"),
@@ -340,6 +340,9 @@ def test_blessed_decorator_persists_runtime_correlation_through_sqlite(
     assert store.list_resources("project-durable", "run-durable", attempt=2)
     assert store.list_resources("project-durable", "run-durable", attempt=1) == []
     assert store.count_events("project-durable", "run-durable") > 0
+    assert store.get_run("project-durable", "provider-run-durable") is None
+    assert store.list_artifacts("project-durable", "run-durable", attempt=2)
+    assert store.list_lineage_edges("project-durable", "run-durable", attempt=2)
 
 
 @pytest.mark.parametrize(

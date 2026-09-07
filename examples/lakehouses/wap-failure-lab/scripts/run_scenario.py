@@ -22,6 +22,8 @@ import shutil
 import subprocess
 import sys
 import time
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -99,31 +101,20 @@ def classify_report(payload: dict | None) -> str:
 
 
 def wait_for_terminal_report(
-    baseline_ids: set[str],
+    logical_run_id: str,
     reports_dir: Path = DEFAULT_REPORTS_DIR,
     timeout_seconds: float = 600.0,
     poll_seconds: float = 5.0,
-) -> tuple[str, str | None, dict | None]:
-    """Poll until a new report reaches a terminal classification.
-
-    Returns ``(classification, run_id, payload)``. On timeout it returns the
-    latest observed state so callers can assert the retained evidence.
-    """
+) -> tuple[str, str, dict | None]:
+    """Wait only for the exact logical run returned by the launch command."""
     deadline = time.monotonic() + timeout_seconds
     while True:
-        reports = {
-            run_id: payload
-            for run_id, payload in list_reports(reports_dir).items()
-            if run_id not in baseline_ids
-        }
-        for run_id, payload in reports.items():
-            classification = classify_report(payload)
-            if classification in {"promoted", "blocked", "failed"}:
-                return classification, run_id, payload
+        payload = list_reports(reports_dir).get(logical_run_id)
+        classification = classify_report(payload)
+        if classification in {"promoted", "blocked", "failed"}:
+            return classification, logical_run_id, payload
         if time.monotonic() >= deadline:
-            newest_id = next(iter(reports), None)
-            newest = reports.get(newest_id) if newest_id else None
-            return classify_report(newest), newest_id, newest
+            return classification, logical_run_id, payload
         time.sleep(poll_seconds)
 
 
@@ -220,8 +211,15 @@ def pipeline_branch_names() -> list[str]:
 
 
 def materialize(asset: str, partition: str, timeout_seconds: float = 300.0) -> str:
-    """Launch one WAP materialization; returns combined CLI output."""
-    command = ["uv", "run", "phlo", "materialize", asset, "--partition", partition]
+    """Submit asynchronously and return its exact logical run identity."""
+    command = [
+        os.getenv("PHLO_EXECUTABLE", "phlo"),
+        "materialize",
+        asset,
+        "--partition",
+        partition,
+        "--json",
+    ]
     completed = subprocess.run(
         command,
         cwd=ROOT,
@@ -233,7 +231,12 @@ def materialize(asset: str, partition: str, timeout_seconds: float = 300.0) -> s
     output = completed.stdout + completed.stderr
     if completed.returncode != 0:
         raise ScenarioError(f"materialize {' '.join(command)} failed:\n{output}")
-    return output
+    try:
+        run_id = json.loads(completed.stdout)["data"]["logical_run_id"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ScenarioError(f"materialize returned no logical run identity: {output}") from exc
+    _require(isinstance(run_id, str) and bool(run_id), "empty logical run identity")
+    return run_id
 
 
 # ---------------------------------------------------------------------------
@@ -274,14 +277,82 @@ def _require_promoted(payload: dict | None, branch_hint: str) -> None:
 # Scenario runners
 
 
+def assert_run_evidence(payload: dict, run_id: str) -> None:
+    """Require observed ingestion evidence for the exact successful attempt."""
+    _require(payload.get("run_id") == run_id, "exported evidence belongs to another run")
+    _require(
+        payload.get("terminal_outcome", {}).get("status") == "success",
+        "exported evidence has no successful terminal outcome",
+    )
+    for field in (
+        "inputs",
+        "staging",
+        "outputs",
+        "lineage",
+        "artifacts",
+        "iceberg_snapshots",
+        "quality",
+        "catalog_changes",
+    ):
+        _require(bool(payload.get(field)), f"exported evidence is missing {field}")
+    for field in ("inputs", "staging", "outputs"):
+        _require(
+            all(item.get("resource_identity_status") == "complete" for item in payload[field]),
+            f"{field} contains incomplete identities",
+        )
+
+
+def export_and_check_run_evidence(run_id: str, reports_dir: Path) -> None:
+    """Export durable ingestion evidence; separate dbt execution is not correlated."""
+    from dataclasses import asdict  # noqa: PLC0415
+
+    from phlo.run_evidence.report import build_run_report  # noqa: PLC0415
+    from phlo.run_evidence.store import default_run_evidence_store  # noqa: PLC0415
+
+    report = build_run_report(
+        default_run_evidence_store(), os.getenv("PHLO_PROJECT", "wap-failure-lab"), run_id, 1
+    )
+    payload = asdict(report)
+    output_dir = reports_dir.parent / "lab-run-evidence"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / f"{run_id}.json").write_text(json.dumps(payload, indent=2, default=str))
+    assert_run_evidence(payload, run_id)
+
+
+def build_and_check_dbt() -> None:
+    """Build/test the downstream model, then compare all aggregates with main."""
+    project = ROOT / "workflows" / "transforms" / "dbt"
+    subprocess.run(
+        [
+            os.getenv("DBT_EXECUTABLE", "dbt"),
+            "build",
+            "--project-dir",
+            str(project),
+            "--profiles-dir",
+            str(project / "profiles"),
+        ],
+        cwd=ROOT,
+        check=True,
+        timeout=600,
+    )
+    expected = trino_fetchall(
+        "SELECT sensor_id, count(*), count(DISTINCT batch_id) "
+        "FROM iceberg.raw.sensor_batches GROUP BY sensor_id ORDER BY sensor_id"
+    )
+    observed = trino_fetchall(
+        "SELECT sensor_id, batch_count, distinct_batches "
+        "FROM iceberg.raw.batch_summary ORDER BY sensor_id"
+    )
+    _require(bool(expected) and observed == expected, "dbt aggregate differs from published main")
+
+
 def run_valid_publish(ctx: LabContext) -> dict:
     """Clean batch promotes atomically; branch removed after promotion."""
     stage_inbound("valid_publish")
-    baseline_ids = ctx.baseline()
     before_rows = table_count(STRICT_TABLE)
-    materialize(STRICT_ASSET, "2026-08-20")
+    launched_id = materialize(STRICT_ASSET, "2026-08-20")
     classification, run_id, payload = wait_for_terminal_report(
-        baseline_ids, ctx.reports_dir, ctx.promote_timeout
+        launched_id, ctx.reports_dir, ctx.promote_timeout
     )
     _require(classification == "promoted", f"valid_publish ended {classification}")
     _require_promoted(payload, "valid_publish")
@@ -298,20 +369,20 @@ def run_valid_publish(ctx: LabContext) -> dict:
         after_rows - before_rows == PROMOTED_ROWS, f"expected +{PROMOTED_ROWS} rows, saw {summary}"
     )
     _require(not summary["branch_present_after"], f"branch {branch} survived promotion")
+    export_and_check_run_evidence(run_id, ctx.reports_dir)
+    build_and_check_dbt()
+    summary["dbt_build_and_sql_verified"] = True
     return summary
 
 
 def run_quality_failure(ctx: LabContext) -> dict:
     """Strict contract failure leaves main unchanged and retains audit evidence."""
     stage_inbound("quality_failure")
-    baseline_ids = ctx.baseline()
     before_rows = table_count(STRICT_TABLE)
     before_hash = branch_hash("main")
-    materialize(STRICT_ASSET, "2026-08-20")
-    # Platform reality: a Dagster-level failure never transitions its report to
-    # a terminal status (see README gap 1), so expect the wait to expire.
+    launched_id = materialize(STRICT_ASSET, "2026-08-20")
     classification, run_id, payload = wait_for_terminal_report(
-        baseline_ids, ctx.reports_dir, ctx.failure_timeout
+        launched_id, ctx.reports_dir, ctx.failure_timeout
     )
     after_rows = table_count(STRICT_TABLE)
     after_hash = branch_hash("main")
@@ -327,7 +398,9 @@ def run_quality_failure(ctx: LabContext) -> dict:
         "branch": branch,
         "branch_present_for_audit": bool(branch) and branch_hash(branch) is not None,
     }
-    _require(classification != "promoted", f"quality_failure unexpectedly promoted: {payload}")
+    _require(
+        classification in {"blocked", "failed"}, f"quality_failure did not terminalize: {payload}"
+    )
     _require(after_rows == before_rows, "main advanced during a failed strict run")
     _require(after_hash == before_hash, "main ref moved during a failed strict run")
     _require(bool(payload), "no WAP report was written for the failed run")
@@ -354,11 +427,10 @@ def run_retry_recovery(ctx: LabContext) -> dict:
     arm_marker.write_text("armed\n", encoding="utf-8")
 
     stage_inbound("retry_recovery")
-    baseline_ids = ctx.baseline()
     before_rows = table_count(STRICT_TABLE)
-    materialize(STRICT_ASSET, "2026-08-22")
+    launched_id = materialize(STRICT_ASSET, "2026-08-22")
     classification, run_id, payload = wait_for_terminal_report(
-        baseline_ids, ctx.reports_dir, ctx.promote_timeout
+        launched_id, ctx.reports_dir, ctx.promote_timeout
     )
     attempts = read_attempts(counter_path)
     after_rows = table_count(STRICT_TABLE)
@@ -379,12 +451,11 @@ def run_retry_recovery(ctx: LabContext) -> dict:
 def run_schema_change(ctx: LabContext) -> dict:
     """Additive optional column migrates without disturbing old readers."""
     stage_inbound("schema_change")
-    baseline_ids = ctx.baseline()
     columns_before = table_columns(STRICT_TABLE)
     old_rows_before = table_count(STRICT_TABLE, "_phlo_partition_date < '2026-08-23'")
-    materialize(STRICT_ASSET, "2026-08-23")
+    launched_id = materialize(STRICT_ASSET, "2026-08-23")
     classification, run_id, payload = wait_for_terminal_report(
-        baseline_ids, ctx.reports_dir, ctx.promote_timeout
+        launched_id, ctx.reports_dir, ctx.promote_timeout
     )
     columns_after = table_columns(STRICT_TABLE)
     old_null_scores = table_count(
@@ -409,76 +480,95 @@ def run_schema_change(ctx: LabContext) -> dict:
         "reading_quality_score" in columns_after,
         "schema_change did not add reading_quality_score",
     )
-    # Reruns of the scenario are idempotent: the column already exists, so
-    # growth of zero is acceptable on repeat executions.
+    # The optional column may already exist; append writes are not idempotent.
     _require(
         len(columns_after) - len(columns_before) in (0, 1),
         f"unexpected column delta: {len(columns_before)} -> {len(columns_after)}",
     )
     _require(old_null_scores == old_rows_before, "pre-change rows were rewritten")
     _require(new_partition_rows == SCHEMA_ROWS, f"expected {SCHEMA_ROWS} schema-change rows")
+    _require(
+        table_count(
+            STRICT_TABLE,
+            "_phlo_partition_date = '2026-08-23' AND reading_quality_score IS NOT NULL",
+        )
+        == SCHEMA_ROWS,
+        "new schema rows are missing their scores",
+    )
     return summary
 
 
 def run_concurrent_runs(ctx: LabContext) -> dict:
-    """Back-to-back partitions promote serially without cross-contamination."""
-    baseline_ids = ctx.baseline()
-
+    """Overlap submissions; successful writes publish, conflicts retain recovery branches."""
     stage_inbound("concurrent_runs")
-    # read_batches filters by partition suffix, so each launch reads only its
-    # own file even though both partitions are staged together.
     before_rows = table_count(STRICT_TABLE)
-    materialize(STRICT_ASSET, "2026-08-20")
-    class_a, run_a, payload_a = wait_for_terminal_report(
-        baseline_ids, ctx.reports_dir, ctx.promote_timeout
+    existing = Counter(map(tuple, trino_fetchall(f"SELECT * FROM iceberg.raw.{STRICT_TABLE}")))
+    predicates = ["batch_id LIKE 'b-60%'", "batch_id LIKE 'b-70%'"]
+    before = [table_count(STRICT_TABLE, predicate) for predicate in predicates]
+    # Both files remain staged until both runs finish. Submit both before polling.
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(materialize, STRICT_ASSET, partition)
+            for partition in ("2026-08-20", "2026-08-21")
+        ]
+        launches = [future.result() for future in futures]
+    _require(launches[0] != launches[1], "launch identities collided")
+    outcomes = [
+        wait_for_terminal_report(run_id, ctx.reports_dir, ctx.promote_timeout)
+        for run_id in launches
+    ]
+    launch_bases = [(payload or {}).get("launch_target_hash_before") for _, _, payload in outcomes]
+    _require(
+        all(isinstance(base, str) and base for base in launch_bases)
+        and len(set(launch_bases)) == 1,
+        "runs did not overlap on the same main revision; repeat the concurrency scenario",
     )
-    _require_promoted(payload_a, "concurrent_runs partition A")
-
-    baseline_ids |= {run_a}
-    stage_inbound("concurrent_runs")
-    materialize(STRICT_ASSET, "2026-08-21")
-    class_b, run_b, payload_b = wait_for_terminal_report(
-        baseline_ids, ctx.reports_dir, ctx.promote_timeout
+    branches = []
+    expected_total = 0
+    for index, ((classification, run_id, payload), size) in enumerate(
+        zip(outcomes, (CONCURRENT_A_ROWS, CONCURRENT_B_ROWS), strict=True)
+    ):
+        _require(
+            classification in {"promoted", "blocked", "failed"},
+            f"{run_id}: no terminal evidence ({classification})",
+        )
+        branch = (payload or {}).get("branch")
+        _require(bool(branch), f"{run_id}: missing branch evidence")
+        branches.append(branch)
+        published = classification == "promoted"
+        if published:
+            _require_promoted(payload, run_id)
+        _require(
+            (branch_hash(branch) is None) == published,
+            f"{run_id}: cleanup does not match publication outcome",
+        )
+        delta = table_count(STRICT_TABLE, predicates[index]) - before[index]
+        expected = size if published else 0
+        _require(delta == expected, f"{run_id}: expected {expected} rows, observed {delta}")
+        expected_total += expected
+    remaining = Counter(map(tuple, trino_fetchall(f"SELECT * FROM iceberg.raw.{STRICT_TABLE}")))
+    _require(not (existing - remaining), "concurrent publication lost or changed existing rows")
+    _require(branches[0] != branches[1], "both runs shared one branch")
+    _require(expected_total > 0, "neither concurrent run published")
+    _require(
+        table_count(STRICT_TABLE) - before_rows == expected_total,
+        "published total lost existing rows or contains unexpected writes",
     )
-    _require_promoted(payload_b, "concurrent_runs partition B")
-
-    rows_a = table_count(STRICT_TABLE, "_phlo_partition_date = '2026-08-20'")
-    rows_b = table_count(STRICT_TABLE, "_phlo_partition_date = '2026-08-21'")
-    total_after = table_count(STRICT_TABLE)
-    summary = {
+    return {
         "scenario": "concurrent_runs",
-        "classification_a": class_a,
-        "classification_b": class_b,
-        "branches_distinct": payload_a["branch"] != payload_b["branch"],
-        "branch_a_gone": branch_hash(payload_a["branch"]) is None,
-        "branch_b_gone": branch_hash(payload_b["branch"]) is None,
-        "rows_partition_a": rows_a,
-        "rows_partition_b": rows_b,
-        "total_delta": total_after - before_rows,
+        "run_ids": launches,
+        "classifications": [outcome[0] for outcome in outcomes],
+        "rows_added": expected_total,
     }
-    _require(
-        rows_a % CONCURRENT_A_ROWS == 0, "partition A count is not a multiple of its batch size"
-    )
-    _require(
-        rows_b % CONCURRENT_B_ROWS == 0, "partition B count is not a multiple of its batch size"
-    )
-    _require(summary["total_delta"] == CONCURRENT_A_ROWS + CONCURRENT_B_ROWS, "wrong total delta")
-    _require(summary["branches_distinct"], "both runs shared one WAP branch")
-    _require(summary["branch_a_gone"] and summary["branch_b_gone"], "a branch survived promotion")
-    return summary
 
 
 def run_warning_only(ctx: LabContext) -> dict:
-    """Non-blocking violation logs loudly yet main advances immediately."""
+    """Non-blocking violation retains warnings and allows WAP publication."""
     stage_inbound("warning_only")
-    baseline_ids = ctx.baseline()
-    try:
-        before_rows = table_count(RELAXED_TABLE)
-    except Exception:
-        before_rows = 0  # first warning_only run creates the table
-    materialize(RELAXED_ASSET, "2026-08-24")
+    before_rows = table_count(RELAXED_TABLE)
+    launched_id = materialize(RELAXED_ASSET, "2026-08-24")
     classification, run_id, payload = wait_for_terminal_report(
-        baseline_ids, ctx.reports_dir, ctx.promote_timeout
+        launched_id, ctx.reports_dir, ctx.promote_timeout
     )
     after_rows = table_count(RELAXED_TABLE)
     summary = {
@@ -489,9 +579,7 @@ def run_warning_only(ctx: LabContext) -> dict:
         "branch": (payload or {}).get("branch"),
         "run_id": run_id,
     }
-    # THE LESSON: the failed non-blocking check blocks the *sensor's* promotion
-    # bookkeeping while the data has already been written straight to main -
-    # strict_validation=False skips branch isolation entirely.
+    # WARN evidence remains non-blocking while WAP still isolates publication.
     _require(
         classification == "promoted",
         f"warning_only ended {classification}; expected promoted-with-warnings",

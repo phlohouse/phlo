@@ -1,37 +1,23 @@
 # Scenario: concurrent_runs
 
-Prove branch isolation under back-to-back launches: two partitions run
-serially through the same strict asset, each on its own WAP branch, and both
-promote without cross-contamination.
+Submit two partitions before waiting for either report. Each launch has its
+own WAP branch and exact logical run identity. Both launch reports must record
+the same starting main hash; otherwise the scenario fails rather than counting
+serial publications as overlap.
 
-## The data
+- Partition A: 12 rows, batch IDs b-6001 through b-6012.
+- Partition B: 8 rows, batch IDs b-7001 through b-7008.
 
-- `partition_a-2026-08-20.ndjson.gz`: 12 rows, sensors s-101..s-104,
-  batch ids b-6001..b-6012.
-- `partition_b-2026-08-21.ndjson.gz`: 8 rows, sensors s-201..s-204,
-  batch ids b-7001..b-7008.
+Run `python scripts/run_scenario.py concurrent_runs` against the running lab.
+Both files stay staged until both reports reach a terminal state. Distinct
+batch IDs do not guarantee merge compatibility for concurrent table metadata
+updates: at least one run must publish, and a catalog conflict may safely
+reject the other. The scheduler controls actual execution interleaving.
 
-Batch ids and sensors are disjoint by construction (proven container-free in
-tests), so any row appearing on the wrong partition would be contamination.
+Each successful batch adds exactly its expected rows and removes its branch.
+Each failed batch adds zero rows and retains its branch for recovery. The
+total delta must equal only the successful writes; both branches must be
+distinct. Missing or unfinished reports fail the scenario.
 
-## Steps
-
-```bash
-uv run python scripts/run_scenario.py concurrent_runs
-```
-
-The runner launches partition A, waits for its promotion, then immediately
-launches partition B - no manual reset between them.
-
-## Expected outcome
-
-- Both reports reach `status=promoted`; each names a DIFFERENT
-  `pipeline-run-*` branch.
-- Per-partition counts are exact multiples of the batch sizes: partition
-  2026-08-20 holds a multiple of **12** rows, 2026-08-21 a multiple of **8**;
-  total row delta across the two runs is exactly **20** on a fresh catalog.
-- Both branches are removed after their promotions: serial promotion leaves
-  no residual refs. Check with:
-  ```bash
-  uv run python scripts/inspect_branches.py --older-than-minutes 0
-  ```
+The source uses append mode. Repeat successful deliveries append again; they
+are not upserts or a proof of idempotency after a committed write.

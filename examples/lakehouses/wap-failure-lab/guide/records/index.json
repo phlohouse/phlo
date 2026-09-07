@@ -1,0 +1,37 @@
+[
+  {
+    "title": "Source retry recovered",
+    "file": "9d2a1099e2284f6b9ce3c57193401ae7.json",
+    "section": "s3"
+  },
+  {
+    "title": "Strict quality rejection",
+    "file": "e99ba3de634e4338807cad0b8c8a0c54.json",
+    "section": "s4"
+  },
+  {
+    "title": "Optional-score batch published",
+    "file": "b3e7ffcd6e1148d69aae91a8c24573a5.json",
+    "section": "s5"
+  },
+  {
+    "title": "Warning-only batch published",
+    "file": "74a6b2f7196e46438c00ea8bb4716502.json",
+    "section": "s6"
+  },
+  {
+    "title": "Concurrent writer A: published",
+    "file": "64ced2713849493a885586f4c832da69.json",
+    "section": "s8"
+  },
+  {
+    "title": "Concurrent writer B: merge failed",
+    "file": "b033372e7fdb494ab182293f8a87683a.json",
+    "section": "s8"
+  },
+  {
+    "title": "Clean publication and branch cleanup",
+    "file": "cd64e925fd5b45cc90869c56a72d5bb7.json",
+    "section": "s9"
+  }
+]

@@ -1,0 +1,501 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phlo E2E · An annotated workflow</title><style>
+:root{font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#243832;background:#f9f8f3;font-size:17px;line-height:1.65;--ink:#243832;--accent:#286854;--line:#d1d9d0}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:85px}body{margin:0}::selection{background:#d4e8dc;color:#163e33}a{color:var(--accent);text-underline-offset:4px}a:hover{color:#112f25}a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid #a7702c;outline-offset:4px}header{padding:16px 4vw;display:flex;align-items:center;justify-content:space-between;gap:20px;border-bottom:1px solid var(--line);font-family:ui-sans-serif,system-ui,sans-serif;background:#f9f8f3}header strong{font-size:22px}header div{display:flex;gap:24px;font-size:13px}main{max-width:1500px;padding:0 4vw;margin:auto}.intro{padding:65px 0 45px;max-width:1000px}h1{font-size:clamp(36px,4.5vw,66px);font-weight:400;line-height:1.12;letter-spacing:-.025em;margin:0 0 24px;text-wrap:balance}.intro p{max-width:850px;font-size:21px;margin:0 0 20px}.intro small{font-family:ui-sans-serif,system-ui,sans-serif;font-size:13px;color:#4e635a}nav{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:20px 0;margin-bottom:45px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px 28px;font:13px/1.5 ui-sans-serif,system-ui,sans-serif}nav a{text-decoration:none}nav a:hover{text-decoration:underline}.columns{display:grid;grid-template-columns:1.04fr 1fr;gap:5vw;align-items:start;position:relative}.drawing{min-width:0;position:relative}.drawing svg{display:block;width:100%;max-width:none!important;height:auto}.notes{position:relative;min-width:0}.annotation{padding:12px 0 40px;border-top:1px solid var(--line);scroll-margin-top:45px}.annotation h2{font-size:29px;line-height:1.2;font-weight:400;letter-spacing:-.02em;margin:0 0 25px;text-wrap:balance}.annotation h2 span{font:13px ui-sans-serif,system-ui,sans-serif;color:#5b7366;display:block;margin:0 0 12px}.annotation p{margin:0 0 22px}.annotation strong{font-weight:700}code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.78em}code{overflow-wrap:anywhere}pre{background:#edf0e9;padding:18px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;margin:24px 0}.evidence{font-size:15px;padding-top:18px;border-top:1px solid var(--line);color:#42594e}.source{font:12px/1.5 ui-sans-serif,system-ui,sans-serif}.aligned .annotation{position:relative;width:100%;left:auto}.fallback{padding:22px;background:#edf0e9;font-family:ui-sans-serif,system-ui,sans-serif;font-size:14px}.footer{margin:65px 0 45px;padding-top:30px;border-top:1px solid var(--line)}h2{font-size:31px;font-weight:400}.tablewrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font:14px/1.6 ui-sans-serif,system-ui,sans-serif}td,th{padding:15px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}th{color:#3b5748}footer{padding:25px 0 50px;font:13px/1.7 ui-sans-serif,system-ui,sans-serif}details{margin:25px 0}summary{cursor:pointer;font-family:ui-sans-serif,system-ui,sans-serif;font-size:14px}#mermaid-source{max-height:600px;overflow:auto}.legend{font:13px/1.6 ui-sans-serif,system-ui,sans-serif;margin-bottom:20px;color:#496154}.diagram-label{font:13px ui-sans-serif,system-ui,sans-serif;letter-spacing:.02em;color:#496154;margin-bottom:22px}.drawing .cluster rect{fill:transparent!important;stroke:#c9d5cb!important}.drawing .cluster-label{font-weight:600}.drawing .edgeLabel{background:#f9f8f3!important}.drawing .nodeLabel{line-height:1.35}.mobile-diagram{display:none}
+@media(max-width:850px){main{padding:0 6vw}.intro{padding-top:40px}.intro p{font-size:19px}nav{grid-template-columns:1fr 1fr;font-size:12px}.columns{display:block}.drawing{width:100%;margin-bottom:40px}.aligned .annotation{position:static!important}.notes{height:auto!important}.annotation{margin-bottom:45px}.annotation h2{font-size:28px}.mobile-diagram{display:block;font:14px system-ui;margin-bottom:20px}.drawing{max-height:75vh;overflow:auto;border:1px solid var(--line);padding:12px}.drawing svg{min-width:520px}header div{gap:12px}header{padding:16px 6vw}header strong{font-size:19px}header a{font-size:12px}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media print{header,nav,.mobile-diagram,details{display:none}main{padding:0}.intro{padding-top:0}.columns{display:block}.drawing{display:none}.aligned .annotation{position:static!important;break-inside:avoid}.notes{height:auto!important}.annotation{padding:20px 0}.footer{margin-top:25px}}
+.wap-record{margin:30px 0 15px;padding-top:24px;border-top:1px solid var(--line);font-size:15px}.wap-record h3{font-size:19px;line-height:1.35;font-weight:600;margin:0 0 15px}.wap-record dl{margin:20px 0}.wap-record dt{font:12px/1.5 ui-monospace,monospace;color:#42594e;margin-top:12px}.wap-record dd{margin:2px 0 0;overflow-wrap:anywhere;line-height:1.4}.wap-record dd code{font-size:13px}.wap-record .record-time{font-size:12px;margin-top:14px;color:#42594e}.record-json pre{max-height:520px;overflow:auto;font-size:12px;white-space:pre-wrap}.wap-record table{table-layout:fixed;font-size:12px}.wap-record td code{overflow-wrap:anywhere;font-size:11px}.wap-record th{overflow-wrap:anywhere}.record-json summary{font-weight:600}.section-flow{display:block}.stage-row{display:grid;grid-template-columns:minmax(0,1.04fr) minmax(0,1fr);gap:5vw;align-items:start;margin-bottom:44px}.stage-diagram{position:sticky;top:24px;min-width:0}.stage-diagram svg{display:block;overflow:hidden}.stage-row .annotation{position:static;margin:0;padding-bottom:0}.stage-diagram .cluster rect{fill:transparent!important;stroke:#c9d5cb!important}.stage-diagram .cluster-label{font-weight:600}@media(max-width:850px){.stage-row{grid-template-columns:1fr;gap:24px}.stage-diagram{position:static;max-width:620px;width:100%;margin:auto}.mobile-diagram{display:none}}@media print{.stage-row{display:block;break-inside:avoid}.stage-diagram{position:static;max-width:450px}}
+.stage-contract{margin:0 0 28px;padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.stage-contract dl{margin:0;display:grid;grid-template-columns:86px minmax(0,1fr);gap:13px 18px;font-size:15px;line-height:1.6}.stage-contract dt{font-weight:650;color:#286854;overflow-wrap:anywhere}.stage-contract dd{margin:0}.checks-heading{font-size:20px;line-height:1.4;margin:32px 0 16px}.check-table{font-size:13px}.check-table th{min-width:95px}.check-table td{min-width:150px}.check-table em{display:block;font-style:normal;color:#42594e;margin-top:10px}@media(max-width:500px){.stage-contract dl{grid-template-columns:1fr;gap:4px}.stage-contract dd{margin-bottom:12px}}.worked-example{padding:22px 0;margin:0 0 26px;border-bottom:1px solid var(--line)}.worked-example h3{font-size:20px;line-height:1.35;margin:0 0 16px}.worked-example p{font-size:15px}.example-data{font-size:13px;font-variant-numeric:tabular-nums}.example-data th{font-size:12px}.example-data td{white-space:normal;overflow-wrap:anywhere}.bad-cell{background:#f8e1db;color:#702b1f}.bad-cell strong{display:block;font-size:11px}.worked-example pre{font-size:12px}</style></head><body><header><strong>phlo / engineering guide</strong><div><a href="#s1">Read the workflow</a><a href="workflow.mmd" download>Mermaid source</a></div></header><main><div class="intro"><h1>How a sensor batch becomes published, queryable data</h1><p>A continuous, annotated workflow through the WAP Failure Lab. Follow the data down the left-hand diagram. On the right, each section explains the execution, stored state, failure behavior and evidence behind that stage.</p><small>Tested checkout <code>ee7e658</code> · 7 September 2026 · <a href="https://github.com/phlohouse/phlo/pull/920">PR #920</a></small></div><nav aria-label="Workflow sections"><a href="#s1">01 Source deliveries and partition selection</a><a href="#s2">02 Launch identity and an isolated catalog branch</a><a href="#s3">03 Source execution, retries and Parquet staging</a><a href="#s4">04 Validation runs before the table write</a><a href="#s5">05 Iceberg commits data on the run branch</a><a href="#s6">06 Publication has its own evidence gate</a><a href="#s7">07 Merge intent, acknowledgement and uncertainty</a><a href="#s8">08 Concurrent commits and safe conflict handling</a><a href="#s9">09 Published state, cleanup and durable provenance</a><a href="#s10">10 dbt builds the consumer-facing summary</a><a href="#s11">11 Acceptance checks close the loop</a></nav><p class="legend">Rectangles show operations. Cylinders show stored state. Diamonds show decisions. Red paths retain failed work. Dashed links introduce the concurrent-writer case, which is a separate scenario.</p><p class="mobile-diagram">Each diagram section stays beside its explanation as you scroll.</p><div class="columns" id="columns"><div class="drawing" id="drawing"><div class="fallback" id="render-status" role="status">Rendering the complete Mermaid workflow. The full written guide is available alongside it.</div></div><div class="notes" id="notes"><section class="annotation" id="s1" data-cluster="s1"><h2><span>01</span> Source deliveries and partition selection</h2><div class="worked-example"><h3>Actual input: the clean sensor delivery</h3><p>First four of the 12 source records. These values come directly from the compressed fixture.</p><div class="tablewrap"><table class="example-data"><thead><tr><th>batch_id</th><th>sensor_id</th><th>reading_value</th></tr></thead><tbody><tr><td>b-0001</td><td>s-001</td><td>18.0</td></tr><tr><td>b-0002</td><td>s-002</td><td>22.5</td></tr><tr><td>b-0003</td><td>s-003</td><td>27.0</td></tr><tr><td>b-0004</td><td>s-004</td><td>31.5</td></tr></tbody></table></div><p>The first record, exactly as supplied:</p><pre>{
+  &quot;batch_date&quot;: &quot;2026-08-20T00:00:00Z&quot;,
+  &quot;batch_id&quot;: &quot;b-0001&quot;,
+  &quot;quality_flag&quot;: &quot;ok&quot;,
+  &quot;reading_value&quot;: 18.0,
+  &quot;recorded_at&quot;: &quot;2026-08-20T06:13:00Z&quot;,
+  &quot;sensor_id&quot;: &quot;s-001&quot;
+}</pre></div><div class="stage-contract"><dl><dt>Input</dt><dd>Compressed JSON delivery files and a scenario/date selection.</dd><dt>Output</dt><dd>Selected files copied into the worker-visible inbound directory.</dd><dt>Source availability</dt><dd>The reader later fails if no matching file contains rows. No candidate table write occurs.</dd></dl></div><p>The lab begins with gzip-compressed newline-delimited JSON files. Each line represents a sensor reading. <code>stage_inbound()</code> copies the selected scenario into <code>generated-data/inbound/</code>, the directory the Dagster worker actually reads.</p><p><code>read_batches(partition_date)</code> sorts the delivery files, selects names ending in <code>-{partition_date}.ndjson.gz</code>, decodes their rows and concatenates them into a DataFrame. An empty selection raises <code>FileNotFoundError</code>. The source reader therefore has a concrete selection rule, rather than scanning every fixture for every run.</p><pre>batch_id      b-1001
+sensor_id     s-001
+reading_value required float
+recorded_at   event timestamp
+batch_date    partition timestamp
+quality_flag  ok | suspect</pre><p><strong>Partitioning</strong> divides work and data into identifiable slices. Here a requested date selects source files, and <code>batch_date</code> becomes an Iceberg identity partition. It is distinct from <code>recorded_at</code>, which describes when the measurement happened. A record can belong to a delivery partition yet have a stale event timestamp.</p><p class="evidence">The clean fixture contains 12 rows across four sensors. The staged directory must be shared with the worker. Changing an environment variable only in the launching shell cannot select data inside another process.</p><a class="source" href="https://github.com/phlohouse/phlo/blob/ee7e65851e5bc80b8520c2c054e9eb0db1bccc99/examples/lakehouses/wap-failure-lab/workflows/ingest/batches.py">Read the implementation at the tested commit</a></section><section class="annotation" id="s2" data-cluster="s2"><h2><span>02</span> Launch identity and an isolated catalog branch</h2><div class="stage-contract"><dl><dt>Input</dt><dd>Asset name, partition date and current main catalog reference.</dd><dt>Output</dt><dd>An isolated run branch, logical Phlo run ID, Dagster run ID and recorded starting hash.</dd><dt>Launch correlation</dt><dd>The scenario must receive a logical run ID and find that exact run’s terminal report. A missing or unfinished report fails the scenario after its timeout.</dd></dl></div><p>The runner launches the ingestion asset through <code>phlo materialize</code>. An <strong>asset</strong> identifies the work that produces a dataset. A <strong>run</strong> identifies one execution. WAP gives that execution a branch named <code>pipeline-run-&lt;id&gt;</code>, starting from a recorded catalog state.</p><p>Nessie supplies versioned catalog references. A branch isolates changes to table metadata while <code>main</code> remains the reference used for published data. This is a catalog operation, not a Git branch in the source repository.</p><p>The launch carries both a logical Phlo run identity and a Dagster execution identity. They have different jobs. Phlo uses the logical ID to correlate evidence and the report returned for the launch. Dagster uses its ID to track execution. The runner polls the exact logical ID returned by the command, so an earlier successful report cannot satisfy a later launch.</p><div class="worked-example"><h3>One actual run: four identifiers, four different jobs</h3><p>All values below belong to the same clean publication. Follow the logical ID across the files, and the Dagster ID into its event record.</p><pre>Logical Phlo run ID
+cd64e925fd5b45cc90869c56a72d5bb7
+
+WAP report file
+.phlo/wap-reports/cd64e925fd5b45cc90869c56a72d5bb7.json
+
+Exported ingestion evidence
+.phlo/lab-run-evidence/cd64e925fd5b45cc90869c56a72d5bb7.json</pre><p>Both documents contain the same <code>run_id</code>. The report also records this separate Dagster execution ID:</p><pre>Dagster run ID
+c609c997-89e3-4388-998e-d32b35f8db0b
+
+An actual recorded event ID
+c609c997-89e3-4388-998e-d32b35f8db0b:1</pre><p>The <code>:1</code> suffix is the event sequence. Its resource identity points back to the logical Phlo run. The export classifies this event as <code>dagster.unknown</code>, so it does not establish a more specific event type.</p><pre>Branch created for this run
+pipeline-run-cd64e925fd5b45cc90869c56a72d5bb7
+
+Starting main hash (launch_target_hash_before)
+2e1cfa82b035c26cbbbdae632cea070514eb8b773f616aaeaf668e2f0be8f10d</pre><p>The branch names the isolated candidate state. The hash identifies the catalog ancestry it started from. Neither is the Iceberg snapshot ID or a source-code commit.</p><a href="records/cd64e925fd5b45cc90869c56a72d5bb7.json">Inspect this run’s WAP report</a></div><p class="evidence">A command accepting work is not proof of publication. The runner waits for terminal report evidence. A missing or unfinished report fails the scenario after the timeout.</p><a class="source" href="https://github.com/phlohouse/phlo/blob/ee7e65851e5bc80b8520c2c054e9eb0db1bccc99/examples/lakehouses/wap-failure-lab/scripts/run_scenario.py">Read the implementation at the tested commit</a></section><section class="annotation" id="s3" data-cluster="s3"><h2><span>03</span> Source execution, retries and Parquet staging</h2><div class="stage-contract"><dl><dt>Input</dt><dd>The selected source files, run identity and retry policy.</dd><dt>Output</dt><dd>Normalized Parquet with Phlo metadata, plus an inventory of the staged objects.</dd><dt>Source execution</dt><dd>The injected error fails the first source attempt before it yields data. The second attempt succeeds. Exhausted retries would fail the run, not publish a partial success.</dd></dl></div><p>The strict source first calls its transient-failure hook, then returns a <code>dlt.resource</code> built from the selected records. dlt extracts and normalizes the records into staged Parquet. Phlo adds its metadata columns before inventorying those artifacts.</p><p><strong>Staging</strong> makes the material being validated and loaded inspectable. The executor records object identities, byte counts and available record counts immediately before validation and writing. That ordering matters: recording the inventory before metadata injection would describe a different artifact from the one actually loaded.</p><p>In the retry scenario, a durable counter records attempt one and the injected fault raises before the source yields data. The Dagster retry policy permits another attempt, with a five-second delay and up to three retries on the strict asset. Attempt two succeeds.</p><pre>attempts_recorded: 2
+rows_added:        10
+classification:   promoted</pre><p class="evidence"><strong>Retry safety has a boundary.</strong> Both assets use append writes. A declared <code>unique_key="batch_id"</code> does not turn an append into a deduplicating upsert. This pre-yield fault proves recovery before a write, not idempotent replay after a committed write.</p><a class="source" href="https://github.com/phlohouse/phlo/blob/ee7e65851e5bc80b8520c2c054e9eb0db1bccc99/packages/phlo-dlt/src/phlo_dlt/executor.py">Read the implementation at the tested commit</a><div class="wap-record"><h3>Source retry recovered</h3><p>The final report records successful promotion. The source-attempt count of two comes from retry.log, not the launch tag phlo/attempt.</p><dl><dt>run_id</dt><dd><code>9d2a1099e2284f6b9ce3c57193401ae7</code></dd><dt>status</dt><dd><code>promoted</code></dd><dt>merge_state</dt><dd><code>merged</code></dd><dt>source_deleted</dt><dd><code>true</code></dd><dt>target_branch</dt><dd><code>main</code></dd><dt>launch_target_hash_before</dt><dd><code>176bc0ac19064a4b021c0799d5ed0466c7e2fa23e0068eaccbb06c1038421080</code></dd><dt>target_hash_before</dt><dd><code>176bc0ac19064a4b021c0799d5ed0466c7e2fa23e0068eaccbb06c1038421080</code></dd><dt>target_hash_after</dt><dd><code>ba04638cfd70e5529b743769530b5307cf46ed5d12146ba66c0bc33e4be2f4c0</code></dd></dl><details class="record-json"><summary>Inspect complete WAP record</summary><pre>{
+  &quot;branch&quot;: &quot;pipeline-run-9d2a1099e2284f6b9ce3c57193401ae7&quot;,
+  &quot;created_at&quot;: &quot;2026-09-07T21:53:50.358590+00:00&quot;,
+  &quot;dagster_run_id&quot;: &quot;0f7133d4-7835-43ee-a77f-ae49e7601bf8&quot;,
+  &quot;launch_manifest_checksum&quot;: &quot;de9569515bca7cdfcb5668851a336fa93b2f96775d568bdaff4f0503084ae6c4&quot;,
+  &quot;launch_source_hash&quot;: &quot;176bc0ac19064a4b021c0799d5ed0466c7e2fa23e0068eaccbb06c1038421080&quot;,
+  &quot;launch_tags&quot;: {
+    &quot;phlo/attempt&quot;: &quot;1&quot;,
+    &quot;phlo/project_id&quot;: &quot;wap-failure-lab&quot;,
+    &quot;phlo/ref&quot;: &quot;pipeline-run-9d2a1099e2284f6b9ce3c57193401ae7&quot;,
+    &quot;phlo/run_id&quot;: &quot;9d2a1099e2284f6b9ce3c57193401ae7&quot;,
+    &quot;phlo/wap_branch&quot;: &quot;pipeline-run-9d2a1099e2284f6b9ce3c57193401ae7&quot;
+  },
+  &quot;launch_target_hash_before&quot;: &quot;176bc0ac19064a4b021c0799d5ed0466c7e2fa23e0068eaccbb06c1038421080&quot;,
+  &quot;merge_state&quot;: &quot;merged&quot;,
+  &quot;run_id&quot;: &quot;9d2a1099e2284f6b9ce3c57193401ae7&quot;,
+  &quot;schema_version&quot;: &quot;phlo.wap_report.v2&quot;,
+  &quot;source_deleted&quot;: true,
+  &quot;source_hash&quot;: &quot;9c8518dbb5f3205ebdd8d4162bb8033fc5acd34ba164bb1be33b1cf3c9d22914&quot;,
+  &quot;status&quot;: &quot;promoted&quot;,
+  &quot;strategy&quot;: &quot;branch&quot;,
+  &quot;target_branch&quot;: &quot;main&quot;,
+  &quot;target_hash_after&quot;: &quot;ba04638cfd70e5529b743769530b5307cf46ed5d12146ba66c0bc33e4be2f4c0&quot;,
+  &quot;target_hash_before&quot;: &quot;176bc0ac19064a4b021c0799d5ed0466c7e2fa23e0068eaccbb06c1038421080&quot;,
+  &quot;updated_at&quot;: &quot;2026-09-07T21:54:09.188862+00:00&quot;
+}</pre></details><a class="source" href="records/9d2a1099e2284f6b9ce3c57193401ae7.json" download>Download original JSON</a><p class="record-time">Saved report updated 2026-09-07T21:54:09.188862+00:00. Omitted fields are absent from the original record.</p></div><div class="worked-example"><h3>Actual staged artifact: 12 rows, 4,455 bytes</h3><pre>{
+  &quot;identity&quot;: &quot;sha256:d7aff9d14a48b4bfb6b73ef8413ffffdd877215dda97f167d3c2ecd69b8caaee&quot;,
+  &quot;checksum&quot;: &quot;d7aff9d14a48b4bfb6b73ef8413ffffdd877215dda97f167d3c2ecd69b8caaee&quot;,
+  &quot;byte_count&quot;: 4455,
+  &quot;record_count&quot;: 12
+}</pre><p>The checksum identifies the normalized Parquet artifact after metadata injection. It is a content identity, not a Nessie commit hash. The retained report has no artifact URI, so this is inspectable metadata rather than a downloadable Parquet file.</p></div></section><section class="annotation" id="s4" data-cluster="s4"><h2><span>04</span> Validation runs before the table write</h2><div class="worked-example"><h3>Failure example: a required reading is missing</h3><p>Two actual rows from the bad delivery. The contract allows 18.0 but rejects NULL.</p><div class="tablewrap"><table class="example-data"><thead><tr><th>batch_id</th><th>sensor_id</th><th>reading_value</th></tr></thead><tbody><tr><td>b-1001</td><td>s-501</td><td>18.0</td></tr><tr><td>b-1004</td><td>s-501</td><td class="bad-cell">NULL <strong>FAIL</strong></td></tr></tbody></table></div><pre>Check: reading_value must not be NULL
+Offending record: b-1004
+Strict result: FAIL before Iceberg write
+Published raw rows: 12 before → 12 after
+New rows published by this run: 0</pre><p>The other rows in this delivery do not get published as a partial success. The failed run retains its WAP branch.</p></div><div class="worked-example"><h3>Failure example: the same batch ID appears twice</h3><p>These two fixture rows share an ID even though their timestamps differ.</p><div class="tablewrap"><table class="example-data"><thead><tr><th>batch_id</th><th>recorded_at</th><th>reading_value</th></tr></thead><tbody><tr><td class="bad-cell">b-2003 <strong>FAIL</strong></td><td>2026-08-20T08:23:00Z</td><td>27.0</td></tr><tr><td class="bad-cell">b-2003 <strong>FAIL</strong></td><td>2026-08-20T23:42:00Z</td><td>27.0</td></tr></tbody></table></div><pre>Check: batch_id is unique within the delivery
+Violation: batch_id repeated within delivery: ['b-2003']
+Strict result: FAIL before Iceberg write</pre><p>This fixture has deterministic test coverage. It was not the fault used in the live quality_failure run.</p></div><div class="stage-contract"><dl><dt>Input</dt><dd>Staged Parquet rows and the asset’s contract/check configuration.</dd><dt>Output</dt><dd>Validation results; either permission to continue or an exception before the Iceberg write.</dd><dt>Data validation</dt><dd>Strict failures stop here, before the table-store write. Relaxed failures become warning evidence and allow execution to continue.</dd></dl></div><p>The executor evaluates the Pandera contract against the staged Parquet files. Required readings must be non-null and between −50 and 150. Identifier formats, temporal fields and the allowed <code>quality_flag</code> values form the rest of the physical contract. The optional score accepts NULL or a value from 0 to 100.</p><p>It then evaluates the configured domain checks. The strict asset attaches <code>assert_batch_ids_unique</code>. The relaxed asset attaches <code>assert_recordings_near_partition</code>, which rejects timestamps outside a seven-day window. These are distinct asset configurations, not one identical check suite.</p><p>With <code>strict_validation=True</code>, a failed contract or domain check raises before <code>merge_to_table_store()</code>. With relaxed validation, evaluation results remain available as warning evidence and execution can continue to the write.</p><pre>strict + failed check → raise before write
+relaxed + warning    → record result, continue
+clean checks         → continue</pre><p class="evidence">The live strict scenario used one null reading. Dagster failed, main's hash and row count stayed unchanged, and the WAP branch remained. The duplicate-ID fixture was also checked in deterministic tests. The live warning fixture used seven records that were 23 days stale.</p><a class="source" href="https://github.com/phlohouse/phlo/blob/ee7e65851e5bc80b8520c2c054e9eb0db1bccc99/packages/phlo-dlt/src/phlo_dlt/executor.py">Read the implementation at the tested commit</a><div class="wap-record"><h3>Strict quality rejection</h3><p>The report records a failed Dagster run. It contains no merged receipt or target_hash_after.</p><dl><dt>run_id</dt><dd><code>e99ba3de634e4338807cad0b8c8a0c54</code></dd><dt>status</dt><dd><code>failed</code></dd><dt>failure_reason</dt><dd><code>dagster_run_failed</code></dd><dt>target_branch</dt><dd><code>main</code></dd><dt>launch_target_hash_before</dt><dd><code>176bc0ac19064a4b021c0799d5ed0466c7e2fa23e0068eaccbb06c1038421080</code></dd><dt>target_hash_before</dt><dd><code>176bc0ac19064a4b021c0799d5ed0466c7e2fa23e0068eaccbb06c1038421080</code></dd></dl><details class="record-json"><summary>Inspect complete WAP record</summary><pre>{
+  &quot;branch&quot;: &quot;pipeline-run-e99ba3de634e4338807cad0b8c8a0c54&quot;,
+  &quot;created_at&quot;: &quot;2026-09-07T21:53:06.892786+00:00&quot;,
+  &quot;dagster_run_id&quot;: &quot;fe3ee980-d290-42f5-8358-c8cd71458214&quot;,
+  &quot;failure_reason&quot;: &quot;dagster_run_failed&quot;,
+  &quot;launch_manifest_checksum&quot;: &quot;e3472a6a45d33bc7a5dac0e352b6ecd077f9001483fd6baf48702b89f1de2c78&quot;,
+  &quot;launch_source_hash&quot;: &quot;176bc0ac19064a4b021c0799d5ed0466c7e2fa23e0068eaccbb06c1038421080&quot;,
+  &quot;launch_tags&quot;: {
+    &quot;phlo/attempt&quot;: &quot;1&quot;,
+    &quot;phlo/project_id&quot;: &quot;wap-failure-lab&quot;,
+    &quot;phlo/ref&quot;: &quot;pipeline-run-e99ba3de634e4338807cad0b8c8a0c54&quot;,
+    &quot;phlo/run_id&quot;: &quot;e99ba3de634e4338807cad0b8c8a0c54&quot;,
+    &quot;phlo/wap_branch&quot;: &quot;pipeline-run-e99ba3de634e4338807cad0b8c8a0c54&quot;
+  },
+  &quot;launch_target_hash_before&quot;: &quot;176bc0ac19064a4b021c0799d5ed0466c7e2fa23e0068eaccbb06c1038421080&quot;,
+  &quot;run_id&quot;: &quot;e99ba3de634e4338807cad0b8c8a0c54&quot;,
+  &quot;schema_version&quot;: &quot;phlo.wap_report.v2&quot;,
+  &quot;source_hash&quot;: &quot;176bc0ac19064a4b021c0799d5ed0466c7e2fa23e0068eaccbb06c1038421080&quot;,
+  &quot;status&quot;: &quot;failed&quot;,
+  &quot;strategy&quot;: &quot;branch&quot;,
+  &quot;target_branch&quot;: &quot;main&quot;,
+  &quot;target_hash_before&quot;: &quot;176bc0ac19064a4b021c0799d5ed0466c7e2fa23e0068eaccbb06c1038421080&quot;,
+  &quot;updated_at&quot;: &quot;2026-09-07T21:58:44.637664+00:00&quot;
+}</pre></details><a class="source" href="records/e99ba3de634e4338807cad0b8c8a0c54.json" download>Download original JSON</a><p class="record-time">Saved report updated 2026-09-07T21:58:44.637664+00:00. Omitted fields are absent from the original record.</p></div><h3 class="checks-heading">The checks, their failing inputs and their consequences</h3><p>A <strong>check</strong> evaluates an expectation against data or state. A failed check is a result. The configured policy determines whether that result stops the pipeline. Test assertions separately verify that the pipeline responded correctly.</p><div class="tablewrap"><table class="check-table"><thead><tr><th>Check</th><th>Fails when</th><th>Consequence and evidence</th></tr></thead><tbody><tr><th>Required reading</th><td>reading_value is NULL. The live bad row was b-1004.</td><td>Strict contract: raises before Iceberg write.<br/><em>Live rejection passed.</em></td></tr><tr><th>Reading bounds</th><td>reading_value is below −50 or above 150.</td><td>Strict contract: raises before Iceberg write.<br/><em>Defined contract; not a separate live fault scenario.</em></td></tr><tr><th>Identifiers and flags</th><td>batch_id fails ^b-\d{4}$, sensor_id fails ^s-\d{3}$, or quality_flag is neither ok nor suspect.</td><td>Strict contract: raises before Iceberg write.<br/><em>Defined contract; not separate live fault scenarios.</em></td></tr><tr><th>Optional score</th><td>A supplied, non-NULL reading_quality_score is outside 0–100.</td><td>Contract violation; strict policy blocks. Missing/NULL score is allowed.<br/><em>The live compatibility scenario passed valid scores and preserved old NULLs.</em></td></tr><tr><th>Batch uniqueness</th><td>A batch_id repeats within the delivered batch. The fixture repeats b-2003.</td><td>Strict asset domain check: raises before Iceberg write. Does not deduplicate existing table rows.<br/><em>Deterministic fixture coverage, not the live quality_failure fault.</em></td></tr><tr><th>Recording time</th><td>Calendar-day lag = batch_date − recorded_at is below 0 or above 7, using UTC day boundaries.</td><td>Relaxed asset domain check: records a warning; write and publication can proceed.<br/><em>Live fixture: seven records, 23 days stale; all seven published to the relaxed table.</em></td></tr></tbody></table></div></section><section class="annotation" id="s5" data-cluster="s5"><h2><span>05</span> Iceberg commits data on the run branch</h2><div class="worked-example"><h3>Optional-field example: old and new records</h3><p>The old input has no score field; the new input supplies 55.0.</p><pre>Old input: {"batch_id": "b-0001", ...}
+New input: {"batch_id": "b-4001", "reading_quality_score": 55.0, ...}</pre><div class="tablewrap"><table class="example-data"><thead><tr><th>batch_id</th><th>reading_quality_score</th></tr></thead><tbody><tr><td>b-0001</td><td>NULL</td></tr><tr><td>b-4001</td><td>55.0</td></tr></tbody></table></div><p>This shows the expected table representation derived from those fixture rows. Live SQL verified that all 22 older rows had NULL scores and the new partition contained eight rows. The table above is a fixture-based illustration of that result, not a captured query export.</p></div><div class="stage-contract"><dl><dt>Input</dt><dd>Accepted staged Parquet, append configuration and the isolated branch reference.</dd><dt>Output</dt><dd>A candidate Iceberg table snapshot on the run branch, with before/after table evidence.</dd><dt>Write readback</dt><dd>Missing state or contradictory readback marks output evidence incomplete. A candidate snapshot here is still not publication on main.</dd></dl></div><p>After staged validation, <code>merge_to_table_store()</code> writes using <code>merge_strategy="append"</code> and the run's branch reference. MinIO stores the physical objects. Iceberg metadata identifies the files belonging to each table snapshot. Nessie identifies the catalog state through which those tables are resolved.</p><p>These are separate layers: an uploaded object is not a table snapshot, and a new snapshot on a run branch is not yet published on main. The executor reads table state before and after the write, then records snapshot IDs, schema hashes and observed row metrics. Missing or contradictory readback reduces the completeness of the evidence.</p><p><strong>Schema evolution</strong> also needs precise evidence. The lab's score column is optional from the contract's initial definition. In the actual schema scenario, the column count was 13 both before and after. Eight new rows supplied scores and all 22 older rows retained NULL scores.</p><pre>columns_before / after: 13 / 13
+new_partition_rows:      8
+old_rows_with_null_score:22 of 22</pre><p class="evidence">This proves preservation of old rows and ingestion of new optional values. It does not demonstrate adding a previously absent column through a live DDL migration.</p><a class="source" href="https://github.com/phlohouse/phlo/blob/ee7e65851e5bc80b8520c2c054e9eb0db1bccc99/packages/phlo-dlt/src/phlo_dlt/executor.py">Read the implementation at the tested commit</a><div class="wap-record"><h3>Optional-score batch published</h3><p>Publication succeeded. Column counts and old-row NULL checks are separate SQL assertions in schema.log.</p><dl><dt>run_id</dt><dd><code>b3e7ffcd6e1148d69aae91a8c24573a5</code></dd><dt>status</dt><dd><code>promoted</code></dd><dt>merge_state</dt><dd><code>merged</code></dd><dt>source_deleted</dt><dd><code>true</code></dd><dt>target_branch</dt><dd><code>main</code></dd><dt>launch_target_hash_before</dt><dd><code>ba04638cfd70e5529b743769530b5307cf46ed5d12146ba66c0bc33e4be2f4c0</code></dd><dt>target_hash_before</dt><dd><code>ba04638cfd70e5529b743769530b5307cf46ed5d12146ba66c0bc33e4be2f4c0</code></dd><dt>target_hash_after</dt><dd><code>380a6d4716fb5e1b201900e280b9d92baf2eddee6b9f899c600a9cb728a9211e</code></dd></dl><details class="record-json"><summary>Inspect complete WAP record</summary><pre>{
+  &quot;branch&quot;: &quot;pipeline-run-b3e7ffcd6e1148d69aae91a8c24573a5&quot;,
+  &quot;created_at&quot;: &quot;2026-09-07T21:54:13.880967+00:00&quot;,
+  &quot;dagster_run_id&quot;: &quot;0b7351d4-9fa3-4f42-b398-04a5e986e2e9&quot;,
+  &quot;launch_manifest_checksum&quot;: &quot;2988df9a33276c6da1c080b0be50ba2a8b97e2439f7f8210618fe66eac11b09c&quot;,
+  &quot;launch_source_hash&quot;: &quot;ba04638cfd70e5529b743769530b5307cf46ed5d12146ba66c0bc33e4be2f4c0&quot;,
+  &quot;launch_tags&quot;: {
+    &quot;phlo/attempt&quot;: &quot;1&quot;,
+    &quot;phlo/project_id&quot;: &quot;wap-failure-lab&quot;,
+    &quot;phlo/ref&quot;: &quot;pipeline-run-b3e7ffcd6e1148d69aae91a8c24573a5&quot;,
+    &quot;phlo/run_id&quot;: &quot;b3e7ffcd6e1148d69aae91a8c24573a5&quot;,
+    &quot;phlo/wap_branch&quot;: &quot;pipeline-run-b3e7ffcd6e1148d69aae91a8c24573a5&quot;
+  },
+  &quot;launch_target_hash_before&quot;: &quot;ba04638cfd70e5529b743769530b5307cf46ed5d12146ba66c0bc33e4be2f4c0&quot;,
+  &quot;merge_state&quot;: &quot;merged&quot;,
+  &quot;run_id&quot;: &quot;b3e7ffcd6e1148d69aae91a8c24573a5&quot;,
+  &quot;schema_version&quot;: &quot;phlo.wap_report.v2&quot;,
+  &quot;source_deleted&quot;: true,
+  &quot;source_hash&quot;: &quot;50ce9d8c4a8f2330dd49ad41444cb977aa3a7af675aaad6b6c74dd02e98660c9&quot;,
+  &quot;status&quot;: &quot;promoted&quot;,
+  &quot;strategy&quot;: &quot;branch&quot;,
+  &quot;target_branch&quot;: &quot;main&quot;,
+  &quot;target_hash_after&quot;: &quot;380a6d4716fb5e1b201900e280b9d92baf2eddee6b9f899c600a9cb728a9211e&quot;,
+  &quot;target_hash_before&quot;: &quot;ba04638cfd70e5529b743769530b5307cf46ed5d12146ba66c0bc33e4be2f4c0&quot;,
+  &quot;updated_at&quot;: &quot;2026-09-07T21:54:29.190462+00:00&quot;
+}</pre></details><a class="source" href="records/b3e7ffcd6e1148d69aae91a8c24573a5.json" download>Download original JSON</a><p class="record-time">Saved report updated 2026-09-07T21:54:29.190462+00:00. Omitted fields are absent from the original record.</p></div><div class="worked-example"><h3>Actual output snapshot on the isolated branch</h3><pre>{
+  &quot;table_name&quot;: &quot;raw.sensor_batches&quot;,
+  &quot;ref_name&quot;: &quot;pipeline-run-cd64e925fd5b45cc90869c56a72d5bb7&quot;,
+  &quot;record_count&quot;: 12,
+  &quot;snapshot_before&quot;: null,
+  &quot;snapshot_after&quot;: &quot;1065092069490256227&quot;,
+  &quot;schema_hash&quot;: &quot;5f82d6afa0aa2c6d38ddba0c5000f96bd00d2a19da9e6c3ae986936a5ed2df05&quot;
+}</pre><p>The table output has 12 rows and snapshot <code>1065092069490256227</code>. <code>snapshot_before</code> is NULL in the recorded fresh-table output. The separate catalog hash describes the reference that resolves this table.</p></div></section><section class="annotation" id="s6" data-cluster="s6"><h2><span>06</span> Publication has its own evidence gate</h2><div class="worked-example"><h3>Warning example: the reading is 23 days old</h3><div class="tablewrap"><table class="example-data"><thead><tr><th>batch_id</th><th>recorded_at</th><th>batch_date</th></tr></thead><tbody><tr><td>b-8001</td><td>2026-08-01T08:57:00Z</td><td>2026-08-24T00:00:00Z</td></tr></tbody></table></div><pre>2026-08-24 − 2026-08-01 = 23 calendar days
+Allowed lag: 0–7 days
+Timeliness check: FAIL
+Relaxed policy: warning, publication allowed
+Output: 7 rows added to sensor_batches_relaxed on main</pre><p>The row stays unchanged: publication does not repair its timestamp. The warning records why it missed the expectation.</p></div><div class="stage-contract"><dl><dt>Input</dt><dd>Dagster run outcome and quality evidence for the exact logical run.</dd><dt>Output</dt><dd>A publication decision: eligible to merge, blocked, or failed.</dd><dt>Publication gate</dt><dd>A failed run, blocking quality error or unavailable required quality evidence prevents promotion. Warning-only evidence permits promotion.</dd></dl></div><p>A successful ingestion execution leaves changes on its isolated branch. The WAP promotion sensor separately decides whether they can reach main. It consults the run outcome and durable quality evidence, rather than equating a successful process exit with a publication decision.</p><p><strong>Write-Audit-Publish</strong> separates producing candidate data from exposing it to consumers. The audit boundary includes publication policy. Blocking quality errors prevent promotion. Missing required quality evidence also blocks promotion. Warning-only evidence remains non-blocking under the configured severity contract.</p><p>Failed Dagster runs must reach a terminal failed report and retain their branches. Successful relaxed runs can proceed with a quality aggregate of <code>passed_with_warnings</code>. The failed check remains in the evidence, so the reason for accepting imperfect data stays inspectable.</p><pre>execution success ≠ publication success
+blocking error    → no promotion
+evidence missing  → no promotion
+warning only      → promotion permitted</pre><p class="evidence">The warning scenario published seven rows to <code>sensor_batches_relaxed</code> on main. It did not add them to the strict <code>sensor_batches</code> table used by the example's dbt summary.</p><a class="source" href="https://github.com/phlohouse/phlo/blob/ee7e65851e5bc80b8520c2c054e9eb0db1bccc99/packages/phlo-dagster/src/phlo_dagster/wap_sensors.py">Read the implementation at the tested commit</a><div class="wap-record"><h3>Warning-only batch published</h3><p>This WAP report confirms publication. The detailed warning evaluation belongs to quality evidence, not these lifecycle fields.</p><dl><dt>run_id</dt><dd><code>74a6b2f7196e46438c00ea8bb4716502</code></dd><dt>status</dt><dd><code>promoted</code></dd><dt>merge_state</dt><dd><code>merged</code></dd><dt>source_deleted</dt><dd><code>true</code></dd><dt>target_branch</dt><dd><code>main</code></dd><dt>launch_target_hash_before</dt><dd><code>67efad8c00f51a690ac0be91222589df70a4fa8e24aa07d50d2684c2190b2821</code></dd><dt>target_hash_before</dt><dd><code>67efad8c00f51a690ac0be91222589df70a4fa8e24aa07d50d2684c2190b2821</code></dd><dt>target_hash_after</dt><dd><code>bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d</code></dd></dl><details class="record-json"><summary>Inspect complete WAP record</summary><pre>{
+  &quot;branch&quot;: &quot;pipeline-run-74a6b2f7196e46438c00ea8bb4716502&quot;,
+  &quot;created_at&quot;: &quot;2026-09-07T21:56:32.344305+00:00&quot;,
+  &quot;dagster_run_id&quot;: &quot;81c969e2-354a-41aa-af5f-7030e57ea835&quot;,
+  &quot;launch_manifest_checksum&quot;: &quot;8fcb509e9e5ad006c043a53bf3fcab3f12131062213c5984dfb7be82a71ed9de&quot;,
+  &quot;launch_source_hash&quot;: &quot;67efad8c00f51a690ac0be91222589df70a4fa8e24aa07d50d2684c2190b2821&quot;,
+  &quot;launch_tags&quot;: {
+    &quot;phlo/attempt&quot;: &quot;1&quot;,
+    &quot;phlo/project_id&quot;: &quot;wap-failure-lab&quot;,
+    &quot;phlo/ref&quot;: &quot;pipeline-run-74a6b2f7196e46438c00ea8bb4716502&quot;,
+    &quot;phlo/run_id&quot;: &quot;74a6b2f7196e46438c00ea8bb4716502&quot;,
+    &quot;phlo/wap_branch&quot;: &quot;pipeline-run-74a6b2f7196e46438c00ea8bb4716502&quot;
+  },
+  &quot;launch_target_hash_before&quot;: &quot;67efad8c00f51a690ac0be91222589df70a4fa8e24aa07d50d2684c2190b2821&quot;,
+  &quot;merge_state&quot;: &quot;merged&quot;,
+  &quot;run_id&quot;: &quot;74a6b2f7196e46438c00ea8bb4716502&quot;,
+  &quot;schema_version&quot;: &quot;phlo.wap_report.v2&quot;,
+  &quot;source_deleted&quot;: true,
+  &quot;source_hash&quot;: &quot;10185652fb3c6e7de72a031916dfc09574abca6eedd4a731ad0114a74449f88f&quot;,
+  &quot;status&quot;: &quot;promoted&quot;,
+  &quot;strategy&quot;: &quot;branch&quot;,
+  &quot;target_branch&quot;: &quot;main&quot;,
+  &quot;target_hash_after&quot;: &quot;bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d&quot;,
+  &quot;target_hash_before&quot;: &quot;67efad8c00f51a690ac0be91222589df70a4fa8e24aa07d50d2684c2190b2821&quot;,
+  &quot;updated_at&quot;: &quot;2026-09-07T21:56:44.264717+00:00&quot;
+}</pre></details><a class="source" href="records/74a6b2f7196e46438c00ea8bb4716502.json" download>Download original JSON</a><p class="record-time">Saved report updated 2026-09-07T21:56:44.264717+00:00. Omitted fields are absent from the original record.</p></div><div class="worked-example"><h3>Actual aggregate publication check</h3><pre>{
+  &quot;check_id&quot;: &quot;wap.aggregate&quot;,
+  &quot;asset&quot;: &quot;__pipeline__&quot;,
+  &quot;passed&quot;: true,
+  &quot;blocking&quot;: false,
+  &quot;severity&quot;: null,
+  &quot;evaluated_count&quot;: null,
+  &quot;failed_count&quot;: null
+}</pre><p>This is the recorded <code>wap.aggregate</code> result for the clean run. It passes and is non-blocking. NULL counts mean the aggregate record does not supply those counts; they do not mean zero checked rows.</p></div></section><section class="annotation" id="s7" data-cluster="s7"><h2><span>07</span> Merge intent, acknowledgement and uncertainty</h2><div class="stage-contract"><dl><dt>Input</dt><dd>An eligible candidate branch, main’s current hash and a durable merge-intent record.</dd><dt>Output</dt><dd>A merged receipt, a known failed-merge record, or an unresolved outcome with the source retained.</dd><dt>Catalog merge</dt><dd>A rejected merge records merge_failed. An unacknowledged outcome stays uncertain. Neither authorizes branch cleanup.</dd></dl></div><p>Before calling the catalog, the sensor persists <code>merge_state="merge_started"</code> together with the source and target hashes. This is a durable record of intent across a process or network boundary. If recording intent fails, it does not perform the merge.</p><p>If the catalog reports failure, the sensor writes <code>promotion_failed</code> and <code>merge_failed</code>. A successful acknowledgement permits it to record <code>merge_state="merged"</code>. That receipt is what lets a later sensor evaluation resume evidence finalization and cleanup without issuing the same merge again.</p><p>A crash can leave only <code>merge_started</code>. The merge may have committed and lost its acknowledgement, or may never have committed. Recovery keeps the branch and marks the outcome unknown. A moving target hash cannot resolve that uncertainty because another writer may have changed main.</p><pre>merge_started → intent, outcome uncertain
+merge_failed  → known failure, retain source
+merged        → acknowledged success receipt</pre><p class="evidence">The regression added an unrelated main commit after a failed merge. The source branch and its data survived. The result recorded <code>branch_retained=true</code> and unchanged main rows for the failed batch.</p><a class="source" href="https://github.com/phlohouse/phlo/blob/ee7e65851e5bc80b8520c2c054e9eb0db1bccc99/packages/phlo-dagster/src/phlo_dagster/wap_sensors.py">Read the implementation at the tested commit</a><div class="wap-record"><h3>Failed merge before and after an unrelated commit</h3><p>These are the report snapshots captured by the regression. The target hash changes, while the source hash and failed merge state remain unchanged.</p><div class="tablewrap"><table><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody><tr><th>status</th><td><code>promotion_failed</code></td><td><code>promotion_failed</code></td></tr><tr><th>merge_state</th><td><code>merge_failed</code></td><td><code>merge_failed</code></td></tr><tr><th>source_hash</th><td><code>7a5190d24c3f6841bdfd5c5800e7c7708232fabb9dffd8490e39d4d7e1e0ff8b</code></td><td><code>7a5190d24c3f6841bdfd5c5800e7c7708232fabb9dffd8490e39d4d7e1e0ff8b</code></td></tr><tr><th>target_hash_before</th><td><code>93fba7e9577e0a7da27f921bc77c1a1cedf7b47cb0f10e341db5ca6e20b1b98e</code></td><td><code>67efad8c00f51a690ac0be91222589df70a4fa8e24aa07d50d2684c2190b2821</code></td></tr></tbody></table></div><pre>branch_retained: true
+main_rows_unchanged: true</pre><details class="record-json"><summary>Inspect both complete report snapshots</summary><pre>{
+  &quot;before&quot;: {
+    &quot;branch&quot;: &quot;pipeline-run-83be0c14231940e7b1394b4a47c0b2e9&quot;,
+    &quot;created_at&quot;: &quot;2026-09-07T21:54:33.237368+00:00&quot;,
+    &quot;dagster_run_id&quot;: &quot;cf01648a-4001-4cb9-9d73-0b3005aacf54&quot;,
+    &quot;failure_reason&quot;: &quot;merge_branch_returned_false&quot;,
+    &quot;launch_manifest_checksum&quot;: &quot;a575d537d252413e3bbdf2e230c66ca6e7ebce61a708c5501b1b1c7419378d01&quot;,
+    &quot;launch_source_hash&quot;: &quot;380a6d4716fb5e1b201900e280b9d92baf2eddee6b9f899c600a9cb728a9211e&quot;,
+    &quot;launch_tags&quot;: {
+      &quot;phlo/attempt&quot;: &quot;1&quot;,
+      &quot;phlo/project_id&quot;: &quot;wap-failure-lab&quot;,
+      &quot;phlo/ref&quot;: &quot;pipeline-run-83be0c14231940e7b1394b4a47c0b2e9&quot;,
+      &quot;phlo/run_id&quot;: &quot;83be0c14231940e7b1394b4a47c0b2e9&quot;,
+      &quot;phlo/wap_branch&quot;: &quot;pipeline-run-83be0c14231940e7b1394b4a47c0b2e9&quot;
+    },
+    &quot;launch_target_hash_before&quot;: &quot;380a6d4716fb5e1b201900e280b9d92baf2eddee6b9f899c600a9cb728a9211e&quot;,
+    &quot;merge_state&quot;: &quot;merge_failed&quot;,
+    &quot;run_id&quot;: &quot;83be0c14231940e7b1394b4a47c0b2e9&quot;,
+    &quot;schema_version&quot;: &quot;phlo.wap_report.v2&quot;,
+    &quot;source_hash&quot;: &quot;7a5190d24c3f6841bdfd5c5800e7c7708232fabb9dffd8490e39d4d7e1e0ff8b&quot;,
+    &quot;status&quot;: &quot;promotion_failed&quot;,
+    &quot;strategy&quot;: &quot;branch&quot;,
+    &quot;target_branch&quot;: &quot;main&quot;,
+    &quot;target_hash_before&quot;: &quot;93fba7e9577e0a7da27f921bc77c1a1cedf7b47cb0f10e341db5ca6e20b1b98e&quot;,
+    &quot;updated_at&quot;: &quot;2026-09-07T21:56:24.043186+00:00&quot;
+  },
+  &quot;after&quot;: {
+    &quot;branch&quot;: &quot;pipeline-run-83be0c14231940e7b1394b4a47c0b2e9&quot;,
+    &quot;created_at&quot;: &quot;2026-09-07T21:54:33.237368+00:00&quot;,
+    &quot;dagster_run_id&quot;: &quot;cf01648a-4001-4cb9-9d73-0b3005aacf54&quot;,
+    &quot;failure_reason&quot;: &quot;merge_branch_returned_false&quot;,
+    &quot;launch_manifest_checksum&quot;: &quot;a575d537d252413e3bbdf2e230c66ca6e7ebce61a708c5501b1b1c7419378d01&quot;,
+    &quot;launch_source_hash&quot;: &quot;380a6d4716fb5e1b201900e280b9d92baf2eddee6b9f899c600a9cb728a9211e&quot;,
+    &quot;launch_tags&quot;: {
+      &quot;phlo/attempt&quot;: &quot;1&quot;,
+      &quot;phlo/project_id&quot;: &quot;wap-failure-lab&quot;,
+      &quot;phlo/ref&quot;: &quot;pipeline-run-83be0c14231940e7b1394b4a47c0b2e9&quot;,
+      &quot;phlo/run_id&quot;: &quot;83be0c14231940e7b1394b4a47c0b2e9&quot;,
+      &quot;phlo/wap_branch&quot;: &quot;pipeline-run-83be0c14231940e7b1394b4a47c0b2e9&quot;
+    },
+    &quot;launch_target_hash_before&quot;: &quot;380a6d4716fb5e1b201900e280b9d92baf2eddee6b9f899c600a9cb728a9211e&quot;,
+    &quot;merge_state&quot;: &quot;merge_failed&quot;,
+    &quot;run_id&quot;: &quot;83be0c14231940e7b1394b4a47c0b2e9&quot;,
+    &quot;schema_version&quot;: &quot;phlo.wap_report.v2&quot;,
+    &quot;source_hash&quot;: &quot;7a5190d24c3f6841bdfd5c5800e7c7708232fabb9dffd8490e39d4d7e1e0ff8b&quot;,
+    &quot;status&quot;: &quot;promotion_failed&quot;,
+    &quot;strategy&quot;: &quot;branch&quot;,
+    &quot;target_branch&quot;: &quot;main&quot;,
+    &quot;target_hash_before&quot;: &quot;67efad8c00f51a690ac0be91222589df70a4fa8e24aa07d50d2684c2190b2821&quot;,
+    &quot;updated_at&quot;: &quot;2026-09-07T21:56:29.048931+00:00&quot;
+  },
+  &quot;branch_retained&quot;: true,
+  &quot;main_rows_unchanged&quot;: true
+}</pre></details><a class="source" href="records/retained-conflict.json" download>Download regression evidence JSON</a></div><div class="worked-example"><h3>Actual successful catalog transition</h3><pre>{
+  &quot;target_hash_before&quot;: &quot;2e1cfa82b035c26cbbbdae632cea070514eb8b773f616aaeaf668e2f0be8f10d&quot;,
+  &quot;source_hash&quot;: &quot;486c8fec6073721305d439806d113c6ebe45b1a6cb3e854f1060f2c043d36022&quot;,
+  &quot;target_hash_after&quot;: &quot;486c8fec6073721305d439806d113c6ebe45b1a6cb3e854f1060f2c043d36022&quot;,
+  &quot;merge_state&quot;: &quot;merged&quot;,
+  &quot;source_deleted&quot;: true
+}</pre><p>For this clean publication, main ends at the same hash as the candidate source. The persisted <code>merged</code> receipt and <code>source_deleted=true</code> identify acknowledged publication and completed cleanup. Equality of hashes alone is not the recovery rule.</p></div></section><section class="annotation" id="s8" data-cluster="s8"><h2><span>08</span> Concurrent commits and safe conflict handling</h2><div class="worked-example"><h3>Concurrent inputs and the observed publication result</h3><div class="tablewrap"><table class="example-data"><thead><tr><th>writer</th><th>first_batch_id</th><th>candidate_rows</th><th>published_rows</th><th>outcome</th></tr></thead><tbody><tr><td>A</td><td>b-6001</td><td>12</td><td>12</td><td>promoted</td></tr><tr><td>B</td><td>b-7001</td><td>8</td><td>0</td><td>promotion_failed</td></tr></tbody></table></div><p>Both inputs exist. Only A’s 12 candidate rows reached main in the recorded run. B’s eight candidate rows stayed on its retained branch.</p></div><div class="stage-contract"><dl><dt>Input</dt><dd>Two candidate branches from the same starting main: 12 rows in A and 8 in B.</dd><dt>Output</dt><dd>Observed: A publishes 12 rows; B records promotion_failed and retains its branch.</dd><dt>Concurrent row accounting</dt><dd>The scenario fails if a successful batch contributes the wrong rows, a failed batch contributes rows, or required recovery state disappears.</dd></dl></div><p>The concurrency scenario stages two disjoint batches and submits both runs before polling their reports. The launches use different branches and share the same starting main ancestry. This exercises overlapping work, without assuming a particular worker scheduling order.</p><p><strong>Optimistic concurrency</strong> checks that a change can still apply to the target state. Disjoint batch IDs do not guarantee that two updates to the same table metadata will merge cleanly. A conflict is acceptable if the published rows remain correct and the unsuccessful writer retains its recovery state.</p><p>In the recorded run, the classifications were <code>promoted</code> and <code>blocked</code>, and main gained 12 rows. The runner's blocked category includes a <code>promotion_failed</code> report. It checks exact row accounting and branch lifecycle for each result, rather than requiring both writers to succeed.</p><p>The fresh-catalog path is another concurrency boundary. The Nessie fallback only assigns the source when the target still matches the server's <code>noAncestorHash</code>. The conditional update prevents initialization from overwriting a concurrent writer.</p><p class="evidence">The live concurrency test and the fresh-catalog happy path passed. Retained branches are recovery material, not proof that an automatic conflict-resolution strategy has completed.</p><a class="source" href="https://github.com/phlohouse/phlo/blob/ee7e65851e5bc80b8520c2c054e9eb0db1bccc99/packages/phlo-nessie/src/phlo_nessie/resource.py">Read the implementation at the tested commit</a><div class="wap-record"><h3>Concurrent writer A: published</h3><p>Compare the launch_target_hash_before value with writer B: both started from the same main ancestry.</p><dl><dt>run_id</dt><dd><code>64ced2713849493a885586f4c832da69</code></dd><dt>status</dt><dd><code>promoted</code></dd><dt>merge_state</dt><dd><code>merged</code></dd><dt>source_deleted</dt><dd><code>true</code></dd><dt>target_branch</dt><dd><code>main</code></dd><dt>launch_target_hash_before</dt><dd><code>bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d</code></dd><dt>target_hash_before</dt><dd><code>bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d</code></dd><dt>target_hash_after</dt><dd><code>f822eab81752342992d59fde482387edcaa85b620461f4ee7738cb4a2837ba47</code></dd></dl><details class="record-json"><summary>Inspect complete WAP record</summary><pre>{
+  &quot;branch&quot;: &quot;pipeline-run-64ced2713849493a885586f4c832da69&quot;,
+  &quot;created_at&quot;: &quot;2026-09-07T21:58:14.177843+00:00&quot;,
+  &quot;dagster_run_id&quot;: &quot;87d23f39-72e0-420c-987b-d6859d395a53&quot;,
+  &quot;launch_manifest_checksum&quot;: &quot;c810cb35c1c312d32bb156bb4dbe1bd70e30abead9a61fb3a614db5d7dfeb5a9&quot;,
+  &quot;launch_source_hash&quot;: &quot;bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d&quot;,
+  &quot;launch_tags&quot;: {
+    &quot;phlo/attempt&quot;: &quot;1&quot;,
+    &quot;phlo/project_id&quot;: &quot;wap-failure-lab&quot;,
+    &quot;phlo/ref&quot;: &quot;pipeline-run-64ced2713849493a885586f4c832da69&quot;,
+    &quot;phlo/run_id&quot;: &quot;64ced2713849493a885586f4c832da69&quot;,
+    &quot;phlo/wap_branch&quot;: &quot;pipeline-run-64ced2713849493a885586f4c832da69&quot;
+  },
+  &quot;launch_target_hash_before&quot;: &quot;bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d&quot;,
+  &quot;merge_state&quot;: &quot;merged&quot;,
+  &quot;run_id&quot;: &quot;64ced2713849493a885586f4c832da69&quot;,
+  &quot;schema_version&quot;: &quot;phlo.wap_report.v2&quot;,
+  &quot;source_deleted&quot;: true,
+  &quot;source_hash&quot;: &quot;15bad17da275cd54b199181ade7bd62c738da41cc6ac3affb22925f8fb2e238e&quot;,
+  &quot;status&quot;: &quot;promoted&quot;,
+  &quot;strategy&quot;: &quot;branch&quot;,
+  &quot;target_branch&quot;: &quot;main&quot;,
+  &quot;target_hash_after&quot;: &quot;f822eab81752342992d59fde482387edcaa85b620461f4ee7738cb4a2837ba47&quot;,
+  &quot;target_hash_before&quot;: &quot;bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d&quot;,
+  &quot;updated_at&quot;: &quot;2026-09-07T21:58:24.355620+00:00&quot;
+}</pre></details><a class="source" href="records/64ced2713849493a885586f4c832da69.json" download>Download original JSON</a><p class="record-time">Saved report updated 2026-09-07T21:58:24.355620+00:00. Omitted fields are absent from the original record.</p></div><div class="wap-record"><h3>Concurrent writer B: merge failed</h3><p>The runner classifies this as blocked. The raw report is more specific: promotion_failed with merge_failed.</p><dl><dt>run_id</dt><dd><code>b033372e7fdb494ab182293f8a87683a</code></dd><dt>status</dt><dd><code>promotion_failed</code></dd><dt>merge_state</dt><dd><code>merge_failed</code></dd><dt>failure_reason</dt><dd><code>merge_branch_returned_false</code></dd><dt>target_branch</dt><dd><code>main</code></dd><dt>launch_target_hash_before</dt><dd><code>bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d</code></dd><dt>target_hash_before</dt><dd><code>f822eab81752342992d59fde482387edcaa85b620461f4ee7738cb4a2837ba47</code></dd></dl><details class="record-json"><summary>Inspect complete WAP record</summary><pre>{
+  &quot;branch&quot;: &quot;pipeline-run-b033372e7fdb494ab182293f8a87683a&quot;,
+  &quot;created_at&quot;: &quot;2026-09-07T21:58:14.208439+00:00&quot;,
+  &quot;dagster_run_id&quot;: &quot;18632dbb-f887-4046-aefc-2f4481498a3a&quot;,
+  &quot;failure_reason&quot;: &quot;merge_branch_returned_false&quot;,
+  &quot;launch_manifest_checksum&quot;: &quot;d8163200f049ce4555e69871c41be3fe20a5298e9b82581a705c71092b87d905&quot;,
+  &quot;launch_source_hash&quot;: &quot;bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d&quot;,
+  &quot;launch_tags&quot;: {
+    &quot;phlo/attempt&quot;: &quot;1&quot;,
+    &quot;phlo/project_id&quot;: &quot;wap-failure-lab&quot;,
+    &quot;phlo/ref&quot;: &quot;pipeline-run-b033372e7fdb494ab182293f8a87683a&quot;,
+    &quot;phlo/run_id&quot;: &quot;b033372e7fdb494ab182293f8a87683a&quot;,
+    &quot;phlo/wap_branch&quot;: &quot;pipeline-run-b033372e7fdb494ab182293f8a87683a&quot;
+  },
+  &quot;launch_target_hash_before&quot;: &quot;bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d&quot;,
+  &quot;merge_state&quot;: &quot;merge_failed&quot;,
+  &quot;run_id&quot;: &quot;b033372e7fdb494ab182293f8a87683a&quot;,
+  &quot;schema_version&quot;: &quot;phlo.wap_report.v2&quot;,
+  &quot;source_hash&quot;: &quot;ef04b7f6bb9052943221ec3810ebff4a8aa4eaeafe6c5305b658ec6f8f776dfe&quot;,
+  &quot;status&quot;: &quot;promotion_failed&quot;,
+  &quot;strategy&quot;: &quot;branch&quot;,
+  &quot;target_branch&quot;: &quot;main&quot;,
+  &quot;target_hash_before&quot;: &quot;f822eab81752342992d59fde482387edcaa85b620461f4ee7738cb4a2837ba47&quot;,
+  &quot;updated_at&quot;: &quot;2026-09-07T22:02:04.446628+00:00&quot;
+}</pre></details><a class="source" href="records/b033372e7fdb494ab182293f8a87683a.json" download>Download original JSON</a><p class="record-time">Saved report updated 2026-09-07T22:02:04.446628+00:00. Omitted fields are absent from the original record.</p></div></section><section class="annotation" id="s9" data-cluster="s9"><h2><span>09</span> Published state, cleanup and durable provenance</h2><div class="stage-contract"><dl><dt>Input</dt><dd>A durable merged receipt and the run’s resource, quality and catalog evidence.</dd><dt>Output</dt><dd>A promoted WAP report, confirmed branch cleanup and exported ingestion evidence; rows visible on main.</dd><dt>Publication verification</dt><dd>The happy-path assertions require exactly 12 added rows, a changed main hash, no remaining promoted branch and all required evidence categories.</dd></dl></div><p>After a durable merged receipt, the sensor can clean up the owned run branch and finalize promotion. If a previous attempt already deleted the branch, recovery treats its absence as successful cleanup. An ambiguous merge intent must not authorize deletion.</p><p><strong>Provenance</strong> connects a result to the inputs, artifacts and decisions that produced it. The happy path exports the ingestion report for the exact logical run and requires input, staged, output, lineage, artifact, snapshot, quality and catalog evidence. These requirements go beyond finding a green status label.</p><p>The live topology used SQLite for host Dagster's event storage and PostgreSQL for Phlo evidence. An event storage ID is only meaningful in its run/store context. Correlation must preserve that context, and the Dagster adapter must route the logical Phlo ID to the evidence store.</p><pre>WAP report        publication lifecycle
+ingestion report  resources and lineage
+Nessie inspection actual branch state
+Trino queries     reader-visible rows</pre><p class="evidence">The happy path verified a changed main hash, exactly 12 published rows and removal of its branch. Failed or uncertain merges retain the branch instead of taking this cleanup path.</p><a class="source" href="https://github.com/phlohouse/phlo/blob/ee7e65851e5bc80b8520c2c054e9eb0db1bccc99/examples/lakehouses/wap-failure-lab/scripts/run_scenario.py">Read the implementation at the tested commit</a><div class="wap-record"><h3>Clean publication and branch cleanup</h3><p>merged is the durable receipt. source_deleted=true records completed branch cleanup. The catalog and SQL checks independently verified the result.</p><dl><dt>run_id</dt><dd><code>cd64e925fd5b45cc90869c56a72d5bb7</code></dd><dt>status</dt><dd><code>promoted</code></dd><dt>merge_state</dt><dd><code>merged</code></dd><dt>source_deleted</dt><dd><code>true</code></dd><dt>target_branch</dt><dd><code>main</code></dd><dt>launch_target_hash_before</dt><dd><code>2e1cfa82b035c26cbbbdae632cea070514eb8b773f616aaeaf668e2f0be8f10d</code></dd><dt>target_hash_before</dt><dd><code>2e1cfa82b035c26cbbbdae632cea070514eb8b773f616aaeaf668e2f0be8f10d</code></dd><dt>target_hash_after</dt><dd><code>486c8fec6073721305d439806d113c6ebe45b1a6cb3e854f1060f2c043d36022</code></dd></dl><details class="record-json"><summary>Inspect complete WAP record</summary><pre>{
+  &quot;branch&quot;: &quot;pipeline-run-cd64e925fd5b45cc90869c56a72d5bb7&quot;,
+  &quot;created_at&quot;: &quot;2026-09-07T21:51:31.987734+00:00&quot;,
+  &quot;dagster_run_id&quot;: &quot;c609c997-89e3-4388-998e-d32b35f8db0b&quot;,
+  &quot;launch_manifest_checksum&quot;: &quot;586c18fa239d29b03e973636300a3dae12cf9909022c70560a3be4fcc9401a69&quot;,
+  &quot;launch_source_hash&quot;: &quot;2e1cfa82b035c26cbbbdae632cea070514eb8b773f616aaeaf668e2f0be8f10d&quot;,
+  &quot;launch_tags&quot;: {
+    &quot;phlo/attempt&quot;: &quot;1&quot;,
+    &quot;phlo/project_id&quot;: &quot;wap-failure-lab&quot;,
+    &quot;phlo/ref&quot;: &quot;pipeline-run-cd64e925fd5b45cc90869c56a72d5bb7&quot;,
+    &quot;phlo/run_id&quot;: &quot;cd64e925fd5b45cc90869c56a72d5bb7&quot;,
+    &quot;phlo/wap_branch&quot;: &quot;pipeline-run-cd64e925fd5b45cc90869c56a72d5bb7&quot;
+  },
+  &quot;launch_target_hash_before&quot;: &quot;2e1cfa82b035c26cbbbdae632cea070514eb8b773f616aaeaf668e2f0be8f10d&quot;,
+  &quot;merge_state&quot;: &quot;merged&quot;,
+  &quot;run_id&quot;: &quot;cd64e925fd5b45cc90869c56a72d5bb7&quot;,
+  &quot;schema_version&quot;: &quot;phlo.wap_report.v2&quot;,
+  &quot;source_deleted&quot;: true,
+  &quot;source_hash&quot;: &quot;486c8fec6073721305d439806d113c6ebe45b1a6cb3e854f1060f2c043d36022&quot;,
+  &quot;status&quot;: &quot;promoted&quot;,
+  &quot;strategy&quot;: &quot;branch&quot;,
+  &quot;target_branch&quot;: &quot;main&quot;,
+  &quot;target_hash_after&quot;: &quot;486c8fec6073721305d439806d113c6ebe45b1a6cb3e854f1060f2c043d36022&quot;,
+  &quot;target_hash_before&quot;: &quot;2e1cfa82b035c26cbbbdae632cea070514eb8b773f616aaeaf668e2f0be8f10d&quot;,
+  &quot;updated_at&quot;: &quot;2026-09-07T21:51:44.257273+00:00&quot;
+}</pre></details><a class="source" href="records/cd64e925fd5b45cc90869c56a72d5bb7.json" download>Download original JSON</a><p class="record-time">Saved report updated 2026-09-07T21:51:44.257273+00:00. Omitted fields are absent from the original record.</p></div><div class="worked-example"><h3>Actual lineage: source → staged object → table</h3><pre>sensor_batches
+  → sha256:d7aff9d14a48b4bfb6b73ef8413ffffdd877215dda97f167d3c2ecd69b8caaee
+  → raw.sensor_batches</pre><p>These are the two lineage edges recorded by <code>phlo-dlt</code>, both marked <code>derivation="exact"</code>. The staged checksum matches the artifact shown in the staging section.</p><pre>{
+  &quot;terminal_outcome&quot;: {
+    &quot;status&quot;: &quot;success&quot;,
+    &quot;source&quot;: &quot;reconciliation&quot;,
+    &quot;evidence_id&quot;: &quot;429fd156bdb5e772ac720a81a8f54bf8&quot;,
+    &quot;observed_at&quot;: &quot;2026-09-07T21:51:44.161166+00:00&quot;
+  },
+  &quot;lifecycle_evidence_completeness&quot;: &quot;incomplete&quot;,
+  &quot;gaps&quot;: [
+    {
+      &quot;field&quot;: &quot;transformations&quot;,
+      &quot;status&quot;: &quot;unavailable&quot;,
+      &quot;reason&quot;: &quot;no_attempt_scoped_evidence&quot;
+    }
+  ]
+}</pre><p>The run outcome is success, while lifecycle evidence completeness is recorded as incomplete. The exported gap explicitly says transformation evidence is unavailable. These fields show the boundary of the record rather than implying complete coverage of every later operation.</p></div></section><section class="annotation" id="s10" data-cluster="s10"><h2><span>10</span> dbt builds the consumer-facing summary</h2><div class="worked-example"><h3>Worked transformation: three records become one summary row</h3><p>Input rows for sensor s-001 from the clean fixture:</p><div class="tablewrap"><table class="example-data"><thead><tr><th>batch_id</th><th>sensor_id</th><th>reading_value</th></tr></thead><tbody><tr><td>b-0001</td><td>s-001</td><td>18.0</td></tr><tr><td>b-0005</td><td>s-001</td><td>32.0</td></tr><tr><td>b-0009</td><td>s-001</td><td>23.5</td></tr></tbody></table></div><p><code>GROUP BY sensor_id</code> counts those three rows. Across all four sensors, the count columns are:</p><div class="tablewrap"><table class="example-data"><thead><tr><th>sensor_id</th><th>batch_count</th><th>distinct_batches</th></tr></thead><tbody><tr><td>s-001</td><td>3</td><td>3</td></tr><tr><td>s-002</td><td>3</td><td>3</td></tr><tr><td>s-003</td><td>3</td><td>3</td></tr><tr><td>s-004</td><td>3</td><td>3</td></tr></tbody></table></div><p>These values are calculated directly from the actual fixture. The live dbt build produced four summary rows and its complete aggregate comparison passed.</p><pre>Expected for s-001: batch_count = 3
+Example wrong output: batch_count = 2
+Result: aggregate comparison FAILS
+(The value 2 is illustrative, not an observed failure.)</pre></div><div class="stage-contract"><dl><dt>Input</dt><dd>Published iceberg.raw.sensor_batches on main, read by the separate dbt invocation.</dd><dt>Output</dt><dd>raw.batch_summary: sensor_id, batch_count, distinct_batches, earliest_recording and latest_recording.</dd><dt>Downstream tests</dt><dd>Four dbt data tests and a full aggregate SQL comparison must pass. A failure fails this scenario after ingestion publication; it does not retroactively unpublish the raw table.</dd></dl></div><p>The scenario runner invokes <code>dbt build</code> after confirming promotion. dbt compiles the model and Trino executes SQL against main. The table model groups published raw records by sensor, producing a smaller dataset suited to consumers.</p><pre>select sensor_id,
+       count(*) as batch_count,
+       count(distinct batch_id) as distinct_batches,
+       min(recorded_at) as earliest_recording,
+       max(recorded_at) as latest_recording
+from {{ source('raw', 'sensor_batches') }}
+group by sensor_id</pre><p><strong>Transformation</strong> derives a new dataset from existing data. Here the useful result is a per-sensor summary, not just a copy of the raw records. The runner compares the full model aggregate with SQL over published raw data, tying the transformation result back to what actually reached main.</p><p>For the clean fixture, dbt created four rows. Each sensor had <code>batch_count=3</code>. The build passed four data tests: non-null sensor ID, batch count and distinct count, plus unique sensor ID.</p><p class="evidence">This was a separate dbt invocation. It proves downstream computation on published data, but it does not establish a single correlated Dagster/WAP execution containing both ingestion and transformation.</p><a class="source" href="https://github.com/phlohouse/phlo/blob/ee7e65851e5bc80b8520c2c054e9eb0db1bccc99/examples/lakehouses/wap-failure-lab/workflows/transforms/dbt/models/batch_summary.sql">Read the implementation at the tested commit</a><h3 class="checks-heading">What would fail the downstream check?</h3><ul><li><code>sensor_id</code> appears twice in the summary: the unique test fails.</li><li><code>sensor_id</code>, <code>batch_count</code> or <code>distinct_batches</code> contains NULL: its not-null test fails.</li><li>The summary differs from the direct aggregate over main: the runner’s full-result comparison fails, even if all four dbt tests passed.</li></ul><p class="evidence">All four dbt tests and the aggregate comparison passed in the recorded clean run. No downstream failure was injected.</p></section><section class="annotation" id="s11" data-cluster="s11"><h2><span>11</span> Acceptance checks close the loop</h2><div class="stage-contract"><dl><dt>Input</dt><dd>Exact-run reports, catalog inspection, SQL results and retained regression evidence.</dd><dt>Output</dt><dd>A passing scenario only when every required assertion agrees; otherwise a failing scenario.</dd><dt>End-to-end assertions</dt><dd>An intentionally failed ingestion can be a passing test when main stays unchanged and the report/branch are retained as required.</dd></dl></div><p>An end-to-end test connects an input to externally observable results. This lab checks the exact run's report, inspects catalog references and queries published data. A report alone cannot prove the rows are visible. A row count alone cannot prove which run produced them.</p><p>The sequence covers clean publication, strict rejection, a transient source retry, optional-field compatibility, concurrent publication and warnings. The additional failed-merge regression targets preservation of unpromoted data after another writer changes main.</p><p>The runner uses the fixed checkout on PATH, with optional <code>PHLO_EXECUTABLE</code> and <code>DBT_EXECUTABLE</code> overrides. Runner and worker share fixtures and evidence configuration. Run the fixtures once on a fresh isolated catalog because successful repeats append their physical rows again.</p><pre>python scripts/run_scenario.py valid_publish
+python scripts/run_scenario.py quality_failure
+python scripts/run_scenario.py retry_recovery
+python scripts/run_scenario.py schema_change
+python scripts/run_scenario.py concurrent_runs
+python scripts/run_scenario.py warning_only</pre><p class="evidence">The evidence applies to the tested checkout and topology. It does not establish fresh-release installation, containerized Dagster, production operations, Observatory browser flows, or replay safety after commit.</p><a class="source" href="https://github.com/phlohouse/phlo/blob/ee7e65851e5bc80b8520c2c054e9eb0db1bccc99/examples/lakehouses/wap-failure-lab/README.md">Read the implementation at the tested commit</a></section></div></div><section class="footer"><h2>The recorded outcomes</h2><p>These are the retained live results, rather than illustrative expectations. Failed ingestion or a safe merge conflict can be a passing scenario when it preserves the required invariants.</p><div class="tablewrap"><table><thead><tr><th>Scenario</th><th>Recorded outcome</th><th>What it establishes</th></tr></thead><tbody><tr><td>valid_publish</td><td>Main +12; four summary rows; one dbt model and four tests passed</td><td>Fresh-catalog publication and downstream SQL agree</td></tr><tr><td>quality_failure</td><td>Strict rejection; main unchanged; branch retained</td><td>A null reading cannot reach published data</td></tr><tr><td>retry_recovery</td><td>Two attempts; main +10</td><td>Recovery from the injected pre-yield failure</td></tr><tr><td>schema_change</td><td>13 columns before and after; eight new rows; 22 old NULL scores</td><td>Optional-value compatibility and old-row preservation</td></tr><tr><td>concurrent_runs</td><td>Promoted + blocked; main +12</td><td>Exact accounting and retained recovery state for a conflict</td></tr><tr><td>warning_only</td><td>Relaxed table +7 on main</td><td>Warning evidence permits publication under relaxed policy</td></tr><tr><td>Retained merge</td><td>Branch retained after unrelated main commit</td><td>Target movement cannot falsely authorize source cleanup</td></tr></tbody></table></div><h2>The environment behind the evidence</h2><p>PostgreSQL, MinIO, Nessie and Trino ran in containers. Dagster ran on the host using the fixed checkout, with SQLite event storage and PostgreSQL-backed Phlo evidence. dbt ran separately from the scenario runner. This validates the tested data pipeline, not a fresh installed release or full production deployment. Observatory browser flows, post-commit replay safety and retention-expiry behavior were not exercised.</p><details><summary>Read or copy the complete Mermaid definition</summary><pre id="mermaid-source">flowchart TB
+  subgraph s1[&quot;1 · Source and partition&quot;]
+    direction TB
+    files[(&quot;Scenario deliveries&lt;br/&gt;.ndjson.gz&quot;)]
+    inbound[&quot;Stage shared inbound files&quot;]
+    select[&quot;Choose scenario and partition&quot;]
+    rows[&quot;Prepared delivery inputs&quot;]
+    files --&gt; inbound --&gt; select --&gt; rows
+  end
+  subgraph s2[&quot;2 · Launch and isolate&quot;]
+    direction TB
+    launch[&quot;phlo materialize&lt;br/&gt;asset + partition&quot;]
+    identity[&quot;Logical run ID&lt;br/&gt;Dagster execution ID&quot;]
+    ref[&quot;Record starting main hash&quot;]
+    branch[(&quot;Create pipeline-run branch&quot;)]
+    launch --&gt; identity --&gt; ref --&gt; branch
+  end
+  rows --&gt; launch
+  subgraph s3[&quot;3 · Execute and stage&quot;]
+    direction TB
+    attempt[&quot;Invoke source&lt;br/&gt;increment attempt counter&quot;]
+    available{&quot;Source attempt&lt;br/&gt;succeeds?&quot;}
+    retry[&quot;Retry policy&lt;br/&gt;wait before next attempt&quot;]
+    read[&quot;Select file suffix, decode JSON&lt;br/&gt;build DataFrame and resource&quot;]
+    extract[&quot;dlt extraction and normalization&quot;]
+    parquet[(&quot;Staged Parquet&lt;br/&gt;metadata + inventory&quot;)]
+    attempt --&gt; available
+    available -- no --&gt; retry
+    retry --&gt; attempt
+    available -- yes --&gt; read --&gt; extract --&gt; parquet
+  end
+  branch --&gt; attempt
+  subgraph s4[&quot;4 · Validate staged records&quot;]
+    direction TB
+    contract[&quot;Pandera contract&lt;br/&gt;types, nulls, bounds&quot;]
+    domain[&quot;Configured domain check&lt;br/&gt;uniqueness OR timeliness&quot;]
+    policy{&quot;Any failed check&lt;br/&gt;with strict policy?&quot;}
+    rejected[&quot;Raise before table write&lt;br/&gt;failed run, retained branch&quot;]
+    accepted[&quot;Clean or warning-only&lt;br/&gt;retain evaluation evidence&quot;]
+    contract --&gt; domain --&gt; policy
+    policy -- yes --&gt; rejected
+    policy -- no --&gt; accepted
+  end
+  parquet --&gt; contract
+  subgraph s5[&quot;5 · Write candidate table state&quot;]
+    direction TB
+    before[&quot;Read branch table state&lt;br/&gt;snapshot + schema hash&quot;]
+    append[&quot;Append validated Parquet&lt;br/&gt;on the run branch&quot;]
+    objects[(&quot;MinIO objects&lt;br/&gt;Iceberg snapshot&quot;)]
+    after[&quot;Read back table state&lt;br/&gt;record output evidence&quot;]
+    before --&gt; append --&gt; objects --&gt; after
+  end
+  accepted --&gt; before
+  subgraph s6[&quot;6 · Audit publication evidence&quot;]
+    direction TB
+    sensor[&quot;WAP sensor observes run&quot;]
+    evidence[&quot;Load quality evidence&lt;br/&gt;for this logical run&quot;]
+    gate{&quot;Successful run +&lt;br/&gt;required evidence +&lt;br/&gt;no blocking error?&quot;}
+    blocked[&quot;Block or fail publication&lt;br/&gt;keep branch and report&quot;]
+    eligible[&quot;Candidate eligible to merge&quot;]
+    sensor --&gt; evidence --&gt; gate
+    gate -- no --&gt; blocked
+    gate -- yes --&gt; eligible
+  end
+  after --&gt; sensor
+  subgraph s7[&quot;7 · Cross the catalog boundary&quot;]
+    direction TB
+    intent[&quot;Persist merge_started&lt;br/&gt;source and target hashes&quot;]
+    merge[&quot;Nessie merge_branch&quot;]
+    outcome{&quot;Acknowledged&lt;br/&gt;success?&quot;}
+    retained[&quot;Failure or unknown outcome&lt;br/&gt;retain source branch&quot;]
+    receipt[&quot;Persist merged receipt&quot;]
+    intent --&gt; merge --&gt; outcome
+    outcome -- &quot;no / uncertain&quot; --&gt; retained
+    outcome -- yes --&gt; receipt
+  end
+  eligible --&gt; intent
+  subgraph s8[&quot;8 · Concurrent writers&quot;]
+    direction TB
+    shared[&quot;Same starting main ancestry&quot;]
+    writerA[&quot;Writer A&lt;br/&gt;12 candidate rows&quot;]
+    writerB[&quot;Writer B&lt;br/&gt;8 candidate rows&quot;]
+    reconcile{&quot;Independent merge&lt;br/&gt;outcomes&quot;}
+    safe[&quot;Observed: A promoted, B blocked&lt;br/&gt;main +12, failed branch retained&quot;]
+    shared --&gt; writerA &amp; writerB
+    writerA &amp; writerB --&gt; reconcile --&gt; safe
+  end
+  receipt -. &quot;separate concurrency scenario&quot; .-&gt; shared
+  subgraph s9[&quot;9 · Finalize proven publication&quot;]
+    direction TB
+    confirmed[&quot;Confirmed merged receipt&lt;br/&gt;successful runs only&quot;]
+    cleanup[&quot;Delete owned run branch&lt;br/&gt;or confirm already absent&quot;]
+    report[(&quot;Promoted WAP report&lt;br/&gt;durable ingestion evidence&quot;)]
+    visible[&quot;Check actual main state&lt;br/&gt;hash, branch and rows&quot;]
+    confirmed --&gt; cleanup --&gt; report --&gt; visible
+  end
+  receipt --&gt; confirmed
+  safe -. &quot;successful receipt only&quot; .-&gt; confirmed
+  subgraph s10[&quot;10 · Build the downstream model&quot;]
+    direction TB
+    dbt[&quot;valid_publish invokes dbt build&lt;br/&gt;separate execution&quot;]
+    trino[&quot;Trino queries published main&quot;]
+    summary[(&quot;raw.batch_summary&lt;br/&gt;counts + recording range&quot;)]
+    compare[&quot;Four data tests&lt;br/&gt;full aggregate SQL comparison&quot;]
+    dbt --&gt; trino --&gt; summary --&gt; compare
+  end
+  visible --&gt; dbt
+  subgraph s11[&quot;11 · Assert the end-to-end outcome&quot;]
+    direction TB
+    exact[&quot;Match exact launch run ID&quot;]
+    checks[&quot;Report + catalog + SQL&lt;br/&gt;cross-check outcomes&quot;]
+    scenarios[&quot;Six scenarios&lt;br/&gt;plus retained-merge regression&quot;]
+    done([&quot;Verified data path&lt;br/&gt;within the tested topology&quot;])
+    exact --&gt; checks --&gt; scenarios --&gt; done
+  end
+  compare --&gt; exact
+  classDef failure fill:#f7e7e3,stroke:#a34736,color:#652c22;
+  classDef decision fill:#fff3d6,stroke:#9e7422,color:#503e16;
+  classDef data fill:#e3efeb,stroke:#347461,color:#163e33;
+  class rejected,blocked,retained failure;
+  class available,policy,gate,outcome,reconcile decision;
+  class files,branch,parquet,objects,report,summary data;
+</pre></details><footer>Implementation links are pinned to the tested commit. The selected WAP records are embedded in the relevant sections and bundled as downloadable JSON. Original live-run logs are not included in this guide.</footer></section></main><script src="mermaid.min.js"></script><script>
+const diagram="flowchart TB\n  subgraph s1[\"1 \u00b7 Source and partition\"]\n    direction TB\n    files[(\"Scenario deliveries<br/>.ndjson.gz\")]\n    inbound[\"Stage shared inbound files\"]\n    select[\"Choose scenario and partition\"]\n    rows[\"Prepared delivery inputs\"]\n    files --> inbound --> select --> rows\n  end\n  subgraph s2[\"2 \u00b7 Launch and isolate\"]\n    direction TB\n    launch[\"phlo materialize<br/>asset + partition\"]\n    identity[\"Logical run ID<br/>Dagster execution ID\"]\n    ref[\"Record starting main hash\"]\n    branch[(\"Create pipeline-run branch\")]\n    launch --> identity --> ref --> branch\n  end\n  rows --> launch\n  subgraph s3[\"3 \u00b7 Execute and stage\"]\n    direction TB\n    attempt[\"Invoke source<br/>increment attempt counter\"]\n    available{\"Source attempt<br/>succeeds?\"}\n    retry[\"Retry policy<br/>wait before next attempt\"]\n    read[\"Select file suffix, decode JSON<br/>build DataFrame and resource\"]\n    extract[\"dlt extraction and normalization\"]\n    parquet[(\"Staged Parquet<br/>metadata + inventory\")]\n    attempt --> available\n    available -- no --> retry\n    retry --> attempt\n    available -- yes --> read --> extract --> parquet\n  end\n  branch --> attempt\n  subgraph s4[\"4 \u00b7 Validate staged records\"]\n    direction TB\n    contract[\"Pandera contract<br/>types, nulls, bounds\"]\n    domain[\"Configured domain check<br/>uniqueness OR timeliness\"]\n    policy{\"Any failed check<br/>with strict policy?\"}\n    rejected[\"Raise before table write<br/>failed run, retained branch\"]\n    accepted[\"Clean or warning-only<br/>retain evaluation evidence\"]\n    contract --> domain --> policy\n    policy -- yes --> rejected\n    policy -- no --> accepted\n  end\n  parquet --> contract\n  subgraph s5[\"5 \u00b7 Write candidate table state\"]\n    direction TB\n    before[\"Read branch table state<br/>snapshot + schema hash\"]\n    append[\"Append validated Parquet<br/>on the run branch\"]\n    objects[(\"MinIO objects<br/>Iceberg snapshot\")]\n    after[\"Read back table state<br/>record output evidence\"]\n    before --> append --> objects --> after\n  end\n  accepted --> before\n  subgraph s6[\"6 \u00b7 Audit publication evidence\"]\n    direction TB\n    sensor[\"WAP sensor observes run\"]\n    evidence[\"Load quality evidence<br/>for this logical run\"]\n    gate{\"Successful run +<br/>required evidence +<br/>no blocking error?\"}\n    blocked[\"Block or fail publication<br/>keep branch and report\"]\n    eligible[\"Candidate eligible to merge\"]\n    sensor --> evidence --> gate\n    gate -- no --> blocked\n    gate -- yes --> eligible\n  end\n  after --> sensor\n  subgraph s7[\"7 \u00b7 Cross the catalog boundary\"]\n    direction TB\n    intent[\"Persist merge_started<br/>source and target hashes\"]\n    merge[\"Nessie merge_branch\"]\n    outcome{\"Acknowledged<br/>success?\"}\n    retained[\"Failure or unknown outcome<br/>retain source branch\"]\n    receipt[\"Persist merged receipt\"]\n    intent --> merge --> outcome\n    outcome -- \"no / uncertain\" --> retained\n    outcome -- yes --> receipt\n  end\n  eligible --> intent\n  subgraph s8[\"8 \u00b7 Concurrent writers\"]\n    direction TB\n    shared[\"Same starting main ancestry\"]\n    writerA[\"Writer A<br/>12 candidate rows\"]\n    writerB[\"Writer B<br/>8 candidate rows\"]\n    reconcile{\"Independent merge<br/>outcomes\"}\n    safe[\"Observed: A promoted, B blocked<br/>main +12, failed branch retained\"]\n    shared --> writerA & writerB\n    writerA & writerB --> reconcile --> safe\n  end\n  receipt -. \"separate concurrency scenario\" .-> shared\n  subgraph s9[\"9 \u00b7 Finalize proven publication\"]\n    direction TB\n    confirmed[\"Confirmed merged receipt<br/>successful runs only\"]\n    cleanup[\"Delete owned run branch<br/>or confirm already absent\"]\n    report[(\"Promoted WAP report<br/>durable ingestion evidence\")]\n    visible[\"Check actual main state<br/>hash, branch and rows\"]\n    confirmed --> cleanup --> report --> visible\n  end\n  receipt --> confirmed\n  safe -. \"successful receipt only\" .-> confirmed\n  subgraph s10[\"10 \u00b7 Build the downstream model\"]\n    direction TB\n    dbt[\"valid_publish invokes dbt build<br/>separate execution\"]\n    trino[\"Trino queries published main\"]\n    summary[(\"raw.batch_summary<br/>counts + recording range\")]\n    compare[\"Four data tests<br/>full aggregate SQL comparison\"]\n    dbt --> trino --> summary --> compare\n  end\n  visible --> dbt\n  subgraph s11[\"11 \u00b7 Assert the end-to-end outcome\"]\n    direction TB\n    exact[\"Match exact launch run ID\"]\n    checks[\"Report + catalog + SQL<br/>cross-check outcomes\"]\n    scenarios[\"Six scenarios<br/>plus retained-merge regression\"]\n    done([\"Verified data path<br/>within the tested topology\"])\n    exact --> checks --> scenarios --> done\n  end\n  compare --> exact\n  classDef failure fill:#f7e7e3,stroke:#a34736,color:#652c22;\n  classDef decision fill:#fff3d6,stroke:#9e7422,color:#503e16;\n  classDef data fill:#e3efeb,stroke:#347461,color:#163e33;\n  class rejected,blocked,retained failure;\n  class available,policy,gate,outcome,reconcile decision;\n  class files,branch,parquet,objects,report,summary data;\n";const ids=["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11"];const drawing=document.getElementById('drawing'), notes=document.getElementById('notes'),columns=document.getElementById('columns');let spacing=175;let requested=0;let running=false;
+// Render one Mermaid graph, then display contiguous vertical slices alongside
+// their sections. Text determines row height without stretching graph edges.
+async function render(){
+ await window.mermaidReady;
+ mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:'base',themeVariables:{fontFamily:'Arial, sans-serif',fontSize:'22px',primaryColor:'#f0f3ed',primaryTextColor:'#243832',primaryBorderColor:'#628574',lineColor:'#617e6c',clusterBkg:'#f9f8f3',clusterBorder:'#c9d5cb',edgeLabelBackground:'#f9f8f3'},flowchart:{htmlLabels:false,useMaxWidth:false,curve:'linear',nodeSpacing:35,rankSpacing:55,padding:18},maxTextSize:100000});
+ const result=await mermaid.render('phlo-workflow',diagram.replace(/subgraph (s\d+)\[/g,'subgraph graph_$1['));
+ drawing.innerHTML=result.svg;
+ const svg=drawing.querySelector('svg'),view=svg.viewBox.baseVal;
+ const clusters=Array.from(svg.querySelectorAll('g.cluster'));
+ const boxes=ids.map(id=>{const g=clusters.find(g=>g.id==='graph_'+id);if(!g)throw Error('Missing diagram section '+id);return g.getBBox()});
+ const cuts=[view.y];
+ for(let i=1;i<boxes.length;i++)cuts.push((boxes[i-1].y+boxes[i-1].height+boxes[i].y)/2);
+ cuts.push(view.y+view.height);
+ if(cuts.some((v,i)=>!Number.isFinite(v)||(i&&v<=cuts[i-1])))throw Error('Invalid diagram section bounds');
+ const fragment=document.createDocumentFragment();
+ ids.forEach((id,i)=>{
+   const row=document.createElement('div');row.className='stage-row';
+   const panel=document.createElement('div');panel.className='stage-diagram';
+   const clone=svg.cloneNode(true);
+   clone.setAttribute('viewBox',[view.x,cuts[i],view.width,cuts[i+1]-cuts[i]].join(' '));
+   clone.removeAttribute('height');clone.removeAttribute('width');
+   clone.style.maxWidth='none';clone.style.width='100%';clone.style.height='auto';
+   clone.setAttribute('role','img');clone.setAttribute('aria-label','Workflow section '+(i+1));
+   // Each slice retains the original paths and geometry. Namespace all SVG IDs.
+   let markup=new XMLSerializer().serializeToString(clone);
+   const svgIds=Array.from(clone.querySelectorAll('[id]')).map(e=>e.id);svgIds.push(clone.id);
+   for(const old of svgIds.filter(Boolean).sort((a,b)=>b.length-a.length)){
+     markup=markup.split(old).join('slice'+i+'_'+old);
+   }
+   panel.innerHTML=markup;
+   const annotation=notes.querySelector('[data-cluster="'+id+'"]');
+   annotation.style.marginTop='';annotation.style.top='';
+   row.append(panel,annotation);fragment.append(row);
+ });
+ columns.replaceChildren(fragment);columns.className='section-flow';
+}
+render().catch(error=>{drawing.innerHTML='<div class="fallback" role="alert">The diagram could not render. The written guide remains available, with the Mermaid definition below.</div>';console.error(error)});
+</script></body></html>

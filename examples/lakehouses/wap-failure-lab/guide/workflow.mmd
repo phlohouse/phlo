@@ -1,0 +1,122 @@
+flowchart TB
+  subgraph s1["1 · Source and partition"]
+    direction TB
+    files[("Scenario deliveries<br/>.ndjson.gz")]
+    inbound["Stage shared inbound files"]
+    select["Choose scenario and partition"]
+    rows["Prepared delivery inputs"]
+    files --> inbound --> select --> rows
+  end
+  subgraph s2["2 · Launch and isolate"]
+    direction TB
+    launch["phlo materialize<br/>asset + partition"]
+    identity["Logical run ID<br/>Dagster execution ID"]
+    ref["Record starting main hash"]
+    branch[("Create pipeline-run branch")]
+    launch --> identity --> ref --> branch
+  end
+  rows --> launch
+  subgraph s3["3 · Execute and stage"]
+    direction TB
+    attempt["Invoke source<br/>increment attempt counter"]
+    available{"Source attempt<br/>succeeds?"}
+    retry["Retry policy<br/>wait before next attempt"]
+    read["Select file suffix, decode JSON<br/>build DataFrame and resource"]
+    extract["dlt extraction and normalization"]
+    parquet[("Staged Parquet<br/>metadata + inventory")]
+    attempt --> available
+    available -- no --> retry
+    retry --> attempt
+    available -- yes --> read --> extract --> parquet
+  end
+  branch --> attempt
+  subgraph s4["4 · Validate staged records"]
+    direction TB
+    contract["Pandera contract<br/>types, nulls, bounds"]
+    domain["Configured domain check<br/>uniqueness OR timeliness"]
+    policy{"Any failed check<br/>with strict policy?"}
+    rejected["Raise before table write<br/>failed run, retained branch"]
+    accepted["Clean or warning-only<br/>retain evaluation evidence"]
+    contract --> domain --> policy
+    policy -- yes --> rejected
+    policy -- no --> accepted
+  end
+  parquet --> contract
+  subgraph s5["5 · Write candidate table state"]
+    direction TB
+    before["Read branch table state<br/>snapshot + schema hash"]
+    append["Append validated Parquet<br/>on the run branch"]
+    objects[("MinIO objects<br/>Iceberg snapshot")]
+    after["Read back table state<br/>record output evidence"]
+    before --> append --> objects --> after
+  end
+  accepted --> before
+  subgraph s6["6 · Audit publication evidence"]
+    direction TB
+    sensor["WAP sensor observes run"]
+    evidence["Load quality evidence<br/>for this logical run"]
+    gate{"Successful run +<br/>required evidence +<br/>no blocking error?"}
+    blocked["Block or fail publication<br/>keep branch and report"]
+    eligible["Candidate eligible to merge"]
+    sensor --> evidence --> gate
+    gate -- no --> blocked
+    gate -- yes --> eligible
+  end
+  after --> sensor
+  subgraph s7["7 · Cross the catalog boundary"]
+    direction TB
+    intent["Persist merge_started<br/>source and target hashes"]
+    merge["Nessie merge_branch"]
+    outcome{"Acknowledged<br/>success?"}
+    retained["Failure or unknown outcome<br/>retain source branch"]
+    receipt["Persist merged receipt"]
+    intent --> merge --> outcome
+    outcome -- "no / uncertain" --> retained
+    outcome -- yes --> receipt
+  end
+  eligible --> intent
+  subgraph s8["8 · Concurrent writers"]
+    direction TB
+    shared["Same starting main ancestry"]
+    writerA["Writer A<br/>12 candidate rows"]
+    writerB["Writer B<br/>8 candidate rows"]
+    reconcile{"Independent merge<br/>outcomes"}
+    safe["Observed: A promoted, B blocked<br/>main +12, failed branch retained"]
+    shared --> writerA & writerB
+    writerA & writerB --> reconcile --> safe
+  end
+  receipt -. "separate concurrency scenario" .-> shared
+  subgraph s9["9 · Finalize proven publication"]
+    direction TB
+    confirmed["Confirmed merged receipt<br/>successful runs only"]
+    cleanup["Delete owned run branch<br/>or confirm already absent"]
+    report[("Promoted WAP report<br/>durable ingestion evidence")]
+    visible["Check actual main state<br/>hash, branch and rows"]
+    confirmed --> cleanup --> report --> visible
+  end
+  receipt --> confirmed
+  safe -. "successful receipt only" .-> confirmed
+  subgraph s10["10 · Build the downstream model"]
+    direction TB
+    dbt["valid_publish invokes dbt build<br/>separate execution"]
+    trino["Trino queries published main"]
+    summary[("raw.batch_summary<br/>counts + recording range")]
+    compare["Four data tests<br/>full aggregate SQL comparison"]
+    dbt --> trino --> summary --> compare
+  end
+  visible --> dbt
+  subgraph s11["11 · Assert the end-to-end outcome"]
+    direction TB
+    exact["Match exact launch run ID"]
+    checks["Report + catalog + SQL<br/>cross-check outcomes"]
+    scenarios["Six scenarios<br/>plus retained-merge regression"]
+    done(["Verified data path<br/>within the tested topology"])
+    exact --> checks --> scenarios --> done
+  end
+  compare --> exact
+  classDef failure fill:#f7e7e3,stroke:#a34736,color:#652c22;
+  classDef decision fill:#fff3d6,stroke:#9e7422,color:#503e16;
+  classDef data fill:#e3efeb,stroke:#347461,color:#163e33;
+  class rejected,blocked,retained failure;
+  class available,policy,gate,outcome,reconcile decision;
+  class files,branch,parquet,objects,report,summary data;

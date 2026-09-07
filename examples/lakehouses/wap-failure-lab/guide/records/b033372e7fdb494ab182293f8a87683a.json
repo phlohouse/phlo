@@ -1,0 +1,25 @@
+{
+  "branch": "pipeline-run-b033372e7fdb494ab182293f8a87683a",
+  "created_at": "2026-09-07T21:58:14.208439+00:00",
+  "dagster_run_id": "18632dbb-f887-4046-aefc-2f4481498a3a",
+  "failure_reason": "merge_branch_returned_false",
+  "launch_manifest_checksum": "d8163200f049ce4555e69871c41be3fe20a5298e9b82581a705c71092b87d905",
+  "launch_source_hash": "bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d",
+  "launch_tags": {
+    "phlo/attempt": "1",
+    "phlo/project_id": "wap-failure-lab",
+    "phlo/ref": "pipeline-run-b033372e7fdb494ab182293f8a87683a",
+    "phlo/run_id": "b033372e7fdb494ab182293f8a87683a",
+    "phlo/wap_branch": "pipeline-run-b033372e7fdb494ab182293f8a87683a"
+  },
+  "launch_target_hash_before": "bb9fca915c593b112ddd7d3776677fbcb81856a2e6ec6b578afea3277412a95d",
+  "merge_state": "merge_failed",
+  "run_id": "b033372e7fdb494ab182293f8a87683a",
+  "schema_version": "phlo.wap_report.v2",
+  "source_hash": "ef04b7f6bb9052943221ec3810ebff4a8aa4eaeafe6c5305b658ec6f8f776dfe",
+  "status": "promotion_failed",
+  "strategy": "branch",
+  "target_branch": "main",
+  "target_hash_before": "f822eab81752342992d59fde482387edcaa85b620461f4ee7738cb4a2837ba47",
+  "updated_at": "2026-09-07T22:02:04.446628+00:00"
+}

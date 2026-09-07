@@ -226,7 +226,11 @@ class DagsterRuntime(RuntimeContext):
             environment=tags.get("environment") or tags.get("env"),
             ref=runtime_ref_from_tags(tags),
             partition_key=self.partition_key,
-            run_id=self.run_id,
+            run_id=(
+                tags.get("phlo/run_id")
+                or getattr(self.context.run, "root_run_id", None)
+                or self.run_id
+            ),
             project_id=project.project_id,
             project_error=project.error,
             attempt=attempt,

@@ -315,9 +315,14 @@ class DagsterRunEvidenceSource:
                 "STEP_UP_FOR_RETRY": "retrying",
                 "STEP_RESTARTED": "running",
             }.get(event_name)
+            # SQLite event storage numbers records independently per provider run.
+            # Keep the payload/stage identities unchanged: upgraded reconciliation
+            # retains legacy bare-ID rows and adds scoped rows once, without
+            # changing stage or terminal state on subsequent replay.
             event_id = str(
-                storage_id
-                or hashlib.sha256(f"{run_id}\0{event_name}\0{index}".encode()).hexdigest()[:32]
+                f"{run_id}:{storage_id}"
+                if storage_id is not None
+                else hashlib.sha256(f"{run_id}\0{event_name}\0{index}".encode()).hexdigest()[:32]
             )
             provider_event_status = {
                 "RUN_SUCCESS": "success",

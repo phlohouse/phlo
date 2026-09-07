@@ -69,6 +69,8 @@ from phlo.hooks import (
     HookCorrelation,
     IngestionEventContext,
     IngestionEventEmitter,
+    LineageEventContext,
+    LineageEventEmitter,
     TelemetryEventContext,
     TelemetryEventEmitter,
 )
@@ -612,6 +614,23 @@ class DltIngester(BaseIngester):
                     status="success",
                     producer="phlo-dlt",
                     resources=evidence_resources,
+                    artifacts=[
+                        {
+                            "artifact_id": f"{attempt}:{item['identity']}",
+                            "artifact_kind": "staged_parquet",
+                            "content_type": "application/vnd.apache.parquet",
+                            "checksum": item["checksum"],
+                            # Local staging paths are transient; retain the observed
+                            # content identity without promising a download location.
+                            "resource_identity": _resource_identity(
+                                project_id=project_id,
+                                resource_type="artifact",
+                                resource_id=item["identity"],
+                                attributes={},
+                            ),
+                        }
+                        for item in staged_objects
+                    ],
                     metrics={**merge_metrics, **dlt_metrics, "dlt_elapsed_seconds": dlt_elapsed},
                     event_id=parameters.get("evidence_event_id"),
                     identity_parts=(
@@ -620,6 +639,32 @@ class DltIngester(BaseIngester):
                         execution_identity,
                         tuple(item.get("checksum") for item in staged_objects),
                     ),
+                )
+
+            if run_id != "unknown" and project_id and attempt is not None:
+                edges = [
+                    (str(item["identity"]), self.table_config.full_table_name)
+                    for item in staged_objects
+                ]
+                if source_identity:
+                    edges.extend(
+                        (source_identity, str(item["identity"])) for item in staged_objects
+                    )
+                emit_lifecycle_safely(
+                    LineageEventEmitter(
+                        LineageEventContext(
+                            project_id=project_id,
+                            run_id=run_id,
+                            producer="phlo-dlt",
+                            correlation=HookCorrelation(
+                                project_id=project_id, run_id=run_id, attempt=attempt
+                            ),
+                        )
+                    ),
+                    "emit_edges",
+                    edges=edges,
+                    metadata={"origin": "phlo-dlt", "derivation": "exact"},
+                    operation_id=f"{self.table_config.full_table_name}:{partition_key}:{execution_identity}",
                 )
 
             return IngestionResult(

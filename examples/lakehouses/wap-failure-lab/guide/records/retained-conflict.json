@@ -1,0 +1,54 @@
+{
+  "before": {
+    "branch": "pipeline-run-83be0c14231940e7b1394b4a47c0b2e9",
+    "created_at": "2026-09-07T21:54:33.237368+00:00",
+    "dagster_run_id": "cf01648a-4001-4cb9-9d73-0b3005aacf54",
+    "failure_reason": "merge_branch_returned_false",
+    "launch_manifest_checksum": "a575d537d252413e3bbdf2e230c66ca6e7ebce61a708c5501b1b1c7419378d01",
+    "launch_source_hash": "380a6d4716fb5e1b201900e280b9d92baf2eddee6b9f899c600a9cb728a9211e",
+    "launch_tags": {
+      "phlo/attempt": "1",
+      "phlo/project_id": "wap-failure-lab",
+      "phlo/ref": "pipeline-run-83be0c14231940e7b1394b4a47c0b2e9",
+      "phlo/run_id": "83be0c14231940e7b1394b4a47c0b2e9",
+      "phlo/wap_branch": "pipeline-run-83be0c14231940e7b1394b4a47c0b2e9"
+    },
+    "launch_target_hash_before": "380a6d4716fb5e1b201900e280b9d92baf2eddee6b9f899c600a9cb728a9211e",
+    "merge_state": "merge_failed",
+    "run_id": "83be0c14231940e7b1394b4a47c0b2e9",
+    "schema_version": "phlo.wap_report.v2",
+    "source_hash": "7a5190d24c3f6841bdfd5c5800e7c7708232fabb9dffd8490e39d4d7e1e0ff8b",
+    "status": "promotion_failed",
+    "strategy": "branch",
+    "target_branch": "main",
+    "target_hash_before": "93fba7e9577e0a7da27f921bc77c1a1cedf7b47cb0f10e341db5ca6e20b1b98e",
+    "updated_at": "2026-09-07T21:56:24.043186+00:00"
+  },
+  "after": {
+    "branch": "pipeline-run-83be0c14231940e7b1394b4a47c0b2e9",
+    "created_at": "2026-09-07T21:54:33.237368+00:00",
+    "dagster_run_id": "cf01648a-4001-4cb9-9d73-0b3005aacf54",
+    "failure_reason": "merge_branch_returned_false",
+    "launch_manifest_checksum": "a575d537d252413e3bbdf2e230c66ca6e7ebce61a708c5501b1b1c7419378d01",
+    "launch_source_hash": "380a6d4716fb5e1b201900e280b9d92baf2eddee6b9f899c600a9cb728a9211e",
+    "launch_tags": {
+      "phlo/attempt": "1",
+      "phlo/project_id": "wap-failure-lab",
+      "phlo/ref": "pipeline-run-83be0c14231940e7b1394b4a47c0b2e9",
+      "phlo/run_id": "83be0c14231940e7b1394b4a47c0b2e9",
+      "phlo/wap_branch": "pipeline-run-83be0c14231940e7b1394b4a47c0b2e9"
+    },
+    "launch_target_hash_before": "380a6d4716fb5e1b201900e280b9d92baf2eddee6b9f899c600a9cb728a9211e",
+    "merge_state": "merge_failed",
+    "run_id": "83be0c14231940e7b1394b4a47c0b2e9",
+    "schema_version": "phlo.wap_report.v2",
+    "source_hash": "7a5190d24c3f6841bdfd5c5800e7c7708232fabb9dffd8490e39d4d7e1e0ff8b",
+    "status": "promotion_failed",
+    "strategy": "branch",
+    "target_branch": "main",
+    "target_hash_before": "67efad8c00f51a690ac0be91222589df70a4fa8e24aa07d50d2684c2190b2821",
+    "updated_at": "2026-09-07T21:56:29.048931+00:00"
+  },
+  "branch_retained": true,
+  "main_rows_unchanged": true
+}

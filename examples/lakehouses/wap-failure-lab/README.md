@@ -13,16 +13,21 @@ container-free pytest suite proves it.
 The project owns its uv environment and deterministic fixtures. It does not
 depend on another example's runtime state.
 
+## Illustrated end-to-end guide
+
+Open [the annotated workflow guide](guide/index.html) in a browser to follow the complete pipeline, with actual input/output examples, check failures and recorded WAP reports. See [guide instructions](guide/README.md) for offline use and source files.
+
+
 ## What it exercises
 
 | Area | Coverage |
 |---|---|
 | Ingestion | One core dataset (`sensor_batches`: batch_id, sensor_id, reading_value, recorded_at, batch_date, quality_flag) ingested by two assets from the same reader and contract: `dlt_sensor_batches` (strict/blocking) and `dlt_sensor_batches_relaxed` (`strict_validation=False`) |
-| WAP branch lifecycle | Branch creation per launch, promotion merging to main, post-promotion cleanup, retained branches for failed runs, 24-hour retention cleanup |
+| WAP branch lifecycle | Branch creation per launch, promotion merging to main, post-promotion cleanup, retained branches for failed runs, failed-run retention (retention expiry itself is not exercised) |
 | Quality | Pandera contract (not-null, bounds, flags) plus domain checks `assert_batch_ids_unique` and `assert_recordings_near_partition`; blocking versus warning semantics are the central lesson |
 | Retry | Env-or-file armed one-shot source failure with a durable attempt counter file; asset declares `max_retries=3` |
 | Schema change | Additive optional column `reading_quality_score`; old rows stay NULL, old readers unaffected |
-| Concurrency | Back-to-back partition runs on distinct branches with disjoint ids |
+| Concurrency | Overlapping submissions on distinct branches with disjoint ids; conflicts retain recovery branches |
 | Transforms | One minimal dbt model `batch_summary` (count per sensor) proving downstream only ever sees promoted rows |
 | Data plane | Blessed Iceberg stack (MinIO + Nessie + Trino), WAP branch promotion |
 
@@ -74,7 +79,7 @@ uv run python scripts/run_scenario.py valid_publish      # clean promote
 uv run python scripts/run_scenario.py quality_failure    # fail-closed evidence
 uv run python scripts/run_scenario.py retry_recovery     # fail once, recover
 uv run python scripts/run_scenario.py schema_change      # additive migration
-uv run python scripts/run_scenario.py concurrent_runs    # serial isolation
+uv run python scripts/run_scenario.py concurrent_runs    # overlapping submissions
 uv run python scripts/run_scenario.py warning_only       # non-blocking lesson
 ```
 
@@ -111,11 +116,12 @@ Live outcomes asserted by `run_scenario.py`:
   still present for audit.
 - retry_recovery: attempt counter file reads exactly `2`; report `promoted`;
   main gains exactly 10 rows; branch gone.
-- schema_change: column count grows by exactly 1 with `reading_quality_score`
+- schema_change: optional `reading_quality_score` is
   present; every pre-change row has NULL score; partition gains 8 rows.
-- concurrent_runs: both reports `promoted` on different branches; per-partition
-  counts are multiples of 12 / 8; total delta 20 on a fresh catalog; both
-  branches cleaned up.
+- concurrent_runs: both launches precede report polling and use different
+  branches. At least one publishes; each successful batch adds its exact row
+  count and removes its branch. A failed batch adds zero rows and retains its
+  branch. Existing rows remain accounted for.
 - warning_only: relaxed run succeeds despite its failed check; the relaxed
   table gains 7 rows ON MAIN. Under the neutral severity contract (ADR 0048 /
   #817) the WARN-only failure is non-blocking, so the promotion sensor merges
@@ -124,18 +130,20 @@ Live outcomes asserted by `run_scenario.py`:
   scenarios/warning_only/SCENARIO.md - warnings are durable evidence, never a
   promotion gate.
 
-## Known scenario quirks observed live
+## Append semantics and repeat runs
 
-- `schema_change` reruns are idempotent at the data level (merge keeps 8
-  distinct batch ids), but repeated executions of the same scenario were
-  observed doubling physical rows once - under investigation upstream.
-- `concurrent_runs` partition B occasionally misses its promotion report
-  window under load; rerunning the scenario resolves it.
-- warning_only (live-proven 2026-09-03): a failed WARN-severity check is
-  durable, non-blocking evidence under the neutral severity contract. The run
-  succeeds, the promotion sensor merges the WAP branch with
-  `passed_with_warnings` aggregate evidence, and main advances - warnings are
-  recorded, never fatal; only ERROR-severity failures block promotion.
+These assets append physical rows. Run this sequence once against a fresh,
+isolated catalog. Repeating a successful fixture adds its rows again; retries
+here fail before the source yields any data and do not prove replay safety
+after a committed write. The optional score column may exist from initial
+creation; the schema scenario checks new values and preservation of old rows.
+
+For current-checkout development, activate the repository environment before
+running the scripts. The runner invokes `phlo` and `dbt` from PATH directly;
+`PHLO_EXECUTABLE` and `DBT_EXECUTABLE` can select absolute executable paths.
+It never resolves the example's pinned git dependencies in a nested `uv run`.
+Set `TRINO_HOST` and `TRINO_PORT` for host-side queries and dbt builds. The
+Dagster worker must use the same checkout and shared staged fixture directory.
 
 ## Expected failures
 
@@ -168,7 +176,7 @@ launches work unexpectedly:
 
 Asset settings are justified by behavior: max_retries=3 with a 5-second delay
 on the strict asset absorbs transient source outages (retry_recovery); append
-merge keeps raw evidence reproducible per run; identity partitioning by
+writes preserve each delivery as raw evidence; identity partitioning by
 batch_date gives exact per-partition count assertions.
 
 ## Profile maturity
@@ -184,40 +192,22 @@ Requires the standard phlo platform images matching the other examples.
 Temporal contract fields are typed natively (DLT normalizes ISO-8601 during
 staging); batch_date becomes a timestamptz daily identity partition.
 
-### Platform gaps observed (for release notes)
+### Evidence boundaries
 
-1. **Failed Dagster runs terminalize (live-proven 2026-09-03).** The
-   auto-promotion sensor scans SUCCESS, FAILURE, and CANCELED runs and
-   transitions a failed run's WAP report to `status="failed"` with
-   `failure_reason="dagster_run_failed"`, retaining the branch and query
-   catalog for audit until the cleanup sensor's retention policy applies.
-   Verified live against the blessed stack: the quality_failure run reached
-   Dagster `FAILURE` and its report terminalized as
-   `failed`/`dagster_run_failed` with main untouched (`failure_reason` values
-   that exist today: `dagster_run_failed`, `asset_checks_failed`,
-   `quality_evidence_unavailable`, `launch_manifest_or_immutable_tags_invalid`,
-   `merge_branch_returned_false`, `branch_cleanup_incomplete`).
-2. **pyiceberg's REST catalog exposes no reference enumeration.**
-   `phlo_iceberg.get_catalog()` (pyiceberg 0.12.0rc1 RestCatalog) offers no way
-   to list branches or read hashes, so ref inspection uses
-   `phlo_nessie.resource.NessieResource` (`list_branches`, `get_branch_hash`) -
-   the same client the platform sensors use.
-3. **WAP launches bypass CLI environment variables.** `phlo materialize --wap`
-   submits the run to the Dagster service via GraphQL; assets execute there, so
-   scenario routing and retry arming use files on the shared project filesystem
-   (`generated-data/inbound/`, `.phlo/wap-lab/*`) with env overrides honored
-   only for in-process runs.
-4. **Non-blocking checks never gate promotion (live-proven 2026-09-03).**
-   Under the neutral severity contract (#817) a failed WARN-severity check is
-   non-blocking: `_all_checks_passed` treats only ERROR-severity failures as
-   blocking, the successful run promotes with `passed_with_warnings` aggregate
-   quality evidence (severity `warn`, `blocking=false`), and the report ends
-   `promoted` with no failure reason. Verified live: the warning_only run
-   promoted, main gained exactly 7 rows, and the durable aggregate quality
-   result recorded `passed=true, severity=warn, blocking=false`.
-5. Live scenario execution was completed 2026-09-03 against the Docker stack
-   (blessed MinIO + Nessie + Trino + Dagster). Five of the six scenarios were
-   run end to end for the live WAP proof (issue #832): valid_publish,
-   warning_only, quality_failure, an evidence-sink outage/recovery case, and
-   retry_recovery; schema_change and concurrent_runs remain asserted by the
-   container-free suite only.
+The runner correlates each WAP report to the exact logical run ID returned by
+`phlo materialize --json`. Missing and unfinished reports fail the scenario.
+The happy path exports the exact logical run's durable ingestion report to
+`.phlo/lab-run-evidence/` and requires input, staged, output, lineage, artifact,
+snapshot, quality, and catalog evidence. Runner and worker must share the
+same evidence store configuration. It runs `dbt build` and compares its complete aggregate with SQL
+against main. This separate dbt invocation has no shared WAP run identity;
+it does not claim integrated transformation evidence in the WAP report.
+Concurrent same-table commits may conflict safely even with disjoint batch
+IDs. Submissions overlap before polling; this does not force a particular
+scheduler interleaving or require both catalog commits to succeed.
+
+Failed Dagster runs must terminalize with retained branches. WARN-only checks
+remain non-blocking evidence while the WAP branch still isolates publication.
+Reference inspection uses `NessieResource` because the Iceberg REST catalog
+interface does not enumerate branches. CLI launches submit work to the Dagster
+service, so fixtures and retry markers must be visible to that worker.

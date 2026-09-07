@@ -1314,17 +1314,21 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
             source_hash = prior_report.get("source_hash") or source_hash
             target_hash_before = prior_report.get("target_hash_before") or target_hash_before
             merged = True
-        elif (
-            merge_started
-            and prior_report is not None
-            and prior_report.get("target_hash_before") != target_hash_before
-        ):
-            # The catalog changed after our durable intent.  Treat that as the
-            # missing receipt and resume the idempotent post-merge work; doing
-            # so avoids repeating an external merge after a process crash.
-            source_hash = prior_report.get("source_hash") or source_hash
-            target_hash_before = prior_report.get("target_hash_before") or target_hash_before
-            merged = True
+        elif merge_started:
+            # Intent alone cannot distinguish a rejected merge from a committed
+            # merge whose acknowledgement was lost. Target movement may belong
+            # to another writer; retain the source until a receipt is available.
+            write_wap_report(
+                logical_run_id,
+                status="promotion_pending",
+                failure_reason="merge_outcome_unknown",
+            )
+            logger.warning(
+                "wap_promotion_merge_recovery_required",
+                run_id=run.run_id,
+                branch_name=branch_name,
+            )
+            continue
         else:
             # Persist intent before crossing the catalog boundary.  This is a
             # retry record, not a terminal promotion marker.
@@ -1344,6 +1348,7 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
             write_wap_report(
                 logical_run_id,
                 status="promotion_failed",
+                merge_state="merge_failed",
                 branch=branch_name,
                 source_hash=source_hash,
                 target_branch="main",
@@ -1535,7 +1540,8 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
 
     Branches are retained and an incomplete maintenance evidence gap is
     recorded when the matched run is active, absent, ambiguous, or conflicts on
-    project/attempt metadata.  The logical run ID is the cleanup/report
+    project/attempt metadata. Unacknowledged merge intents are also retained
+    until their catalog outcome is resolved. The logical run ID is the cleanup/report
     identity; the physical Dagster run ID is used only for status.
 
     """
@@ -1640,6 +1646,18 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
                     if not value
                 ],
                 reason="cleanup_report_missing_correlation",
+            )
+            continue
+
+        report = _read_wap_report(logical_run_id)
+        if report and report.get("merge_state") == "merge_started":
+            # Retention cannot resolve a lost acknowledgement. This ref may
+            # still be the only recoverable copy of an unpublished batch.
+            skipped += 1
+            logger.warning(
+                "wap_cleanup_merge_recovery_required",
+                run_id=logical_run_id,
+                branch_name=branch.name,
             )
             continue
 

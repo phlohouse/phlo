@@ -5,8 +5,8 @@ wap_failure_lab:
       type: trino
       method: none
       user: dagster
-      host: trino
-      port: 8080
+      host: "{{ env_var('TRINO_HOST', 'trino') }}"
+      port: "{{ env_var('TRINO_PORT', '8080') | int }}"
       catalog: iceberg
       schema: raw
       http_scheme: http
