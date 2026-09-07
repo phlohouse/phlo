@@ -6,7 +6,6 @@ augments them with Traefik routes when the proxy is running. Detects
 cross-service host-port conflicts and reports table or JSON output.
 """
 
-import json
 import os
 import re
 from dataclasses import dataclass
@@ -17,9 +16,10 @@ import click
 import yaml
 
 from phlo.cli.commands.services.utils import _get_env_overrides, get_enabled_disabled_service_names
+from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.container_backend import select_project_container_backend
 from phlo.cli.infrastructure.utils import get_project_name, parse_env_file
-from phlo.cli.output import missing_phlo_project_error
+from phlo.cli.output import json_envelope, missing_phlo_project_error
 from phlo.logging import get_logger
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
 
@@ -485,10 +485,10 @@ def _format_json(port_mappings: list[PortMapping]) -> None:
                 "url": pm.url,
             }
         )
-    click.echo(json.dumps(output, indent=2))
+    click.echo(json_envelope(data=output))
 
 
-@click.command("ports")
+@click.command("ports", cls=PhloCommand)
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.option("--all", "show_all", is_flag=True, help="Include stopped services with defaults")
 @click.option(

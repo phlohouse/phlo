@@ -43,6 +43,7 @@ from __future__ import annotations
 import asyncio
 import os
 import platform
+import shlex
 import subprocess
 import sys
 import time
@@ -59,7 +60,8 @@ from phlo.cli.infrastructure.container_backend import (
     select_project_container_backend,
 )
 from phlo.cli.infrastructure.utils import get_project_name
-from phlo.cli.output import command_failed_error, service_unavailable_error
+from phlo.cli.output import command_failed_error, service_unavailable_error, json_envelope
+from phlo.cli.contract import PhloCommand
 from phlo.infrastructure import load_wap_config
 from phlo_dagster.containers import find_dagster_container
 from phlo_dagster.operations import launch_materialize
@@ -110,7 +112,9 @@ def wait_for_dagster_runtime(
     )
 
 
-@click.command(help="Materialize Dagster assets via the configured container backend.")
+@click.command(
+    cls=PhloCommand, help="Materialize Dagster assets via the configured container backend."
+)
 @click.argument("asset_name", required=False)
 @click.option("-p", "--partition", help="Partition date (YYYY-MM-DD)")
 @click.option(
@@ -125,6 +129,7 @@ def wait_for_dagster_runtime(
     help="Skip automatic schema contract refresh before materialization",
 )
 @click.option("--dry-run", is_flag=True, help="Show command without executing")
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured result.")
 def materialize(
     asset_name: str | None,
     partition: Optional[str],
@@ -132,6 +137,7 @@ def materialize(
     select: Optional[str],
     no_contract_refresh: bool,
     dry_run: bool,
+    output_json: bool = False,
 ) -> None:
     """Materialize Dagster assets via the configured container backend.
 
@@ -163,6 +169,20 @@ def materialize(
             )
         logical_run_id = uuid.uuid4().hex
         if dry_run:
+            if output_json:
+                click.echo(
+                    json_envelope(
+                        data={
+                            "asset_name": asset_name,
+                            "partition": partition,
+                            "dagster_url": dagster_url,
+                            "mode": "wap",
+                        },
+                        status="planned",
+                        reason_code="materialization_planned",
+                    )
+                )
+                return
             click.echo(
                 "WAP dry run - would launch "
                 f"{asset_name} with logical run ID {logical_run_id} through {dagster_url}"
@@ -192,12 +212,51 @@ def materialize(
             wap_launch.record_launch_result(status="launch_rejected", error=result.message)
             raise click.ClickException(result.message)
 
+        if not getattr(result, "run_id", None):
+            wap_launch.record_launch_result(
+                status="launch_ambiguous", error="Dagster returned no run ID"
+            )
+            raise click.ClickException(
+                "Dagster accepted the request without a run ID; its outcome is unknown."
+            )
+
         if not wap_launch.record_launch_result(status="launched", dagster_run_id=result.run_id):
+            if output_json:
+                click.echo(
+                    json_envelope(
+                        data={
+                            "run_id": result.run_id,
+                            "logical_run_id": logical_run_id,
+                            "branch": wap_launch.branch,
+                        },
+                        status="partial",
+                        reason_code="launch_manifest_failed",
+                        errors=[
+                            "Dagster accepted the run, but its immutable launch manifest could not be stored. The branch was retained."
+                        ],
+                    )
+                )
+                raise click.exceptions.Exit(1)
             raise click.ClickException(
                 "Dagster accepted the WAP run, but its immutable launch manifest could not be stored. "
                 "The branch was retained."
             )
 
+        if output_json:
+            click.echo(
+                json_envelope(
+                    data={
+                        "asset_name": asset_name,
+                        "partition": partition,
+                        "logical_run_id": logical_run_id,
+                        "run_id": result.run_id,
+                        "branch": wap_launch.branch,
+                    },
+                    status="submitted",
+                    reason_code="materialization_submitted",
+                )
+            )
+            return
         click.echo(
             f"Launched WAP materialization for {asset_name} on {wap_launch.branch} "
             f"(logical run {logical_run_id}, Dagster run {result.run_id})"
@@ -252,8 +311,21 @@ def materialize(
             cmd.extend(["--partition", partition])
 
         if dry_run:
+            if output_json:
+                click.echo(
+                    json_envelope(
+                        data={
+                            "selection": effective_selection,
+                            "partition": partition,
+                            "argv": cmd,
+                        },
+                        status="planned",
+                        reason_code="materialization_planned",
+                    )
+                )
+                return
             click.echo("Dry run - would execute:\n")
-            click.echo(" ".join(cmd))
+            click.echo(shlex.join(cmd))
             logger.info(
                 "dagster_materialize_command_completed",
                 asset_name=effective_selection,
@@ -268,7 +340,8 @@ def materialize(
             )
             sys.exit(0)
 
-        click.echo(f"Materializing {effective_selection}...\n")
+        if not output_json:
+            click.echo(f"Materializing {effective_selection}...\n")
 
         process = subprocess.Popen(
             cmd,
@@ -289,7 +362,19 @@ def materialize(
                     )
         returncode = process.wait()
         if returncode == 0:
-            click.echo(f"\nSuccessfully materialized {effective_selection}")
+            if output_json:
+                click.echo(
+                    json_envelope(
+                        data={
+                            "selection": effective_selection,
+                            "partition": partition,
+                            "returncode": returncode,
+                        },
+                        reason_code="materialization_completed",
+                    )
+                )
+            else:
+                click.echo(f"\nSuccessfully materialized {effective_selection}")
             logger.info(
                 "dagster_materialize_command_completed",
                 asset_name=effective_selection,
@@ -320,7 +405,7 @@ def materialize(
                 "materialization",
                 exit_code=returncode,
                 details=[f"Last output: {output_hint}"] if output_hint else None,
-                run="phlo logs --level ERROR --limit 20",
+                run="phlo logs --service dagster --tail 20",
             )
     except FileNotFoundError:
         logger.error(

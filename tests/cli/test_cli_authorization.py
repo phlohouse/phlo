@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 
 from phlo.cli.authorization import (
@@ -455,8 +456,10 @@ policies:
         def handler() -> str:
             return "should not run"
 
-        with pytest.raises(SystemExit):
+        with pytest.raises(click.ClickException) as failure:
             handler()
+        assert failure.value.reason_code == "forbidden"
+        failure.value.show()
 
         assert (
             "Error: Authorization denied for 'services.start': not allowed"
@@ -476,8 +479,10 @@ policies:
         )
         monkeypatch.setattr(authorization_wrappers, "check_cli_surface_active", lambda: True)
 
-        with pytest.raises(SystemExit):
+        with pytest.raises(click.ClickException) as failure:
             enforce_surface_mutation_authorization("contracts.snapshot", lambda: adapter)
+        assert failure.value.reason_code == "forbidden"
+        failure.value.show()
 
         assert (
             "Error: Authorization denied for 'contracts.snapshot': not allowed"

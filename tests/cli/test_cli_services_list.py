@@ -55,7 +55,7 @@ def test_services_list_uses_backend_container_listing(
 
     result = CliRunner().invoke(list_module.list_cmd, ["--json", "--backend", "podman"])
 
-    entries = json.loads(result.output)
+    entries = json.loads(result.output)["data"]
     postgres_entry = next(item for item in entries if item["name"] == "postgres")
     assert postgres_entry["running"] is True
 
@@ -183,7 +183,7 @@ def test_services_list_wraps_discovery_failures(monkeypatch: pytest.MonkeyPatch,
     result = CliRunner().invoke(list_module.list_cmd, ["--json"])
     assert result.exit_code == 1
     assert "Failed to discover services." in result.output
-    assert "phlo plugins list" in result.output
+    assert "phlo plugin list" in result.output
 
 
 def test_services_list_handles_backend_status_failures(
@@ -205,8 +205,11 @@ def test_services_list_handles_backend_status_failures(
     monkeypatch.chdir(tmp_path)
 
     result = CliRunner().invoke(list_module.list_cmd, ["--json"])
-    assert result.exit_code == 0
-    assert result.output.strip() == "[]"
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["data"] == []
+    assert payload["status"] == "partial"
+    assert payload["reason_code"] == "runtime_status_unavailable"
 
 
 def test_services_list_aligns_long_service_names(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -238,8 +241,41 @@ def test_services_list_aligns_long_service_names(monkeypatch: pytest.MonkeyPatch
 
     result = CliRunner().invoke(list_module.list_cmd, [])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     lines = result.output.splitlines()
     postgres_line = next(line for line in lines if " postgres " in line)
     setup_line = next(line for line in lines if " postgres-volume-setup " in line)
-    assert postgres_line.index("Stopped") == setup_line.index("Stopped")
+    assert postgres_line.index("Unknown") == setup_line.index("Unknown")
+
+
+def test_unavailable_runtime_is_unknown(monkeypatch, tmp_path):
+    from phlo.cli.commands.services import list as list_module
+
+    class Services(FakeDiscovery):
+        def discover(self):
+            return {
+                "postgres": ServiceDefinition(name="postgres", description="Database", default=True)
+            }
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(list_module, "ServiceDiscovery", Services)
+    monkeypatch.setattr(list_module, "get_project_name", lambda: "demo")
+    from subprocess import CompletedProcess
+
+    from phlo.cli.infrastructure.container_backend import DockerBackend
+
+    monkeypatch.setattr(
+        list_module, "select_project_container_backend", lambda **_: DockerBackend()
+    )
+    monkeypatch.setattr(
+        "phlo.cli.infrastructure.container_backend.subprocess.run",
+        lambda *args, **_: CompletedProcess(args[0], 1, stdout="", stderr="daemon unavailable"),
+    )
+    result = CliRunner().invoke(list_module.list_cmd, ["--json"])
+    assert result.exit_code == 1, result.output
+    service = json.loads(result.output)["data"][0]
+    assert service["state"] == "unknown"
+    assert service["running"] is None
+    human = CliRunner().invoke(list_module.list_cmd)
+    assert "Unknown" in human.output
+    assert "Stopped" not in human.output

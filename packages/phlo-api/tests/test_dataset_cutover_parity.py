@@ -50,7 +50,7 @@ def _cli_projection(tmp_path, dataset_id: str = "gold.orders") -> dict:
         env={"PHLO_PROJECT_PATH": str(tmp_path)},
     )
     assert result.exit_code == 0, result.output
-    return json.loads(result.output)
+    return json.loads(result.output)["data"]
 
 
 def test_cli_show_json_matches_api_profile_canonical(
@@ -169,14 +169,18 @@ def test_blocked_publish_returns_identical_ordered_reasons_on_every_surface(
             "publish",
             "--action-id",
             "parity-blocked-probe",
+            "--json",
             "--store-mode",
             "memory",
         ],
         env={"PHLO_PROJECT_PATH": str(tmp_path)},
     )
     assert cli_transition.exit_code == 1
+    payload = json.loads(cli_transition.stdout)
+    assert payload["status"] == "error"
+    assert payload["data"]["status"] == "blocked"
     for reason in reasons:
-        assert reason in cli_transition.output
+        assert reason in payload["data"]["reasons"]
 
 
 def test_authorized_publish_is_idempotent_audited_and_durable(

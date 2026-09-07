@@ -1,4 +1,20 @@
 exit_code=1
 output<<EOF
-Error: Failed to discover services. Verify service plugins are installed and run `phlo plugins list` for diagnostics.
+{
+  "data": null,
+  "errors": [
+    "Failed to discover services. Verify service plugins are installed.\n\nRun: phlo plugin list"
+  ],
+  "exit_code": 1,
+  "next_steps": [
+    {
+      "command": "phlo plugin list",
+      "when": "Resolve this error"
+    }
+  ],
+  "reason_code": "plugin_discovery_failed",
+  "schema_version": 1,
+  "status": "error",
+  "warnings": []
+}
 EOF

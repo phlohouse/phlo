@@ -7,9 +7,6 @@ registry hits. Renders as a rich table or machine-readable JSON.
 
 from __future__ import annotations
 
-import json
-import sys
-
 import click
 from rich.table import Table
 
@@ -20,6 +17,8 @@ from phlo.cli.commands.plugin.utils import (
     registry_plugin_to_dict,
     registry_type_for_cli,
 )
+from phlo.cli.contract import PhloCommand
+from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
 from phlo.plugins.registry_client import search_plugins
 
@@ -50,7 +49,7 @@ def _matches_installed_plugin(
     return needle in haystack or needle in haystack_tags
 
 
-@click.command(name="search")
+@click.command(name="search", cls=PhloCommand)
 @click.argument("query", required=False)
 @click.option(
     "--type",
@@ -110,7 +109,7 @@ def search_cmd(
         output = list(output_by_key.values())
 
         if output_json:
-            click.echo(json.dumps(output, indent=2))
+            click.echo(json_envelope(data=output))
             logger.info("plugin_search_succeeded", result_count=len(output), output_json=True)
             return
 
@@ -138,6 +137,8 @@ def search_cmd(
         console.print(table)
         logger.info("plugin_search_succeeded", result_count=len(output), output_json=False)
 
+    except click.ClickException:
+        raise
     except Exception as e:
         logger.exception(
             "plugin_search_failed",
@@ -146,5 +147,8 @@ def search_cmd(
             tag_count=len(tags),
             output_json=output_json,
         )
-        console.print(f"[red]Error searching registry: {e}[/red]")
-        sys.exit(1)
+        raise user_error(
+            "Error searching registry.",
+            reason_code="plugin_search_failed",
+            run="phlo plugin search --help",
+        ) from e

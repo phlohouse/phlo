@@ -25,16 +25,98 @@ phlo --help              # Show help
 phlo --version           # Show version
 phlo --quiet             # Reduce non-essential output
 phlo --no-color          # Disable colorized terminal output
+phlo --json COMMAND      # Use the command's structured result renderer
+phlo --non-interactive COMMAND  # Never prompt for confirmation
 ```
 
-Agent-facing commands prefer `--json` where available and emit the shared
-`{"data": ..., "warnings": [...], "errors": [...]}` envelope.
+### Human and agent output
+
+Normal invocations show human-readable summaries, tables, and recovery hints.
+Use `--json` for a structured result on commands that advertise it. Both forms
+select the same renderer:
+
+```bash
+phlo services list --json
+phlo --json services list
+```
+
+The outer CLI emits one JSON document on stdout, including on parsing and
+execution failures. Diagnostic logging goes to stderr. The version 1 envelope
+contains:
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | Envelope version (`1`). |
+| `status` | `success`, `planned`, `submitted`, `partial`, `cancelled`, or `error`. |
+| `data` | Command-owned structured result, or `null` when unavailable. |
+| `warnings` | Non-fatal warnings; inspect these even on successful execution. |
+| `errors` | Failure details intended for the caller. |
+| `reason_code` | Stable failure identifier when available; `null` on ordinary success. |
+| `next_steps` | Suggested commands and the conditions (`when`) under which they apply. |
+| `exit_code` | The process exit code. |
+
+`planned` means no execution was requested; `submitted` means a run was accepted,
+not that it completed. `partial` retains completed work and failure details.
+Failures, cancellations, and partial outcomes exit nonzero. Usage errors normally
+exit 2; commands with existing specialized exit codes retain them. A next step
+is a recommendation, not permission to execute it automatically.
+
+Existing consumers of raw `--json` arrays or objects must now read those results
+under `data`. The `data`, `warnings`, and `errors` fields remain available in the
+shared envelope. Native document formats such as `config show --format json`
+and `operations restore plan --format json` remain raw documents, suitable for
+saving as configuration or an apply-plan input; they are distinct from `--json`.
+
+### Discover installed capabilities
+
+```bash
+phlo commands
+phlo commands services reset --json
+phlo --json commands materialize
+```
+
+Discovery reflects the actual registered command tree, including installed
+package commands. It lists parameters, choices, JSON support, dry-run support,
+and confirmation flags. It does not execute commands or expose parameter
+defaults that could contain secrets. A command without JSON support rejects a
+global `--json` request before its callback runs, with `json_not_supported`.
+
+Raw SQL, environment exports, shells, subprocesses, and live logs keep their
+native output. A wrapped program's arguments after `--` belong to that program:
+
+```bash
+phlo services exec worker -- my-program --json
+```
+
+This does not activate Phlo's result envelope. Do not buffer live streams expecting
+a single final JSON document.
+
+### Preview and confirmation
+
+Reset and schema migration show the target and planned changes before applying.
+JSON mode and `--non-interactive` never open a confirmation prompt. Without a
+terminal, an action that needs confirmation fails with `confirmation_required`;
+review its preview and explicitly supply `--yes` to approve it. `--yes` does not
+bypass authorization or validation.
+
+```bash
+phlo services reset --service postgres --dry-run --json
+phlo services reset --service postgres --yes --json
+phlo schema-migrate apply warehouse.customers --dry-run --json
+```
+
+Reset stops before deleting local volume directories if stopping containers
+fails. Skipped or failed deletions are reported as incomplete rather than as a
+successful full reset. An unavailable runtime is reported as unknown, never
+silently as stopped.
+
 
 ## Command Overview
 
 **Core Commands:**
 
 ```bash
+phlo commands            # Discover installed commands and capabilities
 phlo init                # Initialize new project
 phlo services            # Manage infrastructure services
 phlo plugin              # Manage plugins
@@ -511,15 +593,16 @@ phlo services list --json
 - Invalid `phlo.yaml` is surfaced with a targeted message:
 
 ```bash
-phlo services list --json
+phlo services list
 # Error: Failed to read /path/to/phlo.yaml. Check YAML syntax and file permissions, then retry.
 ```
 
 - Discovery failures include next-step diagnostics:
 
 ```bash
-phlo services list --json
-# Error: Failed to discover services. Verify service plugins are installed and run `phlo plugin list` for diagnostics.
+phlo services list
+# Error: Failed to discover services. Verify service plugins are installed.
+# Run: phlo plugin list
 ```
 
 ### phlo services ports
@@ -677,15 +760,18 @@ phlo services reset [OPTIONS]
 
 ```bash
 --service SERVICE    # Reset only specific service(s)
--y, --yes            # Skip confirmation
+-y, --yes            # Approve the displayed deletion scope
+--dry-run            # Preview services and volumes without changing them
+--json               # Structured preview or result
+--non-interactive    # Never prompt; require --yes to apply
 ```
 
 **Examples**:
 
 ```bash
-phlo services reset
+phlo services reset --dry-run --json
 phlo services reset --service postgres
-phlo services reset -y
+phlo services reset -y --json
 ```
 
 ### phlo services restart
@@ -1182,7 +1268,7 @@ phlo materialize ASSET_NAME [OPTIONS]
 
 When running through Docker, or through the experimental non-CI-supported Podman backend, Phlo waits for the Dagster runtime to finish
 startup and local package installation before executing the materialization. If the run
-fails, normal terminal output stays concise; use `phlo logs --level ERROR --limit 20`
+fails, normal terminal output stays concise; use `phlo logs --service dagster --tail 20`
 for the structured failure details.
 
 **Options**:
@@ -1192,6 +1278,7 @@ for the structured failure details.
 --partition PARTITION    # Specific partition to materialize
 --no-contract-refresh    # Skip automatic schema-contract refresh
 --dry-run                # Show command without executing
+--json                   # Structured plan, submission, or completion result
 ```
 
 **Write-audit-publish (WAP) launch**:
@@ -1334,7 +1421,8 @@ If multiple schema migrators are installed and neither default selects one, Phlo
 
 ```bash
 phlo schema-migrate plan warehouse.customers
-phlo schema-migrate apply warehouse.customers
+phlo schema-migrate apply warehouse.customers --dry-run --json
+phlo schema-migrate apply warehouse.customers --yes --json
 phlo schema-migrate history warehouse.customers --limit 5
 ```
 
@@ -1532,6 +1620,7 @@ partition work begins.
 --parallel N         # Number of concurrent partitions (default: 1)
 --resume             # Resume last backfill, skipping completed partitions
 --dry-run            # Show what would be executed without running
+--json               # Structured partition plan or execution results
 --delay SECS         # Delay between parallel executions in seconds (default: 0.0)
 ```
 
@@ -1870,8 +1959,8 @@ phlo config show [OPTIONS]
 **Options**:
 
 ```bash
---format FORMAT      # Output format: yaml, json, env
---secrets            # Show secrets (masked by default)
+--format FORMAT      # Native configuration document: yaml or json
+--json               # Configuration inside the structured result envelope
 ```
 
 **Examples**:
@@ -1879,7 +1968,7 @@ phlo config show [OPTIONS]
 ```bash
 phlo config show
 phlo config show --format json
-phlo config show --secrets
+phlo config show --json
 ```
 
 ### phlo config validate
@@ -1887,14 +1976,15 @@ phlo config show --secrets
 Validate configuration files.
 
 ```bash
-phlo config validate [FILE]
+phlo config validate [--json]
 ```
 
 **Examples**:
 
 ```bash
 # Validate phlo.yaml
-phlo config validate phlo.yaml
+phlo config validate
+phlo config validate --json
 ```
 
 ### phlo env export

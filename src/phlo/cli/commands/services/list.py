@@ -5,7 +5,6 @@ backend, reporting enabled/disabled flags, ports, and running status per
 service.
 """
 
-import json
 from pathlib import Path
 
 import click
@@ -13,8 +12,10 @@ import yaml
 
 from phlo.cli.commands.services.ports import _parse_compose_port_spec
 from phlo.cli.commands.services.utils import get_enabled_disabled_service_names
+from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.container_backend import select_project_container_backend
 from phlo.cli.infrastructure.utils import get_project_name
+from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
 
@@ -68,7 +69,7 @@ def _external_port_for_container(
     return segments[0].split("->", 1)[0].split(":")[-1]
 
 
-@click.command("list")
+@click.command("list", cls=PhloCommand)
 @click.option("--all", "show_all", is_flag=True, help="Show all services including optional")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.option(
@@ -100,7 +101,10 @@ def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):
             with config_file.open() as f:
                 existing_config = yaml.safe_load(f) or {}
                 if not isinstance(existing_config, dict):
-                    raise click.ClickException(f"{config_file} must contain a top-level mapping.")
+                    raise user_error(
+                        f"{config_file} must contain a top-level mapping.",
+                        reason_code="invalid_project_config",
+                    )
                 user_overrides = existing_config.get("services", {})
                 if not isinstance(user_overrides, dict):
                     user_overrides = {}
@@ -110,8 +114,9 @@ def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):
                 config_file=str(config_file),
                 exc_info=True,
             )
-            raise click.ClickException(
-                f"Failed to read {config_file}. Check YAML syntax and file permissions, then retry."
+            raise user_error(
+                f"Failed to read {config_file}. Check YAML syntax and file permissions, then retry.",
+                reason_code="invalid_project_config",
             ) from exc
 
     # Discover available services
@@ -120,9 +125,10 @@ def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):
         available_services = discovery.discover()
     except Exception as exc:
         logger.error("services_list_discovery_failed", exc_info=True)
-        raise click.ClickException(
-            "Failed to discover services. Verify service plugins are installed and run "
-            "`phlo plugins list` for diagnostics."
+        raise user_error(
+            "Failed to discover services. Verify service plugins are installed.",
+            reason_code="plugin_discovery_failed",
+            run="phlo plugin list",
         ) from exc
 
     # Check which services are explicitly enabled/disabled.
@@ -135,6 +141,8 @@ def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):
             inline_services.append(ServiceDefinition.from_inline(name, cfg))
 
     # Get running container status using compose project label for deterministic matching
+    runtime_available = True
+    warnings = []
     try:
         project_name = get_project_name()
         running_containers = _get_running_containers(project_name, backend_name)
@@ -145,9 +153,25 @@ def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):
             exc_info=True,
         )
         running_containers = {}
+        runtime_available = False
+        warnings.append("Runtime status unavailable. Check your container backend and retry.")
 
+    # Separate services by type
+    package_services = [
+        s for s in available_services.values() if not s.core or s.name in disabled_services
+    ]
+    visible_services = [
+        svc
+        for svc in sorted(package_services, key=lambda x: x.name)
+        if show_all
+        or not svc.profile
+        or svc.default
+        or svc.name in enabled_services
+        or svc.name in disabled_services
+        or svc.name in running_containers
+    ]
     if output_json:
-        all_services = list(available_services.values()) + inline_services
+        all_services = visible_services + sorted(inline_services, key=lambda x: x.name)
         payload = [
             {
                 "name": svc.name,
@@ -161,7 +185,12 @@ def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):
                 "core": svc.core,
                 "disabled": svc.name in disabled_services,
                 "inline": svc in inline_services,
-                "running": running_containers.get(svc.name, {}).get("status") == "running",
+                "running": (running_containers.get(svc.name, {}).get("status") == "running")
+                if runtime_available
+                else None,
+                "state": running_containers.get(svc.name, {}).get("status", "stopped")
+                if runtime_available
+                else "unknown",
             }
             for svc in all_services
         ]
@@ -171,20 +200,16 @@ def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):
             running_count=sum(1 for svc in payload if svc["running"]),
             disabled_count=sum(1 for svc in payload if svc["disabled"]),
         )
-        click.echo(json.dumps(payload, indent=2))
+        click.echo(
+            json_envelope(
+                data=payload,
+                warnings=warnings,
+                status="partial" if warnings else "success",
+                reason_code="runtime_status_unavailable" if warnings else None,
+            )
+        )
         return
 
-    # Separate services by type
-    package_services = [s for s in available_services.values() if not s.core]
-    visible_services = [
-        svc
-        for svc in sorted(package_services, key=lambda x: x.name)
-        if show_all
-        or not svc.profile
-        or svc.default
-        or svc.name in enabled_services
-        or svc.name in running_containers
-    ]
     name_width = max(
         [
             18,
@@ -214,7 +239,7 @@ def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):
             suffix = ""
         else:
             status_marker = " "
-            status = "Stopped"
+            status = "Stopped" if runtime_available else "Unknown"
             ports = ""
             suffix = ""
 
@@ -228,6 +253,9 @@ def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):
         desc_with_suffix = f"{svc.description} {suffix}".strip()
 
         return f"  {status_marker} {name_col} {status_col} {ports_col} {desc_with_suffix}"
+
+    for warning in warnings:
+        click.echo(f"Warning: {warning}", err=True)
 
     # Display package services
     if package_services or disabled_services:
@@ -257,3 +285,5 @@ def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):
         disabled_count=len(disabled_services),
     )
     click.echo("")
+    if warnings:
+        raise click.exceptions.Exit(1)

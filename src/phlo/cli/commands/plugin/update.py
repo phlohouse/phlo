@@ -9,20 +9,21 @@ after every remaining update has been attempted.
 
 from __future__ import annotations
 
-import json
 import sys
 
 import click
 
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.commands.plugin.utils import console, find_available_updates, run_pip
+from phlo.cli.contract import PhloCommand
+from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
 from phlo.plugins.registry_client import list_registry_plugins
 
 logger = get_logger(__name__)
 
 
-@click.command(name="update")
+@click.command(name="update", cls=PhloCommand)
 @click.option(
     "--json",
     "output_json",
@@ -49,7 +50,7 @@ def update_cmd(output_json: bool, dry_run: bool):
         updates = find_available_updates(registry_plugins)
 
         if output_json:
-            console.print(json.dumps(updates, indent=2))
+            click.echo(json_envelope(data=updates))
             logger.info(
                 "plugin_update_succeeded",
                 output_json=True,
@@ -130,7 +131,12 @@ def update_cmd(output_json: bool, dry_run: bool):
             "plugin_update_succeeded", output_json=False, dry_run=False, update_count=len(updates)
         )
         console.print("[green]✓ Plugins updated[/green]")
+    except click.ClickException:
+        raise
     except Exception as e:
         logger.exception("plugin_update_failed", output_json=output_json, dry_run=dry_run)
-        console.print(f"[red]Error updating plugins: {e}[/red]")
-        sys.exit(1)
+        raise user_error(
+            "Error updating plugins.",
+            reason_code="plugin_update_failed",
+            run="phlo plugin update --help",
+        ) from e

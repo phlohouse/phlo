@@ -9,6 +9,7 @@ exits non-zero and never contacts a container backend.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,8 +17,10 @@ import click
 
 from phlo.cli.commands.services.common import load_compose_service_names
 from phlo.cli.commands.services.utils import ensure_phlo_dir
+from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.infrastructure.utils import get_project_name, parse_env_file
+from phlo.cli.output import json_envelope
 from phlo.logging import get_logger
 from phlo.security.production_preflight import (
     ProductionReadinessState,
@@ -48,7 +51,7 @@ def _render_report(report) -> None:
         click.echo(f"  [{marker:>12}] {check.id.value}: {check.message}")
 
 
-@click.command("preflight")
+@click.command("preflight", cls=PhloCommand)
 @click.option(
     "--production",
     is_flag=True,
@@ -96,10 +99,21 @@ def preflight_cmd(production: bool, as_json: bool, output_path: Path | None) -> 
 
     if output_path is not None:
         write_sensitive_file(output_path, report.to_json())
-        click.echo(f"Wrote: {output_path}")
+        if not as_json:
+            click.echo(f"Wrote: {output_path}")
 
     if as_json:
-        click.echo(report.to_json())
+        failed_ids = [check.id.value for check in report.checks if check.state in _FALSE_STATES]
+        click.echo(
+            json_envelope(
+                data=json.loads(report.to_json()),
+                status="success" if report.passed else "error",
+                reason_code=None if report.passed else "production_readiness_failed",
+                errors=[f"Readiness check failed: {check}" for check in failed_ids],
+            )
+        )
+        if not report.passed:
+            raise click.exceptions.Exit(1)
     else:
         _render_report(report)
 

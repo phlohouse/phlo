@@ -89,3 +89,24 @@ version. It is not needed for released capability packages.
 - `phlo.plugins.services` - Provides `DagsterServicePlugin`, `DagsterDaemonServicePlugin`
 - `phlo.plugins.orchestrators` - Provides `DagsterOrchestratorAdapter`
 - `phlo.plugins.cli` - Provides Dagster CLI commands
+
+### Human and agent CLI results
+
+`phlo materialize`, `phlo backfill`, and `phlo status` accept `--json`.
+Their results use the shared Phlo envelope (`status`, `reason_code`, `data`,
+`warnings`, `errors`, and `next_steps`), while human output remains the default.
+Diagnostics and progress belong on stderr in JSON mode.
+
+- `phlo materialize orders --dry-run --json` reports `planned` without launching
+  materialization. Container previews include the exact argument vector.
+- A WAP materialization reports `submitted` with its Dagster run ID after launch
+  acceptance. Submission does not mean that materialization or promotion finished.
+- `phlo backfill orders --partitions 2024-01-01,2024-01-02 --dry-run --json`
+  lists the complete partition plan without creating a branch, launching runs,
+  or writing resume state. WAP plans report the effective serial worker count.
+- Backfill results identify completed and failed partitions. Partial failures exit
+  nonzero and preserve completed work in `.phlo/backfill_state.json`; use
+  `phlo backfill --resume --json` after addressing the failure.
+- `phlo status --assets --json` reports an unavailable asset query as an error,
+  rather than a successful empty inventory. Asset run evidence that is not wired
+  remains explicitly unknown.

@@ -7,6 +7,8 @@ and the shell environment.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from click.testing import CliRunner
 
@@ -184,7 +186,7 @@ def test_ports_cmd_json_output(monkeypatch: pytest.MonkeyPatch, tmp_path) -> Non
 
     result = CliRunner().invoke(ports_module.ports_cmd, ["--json", "--all"])
     assert result.exit_code == 0
-    assert result.output.strip() == "[]"
+    assert json.loads(result.output)["data"] == []
 
 
 def test_ports_cmd_json_output_is_payload_only(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -208,7 +210,7 @@ def test_ports_cmd_json_output_is_payload_only(monkeypatch: pytest.MonkeyPatch, 
     result = CliRunner().invoke(ports_module.ports_cmd, ["--json", "--all"])
 
     assert result.exit_code == 0
-    assert result.output.lstrip().startswith("[")
+    assert isinstance(json.loads(result.output)["data"], list)
     assert '"service": "postgres"' in result.output
 
 
@@ -512,19 +514,17 @@ services:
 
     result = CliRunner().invoke(ports_module.ports_cmd, ["--all", "--json"])
     assert result.exit_code == 0
-    assert result.output.strip() == (
-        "[\n"
-        "  {\n"
-        '    "service": "postgres",\n'
-        '    "host_port": 16432,\n'
-        '    "container_port": 5432,\n'
-        '    "source": "compose",\n'
-        '    "status": "stopped",\n'
-        '    "env_var": null,\n'
-        '    "url": null\n'
-        "  }\n"
-        "]"
-    )
+    assert json.loads(result.output)["data"] == [
+        {
+            "service": "postgres",
+            "host_port": 16432,
+            "container_port": 5432,
+            "source": "compose",
+            "status": "stopped",
+            "env_var": None,
+            "url": None,
+        }
+    ]
 
 
 def test_ports_cmd_does_not_advertise_urls_without_running_traefik(

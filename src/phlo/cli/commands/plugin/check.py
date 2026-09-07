@@ -28,6 +28,8 @@ import click
 from rich.text import Text
 
 from phlo.cli.commands.plugin.utils import console
+from phlo.cli.contract import PhloCommand
+from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
 from phlo.plugins import discover_plugins, validate_plugins
 from phlo.plugins.base.service import ServicePlugin
@@ -1111,7 +1113,7 @@ def check_generated_containers(
     }
 
 
-@click.command(name="check")
+@click.command(name="check", cls=PhloCommand)
 @click.option(
     "--json",
     "output_json",
@@ -1173,7 +1175,17 @@ def check_cmd(
             )
 
         if output_json:
-            click.echo(json.dumps(validation_results, indent=2))
+            invalid = validation_results.get("invalid", [])
+            click.echo(
+                json_envelope(
+                    data=validation_results,
+                    status="error" if invalid else "success",
+                    reason_code="plugin_validation_failed" if invalid else None,
+                    errors=[f"Invalid plugin: {name}" for name in invalid],
+                )
+            )
+            if invalid:
+                raise SystemExit(1)
             return
 
         # Rich formatted output
@@ -1225,7 +1237,13 @@ def check_cmd(
 
     except SystemExit:
         raise
+    except click.ClickException:
+        raise
     except Exception as e:
         logger.exception("plugin_check_failed", output_json=output_json)
-        console.print(f"Error validating plugins: {e}", style="red", markup=False)
-        sys.exit(1)
+        raise user_error(
+            "Error validating plugins.",
+            reason_code="plugin_check_failed",
+            details=[str(e)],
+            run="phlo plugin check --help",
+        ) from e

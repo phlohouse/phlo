@@ -6,25 +6,23 @@ a table or as JSON; discovery failures exit nonzero.
 
 from __future__ import annotations
 
-import json
-import sys
-
 import click
 
 from phlo.cli.commands.plugin.utils import (
     PLUGIN_TYPE_CHOICES,
     collect_installed_plugins,
     collect_registry_plugins,
-    console,
     normalize_plugin_type,
     render_plugin_table,
 )
+from phlo.cli.contract import PhloCommand
+from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-@click.command(name="list")
+@click.command(name="list", cls=PhloCommand)
 @click.option(
     "--type",
     "plugin_type",
@@ -70,7 +68,7 @@ def list_cmd(plugin_type: str, include_registry: bool, output_json: bool):
             output = {"installed": installed}
             if include_registry:
                 output["available"] = available
-            click.echo(json.dumps(output, indent=2))
+            click.echo(json_envelope(data=output))
             logger.info(
                 "plugin_list_succeeded",
                 installed_count=len(installed),
@@ -89,6 +87,8 @@ def list_cmd(plugin_type: str, include_registry: bool, output_json: bool):
             output_json=False,
         )
 
+    except click.ClickException:
+        raise
     except Exception as e:
         logger.exception(
             "plugin_list_failed",
@@ -96,5 +96,8 @@ def list_cmd(plugin_type: str, include_registry: bool, output_json: bool):
             include_registry=include_registry,
             output_json=output_json,
         )
-        console.print(f"[red]Error listing plugins: {e}[/red]")
-        sys.exit(1)
+        raise user_error(
+            "Error listing plugins.",
+            reason_code="plugin_list_failed",
+            run="phlo plugin list --help",
+        ) from e

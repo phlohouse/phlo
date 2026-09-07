@@ -15,9 +15,10 @@ from phlo.cli.commands.plugin.install import install_cmd
 from phlo.cli.commands.plugin.list import list_cmd
 from phlo.cli.commands.plugin.search import search_cmd
 from phlo.cli.commands.plugin.update import update_cmd
+from phlo.cli.contract import PhloGroup
 
 
-@click.group(name="plugin")
+@click.group(name="plugin", cls=PhloGroup)
 def plugin_group():
     """Manage Phlo plugins."""
 

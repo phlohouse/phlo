@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 
+import click
 import pytest
 import yaml
 from click.testing import CliRunner
@@ -151,10 +152,10 @@ def test_resolve_migrator_fails_when_configured_schema_migrator_missing(monkeypa
     )
     monkeypatch.setattr("phlo.capabilities.discovery.discover_capabilities", lambda: None)
 
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(click.ClickException) as exc_info:
         schema_migrate_commands._resolve_migrator()
 
-    assert exc_info.value.code == 1
+    assert exc_info.value.exit_code == 1
 
 
 def test_resolve_migrator_fails_when_multiple_installed_without_selection(monkeypatch) -> None:
@@ -183,10 +184,10 @@ def test_resolve_migrator_fails_when_multiple_installed_without_selection(monkey
     )
     monkeypatch.setattr("phlo.capabilities.discovery.discover_capabilities", lambda: None)
 
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(click.ClickException) as exc_info:
         schema_migrate_commands._resolve_migrator()
 
-    assert exc_info.value.code == 1
+    assert exc_info.value.exit_code == 1
 
 
 def test_resolve_migrator_reports_table_store_mismatch_when_ambiguous(monkeypatch) -> None:
@@ -215,10 +216,10 @@ def test_resolve_migrator_reports_table_store_mismatch_when_ambiguous(monkeypatc
     )
     monkeypatch.setattr("phlo.capabilities.discovery.discover_capabilities", lambda: None)
 
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(click.ClickException) as exc_info:
         schema_migrate_commands._resolve_migrator()
 
-    assert exc_info.value.code == 1
+    assert exc_info.value.exit_code == 1
 
 
 def _patch_schema_resolution(monkeypatch) -> None:
@@ -958,3 +959,78 @@ def test_refresh_contracts_skips_missing_tables_without_warning(monkeypatch) -> 
             {"table_name": "raw.orders", "selection": "dlt_orders"},
         )
     ]
+
+
+@pytest.mark.parametrize(
+    "options,expected_exit,applied",
+    [
+        (["--dry-run"], 0, False),
+        ([], 1, False),
+        (["--yes"], 0, True),
+    ],
+)
+def test_apply_json_preview_and_confirmation(monkeypatch, options, expected_exit, applied):
+    calls = []
+
+    class Migrator:
+        def apply_plan(self, **kwargs):
+            calls.append(kwargs)
+            return {"snapshot_id": 42}
+
+    plan = SchemaMigrationPlan(
+        "warehouse.customers", [SchemaChange("email", "drop")], "breaking", requires_approval=True
+    )
+    monkeypatch.setattr(
+        schema_migrate_commands, "_build_migration_plan", lambda **kwargs: (Migrator(), plan)
+    )
+    result = CliRunner().invoke(
+        schema_migrate_commands.schema_migrate_group,
+        ["apply", "warehouse.customers", "--json", *options],
+    )
+    assert result.exit_code == expected_exit, result.output
+    payload = json.loads(result.stdout)
+    assert bool(calls) is applied
+    if expected_exit == 0:
+        assert payload["data"]["applied"] is applied
+        assert payload["data"]["plan"]["changes"][0]["field_name"] == "email"
+    else:
+        assert payload["errors"]
+
+
+def test_apply_json_backend_failure_is_not_success(monkeypatch):
+    class Migrator:
+        def apply_plan(self, **kwargs):
+            raise RuntimeError("backend unavailable")
+
+    plan = SchemaMigrationPlan("warehouse.customers", [SchemaChange("email", "add")], "safe")
+    monkeypatch.setattr(
+        schema_migrate_commands, "_build_migration_plan", lambda **kwargs: (Migrator(), plan)
+    )
+    result = CliRunner().invoke(
+        schema_migrate_commands.schema_migrate_group, ["apply", "warehouse.customers", "--json"]
+    )
+    assert result.exit_code == 1
+    assert json.loads(result.stdout)["errors"]
+    assert "applied successfully" not in result.stdout
+
+
+def test_apply_declined_confirmation_does_not_mutate(monkeypatch):
+    calls = []
+
+    class Migrator:
+        def apply_plan(self, **kwargs):
+            calls.append(kwargs)
+
+    plan = SchemaMigrationPlan(
+        "warehouse.customers", [SchemaChange("email", "drop")], "breaking", requires_approval=True
+    )
+    monkeypatch.setattr(
+        schema_migrate_commands, "_build_migration_plan", lambda **kwargs: (Migrator(), plan)
+    )
+    monkeypatch.setattr(schema_migrate_commands, "confirm_action", lambda *args, **kwargs: False)
+    result = CliRunner().invoke(
+        schema_migrate_commands.schema_migrate_group, ["apply", "warehouse.customers"]
+    )
+    assert result.exit_code == 1
+    assert "cancelled" in result.output
+    assert not calls

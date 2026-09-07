@@ -50,7 +50,7 @@ def provider(monkeypatch):
 def _invoke(args: list[str], journal_dir: Path | None = None) -> Any:
     return CliRunner().invoke(
         maintenance_group,
-        args,
+        args if "--format" in args or "--json" in args else [*args, "--format", "json"],
         env={"PHLO_OPERATIONS_JOURNAL_DIR": str(journal_dir)} if journal_dir else {},
     )
 
@@ -109,3 +109,75 @@ def test_apply_rejects_orphan_deletion(provider, tmp_path) -> None:
         journal_dir=tmp_path / "journal",
     )
     assert result.exit_code != 0
+
+
+def test_plan_defaults_to_human_summary_and_supports_envelope(provider):
+    args = ["plan", "--operation", "compact", "--table", "lake.orders"]
+    human = CliRunner().invoke(maintenance_group, args)
+    assert human.exit_code == 0, human.output
+    assert "Maintenance plan: compact on lake.orders" in human.output
+    assert "No changes applied" in human.output
+    machine = CliRunner().invoke(maintenance_group, [*args, "--json"])
+    assert machine.exit_code == 0, machine.output
+    payload = json.loads(machine.stdout)
+    assert payload["status"] == "planned"
+    assert payload["data"]["plan_token"] == "plan-tok-1"
+
+
+@pytest.mark.parametrize("status", ["blocked", "failed"])
+@pytest.mark.parametrize("output_args", [[], ["--json"], ["--format", "json"]])
+def test_apply_rejected_provider_result_is_failure(provider, tmp_path, status, output_args):
+    from phlo.capabilities.maintenance import MaintenanceOperationResult, MaintenanceOperationState
+
+    evidence = MaintenanceOperationResult(
+        operation="compact",
+        table_name="lake.orders",
+        ref="main",
+        dry_run=False,
+        status=MaintenanceOperationState(status),
+        accepted=False,
+        executed=False,
+        failure={"reason": "precondition_failed"},
+    )
+    provider.execute = lambda **kwargs: evidence
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(_plan_json())
+    journal_dir = tmp_path / "journal"
+    result = CliRunner().invoke(
+        maintenance_group,
+        ["apply", "--plan", str(plan_path), "--confirmation-token", "plan-tok-1", *output_args],
+        env={"PHLO_OPERATIONS_JOURNAL_DIR": str(journal_dir)},
+    )
+    assert result.exit_code == 1, result.output
+    if "--json" in output_args:
+        payload = json.loads(result.stdout)
+        assert payload["status"] == "error"
+        assert payload["reason_code"] == "maintenance_rejected"
+        assert payload["data"] == evidence.to_dict()
+    elif output_args:
+        assert json.loads(result.stdout) == evidence.to_dict()
+    else:
+        assert status in result.stdout
+    entry = json.loads(next(journal_dir.glob("*.json")).read_text())
+    assert entry["state"] == "failed"
+    assert entry["result"] == evidence.to_dict()
+
+
+def test_blocked_plan_is_not_reported_as_planned(provider):
+    from phlo.capabilities.maintenance import MaintenanceOperationResult, MaintenanceOperationState
+
+    provider.plan = lambda **kwargs: MaintenanceOperationResult(
+        operation="compact",
+        table_name="lake.orders",
+        ref="main",
+        dry_run=True,
+        status=MaintenanceOperationState.BLOCKED,
+        accepted=False,
+        executed=False,
+        failure={"reason": "active_writer"},
+    )
+    result = _invoke(["plan", "--operation", "compact", "--table", "lake.orders", "--json"])
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["data"]["status"] == "blocked"

@@ -7,6 +7,8 @@ and upgrade writing defaults while respecting --force.
 
 from __future__ import annotations
 
+import json
+
 import yaml
 from click.testing import CliRunner
 
@@ -103,3 +105,29 @@ def test_config_upgrade_writes_defaults_and_respects_force(tmp_path, monkeypatch
 
     force_result = runner.invoke(config_group, ["upgrade", "--force"])
     assert force_result.exit_code == 0
+
+
+def test_config_json_validation_reports_defaults_and_failures(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    missing = runner.invoke(config_group, ["validate", "--json"])
+    assert missing.exit_code == 1
+    assert json.loads(missing.stdout)["errors"]
+    (tmp_path / "phlo.yaml").write_text("name: demo\n")
+    valid = runner.invoke(config_group, ["validate", "--json"])
+    assert valid.exit_code == 0, valid.output
+    payload = json.loads(valid.stdout)
+    assert payload["data"]["valid"] is True
+    assert payload["warnings"]
+    (tmp_path / "phlo.yaml").write_text("name: [unterminated\n")
+    invalid = runner.invoke(config_group, ["validate", "--json"])
+    assert invalid.exit_code == 1
+    assert json.loads(invalid.stdout)["errors"]
+
+
+def test_config_show_json_envelope_preserves_raw_format(monkeypatch):
+    monkeypatch.setattr("phlo.cli.config.load_infrastructure_config", InfrastructureConfig)
+    runner = CliRunner()
+    structured = json.loads(runner.invoke(config_group, ["show", "--json"]).stdout)
+    raw = json.loads(runner.invoke(config_group, ["show", "--format", "json"]).stdout)
+    assert structured["data"] == raw

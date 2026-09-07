@@ -351,3 +351,14 @@ def test_require_container_backend_reports_availability_timeout(
 
     assert exc_info.value.code == 1
     assert "podman availability check timed out" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("backend", [DockerBackend(), PodmanBackend()])
+def test_failed_container_query_is_not_an_empty_project(backend, monkeypatch):
+    """A daemon failure must not make human or agent clients infer stopped services."""
+    monkeypatch.setattr(
+        "phlo.cli.infrastructure.container_backend.subprocess.run",
+        lambda *args, **_: CompletedProcess(args[0], 1, stdout="", stderr="daemon unavailable"),
+    )
+    with pytest.raises(OSError, match="status is unavailable"):
+        backend.list_project_containers("demo")

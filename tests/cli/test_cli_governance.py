@@ -179,4 +179,4 @@ def test_governance_group_is_registered_on_root_cli() -> None:
     result = CliRunner().invoke(cli, ["governance", "check", "--json"])
 
     assert result.exit_code == 0
-    _assert_ok_payload(json.loads(result.output))
+    _assert_ok_payload(json.loads(result.output)["data"])

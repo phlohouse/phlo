@@ -80,6 +80,7 @@ def _migrate(
         [
             "migrate-overlay",
             "plan",
+            "--json",
             "--source",
             str(overlay),
             "--output",
@@ -89,6 +90,7 @@ def _migrate(
     )
     assert planned.exit_code == 0, planned.output
     document = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert json.loads(planned.stdout)["data"] == document
 
     applied = CliRunner().invoke(
         dataset_group,
@@ -106,7 +108,7 @@ def _migrate(
         env=env,
     )
     assert applied.exit_code == 0, applied.output
-    return json.loads(applied.output)
+    return json.loads(applied.output)["data"]
 
 
 def test_retired_overlay_symbols_are_absent() -> None:
@@ -149,7 +151,7 @@ def test_request_paths_do_not_touch_overlay_after_apply(
     # Every surface resolves state from the durable store, not the overlay.
     assert profile["canonical"]["publication_state"] == "published"
     assert profile["canonical"]["owner"] == "alice"
-    assert json.loads(cli_show.output)["publication_state"] == "published"
+    assert json.loads(cli_show.output)["data"]["publication_state"] == "published"
     assert any(
         item["id"] == "gold.customer_health" and item["publication_state"] == "published"
         for item in datasets["items"]

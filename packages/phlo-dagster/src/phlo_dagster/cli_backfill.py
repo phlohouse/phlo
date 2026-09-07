@@ -57,7 +57,8 @@ from phlo.cli.infrastructure.container_backend import (
     select_project_container_backend,
 )
 from phlo.cli.infrastructure.utils import get_project_name
-from phlo.cli.output import service_unavailable_error
+from phlo.cli.output import service_unavailable_error, json_envelope
+from phlo.cli.contract import PhloCommand
 from phlo.capabilities.discovery import discover_capabilities
 from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
@@ -72,7 +73,9 @@ logger = get_logger(__name__)
 BACKFILL_STATE_FILE = Path(".phlo/backfill_state.json")
 
 
-@click.command(help="Run asset materialization across a date range with parallel execution.")
+@click.command(
+    cls=PhloCommand, help="Run asset materialization across a date range with parallel execution."
+)
 @click.argument("asset_name", required=False)
 @click.option(
     "--start-date",
@@ -113,6 +116,7 @@ BACKFILL_STATE_FILE = Path(".phlo/backfill_state.json")
     default=0.0,
     help="Delay between parallel executions in seconds (rate limiting)",
 )
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured result.")
 def backfill(
     asset_name: str | None,
     start_date: str | None,
@@ -122,6 +126,7 @@ def backfill(
     resume: bool,
     dry_run: bool,
     delay: float,
+    output_json: bool = False,
 ):
     """Run asset materialization across a date range with parallel execution.
 
@@ -130,6 +135,7 @@ def backfill(
     backfill from its persisted state. Exits non-zero on validation or
     backfill failure.
     """
+    console = Console(stderr=True) if output_json else globals()["console"]
     console.print("\n[bold blue]📦 Asset Backfill[/bold blue]\n")
     logger.info(
         "dagster_backfill_command_started",
@@ -151,11 +157,7 @@ def backfill(
                 "dagster_backfill_resume_state_missing",
                 state_file=str(BACKFILL_STATE_FILE),
             )
-            click.echo(
-                "Error: No backfill state found. Cannot resume.",
-                err=True,
-            )
-            sys.exit(1)
+            raise click.ClickException("Error: No backfill state found. Cannot resume.")
 
         try:
             state = _load_backfill_state()
@@ -170,8 +172,7 @@ def backfill(
                 error=str(e),
                 exc_info=True,
             )
-            click.echo("Error: Could not read backfill state.", err=True)
-            sys.exit(1)
+            raise click.ClickException("Error: Could not read backfill state.")
     else:
         # Determine partition list
         if partitions:
@@ -183,16 +184,13 @@ def backfill(
             partition_dates = _generate_partition_dates(start_date, end_date)
         else:
             logger.error("dagster_backfill_partitions_missing")
-            click.echo(
-                "Error: Must specify either --start-date/--end-date or --partitions",
-                err=True,
+            raise click.ClickException(
+                "Error: Must specify either --start-date/--end-date or --partitions"
             )
-            sys.exit(1)
 
         if not asset_name:
             logger.error("dagster_backfill_asset_name_missing")
-            click.echo("Error: Asset name is required", err=True)
-            sys.exit(1)
+            raise click.ClickException("Error: Asset name is required")
 
         completed_partitions = []
         in_flight_wap = {}
@@ -200,18 +198,13 @@ def backfill(
     # Validate asset name
     if not asset_name:
         logger.error("dagster_backfill_asset_name_missing")
-        click.echo("Error: Asset name is required", err=True)
-        sys.exit(1)
+        raise click.ClickException("Error: Asset name is required")
     asset_name = str(asset_name)
 
     # Validate parallel value
     if parallel < 1:
         logger.error("dagster_backfill_parallel_invalid", parallel=parallel)
-        click.echo(
-            "Error: Parallel must be >= 1",
-            err=True,
-        )
-        sys.exit(1)
+        raise click.ClickException("Error: Parallel must be >= 1")
 
     # Display backfill plan
     console.print(f"[cyan]Asset:[/cyan] {asset_name}")
@@ -225,6 +218,21 @@ def backfill(
     wap_config = load_wap_config()
 
     if dry_run:
+        if output_json:
+            click.echo(
+                json_envelope(
+                    data={
+                        "asset_name": asset_name,
+                        "partitions": partition_dates,
+                        "completed_partitions": completed_partitions,
+                        "parallel": 1 if wap_config.enabled else parallel,
+                        "mode": "wap" if wap_config.enabled else "container",
+                    },
+                    status="planned",
+                    reason_code="backfill_planned",
+                )
+            )
+            return
         logger.info(
             "dagster_backfill_dry_run",
             asset_name=asset_name,
@@ -247,7 +255,14 @@ def backfill(
 
     if not partition_dates:
         logger.info("dagster_backfill_no_partitions", asset_name=asset_name)
-        console.print("[yellow]No partitions to backfill[/yellow]")
+        if output_json:
+            click.echo(
+                json_envelope(
+                    data={"asset_name": asset_name, "partitions": []}, reason_code="no_partitions"
+                )
+            )
+        else:
+            console.print("[yellow]No partitions to backfill[/yellow]")
         return
 
     if wap_config.enabled:
@@ -258,18 +273,42 @@ def backfill(
                 "PHLO_DAGSTER_ACCESS_TOKEN is required for a non-local WAP Dagster endpoint."
             )
         discover_capabilities()
-        _run_wap_backfill(
-            asset_name,
-            partition_dates,
-            dagster_url=dagster_url,
-            job_name=wap_config.job_name,
-            repository_location_name=wap_config.repository_location_name,
-            repository_name=wap_config.repository_name,
-            access_token=access_token,
-            completed_partitions=completed_partitions,
-            requested_parallel=parallel,
-            in_flight_wap=in_flight_wap,
-        )
+        try:
+            _run_wap_backfill(
+                asset_name,
+                partition_dates,
+                dagster_url=dagster_url,
+                job_name=wap_config.job_name,
+                repository_location_name=wap_config.repository_location_name,
+                repository_name=wap_config.repository_name,
+                access_token=access_token,
+                completed_partitions=completed_partitions,
+                requested_parallel=parallel,
+                in_flight_wap=in_flight_wap,
+                output_json=output_json,
+            )
+        except click.ClickException as exc:
+            if not output_json:
+                raise
+            saved = _load_backfill_state() if BACKFILL_STATE_FILE.exists() else {}
+            click.echo(
+                json_envelope(
+                    data=saved,
+                    status="partial"
+                    if saved.get("completed_partitions") or saved.get("in_flight_wap")
+                    else "error",
+                    reason_code="backfill_incomplete",
+                    errors=[exc.format_message()],
+                    next_steps=[
+                        {
+                            "command": "phlo backfill --resume --json",
+                            "when": "after resolving the lifecycle failure",
+                        }
+                    ],
+                )
+            )
+            raise click.exceptions.Exit(1) from exc
+
         return
 
     # Run backfill with progress tracking
@@ -280,6 +319,7 @@ def backfill(
         parallel=parallel,
         delay=delay,
         completed_partitions=completed_partitions,
+        output_json=output_json,
     )
 
 
@@ -295,6 +335,7 @@ def _run_wap_backfill(
     completed_partitions: list[str] | None = None,
     requested_parallel: int = 1,
     in_flight_wap: dict[str, dict[str, str]] | None = None,
+    output_json: bool = False,
 ) -> None:
     """Run each WAP partition through promotion before creating the next branch.
 
@@ -302,9 +343,11 @@ def _run_wap_backfill(
     snapshot. Consequently, partitions targeting one branch cannot safely
     overlap, even when the caller requested multiple workers.
     """
+    console = Console(stderr=True) if output_json else globals()["console"]
     completed_partitions = completed_partitions or []
     remaining = [date for date in partition_dates if date not in completed_partitions]
     successful: list[str] = []
+    runs: list[dict[str, str]] = []
     in_flight_wap = dict(in_flight_wap or {})
     if requested_parallel > 1:
         console.print(
@@ -375,6 +418,13 @@ def _run_wap_backfill(
                     in_flight_wap=in_flight_wap,
                     emit_log=False,
                 )
+            runs.append(
+                {
+                    "partition": partition_date,
+                    "logical_run_id": logical_run_id,
+                    "run_id": dagster_run_id,
+                }
+            )
             console.print(
                 f"Waiting for WAP backfill {partition_date} (logical run {logical_run_id})"
             )
@@ -413,7 +463,21 @@ def _run_wap_backfill(
             emit_log=False,
         )
     _remove_backfill_state()
-    console.print("\n[green]✓ WAP backfill complete and promoted![/green]")
+    if output_json:
+        click.echo(
+            json_envelope(
+                data={
+                    "asset_name": asset_name,
+                    "successful": successful,
+                    "completed_partitions": completed_partitions,
+                    "promoted": True,
+                    "runs": runs,
+                },
+                reason_code="backfill_completed",
+            )
+        )
+    else:
+        console.print("\n[green]✓ WAP backfill complete and promoted![/green]")
 
 
 class WapLifecycleTerminalError(click.ClickException):
@@ -485,11 +549,7 @@ def _generate_partition_dates(start_date: str, end_date: str) -> list[str]:
             start_date=start_date,
             end_date=end_date,
         )
-        click.echo(
-            "Error: Invalid date format. Use YYYY-MM-DD",
-            err=True,
-        )
-        sys.exit(1)
+        raise click.ClickException("Error: Invalid date format. Use YYYY-MM-DD")
 
     if start > end:
         logger.error(
@@ -497,11 +557,7 @@ def _generate_partition_dates(start_date: str, end_date: str) -> list[str]:
             start_date=start_date,
             end_date=end_date,
         )
-        click.echo(
-            "Error: Start date must be before end date",
-            err=True,
-        )
-        sys.exit(1)
+        raise click.ClickException("Error: Start date must be before end date")
 
     dates = []
     current = start
@@ -525,11 +581,7 @@ def _validate_partition_dates(dates: list[str]) -> None:
                 "dagster_backfill_partition_date_invalid",
                 partition_date=date,
             )
-            click.echo(
-                f"Error: Invalid partition date: {date}. Use YYYY-MM-DD",
-                err=True,
-            )
-            sys.exit(1)
+            raise click.ClickException(f"Error: Invalid partition date: {date}. Use YYYY-MM-DD")
 
 
 def _build_materialize_command(
@@ -578,6 +630,7 @@ def _run_backfill(
     parallel: int = 1,
     delay: float = 0.0,
     completed_partitions: list[str] | None = None,
+    output_json: bool = False,
 ) -> None:
     """
     Execute the backfill across partition dates with a worker pool,
@@ -629,6 +682,7 @@ def _run_backfill(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         transient=True,
+        disable=output_json,
     ) as progress:
         task = progress.add_task(f"[cyan]Backfilling {asset_name}...", total=total)
 
@@ -686,10 +740,14 @@ def _run_backfill(
                     )
 
                 # Update state file periodically
-                _save_backfill_state(asset_name, remaining, successful, emit_log=False)
+                done = completed_partitions + successful
+                _save_backfill_state(
+                    asset_name, [d for d in remaining if d not in successful], done, emit_log=False
+                )
 
     # Display results
-    console.print()
+    if not output_json:
+        console.print()
     results = {
         "asset_name": asset_name,
         "start_time": start_time,
@@ -698,7 +756,6 @@ def _run_backfill(
         "successful": successful,
         "failed": failed,
     }
-    _display_backfill_results(results)
     logger.info(
         "dagster_backfill_execution_finished",
         asset_name=asset_name,
@@ -712,8 +769,32 @@ def _run_backfill(
         _remove_backfill_state()
     else:
         # Save final state for resume
-        remaining_after = [d for d in partition_dates if d not in successful]
-        _save_backfill_state(asset_name, remaining_after, successful, emit_log=True)
+        done = completed_partitions + successful
+        remaining_after = [d for d in partition_dates if d not in done]
+        _save_backfill_state(asset_name, remaining_after, done, emit_log=True)
+    if output_json:
+        click.echo(
+            json_envelope(
+                data=results,
+                status=("partial" if successful or completed_partitions else "error")
+                if failed
+                else "success",
+                reason_code="backfill_incomplete" if failed else "backfill_completed",
+                errors=[f"{item['date']}: {item['error']}" for item in failed],
+                next_steps=[
+                    {
+                        "command": "phlo backfill --resume --json",
+                        "when": "after resolving partition failures",
+                    }
+                ]
+                if failed
+                else [],
+            )
+        )
+        if failed:
+            raise click.exceptions.Exit(1)
+    else:
+        _display_backfill_results(results)
 
 
 def _load_backfill_state() -> dict[str, Any]:

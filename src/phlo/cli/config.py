@@ -14,7 +14,8 @@ from rich.console import Console
 from rich.syntax import Syntax
 from rich.table import Table
 
-from phlo.cli.output import user_error
+from phlo.cli.contract import PhloCommand, PhloGroup
+from phlo.cli.output import json_envelope, user_error
 from phlo.config_schema import ApiConfig, InfrastructureConfig, ServiceOverride
 from phlo.infrastructure import clear_config_cache, load_infrastructure_config
 from phlo.logging import get_logger
@@ -33,19 +34,20 @@ def _load_phlo_yaml(config_path: Path) -> dict:
         raise user_error("invalid phlo.yaml", details={"File": config_path, "Error": exc}) from exc
 
 
-@click.group()
+@click.group(cls=PhloGroup)
 def config():
     """Manage infrastructure configuration."""
 
 
-@config.command("show")
+@config.command("show", cls=PhloCommand)
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
 @click.option(
     "--format",
     type=click.Choice(["yaml", "json"]),
     default="yaml",
     help="Output format",
 )
-def show(format: str):
+def show(format: str, output_json: bool = False):
     """Show the effective infrastructure configuration.
 
     \b
@@ -60,6 +62,10 @@ def show(format: str):
         logger.warning("config_show_yaml_invalid", path=str(config_path), error=str(exc))
         raise user_error("invalid phlo.yaml", details={"File": config_path, "Error": exc}) from exc
     logger.info("config_show_succeeded", output_format=format)
+
+    if output_json:
+        click.echo(json_envelope(data={"infrastructure": infra_config.model_dump(mode="json")}))
+        return
 
     if format == "yaml":
         config_dict = infra_config.model_dump(exclude_none=False)
@@ -76,8 +82,9 @@ def show(format: str):
         console.print_json(data={"infrastructure": config_dict})
 
 
-@config.command("validate")
-def validate():
+@config.command("validate", cls=PhloCommand)
+@click.option("--json", "output_json", is_flag=True, help="Emit structured validation results.")
+def validate(output_json: bool = False):
     """Validate infrastructure configuration in phlo.yaml.
 
     \b
@@ -88,18 +95,16 @@ def validate():
 
     if not config_path.exists():
         logger.warning("config_validate_file_missing", path=str(config_path))
-        console.print("[yellow]Warning: No phlo.yaml found in current directory[/yellow]")
-        console.print("Run [cyan]phlo services init[/cyan] to create infrastructure configuration")
-        sys.exit(1)
+        raise user_error("No phlo.yaml found in current directory", run="phlo services init")
 
-    console.print(f"Validating: {config_path}\n")
+    if not output_json:
+        console.print(f"Validating: {config_path}\n")
 
     project_config = _load_phlo_yaml(config_path)
 
     if not project_config:
         logger.warning("config_validate_empty_file", path=str(config_path))
-        error_console.print("[red]Error: phlo.yaml is empty[/red]")
-        sys.exit(1)
+        raise user_error("phlo.yaml is empty", run="phlo config validate")
 
     try:
         if "infrastructure" in project_config:
@@ -126,20 +131,38 @@ def validate():
             path=str(config_path),
             error_count=len(e.errors()),
         )
-        error_console.print("[red]Validation Error:[/red]\n")
-        for error in e.errors():
-            loc = " -> ".join(str(x) for x in error["loc"])
-            error_console.print(f"  [red]•[/red] {loc}: {error['msg']}")
-        error_console.print(
-            "\n[yellow]Fix these errors in phlo.yaml and run validate again.[/yellow]"
-        )
-        sys.exit(1)
+        raise user_error(
+            "Validation Error",
+            details=[
+                f"{' -> '.join(str(x) for x in error['loc'])}: {error['msg']}"
+                for error in e.errors()
+            ],
+            run="phlo config validate",
+        ) from e
 
     logger.info(
         "config_validate_succeeded",
         path=str(config_path),
         service_count=len(infra_config.services),
     )
+
+    if output_json:
+        warnings = (
+            []
+            if "infrastructure" in project_config
+            else ["No infrastructure section in phlo.yaml; using defaults."]
+        )
+        click.echo(
+            json_envelope(
+                data={
+                    "valid": True,
+                    "path": str(config_path),
+                    "service_count": len(infra_config.services),
+                },
+                warnings=warnings,
+            )
+        )
+        return
 
     if "infrastructure" not in project_config:
         logger.info("config_validate_infrastructure_missing", path=str(config_path))

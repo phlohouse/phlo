@@ -19,6 +19,27 @@ from phlo_dagster.cli_status import (
 )
 
 
+@pytest.fixture(autouse=True)
+def available_status_endpoint(monkeypatch):
+    """Exercise output against a deterministic empty inventory, without live services."""
+
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "data": {
+                    "assetsOrError": {"__typename": "AssetConnection", "nodes": []},
+                    "version": "test",
+                }
+            }
+
+    monkeypatch.setattr(status_module.http_requests, "post", lambda *a, **kw: Response())
+
+
 class TestFreshnessIndicator:
     """Tests for freshness indicator logic."""
 
@@ -263,7 +284,7 @@ class TestStatusCLI:
         result = runner.invoke(status, ["--json"])
 
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)["data"]
         assert "timestamp" in data
         assert "elapsed_seconds" in data
 
@@ -273,7 +294,7 @@ class TestStatusCLI:
         result = runner.invoke(status, ["--assets", "--json"])
 
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)["data"]
         assert "assets" in data
         assert "services" not in data
 
@@ -283,7 +304,7 @@ class TestStatusCLI:
         result = runner.invoke(status, ["--assets", "--group", "nightscout", "--json"])
 
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)["data"]
         assert "assets" in data
         for asset in data["assets"]:
             assert asset["group"] == "nightscout"
@@ -305,8 +326,10 @@ class TestStatusCLI:
 class TestStatusOutput:
     """Tests for status output formatting."""
 
-    def test_asset_status_empty_when_disconnected(self, monkeypatch: pytest.MonkeyPatch):
-        """Test that asset status shows empty state when services disconnected."""
+    def test_asset_status_reports_query_failure_when_disconnected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A disconnected query must not be reported as an empty asset inventory."""
 
         def disconnected(*_args, **_kwargs):
             raise status_module.requests_exceptions.ConnectionError("Dagster is disconnected")
@@ -315,8 +338,9 @@ class TestStatusOutput:
         runner = CliRunner()
         result = runner.invoke(status, ["--assets"])
 
-        assert result.exit_code == 0
-        assert "No assets found" in result.output
+        assert result.exit_code == 1
+        assert "Could not query Dagster" in result.output
+        assert "No assets found" not in result.output
 
     def test_service_status_table_formatting(self):
         """Test that service status table is formatted correctly."""
@@ -334,7 +358,7 @@ class TestStatusOutput:
         result = runner.invoke(status, ["--json"])
 
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)["data"]
         datetime.fromisoformat(data["timestamp"])
 
     def test_group_filter_excludes_other_groups(self):
@@ -343,7 +367,7 @@ class TestStatusOutput:
         result = runner.invoke(status, ["--assets", "--group", "nightscout", "--json"])
 
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)["data"]
         for asset in data["assets"]:
             assert asset["group"] == "nightscout"
 
@@ -353,7 +377,7 @@ class TestStatusOutput:
         result = runner.invoke(status, ["--assets", "--stale", "--json"])
 
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)["data"]
         for asset in data["assets"]:
             assert asset["is_stale"]
 
@@ -366,7 +390,7 @@ class TestStatusOutput:
         )
 
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)["data"]
         for asset in data["assets"]:
             assert asset["group"] == "nightscout"
             assert asset["is_stale"]
@@ -377,7 +401,7 @@ class TestStatusOutput:
         result = runner.invoke(status, ["--assets", "--group", "nonexistent", "--json"])
 
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)["data"]
         assert data["assets"] == []
 
 
@@ -501,7 +525,7 @@ class TestStatusEdgeCases:
         )
 
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)["data"]
         assert "assets" in data
         assert "services" in data
 
@@ -511,7 +535,7 @@ class TestStatusEdgeCases:
         result = runner.invoke(status, ["--json"])
 
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)["data"]
         assert json.dumps(data)
 
     def test_status_handles_missing_requests_library(self):

@@ -28,8 +28,7 @@ import os
 from collections.abc import Callable
 from typing import Any, ParamSpec, TypeVar
 
-import click
-
+from phlo.cli.output import user_error
 from phlo.logging import get_logger
 from phlo.security.adapters import EnforcementResult
 from phlo.security.enforcement import EnforcementContext
@@ -99,11 +98,10 @@ def require_mutation_authorization(
                     reason_code=result.reason_code,
                     explanation=result.explanation,
                 )
-                msg = f"Error: Authorization denied for '{command}'"
+                msg = f"Authorization denied for '{command}'"
                 if result.explanation:
                     msg += f": {result.explanation}"
-                click.echo(msg, err=True)
-                raise SystemExit(1)
+                raise user_error(msg, reason_code=result.reason_code or "authorization_denied")
 
             return fn(*args, **kwargs)
 
@@ -132,11 +130,10 @@ def enforce_surface_mutation_authorization(
         reason_code=result.reason_code,
         explanation=result.explanation,
     )
-    msg = f"Error: Authorization denied for '{command}'"
+    msg = f"Authorization denied for '{command}'"
     if result.explanation:
         msg += f": {result.explanation}"
-    click.echo(msg, err=True)
-    raise SystemExit(1)
+    raise user_error(msg, reason_code=result.reason_code or "authorization_denied")
 
 
 class MutationContext:

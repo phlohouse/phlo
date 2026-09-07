@@ -405,7 +405,7 @@ def test_materialize_failure_hides_raw_process_output(
     assert "Error: materialization failed" in result.output
     assert "Exit code: 2" in result.output
     assert "Last output: User-facing failure" in result.output
-    assert "Run: phlo logs --level ERROR --limit 20" in result.output
+    assert "Run: phlo logs --service dagster --tail 20" in result.output
 
 
 @patch(

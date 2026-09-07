@@ -79,7 +79,7 @@ def _make_set(tmp_path: Path) -> Path:
 def _invoke(args: list[str], journal_dir: Path | None = None) -> Any:
     return CliRunner().invoke(
         restore_group,
-        args,
+        args if "--format" in args or "--json" in args else [*args, "--format", "json"],
         env={"PHLO_OPERATIONS_JOURNAL_DIR": str(journal_dir)} if journal_dir else {},
     )
 

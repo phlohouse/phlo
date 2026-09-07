@@ -31,7 +31,6 @@ Example:
 
 """
 
-import json
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -43,6 +42,8 @@ from requests import exceptions as requests_exceptions
 from rich.console import Console
 from rich.table import Table
 
+from phlo.cli.output import json_envelope
+from phlo.cli.contract import PhloCommand
 from phlo.config.env import load_project_env
 from phlo.logging import get_logger
 from phlo_dagster.settings import get_settings
@@ -101,7 +102,7 @@ def _service_health_urls() -> dict[str, str]:
     }
 
 
-@click.command()
+@click.command(cls=PhloCommand)
 @click.option(
     "--assets",
     is_flag=True,
@@ -162,9 +163,14 @@ def status(
     )
 
     result = {}
+    errors: list[str] = []
 
     if show_assets:
-        asset_status = _get_asset_status(group=group, stale=stale)
+        try:
+            asset_status = _get_asset_status(group=group, stale=stale)
+        except click.ClickException as exc:
+            errors.append(exc.format_message())
+            asset_status = []
         result["assets"] = asset_status
         logger.info(
             "dagster_status_assets_collected",
@@ -172,7 +178,7 @@ def status(
             group=group,
             stale_only=stale,
         )
-        if not output_json:
+        if not output_json and not errors:
             _display_asset_status(asset_status, group=group, stale=stale)
 
     if show_services:
@@ -190,9 +196,29 @@ def status(
     if output_json:
         result["timestamp"] = datetime.now(timezone.utc).isoformat()
         result["elapsed_seconds"] = round(elapsed, 2)
-        click.echo(json.dumps(result, indent=2, default=str))
+        click.echo(
+            json_envelope(
+                data=result,
+                errors=errors,
+                status="partial" if errors and show_services else "error" if errors else "success",
+                reason_code="status_incomplete" if errors else "status_collected",
+                next_steps=[
+                    {
+                        "command": "phlo services status --json",
+                        "when": "asset status is unavailable",
+                    }
+                ]
+                if errors
+                else [],
+            )
+        )
     else:
         console.print(f"[dim]Query time: {elapsed:.2f}s[/dim]\n")
+    if errors:
+        if not output_json:
+            for error in errors:
+                click.echo(f"Error: {error}", err=True)
+        raise click.exceptions.Exit(1)
     logger.info(
         "dagster_status_command_finished",
         elapsed_seconds=round(elapsed, 3),
@@ -244,6 +270,17 @@ def _get_asset_status(
             response.raise_for_status()
             result = response.json()
 
+            connection = (
+                (result.get("data") or {}).get("assetsOrError")
+                if isinstance(result, dict)
+                else None
+            )
+            if (
+                not isinstance(connection, dict)
+                or result.get("errors")
+                or connection.get("__typename") not in (None, "AssetConnection")
+            ):
+                raise click.ClickException("Dagster did not return an asset status result.")
             if result and "data" in result:
                 for asset in result["data"].get("assetsOrError", {}).get("nodes", []):
                     if not isinstance(asset, dict):
@@ -288,14 +325,17 @@ def _get_asset_status(
                     }
                     assets.append(status_info)
         except requests_exceptions.RequestException as exc:
-            # If GraphQL fails, silently continue (service might be down)
+            # An unavailable query must not masquerade as an empty asset list.
             logger.warning(
                 "dagster_status_asset_query_failed",
                 group=group,
                 stale_only=stale,
                 error=str(exc),
             )
-        except Exception:
+            raise click.ClickException("Could not query Dagster asset status.") from exc
+        except click.ClickException:
+            raise
+        except Exception as exc:
             logger.warning(
                 "dagster_status_asset_query_failed",
                 group=group,
@@ -303,13 +343,19 @@ def _get_asset_status(
                 exc_info=True,
             )
 
-    except Exception:
+            raise click.ClickException("Could not read Dagster asset status.") from exc
+
+    except click.ClickException:
+        raise
+    except Exception as exc:
         logger.info(
             "dagster_status_asset_query_client_unavailable",
             group=group,
             stale_only=stale,
             exc_info=True,
         )
+
+        raise click.ClickException("Dagster asset status is unavailable.") from exc
 
     return assets
 

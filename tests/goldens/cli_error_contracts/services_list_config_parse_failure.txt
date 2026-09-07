@@ -1,4 +1,15 @@
 exit_code=1
 output<<EOF
-Error: Failed to read <PROJECT_ROOT>/phlo.yaml. Check YAML syntax and file permissions, then retry.
+{
+  "data": null,
+  "errors": [
+    "Failed to read <PROJECT_ROOT>/phlo.yaml. Check YAML syntax and file permissions, then retry."
+  ],
+  "exit_code": 1,
+  "next_steps": [],
+  "reason_code": "invalid_project_config",
+  "schema_version": 1,
+  "status": "error",
+  "warnings": []
+}
 EOF

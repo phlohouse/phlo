@@ -19,11 +19,13 @@ import click
 
 import phlo.cli._init_discovery_guard  # noqa: F401
 import phlo.cli._warning_filters  # noqa: F401
-from phlo.cli._init_discovery_guard import is_init_command_invocation
+from phlo.cli._init_discovery_guard import _root_command_name, is_init_command_invocation
 from phlo.cli.authorization_wrappers import require_mutation_authorization
+from phlo.cli.commands.commands import commands_cmd
 from phlo.cli.commands.doctor import doctor_cmd
 from phlo.cli.commands.support import support_group
-from phlo.cli.output import json_envelope
+from phlo.cli.contract import PhloGroup
+from phlo.cli.output import json_envelope, user_error
 from phlo.cli.templates import TemplateRenderContext, get_template
 from phlo.cli.templates import list_templates as get_project_templates
 from phlo.cli.templates.registry import missing_required_packages
@@ -50,7 +52,7 @@ def _is_doctor_invocation(argv: list[str]) -> bool:
 # audit/plugin machinery below cannot be imported, so those invocations skip
 # it entirely instead of failing at module import time.
 _DOCTOR_INVOCATION = _is_doctor_invocation(sys.argv)
-_SUPPORT_INVOCATION = len(sys.argv) > 1 and sys.argv[1] == "support"
+_SUPPORT_INVOCATION = _root_command_name(sys.argv) == "support"
 _INIT_INVOCATION = is_init_command_invocation(sys.argv)
 
 if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
@@ -73,7 +75,7 @@ if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
     from phlo.cli.env import env
 
 
-@click.group()
+@click.group(cls=PhloGroup)
 @click.version_option(version=version("phlo"), prog_name="phlo")
 @click.option("--quiet", is_flag=True, help="Reduce non-essential CLI output.")
 @click.option("--no-color", is_flag=True, help="Disable colorized terminal output.")
@@ -93,6 +95,7 @@ def cli(quiet: bool, no_color: bool) -> None:
     setup_logging()
 
 
+cli.add_command(commands_cmd)
 cli.add_command(doctor_cmd)
 cli.add_command(support_group)
 
@@ -360,9 +363,11 @@ def init(
 
     # Check if directory exists and is not empty
     if project_dir.exists() and any(project_dir.iterdir()) and not force:
-        click.echo(f"\nError: Directory {project_dir} is not empty", err=True)
-        click.echo("Use --force to initialize anyway", err=True)
-        sys.exit(1)
+        raise user_error(
+            f"Directory {project_dir} is not empty",
+            details=["Use --force to initialize anyway."],
+            reason_code="directory_not_empty",
+        )
 
     # Create project structure
     try:

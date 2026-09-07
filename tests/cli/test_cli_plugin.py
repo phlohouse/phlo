@@ -125,7 +125,7 @@ def test_plugin_search_uses_canonical_bundled_registry_offline(monkeypatch) -> N
         result = CliRunner().invoke(plugin_group, ["search", "--json"])
 
         assert result.exit_code == 0, result.output
-        names = {plugin["name"] for plugin in json.loads(result.output)}
+        names = {plugin["name"] for plugin in json.loads(result.output)["data"]}
         assert {"rustfs", "delta", "clickhouse", "sling"} <= names
         assert "example_cache" not in names
     finally:
@@ -164,7 +164,7 @@ def test_plugin_list_json_installed(setup_registry):
     result = runner.invoke(plugin_group, ["list", "--json"])
 
     # #then
-    data = json.loads(result.output)
+    data = json.loads(result.output)["data"]
     types = {plugin["type"] for plugin in data["installed"]}
     assert result.exit_code == 0
     assert types >= {"source", "quality", "transform", "service"}
@@ -181,7 +181,7 @@ def test_plugin_list_accepts_singular_type_alias(setup_registry):
     result = CliRunner().invoke(plugin_group, ["list", "--type", "source", "--json"])
 
     assert result.exit_code == 0
-    data = json.loads(result.output)
+    data = json.loads(result.output)["data"]
     assert [plugin["name"] for plugin in data["installed"]] == ["dummy_source"]
 
 
@@ -206,13 +206,13 @@ def test_plugin_list_accepts_provider_and_cli_type_aliases(setup_registry):
     assert quality_provider.exit_code == 0
     assert transformation_provider.exit_code == 0
     assert cli.exit_code == 0
-    assert json.loads(ingestion.output)["installed"][0]["type"] == "ingestion_provider"
-    assert json.loads(quality_provider.output)["installed"][0]["type"] == "quality_provider"
+    assert json.loads(ingestion.output)["data"]["installed"][0]["type"] == "ingestion_provider"
+    assert json.loads(quality_provider.output)["data"]["installed"][0]["type"] == "quality_provider"
     assert (
-        json.loads(transformation_provider.output)["installed"][0]["type"]
+        json.loads(transformation_provider.output)["data"]["installed"][0]["type"]
         == "transformation_provider"
     )
-    assert json.loads(cli.output)["installed"][0]["type"] == "cli"
+    assert json.loads(cli.output)["data"]["installed"][0]["type"] == "cli"
 
 
 def test_plugin_info_resolves_phlo_distribution_alias(setup_registry):
@@ -220,7 +220,7 @@ def test_plugin_info_resolves_phlo_distribution_alias(setup_registry):
     result = CliRunner().invoke(plugin_group, ["info", "phlo-dummy-source", "--json"])
 
     assert result.exit_code == 0
-    data = json.loads(result.output)
+    data = json.loads(result.output)["data"]
     assert data["name"] == "dummy_source"
 
 
@@ -229,7 +229,7 @@ def test_plugin_check_json_emits_only_json(setup_registry):
     result = CliRunner().invoke(plugin_group, ["check", "--json"])
 
     assert result.exit_code == 0
-    data = json.loads(result.output)
+    data = json.loads(result.output)["data"]
     assert "valid" in data
     assert "invalid" in data
 
@@ -1076,7 +1076,7 @@ def test_plugin_check_containers_is_available_at_public_cli_seam(monkeypatch, se
     result = CliRunner().invoke(plugin_group, ["check", "--containers", "--json"])
 
     assert result.exit_code == 0
-    assert json.loads(result.output)["containers"]["owners"] == {
+    assert json.loads(result.output)["data"]["containers"]["owners"] == {
         "dagster/Dockerfile": "phlo-dagster"
     }
 
@@ -1224,7 +1224,7 @@ def test_plugin_list_all_json(setup_registry, monkeypatch):
     result = runner.invoke(plugin_group, ["list", "--all", "--json"])
 
     assert result.exit_code == 0
-    data = json.loads(result.output)
+    data = json.loads(result.output)["data"]
     assert "installed" in data
     assert "available" in data
     assert data["available"][0]["name"] == "registry_source"
@@ -1256,7 +1256,7 @@ def test_plugin_search(monkeypatch):
     result = runner.invoke(plugin_group, ["search", "service", "--json"])
 
     assert result.exit_code == 0
-    data = json.loads(result.output)
+    data = json.loads(result.output)["data"]
     assert data[0]["name"] == "registry_service"
 
 
@@ -1267,7 +1267,7 @@ def test_plugin_search_includes_installed_plugins(monkeypatch, setup_registry):
     result = CliRunner().invoke(plugin_group, ["search", "dummy", "--json"])
 
     assert result.exit_code == 0
-    data = json.loads(result.output)
+    data = json.loads(result.output)["data"]
     assert {item["name"] for item in data} >= {
         "dummy_source",
         "dummy_quality",
@@ -1415,3 +1415,24 @@ def test_normalize_plugin_type_reports_unknown_type() -> None:
 
     with pytest.raises(ValueError, match="Unknown plugin type: nope"):
         normalize_plugin_type("nope")
+
+
+def test_plugin_check_json_invalid_is_nonzero(monkeypatch, setup_registry):
+    from phlo.cli.commands.plugin import check as check_module
+
+    monkeypatch.setattr(
+        check_module, "validate_plugins", lambda: {"valid": [], "invalid": ["broken"]}
+    )
+    result = CliRunner().invoke(plugin_group, ["check", "--json"])
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["reason_code"] == "plugin_validation_failed"
+    assert payload["data"]["invalid"] == ["broken"]
+
+
+def test_plugin_info_json_missing_is_structured(setup_registry):
+    result = CliRunner().invoke(plugin_group, ["info", "nonexistent-plugin", "--json"])
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["reason_code"] == "plugin_not_found"
+    assert payload["next_steps"][0]["command"] == "phlo plugin list"

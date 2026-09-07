@@ -10,6 +10,7 @@ fail-closed authorization rules.
 
 import importlib.util
 import json
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,6 +36,22 @@ SUPPORT_DIGEST = "2" * 64
 HOST_A = "clean-host-a"
 HOST_B = "clean-host-b"
 HOST_C = "clean-host-c"
+
+
+@pytest.fixture(autouse=True)
+def isolated_release_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Exercise the real tag gate without inheriting the checkout's release tags.
+
+    Promotion inspects Git even in dry-run mode. Each test needs its own refs:
+    publishing v0.15.0 must not break the fixture's hypothetical v0.15.0 candidate.
+    Tests can create conflicting refs here without changing the source checkout.
+    """
+    for variable in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+        monkeypatch.delenv(variable, raising=False)
+    repository = tmp_path / "release-repository"
+    subprocess.run(["git", "init", "--quiet", "--template=", str(repository)], check=True)
+    monkeypatch.chdir(repository)
+    return repository
 
 
 def _bom() -> dict[str, object]:
@@ -654,3 +671,20 @@ def test_nested_evidence_directories_are_collected(tmp_path: Path) -> None:
     assert code == 0
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert receipt["evidence"]["qualifying_runs"] == 3
+
+
+def test_existing_release_tag_still_blocks_promotion(tmp_path: Path) -> None:
+    """An isolated test repository must still exercise the actual tag-exists gate."""
+    blob = subprocess.run(
+        ["git", "hash-object", "-w", "--stdin"],
+        input="existing release fixture\n",
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    subprocess.run(["git", "update-ref", "refs/tags/v0.15.0", blob], check=True)
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+    executor = promote_release_candidate.DryRunExecutor()
+    with pytest.raises(promote_release_candidate.PromotionGateError) as failure:
+        promote_release_candidate.promote(bom, bom_path, staging, executor)
+    assert failure.value.reason == "tag_exists"

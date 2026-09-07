@@ -7,9 +7,7 @@ auto-detected when --type is omitted; an unknown plugin exits non-zero.
 
 from __future__ import annotations
 
-import json
 import re
-import sys
 
 import click
 
@@ -19,6 +17,8 @@ from phlo.cli.commands.plugin.utils import (
     console,
     normalize_plugin_type,
 )
+from phlo.cli.contract import PhloCommand
+from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
 from phlo.plugins import get_plugin_info, list_plugins
 
@@ -35,7 +35,7 @@ def _plugin_name_key(value: str) -> str:
     return normalized
 
 
-@click.command(name="info")
+@click.command(name="info", cls=PhloCommand)
 @click.argument("plugin_name")
 @click.option(
     "--type",
@@ -78,8 +78,11 @@ def info_cmd(plugin_name: str, plugin_type: str | None, output_json: bool) -> No
                 logger.warning(
                     "plugin_info_not_found", plugin_name=plugin_name, reason="not_detected"
                 )
-                console.print(f"[red]Plugin '{plugin_name}' not found[/red]")
-                raise SystemExit(1)
+                raise user_error(
+                    f"Plugin '{plugin_name}' not found",
+                    reason_code="plugin_not_found",
+                    run="phlo plugin list",
+                )
 
         if plugin_type_provided:
             display_type = normalize_plugin_type(plugin_type)
@@ -90,8 +93,11 @@ def info_cmd(plugin_name: str, plugin_type: str | None, output_json: bool) -> No
 
         if internal_type is None or display_type is None:
             logger.warning("plugin_info_not_found", plugin_name=plugin_name, reason="invalid_type")
-            console.print(f"[red]Plugin '{plugin_name}' not found[/red]")
-            raise SystemExit(1)
+            raise user_error(
+                f"Plugin '{plugin_name}' not found",
+                reason_code="plugin_not_found",
+                run="phlo plugin list",
+            )
 
         info = get_plugin_info(internal_type, plugin_name)
 
@@ -99,11 +105,14 @@ def info_cmd(plugin_name: str, plugin_type: str | None, output_json: bool) -> No
             logger.warning(
                 "plugin_info_not_found", plugin_name=plugin_name, reason="missing_metadata"
             )
-            console.print(f"[red]Plugin '{plugin_name}' not found[/red]")
-            raise SystemExit(1)
+            raise user_error(
+                f"Plugin '{plugin_name}' not found",
+                reason_code="plugin_not_found",
+                run="phlo plugin list",
+            )
 
         if output_json:
-            console.print(json.dumps(info, indent=2))
+            click.echo(json_envelope(data=info))
             return
 
         # Rich formatted output
@@ -133,6 +142,8 @@ def info_cmd(plugin_name: str, plugin_type: str | None, output_json: bool) -> No
 
     except SystemExit:
         raise
+    except click.ClickException:
+        raise
     except Exception as e:
         logger.exception(
             "plugin_info_failed",
@@ -140,5 +151,8 @@ def info_cmd(plugin_name: str, plugin_type: str | None, output_json: bool) -> No
             plugin_type=plugin_type,
             output_json=output_json,
         )
-        console.print(f"[red]Error getting plugin info: {e}[/red]")
-        sys.exit(1)
+        raise user_error(
+            "Error getting plugin info.",
+            reason_code="plugin_info_failed",
+            run="phlo plugin info --help",
+        ) from e

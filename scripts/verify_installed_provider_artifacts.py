@@ -208,6 +208,25 @@ def parse_json_command(command: list[str], *, cwd: Path, env: dict[str, str]) ->
     return json.loads(_run(command, cwd=cwd, env=env))
 
 
+def parse_phlo_json_command(command: list[str], *, cwd: Path, env: dict[str, str]) -> Any:
+    """Read command data from the installed CLI's versioned result envelope.
+
+    Native documents (including the Python-loaded Compose YAML below) still use
+    parse_json_command. A failed or unknown CLI contract cannot qualify artifacts.
+    """
+    result = parse_json_command(command, cwd=cwd, env=env)
+    if (
+        not isinstance(result, dict)
+        or result.get("schema_version") != 1
+        or result.get("status") != "success"
+        or result.get("exit_code") != 0
+        or result.get("errors") != []
+        or "data" not in result
+    ):
+        raise RuntimeError(f"Invalid or unsuccessful Phlo JSON result for {command!r}")
+    return result["data"]
+
+
 def read_yaml(environment: Path, path: Path, *, cwd: Path, env: dict[str, str]) -> dict[str, Any]:
     """Load a YAML file via the clean environment's Python interpreter."""
     script = "import json, pathlib, yaml; print(json.dumps(yaml.safe_load(pathlib.Path(__import__('sys').argv[1]).read_text()) or {}))"
@@ -427,10 +446,10 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         env = external_environment()
         phlo = executable(environment, "phlo")
         _run([str(phlo), "init", ".", "--template", "csv-batch", "--force"], cwd=consumer, env=env)
-        plugin_check = parse_json_command(
+        plugin_check = parse_phlo_json_command(
             [str(phlo), "plugin", "check", "--json"], cwd=consumer, env=env
         )
-        services = parse_json_command(
+        services = parse_phlo_json_command(
             [str(phlo), "services", "list", "--all", "--json"], cwd=consumer, env=env
         )
         rendered, compose = render_services(phlo, environment, consumer, services, env)

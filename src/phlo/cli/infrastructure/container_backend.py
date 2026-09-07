@@ -64,7 +64,7 @@ class ContainerBackend(Protocol):
         """Return availability and remediation message."""
 
     def list_project_containers(self, project_name: str) -> list[ContainerInfo]:
-        """Return containers for a compose project."""
+        """Return project containers; raise OSError when runtime status is unavailable."""
 
     def project_service_statuses(
         self, project_name: str, *, deadline: float
@@ -266,7 +266,11 @@ class DockerBackend:
         return True, None
 
     def list_project_containers(self, project_name: str) -> list[ContainerInfo]:
-        """List project containers by filtering docker ps on the compose project label."""
+        """List project containers by filtering docker ps on the compose project label.
+
+        An unavailable daemon is not an empty project. Callers must be able to
+        distinguish unknown status from a successful query with no containers.
+        """
         result = subprocess.run(
             [
                 "docker",
@@ -280,7 +284,9 @@ class DockerBackend:
             text=True,
             check=False,
         )
-        if result.returncode != 0 or not result.stdout.strip():
+        if result.returncode != 0:
+            raise OSError("Docker container status is unavailable.")
+        if not result.stdout.strip():
             return []
 
         containers: list[ContainerInfo] = []
@@ -440,13 +446,12 @@ class PodmanBackend:
                 text=True,
                 check=False,
             )
-            if result.returncode != 0 or not result.stdout.strip():
+            if result.returncode != 0:
+                raise OSError("Podman container status is unavailable.")
+            if not result.stdout.strip():
                 continue
 
-            try:
-                payload = json.loads(result.stdout)
-            except json.JSONDecodeError:
-                continue
+            payload = json.loads(result.stdout)
 
             for info in payload:
                 container = self._container_info_from_ps(info)

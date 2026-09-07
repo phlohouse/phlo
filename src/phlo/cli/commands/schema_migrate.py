@@ -32,6 +32,8 @@ from phlo.capabilities import (
 from phlo.capabilities.discovery import discover_capabilities
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.commands import schema_migrate_contracts
+from phlo.cli.contract import PhloCommand, PhloGroup
+from phlo.cli.output import confirm_action, json_envelope, user_error
 from phlo.logging import get_logger
 from phlo.schema_migration.instructions import (
     MigrationInstructionError,
@@ -54,11 +56,9 @@ def _resolve_migrator() -> Any:
     registry = get_capability_registry()
     migrators = registry.list("schema_migrator")
     if not migrators:
-        console.print("[red]No schema migrator registered.[/red]")
-        console.print(
-            "Install a storage provider (e.g. phlo-iceberg) that implements SchemaMigrator."
+        raise click.ClickException(
+            "No schema migrator registered. Install a storage provider (e.g. phlo-iceberg) that implements SchemaMigrator."
         )
-        sys.exit(1)
 
     migrators_by_name = {migrator.name: migrator for migrator in migrators}
 
@@ -67,11 +67,9 @@ def _resolve_migrator() -> Any:
         selected = migrators_by_name.get(configured_migrator)
         if selected is None:
             available = list_capabilities("schema_migrator")
-            console.print(
-                f"[red]Configured schema migrator '{configured_migrator}' is not registered.[/red]"
+            raise click.ClickException(
+                f"Configured schema migrator '{configured_migrator}' is not registered. Available schema migrators: {available}"
             )
-            console.print(f"Available schema migrators: {available}")
-            raise SystemExit(1)
         return selected.provider
 
     default_table_store = configured_capability_name("table_store")
@@ -85,17 +83,18 @@ def _resolve_migrator() -> Any:
 
     available = list_capabilities("schema_migrator")
     table_store_options = list_capabilities("table_store")
-    console.print("[red]Multiple schema migrators are registered and none was selected.[/red]")
-    console.print("Configure `schema_migrator` directly or set a matching default `table_store`.")
+    details = [
+        "Multiple schema migrators are registered and none was selected.",
+        "Configure `schema_migrator` directly or set a matching default `table_store`.",
+    ]
     if default_table_store:
-        console.print(
-            f"[yellow]Configured table_store '{default_table_store}' does not match any "
-            "registered schema migrator.[/yellow]"
+        details.append(
+            f"Configured table_store '{default_table_store}' does not match any registered schema migrator."
         )
-    console.print(f"Available schema migrators: {available}")
+    details.append(f"Available schema migrators: {available}")
     if table_store_options:
-        console.print(f"Available table stores: {table_store_options}")
-    sys.exit(1)
+        details.append(f"Available table stores: {table_store_options}")
+    raise click.ClickException("\n".join(details))
 
 
 def _resolve_extractor() -> Any:
@@ -129,14 +128,13 @@ def _resolve_desired_schema(table_name: str, schema_class: str | None) -> tuple[
     extractor = _resolve_extractor()
 
     if extractor is None:
-        console.print("[red]schema_discovery capability is unavailable.[/red]")
-        console.print("Install a provider that supplies schema discovery.")
-        sys.exit(1)
+        raise click.ClickException(
+            "schema_discovery capability is unavailable. Install a provider that supplies schema discovery."
+        )
 
     native_schema = _find_native_schema(table_name, schema_class)
     if native_schema is None:
-        console.print(f"[red]No quality schema found for table: {table_name}[/red]")
-        sys.exit(1)
+        raise click.ClickException(f"No quality schema found for table: {table_name}")
 
     desired = extractor.extract(native_schema)
     return migrator, desired, native_schema
@@ -400,7 +398,7 @@ def refresh_contracts_for_selection(
     return refreshed_count
 
 
-@click.group("schema-migrate")
+@click.group("schema-migrate", cls=PhloGroup)
 def schema_migrate_group() -> None:
     """Schema migration between quality schemas and storage tables."""
 
@@ -506,7 +504,7 @@ def plan(
             console.print(f"  • {rec}")
 
 
-@schema_migrate_group.command()
+@schema_migrate_group.command(cls=PhloCommand)
 @click.argument("table_name")
 @click.option(
     "--schema-class", default=None, help="Pandera schema class name (auto-detected if omitted)"
@@ -522,6 +520,12 @@ def plan(
     multiple=True,
     help="Explicit rename instruction in old_name=new_name form. May be repeated.",
 )
+@click.option(
+    "--json", "output_json", is_flag=True, help="Emit the migration plan and outcome as JSON."
+)
+@click.option(
+    "--non-interactive", is_flag=True, help="Never prompt; require --yes for breaking changes."
+)
 @click.option("--yes", is_flag=True, help="Auto-approve breaking changes")
 @click.option("--dry-run", is_flag=True, help="Show what would be applied without executing")
 @require_mutation_authorization(
@@ -535,6 +539,8 @@ def apply(
     rename: tuple[str, ...],
     yes: bool,
     dry_run: bool,
+    output_json: bool = False,
+    non_interactive: bool = False,
 ) -> None:
     """Apply schema migration to a storage table.
 
@@ -553,41 +559,49 @@ def apply(
         rename=rename,
     )
 
+    payload = {"table_name": table_name, "plan": asdict(migration_plan)}
     if not migration_plan.changes:
-        console.print(f"[green]No migration needed for {table_name}[/green]")
+        if output_json:
+            click.echo(json_envelope(data={**payload, "applied": False}, reason_code="no_changes"))
+        else:
+            console.print(f"[green]No migration needed for {table_name}[/green]")
         return
 
     _ensure_plan_supported(migrator, migration_plan)
-    _render_plan(migration_plan)
+    if not output_json:
+        _render_plan(migration_plan)
 
     if dry_run:
-        console.print("\n[yellow]Dry run — no changes applied.[/yellow]")
-        return
-
-    approved = not migration_plan.requires_approval
-    if migration_plan.requires_approval:
-        if yes:
-            approved = True
-        else:
-            console.print(
-                f"\n[yellow]This plan contains breaking changes "
-                f"(classification: {migration_plan.classification}).[/yellow]"
+        if output_json:
+            click.echo(
+                json_envelope(
+                    data={**payload, "applied": False}, status="planned", reason_code="dry_run"
+                )
             )
-            approved = click.confirm("Apply breaking changes?", default=False)
-
-    if not approved:
-        console.print("[yellow]Migration cancelled.[/yellow]")
+        else:
+            console.print("\n[yellow]Dry run — no changes applied.[/yellow]")
         return
+
+    if migration_plan.requires_approval and not confirm_action(
+        "Apply breaking changes?", yes=yes, non_interactive=non_interactive or output_json
+    ):
+        raise user_error("Migration cancelled.", reason_code="cancelled")
 
     try:
-        result = migrator.apply_plan(plan=migration_plan, approved=approved)
+        result = migrator.apply_plan(plan=migration_plan, approved=True)
+    except Exception as exc:
+        logger.exception("schema_migrate_apply_failed", table_name=table_name)
+        raise click.ClickException(f"Migration failed: {exc}") from exc
+    if output_json:
+        click.echo(
+            json_envelope(
+                data={**payload, "applied": True, "result": result}, reason_code="migration_applied"
+            )
+        )
+    else:
         console.print("\n[green]Migration applied successfully.[/green]")
         for key, value in result.items():
             console.print(f"  {key}: {value}")
-    except Exception as exc:
-        logger.exception("schema_migrate_apply_failed", table_name=table_name)
-        console.print(f"[red]Migration failed: {exc}[/red]")
-        sys.exit(1)
 
 
 @schema_migrate_group.command()

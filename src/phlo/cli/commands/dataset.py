@@ -45,6 +45,8 @@ import click
 
 from phlo.cli.authorization import CliPrincipalResolver
 from phlo.cli.authorization_wrappers import require_mutation_authorization
+from phlo.cli.contract import PhloCommand, PhloGroup
+from phlo.cli.output import json_envelope
 from phlo.dataset.migration import (
     LegacyOverlayError,
     MigrationPlan,
@@ -69,12 +71,12 @@ MIGRATE_OVERLAY_DISCARD = "discard"
 _TRANSITION_ACTIONS = sorted(WORKFLOW_ACTIONS | PUBLICATION_ACTIONS)
 
 
-@click.group(name="dataset")
+@click.group(name="dataset", cls=PhloGroup)
 def dataset_group() -> None:
     """Dataset workflow commands."""
 
 
-@dataset_group.command(name="show")
+@dataset_group.command(name="show", cls=PhloCommand)
 @click.argument("dataset_id")
 @click.option("--action", "action", default=None, help="Evaluate readiness for this action.")
 @click.option(
@@ -92,7 +94,7 @@ def show_cmd(
     authority = _authority(store_mode)
     projection = authority.projection(dataset_id, action)
     if output_json:
-        click.echo(json.dumps(projection, indent=2, sort_keys=True))
+        click.echo(json_envelope(data=projection))
         return
     readiness = projection["readiness"]
     state = projection["publication_state"] or projection["workflow_state"] or "open"
@@ -106,7 +108,7 @@ def show_cmd(
         click.echo(f"  - {reason}")
 
 
-@dataset_group.command(name="list")
+@dataset_group.command(name="list", cls=PhloCommand)
 @click.option(
     "--store-mode",
     "store_mode",
@@ -120,8 +122,10 @@ def list_cmd(store_mode: str | None, output_json: bool) -> None:
     authority = _authority(store_mode)
     projections = [authority.projection(table) for table in sorted(authority.surface.tables)]
     if output_json:
-        click.echo(json.dumps({"datasets": projections}, indent=2, sort_keys=True))
+        click.echo(json_envelope(data={"datasets": projections}))
         return
+    if not projections:
+        click.echo("No governed datasets found.")
     for projection in projections:
         state = projection["publication_state"] or projection["workflow_state"] or "open"
         readiness = projection["readiness"]
@@ -129,7 +133,7 @@ def list_cmd(store_mode: str | None, output_json: bool) -> None:
         click.echo(f"{projection['dataset_id']}: state={state} {readiness['action']}={flag}")
 
 
-@dataset_group.command(name="transition")
+@dataset_group.command(name="transition", cls=PhloCommand)
 @click.argument("dataset_id")
 @click.argument("action", type=click.Choice(_TRANSITION_ACTIONS))
 @click.option(
@@ -185,13 +189,13 @@ def transition_cmd(
     )
     payload = _transition_payload(outcome)
     if output_json:
-        click.echo(json.dumps(payload, indent=2, sort_keys=True))
+        click.echo(json_envelope(data=payload))
     else:
         click.echo(f"{payload['status']}: {payload['message']}")
         for reason in payload["reasons"]:
             click.echo(f"  - {reason}")
-        if payload["status"] in {"conflict", "blocked"}:
-            raise click.exceptions.Exit(1)
+    if payload["status"] in {"conflict", "blocked"}:
+        raise click.exceptions.Exit(1)
 
 
 def _transition_payload(outcome: Any) -> dict[str, Any]:
@@ -219,12 +223,12 @@ def _authority(store_mode: str | None) -> DatasetAuthority:
         raise click.ClickException(f"Dataset authority unavailable: {exc}") from exc
 
 
-@dataset_group.group(name="migrate-overlay")
+@dataset_group.group(name="migrate-overlay", cls=PhloGroup)
 def migrate_overlay_group() -> None:
     """Plan, apply, or discard the legacy Observatory dataset workflow overlay."""
 
 
-@migrate_overlay_group.command(name="plan")
+@migrate_overlay_group.command(name="plan", cls=PhloCommand)
 @click.option(
     "--source",
     "source",
@@ -246,9 +250,10 @@ def plan_cmd(source: Path, output: Path | None, output_json: bool) -> None:
     document = plan.to_read_model()
     if output is not None:
         output.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        click.echo(f"Wrote migration plan to {output}")
+        if not output_json:
+            click.echo(f"Wrote migration plan to {output}")
     if output_json:
-        click.echo(json.dumps(document, indent=2, sort_keys=True))
+        click.echo(json_envelope(data=document, status="planned"))
         return
     click.echo(f"Source digest: {plan.source_digest}")
     click.echo(f"Plan digest:   {plan.plan_digest()}")
@@ -259,7 +264,7 @@ def plan_cmd(source: Path, output: Path | None, output_json: bool) -> None:
         click.echo("Rejections fail closed; they are reported and never imported.")
 
 
-@migrate_overlay_group.command(name="apply")
+@migrate_overlay_group.command(name="apply", cls=PhloCommand)
 @click.option(
     "--source",
     "source",
@@ -314,7 +319,9 @@ def apply_cmd(
         "actor": actor,
     }
     if output_json:
-        click.echo(json.dumps(payload, indent=2, sort_keys=True))
+        click.echo(json_envelope(data=payload))
+        if result.status not in {StoreWriteStatus.COMMITTED, StoreWriteStatus.REPLAYED}:
+            raise click.exceptions.Exit(1)
         return
     click.echo(f"Overlay migration {result.status.value}: {result.detail}")
     for record in result.records:
@@ -325,7 +332,7 @@ def apply_cmd(
         raise click.exceptions.Exit(1)
 
 
-@migrate_overlay_group.command(name="discard")
+@migrate_overlay_group.command(name="discard", cls=PhloCommand)
 @click.option(
     "--source",
     "source",
@@ -375,7 +382,7 @@ def discard_cmd(
         "legacy_source_retained": True,
     }
     if output_json:
-        click.echo(json.dumps(payload, indent=2, sort_keys=True))
+        click.echo(json_envelope(data=payload))
         return
     click.echo("Overlay import discarded and audited; the legacy file is retained untouched.")
 

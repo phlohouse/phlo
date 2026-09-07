@@ -111,7 +111,7 @@ def test_services_status_json(monkeypatch, tmp_path) -> None:
 
     assert result.exit_code == 0
     assert captured["cmd"][-2:] == ["--format", "json"]
-    assert json.loads(result.output) == [
+    assert json.loads(result.output)["data"] == [
         {
             "service": "postgres",
             "name": "demo-postgres-1",

@@ -63,8 +63,8 @@ def test_preflight_production_failure_is_nonzero_and_emits_json(
     )
 
     assert result.exit_code != 0
-    assert "production readiness failed" in result.output
-    payload = json.loads(result.output.rsplit("Error:", 1)[0].strip())
+    assert json.loads(result.output)["reason_code"] == "production_readiness_failed"
+    payload = json.loads(result.output)["data"]
     assert payload["schema_version"] == "1"
     assert payload["environment"] == "production"
     assert payload["passed"] is False
@@ -84,7 +84,7 @@ def test_preflight_json_is_deterministic(
             isolated_config=isolated_config,
         )
         raw = result.output.split("Error:", 1)[0].strip()
-        payload = json.loads(raw)
+        payload = json.loads(raw)["data"]
         payload.pop("generated_at")
         payload.pop("report_id")
         for check in payload["checks"]:
@@ -124,7 +124,7 @@ def test_preflight_environment_defaults_from_env_file(
     result = _invoke_preflight(
         tmp_path, "--json", monkeypatch=monkeypatch, isolated_config=isolated_config
     )
-    payload = json.loads(result.output.split("Error:", 1)[0].strip())
+    payload = json.loads(result.output)["data"]
     assert payload["environment"] == "production"
 
 
@@ -136,6 +136,6 @@ def test_preflight_dev_environment_fails_env_check(
         tmp_path, "--json", monkeypatch=monkeypatch, isolated_config=isolated_config
     )
     assert result.exit_code != 0
-    payload = json.loads(result.output.split("Error:", 1)[0].strip())
+    payload = json.loads(result.output)["data"]
     env_check = next(c for c in payload["checks"] if c["id"] == "env.production")
     assert env_check["state"] == "failed"

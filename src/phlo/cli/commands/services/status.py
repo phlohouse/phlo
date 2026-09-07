@@ -11,14 +11,16 @@ import click
 
 from phlo.cli.commands.services.common import parse_service_args, run_compose
 from phlo.cli.commands.services.utils import ensure_compose_project, require_container_backend
+from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.compose import compose_base_cmd
 from phlo.cli.infrastructure.utils import get_project_name
+from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-@click.command("status")
+@click.command("status", cls=PhloCommand)
 @click.option(
     "--backend",
     "backend_name",
@@ -69,13 +71,28 @@ def status_cmd(backend_name: str | None, output_json: bool, service: tuple[str, 
             project_name=project_name,
             returncode=result.returncode,
         )
-        raise click.ClickException("No services running or error checking status.")
+        raise user_error(
+            "Could not check service status.",
+            reason_code="service_status_failed",
+            run="phlo services status",
+        )
     if output_json:
         try:
             services = _parse_compose_json_status(result.stdout or "")
         except json.JSONDecodeError as exc:
-            raise click.ClickException("Could not parse container status output.") from exc
-        click.echo(json.dumps(services, indent=2))
+            raise user_error(
+                "Could not parse container status output.", reason_code="invalid_container_status"
+            ) from exc
+        click.echo(
+            json_envelope(
+                data=services,
+                next_steps=(
+                    [{"command": "phlo services start", "when": "No services are running"}]
+                    if not services
+                    else []
+                ),
+            )
+        )
         logger.info("services_status_succeeded", project_name=project_name, output="json")
         return
 
@@ -101,12 +118,14 @@ def _parse_compose_json_status(stdout: str) -> list[dict[str, object]]:
         # per line instead. Fall back to line-delimited parsing.
         parsed = [json.loads(line) for line in text.splitlines() if line.strip()]
 
-    items = [parsed] if isinstance(parsed, dict) else list(parsed)
+    if not isinstance(parsed, (dict, list)):
+        raise json.JSONDecodeError("Expected an object or array", text, 0)
+    items = [parsed] if isinstance(parsed, dict) else parsed
 
     services: list[dict[str, object]] = []
     for item in items:
         if not isinstance(item, dict):
-            continue
+            raise json.JSONDecodeError("Expected a service object", text, 0)
         services.append(
             {
                 "service": item.get("Service") or item.get("Name") or item.get("service"),

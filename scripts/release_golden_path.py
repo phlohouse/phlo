@@ -1324,16 +1324,26 @@ def production_preflight(config: RunConfig) -> dict[str, object]:
         check=False,
     )
     try:
-        report = json.loads(result.stdout)
+        envelope = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise CandidateError(
             f"preflight (exit {result.returncode}) returned no JSON report: "
             f"{result.stdout!r} {result.stderr!r}"
         ) from exc
-    if result.returncode != 0 or not report.get("passed"):
+    if (
+        result.returncode != 0
+        or not isinstance(envelope, dict)
+        or envelope.get("schema_version") != 1
+        or envelope.get("status") != "success"
+        or envelope.get("exit_code") != 0
+        or envelope.get("errors") != []
+        or not isinstance(envelope.get("data"), dict)
+        or not envelope["data"].get("passed")
+    ):
         raise CandidateError(
-            f"production preflight failed (exit {result.returncode}): {report!r} {result.stderr!r}"
+            f"production preflight failed (exit {result.returncode}): {envelope!r} {result.stderr!r}"
         )
+    report = envelope["data"]
     return {
         "environment": report.get("environment"),
         "checks": [

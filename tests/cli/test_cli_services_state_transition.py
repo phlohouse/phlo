@@ -134,7 +134,7 @@ def test_services_state_transition_remove_add_list_start_flow(
 
     list_result = runner.invoke(list_module.list_cmd, ["--json"])
     assert list_result.exit_code == 0
-    listed_services = {item["name"]: item for item in json.loads(list_result.output)}
+    listed_services = {item["name"]: item for item in json.loads(list_result.output)["data"]}
     assert listed_services[prometheus.name]["profile"] == "observability"
     assert listed_services[prometheus.name]["disabled"] is False
     assert listed_services[prometheus.name]["running"] is False
@@ -171,7 +171,7 @@ def test_services_list_reads_disabled_service_names_from_transition_state(
     result = CliRunner().invoke(list_module.list_cmd, ["--json"])
 
     assert result.exit_code == 0
-    listed_services = {item["name"]: item for item in json.loads(result.output)}
+    listed_services = {item["name"]: item for item in json.loads(result.output)["data"]}
     assert listed_services[prometheus.name]["disabled"] is True
     assert listed_services[postgres.name]["disabled"] is False
 

@@ -28,6 +28,8 @@ from typing import Any
 import click
 
 from phlo.cli.authorization_wrappers import require_mutation_authorization
+from phlo.cli.contract import PhloCommand, PhloGroup
+from phlo.cli.output import json_envelope
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -70,8 +72,18 @@ def _require_fixture_substrate(fixture_substrate: bool, action: str) -> None:
         )
 
 
-def _emit(data: Any) -> None:
-    click.echo(json.dumps(data, indent=2, sort_keys=False))
+def _emit(data: Any, *, status: str | None = None, reason_code: str | None = None) -> None:
+    ctx = click.get_current_context()
+    if ctx.params.get("output_json"):
+        click.echo(
+            json_envelope(
+                data=data,
+                status=status or ("planned" if ctx.info_name == "plan" else None),
+                reason_code=reason_code,
+            )
+        )
+    else:
+        click.echo(json.dumps(data, indent=2, sort_keys=False))
 
 
 def _read_json(path: str) -> Any:
@@ -84,31 +96,32 @@ def _read_json(path: str) -> Any:
         raise click.UsageError(f"could not read plan file {path}: {exc}") from exc
 
 
-@click.group("operations")
+@click.group("operations", cls=PhloGroup)
 def operations_group() -> None:
     """Guarded plan-first operations (maintenance, backup, restore, upgrade)."""
 
 
-@operations_group.group("maintenance")
+@operations_group.group("maintenance", cls=PhloGroup)
 def maintenance_group() -> None:
     """Plan and apply v1 table maintenance (compaction, snapshot expiry)."""
 
 
-@operations_group.group("backup")
+@operations_group.group("backup", cls=PhloGroup)
 def backup_group() -> None:
     """Create and verify immutable v1 backup sets (ADR 0049 §3)."""
 
 
-@backup_group.command("create")
+@backup_group.command("create", cls=PhloCommand)
 @click.option(
     "--target",
     type=click.Path(file_okay=False, path_type=Path),
     required=True,
     help="New, empty directory that will own the backup set.",
 )
-@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
 @require_mutation_authorization("operations.backup.create")
-def backup_create(target: Path, output_format: str) -> None:
+def backup_create(target: Path, output_format: str, output_json: bool = False) -> None:
     """Create one verified backup set for all v1-owned state (authorized)."""
     from phlo.capabilities.continuity import BACKUP_PROVIDER_ORDER
     from phlo.operations.backup import create_backup_set, default_backup_contributors
@@ -136,15 +149,17 @@ def backup_create(target: Path, output_format: str) -> None:
     except Exception as exc:
         raise click.ClickException(f"backup create failed: {exc}") from exc
 
-    if output_format == "json":
+    if output_json or output_format == "json":
         _emit(result.to_dict())
     else:
         click.echo(f"Backup set {result.set_id}: {result.state}")
         if result.manifest:
             click.echo(f"  artifacts: {len(result.manifest.get('artifacts', []))}")
+    if not result.accepted:
+        raise click.exceptions.Exit(1)
 
 
-@backup_group.command("verify")
+@backup_group.command("verify", cls=PhloCommand)
 @click.option(
     "--backup-set",
     "backup_set",
@@ -158,14 +173,17 @@ def backup_create(target: Path, output_format: str) -> None:
     default=None,
     help="Reject sets whose recorded source deployment does not match.",
 )
-@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
-def backup_verify(backup_set: Path, expected_deployment: str | None, output_format: str) -> None:
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
+def backup_verify(
+    backup_set: Path, expected_deployment: str | None, output_format: str, output_json: bool = False
+) -> None:
     """Independently verify a backup set (read-only, no service mutation)."""
     from phlo.operations.backup import verify_backup_set
 
     result = verify_backup_set(backup_set, expected_deployment_id=expected_deployment)
 
-    if output_format == "json":
+    if output_json or output_format == "json":
         _emit(result.to_dict())
     else:
         click.echo(f"Backup set {result.set_id or '(unknown)'}: {result.state}")
@@ -176,12 +194,12 @@ def backup_verify(backup_set: Path, expected_deployment: str | None, output_form
         raise SystemExit(1)
 
 
-@operations_group.group("restore")
+@operations_group.group("restore", cls=PhloGroup)
 def restore_group() -> None:
     """Plan and apply an explicit-target restore (ADR 0049 §4)."""
 
 
-@restore_group.command("plan")
+@restore_group.command("plan", cls=PhloCommand)
 @click.option(
     "--backup-set",
     "backup_set",
@@ -195,8 +213,11 @@ def restore_group() -> None:
     required=True,
     help="Explicit, new/empty target deployment directory.",
 )
-@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
-def restore_plan_cmd(backup_set: Path, target: Path, output_format: str) -> None:
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
+def restore_plan_cmd(
+    backup_set: Path, target: Path, output_format: str, output_json: bool = False
+) -> None:
     """Create a mutation-free restore plan bound to set digest + target."""
     from phlo.capabilities.continuity import RestoreTarget
     from phlo.operations.restore import RestoreError, plan_restore
@@ -208,15 +229,16 @@ def restore_plan_cmd(backup_set: Path, target: Path, output_format: str) -> None
             f"restore plan failed: {exc.code} ({', '.join(exc.identifiers)})"
         ) from exc
 
-    if output_format == "json":
+    if output_json or output_format == "json":
         _emit(plan.to_dict())
     else:
         click.echo(
             f"Restore plan {plan.plan_token}: set {plan.backup_set_id} → {plan.target.target_id}"
         )
+        click.echo("No changes applied. Save the plan with --format json before applying it.")
 
 
-@restore_group.command("apply")
+@restore_group.command("apply", cls=PhloCommand)
 @click.option(
     "--plan",
     "plan_path",
@@ -230,10 +252,15 @@ def restore_plan_cmd(backup_set: Path, target: Path, output_format: str) -> None
     is_flag=True,
     help="Acknowledge this restore stage only files beneath the target and does not mutate a live deployment.",
 )
-@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
 @require_mutation_authorization("operations.restore.apply")
 def restore_apply_cmd(
-    plan_path: str, confirmation_token: str, fixture_substrate: bool, output_format: str
+    plan_path: str,
+    confirmation_token: str,
+    fixture_substrate: bool,
+    output_format: str,
+    output_json: bool = False,
 ) -> None:
     """Apply a plan only to its bound target (authorized, fail-before-mutation)."""
     from phlo.capabilities.continuity import RestorePlan
@@ -257,7 +284,7 @@ def restore_apply_cmd(
             f"restore apply failed: {exc.code} ({', '.join(exc.identifiers)})"
         ) from exc
 
-    if output_format == "json":
+    if output_json or output_format == "json":
         _emit(
             {
                 **result.to_dict(),
@@ -281,21 +308,27 @@ def restore_apply_cmd(
         raise SystemExit(1)
 
 
-@operations_group.group("upgrade")
+@operations_group.group("upgrade", cls=PhloGroup)
 def upgrade_group() -> None:
     """Prove the supported deployment upgrade pair (ADR 0049 §5)."""
 
 
-@upgrade_group.command("plan")
+@upgrade_group.command("plan", cls=PhloCommand)
 @click.option("--from", "from_version", required=True, help="Previous version (fixture pair).")
 @click.option("--to", "to_version", required=True, help="Candidate version (fixture pair).")
 @click.option(
     "--backup-set", "backup_set", type=click.Path(file_okay=False, path_type=Path), required=True
 )
 @click.option("--target", type=click.Path(file_okay=False, path_type=Path), required=True)
-@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
 def upgrade_plan_cmd(
-    from_version: str, to_version: str, backup_set: Path, target: Path, output_format: str
+    from_version: str,
+    to_version: str,
+    backup_set: Path,
+    target: Path,
+    output_format: str,
+    output_json: bool = False,
 ) -> None:
     """Create a mutation-free upgrade plan after a verified backup."""
     from phlo.capabilities.continuity import RestoreTarget
@@ -313,16 +346,17 @@ def upgrade_plan_cmd(
             f"upgrade plan failed: {exc.code} ({', '.join(exc.identifiers)})"
         ) from exc
 
-    if output_format == "json":
+    if output_json or output_format == "json":
         _emit(plan.to_dict())
     else:
         click.echo(
             f"Upgrade plan {plan.plan_token}: {plan.from_version} → {plan.to_version} "
             f"(backup {plan.backup_set_id})"
         )
+        click.echo("No changes applied. Save the plan with --format json before applying it.")
 
 
-@upgrade_group.command("apply")
+@upgrade_group.command("apply", cls=PhloCommand)
 @click.option("--plan", "plan_path", type=click.Path(exists=True), required=True)
 @click.option("--confirmation-token", required=True)
 @click.option(
@@ -330,10 +364,15 @@ def upgrade_plan_cmd(
     is_flag=True,
     help="Acknowledge this upgrade stages version markers only and does not migrate a live deployment.",
 )
-@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
 @require_mutation_authorization("operations.upgrade.apply")
 def upgrade_apply_cmd(
-    plan_path: str, confirmation_token: str, fixture_substrate: bool, output_format: str
+    plan_path: str,
+    confirmation_token: str,
+    fixture_substrate: bool,
+    output_format: str,
+    output_json: bool = False,
 ) -> None:
     """Apply the bound upgrade (authorized, requires verified backup)."""
     from phlo.operations.backup import default_backup_contributors
@@ -356,7 +395,7 @@ def upgrade_apply_cmd(
             f"upgrade apply failed: {exc.code} ({', '.join(exc.identifiers)})"
         ) from exc
 
-    if output_format == "json":
+    if output_json or output_format == "json":
         _emit(
             {
                 **result.to_dict(),
@@ -377,9 +416,10 @@ def upgrade_apply_cmd(
         raise SystemExit(1)
 
 
-@maintenance_group.command("inventory")
+@maintenance_group.command("inventory", cls=PhloCommand)
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
 @click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
-def maintenance_inventory(output_format: str) -> None:
+def maintenance_inventory(output_format: str, output_json: bool = False) -> None:
     """List v1 tables with their provider and maintenance state (read-only)."""
     from phlo.capabilities import list_capabilities, resolve_capability
     from phlo.capabilities.discovery import discover_capabilities
@@ -399,7 +439,7 @@ def maintenance_inventory(output_format: str) -> None:
         if callable(get_inventory):
             inventory.extend(get_inventory())
 
-    if output_format == "json":
+    if output_json or output_format == "json":
         _emit({"executors": executors, "tables": inventory})
     else:
         click.echo(f"Executors: {', '.join(executors)}")
@@ -407,12 +447,15 @@ def maintenance_inventory(output_format: str) -> None:
             click.echo(f"  {entry}")
 
 
-@maintenance_group.command("plan")
+@maintenance_group.command("plan", cls=PhloCommand)
 @click.option("--operation", type=click.Choice(["compact", "snapshot_expiry"]), required=True)
 @click.option("--table", required=True, help="Fully qualified table name.")
 @click.option("--ref", default="main", help="Catalog ref/branch.")
-@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
-def maintenance_plan(operation: str, table: str, ref: str, output_format: str) -> None:
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
+def maintenance_plan(
+    operation: str, table: str, ref: str, output_format: str, output_json: bool = False
+) -> None:
     """Create a deterministic maintenance plan (read-only, no mutation)."""
     from phlo.capabilities import resolve_capability
     from phlo.capabilities.discovery import discover_capabilities
@@ -429,11 +472,29 @@ def maintenance_plan(operation: str, table: str, ref: str, output_format: str) -
             f"maintenance executor {resolution.name!r} does not support planning"
         )
 
-    plan = plan_fn(table_name=table, ref=ref)
-    _emit(plan)
+    result = plan_fn(table_name=table, ref=ref)
+    plan = result.to_dict() if hasattr(result, "to_dict") else dict(result)
+    rejected = plan.get("accepted") is False or plan.get("status") in {"blocked", "failed"}
+    valid = not rejected and bool(plan.get("plan_token"))
+    if output_json or output_format == "json":
+        _emit(
+            plan,
+            status="planned" if valid else "error",
+            reason_code=None if valid else "maintenance_plan_rejected",
+        )
+    elif not valid:
+        click.echo(f"Maintenance plan for {table}: {plan.get('status', 'invalid')}")
+        if plan.get("failure"):
+            click.echo(f"  {plan['failure']}")
+    else:
+        click.echo(f"Maintenance plan: {operation} on {table} (ref {ref})")
+        click.echo(f"Confirmation token: {plan.get('plan_token', '(unavailable)')}")
+        click.echo("No changes applied. Save the plan with --format json before applying it.")
+    if not valid:
+        raise click.exceptions.Exit(1)
 
 
-@maintenance_group.command("apply")
+@maintenance_group.command("apply", cls=PhloCommand)
 @click.option(
     "--plan",
     "plan_path",
@@ -442,9 +503,12 @@ def maintenance_plan(operation: str, table: str, ref: str, output_format: str) -
     help="Path to the JSON plan file.",
 )
 @click.option("--confirmation-token", required=True, help="The plan token from the plan step.")
-@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json")
+@click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
+@click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
 @require_mutation_authorization("operations.maintenance.apply")
-def maintenance_apply(plan_path: str, confirmation_token: str, output_format: str) -> None:
+def maintenance_apply(
+    plan_path: str, confirmation_token: str, output_format: str, output_json: bool = False
+) -> None:
     """Apply an exact, still-current maintenance plan (authorized, fail-before-mutation)."""
     from pathlib import Path
 
@@ -452,6 +516,7 @@ def maintenance_apply(plan_path: str, confirmation_token: str, output_format: st
     from phlo.capabilities.discovery import discover_capabilities
     from phlo.operations.journal import (
         OperationJournalError,
+        OperationJournalState,
         claim_operation,
         complete_operation,
         mark_submitted,
@@ -497,13 +562,28 @@ def maintenance_apply(plan_path: str, confirmation_token: str, output_format: st
         mark_submitted(journal, operation_id)
         result = execute_fn(table_name=table, ref=ref, plan_token=plan_token)
         result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(result)
-        complete_operation(journal, operation_id, result_dict)
-        if output_format == "json":
-            _emit(result_dict)
+        rejected = result_dict.get("accepted") is False or result_dict.get("status") in {
+            "blocked",
+            "failed",
+        }
+        if rejected:
+            # Preserve provider evidence while refusing contradictory accepted/status success.
+            if not journal.transition(operation_id, OperationJournalState.FAILED, result_dict):
+                raise OperationJournalError("unknown_operation", (operation_id,))
+        else:
+            complete_operation(journal, operation_id, result_dict)
+        if output_json or output_format == "json":
+            _emit(
+                result_dict,
+                status="error" if rejected else "success",
+                reason_code="maintenance_rejected" if rejected else None,
+            )
         else:
             click.echo(
                 f"Maintenance {operation} on {table}: {result_dict.get('status', 'unknown')}"
             )
+        if rejected:
+            raise click.exceptions.Exit(1)
     except OperationJournalError as exc:
         raise click.ClickException(
             f"journal error: {exc.code} ({', '.join(exc.identifiers)})"

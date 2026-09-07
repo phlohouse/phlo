@@ -112,3 +112,30 @@ def test_health_shard_marks_a_service_without_a_healthcheck_not_applicable(tmp_p
     assert results == [
         {"service": "generated", "status": "not_applicable", "detail": "no healthcheck"}
     ]
+
+
+def test_phlo_service_inventory_unwraps_result_before_rendering(tmp_path, monkeypatch):
+    """The artifact lane must iterate service records, not the envelope's field names."""
+    import json
+
+    from phlo.cli.output import json_envelope
+
+    services = [{"name": "postgres", "description": "Database", "core": False}]
+    envelope = json.loads(json_envelope(data=services))
+    envelope["exit_code"] = 0
+    monkeypatch.setattr(HARNESS, "_run", lambda *_args, **_kwargs: json.dumps(envelope))
+
+    records = HARNESS.parse_phlo_json_command(
+        ["phlo", "services", "list", "--all", "--json"], cwd=tmp_path, env={}
+    )
+    assert [service["name"] for service in records] == ["postgres"]
+    assert records == services
+
+
+def test_native_json_document_is_not_unwrapped(tmp_path, monkeypatch):
+    """Compose YAML loaded through Python is a document, not a Phlo CLI response."""
+    import json
+
+    document = {"services": {"postgres": {"image": "postgres:16"}}}
+    monkeypatch.setattr(HARNESS, "_run", lambda *_args, **_kwargs: json.dumps(document))
+    assert HARNESS.parse_json_command(["python", "-c", "..."], cwd=tmp_path, env={}) == document

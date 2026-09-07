@@ -70,7 +70,7 @@ def stubbed_contributors(monkeypatch):
 def _invoke(args: list[str], journal_dir: Path | None = None) -> Any:
     return CliRunner().invoke(
         backup_group,
-        args,
+        args if "--format" in args or "--json" in args else [*args, "--format", "json"],
         env={"PHLO_OPERATIONS_JOURNAL_DIR": str(journal_dir)} if journal_dir else {},
     )
 
@@ -137,3 +137,24 @@ def test_verify_reports_partial_set_with_nonzero_exit(stubbed_contributors, tmp_
     verified = _invoke(["verify", "--backup-set", str(set_dir)])
     assert verified.exit_code == 1
     assert "partial_set" in verified.output
+
+
+def test_create_rejected_result_has_nonzero_machine_outcome(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("phlo.operations.backup.default_backup_contributors", list)
+    monkeypatch.setattr(
+        "phlo.operations.backup.create_backup_set",
+        lambda **kwargs: SimpleNamespace(
+            accepted=False,
+            to_dict=lambda: {"accepted": False, "state": "failed", "reasons": ["provider_failed"]},
+        ),
+    )
+    result = _invoke(
+        ["create", "--target", str(tmp_path / "backup"), "--json"],
+        journal_dir=tmp_path / "journal",
+    )
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["data"]["accepted"] is False
