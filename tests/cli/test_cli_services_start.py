@@ -138,6 +138,119 @@ def test_services_start_default_waits_for_active_default_services_only(
     assert "metrics" not in result.output
 
 
+def test_services_start_default_accepts_successful_minio_setup_service(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The default stack accepts its completed MinIO setup companion."""
+    from phlo.cli.commands.services import start as start_module
+
+    sleeps: list[float] = []
+    moments = iter([0.0, 0.1, 0.2])
+    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
+    monkeypatch.setattr(start_module.time, "sleep", sleeps.append)
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose=(
+            "services:\n"
+            "  minio:\n"
+            "    healthcheck:\n"
+            "      test: ['CMD', 'true']\n"
+            "  minio-setup:\n"
+            "    restart: 'no'\n"
+            "    depends_on:\n"
+            "      minio:\n"
+            "        condition: service_healthy\n"
+        ),
+        snapshots=[
+            [
+                ServiceStatus(
+                    service="minio-setup",
+                    state="running",
+                    health=None,
+                ),
+                ServiceStatus(service="minio", state="running", health="healthy"),
+            ],
+            [
+                ServiceStatus(
+                    service="minio-setup",
+                    state="exited",
+                    health=None,
+                    exit_code=0,
+                ),
+                ServiceStatus(service="minio", state="running", health="healthy"),
+            ],
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Services running: minio, minio-setup" in result.output
+    assert sleeps == [start_module.READINESS_POLL_SECONDS]
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "rendered_state"),
+    [(None, "minio-setup (state=exited)"), (1, "minio-setup (state=exited, exit_code=1)")],
+)
+def test_services_start_rejects_incomplete_or_failed_setup_service(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    exit_code: int | None,
+    rendered_state: str,
+) -> None:
+    """Setup companions need a known zero exit status before readiness."""
+    from phlo.cli.commands.services import start as start_module
+
+    moments = iter([0.0, 60.0])
+    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose=(
+            "services:\n"
+            "  minio: {}\n"
+            "  minio-setup:\n"
+            "    restart: 'no'\n"
+            "    depends_on:\n"
+            "      minio:\n"
+            "        condition: service_started\n"
+        ),
+        snapshots=[
+            [
+                ServiceStatus(
+                    service="minio-setup",
+                    state="exited",
+                    health=None,
+                    exit_code=exit_code,
+                ),
+                ServiceStatus(service="minio", state="running", health=None),
+            ]
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert rendered_state in result.output
+
+
+def test_services_start_rejects_exited_long_lived_service_even_when_successful(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A zero exit status does not make an ordinary long-lived service ready."""
+    from phlo.cli.commands.services import start as start_module
+
+    moments = iter([0.0, 60.0])
+    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose="services:\n  database: {}\n",
+        snapshots=[[ServiceStatus(service="database", state="exited", health=None, exit_code=0)]],
+    )
+
+    assert result.exit_code == 1
+    assert "database (state=exited" in result.output
+
+
 @pytest.mark.parametrize(
     "status",
     [
@@ -668,7 +781,20 @@ def test_services_start_includes_setup_companions_for_explicit_targets(
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
     (phlo_dir / "docker-compose.yml").write_text(
-        "services:\n  rustfs: {}\n  rustfs-setup: {}\n  rustfs-volume-setup: {}\n",
+        (
+            "services:\n"
+            "  rustfs-volume-setup:\n"
+            "    restart: 'no'\n"
+            "  rustfs:\n"
+            "    depends_on:\n"
+            "      rustfs-volume-setup:\n"
+            "        condition: service_completed_successfully\n"
+            "  rustfs-setup:\n"
+            "    restart: 'no'\n"
+            "    depends_on:\n"
+            "      rustfs:\n"
+            "        condition: service_started\n"
+        ),
     )
 
     rustfs_volume_setup = _service("rustfs-volume-setup")
@@ -706,10 +832,34 @@ def test_services_start_includes_setup_companions_for_explicit_targets(
     monkeypatch.setattr(start_module, "run_command", _fake_run_command)
     monkeypatch.setattr(start_module, "require_container_backend", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
+        start_module,
+        "select_project_container_backend",
+        lambda **_kwargs: _ReadinessBackend(
+            [
+                [
+                    ServiceStatus(
+                        service="rustfs-volume-setup",
+                        state="exited",
+                        health=None,
+                        exit_code=0,
+                    ),
+                    ServiceStatus(service="rustfs", state="running", health=None),
+                    ServiceStatus(
+                        service="rustfs-setup",
+                        state="exited",
+                        health=None,
+                        exit_code=0,
+                    ),
+                ]
+            ]
+        ),
+    )
+    monkeypatch.setattr(
         start_module, "_emit_service_lifecycle_events", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(start_module, "_run_service_hooks", lambda *args, **kwargs: None)
-    monkeypatch.setattr(start_module, "_wait_for_services_ready", _immediately_ready)
+    moments = iter([0.0, 60.0])
+    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
 
     result = CliRunner().invoke(start_module.start_cmd, ["--service", "rustfs"])
 

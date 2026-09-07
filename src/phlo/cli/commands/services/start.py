@@ -61,13 +61,8 @@ READINESS_TIMEOUT_SECONDS = 60
 READINESS_POLL_SECONDS = 1
 
 
-def _declared_healthcheck_services(compose_file: Path, service_names: list[str]) -> set[str]:
-    """Return selected services that declare a Compose healthcheck.
-
-    Readiness is deliberately driven by the generated Compose contract rather
-    than a backend-specific convention.  ``healthcheck: {disable: true}`` is
-    an explicit opt-out and uses the stable-running-state condition instead.
-    """
+def _load_compose_services(compose_file: Path) -> dict[str, Any]:
+    """Load the generated Compose services map used by readiness helpers."""
     try:
         compose = yaml.safe_load(compose_file.read_text()) or {}
     except (OSError, yaml.YAMLError) as exc:
@@ -75,8 +70,17 @@ def _declared_healthcheck_services(compose_file: Path, service_names: list[str])
             f"Failed to read readiness contract from {compose_file}: {exc}"
         ) from exc
     services = compose.get("services") if isinstance(compose, dict) else None
-    if not isinstance(services, dict):
-        return set()
+    return services if isinstance(services, dict) else {}
+
+
+def _declared_healthcheck_services(compose_file: Path, service_names: list[str]) -> set[str]:
+    """Return selected services that declare a Compose healthcheck.
+
+    Readiness is deliberately driven by the generated Compose contract rather
+    than a backend-specific convention.  ``healthcheck: {disable: true}`` is
+    an explicit opt-out and uses the stable-running-state condition instead.
+    """
+    services = _load_compose_services(compose_file)
     return {
         name
         for name in service_names
@@ -86,17 +90,46 @@ def _declared_healthcheck_services(compose_file: Path, service_names: list[str])
     }
 
 
+def _declared_completed_successfully_services(
+    compose_file: Path, service_names: list[str]
+) -> set[str]:
+    """Return selected services whose Compose contract defines a one-shot job.
+
+    A ``service_completed_successfully`` dependency is the Compose contract
+    that identifies a job whose successful exit is its ready state. Generated
+    setup companions also use the explicit ``*-setup`` plus ``restart: "no"``
+    contract: they prepare a dependency but need not have a downstream
+    completion edge. Both forms avoid treating an arbitrary exited service as
+    ready.
+    """
+    services = _load_compose_services(compose_file)
+    selected_services = set(service_names)
+    completed_successfully = {
+        name
+        for name in selected_services
+        if name.endswith("-setup")
+        and isinstance(services.get(name), dict)
+        and services[name].get("restart") == "no"
+    }
+    for config in services.values():
+        if not isinstance(config, dict):
+            continue
+        dependencies = config.get("depends_on")
+        if not isinstance(dependencies, dict):
+            continue
+        for dependency, dependency_config in dependencies.items():
+            if (
+                dependency in selected_services
+                and isinstance(dependency_config, dict)
+                and dependency_config.get("condition") == "service_completed_successfully"
+            ):
+                completed_successfully.add(dependency)
+    return completed_successfully
+
+
 def _default_compose_service_names(compose_file: Path) -> list[str]:
     """Return default-profile services and dependencies Compose starts without targets."""
-    try:
-        compose = yaml.safe_load(compose_file.read_text()) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        raise click.ClickException(
-            f"Failed to read readiness contract from {compose_file}: {exc}"
-        ) from exc
-    services = compose.get("services") if isinstance(compose, dict) else None
-    if not isinstance(services, dict):
-        return []
+    services = _load_compose_services(compose_file)
     selected = {
         name
         for name, config in services.items()
@@ -154,6 +187,7 @@ def _format_service_statuses(
         rendered.extend(
             f"{service} (state={entry.state or 'unknown'}"
             + (f", health={entry.health}" if entry.health else "")
+            + (f", exit_code={entry.exit_code}" if entry.exit_code is not None else "")
             + ")"
             for entry in entries
         )
@@ -171,12 +205,17 @@ def _wait_for_services_ready(
 ) -> list[str]:
     """Wait for every selected compose service to meet its declared readiness.
 
-    A declared Compose healthcheck must report ``healthy``.  Services without
-    one are ready once their container reports ``running``.  No containers are
-    stopped on timeout: the final state and log command make partial startup
-    inspectable and recoverable.
+    A declared Compose healthcheck must report ``healthy``. Services without
+    one are ready once their container reports ``running``, except a service
+    named by a ``service_completed_successfully`` dependency or with the
+    generated ``*-setup``/``restart: "no"`` contract, which is ready after
+    exiting with status 0. No containers are stopped on timeout: the final
+    state and log command make partial startup inspectable and recoverable.
     """
     healthcheck_services = _declared_healthcheck_services(compose_file, service_names)
+    completed_successfully_services = _declared_completed_successfully_services(
+        compose_file, service_names
+    )
     if not callable(getattr(backend, "project_service_statuses", None)):
         # Backends created before the explicit readiness contract retain the
         # previous successful-start behavior until they opt into it.
@@ -208,7 +247,15 @@ def _wait_for_services_ready(
         ready = True
         for service in service_names:
             entries = by_service.get(service, [])
-            if not entries or any(entry.state != "running" for entry in entries):
+            if not entries:
+                ready = False
+                break
+            if service in completed_successfully_services:
+                if any(entry.state != "exited" or entry.exit_code != 0 for entry in entries):
+                    ready = False
+                    break
+                continue
+            if any(entry.state != "running" for entry in entries):
                 ready = False
                 break
             if service in healthcheck_services and any(

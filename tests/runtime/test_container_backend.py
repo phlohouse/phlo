@@ -124,7 +124,10 @@ def test_docker_backend_reports_stopped_and_healthy_service_statuses(
         return CompletedProcess(
             cmd,
             0,
-            stdout=('{"Status":"running","Health":{"Status":"healthy"}}\n{"Status":"exited"}\n'),
+            stdout=(
+                '{"Status":"running","Health":{"Status":"healthy"}}\n'
+                '{"Status":"exited","ExitCode":0}\n'
+            ),
             stderr="",
         )
 
@@ -134,7 +137,7 @@ def test_docker_backend_reports_stopped_and_healthy_service_statuses(
 
     assert statuses == [
         ServiceStatus(service="database", state="running", health="healthy"),
-        ServiceStatus(service="worker", state="exited", health=None),
+        ServiceStatus(service="worker", state="exited", health=None, exit_code=0),
     ]
 
 
@@ -157,7 +160,7 @@ def test_batched_inspection_uses_captured_remaining_deadline_timeout(
         "docker", ["demo-service-1"], deadline=10.5
     )
 
-    assert statuses == {"demo-service-1": ("running", None)}
+    assert statuses == {"demo-service-1": ("running", None, None)}
     assert observed_timeouts == [0.5]
 
 
@@ -238,7 +241,9 @@ def test_podman_backend_lists_containers_with_podman_compose_labels(
     assert any("label=io.podman.compose.project=demo" in call for call in calls)
 
 
-def test_podman_backend_reports_healthcheck_state(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_podman_backend_reports_healthcheck_and_completion_exit_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def _run(cmd: list[str], **_kwargs) -> CompletedProcess:
         if cmd[:3] == ["podman", "ps", "--all"]:
             return CompletedProcess(
@@ -246,7 +251,9 @@ def test_podman_backend_reports_healthcheck_state(monkeypatch: pytest.MonkeyPatc
                 0,
                 stdout=(
                     '[{"Names":["demo_database_1"],"State":"running",'
-                    '"Labels":{"io.podman.compose.service":"database"}}]'
+                    '"Labels":{"io.podman.compose.service":"database"}},'
+                    '{"Names":["demo_setup_1"],"State":"exited",'
+                    '"Labels":{"io.podman.compose.service":"setup"}}]'
                 ),
                 stderr="",
             )
@@ -254,7 +261,10 @@ def test_podman_backend_reports_healthcheck_state(monkeypatch: pytest.MonkeyPatc
         return CompletedProcess(
             cmd,
             0,
-            stdout='{"Status":"running","Healthcheck":{"Status":"healthy"}}\n',
+            stdout=(
+                '{"Status":"running","Healthcheck":{"Status":"healthy"}}\n'
+                '{"Status":"exited","ExitCode":0}\n'
+            ),
             stderr="",
         )
 
@@ -262,7 +272,10 @@ def test_podman_backend_reports_healthcheck_state(monkeypatch: pytest.MonkeyPatc
 
     statuses = PodmanBackend().project_service_statuses("demo", deadline=time.monotonic() + 1)
 
-    assert statuses == [ServiceStatus(service="database", state="running", health="healthy")]
+    assert statuses == [
+        ServiceStatus(service="database", state="running", health="healthy"),
+        ServiceStatus(service="setup", state="exited", health=None, exit_code=0),
+    ]
 
 
 def test_select_backend_defaults_to_docker(monkeypatch: pytest.MonkeyPatch) -> None:

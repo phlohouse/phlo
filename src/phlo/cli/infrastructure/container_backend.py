@@ -35,13 +35,15 @@ class ServiceStatus:
     """Runtime state used to decide whether a compose service is ready.
 
     ``health`` is populated only when the backend reports a container health
-    check.  Callers must therefore use ``running`` as the readiness condition
-    for services without a declared healthcheck.
+    check. ``exit_code`` is populated from an inspected container state when
+    available, allowing callers to distinguish successful one-shot services
+    from failed ones.
     """
 
     service: str
     state: str
     health: str | None
+    exit_code: int | None = None
 
 
 class ContainerBackend(Protocol):
@@ -163,8 +165,8 @@ def _remaining_timeout(deadline: float) -> float | None:
 
 def _inspect_container_states(
     binary: str, names: list[str], *, deadline: float
-) -> dict[str, tuple[str, str | None]]:
-    """Return normalized state and optional health from a container inspection.
+) -> dict[str, tuple[str, str | None, int | None]]:
+    """Return normalized state, optional health, and exit code from inspection.
 
     Both Docker and Podman expose a compatible ``State`` object in their
     inspection JSON.  A failed inspection deliberately leaves health unknown:
@@ -186,7 +188,7 @@ def _inspect_container_states(
         return {}
     if result.returncode != 0 or not result.stdout.strip():
         return {}
-    states: dict[str, tuple[str, str | None]] = {}
+    states: dict[str, tuple[str, str | None, int | None]] = {}
     for name, line in zip(names, result.stdout.splitlines(), strict=False):
         try:
             state = json.loads(line)
@@ -196,7 +198,17 @@ def _inspect_container_states(
             continue
         health_data = state.get("Health") or state.get("Healthcheck")
         health = health_data.get("Status") if isinstance(health_data, dict) else None
-        states[name] = (str(state.get("Status") or ""), str(health) if health else None)
+        raw_exit_code = state.get("ExitCode")
+        exit_code = (
+            raw_exit_code
+            if isinstance(raw_exit_code, int) and not isinstance(raw_exit_code, bool)
+            else None
+        )
+        states[name] = (
+            str(state.get("Status") or ""),
+            str(health) if health else None,
+            exit_code,
+        )
     return states
 
 
@@ -329,9 +341,14 @@ class DockerBackend:
         )
         statuses: list[ServiceStatus] = []
         for service, name, listed_state in records:
-            state, health = inspected.get(name, (listed_state, None))
+            state, health, exit_code = inspected.get(name, (listed_state, None, None))
             statuses.append(
-                ServiceStatus(service=service, state=state or listed_state, health=health)
+                ServiceStatus(
+                    service=service,
+                    state=state or listed_state,
+                    health=health,
+                    exit_code=exit_code,
+                )
             )
         return statuses
 
@@ -482,11 +499,12 @@ class PodmanBackend:
                 "podman", [record[1] for record in records], deadline=deadline
             )
             for service, name, listed_state in records:
-                state, health = inspected.get(name, (listed_state, None))
+                state, health, exit_code = inspected.get(name, (listed_state, None, None))
                 statuses_by_name[name] = ServiceStatus(
                     service=service,
                     state=state or listed_state,
                     health=health,
+                    exit_code=exit_code,
                 )
         return list(statuses_by_name.values())
 
