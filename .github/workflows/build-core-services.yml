@@ -71,7 +71,7 @@ jobs:
           uv --project "$GITHUB_WORKSPACE" run --locked phlo services init --no-dev --force
           mapfile -t services < <(
             uv --project "$GITHUB_WORKSPACE" run --locked phlo services list --all --json |
-              jq -r '.[].name'
+              jq -r '.data[].name'
           )
           add_args=()
           for service in "${services[@]}"; do

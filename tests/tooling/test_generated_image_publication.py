@@ -11,6 +11,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -264,6 +266,21 @@ def test_publication_workflow_publishes_attested_images_after_digest_scans() -> 
     assert (checkout.get("with") or {}).get("fetch-depth") == 0
     matrix_step = _step_with_id(prepare_steps, "matrix")
     assert "PUBLISH_SERVICES" in (matrix_step.get("env") or {})
+    jq_lines = [
+        line.strip()
+        for line in matrix_step["run"].splitlines()
+        if line.strip().startswith("jq -r ")
+    ]
+    assert len(jq_lines) == 1
+    jq_command = shlex.split(jq_lines[0])
+    parsed_services = subprocess.run(
+        jq_command,
+        input=json.dumps({"data": [{"name": "dagster"}, {"name": "phlo-api"}]}),
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    assert parsed_services.stdout.splitlines() == ["dagster", "phlo-api"]
     for job_name in ("build", "merge"):
         assert jobs[job_name]["permissions"]["packages"] == "write"
 
