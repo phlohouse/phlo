@@ -135,3 +135,11 @@ def test_generated_compose_cannot_be_replayed_as_artifact(project):
     with pytest.raises(ValueError, match="Private/runtime"):
         ComposeGenerator(discovery).copy_service_files([], state)
     assert (state / "docker-compose.yml").read_bytes() == original
+
+
+def test_service_without_declared_files_can_migrate(project):
+    root, _, discovery = project
+    discovery.get_service("demo").files = None
+    result = CliRunner().invoke(migrate_cmd)
+    assert result.exit_code == 0, result.output
+    assert (root / "compose.phlo.yaml").exists()

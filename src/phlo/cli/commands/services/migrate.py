@@ -104,7 +104,7 @@ def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:
             config.pop("user")
         service = discovered.get(name)
         if service:
-            paths.update(spec["dest"] for spec in service.files)
+            paths.update(spec["dest"] for spec in service.files or [])
         else:
             click.echo(f"Custom service {name}: use --include for its Dockerfiles/configs.")
     try:
