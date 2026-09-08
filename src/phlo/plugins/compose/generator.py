@@ -16,6 +16,7 @@ import yaml
 
 from phlo.config_schema import ServiceOverride
 from phlo.logging import get_logger
+from phlo.plugins.compose.artifacts import shared_artifact_files
 from phlo.plugins.compose.env import (
     generate_env as _generate_env,
 )
@@ -648,6 +649,37 @@ class ComposeGenerator:
                     shutil.copy2(source, dest)
 
                 copied.append(str(dest.relative_to(output_dir)))
+
+        # Reapply checked-in artifacts after package defaults, including explicit
+        # migration --include files. Paths keep their original .phlo-relative
+        # layout, so Docker COPY, build contexts and bind mounts stay valid.
+        shared_root = output_dir.parent / "phlo-runtime"
+        if shared_root.exists():
+            shared_files = sorted(
+                {
+                    source
+                    for child in shared_root.iterdir()
+                    if child.name != ".gitattributes"
+                    for source in shared_artifact_files(shared_root, child.name)
+                }
+            )
+            for source in shared_files:
+                if not source.is_file() or source.name == ".gitattributes":
+                    continue
+                relative = source.relative_to(shared_root)
+                dest = output_dir / relative
+                if any(
+                    parent.is_symlink()
+                    for parent in [dest, *dest.parents]
+                    if parent.is_relative_to(output_dir)
+                ):
+                    raise ValueError(
+                        f"Runtime artifact destination cannot be a symlink: {relative}"
+                    )
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, dest)
+                if str(relative) not in copied:
+                    copied.append(str(relative))
 
         return copied
 

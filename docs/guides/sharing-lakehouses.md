@@ -52,3 +52,41 @@ this generates machine-specific mounts and should not be used as a shared base.
 This shares configuration, not running volumes or database contents. Locking
 Python packages does not pin mutable container tags; use image digests in shared
 Compose settings when exact image reproducibility is required.
+
+
+## Migrate an existing development stack
+
+```console
+phlo services migrate --dry-run
+phlo services migrate
+```
+
+The command **copies**, rather than removes, the existing Compose configuration
+into `compose.phlo.yaml`. It exports Dockerfiles, entrypoints, and configs declared
+by installed service manifests into the root-level `phlo-runtime/` directory.
+For additional handwritten artifacts, use repeatable
+`--include service/custom.conf` paths relative to `.phlo/`. Custom services are
+reported so you can explicitly include their build/config files. Undeclared files
+are not automatically classified as safe to share.
+
+Review and commit both outputs. Existing destinations are never overwritten.
+Dotfiles such as `.env` and `.env.local`, volumes, logs, generated Compose, and staged lock metadata
+cannot be exported as artifacts. The Compose check catches common inline
+credential keys but is not a general secret scanner: review handwritten configs
+and other literal values before committing. Local dev source mounts must be
+removed before migration. Exported Linux runtime UID/GID values are omitted so
+each host regenerates its own ownership settings. If you deliberately configured
+a fixed identity, express it in the appropriate shared OS layer after migration.
+
+Teammates install the locked packages and run `phlo services init --no-dev`.
+During generation, `phlo-runtime/` artifacts are copied over package-provided
+files in `.phlo/`, preserving their relative layout, build contexts, and Docker
+COPY paths. After editing shared artifacts, run `phlo services init --force
+--no-dev` to apply them locally. Do not edit the generated copies. The exported
+`.gitattributes` keeps checked-out text artifacts at LF across Windows and Linux.
+
+Migration creates a **Compose snapshot**, not a minimal diff against package
+defaults. Review it when upgrading services: values present in the snapshot
+continue to override generated defaults, and Compose merge rules still apply.
+Move host-specific mounts/settings into OS or personal layers. Original files
+remain available as a backup; the command does not stage, commit, or delete them.

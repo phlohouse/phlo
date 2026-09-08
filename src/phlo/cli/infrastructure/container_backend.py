@@ -89,6 +89,33 @@ class ContainerBackend(Protocol):
         """Return command tokens for executing a process inside a running container."""
 
 
+def validate_development_compose_layers(phlo_dir: Path) -> None:
+    """Reject shared layers until production checks inspect effective Compose."""
+    env_file = phlo_dir / ".env"
+    env_local_file = phlo_dir / ".env.local"
+    # Existing production checks inspect the generated base, not merged layers.
+    # Check every source conservatively so local overrides cannot downgrade it.
+    sources = [
+        parse_env_file(env_file, strip_quotes=True),
+        parse_env_file(env_local_file, strip_quotes=True),
+        os.environ,
+    ]
+    protected = requires_http_authorization() or any(
+        source.get("PHLO_ENVIRONMENT", "").strip().lower()
+        in {"prod", "production", "staging", "regulated"}
+        or any(
+            source.get(key, "").strip().lower() in {"1", "true", "yes", "on"}
+            for key in ("PHLO_REGULATED", "PHLO_REGULATED_MODE")
+        )
+        for source in sources
+    )
+    if protected:
+        raise click.ClickException(
+            "Compose override layers are supported only for development. "
+            "Remove the layers and use phlo.yaml for production configuration."
+        )
+
+
 def _compose_base_cmd(
     *,
     binary: str,
@@ -123,27 +150,7 @@ def _compose_base_cmd(
     overrides.append(phlo_dir / "compose.local.yaml")
     overrides = [override for override in overrides if override.is_file()]
     if overrides:
-        # Existing production checks inspect the generated base, not merged layers.
-        # Check every source conservatively so local overrides cannot downgrade it.
-        sources = [
-            parse_env_file(env_file, strip_quotes=True),
-            parse_env_file(env_local_file, strip_quotes=True),
-            os.environ,
-        ]
-        protected = requires_http_authorization() or any(
-            source.get("PHLO_ENVIRONMENT", "").strip().lower()
-            in {"prod", "production", "staging", "regulated"}
-            or any(
-                source.get(key, "").strip().lower() in {"1", "true", "yes", "on"}
-                for key in ("PHLO_REGULATED", "PHLO_REGULATED_MODE")
-            )
-            for source in sources
-        )
-        if protected:
-            raise click.ClickException(
-                "Compose override layers are supported only for development. "
-                "Remove the layers and use phlo.yaml for production configuration."
-            )
+        validate_development_compose_layers(phlo_dir)
     for override in overrides:
         cmd.extend(["-f", str(override)])
     # The local overrides file is appended last on purpose: compose resolves
