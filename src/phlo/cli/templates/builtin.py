@@ -138,6 +138,12 @@ Phlo data workflows for {project_name}.
 
    This creates `.phlo/docker-compose.yml`, `.phlo/.env`, and `.phlo/.env.local`.
    Keep `.phlo/` out of source control; it is generated runtime state.
+   Commit team Compose customizations in `compose.phlo.yaml` at the project root.
+   Optional `compose.phlo.windows.yaml`, `compose.phlo.linux.yaml`, and
+   `compose.phlo.macos.yaml` apply only on that host OS (WSL uses Linux).
+   Personal overrides belong in `.phlo/compose.local.yaml` and apply last.
+   Relative bind/build paths in all layers resolve from `.phlo/`; use `../`
+   for project files. See the sharing lakehouses guide for examples.
 
 3. **Start and inspect the local stack:**
    ```bash

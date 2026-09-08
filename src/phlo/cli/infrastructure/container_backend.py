@@ -9,12 +9,18 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol, cast
+
+import click
+
+from phlo.cli.infrastructure.utils import parse_env_file
+from phlo.security.mode import requires_http_authorization
 
 BackendName = Literal["docker", "podman", "auto"]
 
@@ -106,6 +112,40 @@ def _compose_base_cmd(
             str(env_file),
         ]
     )
+    # Keep team customizations outside generated state. All relative paths in
+    # these layers resolve against .phlo (the first Compose file), on every OS.
+    platform_name = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(
+        platform.system()
+    )
+    overrides = [phlo_dir.parent / "compose.phlo.yaml"]
+    if platform_name:
+        overrides.append(phlo_dir.parent / f"compose.phlo.{platform_name}.yaml")
+    overrides.append(phlo_dir / "compose.local.yaml")
+    overrides = [override for override in overrides if override.is_file()]
+    if overrides:
+        # Existing production checks inspect the generated base, not merged layers.
+        # Check every source conservatively so local overrides cannot downgrade it.
+        sources = [
+            parse_env_file(env_file, strip_quotes=True),
+            parse_env_file(env_local_file, strip_quotes=True),
+            os.environ,
+        ]
+        protected = requires_http_authorization() or any(
+            source.get("PHLO_ENVIRONMENT", "").strip().lower()
+            in {"prod", "production", "staging", "regulated"}
+            or any(
+                source.get(key, "").strip().lower() in {"1", "true", "yes", "on"}
+                for key in ("PHLO_REGULATED", "PHLO_REGULATED_MODE")
+            )
+            for source in sources
+        )
+        if protected:
+            raise click.ClickException(
+                "Compose override layers are supported only for development. "
+                "Remove the layers and use phlo.yaml for production configuration."
+            )
+    for override in overrides:
+        cmd.extend(["-f", str(override)])
     # The local overrides file is appended last on purpose: compose resolves
     # conflicting keys in favor of the later --env-file.
     if env_local_file.exists():

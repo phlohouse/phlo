@@ -362,3 +362,51 @@ def test_failed_container_query_is_not_an_empty_project(backend, monkeypatch):
     )
     with pytest.raises(OSError, match="status is unavailable"):
         backend.list_project_containers("demo")
+
+
+@pytest.mark.parametrize("backend", [DockerBackend, PodmanBackend])
+@pytest.mark.parametrize(
+    "host, suffix", [("Windows", "windows"), ("Linux", "linux"), ("Darwin", "macos")]
+)
+def test_shared_compose_layers_are_ordered_and_host_specific(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend, host: str, suffix: str
+) -> None:
+    from phlo.cli.infrastructure import container_backend
+
+    # Spaces in checkout paths must remain a single subprocess argument.
+    project = tmp_path / "team lakehouse"
+    phlo_dir = project / ".phlo"
+    phlo_dir.mkdir(parents=True)
+    for name in (
+        "compose.phlo.yaml",
+        "compose.phlo.windows.yaml",
+        "compose.phlo.linux.yaml",
+        "compose.phlo.macos.yaml",
+    ):
+        (project / name).write_text("services: {}\n")
+    local = phlo_dir / "compose.local.yaml"
+    local.write_text("services: {}\n")
+    monkeypatch.setattr(container_backend.platform, "system", lambda: host)
+    monkeypatch.setattr(DockerBackend, "_compose_binary", lambda self: "docker")
+    cmd = backend().compose_base_cmd(phlo_dir=phlo_dir, project_name="team")
+    files = [cmd[index + 1] for index, token in enumerate(cmd) if token == "-f"]
+    assert files == [
+        str(phlo_dir / "docker-compose.yml"),
+        str(project / "compose.phlo.yaml"),
+        str(project / f"compose.phlo.{suffix}.yaml"),
+        str(local),
+    ]
+
+
+@pytest.mark.parametrize("filename", [".env", ".env.local"])
+def test_compose_layers_reject_production(tmp_path: Path, filename: str) -> None:
+    import click
+
+    from phlo.cli.infrastructure.container_backend import _compose_base_cmd
+
+    state = tmp_path / ".phlo"
+    state.mkdir()
+    (state / filename).write_text('PHLO_ENVIRONMENT="production"\n')
+    (tmp_path / "compose.phlo.yaml").write_text("services: {}\n")
+    with pytest.raises(click.ClickException, match="only for development"):
+        _compose_base_cmd(binary="docker", phlo_dir=state, project_name="team")
