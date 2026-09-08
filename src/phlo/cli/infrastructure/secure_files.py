@@ -30,20 +30,28 @@ class SensitiveFilePermissionError(SensitiveWriteError):
     """The restrictive file mode could not be established or verified."""
 
 
-def write_sensitive_file(path: Path | str, content: str) -> None:
+def _insecure_write_is_allowed(allow_insecure: bool) -> bool:
+    return os.name != "posix" and allow_insecure
+
+
+def write_sensitive_file(path: Path | str, content: str, *, allow_insecure: bool = False) -> None:
     """Create or replace ``path`` with ``content`` at mode ``0600`` atomically.
 
     On POSIX, failure to establish or verify the restrictive mode is fatal. On
     unsupported platforms the write refuses rather than claiming security it
     cannot provide. The temporary file is removed on any failure.
     """
-    if os.name != "posix":
+    if os.name != "posix" and not _insecure_write_is_allowed(allow_insecure):
         raise UnsupportedPlatformError(
             "sensitive-file writes with a guaranteed restrictive mode are not supported "
             f"on this platform ({os.name!r})"
         )
 
     target = Path(path)
+    if _insecure_write_is_allowed(allow_insecure):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return
     target.parent.mkdir(parents=True, exist_ok=True)
 
     fd: int | None = None
