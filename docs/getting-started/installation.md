@@ -116,7 +116,7 @@ The launcher finds Python 3.11 through `py -3.11` or `PATH`, then delegates to t
 
 This lane requires Docker Desktop to be running with Linux containers; it does not configure Docker Desktop or require WSL.
 
-The `Windows Compose portability` GitHub Actions lane checks the part that can run on a hosted Windows runner: it generates and commits the shared Compose layout on Linux, checks it out into a native PowerShell path containing spaces, installs the built CLI, and reruns `phlo services init --no-dev --allow-insecure` without changing the shared files. GitHub-hosted Windows runners do not provide Docker Desktop or Hyper-V, so the lane cannot start containers or prove Windows bind mounts, persistence across restart, or service health. Those checks require a Windows Docker Desktop machine or a self-hosted runner.
+The `Windows Compose portability` GitHub Actions lane checks the part that can run on a hosted Windows runner: it generates and commits the shared Compose layout on Linux, checks it out into a native PowerShell path containing spaces, installs the built CLI, and reruns `phlo services init --no-dev --allow-insecure` without changing the shared files. It validates Compose syntax with the runner's Docker CLI or a pinned standalone Compose CLI. GitHub-hosted Windows runners do not provide Docker Desktop or Hyper-V, so the lane cannot start containers or prove Windows bind mounts, persistence across restart, or service health. Those checks require a Windows Docker Desktop machine or a self-hosted runner.
 
 ## Quick Install
 

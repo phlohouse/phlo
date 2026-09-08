@@ -160,21 +160,38 @@ jobs:
             }
           }
 
-      - name: Validate Compose syntax when the runner exposes the CLI
+      - name: Install a pinned Docker Compose CLI when Docker is unavailable
         shell: pwsh
         run: |
           $docker = Get-Command docker -ErrorAction SilentlyContinue
-          if ($null -eq $docker) {
-            "### Compose validation`n`nSkipped: windows-latest does not provide Docker Desktop or a Docker Compose CLI." | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-            exit 0
+          if ($null -ne $docker) {
+            & $docker.Source compose version
+            if ($LASTEXITCODE -eq 0) {
+              "COMPOSE_EXECUTABLE=$($docker.Source)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+              "COMPOSE_PREFIX=compose" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+              exit 0
+            }
           }
-          & $docker.Source compose version
-          if ($LASTEXITCODE -ne 0) {
-            "### Compose validation`n`nSkipped: Docker is present but Docker Compose is unavailable." | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-            exit 0
-          }
+
+          $compose = Join-Path $env:RUNNER_TEMP "docker-compose-v2.36.2.exe"
+          Invoke-WebRequest `
+            -Uri "https://github.com/docker/compose/releases/download/v2.36.2/docker-compose-windows-x86_64.exe" `
+            -OutFile $compose
+          $expected = "82ebec0022949087f883b3dffa0d7e57a2a141203ad31c012381d2754962c905"
+          $actual = (Get-FileHash -Algorithm SHA256 $compose).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Docker Compose checksum mismatch" }
+          & $compose version
+          if ($LASTEXITCODE -ne 0) { throw "Pinned Docker Compose CLI failed to start" }
+          "COMPOSE_EXECUTABLE=$compose" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "COMPOSE_PREFIX=" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Validate Compose syntax
+        shell: pwsh
+        run: |
           Push-Location $env:PROJECT
-          & $docker.Source compose --project-directory .phlo --profile '*' config --quiet
+          $prefix = @()
+          if ($env:COMPOSE_PREFIX) { $prefix += $env:COMPOSE_PREFIX }
+          & $env:COMPOSE_EXECUTABLE @prefix --project-directory .phlo --profile '*' config --quiet
           if ($LASTEXITCODE -ne 0) { throw "Docker Compose config validation failed" }
           Pop-Location
 
@@ -186,5 +203,5 @@ jobs:
 
           This job proves that an installed Windows CLI can reuse the Linux-generated shared layout from a native PowerShell checkout, including a path with spaces and LF text files.
 
-          GitHub-hosted `windows-latest` does not provide Docker Desktop/Hyper-V, so this job does not start containers or prove bind mounts, persistence, or service health. Those remain a manual or self-hosted Windows Docker Desktop acceptance step.
+          GitHub-hosted `windows-latest` does not provide Docker Desktop/Hyper-V, so this job does not start containers or prove bind mounts, persistence, or service health. Those remain a manual or self-hosted Windows Docker Desktop acceptance step. Compose syntax is still validated with the runner's Docker CLI or the pinned standalone Compose CLI installed above.
           "@ | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
