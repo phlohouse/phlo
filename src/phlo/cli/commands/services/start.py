@@ -804,24 +804,26 @@ def start_cmd(
         stop_cmd.extend(sorted(service_names))
         run_command(stop_cmd, check=False, capture_output=False)
 
-    cmd = compose_base_cmd(
-        phlo_dir=phlo_dir,
-        project_name=project_name,
-        profiles=profile,
-        backend_name=backend_name,
-    )
-    cmd.append("up")
+    if skip_docker_compose:
+        result = subprocess.CompletedProcess(args=[], returncode=0)
+    else:
+        cmd = compose_base_cmd(
+            phlo_dir=phlo_dir,
+            project_name=project_name,
+            profiles=profile,
+            backend_name=backend_name,
+        )
+        cmd.append("up")
 
-    if detach:
-        cmd.append("-d")
+        if detach:
+            cmd.append("-d")
 
-    if build:
-        cmd.append("--build")
+        if build:
+            cmd.append("--build")
 
-    # Add specific services if specified
-    if docker_services_list:
-        cmd.extend(docker_services_list)
-    if not skip_docker_compose:
+        # Add specific services if specified
+        if docker_services_list:
+            cmd.extend(docker_services_list)
         logger.info(
             "services_start_docker_started",
             project_name=project_name,
@@ -832,10 +834,7 @@ def start_cmd(
         )
 
     try:
-        if skip_docker_compose:
-            # Skip docker-compose - create a successful result
-            result = subprocess.CompletedProcess(args=[], returncode=0)
-        else:
+        if not skip_docker_compose:
             result = run_command(cmd, check=False, capture_output=False)
             if result.returncode != 0:
                 logger.error(
