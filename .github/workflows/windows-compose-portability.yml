@@ -1,0 +1,186 @@
+name: Windows Compose portability
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-compose-portability.yml"
+      - "docs/getting-started/installation.md"
+      - "packages/**"
+      - "pyproject.toml"
+      - "scripts/**"
+      - "src/phlo/**"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-compose-portability-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate-linux-fixture:
+    name: linux / generate shared fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: source
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+          enable-cache: true
+
+      - name: Install the complete service workspace
+        working-directory: source
+        run: |
+          uv python install 3.11
+          uv sync --python 3.11 --all-packages --locked
+
+      - name: Generate and commit the shared Compose layout
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          project="$RUNNER_TEMP/phlo fixture with spaces"
+          mkdir -p "$project"
+          cd "$project"
+          uv --project "$GITHUB_WORKSPACE/source" run --locked phlo init . --template csv-batch --force
+          uv --project "$GITHUB_WORKSPACE/source" run --locked phlo services init --no-dev
+
+          test -f .phlo/docker-compose.yml
+          test -f .phlo/.gitignore
+          test -f .phlo/.gitattributes
+          grep -Fq '# Phlo shared layout v1' .phlo/.gitignore
+          grep -Fq '* text=auto eol=lf' .phlo/.gitattributes
+
+          git init -q
+          git config user.name "Phlo CI"
+          git config user.email "phlo-ci@example.invalid"
+          git add phlo.yaml
+          git add -f .phlo/.gitignore .phlo/.gitattributes .phlo/docker-compose.yml
+          git commit -qm "fixture: shared Compose layout"
+          git ls-files -z | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/shared-layout.sha256"
+          git bundle create "$RUNNER_TEMP/shared-layout.bundle" --all
+
+      - name: Build installed CLI and service wheels
+        working-directory: source
+        run: uv build --all-packages --wheel --out-dir "$RUNNER_TEMP/wheelhouse"
+
+      - name: Upload shared layout and installed artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: windows-compose-portability-fixture
+          path: |
+            ${{ runner.temp }}/shared-layout.bundle
+            ${{ runner.temp }}/shared-layout.sha256
+            ${{ runner.temp }}/wheelhouse/*.whl
+          if-no-files-found: error
+          retention-days: 7
+
+  verify-windows-fixture:
+    name: windows / preserve shared fixture
+    needs: generate-linux-fixture
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: windows-compose-portability-fixture
+          path: fixture-input
+
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+          enable-cache: true
+
+      - name: Clone the Linux-generated fixture into a path with spaces
+        shell: pwsh
+        run: |
+          $project = Join-Path $env:RUNNER_TEMP "phlo fixture with spaces"
+          git -c core.autocrlf=false clone --quiet (Join-Path $env:GITHUB_WORKSPACE "fixture-input\shared-layout.bundle") $project
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "fixture-input\shared-layout.sha256") $env:RUNNER_TEMP
+          "PROJECT=$project" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify the Windows checkout matches the Linux commit
+        shell: pwsh
+        run: |
+          $manifest = Join-Path $env:RUNNER_TEMP "shared-layout.sha256"
+          foreach ($line in Get-Content $manifest) {
+            $parts = $line -split '  ', 2
+            $relative = $parts[1].Replace('/', [IO.Path]::DirectorySeparatorChar)
+            $actual = (Get-FileHash -Algorithm SHA256 (Join-Path $env:PROJECT $relative)).Hash.ToLowerInvariant()
+            if ($actual -ne $parts[0]) { throw "Linux/Windows checkout hash mismatch: $relative" }
+          }
+
+      - name: Install the built CLI into a clean Windows environment
+        shell: pwsh
+        run: |
+          uv python install 3.11
+          $venv = Join-Path $env:RUNNER_TEMP "phlo-windows-venv"
+          uv venv --python 3.11 $venv
+          $python = Join-Path $venv "Scripts\python.exe"
+          $wheels = Get-ChildItem (Join-Path $env:GITHUB_WORKSPACE "fixture-input\wheelhouse") -Filter *.whl
+          if ($wheels.Count -eq 0) { throw "No workspace wheels were uploaded" }
+          uv pip install --python $python --find-links (Join-Path $env:GITHUB_WORKSPACE "fixture-input\wheelhouse") @($wheels.FullName)
+          "PHLO=$((Join-Path $venv 'Scripts\phlo.exe'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Regenerate host state without replacing shared files
+        shell: pwsh
+        run: |
+          Push-Location $env:PROJECT
+          # Windows cannot guarantee POSIX 0600 permissions for generated secrets.
+          & $env:PHLO services init --no-dev --allow-insecure
+          if ($LASTEXITCODE -ne 0) { throw "Windows services init failed with exit $LASTEXITCODE" }
+          git diff --exit-code -- .
+          if ($LASTEXITCODE -ne 0) { throw "Windows services init changed the committed shared layout" }
+          git status --short --ignored
+          Pop-Location
+
+      - name: Check generated files stay LF encoded
+        shell: pwsh
+        run: |
+          $tracked = git -C $env:PROJECT ls-files
+          foreach ($relative in $tracked) {
+            $bytes = [System.IO.File]::ReadAllBytes((Join-Path $env:PROJECT $relative))
+            for ($index = 0; $index -lt $bytes.Length; $index++) {
+              if ($bytes[$index] -eq 13) { throw "CR byte found in tracked generated file: $relative" }
+            }
+          }
+
+      - name: Validate Compose syntax when the runner exposes the CLI
+        shell: pwsh
+        run: |
+          $docker = Get-Command docker -ErrorAction SilentlyContinue
+          if ($null -eq $docker) {
+            "### Compose validation`n`nSkipped: windows-latest does not provide Docker Desktop or a Docker Compose CLI." | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            exit 0
+          }
+          & $docker.Source compose version
+          if ($LASTEXITCODE -ne 0) {
+            "### Compose validation`n`nSkipped: Docker is present but Docker Compose is unavailable." | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            exit 0
+          }
+          Push-Location $env:PROJECT
+          & $docker.Source compose --project-directory .phlo --profile '*' config --quiet
+          if ($LASTEXITCODE -ne 0) { throw "Docker Compose config validation failed" }
+          Pop-Location
+
+      - name: Record the acceptance boundary
+        shell: pwsh
+        run: |
+          @"
+          ### Native Windows acceptance boundary
+
+          This job proves that an installed Windows CLI can reuse the Linux-generated shared layout from a native PowerShell checkout, including a path with spaces and LF text files.
+
+          GitHub-hosted `windows-latest` does not provide Docker Desktop/Hyper-V, so this job does not start containers or prove bind mounts, persistence, or service health. Those remain a manual or self-hosted Windows Docker Desktop acceptance step.
+          "@ | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
