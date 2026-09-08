@@ -11,6 +11,7 @@ from phlo.cli.infrastructure.secure_files import (
     SensitiveFilePermissionError,
     SensitiveWriteError,
     UnsupportedPlatformError,
+    _insecure_write_is_allowed,
     write_sensitive_file,
 )
 
@@ -86,3 +87,11 @@ def test_unsupported_platform_refuses(tmp_path: Path, monkeypatch: pytest.Monkey
     with pytest.raises(UnsupportedPlatformError):
         write_sensitive_file(tmp_path / ".env.local", "SECRET=value\n")
     assert not (tmp_path / ".env.local").exists()
+
+
+def test_unsupported_platform_allows_explicit_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("phlo.cli.infrastructure.secure_files.os.name", "nt")
+
+    assert _insecure_write_is_allowed(allow_insecure=True)

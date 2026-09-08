@@ -60,8 +60,6 @@ from phlo.capabilities import (
 from phlo.capabilities.specs import AssetCheckSpec, AssetSpec, WorkflowAuthoringSpec
 from phlo.plugins.base import AssetProviderPlugin, IngestionProviderPlugin, PluginMetadata
 
-from phlo_dlt.decorator import clear_ingestion_assets, get_ingestion_assets
-
 
 def get_workflow_wizard_contributions() -> list[WorkflowWizardContribution]:
     """Return provider-neutral workflow wizard contributions for DLT."""
@@ -172,6 +170,8 @@ class DltAssetProvider(AssetProviderPlugin):
 
     def get_assets(self) -> Iterable[AssetSpec]:
         """Return all assets registered through the ``@phlo_ingestion`` decorator."""
+        from phlo_dlt.decorator import get_ingestion_assets
+
         return get_ingestion_assets()
 
     def get_checks(self) -> Iterable[AssetCheckSpec]:
@@ -185,6 +185,8 @@ class DltAssetProvider(AssetProviderPlugin):
         Called during plugin reload or testing scenarios.
 
         """
+        from phlo_dlt.decorator import clear_ingestion_assets
+
         clear_ingestion_assets()
 
 
@@ -236,6 +238,8 @@ class DLTIngestionProvider(IngestionProviderPlugin):
 
     def get_asset_retriever(self) -> Callable[[], list[Any]]:
         """Return the callable that lists registered ingestion assets."""
+        from phlo_dlt.decorator import get_ingestion_assets
+
         return get_ingestion_assets
 
     def get_workflow_wizard_contributions(self) -> list[WorkflowWizardContribution]:

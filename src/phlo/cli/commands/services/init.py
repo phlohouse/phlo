@@ -185,6 +185,11 @@ def _validate_production_credentials(
     help="Render the production deployment profile without core host ports.",
 )
 @click.option(
+    "--allow-insecure",
+    is_flag=True,
+    help="Allow generated local secrets on platforms that cannot enforce 0600 permissions.",
+)
+@click.option(
     "--profile",
     "profiles",
     multiple=True,
@@ -199,6 +204,7 @@ def init_cmd(
     phlo_source: str | None,
     service_dev: bool,
     production: bool,
+    allow_insecure: bool,
     profiles: tuple[str, ...],
 ):
     """Initialize Phlo infrastructure in .phlo/ directory.
@@ -405,7 +411,7 @@ def init_cmd(
     )
     env_file.write_text(env_content)
     click.echo(f"Created: {env_file.relative_to(Path.cwd())}")
-    write_sensitive_file(env_local_file, env_local_content)
+    write_sensitive_file(env_local_file, env_local_content, allow_insecure=allow_insecure)
     click.echo(f"Created: {env_local_file.relative_to(Path.cwd())}")
 
     # Generate .gitignore

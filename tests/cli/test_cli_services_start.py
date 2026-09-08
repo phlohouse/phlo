@@ -1138,6 +1138,11 @@ def test_native_start_reports_failures_without_losing_successful_services(
     monkeypatch.setattr(start_module, "ensure_phlo_dir", lambda: phlo_dir)
     monkeypatch.setattr(start_module, "get_project_name", lambda: "demo")
     monkeypatch.setattr(start_module, "ServiceDiscovery", NativeDiscovery)
+    monkeypatch.setattr(
+        start_module,
+        "compose_base_cmd",
+        lambda **_kwargs: pytest.fail("native-only start must not probe Docker Compose"),
+    )
     monkeypatch.setattr("phlo.plugins.compose.native.NativeProcessManager", FakeNativeManager)
     monkeypatch.setattr(start_module, "_stop_native_processes", lambda *_args: None)
     monkeypatch.setattr(start_module, "_load_native_state", lambda *_args: {})
