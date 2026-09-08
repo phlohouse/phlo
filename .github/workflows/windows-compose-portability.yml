@@ -148,8 +148,12 @@ jobs:
       - name: Check generated files stay LF encoded
         shell: pwsh
         run: |
-          $tracked = git -C $env:PROJECT ls-files
-          foreach ($relative in $tracked) {
+          $portable = Get-Content (Join-Path $env:RUNNER_TEMP "shared-layout.sha256") |
+            ForEach-Object { ($_ -split '  ', 2)[1] } |
+            Where-Object { $_ -ne '.phlo/.gitignore' }
+          $portable += Get-ChildItem (Join-Path $env:PROJECT '.phlo') -Recurse -Filter *.sh |
+            ForEach-Object { $_.FullName.Substring($env:PROJECT.Length + 1).Replace('\', '/') }
+          foreach ($relative in $portable) {
             $bytes = [System.IO.File]::ReadAllBytes((Join-Path $env:PROJECT $relative))
             for ($index = 0; $index -lt $bytes.Length; $index++) {
               if ($bytes[$index] -eq 13) { throw "CR byte found in tracked generated file: $relative" }
