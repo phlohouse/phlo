@@ -1,92 +1,91 @@
 # Sharing a development lakehouse
 
-Commit `phlo.yaml`, `pyproject.toml`, and `uv.lock` so teammates install the same
-service packages (`uv sync --locked`) and share service selection and non-secret
-defaults. Run `phlo services init --no-dev` after cloning, or add `--force` after
-changing those inputs. Keep `.phlo/` ignored: it contains secrets, local data,
-generated service files, and host-specific configuration.
+Keep shared configuration in `.phlo/`. Commit Compose, Dockerfiles, service
+configs, and generated Git rules alongside `phlo.yaml`, `pyproject.toml`, and
+`uv.lock`. Personal settings and runtime state stay ignored:
 
-Put Compose customizations in **`compose.phlo.yaml` in the project root** instead
-of editing `.phlo/docker-compose.yml`. Phlo's Docker and Podman commands apply:
-
-1. `.phlo/docker-compose.yml` (generated base)
-2. `compose.phlo.yaml` (shared team settings)
-3. `compose.phlo.windows.yaml`, `compose.phlo.linux.yaml`, or
-   `compose.phlo.macos.yaml` (only the OS running Phlo; WSL selects Linux)
-4. `.phlo/compose.local.yaml` (optional personal settings)
-
-These layers are development-only: Phlo rejects them in production, staging,
-or regulated environments because existing security checks inspect the base
-configuration. Use `phlo.yaml` for those deployments.
-
-Missing layers are skipped. Commit the shared and OS layers. Changes take effect
-on the next Compose command; use `phlo services start` to reconcile containers.
-Regenerating infrastructure leaves these files intact. Native services do not
-use Compose and therefore do not consume these layers.
-
-```yaml
-# compose.phlo.yaml
-services:
-  postgres:
-    mem_limit: 1g
+```text
+.phlo/
+  .gitignore                 tracked, selects shared files
+  .gitattributes             tracked, LF text checkout
+  docker-compose.yml         tracked shared base
+  dagster/                   tracked Dockerfiles/configs
+  trino/                     tracked configs
+  compose.shared.yaml        optional tracked team overrides
+  compose.linux.yaml         optional tracked OS overrides
+  compose.windows.yaml
+  compose.macos.yaml
+  overrides/                 ignored
+    .env                     generated local defaults
+    compose.host.yaml        generated host identity/dev mounts
+    compose.yaml             personal Compose changes
+  secrets/                   ignored
+    .env                     credentials
+  volumes/                   ignored
+  logs/                      ignored
 ```
 
-Compose merges these files using its normal rules: maps merge, while some lists
-(such as ports and volumes) have special merge behavior. Do not assume that a
-later list removes earlier entries. Keep service selection in `phlo.yaml`.
+The inner `.gitignore` uses an allowlist: undeclared files and runtime data are
+ignored by default. Add custom shared artifacts with migration's `--include`,
+or deliberately maintain the allowlist. Ignore rules do not untrack files that
+were already committed.
 
-All relative bind mounts and build contexts resolve from **`.phlo/`**, the first
-Compose file's directory, even in root-level overrides. Use `../data` for the
-project's data directory. Prefer relative paths or named volumes for portability.
-For machine-specific absolute paths use long mount syntax in the local layer
-(`type: bind`, `source: 'C:/data'`, `target: /data`) to avoid Windows drive-letter
-ambiguity. Container paths still use Linux syntax for Linux containers.
-
-Store credentials in `.phlo/.env.local`, never tracked Compose files. Share
-variable names and setup instructions, not values. Existing projects can move
-handwritten changes into the shared layer, review them for secrets and absolute
-paths, then regenerate with `phlo services init --force --no-dev`. Back up any
-manual edits first. For deliberate local Phlo source development, use `--dev`;
-this generates machine-specific mounts and should not be used as a shared base.
-
-This shares configuration, not running volumes or database contents. Locking
-Python packages does not pin mutable container tags; use image digests in shared
-Compose settings when exact image reproducibility is required.
-
-
-## Migrate an existing development stack
+## Migrate an existing project
 
 ```console
 phlo services migrate --dry-run
 phlo services migrate
 ```
 
-The command **copies**, rather than removes, the existing Compose configuration
-into `compose.phlo.yaml`. It exports Dockerfiles, entrypoints, and configs declared
-by installed service manifests into the root-level `phlo-runtime/` directory.
-For additional handwritten artifacts, use repeatable
-`--include service/custom.conf` paths relative to `.phlo/`. Custom services are
-reported so you can explicitly include their build/config files. Undeclared files
-are not automatically classified as safe to share.
+Migration moves `.phlo/.env` to `overrides/.env`, `.phlo/.env.local` to
+`secrets/.env`, and `.phlo/compose.local.yaml` to `overrides/compose.yaml`.
+Shared Compose, Dockerfiles, entrypoints, and configs already in `.phlo/` stay
+in place. Files are selected from installed service manifests; use repeatable
+`--include service/custom.conf` for additional handwritten artifacts.
 
-Review and commit both outputs. Existing destinations are never overwritten.
-Dotfiles such as `.env` and `.env.local`, volumes, logs, generated Compose, and staged lock metadata
-cannot be exported as artifacts. The Compose check catches common inline
-credential keys but is not a general secret scanner: review handwritten configs
-and other literal values before committing. Local dev source mounts must be
-removed before migration. Exported Linux runtime UID/GID values are omitted so
-each host regenerates its own ownership settings. If you deliberately configured
-a fixed identity, express it in the appropriate shared OS layer after migration.
+It updates Compose environment-file references and moves generated host user IDs
+and core Phlo dev-source mounts into the ignored host overlay. It replaces the
+root blanket `.phlo/` exclusion with rules that let the inner allowlist work.
+Review shared files before staging: common inline credential keys are rejected,
+but arbitrary handwritten files still need review for private values and
+machine-specific paths. Secrets and personal overrides are never selected.
 
-Teammates install the locked packages and run `phlo services init --no-dev`.
-During generation, `phlo-runtime/` artifacts are copied over package-provided
-files in `.phlo/`, preserving their relative layout, build contexts, and Docker
-COPY paths. After editing shared artifacts, run `phlo services init --force
---no-dev` to apply them locally. Do not edit the generated copies. The exported
-`.gitattributes` keeps checked-out text artifacts at LF across Windows and Linux.
+For the earlier root export layout, it also moves `compose.phlo.yaml` to
+`.phlo/compose.shared.yaml`, OS layers to `.phlo/compose.<os>.yaml`, and
+`phlo-runtime/` artifacts back into `.phlo/`. Identical duplicates are
+consolidated; differing destinations cause a preflight error. File failures
+roll back planned moves and writes. The command does not stage or commit files.
 
-Migration creates a **Compose snapshot**, not a minimal diff against package
-defaults. Review it when upgrading services: values present in the snapshot
-continue to override generated defaults, and Compose merge rules still apply.
-Move host-specific mounts/settings into OS or personal layers. Original files
-remain available as a backup; the command does not stage, commit, or delete them.
+## Start another developer's checkout
+
+Install the same packages with `uv sync --locked`, then run:
+
+```console
+phlo services init --no-dev
+phlo services start
+```
+
+In a shared-layout checkout, plain `init` preserves existing shared Compose and
+service files while creating local environment files and host overrides.
+`init --force` deliberately regenerates shared files from package definitions
+and `phlo.yaml`; review the Git diff before committing. Use `--dev` for local
+Phlo source development: generated differences stay in `overrides/compose.host.yaml`.
+Personal edits belong in `overrides/compose.yaml`, because Phlo regenerates the
+host file.
+
+Docker and Podman apply the shared base, optional shared and OS layers, generated
+host overrides, then personal overrides. WSL selects Linux. All relative bind
+mounts and build contexts resolve from `.phlo/`, even inside `overrides/`;
+use `../data` for project data. Prefer named volumes or relative paths. Windows
+absolute paths should use long mount syntax (`type: bind`, `source: 'C:/data'`,
+`target: /data`). Shared text artifacts use LF checkout attributes.
+
+Compose uses its normal merge rules, including special rules for port and
+volume lists: a later list does not necessarily remove earlier entries.
+Environment readers support old paths until migration. New local defaults come
+from `overrides/.env`, followed by `secrets/.env`. Native services consume these
+environment files but do not use Compose overrides.
+
+Additional Compose layers remain development-only: production, staging, and
+regulated environments reject them until security validation can inspect merged
+configuration. This shares configuration, not running data or volumes.

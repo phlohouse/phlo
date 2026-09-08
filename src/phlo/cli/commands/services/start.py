@@ -52,6 +52,7 @@ from phlo.cli.infrastructure.container_backend import (
 )
 from phlo.cli.infrastructure.utils import get_project_name, parse_env_file
 from phlo.cli.output import missing_compose_file_error
+from phlo.config.layout import env_defaults_path, project_env_paths
 from phlo.logging import get_logger
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
 
@@ -284,7 +285,7 @@ def _wait_for_services_ready(
 def _load_native_env_overrides(project_root: Path) -> dict[str, str]:
     """Load project env values for native service subprocesses."""
     env_values: dict[str, str] = {}
-    for path in (project_root / ".phlo" / ".env", project_root / ".phlo" / ".env.local"):
+    for path in project_env_paths(project_root / ".phlo"):
         values = parse_env_file(path, strip_quotes=True)
         for key, value in values.items():
             env_values[key.strip()] = value
@@ -923,7 +924,7 @@ def start_cmd(
                     env_overrides = {
                         **_load_native_env_overrides(project_root),
                         "PHLO_PROJECT_PATH": str(project_root),
-                        "ENV_FILE_PATH": str(project_root / ".phlo" / ".env"),
+                        "ENV_FILE_PATH": str(env_defaults_path(project_root / ".phlo")),
                     }
                     for svc in native_to_start:
                         _emit_service_lifecycle_events(

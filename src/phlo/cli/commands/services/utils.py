@@ -22,6 +22,7 @@ from phlo.cli.infrastructure.command import run_command
 from phlo.cli.infrastructure.container_backend import select_project_container_backend
 from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.output import missing_compose_file_error, missing_phlo_project_error, user_error
+from phlo.config.layout import env_defaults_path, env_secrets_path
 from phlo.infrastructure.containers import resolve_container_name as _resolve_container_name
 from phlo.logging import get_logger
 from phlo.plugins.compose.generator import UV_LOCK_METADATA_FILES
@@ -91,14 +92,14 @@ def ensure_compose_project() -> Path:
     """Ensure generated service configuration exists before compose-backed commands run."""
     phlo_dir = ensure_phlo_dir()
     compose_file = phlo_dir / "docker-compose.yml"
-    env_file = phlo_dir / ".env"
+    env_file = env_defaults_path(phlo_dir)
 
     if not compose_file.exists():
         raise missing_compose_file_error(".phlo/docker-compose.yml")
     if not env_file.exists():
         raise user_error(
             "Phlo services have not been initialized",
-            missing=".phlo/.env",
+            missing=str(env_file),
             run="phlo services init",
         )
     return phlo_dir
@@ -740,7 +741,7 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     # Keep the lock-aware build flag and staged lock metadata in sync with the
     # project root across regeneration.
     env_overrides = apply_uv_lock_env_override(phlo_dir, env_overrides)
-    env_local_file = phlo_dir / ".env.local"
+    env_local_file = env_secrets_path(phlo_dir)
     existing_env_local = parse_env_file(env_local_file)
 
     # Generate docker-compose.yml
@@ -752,24 +753,26 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
         env_values={**os.environ, **env_overrides, **existing_env_local},
     )
 
-    compose_file = phlo_dir / "docker-compose.yml"
-    compose_file.write_text(compose_content)
+    from phlo.plugins.compose.artifacts import write_compose_layers
+
+    write_compose_layers(phlo_dir, compose_content)
     click.echo("Updated: .phlo/docker-compose.yml")
 
     _warn_secret_env_overrides(env_overrides, services_to_install)
 
     # Regenerate .env + .env.local
-    env_file = phlo_dir / ".env"
+    env_file = env_defaults_path(phlo_dir)
     env_content = composer.generate_env(services_to_install, env_overrides=env_overrides)
     env_local_content = composer.generate_env_local(
         services_to_install,
         env_overrides=env_overrides,
         existing_values=existing_env_local,
     )
+    env_file.parent.mkdir(parents=True, exist_ok=True)
     env_file.write_text(env_content)
-    click.echo("Updated: .phlo/.env")
+    click.echo(f"Updated: {env_file}")
     write_sensitive_file(env_local_file, env_local_content)
-    click.echo("Updated: .phlo/.env.local")
+    click.echo(f"Updated: {env_local_file}")
 
     # Copy any new service files
     copied_files = composer.copy_service_files(services_to_install, phlo_dir)

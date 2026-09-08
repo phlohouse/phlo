@@ -14,9 +14,10 @@ from typing import Any, Literal
 
 import yaml
 
+from phlo.config.layout import env_defaults_path, env_secrets_path
 from phlo.config_schema import ServiceOverride
 from phlo.logging import get_logger
-from phlo.plugins.compose.artifacts import shared_artifact_files
+from phlo.plugins.compose.artifacts import render_shared_gitignore
 from phlo.plugins.compose.env import (
     generate_env as _generate_env,
 )
@@ -330,7 +331,10 @@ class ComposeGenerator:
         # Add env_file for phlo_dev services to pick up project secrets (e.g., GITHUB_TOKEN)
         # Path is relative to .phlo/ directory where docker-compose.yml lives
         if service.phlo_dev:
-            config["env_file"] = [".env", ".env.local"]
+            config["env_file"] = [
+                env_defaults_path(output_dir).relative_to(output_dir).as_posix(),
+                env_secrets_path(output_dir).relative_to(output_dir).as_posix(),
+            ]
 
         if compose.get("command"):
             config["command"] = compose["command"]
@@ -614,6 +618,8 @@ class ComposeGenerator:
         self,
         services: list[ServiceDefinition],
         output_dir: Path,
+        *,
+        overwrite: bool = True,
     ) -> list[str]:
         """Copy each service's additional files into the .phlo output
         directory, returning the copied paths relative to it.
@@ -637,6 +643,8 @@ class ComposeGenerator:
                     )
                     continue
 
+                if dest.exists() and not overwrite:
+                    continue
                 # Create parent directories
                 dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -650,65 +658,20 @@ class ComposeGenerator:
 
                 copied.append(str(dest.relative_to(output_dir)))
 
-        # Reapply checked-in artifacts after package defaults, including explicit
-        # migration --include files. Paths keep their original .phlo-relative
-        # layout, so Docker COPY, build contexts and bind mounts stay valid.
-        shared_root = output_dir.parent / "phlo-runtime"
-        if shared_root.exists():
-            shared_files = sorted(
-                {
-                    source
-                    for child in shared_root.iterdir()
-                    if child.name != ".gitattributes"
-                    for source in shared_artifact_files(shared_root, child.name)
-                }
-            )
-            for source in shared_files:
-                if not source.is_file() or source.name == ".gitattributes":
-                    continue
-                relative = source.relative_to(shared_root)
-                dest = output_dir / relative
-                if any(
-                    parent.is_symlink()
-                    for parent in [dest, *dest.parents]
-                    if parent.is_relative_to(output_dir)
-                ):
-                    raise ValueError(
-                        f"Runtime artifact destination cannot be a symlink: {relative}"
-                    )
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, dest)
-                if str(relative) not in copied:
-                    copied.append(str(relative))
-
         return copied
 
     def generate_gitignore(self, services: list[ServiceDefinition]) -> str:
         """Generate .gitignore content for .phlo directory."""
-        entries: list[str] = [
-            "# Phlo infrastructure files",
-            ".env",
-            ".env.local",
-            "volumes/",
-        ]
-
-        extra_entries: list[str] = []
-        staged_lock_entries = [
-            "# Staged uv lock metadata (source of truth lives at the project root)",
-            *UV_LOCK_METADATA_FILES,
-        ]
-
+        paths: list[str] = []
         for service in services:
-            for entry in service.gitignore:
-                if entry not in extra_entries:
-                    extra_entries.append(entry)
-
-        if extra_entries:
-            entries.append("")
-            entries.append("# Service runtime data")
-            entries.extend(extra_entries)
-
-        entries.append("")
-        entries.extend(staged_lock_entries)
-
-        return "\n".join(entries) + "\n"
+            for spec in service.files or []:
+                source = service.source_path / spec["source"] if service.source_path else None
+                if source and source.is_dir():
+                    paths.extend(
+                        (Path(spec["dest"]) / path.relative_to(source)).as_posix()
+                        for path in source.rglob("*")
+                        if path.is_file()
+                    )
+                else:
+                    paths.append(spec["dest"])
+        return render_shared_gitignore(paths)

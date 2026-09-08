@@ -1092,8 +1092,7 @@ def test_services_init_excludes_profile_services_by_default(
             pass
 
         def generate_compose(self, services, output_dir, **_kwargs):
-            names = ",".join(sorted(s.name for s in services))
-            return f"services: {names}\n"
+            return yaml.safe_dump({"services": {s.name: {} for s in services}})
 
         def generate_env(self, _services, env_overrides=None):
             return ""
@@ -1189,8 +1188,7 @@ def test_services_init_includes_requested_profile_services(
             pass
 
         def generate_compose(self, services, output_dir, **_kwargs):
-            names = ",".join(sorted(s.name for s in services))
-            return f"services: {names}\n"
+            return yaml.safe_dump({"services": {s.name: {} for s in services}})
 
         def generate_env(self, _services, env_overrides=None):
             return ""
@@ -1298,7 +1296,7 @@ def test_services_init_production_writes_env_local_at_0600(
     result = CliRunner().invoke(init_module.init_cmd, ["--production"])
     assert result.exit_code == 0, result.output
 
-    env_local = tmp_path / ".phlo" / ".env.local"
+    env_local = tmp_path / ".phlo" / "secrets" / ".env"
     assert env_local.exists()
     assert env_local.stat().st_mode & 0o7777 == 0o600
     assert "independent-secret" in env_local.read_text()
@@ -1492,6 +1490,7 @@ def test_generate_gitignore_ignores_staged_uv_lock_metadata(tmp_path) -> None:
 
     content = ComposeGenerator(discovery).generate_gitignore([dagster])
 
-    assert "# Staged uv lock metadata (source of truth lives at the project root)" in content
+    assert "/pyproject.toml" in content
+    assert "/uv.lock" in content
     assert "pyproject.toml" in content
     assert "uv.lock" in content

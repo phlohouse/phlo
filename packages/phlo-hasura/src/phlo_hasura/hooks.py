@@ -24,43 +24,29 @@ import os
 import sys
 from pathlib import Path
 
+from phlo.config.layout import project_env_paths
 from phlo.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)
 
 
 def _load_env_files() -> None:
-    """Load environment variables from .phlo/.env and .phlo/.env.local.
+    """Load legacy, overrides, and secrets environment layers for Hasura hooks.
 
-    Attempts to load environment variables using python-dotenv if available,
-    falling back to manual parsing if dotenv is not installed.
-
-    Files are loaded in order:
-        1. .phlo/.env
-        2. .phlo/.env.local (overrides .env)
-
-    Failures are silently ignored; .env.local values override .env values.
-
-    Example:
-        >>> _load_env_files()
-        # Environment variables are now loaded from .phlo/.env files
-
+    With dotenv installed, local layers override previous values. The minimal
+    fallback retains existing environment variables.
     """
     try:
         from dotenv import load_dotenv
 
         phlo_dir = Path.cwd() / ".phlo"
-        env_file = phlo_dir / ".env"
-        env_local = phlo_dir / ".env.local"
-
-        if env_file.exists():
-            load_dotenv(env_file)
-        if env_local.exists():
-            load_dotenv(env_local, override=True)
+        for index, env_file in enumerate(project_env_paths(phlo_dir)):
+            if env_file.exists():
+                load_dotenv(env_file, override=index > 0)
     except ImportError:
         # dotenv not available, try manual parsing
         phlo_dir = Path.cwd() / ".phlo"
-        for env_file in [phlo_dir / ".env", phlo_dir / ".env.local"]:
+        for env_file in project_env_paths(phlo_dir):
             if env_file.exists():
                 with open(env_file) as f:
                     for line in f:
