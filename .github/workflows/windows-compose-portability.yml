@@ -62,7 +62,7 @@ jobs:
           git config user.name "Phlo CI"
           git config user.email "phlo-ci@example.invalid"
           git add phlo.yaml
-          git add -f .phlo/.gitignore .phlo/.gitattributes .phlo/docker-compose.yml
+          git add .phlo
           git commit -qm "fixture: shared Compose layout"
           git ls-files -z | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/shared-layout.sha256"
           git bundle create "$RUNNER_TEMP/shared-layout.bundle" --all
@@ -132,6 +132,7 @@ jobs:
           if ($wheels.Count -eq 0) { throw "No workspace wheels were uploaded" }
           uv pip install --python $python --find-links (Join-Path $env:GITHUB_WORKSPACE "fixture-input\wheelhouse") @($wheels.FullName)
           "PHLO=$((Join-Path $venv 'Scripts\phlo.exe'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Regenerate host state without replacing shared files
         shell: pwsh
@@ -189,9 +190,21 @@ jobs:
         shell: pwsh
         run: |
           Push-Location $env:PROJECT
-          $prefix = @()
-          if ($env:COMPOSE_PREFIX) { $prefix += $env:COMPOSE_PREFIX }
-          & $env:COMPOSE_EXECUTABLE @prefix --project-directory .phlo --profile '*' config --quiet
+          $script = @'
+          import json, pathlib, sys
+          from phlo.cli.infrastructure.container_backend import _compose_base_cmd
+          from phlo.cli.infrastructure.utils import get_project_name
+          print(json.dumps(_compose_base_cmd(
+              binary="docker", phlo_dir=pathlib.Path(sys.argv[1]), project_name=get_project_name()
+          )))
+          '@
+          $compose = @((& $env:PYTHON -I -c $script (Join-Path $env:PROJECT '.phlo')) | ConvertFrom-Json)
+          if ($env:COMPOSE_PREFIX) {
+            $compose[0] = $env:COMPOSE_EXECUTABLE
+          } else {
+            $compose = @($env:COMPOSE_EXECUTABLE) + @($compose[2..($compose.Length - 1)])
+          }
+          & $compose[0] @($compose[1..($compose.Length - 1)]) --profile '*' config --quiet
           if ($LASTEXITCODE -ne 0) { throw "Docker Compose config validation failed" }
           Pop-Location
 
