@@ -193,9 +193,10 @@ jobs:
           $script = @'
           import json, pathlib, sys
           from phlo.cli.infrastructure.container_backend import _compose_base_cmd
-          from phlo.cli.infrastructure.utils import get_project_name
           print(json.dumps(_compose_base_cmd(
-              binary="docker", phlo_dir=pathlib.Path(sys.argv[1]), project_name=get_project_name()
+              binary="docker",
+              phlo_dir=pathlib.Path(sys.argv[1]),
+              project_name="phlo-portability-fixture",
           )))
           '@
           $compose = @((& $env:PYTHON -I -c $script (Join-Path $env:PROJECT '.phlo')) | ConvertFrom-Json)
