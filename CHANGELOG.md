@@ -1,5 +1,14 @@
 ## 0.15.1 (2026-09-06)
 
+## [phlo 0.16.1 + 37 packages] - 2026-09-09
+
+### Fixed
+- phlo: Remove Compose version probe (#926)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
 ## [phlo 0.16.0 + 37 packages] - 2026-09-09
 
 ### Added
