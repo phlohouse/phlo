@@ -7,7 +7,7 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.15.1,<0.16",
+    "phlo>=0.16.0,<0.17",
     "pynessie>=0.67.0",
     "marshmallow>=3.18,<4",
     "requests>=2.32.5",
@@ -15,7 +15,7 @@ dependencies = [
 description = "Nessie service plugin for Phlo"
 name = "phlo-nessie"
 requires-python = ">=3.11"
-version = "0.15.1"
+version = "0.15.2"
 
 [[project.authors]]
 email = "team@phlo.dev"
