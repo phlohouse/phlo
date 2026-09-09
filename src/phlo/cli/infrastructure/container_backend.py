@@ -273,25 +273,9 @@ class DockerBackend:
     @staticmethod
     def _compose_binary() -> str | None:
         if shutil.which("docker") is not None:
-            result = subprocess.run(
-                ["docker", "compose", "version"],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=10,
-            )
-            if result.returncode == 0:
-                return "docker"
+            return "docker"
         if shutil.which("docker-compose") is not None:
-            result = subprocess.run(
-                ["docker-compose", "version"],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=10,
-            )
-            if result.returncode == 0:
-                return "docker-compose"
+            return "docker-compose"
         return None
 
     def compose_base_cmd(
@@ -311,7 +295,7 @@ class DockerBackend:
         )
 
     def check_available(self) -> tuple[bool, str | None]:
-        """Report whether docker and a working compose binary are both installed."""
+        """Report whether Docker and a Compose command are installed."""
         if shutil.which("docker") is None:
             return False, "Install Docker Desktop or ensure docker is on PATH."
         if self._compose_binary() is None:

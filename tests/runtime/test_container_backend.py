@@ -10,6 +10,7 @@ from subprocess import CompletedProcess, TimeoutExpired
 import pytest
 
 from phlo.cli.commands.services.utils import require_container_backend
+from phlo.cli.infrastructure import container_backend
 from phlo.cli.infrastructure.container_backend import (
     DockerBackend,
     PodmanBackend,
@@ -18,6 +19,26 @@ from phlo.cli.infrastructure.container_backend import (
     select_project_container_backend,
 )
 from phlo.config_schema import InfrastructureConfig
+
+
+def test_docker_backend_does_not_probe_compose_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        container_backend.shutil,
+        "which",
+        lambda name: "/usr/bin/docker" if name == "docker" else None,
+    )
+    monkeypatch.setattr(
+        container_backend.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("availability checks must not run Docker"),
+    )
+
+    backend = DockerBackend()
+
+    assert backend._compose_binary() == "docker"
+    assert backend.check_available() == (True, None)
 
 
 def test_docker_backend_compose_base_cmd_includes_env_files(
