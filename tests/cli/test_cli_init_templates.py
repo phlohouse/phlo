@@ -123,6 +123,44 @@ def test_init_json_outputs_project_envelope(tmp_path) -> None:
     assert (project_dir / "AGENTS.md").exists()
 
 
+class _FailingTemplate:
+    """Render stub that leaves debris, then fails."""
+
+    metadata = type("Metadata", (), {"name": "boom", "required_packages": ()})()
+
+    def render(self, context) -> None:
+        project_dir = Path(context.project_dir)
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "partial.txt").write_text("partial")
+        (project_dir / "sub").mkdir(exist_ok=True)
+        raise RuntimeError("render exploded")
+
+
+def test_init_removes_created_directory_when_render_fails(tmp_path, monkeypatch) -> None:
+    project_dir = tmp_path / "demo"
+    monkeypatch.setattr("phlo.cli.main.get_template", lambda _name: _FailingTemplate())
+
+    result = CliRunner().invoke(cli, ["init", str(project_dir), "--template", "boom"])
+
+    assert result.exit_code != 0
+    assert not project_dir.exists()
+
+
+def test_init_keeps_preexisting_content_when_render_fails(tmp_path, monkeypatch) -> None:
+    project_dir = tmp_path / "demo"
+    project_dir.mkdir()
+    keep = project_dir / "keep.txt"
+    keep.write_text("keep")
+    monkeypatch.setattr("phlo.cli.main.get_template", lambda _name: _FailingTemplate())
+
+    result = CliRunner().invoke(cli, ["init", str(project_dir), "--template", "boom", "--force"])
+
+    assert result.exit_code != 0
+    assert keep.read_text() == "keep"
+    assert not (project_dir / "partial.txt").exists()
+    assert not (project_dir / "sub").exists()
+
+
 def _assert_python_files_parse(project_dir: Path) -> None:
     for path in project_dir.rglob("*.py"):
         ast.parse(path.read_text(), filename=str(path))
