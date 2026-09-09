@@ -39,6 +39,8 @@ def _config(tmp_path: Path) -> release_golden_path.RunConfig:
 
 def test_compose_commands_are_project_scoped(tmp_path: Path) -> None:
     config = _config(tmp_path)
+    config.compose_file.parent.mkdir(parents=True)
+    config.compose_file.write_text("services: {}\n", encoding="utf-8")
 
     assert release_golden_path.compose_command(config, "up", "--detach") == [
         "docker",
@@ -47,13 +49,55 @@ def test_compose_commands_are_project_scoped(tmp_path: Path) -> None:
         "phlo-qa001-test",
         "--file",
         str(config.compose_file),
-        "--env-file",
-        str(config.project_dir / ".phlo" / ".env"),
-        "--env-file",
-        str(config.project_dir / ".phlo" / ".env.local"),
         "up",
         "--detach",
     ]
+
+
+def test_compose_commands_pass_existing_layers_in_precedence_order(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    phlo_dir = config.project_dir / ".phlo"
+    phlo_dir.mkdir(parents=True)
+    config.compose_file.write_text("services: {}\n", encoding="utf-8")
+    (phlo_dir / "overrides").mkdir()
+    (phlo_dir / "secrets").mkdir()
+    shared_default = phlo_dir / "overrides" / ".env"
+    shared_secrets = phlo_dir / "secrets" / ".env"
+    host_overlay = phlo_dir / "overrides" / "compose.host.yaml"
+    for path in (shared_default, shared_secrets, host_overlay):
+        path.write_text("")
+
+    assert release_golden_path.compose_command(config, "up", "--detach") == [
+        "docker",
+        "compose",
+        "-p",
+        "phlo-qa001-test",
+        "--file",
+        str(config.compose_file),
+        "--file",
+        str(host_overlay),
+        "--env-file",
+        str(shared_default),
+        "--env-file",
+        str(shared_secrets),
+        "up",
+        "--detach",
+    ]
+
+
+def test_env_secrets_path_prefers_the_shared_layout_marker(tmp_path: Path) -> None:
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / ".gitignore").write_text("# Phlo shared layout v1\n")
+
+    assert release_golden_path.env_secrets_path(phlo_dir) == phlo_dir / "secrets" / ".env"
+
+
+def test_env_secrets_path_falls_back_to_the_legacy_layout(tmp_path: Path) -> None:
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+
+    assert release_golden_path.env_secrets_path(phlo_dir) == phlo_dir / ".env.local"
 
 
 def test_project_names_are_unique() -> None:
@@ -730,14 +774,13 @@ def test_cleanup_only_tears_down_owned_compose_project(tmp_path: Path, monkeypat
     commands: list[list[str]] = []
     monkeypatch.setattr(release_golden_path, "run", lambda args, **_: commands.append(args))
 
+    expected_down = release_golden_path.compose_command(
+        config, "--profile", "api", "down", "--volumes", "--remove-orphans"
+    )
     errors = release_golden_path.cleanup(config, owned_paths={config.project_dir})
 
     assert errors == []
-    assert commands == [
-        release_golden_path.compose_command(
-            config, "--profile", "api", "down", "--volumes", "--remove-orphans"
-        )
-    ]
+    assert commands == [expected_down]
     assert not config.project_dir.exists()
 
 
