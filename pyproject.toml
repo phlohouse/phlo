@@ -88,7 +88,7 @@ license = "AGPL-3.0-or-later"
 name = "phlo"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.15.1"
+version = "0.16.0"
 
 [project.entry-points."phlo.plugins.quality"]
 
