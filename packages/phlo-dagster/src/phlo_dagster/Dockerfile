@@ -71,6 +71,15 @@ RUN if [ "$PHLO_UV_LOCKED" = "true" ]; then \
             uv sync --locked --no-dev --no-install-project --directory /tmp/project; \
     fi
 
+# Lock-aware builds resolve everything else from the project lock, but the
+# Dagster Postgres storage backend is an image runtime requirement (see
+# templates/dagster.yaml), not a project dependency: install it explicitly,
+# mirroring the non-lock path below. Without it the webserver fails to start
+# with "Couldn't import module dagster_postgres".
+RUN if [ "$PHLO_UV_LOCKED" = "true" ]; then \
+        uv pip install --python /opt/phlo-project-venv/bin/python dagster-postgres "psycopg[binary]"; \
+    fi
+
 ENV PATH="/opt/phlo-project-venv/bin:${PATH}"
 
 # Lock-aware builds take their entire runtime dependency set from the staged
