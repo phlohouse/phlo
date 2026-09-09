@@ -5,7 +5,7 @@ default: false
 profile: api
 phlo_dev: true
 
-image: ghcr.io/phlohouse/phlo-api:0.16.1
+image: ghcr.io/phlohouse/phlo-api:0.16.2
 build:
     context: .
     dockerfile: phlo-api/Dockerfile

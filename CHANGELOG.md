@@ -1,5 +1,20 @@
 ## 0.15.1 (2026-09-06)
 
+## [phlo 0.16.2 + 37 packages] - 2026-09-09
+
+### Fixed
+- phlo: Windows import failure in journal_store (cross-platform file lock) (#929)
+- phlo: ship dagster-postgres in lock-aware Dagster image builds (#931)
+- phlo: seed repo root on sys.path for spawned journal children (#932)
+- phlo: wait for GraphQL HTTP before WAP launches (#933)
+- phlo: init render rollback and CI validation for stacked PRs (#937)
+- phlo-dagster: ship dagster-postgres in lock-aware Dagster image builds (#931)
+- phlo-dagster: wait for GraphQL HTTP before WAP launches (#933)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (7 commits)
+
 ## [phlo 0.16.1 + 37 packages] - 2026-09-09
 
 ### Fixed
