@@ -406,3 +406,34 @@ def test_plugin_command_with_init_argument_is_registered() -> None:
     assert "No such command 'dbt'" not in output
     assert "Usage:" in output
     assert "dbt run" in output
+
+
+def test_scaffold_tracks_shared_compose_and_ignores_private_state(tmp_path) -> None:
+    project_dir = tmp_path / "shared-project"
+    result = CliRunner().invoke(cli, ["init", str(project_dir), "--template", "minimal"])
+    assert result.exit_code == 0, result.output
+    subprocess.run(["git", "init", str(project_dir)], check=True, capture_output=True)
+    ignored = subprocess.run(
+        ["git", "check-ignore", "--stdin"],
+        cwd=project_dir,
+        input="\n".join(
+            [
+                ".phlo/.gitignore",
+                ".phlo/docker-compose.yml",
+                ".phlo/compose.windows.yaml",
+                ".phlo/overrides/.env",
+                ".phlo/secrets/.env",
+                ".phlo/logs/start.log",
+            ]
+        )
+        + "\n",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert ignored.returncode == 0, ignored.stderr
+    assert set(ignored.stdout.splitlines()) == {
+        ".phlo/overrides/.env",
+        ".phlo/secrets/.env",
+        ".phlo/logs/start.log",
+    }

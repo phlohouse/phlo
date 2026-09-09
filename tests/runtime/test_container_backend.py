@@ -362,3 +362,71 @@ def test_failed_container_query_is_not_an_empty_project(backend, monkeypatch):
     )
     with pytest.raises(OSError, match="status is unavailable"):
         backend.list_project_containers("demo")
+
+
+@pytest.mark.parametrize("backend", [DockerBackend, PodmanBackend])
+@pytest.mark.parametrize(
+    "host, suffix", [("Windows", "windows"), ("Linux", "linux"), ("Darwin", "macos")]
+)
+def test_shared_compose_layers_are_ordered_and_host_specific(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend, host: str, suffix: str
+) -> None:
+    from phlo.cli.infrastructure import container_backend
+
+    # Spaces in checkout paths must remain a single subprocess argument.
+    project = tmp_path / "team lakehouse"
+    phlo_dir = project / ".phlo"
+    phlo_dir.mkdir(parents=True)
+    for name in (
+        "compose.shared.yaml",
+        "compose.windows.yaml",
+        "compose.linux.yaml",
+        "compose.macos.yaml",
+    ):
+        (phlo_dir / name).write_text("services: {}\n")
+    local = phlo_dir / "overrides" / "compose.yaml"
+    local.parent.mkdir()
+    local.write_text("services: {}\n")
+    generated = local.with_name("compose.host.yaml")
+    generated.write_text("services: {}\n")
+    monkeypatch.setattr(container_backend.platform, "system", lambda: host)
+    monkeypatch.setattr(DockerBackend, "_compose_binary", lambda self: "docker")
+    cmd = backend().compose_base_cmd(phlo_dir=phlo_dir, project_name="team")
+    files = [cmd[index + 1] for index, token in enumerate(cmd) if token == "-f"]
+    assert files == [
+        str(phlo_dir / "docker-compose.yml"),
+        str(phlo_dir / "compose.shared.yaml"),
+        str(phlo_dir / f"compose.{suffix}.yaml"),
+        str(generated),
+        str(local),
+    ]
+
+
+@pytest.mark.parametrize("filename", [".env", ".env.local", "secrets/.env", "overrides/.env"])
+def test_compose_layers_reject_production(tmp_path: Path, filename: str) -> None:
+    import click
+
+    from phlo.cli.infrastructure.container_backend import _compose_base_cmd
+
+    state = tmp_path / ".phlo"
+    state.mkdir()
+    (state / filename).parent.mkdir(parents=True, exist_ok=True)
+    (state / filename).write_text('PHLO_ENVIRONMENT="production"\n')
+    (state / "compose.shared.yaml").write_text("services: {}\n")
+    with pytest.raises(click.ClickException, match="only for development"):
+        _compose_base_cmd(binary="docker", phlo_dir=state, project_name="team")
+
+
+def test_compose_environment_layers_match_settings_precedence(tmp_path: Path) -> None:
+    from phlo.cli.infrastructure.container_backend import _compose_base_cmd
+    from phlo.config.layout import project_env_paths
+
+    state = tmp_path / ".phlo"
+    paths = project_env_paths(state)
+    for path in paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("TEAM=shared\n")
+    cmd = _compose_base_cmd(binary="docker", phlo_dir=state, project_name="team")
+    assert [cmd[i + 1] for i, value in enumerate(cmd) if value == "--env-file"] == [
+        str(path) for path in paths
+    ]

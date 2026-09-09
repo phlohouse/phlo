@@ -311,10 +311,41 @@ def prepare_container_wheelhouse(wheelhouse: Path, consumer: Path) -> dict[str, 
     return environment
 
 
+def installed_compose_command(
+    *, environment: Path, consumer: Path, env: dict[str, str]
+) -> list[str]:
+    """Resolve Compose through the installed wheel, including host and env layers."""
+    script = """import json, pathlib, sys
+from phlo.cli.infrastructure import container_backend
+from phlo.cli.infrastructure.utils import get_project_name
+module_path = pathlib.Path(container_backend.__file__).resolve()
+if not module_path.is_relative_to(pathlib.Path(sys.prefix).resolve()):
+    raise RuntimeError("Compose builder did not resolve from the installed environment")
+print(json.dumps(container_backend._compose_base_cmd(
+    binary="docker", phlo_dir=pathlib.Path(sys.argv[1]), project_name=get_project_name()
+)))
+"""
+    # Isolated mode also excludes cwd/user-site imports. An import failure is a
+    # failed installed artifact, never a reason to fall back to repository code.
+    command = parse_json_command(
+        [str(executable(environment, "python")), "-I", "-c", script, str(consumer / ".phlo")],
+        cwd=consumer,
+        env=env,
+    )
+    if (
+        not isinstance(command, list)
+        or not command
+        or not all(isinstance(token, str) for token in command)
+    ):
+        raise RuntimeError("Invalid installed Compose command")
+    return command
+
+
 def build_shard(
     compose: dict[str, Any],
     *,
     consumer: Path,
+    environment: Path,
     shard_index: int,
     shard_count: int,
     env: dict[str, str],
@@ -327,16 +358,14 @@ def build_shard(
     ]
     selected = buildable[shard_index::shard_count]
     results = []
+    command = (
+        installed_compose_command(environment=environment, consumer=consumer, env=env)
+        if selected
+        else []
+    )
     for name, config in selected:
         completed = subprocess.run(
-            [
-                "docker",
-                "compose",
-                "-f",
-                str(consumer / ".phlo" / "docker-compose.yml"),
-                "build",
-                name,
-            ],
+            [*command, "build", name],
             cwd=consumer,
             env=env,
             text=True,
@@ -357,6 +386,7 @@ def health_shard(
     compose: dict[str, Any],
     *,
     consumer: Path,
+    environment: Path,
     shard_index: int,
     shard_count: int,
     env: dict[str, str],
@@ -368,19 +398,18 @@ def health_shard(
         if config.get("build")
     ]
     results = []
-    compose_file = consumer / ".phlo" / "docker-compose.yml"
+    command = None
     for name, config in buildable[shard_index::shard_count]:
         if not config.get("healthcheck"):
             results.append(
                 {"service": name, "status": "not_applicable", "detail": "no healthcheck"}
             )
             continue
+        if command is None:
+            command = installed_compose_command(environment=environment, consumer=consumer, env=env)
         completed = subprocess.run(
             [
-                "docker",
-                "compose",
-                "-f",
-                str(compose_file),
+                *command,
                 "up",
                 "--detach",
                 "--wait",
@@ -394,14 +423,14 @@ def health_shard(
             capture_output=True,
         )
         logs = subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "logs", "--no-color", name],
+            [*command, "logs", "--no-color", name],
             cwd=consumer,
             env=env,
             text=True,
             capture_output=True,
         )
         subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "down", "--volumes"],
+            [*command, "down", "--volumes"],
             cwd=consumer,
             env=env,
             text=True,
@@ -476,6 +505,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
             build_shard(
                 compose,
                 consumer=consumer,
+                environment=environment,
                 shard_index=args.docker_shard_index,
                 shard_count=args.docker_shard_count,
                 env=container_env,
@@ -490,6 +520,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
             health_shard(
                 compose,
                 consumer=consumer,
+                environment=environment,
                 shard_index=args.docker_shard_index,
                 shard_count=args.docker_shard_count,
                 env=container_env,

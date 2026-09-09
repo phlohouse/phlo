@@ -14,8 +14,10 @@ from typing import Any, Literal
 
 import yaml
 
+from phlo.config.layout import env_defaults_path, env_secrets_path
 from phlo.config_schema import ServiceOverride
 from phlo.logging import get_logger
+from phlo.plugins.compose.artifacts import render_shared_gitignore
 from phlo.plugins.compose.env import (
     generate_env as _generate_env,
 )
@@ -329,7 +331,10 @@ class ComposeGenerator:
         # Add env_file for phlo_dev services to pick up project secrets (e.g., GITHUB_TOKEN)
         # Path is relative to .phlo/ directory where docker-compose.yml lives
         if service.phlo_dev:
-            config["env_file"] = [".env", ".env.local"]
+            config["env_file"] = [
+                env_defaults_path(output_dir).relative_to(output_dir).as_posix(),
+                env_secrets_path(output_dir).relative_to(output_dir).as_posix(),
+            ]
 
         if compose.get("command"):
             config["command"] = compose["command"]
@@ -613,6 +618,8 @@ class ComposeGenerator:
         self,
         services: list[ServiceDefinition],
         output_dir: Path,
+        *,
+        overwrite: bool = True,
     ) -> list[str]:
         """Copy each service's additional files into the .phlo output
         directory, returning the copied paths relative to it.
@@ -636,6 +643,8 @@ class ComposeGenerator:
                     )
                     continue
 
+                if dest.exists() and not overwrite:
+                    continue
                 # Create parent directories
                 dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -653,30 +662,16 @@ class ComposeGenerator:
 
     def generate_gitignore(self, services: list[ServiceDefinition]) -> str:
         """Generate .gitignore content for .phlo directory."""
-        entries: list[str] = [
-            "# Phlo infrastructure files",
-            ".env",
-            ".env.local",
-            "volumes/",
-        ]
-
-        extra_entries: list[str] = []
-        staged_lock_entries = [
-            "# Staged uv lock metadata (source of truth lives at the project root)",
-            *UV_LOCK_METADATA_FILES,
-        ]
-
+        paths: list[str] = []
         for service in services:
-            for entry in service.gitignore:
-                if entry not in extra_entries:
-                    extra_entries.append(entry)
-
-        if extra_entries:
-            entries.append("")
-            entries.append("# Service runtime data")
-            entries.extend(extra_entries)
-
-        entries.append("")
-        entries.extend(staged_lock_entries)
-
-        return "\n".join(entries) + "\n"
+            for spec in service.files or []:
+                source = service.source_path / spec["source"] if service.source_path else None
+                if source and source.is_dir():
+                    paths.extend(
+                        (Path(spec["dest"]) / path.relative_to(source)).as_posix()
+                        for path in source.rglob("*")
+                        if path.is_file()
+                    )
+                else:
+                    paths.append(spec["dest"])
+        return render_shared_gitignore(paths)

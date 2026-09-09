@@ -21,6 +21,7 @@ from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.infrastructure.utils import get_project_name, parse_env_file
 from phlo.cli.output import json_envelope
+from phlo.config.layout import project_env_paths
 from phlo.logging import get_logger
 from phlo.security.production_preflight import (
     ProductionReadinessState,
@@ -33,11 +34,13 @@ _FALSE_STATES = frozenset({ProductionReadinessState.FAILED, ProductionReadinessS
 
 
 def _resolve_environment(phlo_dir: Path, production: bool) -> str:
-    """Resolve the environment label: explicit flag wins, else .env, else dev."""
+    """Resolve the environment label: explicit flag wins, else project env files, else dev."""
     if production:
         return "production"
-    env_file = phlo_dir / ".env"
-    value = parse_env_file(env_file).get("PHLO_ENVIRONMENT", "dev").strip().lower()
+    values: dict[str, str] = {}
+    for env_file in project_env_paths(phlo_dir):
+        values.update(parse_env_file(env_file))
+    value = values.get("PHLO_ENVIRONMENT", "dev").strip().lower()
     return value or "dev"
 
 
@@ -55,7 +58,7 @@ def _render_report(report) -> None:
 @click.option(
     "--production",
     is_flag=True,
-    help="Evaluate the production readiness posture (defaults from .phlo/.env).",
+    help="Evaluate the production readiness posture (defaults from project env files).",
 )
 @click.option("--json", "as_json", is_flag=True, help="Emit the stable JSON report.")
 @click.option(

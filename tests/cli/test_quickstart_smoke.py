@@ -1,7 +1,7 @@
 """Regression smoke tests for the quickstart path using a fake service discovery.
 
 Drives the documented bootstrap flow end to end with fake discovery and a
-stubbed composer, asserting it reaches service start with the expected
+real composer, asserting it reaches service start with the expected
 rendered services.
 """
 
@@ -11,9 +11,9 @@ import os
 import shutil
 from pathlib import Path
 from subprocess import CompletedProcess
-from typing import Any
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from phlo.cli.infrastructure.container_backend import ContainerInfo
@@ -28,6 +28,7 @@ def _service(name: str, *, default: bool = False) -> ServiceDefinition:
         description=f"{name} service",
         category="core",
         default=default,
+        image=f"{name}:latest",
     )
 
 
@@ -62,51 +63,6 @@ class _FakeDiscovery:
         services: list[ServiceDefinition],
     ) -> list[ServiceDefinition]:
         return services
-
-
-class _SmokeComposer:
-    def __init__(self, _discovery: _FakeDiscovery) -> None:
-        self.generated_service_names: list[str] = []
-
-    def generate_compose(
-        self,
-        services: list[ServiceDefinition],
-        _output_dir: Path,
-        **_kwargs: Any,
-    ) -> str:
-        self.generated_service_names = sorted(service.name for service in services)
-        lines = ["services:"]
-        for service_name in self.generated_service_names:
-            lines.append(f"  {service_name}: {{}}")
-        return "\n".join(lines) + "\n"
-
-    def generate_env(
-        self,
-        _services: list[ServiceDefinition],
-        env_overrides: dict[str, str] | None = None,
-    ) -> str:
-        lines = ["PHLO_ENV=smoke"]
-        if env_overrides:
-            lines.extend(f"{key}={value}" for key, value in sorted(env_overrides.items()))
-        return "\n".join(lines) + "\n"
-
-    def generate_env_local(
-        self,
-        _services: list[ServiceDefinition],
-        env_overrides: dict[str, str] | None = None,
-        existing_values: dict[str, str] | None = None,
-    ) -> str:
-        return "PHLO_SECRET=smoke\n"
-
-    def generate_gitignore(self, _services: list[ServiceDefinition]) -> str:
-        return ".env.local\n"
-
-    def copy_service_files(
-        self,
-        _services: list[ServiceDefinition],
-        _output_dir: Path,
-    ) -> list[str]:
-        return []
 
 
 def test_documented_quickstart_bootstrap_path_reaches_services_start(
@@ -152,7 +108,6 @@ def test_documented_quickstart_bootstrap_path_reaches_services_start(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(builtin_templates, "_build_env_example_content", lambda: "PHLO_SECRET=\n")
     monkeypatch.setattr(init_module, "ServiceDiscovery", lambda: fake_discovery)
-    monkeypatch.setattr(init_module, "ComposeGenerator", _SmokeComposer)
     monkeypatch.setattr(start_module, "ServiceDiscovery", lambda: fake_discovery)
     monkeypatch.setattr(start_module, "get_project_name", lambda: "demo")
     monkeypatch.setattr(start_module, "compose_base_cmd", lambda **_kwargs: ["docker", "compose"])
@@ -180,11 +135,11 @@ def test_documented_quickstart_bootstrap_path_reaches_services_start(
     assert services_init_result.exit_code == 0, services_init_result.output
     assert (project_dir / "phlo.yaml").exists()
     assert (project_dir / ".phlo" / "docker-compose.yml").exists()
-    assert (project_dir / ".phlo" / ".env").exists()
-    assert (project_dir / ".phlo" / ".env.local").exists()
-    compose_content = (project_dir / ".phlo" / "docker-compose.yml").read_text()
-    assert "postgres" in compose_content
-    assert "prometheus" not in compose_content
+    assert (project_dir / ".phlo" / "overrides" / ".env").exists()
+    assert (project_dir / ".phlo" / "secrets" / ".env").exists()
+    compose = yaml.safe_load((project_dir / ".phlo" / "docker-compose.yml").read_text())
+    assert set(compose["services"]) == {"postgres"}
+    assert compose["services"]["postgres"]["image"] == "postgres:latest"
 
     start_result = runner.invoke(start_module.start_cmd, [])
     assert start_result.exit_code == 0, start_result.output

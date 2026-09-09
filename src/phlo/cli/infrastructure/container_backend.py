@@ -9,12 +9,19 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol, cast
+
+import click
+
+from phlo.cli.infrastructure.utils import parse_env_file
+from phlo.config.layout import env_defaults_path, project_env_paths
+from phlo.security.mode import requires_http_authorization
 
 BackendName = Literal["docker", "podman", "auto"]
 
@@ -83,6 +90,30 @@ class ContainerBackend(Protocol):
         """Return command tokens for executing a process inside a running container."""
 
 
+def validate_development_compose_layers(phlo_dir: Path) -> None:
+    """Reject shared layers until production checks inspect effective Compose."""
+    # Existing production checks inspect the generated base, not merged layers.
+    # Check every source conservatively so local overrides cannot downgrade it.
+    sources = [
+        *(parse_env_file(path, strip_quotes=True) for path in project_env_paths(phlo_dir)),
+        os.environ,
+    ]
+    protected = requires_http_authorization() or any(
+        source.get("PHLO_ENVIRONMENT", "").strip().lower()
+        in {"prod", "production", "staging", "regulated"}
+        or any(
+            source.get(key, "").strip().lower() in {"1", "true", "yes", "on"}
+            for key in ("PHLO_REGULATED", "PHLO_REGULATED_MODE")
+        )
+        for source in sources
+    )
+    if protected:
+        raise click.ClickException(
+            "Compose override layers are supported only for development. "
+            "Remove the layers and use phlo.yaml for production configuration."
+        )
+
+
 def _compose_base_cmd(
     *,
     binary: str,
@@ -91,8 +122,10 @@ def _compose_base_cmd(
     profiles: tuple[str, ...] = (),
 ) -> list[str]:
     compose_file = phlo_dir / "docker-compose.yml"
-    env_file = phlo_dir / ".env"
-    env_local_file = phlo_dir / ".env.local"
+    env_file = env_defaults_path(phlo_dir)
+    env_files = [path for path in project_env_paths(phlo_dir) if path.is_file()]
+    if env_file not in env_files:
+        env_files.insert(0, env_file)
     cmd = [binary]
     if binary != "docker-compose":
         cmd.append("compose")
@@ -103,13 +136,33 @@ def _compose_base_cmd(
             "-f",
             str(compose_file),
             "--env-file",
-            str(env_file),
+            str(env_files[0]),
         ]
     )
+    # All layers live under .phlo and resolve relative paths against the shared
+    # base. Personal and generated host overrides remain ignored by Git.
+    platform_name = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(
+        platform.system()
+    )
+    overrides = [phlo_dir / "compose.shared.yaml"]
+    if platform_name:
+        overrides.append(phlo_dir / f"compose.{platform_name}.yaml")
+    overrides.extend(
+        [
+            phlo_dir / "overrides" / "compose.host.yaml",
+            phlo_dir / "overrides" / "compose.yaml",
+            phlo_dir / "compose.local.yaml",  # Legacy, until services migrate moves it.
+        ]
+    )
+    overrides = [override for override in overrides if override.is_file()]
+    if overrides:
+        validate_development_compose_layers(phlo_dir)
+    for override in overrides:
+        cmd.extend(["-f", str(override)])
     # The local overrides file is appended last on purpose: compose resolves
     # conflicting keys in favor of the later --env-file.
-    if env_local_file.exists():
-        cmd.extend(["--env-file", str(env_local_file)])
+    for extra_env in env_files[1:]:
+        cmd.extend(["--env-file", str(extra_env)])
     for profile in profiles:
         cmd.extend(["--profile", profile])
     return cmd

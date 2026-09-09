@@ -36,6 +36,8 @@ from uuid import uuid4
 
 import yaml
 
+from phlo.config.layout import env_secrets_path, project_env_paths
+
 # ---------------------------------------------------------------------------
 # Closed vocabulary
 # ---------------------------------------------------------------------------
@@ -270,12 +272,12 @@ def _project_config(project_root: Path) -> dict[str, Any]:
 def load_effective_environment(phlo_dir: Path, project_root: Path) -> dict[str, str]:
     """Return the effective environment with standard Phlo precedence.
 
-    Precedence, lowest to highest: ``.phlo/.env``, ``.phlo/.env.local``,
+    Precedence, lowest to highest: legacy env files, overrides, secrets,
     ``phlo.yaml`` ``env:`` overrides, then the process environment.
     """
     env: dict[str, str] = {}
-    for file_name in (".env", ".env.local"):
-        env.update(_parse_env_file(phlo_dir / file_name))
+    for path in project_env_paths(phlo_dir):
+        env.update(_parse_env_file(path))
 
     config = _project_config(project_root)
     env_overrides = config.get("env")
@@ -712,7 +714,7 @@ def _check_secrets_no_bundled_shared(context: _CheckContext) -> ProductionReadin
 def _check_secrets_env_local_0600(context: _CheckContext) -> ProductionReadinessCheck:
     source = "filesystem metadata"
     phlo_dir: Path = context["phlo_dir"]
-    env_local = phlo_dir / ".env.local"
+    env_local = env_secrets_path(phlo_dir)
     if os.name != "posix":
         return ProductionReadinessCheck(
             id=ProductionReadinessCheckId.SECRETS_ENV_LOCAL_0600,
@@ -727,7 +729,7 @@ def _check_secrets_env_local_0600(context: _CheckContext) -> ProductionReadiness
         return ProductionReadinessCheck(
             id=ProductionReadinessCheckId.SECRETS_ENV_LOCAL_0600,
             state=ProductionReadinessState.UNAVAILABLE,
-            message=".env.local is not present; nothing to inspect",
+            message=f"{env_local.relative_to(phlo_dir)} is not present; nothing to inspect",
             remediation="Generate the environment file with `phlo services init` before preflight.",
             source=source,
         )
@@ -735,7 +737,7 @@ def _check_secrets_env_local_0600(context: _CheckContext) -> ProductionReadiness
         return ProductionReadinessCheck(
             id=ProductionReadinessCheckId.SECRETS_ENV_LOCAL_0600,
             state=ProductionReadinessState.UNAVAILABLE,
-            message=f"cannot stat .env.local: {exc}",
+            message=f"cannot stat {env_local.relative_to(phlo_dir)}: {exc}",
             remediation="Ensure the environment file is inspectable.",
             source=source,
         )
@@ -744,14 +746,14 @@ def _check_secrets_env_local_0600(context: _CheckContext) -> ProductionReadiness
         return ProductionReadinessCheck(
             id=ProductionReadinessCheckId.SECRETS_ENV_LOCAL_0600,
             state=ProductionReadinessState.FAILED,
-            message=f".env.local has mode {oct(mode)}; expected 0600",
-            remediation="Re-run `phlo services init` or chmod 0600 .phlo/.env.local.",
+            message=f"{env_local.relative_to(phlo_dir)} has mode {oct(mode)}; expected 0600",
+            remediation=f"Re-run `phlo services init` or chmod 0600 {env_local}.",
             source=source,
         )
     return ProductionReadinessCheck(
         id=ProductionReadinessCheckId.SECRETS_ENV_LOCAL_0600,
         state=ProductionReadinessState.PASSED,
-        message=".env.local owner and mode are 0600",
+        message=f"{env_local.relative_to(phlo_dir)} owner and mode are 0600",
         remediation="",
         source=source,
     )

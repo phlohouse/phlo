@@ -2,7 +2,7 @@
 
 Resolves the project root (explicit argument, per-context override, or
 cwd; traversal is rejected) and layers configuration from phlo.yaml
-env:, .phlo/.env, and .phlo/.env.local, with later sources winning.
+env: and the legacy, overrides, and secrets environment layers. Later sources win.
 The ContextVar-based use_project_root keeps nested settings
 construction correct under async without touching process cwd.
 """
@@ -16,6 +16,8 @@ from contextvars import ContextVar
 from pathlib import Path
 
 import yaml
+
+from phlo.config.layout import project_env_paths
 
 # Per-context project root, consulted by resolve_project_root when callers
 # pass no explicit root. A ContextVar keeps nested settings construction
@@ -46,10 +48,10 @@ def resolve_project_root(project_root: Path | str | None = None) -> Path:
     return Path.cwd().resolve()
 
 
-def project_env_files(project_root: Path | str | None = None) -> tuple[Path, Path]:
+def project_env_files(project_root: Path | str | None = None) -> tuple[Path, ...]:
     """Return the generated environment files for a project root."""
     root = resolve_project_root(project_root)
-    return root / ".phlo" / ".env", root / ".phlo" / ".env.local"
+    return project_env_paths(root / ".phlo")
 
 
 @contextmanager
@@ -108,14 +110,14 @@ def parse_project_config_env(path: Path) -> dict[str, str]:
 def load_project_env(
     project_root: Path | str | None = None, *, include_os: bool = True
 ) -> dict[str, str]:
-    """Load ``phlo.yaml env:``, `.phlo/.env`, and `.phlo/.env.local`.
+    """Load ``phlo.yaml env:`` and the project environment layers.
 
     Later sources override earlier sources, with OS env taking final precedence
     when requested.
     """
     root = resolve_project_root(project_root)
     env: dict[str, str] = parse_project_config_env(root / "phlo.yaml")
-    for path in (root / ".phlo" / ".env", root / ".phlo" / ".env.local"):
+    for path in project_env_paths(root / ".phlo"):
         env.update(parse_project_env_file(path))
     if include_os:
         env.update(os.environ)

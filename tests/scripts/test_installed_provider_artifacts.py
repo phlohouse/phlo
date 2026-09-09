@@ -104,6 +104,7 @@ def test_health_shard_marks_a_service_without_a_healthcheck_not_applicable(tmp_p
     results = HARNESS.health_shard(
         {"services": {"generated": {"build": {"context": "."}}}},
         consumer=tmp_path,
+        environment=tmp_path / "environment",
         shard_index=0,
         shard_count=1,
         env={},
@@ -139,3 +140,115 @@ def test_native_json_document_is_not_unwrapped(tmp_path, monkeypatch):
     document = {"services": {"postgres": {"image": "postgres:16"}}}
     monkeypatch.setattr(HARNESS, "_run", lambda *_args, **_kwargs: json.dumps(document))
     assert HARNESS.parse_json_command(["python", "-c", "..."], cwd=tmp_path, env={}) == document
+
+
+def test_all_container_operations_use_installed_compose_layers(tmp_path, monkeypatch):
+    """Host identity and env interpolation must survive build and health operations."""
+    import json
+    import subprocess
+
+    import yaml
+
+    from phlo.cli.infrastructure.container_backend import _compose_base_cmd
+
+    consumer = tmp_path / "external consumer"
+    state = consumer / ".phlo"
+    (state / "overrides").mkdir(parents=True)
+    (state / "secrets").mkdir()
+    (state / "overrides/.env").write_text("PHLO_VERSION=9.8.7\n")
+    (state / "secrets/.env").write_text("PASSWORD=test-only\n")
+    (state / "overrides/compose.host.yaml").write_text(
+        'services:\n  phlo-api:\n    user: "1234:5678"\n'
+    )
+    compose = {"services": {"phlo-api": {"build": ".", "healthcheck": {"test": ["CMD", "true"]}}}}
+    (state / "docker-compose.yml").write_text(yaml.safe_dump(compose))
+    environment = tmp_path / "installed environment"
+    operations = []
+    child_calls = []
+    clean_env = {"PHLO_ENVIRONMENT": "development"}
+
+    def run_child(command, *, cwd, env):
+        child_calls.append(command)
+        assert command[0] == str(HARNESS.executable(environment, "python"))
+        assert cwd == consumer
+        assert env == clean_env
+        # Stand in for the installed interpreter using the same runtime builder;
+        # the harness must not construct a separate, incomplete Compose command.
+        return json.dumps(
+            _compose_base_cmd(binary="docker", phlo_dir=state, project_name="installed-artifacts")
+        )
+
+    def run_container(command, **kwargs):
+        files = [Path(command[i + 1]) for i, token in enumerate(command) if token == "-f"]
+        effective = {}
+        for file in files:
+            effective.update(yaml.safe_load(file.read_text())["services"]["phlo-api"])
+        assert effective["user"] == "1234:5678"
+        env_files = [
+            Path(command[i + 1]) for i, token in enumerate(command) if token == "--env-file"
+        ]
+        assert [path.read_text() for path in env_files] == [
+            "PHLO_VERSION=9.8.7\n",
+            "PASSWORD=test-only\n",
+        ]
+        assert kwargs["env"] == clean_env
+        operations.append(
+            next(token for token in command if token in {"build", "up", "logs", "down"})
+        )
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(HARNESS, "_run", run_child)
+    monkeypatch.setattr(HARNESS.subprocess, "run", run_container)
+    for run_shard in (HARNESS.build_shard, HARNESS.health_shard):
+        results = run_shard(
+            compose,
+            environment=environment,
+            consumer=consumer,
+            shard_index=0,
+            shard_count=1,
+            env=clean_env,
+        )
+        assert results[0]["status"] == "passed"
+    assert operations == ["build", "up", "logs", "down"]
+    assert child_calls
+
+
+def test_compose_builder_runs_in_isolated_installed_interpreter(tmp_path, monkeypatch):
+    """A consumer/source shadow cannot replace the installed builder subprocess."""
+    import subprocess
+    import venv
+
+    environment = tmp_path / "environment"
+    venv.EnvBuilder(symlinks=True).create(environment)
+    python = HARNESS.executable(environment, "python")
+    site = Path(
+        subprocess.check_output(
+            [str(python), "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+            text=True,
+        ).strip()
+    )
+    package = site / "phlo/cli/infrastructure"
+    package.mkdir(parents=True)
+    for parent in (package, package.parent, package.parent.parent):
+        (parent / "__init__.py").write_text("")
+    (package / "container_backend.py").write_text(
+        "def _compose_base_cmd(**kwargs):\n"
+        "    return ['docker', 'compose', '-p', kwargs['project_name'], '-f', str(kwargs['phlo_dir'] / 'installed.yaml')]\n"
+    )
+    (package / "utils.py").write_text("def get_project_name():\n    return 'installed-consumer'\n")
+    consumer = tmp_path / "consumer"
+    consumer.mkdir()
+    (consumer / "phlo.py").write_text("raise RuntimeError('source fallback must not import')\n")
+    monkeypatch.setenv("PYTHONPATH", str(consumer))
+    monkeypatch.setenv("PHLO_DEV_SOURCE", str(consumer))
+    command = HARNESS.installed_compose_command(
+        environment=environment, consumer=consumer, env=HARNESS.external_environment()
+    )
+    assert command == [
+        "docker",
+        "compose",
+        "-p",
+        "installed-consumer",
+        "-f",
+        str(consumer / ".phlo/installed.yaml"),
+    ]
