@@ -15,17 +15,62 @@ for the CLI and is fully testable without live services.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 from contextlib import contextmanager
 from pathlib import Path
+from types import ModuleType
 from typing import Any
+
+try:  # POSIX-only; Windows raises ImportError at import time.
+    import fcntl as _fcntl
+except ImportError:  # pragma: no cover - exercised by simulating Windows
+    fcntl: ModuleType | None = None
+else:
+    fcntl = _fcntl
+
+try:  # Windows-only; POSIX raises ImportError at import time.
+    import msvcrt as _msvcrt
+except ImportError:  # pragma: no cover - exercised by simulating Windows
+    msvcrt: ModuleType | None = None
+else:
+    msvcrt = _msvcrt
 
 from phlo.operations.journal import (
     OperationJournalEntry,
     OperationJournalState,
 )
+
+_MSVCRT_LOCK_SIZE = 1
+
+
+def _lock_exclusive(lock_file: Any) -> None:
+    """Acquire an exclusive cross-process lock (POSIX ``flock``, else ``msvcrt``)."""
+    if fcntl is not None:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        return
+    if msvcrt is not None:
+        # ``msvcrt.locking`` locks a byte range, so the lock file must hold at
+        # least one byte; ``a+`` creates it empty on first use.
+        lock_file.seek(0, os.SEEK_END)
+        if lock_file.tell() < _MSVCRT_LOCK_SIZE:
+            lock_file.write("\0" * (_MSVCRT_LOCK_SIZE - lock_file.tell()))
+            lock_file.flush()
+        lock_file.seek(0)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, _MSVCRT_LOCK_SIZE)
+        return
+    # No OS lock primitive available: proceed unlocked so imports and single-
+    # process use keep working; atomic rename still prevents torn records.
+
+
+def _unlock_exclusive(lock_file: Any) -> None:
+    """Release a lock acquired by :func:`_lock_exclusive`."""
+    if fcntl is not None:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        return
+    if msvcrt is not None:
+        lock_file.seek(0)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, _MSVCRT_LOCK_SIZE)
 
 
 class FileOperationJournalStore:
@@ -120,11 +165,11 @@ class FileOperationJournalStore:
     def _locked(self) -> Any:
         """Hold the journal-wide advisory lock for a state transition."""
         with self._lock_path.open("a+", encoding="utf-8") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            _lock_exclusive(lock_file)
             try:
                 yield
             finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                _unlock_exclusive(lock_file)
 
     def _iter_records(self) -> Any:
         for path in sorted(self._directory.glob("*.json")):
