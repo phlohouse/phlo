@@ -210,6 +210,32 @@ def test_locked_image_uses_the_lockfile_versions(
     assert f"DAGSTER_VERSION {locked_dagster['version']}" in run.stdout
 
 
+def test_locked_image_provides_dagster_postgres_storage_backend(
+    locked_project: Path, lock_aware_image: str
+) -> None:
+    """Lock-aware images ship dagster-postgres even when the project lock omits it."""
+    run = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--volume",
+            f"{locked_project}:/app",
+            "--env",
+            "DAGSTER_HOME=/tmp/dagster-home",
+            lock_aware_image,
+            "python",
+            "-c",
+            "import dagster_postgres; print('DAGSTER_POSTGRES OK')",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert run.returncode == 0, run.stderr
+    assert "DAGSTER_POSTGRES OK" in run.stdout
+
+
 def test_missing_staged_lockfile_fails_the_build_clearly(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
