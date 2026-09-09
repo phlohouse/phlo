@@ -1,5 +1,30 @@
 ## 0.15.1 (2026-09-06)
 
+## [phlo 0.16.0 + 37 packages] - 2026-09-09
+
+### Added
+- phlo: unify human and agent command contracts (#919)
+- phlo: share lakehouse configuration with private overrides and secrets (#923)
+- phlo-api: unify human and agent command contracts (#919)
+- phlo-dagster: unify human and agent command contracts (#919)
+- phlo-hasura: share lakehouse configuration with private overrides and secrets (#923)
+- phlo-observatory: share lakehouse configuration with private overrides and secrets (#923)
+- phlo-testing: share lakehouse configuration with private overrides and secrets (#923)
+
+### Fixed
+- phlo: accept successful one-shot setup services during readiness (#917)
+- phlo: parse services list JSON envelope (#921)
+- phlo: preserve failed publications and correlate run evidence (#920)
+- phlo: support Windows and native startup (#922)
+- phlo-dagster: preserve failed publications and correlate run evidence (#920)
+- phlo-dlt: preserve failed publications and correlate run evidence (#920)
+- phlo-dlt: support Windows and native startup (#922)
+- phlo-nessie: preserve failed publications and correlate run evidence (#920)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (15 commits)
+
 ### Fixed
 
 - Advance every published workspace package to a fresh version after the 0.15.0 publication preflight rejected reused 0.14.0 identities.

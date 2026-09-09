@@ -7,14 +7,14 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.15.1,<0.16",
+    "phlo>=0.16.0,<0.17",
     "sling>=1.0.0",
     "pyarrow>=21.0.0",
 ]
 description = "Sling replication ingestion provider for Phlo"
 name = "phlo-sling"
 requires-python = ">=3.11"
-version = "0.15.1"
+version = "0.15.2"
 
 [[project.authors]]
 email = "team@phlo.dev"

@@ -7,7 +7,7 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.15.1,<0.16",
+    "phlo>=0.16.0,<0.17",
     "phlo-api>=0.1.0",
     "httpx>=0.28.1",
     "mcp[cli]>=1.28.1",
@@ -17,7 +17,7 @@ dependencies = [
 description = "MCP server for Phlo observability and lakehouse operations"
 name = "phlo-mcp"
 requires-python = ">=3.11"
-version = "0.15.1"
+version = "0.15.2"
 
 [[project.authors]]
 email = "team@phlo.dev"
