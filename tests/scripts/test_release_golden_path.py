@@ -47,13 +47,58 @@ def test_compose_commands_are_project_scoped(tmp_path: Path) -> None:
         "phlo-qa001-test",
         "--file",
         str(config.compose_file),
-        "--env-file",
-        str(config.project_dir / ".phlo" / ".env"),
-        "--env-file",
-        str(config.project_dir / ".phlo" / ".env.local"),
         "up",
         "--detach",
     ]
+
+
+def test_compose_commands_pass_existing_env_layers_in_precedence_order(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    phlo_dir = config.project_dir / ".phlo"
+    (phlo_dir / "overrides").mkdir(parents=True)
+    (phlo_dir / "secrets").mkdir()
+    legacy_default = phlo_dir / ".env"
+    legacy_secrets = phlo_dir / ".env.local"
+    shared_default = phlo_dir / "overrides" / ".env"
+    shared_secrets = phlo_dir / "secrets" / ".env"
+    for path in (legacy_default, legacy_secrets, shared_default, shared_secrets):
+        path.write_text("")
+
+    assert release_golden_path.compose_command(config, "up", "--detach") == [
+        "docker",
+        "compose",
+        "-p",
+        "phlo-qa001-test",
+        "--file",
+        str(config.compose_file),
+        "--env-file",
+        str(legacy_default),
+        "--env-file",
+        str(legacy_secrets),
+        "--env-file",
+        str(shared_default),
+        "--env-file",
+        str(shared_secrets),
+        "up",
+        "--detach",
+    ]
+
+
+def test_env_secrets_path_prefers_the_shared_layout_marker(tmp_path: Path) -> None:
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / ".gitignore").write_text("# Phlo shared layout v1\n")
+
+    assert release_golden_path.env_secrets_path(phlo_dir) == phlo_dir / "secrets" / ".env"
+
+
+def test_env_secrets_path_falls_back_to_the_legacy_layout(tmp_path: Path) -> None:
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+
+    assert release_golden_path.env_secrets_path(phlo_dir) == phlo_dir / ".env.local"
 
 
 def test_project_names_are_unique() -> None:
