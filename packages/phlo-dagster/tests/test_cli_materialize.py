@@ -68,6 +68,10 @@ def test_wait_for_dagster_runtime_uses_ready_marker(monkeypatch) -> None:
     ]
 
 
+async def _ready(*_args, **_kwargs) -> None:
+    """Stub the Dagster HTTP readiness wait: the launch behaviour is under test."""
+
+
 def test_wait_for_dagster_runtime_uses_selected_backend(monkeypatch) -> None:
     calls = []
 
@@ -185,6 +189,7 @@ def test_enabled_wap_materialize_uses_graphql_launch_and_retains_a_rejected_bran
     )
     monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", lambda **_: Launch())
     monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", rejected_launch)
+    monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", _ready)
     monkeypatch.setenv("PHLO_DAGSTER_ACCESS_TOKEN", "user-access-token")
 
     result = CliRunner().invoke(
@@ -241,7 +246,7 @@ def test_enabled_wap_materialize_retains_new_branch_after_ambiguous_transport_fa
     )
     monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", lambda **_: Launch())
     monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", timeout_launch)
-    monkeypatch.setenv("PHLO_DAGSTER_ACCESS_TOKEN", "user-access-token")
+    monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", _ready)
 
     result = CliRunner().invoke(
         materialize,
@@ -336,6 +341,7 @@ def test_enabled_wap_materialize_uses_project_configuration(
     )
     monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", prepared_launch)
     monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", accepted_launch)
+    monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", _ready)
 
     result = CliRunner().invoke(
         materialize,
@@ -354,6 +360,50 @@ def test_enabled_wap_materialize_uses_project_configuration(
         },
     }
     assert discovery_calls == [True]
+
+
+def test_enabled_wap_materialize_waits_for_http_before_launch(monkeypatch) -> None:
+    """A warming webserver must be waited out, not failed as an ambiguous launch."""
+    calls: list[tuple[str, str]] = []
+
+    class Launch:
+        logical_run_id = "request-42"
+        branch = "pipeline-run-request-42"
+        tags = {"phlo/run_id": logical_run_id}
+
+        def record_launch_result(self, **kwargs):
+            return True
+
+    async def recording_wait(url, **_kwargs):
+        calls.append(("wait", url))
+
+    async def recording_launch(**_kwargs):
+        calls.append(("launch", ""))
+        return type("Result", (), {"accepted": True, "message": "", "run_id": "run-1"})()
+
+    monkeypatch.setattr(
+        "phlo_dagster.cli_materialize.load_wap_config",
+        lambda: type(
+            "Config",
+            (),
+            {
+                "enabled": True,
+                "dagster_url": "http://dagster/graphql",
+                "job_name": "__ASSET_JOB",
+                "repository_location_name": None,
+                "repository_name": None,
+            },
+        )(),
+    )
+    monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", recording_wait)
+    monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", lambda **_: Launch())
+    monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", recording_launch)
+
+    result = CliRunner().invoke(materialize, ["dlt_orders"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0] == ("wait", "http://dagster/graphql")
+    assert [kind for kind, _ in calls] == ["wait", "launch"]
 
 
 @patch("phlo_dagster.cli_materialize.find_dagster_container", return_value="lakehouse-dagster-1")

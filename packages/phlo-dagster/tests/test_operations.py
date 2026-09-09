@@ -19,6 +19,7 @@ from phlo_dagster.operations import (
     launch_retry,
     list_partitions,
     terminate,
+    wait_for_dagster_http,
 )
 
 
@@ -350,3 +351,49 @@ def test_graphql_fails_before_http_when_production_identity_is_missing(
 
 def _never_called(*_args, **_kwargs):  # pragma: no cover - failure marker
     raise AssertionError("HTTP must not be contacted when production identity is missing")
+
+
+def test_wait_for_dagster_http_returns_on_first_answer(monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def fake_post(self, url, json=None, headers=None):
+        calls.append(url)
+        return httpx.Response(200, request=httpx.Request("POST", url), json={"data": {}})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    asyncio.run(wait_for_dagster_http("http://dagster.test/graphql"))
+
+    assert calls == ["http://dagster.test/graphql"]
+
+
+def test_wait_for_dagster_http_retries_transport_failures(monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def fake_post(self, url, json=None, headers=None):
+        calls.append(url)
+        if len(calls) < 3:
+            raise httpx.ConnectError("warming up")
+        return httpx.Response(200, request=httpx.Request("POST", url), json={"data": {}})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    asyncio.run(wait_for_dagster_http("http://dagster.test/graphql", poll_interval_seconds=0))
+
+    assert calls == ["http://dagster.test/graphql"] * 3
+
+
+def test_wait_for_dagster_http_times_out_with_actionable_error(monkeypatch) -> None:
+    async def fake_post(self, url, json=None, headers=None):
+        raise httpx.ConnectError("still down")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    with pytest.raises(RuntimeError, match="not accepting GraphQL requests"):
+        asyncio.run(
+            wait_for_dagster_http(
+                "http://dagster.test/graphql",
+                timeout_seconds=0,
+                poll_interval_seconds=0,
+            )
+        )

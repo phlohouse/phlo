@@ -23,6 +23,10 @@ from phlo_dagster.cli_backfill import (
 )
 
 
+async def _ready(*_args, **_kwargs) -> None:
+    """Stub the Dagster HTTP readiness wait: the backfill behaviour is under test."""
+
+
 class TestBackfillDateGeneration:
     """Test date range generation."""
 
@@ -388,6 +392,7 @@ def test_enabled_project_wap_backfill_uses_graphql_without_cli_flags(monkeypatch
         "phlo_dagster.cli_backfill.discover_capabilities",
         lambda: discovery_calls.append(True),
     )
+    monkeypatch.setattr("phlo_dagster.cli_backfill.wait_for_dagster_http", _ready)
 
     result = CliRunner().invoke(
         backfill,

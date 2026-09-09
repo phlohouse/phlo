@@ -8,18 +8,18 @@ provider-neutral DagsterOperationResult dicts regardless of response shape.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-
 from phlo.security.mode import requires_http_authorization
 from phlo.security.service_identity import (
     build_scoped_service_headers,
     build_service_headers,
     load_service_identity_credentials,
 )
-
 
 LAUNCH_PIPELINE_EXECUTION_MUTATION = """
 mutation LaunchPipelineExecution($executionParams: ExecutionParams!) {
@@ -375,6 +375,35 @@ async def list_partitions(*, dagster_url: str, asset_key_path: str) -> list[dict
         if isinstance(dimension, dict):
             keys.extend(str(key) for key in dimension.get("partitionKeys", []) or [])
     return [{"partition_key": key, "status": "UNKNOWN"} for key in keys]
+
+
+READINESS_QUERY = "query PhloReadiness { __typename }"
+
+
+async def wait_for_dagster_http(
+    url: str, *, timeout_seconds: float = 180.0, poll_interval_seconds: float = 2.0
+) -> None:
+    """Poll the Dagster GraphQL endpoint until it answers HTTP.
+
+    Any HTTP response (even an error payload) proves the webserver is serving;
+    only transport-level failures keep polling. WAP launches otherwise hit a
+    warming webserver with a single attempt and fail as ambiguous. Raises
+    RuntimeError after ``timeout_seconds`` with an actionable hint.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        while True:
+            try:
+                await client.post(url, json={"query": READINESS_QUERY})
+                return
+            except httpx.HTTPError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"Dagster is not accepting GraphQL requests at {url} after "
+                        f"{timeout_seconds:.0f}s. Inspect startup logs with: "
+                        "phlo services logs --tail 120 dagster"
+                    ) from None
+                await asyncio.sleep(poll_interval_seconds)
 
 
 async def _graphql(
