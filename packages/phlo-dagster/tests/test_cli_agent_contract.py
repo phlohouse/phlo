@@ -8,6 +8,10 @@ from click.testing import CliRunner
 from phlo_dagster import cli_backfill, cli_materialize, cli_status
 
 
+async def _ready(*_args, **_kwargs) -> None:
+    """Stub the Dagster HTTP readiness wait: the launch behaviour is under test."""
+
+
 def test_backfill_json_preview_does_not_launch_or_write(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_backfill, "load_wap_config", lambda: SimpleNamespace(enabled=True))
     monkeypatch.setattr(cli_backfill, "BACKFILL_STATE_FILE", tmp_path / "state.json")
@@ -83,6 +87,7 @@ def test_materialize_wap_json_is_submitted_not_completed(monkeypatch):
         return SimpleNamespace(accepted=True, run_id="run-123")
 
     monkeypatch.setattr(cli_materialize, "launch_materialize", launch)
+    monkeypatch.setattr(cli_materialize, "wait_for_dagster_http", _ready)
     result = CliRunner().invoke(cli_materialize.materialize, ["orders", "--json"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
@@ -135,6 +140,7 @@ def test_materialize_wap_without_run_id_is_not_submitted(monkeypatch):
         return SimpleNamespace(accepted=True, run_id=None)
 
     monkeypatch.setattr(cli_materialize, "launch_materialize", launch)
+    monkeypatch.setattr(cli_materialize, "wait_for_dagster_http", _ready)
     result = CliRunner().invoke(cli_materialize.materialize, ["orders", "--json"])
     assert result.exit_code != 0
     payload = json.loads(result.stdout)

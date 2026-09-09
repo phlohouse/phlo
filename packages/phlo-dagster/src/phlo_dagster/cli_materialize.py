@@ -64,7 +64,7 @@ from phlo.cli.output import command_failed_error, service_unavailable_error, jso
 from phlo.cli.contract import PhloCommand
 from phlo.infrastructure import load_wap_config
 from phlo_dagster.containers import find_dagster_container
-from phlo_dagster.operations import launch_materialize
+from phlo_dagster.operations import launch_materialize, wait_for_dagster_http
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
 from phlo_dagster.wap_launch import prepare_wap_launch
 from phlo.logging import get_logger
@@ -189,6 +189,10 @@ def materialize(
             )
             return
 
+        # The webserver can accept the container-health signal before its
+        # GraphQL route serves; a single launch attempt against the warming
+        # server fails as ambiguous. Wait for HTTP first.
+        asyncio.run(wait_for_dagster_http(dagster_url))
         discover_capabilities()
         wap_launch = prepare_wap_launch(logical_run_id=logical_run_id)
         try:

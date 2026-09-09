@@ -64,7 +64,7 @@ from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
 from phlo_dagster.cli_materialize import wait_for_dagster_runtime
 from phlo_dagster.containers import find_dagster_container
-from phlo_dagster.operations import get_run_status, launch_materialize
+from phlo_dagster.operations import get_run_status, launch_materialize, wait_for_dagster_http
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
 from phlo_dagster.wap_launch import prepare_wap_launch, read_wap_report
 
@@ -272,6 +272,9 @@ def backfill(
             raise click.ClickException(
                 "PHLO_DAGSTER_ACCESS_TOKEN is required for a non-local WAP Dagster endpoint."
             )
+        # Same warming-webserver race as a single-partition WAP launch: wait
+        # once before the first partition instead of failing it as ambiguous.
+        asyncio.run(wait_for_dagster_http(dagster_url))
         discover_capabilities()
         try:
             _run_wap_backfill(
