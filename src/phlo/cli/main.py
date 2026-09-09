@@ -368,6 +368,9 @@ def init(
             details=["Use --force to initialize anyway."],
             reason_code="directory_not_empty",
         )
+    # Snapshot for rollback: a failed render must not leave a half-built project.
+    project_existed = project_dir.exists()
+    before = set(project_dir.rglob("*")) if project_existed else set()
 
     # Create project structure
     try:
@@ -407,14 +410,42 @@ def init(
         click.echo("\nDocumentation: https://github.com/iamgp/phlo")
 
     except click.ClickException:
+        _rollback_failed_init(project_dir, project_existed, before)
         raise
     except Exception as e:
+        _rollback_failed_init(project_dir, project_existed, before)
         logger.exception(
             "project_initialization_failed",
             project_dir=str(project_dir),
             error=str(e),
         )
         raise click.ClickException("could not initialize project") from e
+
+
+def _rollback_failed_init(project_dir: Path, project_existed: bool, before: set[Path]) -> None:
+    """Best-effort removal of paths a failed render created.
+
+    A directory ``init`` created itself is removed wholesale; inside a
+    pre-existing directory only newly created paths go, deepest first, and
+    pre-existing content is never touched. All errors are swallowed: rollback
+    must not mask the render failure being reported.
+    """
+    try:
+        if not project_existed:
+            if project_dir.is_dir():
+                shutil.rmtree(project_dir, ignore_errors=True)
+            return
+        after = set(project_dir.rglob("*"))
+        for path in sorted(after - before, key=lambda item: len(item.parts), reverse=True):
+            try:
+                if path.is_file() or path.is_symlink():
+                    path.unlink(missing_ok=True)
+                elif path.is_dir():
+                    path.rmdir()
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def _create_project_structure(project_dir: Path, project_name: str, template: str):

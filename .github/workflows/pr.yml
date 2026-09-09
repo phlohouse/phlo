@@ -1,10 +1,11 @@
 name: PR Validation
 
 on:
+  # No base-branch filter: stacked PRs targeting feature branches get the
+  # same validation as PRs targeting main/beta. Merge-queue gating below is
+  # unchanged.
   pull_request:
-    branches: [main, beta]
   merge_group:
-    types: [checks_requested]
 
 # Cancel only an obsolete revision of the same PR. Merge groups have distinct
 # refs and must not cancel one another or a reusable child workflow.
