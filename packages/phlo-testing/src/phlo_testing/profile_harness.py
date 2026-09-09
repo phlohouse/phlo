@@ -44,6 +44,8 @@ from dagster import DagsterRunStatus
 from dagster._core.storage.tags import PARTITION_NAME_TAG
 from dagster_graphql.client.client import DagsterGraphQLClient
 
+from phlo.config.layout import env_defaults_path, project_env_paths
+
 from phlo_testing.harness_utils import (
     apply_env_updates,
     force_remove_directory,
@@ -504,14 +506,12 @@ class BundledStackHarness:
         )
 
     def read_env(self) -> dict[str, str]:
-        """Return resolved environment variables from the project's .phlo files, with
-        .env.local overriding .env.
-        """
+        """Return project environment layers with later local files taking precedence."""
         phlo_dir = self.project_dir / ".phlo"
-        env_vars = read_env_file(phlo_dir / ".env")
-        local_env_path = phlo_dir / ".env.local"
-        if local_env_path.exists():
-            env_vars.update(read_env_file(local_env_path))
+        env_vars: dict[str, str] = {}
+        for path in project_env_paths(phlo_dir):
+            if path.exists():
+                env_vars.update(read_env_file(path))
         return env_vars
 
     def default_partition_date(self) -> str:
@@ -1402,7 +1402,7 @@ def _write_bundled_stack_workflow(
     """Write default workflow files for bundled stack testing: sample ingestion,
     transformation, and publishing assets.
     """
-    env_vars = read_env_file(project_dir / ".phlo" / ".env")
+    env_vars = read_env_file(env_defaults_path(project_dir / ".phlo"))
 
     run_phlo(
         [
@@ -1647,7 +1647,7 @@ def bootstrap_bundled_stack_harness(
             python_exe=python_executable,
         )
 
-        env_vars = read_env_file(target_project_dir / ".phlo" / ".env")
+        env_vars = read_env_file(env_defaults_path(target_project_dir / ".phlo"))
         ports = BundledStackPorts.from_env(env_vars)
         _wait_for_bundled_stack_services(ports)
         return BundledStackHarness(

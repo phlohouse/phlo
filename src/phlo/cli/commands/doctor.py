@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING, Any
 import click
 import yaml
 
+from phlo.config.layout import env_defaults_path, env_secrets_path
+
 if TYPE_CHECKING:
     from phlo.cli.commands.services.ports import PortMapping
 
@@ -461,8 +463,8 @@ def check_project(*, verbose: bool = False) -> list[DiagnosticResult]:
                     {"error": str(exc)} if verbose else {},
                 )
             )
-    for filename in (".env", ".env.local"):
-        path = phlo_dir / filename
+    for path in (env_defaults_path(phlo_dir), env_secrets_path(phlo_dir)):
+        filename = path.relative_to(phlo_dir).as_posix()
         results.append(
             DiagnosticResult(
                 f"project.{filename}",

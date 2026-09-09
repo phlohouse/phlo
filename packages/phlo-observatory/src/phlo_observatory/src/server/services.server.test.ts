@@ -2,9 +2,14 @@
  * Tests service-status helpers: container state mapping and Docker
  * status-line fallbacks.
  */
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  getEnvPath,
+  loadEnvValues,
   parseContainerStateStatus,
   parseDockerStatusLines,
   serviceActionId,
@@ -100,5 +105,46 @@ describe('services.server helpers', () => {
     it('matches the phlo-api v2 service action contract', () => {
       expect(serviceActionId('postgres', 'restart')).toBe('postgres:restart')
     })
+  })
+})
+
+describe('project environment layouts', () => {
+  it('discovers shared defaults and loads secrets with final precedence', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'phlo-env-'))
+    try {
+      const root = join(project, '.phlo')
+      await mkdir(join(root, 'overrides'), { recursive: true })
+      await mkdir(join(root, 'secrets'))
+      await writeFile(join(root, '.env'), 'PORT=1\nLEGACY=yes\n')
+      await writeFile(join(root, '.env.local'), 'PORT=2\n')
+      await writeFile(join(root, 'overrides', '.env'), 'PORT=3\nTEAM=yes\n')
+      await writeFile(join(root, 'secrets', '.env'), 'PORT=4\n')
+      expect(getEnvPath('', project)).toBe(join(root, 'overrides', '.env'))
+      expect(await loadEnvValues(getEnvPath('', project))).toEqual({
+        PORT: '4',
+        LEGACY: 'yes',
+        TEAM: 'yes',
+      })
+      expect(await loadEnvValues(join(root, '.env'))).toEqual({
+        PORT: '4',
+        LEGACY: 'yes',
+        TEAM: 'yes',
+      })
+    } finally {
+      await rm(project, { recursive: true, force: true })
+    }
+  })
+
+  it('retains explicit custom env paths and adjacent local overrides', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'phlo-env-'))
+    try {
+      const custom = join(project, 'custom.env')
+      await writeFile(custom, 'PORT=1\n')
+      await writeFile(`${custom}.local`, 'PORT=2\n')
+      expect(getEnvPath(custom, project)).toBe(custom)
+      expect(await loadEnvValues(custom)).toEqual({ PORT: '2' })
+    } finally {
+      await rm(project, { recursive: true, force: true })
+    }
   })
 })

@@ -21,6 +21,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, cast
 
+from phlo.config.layout import env_defaults_path, env_secrets_path
+
 
 def log(msg: str, color: str = "") -> None:
     """Print a log message (kept for harness output parity with repo scripts)."""
@@ -436,8 +438,9 @@ def upsert_env_file(path: Path, updates: dict[str, str]) -> None:
 
 
 def apply_env_updates(phlo_dir: Path, updates: dict[str, str]) -> None:
-    """Apply env updates to both .env and .env.local."""
-    for env_path in (phlo_dir / ".env", phlo_dir / ".env.local"):
+    """Apply env updates to defaults and secrets in the project's active layout."""
+    for env_path in (env_defaults_path(phlo_dir), env_secrets_path(phlo_dir)):
+        env_path.parent.mkdir(parents=True, exist_ok=True)
         upsert_env_file(env_path, updates)
 
 

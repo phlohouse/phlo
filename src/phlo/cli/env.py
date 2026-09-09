@@ -13,6 +13,7 @@ import click
 import yaml
 
 from phlo.cli.infrastructure.utils import parse_env_file
+from phlo.config.layout import env_secrets_path
 from phlo.logging import get_logger
 from phlo.plugins.compose import ComposeGenerator
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
@@ -29,7 +30,7 @@ def env() -> None:
 @click.option(
     "--include-secrets",
     is_flag=True,
-    help="Include secrets from .phlo/.env.local in the export output.",
+    help="Include the project secrets environment in the export output.",
 )
 @click.option(
     "--output",
@@ -52,7 +53,7 @@ def export_env(include_secrets: bool, output: Path | None, _format: str) -> None
         phlo env export --output env.full
 
     With ``--include-secrets`` the output embeds real values from
-    ``.phlo/.env.local``; do not write it to a committed location.
+    the project secrets file; do not write it to a committed location.
 
     """
     config = _load_project_config()
@@ -78,7 +79,7 @@ def export_env(include_secrets: bool, output: Path | None, _format: str) -> None
     env_content = composer.generate_env(services_to_install, env_overrides=env_overrides)
 
     if include_secrets:
-        env_local_path = Path.cwd() / ".phlo" / ".env.local"
+        env_local_path = env_secrets_path(Path.cwd() / ".phlo")
         existing_env_local = parse_env_file(env_local_path)
         env_local_content = composer.generate_env_local(
             services_to_install,

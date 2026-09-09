@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from phlo.cli.templates.models import TemplateMetadata, TemplateRenderContext
+from phlo.plugins.compose.artifacts import render_shared_gitignore
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -22,13 +23,13 @@ def _build_env_example_content() -> str:
     """Build `.env.example`: secret variable names only, never values.
 
     The file documents which secrets each discovered service expects; real
-    values belong in the uncommitted `.phlo/.env.local`.
+    values belong in the uncommitted `.phlo/secrets/.env`.
     """
     from phlo.plugins.discovery import ServiceDiscovery
 
     lines = [
         "# Phlo Local Secrets Template",
-        "# Copy to .phlo/.env.local after running `phlo services init`.",
+        "# Copy to .phlo/secrets/.env after running `phlo services init`.",
         "",
     ]
 
@@ -136,8 +137,14 @@ Phlo data workflows for {project_name}.
    phlo services init
    ```
 
-   This creates `.phlo/docker-compose.yml`, `.phlo/.env`, and `.phlo/.env.local`.
-   Keep `.phlo/` out of source control; it is generated runtime state.
+   Commit shared Compose and service configuration files under `.phlo/`.
+   Local defaults live in `.phlo/overrides/.env`; credentials live in
+   `.phlo/secrets/.env`. These directories are ignored by Git.
+   Optional `.phlo/compose.windows.yaml`, `.phlo/compose.linux.yaml`, and
+   `.phlo/compose.macos.yaml` apply only on that host OS (WSL uses Linux).
+   Personal Compose overrides belong in `.phlo/overrides/compose.yaml`.
+   Relative bind/build paths resolve from `.phlo/`; use `../` for project files.
+   See the sharing lakehouses guide for examples.
 
 3. **Start and inspect the local stack:**
    ```bash
@@ -193,7 +200,6 @@ def _write_common_project_files(
         project_dir / ".gitignore",
         """.env
 .env.local
-.phlo/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -210,6 +216,7 @@ htmlcov/
 .ruff_cache/
 """,
     )
+    _write_text(project_dir / ".phlo" / ".gitignore", render_shared_gitignore([]))
     _write_project_readme(project_dir, project_name)
     _write_text(
         project_dir / "AGENTS.md",
@@ -249,6 +256,7 @@ class MinimalTemplate:
             "pyproject.toml",
             ".env.example",
             ".gitignore",
+            ".phlo/.gitignore",
             "README.md",
             "workflows/__init__.py",
             "tests/__init__.py",

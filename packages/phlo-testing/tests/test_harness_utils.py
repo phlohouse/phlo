@@ -49,3 +49,14 @@ def test_read_env_file_parses_and_skips_comments(tmp_path: Path) -> None:
     )
 
     assert read_env_file(env_path) == {"POSTGRES_PORT": "5432", "QUOTED": "a=b"}
+
+
+def test_apply_env_updates_uses_shared_layout_destinations(tmp_path):
+    from phlo.config.layout import SHARED_LAYOUT_MARKER
+
+    (tmp_path / ".gitignore").write_text(SHARED_LAYOUT_MARKER)
+    harness_utils.apply_env_updates(tmp_path, {"POSTGRES_PORT": "15432"})
+    assert read_env_file(tmp_path / "overrides/.env") == {"POSTGRES_PORT": "15432"}
+    assert read_env_file(tmp_path / "secrets/.env") == {"POSTGRES_PORT": "15432"}
+    assert not (tmp_path / ".env").exists()
+    assert not (tmp_path / ".env.local").exists()

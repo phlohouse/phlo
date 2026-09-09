@@ -20,6 +20,7 @@ from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.container_backend import select_project_container_backend
 from phlo.cli.infrastructure.utils import get_project_name, parse_env_file
 from phlo.cli.output import json_envelope, missing_phlo_project_error
+from phlo.config.layout import project_env_paths
 from phlo.logging import get_logger
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
 
@@ -100,15 +101,12 @@ def _resolve_env_var(env_var: str | None, env: dict[str, str]) -> str | None:
 def _load_environment(phlo_dir: Path, config: dict[str, Any]) -> dict[str, str]:
     """Load effective compose environment with standard Phlo precedence.
 
-    Precedence, lowest to highest: `.phlo/.env`, `.phlo/.env.local`,
+    Precedence, lowest to highest: legacy env files, overrides, secrets,
     `phlo.yaml` env overrides, then the current process environment.
     """
     env: dict[str, str] = {}
 
-    env_file = phlo_dir / ".env"
-    env_local_file = phlo_dir / ".env.local"
-
-    for file_path in [env_file, env_local_file]:
+    for file_path in project_env_paths(phlo_dir):
         if file_path.exists():
             parsed = parse_env_file(file_path)
             env.update(parsed)

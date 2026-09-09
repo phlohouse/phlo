@@ -125,14 +125,21 @@ def test_bundled_stack_harness_materialize_adds_partition(monkeypatch) -> None:
     }
 
 
-def test_bundled_stack_harness_read_env_merges_local_secrets(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize(
+    "defaults,secrets", [(".env", ".env.local"), ("overrides/.env", "secrets/.env")]
+)
+def test_bundled_stack_harness_read_env_merges_local_secrets(
+    monkeypatch, tmp_path, defaults, secrets
+) -> None:
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
-    (phlo_dir / ".env").write_text(
+    (phlo_dir / defaults).parent.mkdir(parents=True, exist_ok=True)
+    (phlo_dir / secrets).parent.mkdir(parents=True, exist_ok=True)
+    (phlo_dir / defaults).write_text(
         "POSTGRES_USER=phlo\nPOSTGRES_PASSWORD=phlo\nPOSTGRES_DB=phlo\n",
         encoding="utf-8",
     )
-    (phlo_dir / ".env.local").write_text(
+    (phlo_dir / secrets).write_text(
         "POSTGRES_PASSWORD=secret\nMINIO_ROOT_PASSWORD=minio-secret\n",
         encoding="utf-8",
     )

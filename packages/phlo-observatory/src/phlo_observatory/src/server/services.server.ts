@@ -8,7 +8,7 @@
 import { exec, execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { createServerFn } from '@tanstack/react-start'
@@ -287,16 +287,24 @@ const getPackagesPath = (): string => {
   return localRoot
 }
 
-// Path to .phlo/.env file
-const getEnvPath = (): string => {
-  if (envFilePath) {
-    return envFilePath
+// Prefer the shared layout while retaining legacy and explicit env paths.
+export const getEnvPath = (
+  explicitPath = envFilePath,
+  projectPath = phloProjectPath,
+): string => {
+  if (explicitPath) {
+    return explicitPath
   }
-  const candidates = [
-    '/app/.phlo/.env',
-    join(process.cwd(), '..', '..', '.phlo', '.env'),
-    join(process.cwd(), '.phlo', '.env'),
+  const roots = [
+    ...(projectPath ? [join(projectPath, '.phlo')] : []),
+    '/app/.phlo',
+    join(process.cwd(), '..', '..', '.phlo'),
+    join(process.cwd(), '.phlo'),
   ]
+  const candidates = roots.flatMap((root) => [
+    join(root, 'overrides', '.env'),
+    join(root, '.env'),
+  ])
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
       return candidate
@@ -722,19 +730,33 @@ async function discoverServicesFromCli(): Promise<Array<ServiceDefinition>> {
 /**
  * Parse env files and merge with service defaults
  */
-async function loadEnvValues(): Promise<Record<string, string>> {
-  const envPath = getEnvPath()
+export async function loadEnvValues(
+  envPath = getEnvPath(),
+): Promise<Record<string, string>> {
   const values: Record<string, string> = {}
-
-  await parseEnvFile(envPath, values)
-
-  const localEnvPath = envPath.endsWith('.env')
-    ? `${envPath}.local`
-    : join(dirname(envPath), '.env.local')
-  if (existsSync(localEnvPath)) {
+  const directory = dirname(envPath)
+  const sharedDefaults =
+    basename(envPath) === '.env' && basename(directory) === 'overrides'
+  const legacyDefaults =
+    basename(envPath) === '.env' && basename(directory) === '.phlo'
+  if (sharedDefaults || legacyDefaults) {
+    const root = sharedDefaults ? dirname(directory) : directory
+    for (const path of [
+      join(root, '.env'),
+      join(root, '.env.local'),
+      join(root, 'overrides', '.env'),
+      join(root, 'secrets', '.env'),
+    ]) {
+      await parseEnvFile(path, values)
+    }
+  } else {
+    // Explicit custom files keep their existing adjacent .env.local contract.
+    await parseEnvFile(envPath, values)
+    const localEnvPath = envPath.endsWith('.env')
+      ? `${envPath}.local`
+      : join(directory, '.env.local')
     await parseEnvFile(localEnvPath, values)
   }
-
   return values
 }
 

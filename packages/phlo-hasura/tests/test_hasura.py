@@ -533,3 +533,19 @@ class TestHasuraMetadataSync:
 
         assert "api.new_table" in diff["tables"]["added"]
         assert "api.glucose_readings" in diff["tables"]["removed"]
+
+
+def test_hooks_load_shared_secrets_with_local_precedence(tmp_path, monkeypatch):
+    import os
+
+    from phlo_hasura.hooks import _load_env_files
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HASURA_LAYOUT_TEST", "process")
+    state = tmp_path / ".phlo"
+    (state / "overrides").mkdir(parents=True)
+    (state / "secrets").mkdir()
+    (state / "overrides/.env").write_text("HASURA_LAYOUT_TEST=override\n")
+    (state / "secrets/.env").write_text("HASURA_LAYOUT_TEST=secret\n")
+    _load_env_files()
+    assert os.environ["HASURA_LAYOUT_TEST"] == "secret"

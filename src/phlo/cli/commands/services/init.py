@@ -31,7 +31,9 @@ from phlo.cli.commands.services.utils import (
 from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.infrastructure.utils import parse_env_file
 from phlo.cli.output import user_error
+from phlo.config.layout import SHARED_LAYOUT_MARKER, env_defaults_path, env_secrets_path
 from phlo.plugins.compose import ComposeGenerator
+from phlo.plugins.compose.artifacts import render_shared_gitignore, write_compose_layers
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
 
 _PRODUCTION_USERNAME_DEFAULTS = {
@@ -238,7 +240,16 @@ def init_cmd(
     phlo_dir = get_phlo_dir()
     config_file = Path.cwd() / PHLO_CONFIG_FILE
 
-    if phlo_dir.exists() and not force and not _is_uninitialized_phlo_dir(phlo_dir):
+    marker = phlo_dir / ".gitignore"
+    shared_layout = marker.is_file() and SHARED_LAYOUT_MARKER in marker.read_text()
+    new_layout = not phlo_dir.exists() or _is_uninitialized_phlo_dir(phlo_dir)
+    preserve_shared = shared_layout and not force
+    if (
+        phlo_dir.exists()
+        and not force
+        and not shared_layout
+        and not _is_uninitialized_phlo_dir(phlo_dir)
+    ):
         click.echo(f"Directory {phlo_dir} already exists.", err=True)
         click.echo("Use --force to overwrite.", err=True)
         sys.exit(1)
@@ -321,6 +332,15 @@ def init_cmd(
 
     # Create .phlo directory
     phlo_dir.mkdir(parents=True, exist_ok=True)
+    if new_layout:
+        marker.write_text(render_shared_gitignore([]))
+        shared_layout = True
+    if shared_layout:
+        (phlo_dir / "overrides").mkdir(exist_ok=True)
+        (phlo_dir / "secrets").mkdir(exist_ok=True)
+        attributes = phlo_dir / ".gitattributes"
+        if not attributes.exists():
+            attributes.write_text("* text=auto eol=lf\n")
 
     # Discover services
     discovery = ServiceDiscovery()
@@ -342,7 +362,7 @@ def init_cmd(
     # overrides as Compose generation.
     existing_config["services"] = user_overrides
     env_overrides = _get_env_overrides(existing_config)
-    existing_env_local = parse_env_file(phlo_dir / ".env.local")
+    existing_env_local = parse_env_file(env_secrets_path(phlo_dir))
     if production:
         _validate_production_credentials(env_overrides, existing_env_local)
         env_overrides = {**env_overrides, "PHLO_ENVIRONMENT": "production"}
@@ -396,19 +416,34 @@ def init_cmd(
         deployment_profile="production" if production else "development",
     )
 
+    portable_content = None
+    if shared_layout and (dev or service_dev):
+        portable_content = composer.generate_compose(
+            services_to_install,
+            phlo_dir,
+            user_overrides=user_overrides,
+            env_values={**os.environ, **env_overrides, **existing_env_local},
+        )
     compose_file = phlo_dir / "docker-compose.yml"
-    compose_file.write_text(compose_content)
+    write_compose_layers(
+        phlo_dir,
+        compose_content,
+        portable_rendered=portable_content,
+        preserve_shared=preserve_shared,
+        production=production,
+    )
     click.echo(f"Created: {compose_file.relative_to(Path.cwd())}")
 
     # Generate .env + .env.local
-    env_file = phlo_dir / ".env"
-    env_local_file = phlo_dir / ".env.local"
+    env_file = env_defaults_path(phlo_dir)
+    env_local_file = env_secrets_path(phlo_dir)
     env_content = composer.generate_env(services_to_install, env_overrides=env_overrides)
     env_local_content = composer.generate_env_local(
         services_to_install,
         env_overrides=env_overrides,
         existing_values=existing_env_local,
     )
+    env_file.parent.mkdir(parents=True, exist_ok=True)
     env_file.write_text(env_content)
     click.echo(f"Created: {env_file.relative_to(Path.cwd())}")
     write_sensitive_file(env_local_file, env_local_content, allow_insecure=allow_insecure)
@@ -416,7 +451,14 @@ def init_cmd(
 
     # Generate .gitignore
     gitignore_file = phlo_dir / ".gitignore"
-    gitignore_file.write_text(composer.generate_gitignore(services_to_install))
+    if shared_layout:
+        generated_ignore = composer.generate_gitignore(services_to_install)
+        # Preserve explicitly shared custom artifacts from previous migrations.
+        existing_ignore = gitignore_file.read_text() if gitignore_file.exists() else ""
+        generated_ignore = render_shared_gitignore([], generated_ignore + existing_ignore)
+        gitignore_file.write_text(generated_ignore)
+    elif not gitignore_file.exists():
+        gitignore_file.write_text(".env\n.env.local\nvolumes/\n")
     click.echo(f"Created: {gitignore_file.relative_to(Path.cwd())}")
 
     # Create volumes directory
@@ -424,7 +466,10 @@ def init_cmd(
     volumes_dir.mkdir(exist_ok=True)
 
     # Copy service files (Dockerfiles, configs, etc.)
-    copied_files = composer.copy_service_files(services_to_install, phlo_dir)
+    if preserve_shared:
+        copied_files = composer.copy_service_files(services_to_install, phlo_dir, overwrite=False)
+    else:
+        copied_files = composer.copy_service_files(services_to_install, phlo_dir)
     for f in copied_files:
         click.echo(f"Created: .phlo/{f}")
 
@@ -446,6 +491,6 @@ def init_cmd(
     click.echo("")
     click.echo("Next steps:")
     click.echo("  1. Commit non-secret defaults in phlo.yaml (env:)")
-    click.echo("  2. Set secrets in .phlo/.env.local")
+    click.echo(f"  2. Set secrets in {env_local_file.relative_to(Path.cwd())}")
     click.echo("  3. Run: phlo services start")
     click.echo("  4. Inspect services with: phlo services list")
