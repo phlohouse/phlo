@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from multiprocessing import Event, Process, Queue
+from pathlib import Path
 
 import pytest
 
@@ -177,8 +178,14 @@ def test_file_journal_rejects_active_conflict_across_processes(tmp_path) -> None
         )
 
 
-def test_file_journal_serializes_concurrent_cross_process_claims(tmp_path) -> None:
+def test_file_journal_serializes_concurrent_cross_process_claims(tmp_path, monkeypatch) -> None:
     """Only one simultaneously-started process can claim a shared target."""
+    # Spawned children (the macOS/Windows default) re-import this module as
+    # ``tests.operations.test_operation_journal`` in a fresh interpreter whose
+    # ``sys.path`` lacks the repo root. Prepend it: spawn propagates the
+    # parent's ``sys.path`` to children, while fork-based platforms resolve
+    # the module already and ignore this.
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
     start = Event()
     results: Queue = Queue()
     processes = [
