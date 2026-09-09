@@ -639,6 +639,25 @@ def read_env_file(path: Path) -> dict[str, str]:
     return data
 
 
+def project_env_paths(phlo_dir: Path) -> tuple[Path, ...]:
+    """Return environment layers in precedence order (mirrors phlo.config.layout)."""
+    return (
+        phlo_dir / ".env",
+        phlo_dir / ".env.local",
+        phlo_dir / "overrides" / ".env",
+        phlo_dir / "secrets" / ".env",
+    )
+
+
+def read_project_env(phlo_dir: Path) -> dict[str, str]:
+    """Read and merge every existing environment layer, later layers winning."""
+    values: dict[str, str] = {}
+    for path in project_env_paths(phlo_dir):
+        if path.is_file():
+            values.update(read_env_file(path))
+    return values
+
+
 def upsert_env_file(path: Path, updates: dict[str, str]) -> None:
     """Update or append entries in a .env file."""
     existing_lines = path.read_text().splitlines() if path.exists() else []
@@ -665,10 +684,25 @@ def upsert_env_file(path: Path, updates: dict[str, str]) -> None:
     path.write_text("\n".join(rendered) + "\n")
 
 
+SHARED_LAYOUT_MARKER = "# Phlo shared layout v1"
+
+
+def env_destination(phlo_dir: Path, directory: str, legacy: str) -> Path:
+    """Return the env destination for the project's current layout."""
+    path = phlo_dir / directory / ".env"
+    marker = phlo_dir / ".gitignore"
+    if path.exists() or (marker.is_file() and SHARED_LAYOUT_MARKER in marker.read_text()):
+        return path
+    return phlo_dir / legacy
+
+
 def apply_env_updates(phlo_dir: Path, updates: dict[str, str]) -> None:
-    """Apply env updates to both .env and .env.local."""
-    for env_path in (phlo_dir / ".env", phlo_dir / ".env.local"):
-        upsert_env_file(env_path, updates)
+    """Apply env updates to both the defaults and secrets destinations."""
+    for destination in (
+        env_destination(phlo_dir, "overrides", ".env"),
+        env_destination(phlo_dir, "secrets", ".env.local"),
+    ):
+        upsert_env_file(destination, updates)
 
 
 def resolve_port(service: str, default_port: int) -> int:
@@ -872,7 +906,7 @@ def main() -> int:
         log_success("Services initialized")
 
         phlo_dir = project_dir / ".phlo"
-        env_vars = read_env_file(phlo_dir / ".env")
+        env_vars = read_project_env(phlo_dir)
 
         # Set ports to avoid conflicts before starting services.
         env_updates: dict[str, str] = {}
@@ -945,7 +979,7 @@ def main() -> int:
 
         resolved_ports = dict(env_updates)
         apply_env_updates(phlo_dir, resolved_ports)
-        log_info("Updated .phlo/.env and .phlo/.env.local with resolved ports")
+        log_info("Updated .phlo environment files with resolved ports")
 
         # Step 3: Create workflow
         log_step("Step 3: Create Workflow")
@@ -1116,7 +1150,7 @@ def main() -> int:
         log_success("Core services started")
 
         # Wait for services to be healthy
-        env_vars = read_env_file(phlo_dir / ".env")
+        env_vars = read_project_env(phlo_dir)
         dagster_port = int(env_vars.get("DAGSTER_PORT", "3000"))
         trino_port = int(env_vars.get("TRINO_PORT", "8080"))
         postgres_port = int(env_vars.get("POSTGRES_PORT", "5432"))
@@ -1256,7 +1290,7 @@ def main() -> int:
             )
 
             # Reload env vars to get updated ports
-            env_vars = read_env_file(phlo_dir / ".env")
+            env_vars = read_project_env(phlo_dir)
             hasura_port = int(env_vars.get("HASURA_PORT", "8082"))
             hasura_secret = env_vars.get("HASURA_ADMIN_SECRET", "phlo-hasura-admin-secret")
             postgrest_port = int(env_vars.get("POSTGREST_PORT", "3002"))
@@ -1400,7 +1434,7 @@ def main() -> int:
             run_phlo(start_args, cwd=project_dir, timeout=600, python_exe=project_python)
 
             # Reload env vars
-            env_vars = read_env_file(phlo_dir / ".env")
+            env_vars = read_project_env(phlo_dir)
             prometheus_port = int(env_vars.get("PROMETHEUS_PORT", "9090"))
             loki_port = int(env_vars.get("LOKI_PORT", "3100"))
             alloy_port = int(env_vars.get("ALLOY_PORT", "12345"))
@@ -1496,7 +1530,7 @@ def main() -> int:
             )
 
             # Reload env vars
-            env_vars = read_env_file(phlo_dir / ".env")
+            env_vars = read_project_env(phlo_dir)
             superset_port = int(env_vars.get("SUPERSET_PORT", "8088"))
 
             # Wait for Superset (can take a while to initialize)
@@ -1552,7 +1586,7 @@ def main() -> int:
                 )
 
             # Reload env vars
-            env_vars = read_env_file(phlo_dir / ".env")
+            env_vars = read_project_env(phlo_dir)
             openmetadata_port = int(env_vars.get("OPENMETADATA_PORT", "8585"))
 
             # Wait for OpenMetadata (can take several minutes to initialize)

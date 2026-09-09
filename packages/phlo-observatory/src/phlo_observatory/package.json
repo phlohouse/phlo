@@ -58,14 +58,17 @@
     "jsdom": "^27.0.0",
     "nitro": "3.0.260610-beta",
     "prettier": "^3.5.3",
+    "react-is": "^19.2.8",
     "shadcn": "4.13.1",
     "tailwindcss": "4.1.18",
     "typescript": "^5.7.2",
     "vite": "7.3.6",
     "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.11"
   },
   "overrides": {
-    "minimatch": "10.2.5"
+    "js-yaml": "4.3.2",
+    "minimatch": "10.2.5",
+    "hono": "4.13.7"
   }
 }

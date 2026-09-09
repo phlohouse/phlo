@@ -44,6 +44,9 @@ import release_evidence  # noqa: E402
 
 PARTITION = "2025-01-15"
 FIXTURE_ROW_COUNT = 2
+# Mirrors phlo.config.layout.SHARED_LAYOUT_MARKER; this script runs on a bare
+# python3 without the phlo package installed, so it cannot import the constant.
+SHARED_LAYOUT_MARKER = "# Phlo shared layout v1"
 PORT_NAMES = (
     "POSTGRES_PORT",
     "MINIO_API_PORT",
@@ -163,19 +166,60 @@ def command(*parts: str) -> list[str]:
 
 def compose_command(config: RunConfig, *parts: str) -> list[str]:
     """Build a project-scoped Docker Compose command."""
-    return command(
+    cmd = command(
         "docker",
         "compose",
         "-p",
         config.project_name,
-        "--file",
-        str(config.compose_file),
-        "--env-file",
-        str(config.project_dir / ".phlo" / ".env"),
-        "--env-file",
-        str(config.project_dir / ".phlo" / ".env.local"),
-        *parts,
     )
+    # Compose merges multiple --file flags with later files winning and resolves
+    # conflicting keys in favor of the later --env-file, so layers are passed in
+    # precedence order (mirrors phlo.cli.infrastructure.container_backend).
+    for layer in project_compose_layers(config.project_dir / ".phlo"):
+        if layer.is_file():
+            cmd.extend(["--file", str(layer)])
+    for env_file in project_env_paths(config.project_dir / ".phlo"):
+        if env_file.is_file():
+            cmd.extend(["--env-file", str(env_file)])
+    cmd.extend(parts)
+    return cmd
+
+
+def project_compose_layers(phlo_dir: Path) -> tuple[Path, ...]:
+    """Return Compose layers in precedence order, including absent files."""
+    platform_name = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(
+        platform_module.system()
+    )
+    layers = [phlo_dir / "docker-compose.yml", phlo_dir / "compose.shared.yaml"]
+    if platform_name:
+        layers.append(phlo_dir / f"compose.{platform_name}.yaml")
+    layers.extend(
+        [
+            phlo_dir / "overrides" / "compose.host.yaml",
+            phlo_dir / "overrides" / "compose.yaml",
+            phlo_dir / "compose.local.yaml",  # Legacy, until services migrate moves it.
+        ]
+    )
+    return tuple(layers)
+
+
+def project_env_paths(phlo_dir: Path) -> tuple[Path, ...]:
+    """Return environment layers in precedence order, including absent files."""
+    return (
+        phlo_dir / ".env",
+        phlo_dir / ".env.local",
+        phlo_dir / "overrides" / ".env",
+        phlo_dir / "secrets" / ".env",
+    )
+
+
+def env_secrets_path(phlo_dir: Path) -> Path:
+    """Return the secrets destination for the project's current layout."""
+    path = phlo_dir / "secrets" / ".env"
+    marker = phlo_dir / ".gitignore"
+    if path.exists() or (marker.is_file() and SHARED_LAYOUT_MARKER in marker.read_text()):
+        return path
+    return phlo_dir / ".env.local"
 
 
 def project_name() -> str:
@@ -475,7 +519,7 @@ def configure_non_dev_compose(
     shutil.copytree(config.wheelhouse, destination)
     with (config.repo_root / "pyproject.toml").open("rb") as stream:
         version = tomllib.load(stream)["project"]["version"]
-    env_local = config.project_dir / ".phlo" / ".env.local"
+    env_local = env_secrets_path(config.project_dir / ".phlo")
     with env_local.open("a", encoding="utf-8") as stream:
         stream.write(f"\nPHLO_VERSION={version}\nPHLO_WHEELHOUSE=wheelhouse\n")
         stream.write("PHLO_WAP_BRANCH_CREATION_INTERVAL_SECONDS=1\n")
@@ -1393,7 +1437,9 @@ def ops_environment(config: RunConfig, *, authorized: bool = False) -> dict[str,
         environment["PHLO_SERVICE_ACCOUNT"] = OPERATOR_SERVICE_ACCOUNT
     for service, container_port, variable in COMPOSE_PORT_PROBES:
         environment[variable] = compose_service_port(config, service, container_port)
-    values = parse_env_values(config.project_dir / ".phlo" / ".env.local")
+    values: dict[str, str] = {}
+    for path in project_env_paths(config.project_dir / ".phlo"):
+        values.update(parse_env_values(path))
     for key in (
         "POSTGRES_USER",
         "POSTGRES_PASSWORD",
