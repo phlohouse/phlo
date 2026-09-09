@@ -171,16 +171,36 @@ def compose_command(config: RunConfig, *parts: str) -> list[str]:
         "compose",
         "-p",
         config.project_name,
-        "--file",
-        str(config.compose_file),
     )
-    # Compose resolves conflicting keys in favor of the later --env-file, so
-    # layers are passed in precedence order (mirrors phlo.config.layout).
+    # Compose merges multiple --file flags with later files winning and resolves
+    # conflicting keys in favor of the later --env-file, so layers are passed in
+    # precedence order (mirrors phlo.cli.infrastructure.container_backend).
+    for layer in project_compose_layers(config.project_dir / ".phlo"):
+        if layer.is_file():
+            cmd.extend(["--file", str(layer)])
     for env_file in project_env_paths(config.project_dir / ".phlo"):
         if env_file.is_file():
             cmd.extend(["--env-file", str(env_file)])
     cmd.extend(parts)
     return cmd
+
+
+def project_compose_layers(phlo_dir: Path) -> tuple[Path, ...]:
+    """Return Compose layers in precedence order, including absent files."""
+    platform_name = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(
+        platform_module.system()
+    )
+    layers = [phlo_dir / "docker-compose.yml", phlo_dir / "compose.shared.yaml"]
+    if platform_name:
+        layers.append(phlo_dir / f"compose.{platform_name}.yaml")
+    layers.extend(
+        [
+            phlo_dir / "overrides" / "compose.host.yaml",
+            phlo_dir / "overrides" / "compose.yaml",
+            phlo_dir / "compose.local.yaml",  # Legacy, until services migrate moves it.
+        ]
+    )
+    return tuple(layers)
 
 
 def project_env_paths(phlo_dir: Path) -> tuple[Path, ...]:

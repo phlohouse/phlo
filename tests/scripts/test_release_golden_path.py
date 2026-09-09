@@ -39,6 +39,8 @@ def _config(tmp_path: Path) -> release_golden_path.RunConfig:
 
 def test_compose_commands_are_project_scoped(tmp_path: Path) -> None:
     config = _config(tmp_path)
+    config.compose_file.parent.mkdir(parents=True)
+    config.compose_file.write_text("services: {}\n", encoding="utf-8")
 
     assert release_golden_path.compose_command(config, "up", "--detach") == [
         "docker",
@@ -52,18 +54,17 @@ def test_compose_commands_are_project_scoped(tmp_path: Path) -> None:
     ]
 
 
-def test_compose_commands_pass_existing_env_layers_in_precedence_order(
-    tmp_path: Path,
-) -> None:
+def test_compose_commands_pass_existing_layers_in_precedence_order(tmp_path: Path) -> None:
     config = _config(tmp_path)
     phlo_dir = config.project_dir / ".phlo"
-    (phlo_dir / "overrides").mkdir(parents=True)
+    phlo_dir.mkdir(parents=True)
+    config.compose_file.write_text("services: {}\n", encoding="utf-8")
+    (phlo_dir / "overrides").mkdir()
     (phlo_dir / "secrets").mkdir()
-    legacy_default = phlo_dir / ".env"
-    legacy_secrets = phlo_dir / ".env.local"
     shared_default = phlo_dir / "overrides" / ".env"
     shared_secrets = phlo_dir / "secrets" / ".env"
-    for path in (legacy_default, legacy_secrets, shared_default, shared_secrets):
+    host_overlay = phlo_dir / "overrides" / "compose.host.yaml"
+    for path in (shared_default, shared_secrets, host_overlay):
         path.write_text("")
 
     assert release_golden_path.compose_command(config, "up", "--detach") == [
@@ -73,10 +74,8 @@ def test_compose_commands_pass_existing_env_layers_in_precedence_order(
         "phlo-qa001-test",
         "--file",
         str(config.compose_file),
-        "--env-file",
-        str(legacy_default),
-        "--env-file",
-        str(legacy_secrets),
+        "--file",
+        str(host_overlay),
         "--env-file",
         str(shared_default),
         "--env-file",
@@ -775,14 +774,13 @@ def test_cleanup_only_tears_down_owned_compose_project(tmp_path: Path, monkeypat
     commands: list[list[str]] = []
     monkeypatch.setattr(release_golden_path, "run", lambda args, **_: commands.append(args))
 
+    expected_down = release_golden_path.compose_command(
+        config, "--profile", "api", "down", "--volumes", "--remove-orphans"
+    )
     errors = release_golden_path.cleanup(config, owned_paths={config.project_dir})
 
     assert errors == []
-    assert commands == [
-        release_golden_path.compose_command(
-            config, "--profile", "api", "down", "--volumes", "--remove-orphans"
-        )
-    ]
+    assert commands == [expected_down]
     assert not config.project_dir.exists()
 
 
