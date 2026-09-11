@@ -61,8 +61,19 @@ from phlo.capabilities import (
 )
 from phlo.logging import get_logger
 
+from phlo.operations.journal import (
+    OperationJournalState,
+    OperationJournalStore,
+    claim_operation,
+    complete_operation,
+    mark_submitted,
+    mark_unknown,
+    read_or_replay,
+)
+
 from phlo_dagster.iceberg_maintenance_utils import (
     MaintenanceConfig,
+    durable_maintenance_journal,
     finish_maintenance_op,
     list_tables,
     maintenance_log_extra,
@@ -121,8 +132,16 @@ def _run_retention_resource_operation(
     table_name: str,
     config: MaintenanceConfig,
     store: MaintenanceRetentionStore,
+    journal: OperationJournalStore | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
-    """Plan once, then execute only with the caller's exact plan token."""
+    """Plan once, then execute only with the caller's exact plan token.
+
+    When a journal is supplied (scheduled non-dry-run path), the operation
+    shares the CLI's claim/submit/complete lifecycle: the plan's token is
+    recorded at claim time, a stored result replays idempotently, and an
+    UNKNOWN outcome blocks replay until reconciled.
+    """
     common: dict[str, Any] = {
         "table_name": table_name,
         "override_ref": config.ref,
@@ -151,12 +170,43 @@ def _run_retention_resource_operation(
     # against a stale plan.
     if operation == "expire_snapshots":
         common["executor"] = _load_snapshot_expiry_executor()
-    return method(
+    execute = lambda: method(  # noqa: E731
         **common,
         dry_run=False,
         expected_snapshot_id=before_revision,
         confirmation_token=_confirmation_token_for_table(config, table_name),
     )
+    if journal is None or run_id is None:
+        return execute()
+
+    operation_id = f"{operation}:{table_name}:{config.ref}:{run_id}"
+    stored = read_or_replay(journal, operation_id)
+    if stored is not None:
+        return dict(stored)
+    plan_token = str(plan.get("plan_token") or before_revision or "")
+    claim_operation(
+        journal,
+        operation_id=operation_id,
+        subject="dagster:maintenance-policy",
+        action=operation,
+        target=table_name,
+        plan_token=plan_token,
+    )
+    mark_submitted(journal, operation_id)
+    try:
+        result = execute()
+    except Exception:
+        mark_unknown(journal, operation_id)
+        raise
+    rejected = result.get("accepted") is False or str(result.get("status")) in {
+        "blocked",
+        "failed",
+    }
+    if rejected:
+        journal.transition(operation_id, OperationJournalState.FAILED, dict(result))
+    else:
+        complete_operation(journal, operation_id, dict(result))
+    return result
 
 
 @dg.op
@@ -178,6 +228,7 @@ def expire_table_snapshots(
     start_time = time.time()
     telemetry = start_maintenance_op(context, config, operation, dry_run=config.dry_run)
     store = _load_maintenance_retention_store()
+    journal = durable_maintenance_journal() if not config.dry_run else None
 
     for namespace in resolve_namespaces(config):
         for table_name in list_tables(namespace, config.ref):
@@ -189,6 +240,8 @@ def expire_table_snapshots(
                     table_name=table_name,
                     config=config,
                     store=store,
+                    journal=journal,
+                    run_id=context.run_id,
                 )
                 if result.get("status") in {"blocked", "failed"}:
                     tables_processed += 1

@@ -107,6 +107,45 @@ def test_config_upgrade_writes_defaults_and_respects_force(tmp_path, monkeypatch
     assert force_result.exit_code == 0
 
 
+def test_config_upgrade_plan_only_detects_and_plans_without_applying(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / "phlo.yaml"
+    config_path.write_text("name: demo\n")
+
+    runner = CliRunner()
+    result = runner.invoke(config_group, ["upgrade", "--plan-only"])
+
+    assert result.exit_code == 0
+    assert "infrastructure: add" in result.output
+    assert "no changes applied" in result.output
+    assert "infrastructure" not in yaml.safe_load(config_path.read_text())
+
+
+def test_config_upgrade_validate_rejects_uncoercible_infrastructure(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / "phlo.yaml"
+    config_path.write_text("name: demo\ninfrastructure: {}\n")
+    monkeypatch.setattr(
+        "phlo.cli.config.InfrastructureConfig",
+        type(
+            "BadInfra",
+            (),
+            {
+                "model_dump": lambda self, **kwargs: {"injected": True},
+                "model_validate": staticmethod(
+                    lambda value: (_ for _ in ()).throw(ValueError("bad infra"))
+                ),
+            },
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(config_group, ["upgrade", "--force"])
+
+    assert result.exit_code == 1
+    assert "validation failed" in result.output
+
+
 def test_config_json_validation_reports_defaults_and_failures(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     runner = CliRunner()

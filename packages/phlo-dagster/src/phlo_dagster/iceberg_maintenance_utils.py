@@ -61,16 +61,36 @@ Example:
 
 from __future__ import annotations
 
+import os
 from typing import Annotated, Any, Optional
 
 import dagster as dg
 from phlo.capabilities import MaintenanceDiscovery, resolve_capability
 from phlo.hooks import HookCorrelation, TelemetryEventContext, TelemetryEventEmitter
+from phlo.operations.journal import OperationJournalStore
+from phlo.operations.journal_store import FileOperationJournalStore
 from pydantic import Field
 
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def durable_maintenance_journal() -> OperationJournalStore:
+    """Resolve the configured durable journal; fail closed when none is present.
+
+    Scheduled maintenance mutates real tables, so it shares the CLI's
+    fail-before-mutation contract: without PHLO_OPERATIONS_JOURNAL_DIR the
+    exactly-once journal would degrade to in-memory and disappear with the
+    process, so the run is refused instead.
+    """
+    directory = os.environ.get("PHLO_OPERATIONS_JOURNAL_DIR")
+    if not directory:
+        raise RuntimeError(
+            "scheduled maintenance requires a durable operation journal: set "
+            "PHLO_OPERATIONS_JOURNAL_DIR before enabling non-dry-run maintenance"
+        )
+    return FileOperationJournalStore(directory)
 
 
 def resolve_maintenance_discovery() -> MaintenanceDiscovery:

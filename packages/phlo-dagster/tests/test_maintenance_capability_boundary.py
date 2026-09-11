@@ -212,8 +212,11 @@ def test_snapshot_expiry_completion_telemetry_includes_candidate_count(monkeypat
 
 
 def test_snapshot_expiry_execute_resolves_and_passes_neutral_executor(monkeypatch) -> None:
+    from phlo.operations.journal import InMemoryOperationJournalStore
+
     store = FakeMaintenanceRetentionStore()
     executor = FakeSnapshotExpiryExecutor()
+    journal = InMemoryOperationJournalStore()
     resolutions: list[tuple[str, str | None]] = []
 
     def resolve(capability_type: str, name: str | None = None):
@@ -223,6 +226,7 @@ def test_snapshot_expiry_execute_resolves_and_passes_neutral_executor(monkeypatc
     monkeypatch.setattr(iceberg_maintenance, "resolve_capability", resolve)
     monkeypatch.setattr(iceberg_maintenance, "resolve_namespaces", lambda config: ["raw"])
     monkeypatch.setattr(iceberg_maintenance, "list_tables", lambda namespace, ref: ["raw.events"])
+    monkeypatch.setattr(iceberg_maintenance, "durable_maintenance_journal", lambda: journal)
     context = MagicMock(run_id="run-1", job_name="maintenance")
 
     result = iceberg_maintenance.expire_table_snapshots.compute_fn.decorated_fn(
@@ -239,3 +243,7 @@ def test_snapshot_expiry_execute_resolves_and_passes_neutral_executor(monkeypatc
     assert resolutions == [("table_store", "iceberg"), ("maintenance_executor", None)]
     assert store.executor is executor
     assert result["total_snapshots_deleted"] == 0
+    entry = journal.read("expire_snapshots:raw.events:main:run-1")
+    assert entry is not None
+    assert entry.state == "succeeded"
+    assert entry.plan_token == "fake-plan-token"

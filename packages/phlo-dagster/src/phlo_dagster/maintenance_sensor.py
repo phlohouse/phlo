@@ -60,9 +60,19 @@ from phlo.capabilities import (
     resolve_capability,
 )
 from phlo.logging import get_logger
+from phlo.operations.journal import (
+    OperationJournalState,
+    OperationJournalStore,
+    claim_operation,
+    complete_operation,
+    mark_submitted,
+    mark_unknown,
+    read_or_replay,
+)
 
 from phlo_dagster.iceberg_maintenance_utils import (
     MaintenanceConfig,
+    durable_maintenance_journal as _durable_maintenance_journal,
     finish_maintenance_op,
     list_tables,
     resolve_maintenance_discovery,
@@ -177,6 +187,75 @@ def _load_optimize_table_store() -> MaintenanceTableStore:
     return table_store
 
 
+def _compact_table_journaled(
+    *,
+    context: dg.OpExecutionContext,
+    table_store: MaintenanceTableStore,
+    executor: MaintenanceExecutor,
+    ref: str,
+    table_name: str,
+    journal: OperationJournalStore,
+) -> dict[str, Any]:
+    """Run one non-dry-run compaction through the plan/token/journal contract.
+
+    Shares the CLI's fail-before-mutation flow: a dry-run plan binds the
+    observed snapshot revision, the durable journal claims the operation
+    with that revision as the plan token, and execution passes it back as
+    the optimistic-concurrency precondition. A stored result for this run
+    replays idempotently; an UNKNOWN outcome blocks replay until reconciled.
+    """
+    base_id = f"{context.run_id}:{table_name}"
+    operation_id = f"compact:{table_name}:{ref}:{context.run_id}"
+
+    stored = read_or_replay(journal, operation_id)
+    if stored is not None:
+        context.log.info(f"Compaction for {table_name} already journaled; replaying result")
+        return dict(stored)
+
+    plan_result = table_store.compact(
+        table_name=table_name,
+        override_ref=ref,
+        dry_run=True,
+        operation_id=f"{base_id}:plan",
+        executor=None,
+    )
+    status = str(plan_result.get("status"))
+    before_revision = plan_result.get("before_revision")
+    if status in {"failed", "blocked", "noop"} or before_revision is None:
+        return plan_result
+
+    claim_operation(
+        journal,
+        operation_id=operation_id,
+        subject="dagster:maintenance-policy",
+        action="compact",
+        target=table_name,
+        plan_token=str(before_revision),
+    )
+    mark_submitted(journal, operation_id)
+    try:
+        result = table_store.compact(
+            table_name=table_name,
+            override_ref=ref,
+            dry_run=False,
+            expected_revision=before_revision,
+            operation_id=base_id,
+            executor=executor,
+        )
+    except Exception:
+        mark_unknown(journal, operation_id)
+        raise
+    rejected = result.get("accepted") is False or str(result.get("status")) in {
+        "blocked",
+        "failed",
+    }
+    if rejected:
+        journal.transition(operation_id, OperationJournalState.FAILED, dict(result))
+    else:
+        complete_operation(journal, operation_id, dict(result))
+    return result
+
+
 @dg.op
 def optimize_table_files(
     context: dg.OpExecutionContext,
@@ -184,6 +263,7 @@ def optimize_table_files(
 ) -> dict[str, Any]:
     """Run the shared Iceberg compaction operation for selected tables."""
     table_store = _load_optimize_table_store()
+    journal = _durable_maintenance_journal() if not config.dry_run else None
     executor = (
         _load_optimize_maintenance_executor().for_ref(config.ref) if not config.dry_run else None
     )
@@ -204,13 +284,23 @@ def optimize_table_files(
     for table_name in config.table_names:
         try:
             _validate_table_name(table_name)
-            result = table_store.compact(
-                table_name=table_name,
-                override_ref=config.ref,
-                dry_run=config.dry_run,
-                operation_id=f"{context.run_id}:{table_name}",
-                executor=executor,
-            )
+            if config.dry_run or journal is None or executor is None:
+                result = table_store.compact(
+                    table_name=table_name,
+                    override_ref=config.ref,
+                    dry_run=config.dry_run,
+                    operation_id=f"{context.run_id}:{table_name}",
+                    executor=executor,
+                )
+            else:
+                result = _compact_table_journaled(
+                    context=context,
+                    table_store=table_store,
+                    executor=executor,
+                    ref=config.ref,
+                    table_name=table_name,
+                    journal=journal,
+                )
             results.append(result)
             status = str(result.get("status", "unknown"))
             if status in {"failed", "blocked"}:

@@ -13,6 +13,8 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from phlo_dagster.maintenance_policy import (
     ExpireSnapshotsPolicy,
     NamespacePolicy,
@@ -342,3 +344,174 @@ def test_optimize_table_files_fallback_uses_operation_result_schema(monkeypatch)
     assert result["evidence"] == {}
     assert result["retry_safe"] is False
     assert result["failure"]["code"] == "invalid_request"
+
+
+def _journaled_op_mocks(monkeypatch, table_store: MagicMock, journal: object) -> None:
+    """Patch the capability loaders and telemetry so the op runs standalone."""
+    from phlo_dagster import maintenance_sensor
+
+    monkeypatch.setattr(maintenance_sensor, "_load_optimize_table_store", lambda: table_store)
+    executor = MagicMock()
+    executor.for_ref.return_value = executor
+    monkeypatch.setattr(maintenance_sensor, "_load_optimize_maintenance_executor", lambda: executor)
+    monkeypatch.setattr(maintenance_sensor, "_durable_maintenance_journal", lambda: journal)
+    monkeypatch.setattr(
+        maintenance_sensor,
+        "start_maintenance_op",
+        MagicMock(return_value={"started_at": 0}),
+    )
+    monkeypatch.setattr(
+        maintenance_sensor,
+        "finish_maintenance_op",
+        MagicMock(return_value={"status": "succeeded"}),
+    )
+
+
+def test_optimize_table_files_execute_shares_plan_token_journal_contract(
+    monkeypatch,
+) -> None:
+    """A non-dry-run scheduled compaction plans, claims, and completes in the journal."""
+    from phlo.operations.journal import InMemoryOperationJournalStore
+    from phlo_dagster import maintenance_sensor
+
+    context = MagicMock()
+    context.run_id = "run-77"
+    plan_result = {
+        "operation": "compact",
+        "table_name": "raw.events",
+        "status": "planned",
+        "accepted": True,
+        "before_revision": 42,
+    }
+    execute_result = {
+        "operation": "compact",
+        "table_name": "raw.events",
+        "status": "succeeded",
+        "accepted": True,
+        "executed": True,
+    }
+    compact = MagicMock(side_effect=[plan_result, execute_result])
+    table_store = MagicMock()
+    table_store.compact = compact
+    journal = InMemoryOperationJournalStore()
+    _journaled_op_mocks(monkeypatch, table_store, journal)
+
+    compute_fn = cast(Any, maintenance_sensor.optimize_table_files.compute_fn)
+    output = compute_fn.decorated_fn(
+        context,
+        maintenance_sensor.OptimizeConfig(table_names=["raw.events"], dry_run=False),
+    )
+
+    assert output["results"] == [execute_result]
+    plan_call, execute_call = compact.call_args_list
+    assert plan_call.kwargs["dry_run"] is True
+    assert execute_call.kwargs["expected_revision"] == 42
+    entry = journal.read("compact:raw.events:main:run-77")
+    assert entry is not None
+    assert entry.state == "succeeded"
+    assert entry.plan_token == "42"
+    assert entry.subject == "dagster:maintenance-policy"
+
+
+def test_optimize_table_files_execute_requires_durable_journal(monkeypatch) -> None:
+    """Non-dry-run maintenance fails closed when no journal is configured."""
+    from phlo_dagster import maintenance_sensor
+
+    context = MagicMock()
+    context.run_id = "run-77"
+    table_store = MagicMock()
+    monkeypatch.setattr(maintenance_sensor, "_load_optimize_table_store", lambda: table_store)
+    monkeypatch.setattr(
+        maintenance_sensor,
+        "_durable_maintenance_journal",
+        MagicMock(side_effect=RuntimeError("no durable operation journal configured")),
+    )
+    monkeypatch.setattr(
+        maintenance_sensor,
+        "_load_optimize_maintenance_executor",
+        MagicMock(side_effect=AssertionError("executor resolved before journal")),
+    )
+
+    compute_fn = cast(Any, maintenance_sensor.optimize_table_files.compute_fn)
+    with pytest.raises(RuntimeError, match="no durable operation journal"):
+        compute_fn.decorated_fn(
+            context,
+            maintenance_sensor.OptimizeConfig(table_names=["raw.events"], dry_run=False),
+        )
+    table_store.compact.assert_not_called()
+
+
+def test_optimize_table_files_execute_replays_journaled_result(monkeypatch) -> None:
+    """A completed journal entry replays instead of re-executing the mutation."""
+    from phlo.operations.journal import (
+        InMemoryOperationJournalStore,
+        claim_operation,
+        complete_operation,
+        mark_submitted,
+    )
+    from phlo_dagster import maintenance_sensor
+
+    context = MagicMock()
+    context.run_id = "run-77"
+    stored = {"operation": "compact", "status": "succeeded", "accepted": True, "executed": True}
+    journal = InMemoryOperationJournalStore()
+    operation_id = "compact:raw.events:main:run-77"
+    claim_operation(
+        journal,
+        operation_id=operation_id,
+        subject="dagster:maintenance-policy",
+        action="compact",
+        target="raw.events",
+        plan_token="42",
+    )
+    mark_submitted(journal, operation_id)
+    complete_operation(journal, operation_id, stored)
+
+    table_store = MagicMock()
+    _journaled_op_mocks(monkeypatch, table_store, journal)
+
+    compute_fn = cast(Any, maintenance_sensor.optimize_table_files.compute_fn)
+    output = compute_fn.decorated_fn(
+        context,
+        maintenance_sensor.OptimizeConfig(table_names=["raw.events"], dry_run=False),
+    )
+
+    table_store.compact.assert_not_called()
+    assert output["results"] == [stored]
+
+
+def test_optimize_table_files_execute_journals_failed_result(monkeypatch) -> None:
+    """A rejected execution records FAILED in the journal, not success."""
+    from phlo.operations.journal import InMemoryOperationJournalStore
+    from phlo_dagster import maintenance_sensor
+
+    context = MagicMock()
+    context.run_id = "run-77"
+    plan_result = {
+        "operation": "compact",
+        "status": "planned",
+        "accepted": True,
+        "before_revision": 42,
+    }
+    rejected_result = {
+        "operation": "compact",
+        "status": "failed",
+        "accepted": False,
+        "failure": {"code": "concurrent_change_detected"},
+    }
+    compact = MagicMock(side_effect=[plan_result, rejected_result])
+    table_store = MagicMock()
+    table_store.compact = compact
+    journal = InMemoryOperationJournalStore()
+    _journaled_op_mocks(monkeypatch, table_store, journal)
+
+    compute_fn = cast(Any, maintenance_sensor.optimize_table_files.compute_fn)
+    compute_fn.decorated_fn(
+        context,
+        maintenance_sensor.OptimizeConfig(table_names=["raw.events"], dry_run=False),
+    )
+
+    entry = journal.read("compact:raw.events:main:run-77")
+    assert entry is not None
+    assert entry.state == "failed"
+    assert entry.result == rejected_result

@@ -199,16 +199,26 @@ def validate(output_json: bool = False):
 
 @config.command("upgrade")
 @click.option("--force", is_flag=True, help="Overwrite existing infrastructure section")
-def upgrade(force: bool):
-    """Add infrastructure section to existing phlo.yaml.
+@click.option(
+    "--plan-only",
+    is_flag=True,
+    help="Print the ordered upgrade plan without applying it",
+)
+def upgrade(force: bool, plan_only: bool):
+    """Upgrade phlo.yaml through ordered detect -> plan -> apply -> validate steps.
+
+    v1 carries one migration step (infrastructure); the ordered protocol is
+    the contract later steps plug into.
 
     \b
     Examples:
       phlo config upgrade
+      phlo config upgrade --plan-only
       phlo config upgrade --force
     """
     config_path = Path.cwd() / "phlo.yaml"
 
+    # --- detect ---
     if not config_path.exists():
         logger.warning("config_upgrade_file_missing", path=str(config_path))
         error_console.print("[red]Error: No phlo.yaml found in current directory[/red]")
@@ -217,7 +227,19 @@ def upgrade(force: bool):
 
     project_config = _load_phlo_yaml(config_path)
 
-    if "infrastructure" in project_config and not force:
+    # --- plan ---
+    has_infra = "infrastructure" in project_config
+    steps = [
+        {
+            "step": "infrastructure",
+            "action": "replace" if has_infra and force else ("skip" if has_infra else "add"),
+        }
+    ]
+    console.print("[bold]Upgrade plan[/bold]")
+    for step in steps:
+        console.print(f"  {step['step']}: {step['action']}")
+
+    if has_infra and not force:
         logger.warning(
             "config_upgrade_skipped", path=str(config_path), reason="infrastructure_exists"
         )
@@ -225,6 +247,11 @@ def upgrade(force: bool):
         error_console.print("Use --force to overwrite")
         sys.exit(1)
 
+    if plan_only:
+        console.print("Plan only; no changes applied.")
+        return
+
+    # --- apply ---
     default_infra = InfrastructureConfig()
     project_config["infrastructure"] = default_infra.model_dump(exclude_none=False, mode="python")
 
@@ -236,6 +263,15 @@ def upgrade(force: bool):
             sort_keys=False,
             allow_unicode=True,
         )
+
+    # --- validate ---
+    written = _load_phlo_yaml(config_path)
+    try:
+        InfrastructureConfig.model_validate(written.get("infrastructure", {}))
+    except Exception as exc:
+        logger.warning("config_upgrade_validation_failed", path=str(config_path))
+        error_console.print(f"[red]Wrote phlo.yaml but validation failed: {exc}[/red]")
+        sys.exit(1)
 
     console.print(f"[green]✓ Updated {config_path}[/green]")
     console.print("Added infrastructure section\n")
