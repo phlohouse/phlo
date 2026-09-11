@@ -41,12 +41,12 @@ import platform as platform_module  # noqa: E402
 
 import release_candidate_bom as bom_module  # noqa: E402
 import release_evidence  # noqa: E402
+from golden_path_common import SHARED_LAYOUT_MARKER as SHARED_LAYOUT_MARKER  # noqa: E402
+from golden_path_common import env_destination, project_env_paths  # noqa: E402
+from golden_path_common import read_env_file as parse_env_values  # noqa: E402
 
 PARTITION = "2025-01-15"
 FIXTURE_ROW_COUNT = 2
-# Mirrors phlo.config.layout.SHARED_LAYOUT_MARKER; this script runs on a bare
-# python3 without the phlo package installed, so it cannot import the constant.
-SHARED_LAYOUT_MARKER = "# Phlo shared layout v1"
 PORT_NAMES = (
     "POSTGRES_PORT",
     "MINIO_API_PORT",
@@ -203,23 +203,9 @@ def project_compose_layers(phlo_dir: Path) -> tuple[Path, ...]:
     return tuple(layers)
 
 
-def project_env_paths(phlo_dir: Path) -> tuple[Path, ...]:
-    """Return environment layers in precedence order, including absent files."""
-    return (
-        phlo_dir / ".env",
-        phlo_dir / ".env.local",
-        phlo_dir / "overrides" / ".env",
-        phlo_dir / "secrets" / ".env",
-    )
-
-
 def env_secrets_path(phlo_dir: Path) -> Path:
     """Return the secrets destination for the project's current layout."""
-    path = phlo_dir / "secrets" / ".env"
-    marker = phlo_dir / ".gitignore"
-    if path.exists() or (marker.is_file() and SHARED_LAYOUT_MARKER in marker.read_text()):
-        return path
-    return phlo_dir / ".env.local"
+    return env_destination(phlo_dir, "secrets", ".env.local")
 
 
 def project_name() -> str:
@@ -1396,20 +1382,6 @@ def production_preflight(config: RunConfig) -> dict[str, object]:
             if isinstance(check, dict)
         ],
     }
-
-
-def parse_env_values(path: Path) -> dict[str, str]:
-    """Parse a KEY=VALUE environment file."""
-    values: dict[str, str] = {}
-    if not path.exists():
-        return values
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        values[key.strip()] = value.strip().strip("'\"")
-    return values
 
 
 def compose_service_port(config: RunConfig, service: str, container_port: int) -> str:
