@@ -89,6 +89,98 @@ class BackendReadinessSpec:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
+def observe_policy_convergence(backend_name: str) -> BackendReadinessResult | None:
+    """Verify a live backend's managed grant/policy state against the
+    canonical RBAC model via its governance backend and compiler.
+
+    Returns ``None`` when the evidence path is not wired — no governance
+    backend registered or no canonical policy resolvable — so callers keep
+    their reference-level result. A reachable backend that fails to list
+    state yields ``unavailable``; drift yields ``failed``; a verified match
+    yields ``passed``.
+    """
+    from phlo.capabilities import resolve_capability
+    from phlo.rbac.compiler import CompilerContext, get_compiler
+    from phlo.security.validation import _project_rbac_loader
+
+    resolution = resolve_capability("governance_backend", backend_name)
+    if resolution is None:
+        return None
+    try:
+        rbac = _project_rbac_loader().load()
+    except Exception:
+        return None
+    if not rbac:
+        return None
+    compiler = get_compiler(backend_name, backend=resolution.provider)
+    if compiler is None:
+        return None
+    probe = getattr(resolution.provider, "probe", None)
+    if callable(probe):
+        try:
+            reachable = bool(probe())
+        except Exception:
+            reachable = False
+        if not reachable:
+            return BackendReadinessResult(
+                backend=backend_name,
+                state=BackendReadinessState.UNAVAILABLE,
+                reason_code="backend_unreachable",
+                message=f"{backend_name} could not be reached for policy observation",
+                evidence_source="governance backend",
+            )
+    context = CompilerContext(environment="production", backend_name=backend_name)
+    try:
+        desired = compiler.compile(rbac, context)
+        current = compiler.read_current_state(context)
+        verified = compiler.verify(rbac, context)
+    except Exception as exc:
+        return BackendReadinessResult(
+            backend=backend_name,
+            state=BackendReadinessState.UNAVAILABLE,
+            reason_code="inspection_failed",
+            message=f"{backend_name} policy state could not be observed: {exc}",
+            evidence_source="governance backend",
+        )
+    desired_digest = _sha256_hex("\n".join(sorted(a.name for a in desired)).encode("utf-8"))
+    observed_digest = _sha256_hex("\n".join(sorted(a.name for a in current)).encode("utf-8"))
+    if not verified.in_sync:
+        drift = tuple(
+            {"direction": direction, "artifact": artifact.name}
+            for direction, artifacts in (("missing", verified.missing), ("extra", verified.extra))
+            for artifact in artifacts
+        )
+        return BackendReadinessResult(
+            backend=backend_name,
+            state=BackendReadinessState.FAILED,
+            reason_code="policy_drift",
+            message=(
+                f"{backend_name} managed policy state differs from the canonical "
+                f"model: {len(verified.missing)} missing, {len(verified.extra)} extra"
+            ),
+            desired_policy_digest=desired_digest,
+            observed_policy_digest=observed_digest,
+            drift=drift,
+            evidence_source="governance backend",
+        )
+    return BackendReadinessResult(
+        backend=backend_name,
+        state=BackendReadinessState.PASSED,
+        reason_code="policy_converged",
+        message=f"{backend_name} managed policy state matches the canonical model",
+        desired_policy_digest=desired_digest,
+        observed_policy_digest=observed_digest,
+        evidence_source="governance backend",
+    )
+
+
+def _sha256_hex(payload: bytes) -> str:
+    """Return the hex sha256 of payload for deterministic evidence digests."""
+    import hashlib
+
+    return hashlib.sha256(payload).hexdigest()
+
+
 def stamp(result: BackendReadinessResult) -> BackendReadinessResult:
     """Attach the observation time to a result for deterministic evidence."""
     if result.observation_time:

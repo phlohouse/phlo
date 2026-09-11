@@ -78,6 +78,14 @@ class TrinoGovernanceBackend:
         """Initialize the governance backend with optional Trino resource."""
         self._trino = trino or TrinoResource()
 
+    def probe(self) -> bool:
+        """Return whether Trino answers a trivial query (readiness evidence)."""
+        try:
+            self._trino.execute("SELECT 1")
+        except Exception:
+            return False
+        return True
+
     def list_policies(self, *, table_name: str | None = None) -> list[dict[str, Any]]:
         """List grants, optionally filtered by table."""
         if table_name is not None:

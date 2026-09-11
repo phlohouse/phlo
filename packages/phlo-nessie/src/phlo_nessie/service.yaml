@@ -40,6 +40,11 @@ compose:
     QUARKUS_OIDC_TOKEN_ISSUER: ${NESSIE_OIDC_ISSUER:-}
     # Authorization
     NESSIE_SERVER_AUTHORIZATION_ENABLED: ${NESSIE_AUTHZ_ENABLED:-false}
+    # Managed authorization rules rendered by phlo governance sync into
+    # .phlo/nessie/authz.properties, mounted read-only for Quarkus.
+    QUARKUS_CONFIG_LOCATIONS: optional:file:/deployments/phlo-authz/authz.properties
+  volumes:
+    - ./nessie:/deployments/phlo-authz:ro
   ports:
     - "${NESSIE_PORT:-10003}:19120"
   healthcheck:

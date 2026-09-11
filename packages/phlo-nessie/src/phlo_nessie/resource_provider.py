@@ -27,6 +27,7 @@ from phlo.capabilities import (
     CapabilitySupport,
     CatalogScannerSpec,
     CatalogSpec,
+    GovernanceBackendSpec,
     ResourceSpec,
 )
 from phlo.plugins.base import PluginMetadata, ResourceProviderPlugin
@@ -68,6 +69,18 @@ class NessieResourceProvider(ResourceProviderPlugin):
         from phlo_nessie.continuity import NessieBackupContributor
 
         return [BackupContributorSpec(name="nessie", provider=NessieBackupContributor())]
+
+    def get_governance_backends(self) -> list[GovernanceBackendSpec]:
+        """Expose the nessie governance backend for rendered authz rules."""
+        from phlo_nessie.governance import NessieGovernanceBackend
+
+        return [
+            GovernanceBackendSpec(
+                name="nessie",
+                provider=NessieGovernanceBackend(),
+                support=CapabilitySupport(),
+            )
+        ]
 
     """Expose Nessie as a capability-native catalog/versioning provider.
     This plugin registers Nessie with the Phlo capability system, exposing

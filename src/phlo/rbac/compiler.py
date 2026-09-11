@@ -628,6 +628,22 @@ COMPILER_REGISTRY: dict[str, type[GovernanceCompiler]] = {
 }
 
 
+def _register_default_compilers() -> None:
+    """Register the blessed-backend compilers from the sibling module.
+
+    ``phlo.rbac.compilers`` imports this module's base classes, so the
+    import is deferred to module bottom to keep the dependency one-way.
+    """
+    from phlo.rbac.compilers import MinioCompiler, NessieCompiler, PostgresCompiler
+
+    COMPILER_REGISTRY.setdefault("postgres", PostgresCompiler)
+    COMPILER_REGISTRY.setdefault("minio", MinioCompiler)
+    COMPILER_REGISTRY.setdefault("nessie", NessieCompiler)
+
+
+_register_default_compilers()
+
+
 def get_compiler(
     backend_name: str,
     backend: GovernanceBackend | None = None,
