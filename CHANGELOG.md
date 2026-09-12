@@ -1,5 +1,32 @@
 ## 0.15.1 (2026-09-06)
 
+## [phlo 0.17.0 + 37 packages] - 2026-09-12
+
+### Added
+- phlo: converge canonical RBAC onto postgres, minio, and nessie (#938)
+- phlo: add candidate qualification status report, share golden-path harness (#939)
+- phlo: share plan-token-journal contract with scheduled ops (#940)
+- phlo: live security + journaled-maintenance evidence lane (#943)
+- phlo-api: converge canonical RBAC onto postgres, minio, and nessie (#938)
+- phlo-dagster: share plan-token-journal contract with scheduled ops (#940)
+- phlo-minio: converge canonical RBAC onto postgres, minio, and nessie (#938)
+- phlo-minio: live security + journaled-maintenance evidence lane (#943)
+- phlo-nessie: converge canonical RBAC onto postgres, minio, and nessie (#938)
+- phlo-nessie: live security + journaled-maintenance evidence lane (#943)
+- phlo-postgres: converge canonical RBAC onto postgres, minio, and nessie (#938)
+- phlo-postgres: live security + journaled-maintenance evidence lane (#943)
+- phlo-trino: converge canonical RBAC onto postgres, minio, and nessie (#938)
+
+### Fixed
+- phlo: pull minio images from quay.io after docker hub removal (#941)
+- phlo: pre-create the nessie bind-mount source before start (#944)
+- phlo-dagster: pull minio images from quay.io after docker hub removal (#941)
+- phlo-delta: pull minio images from quay.io after docker hub removal (#941)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (17 commits)
+
 ## [phlo 0.16.2 + 37 packages] - 2026-09-09
 
 ### Fixed
