@@ -9,6 +9,7 @@ from __future__ import annotations
 from phlo.run_evidence.profiles import (
     EvidenceProfileContribution,
     compose_evidence_profile,
+    resolve_composed_evidence_profile,
 )
 from phlo.run_evidence.reconciliation import RequiredEvidenceRecord, RequiredEvidenceStage
 
@@ -72,3 +73,19 @@ def test_each_stage_and_record_family_is_required() -> None:
     assert stage_types == {"ingest", "transform", "check", "publish", "lineage"}
     families = {record.family for record in composed.profile.required_records}
     assert families == {"resource", "artifact", "quality_result", "catalog_change"}
+
+
+def test_blessed_profile_resolves_from_the_capability_registry() -> None:
+    """The installed providers must discover every blessed contribution.
+
+    This is the executable inventory for the run_evidence gate: the
+    hand-built matrix above proves composition semantics; this resolution
+    proves the real registered providers supply a complete profile.
+    """
+    composed = resolve_composed_evidence_profile("wap", "1", BLESSED_ROOT)
+    assert composed.available is True
+    assert composed.missing_contribution_ids == ()
+    assert composed.discovered_contribution_ids == tuple(sorted(BLESSED_ROOT))
+    stage_types = {stage.stage_type for stage in composed.profile.stages}
+    assert stage_types == {"ingest", "transform", "check", "publish", "lineage"}
+    assert composed.profile.run_terminal_event_types == ("run.terminal",)

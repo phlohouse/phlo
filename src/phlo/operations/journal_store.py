@@ -1,20 +1,13 @@
 """Durable, cross-process operation journal stores (ADR 0049 §1).
 
-Core owns the atomic state machine in :mod:`phlo.operations.journal`; this
-module supplies a durable provider so the advertised exactly-once contract
-holds through the CLI across process boundaries and restarts.
-
 :class:`FileOperationJournalStore` persists one JSON record per operation
-under a configured directory using atomic rename, so a second CLI process or
-a process restart observes and honours earlier claims instead of silently
-re-trying a destructive operation. Production deployments may substitute any
-store satisfying :class:`phlo.operations.journal.OperationJournalStore`
-(e.g. a PostgreSQL adapter); this file-backed provider is the durable default
-for the CLI and is fully testable without live services.
+under a configured directory using atomic rename, so the advertised
+exactly-once contract holds across CLI processes and restarts.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from contextlib import contextmanager
@@ -101,8 +94,13 @@ class FileOperationJournalStore:
         contains ``/``) and the ``:`` separators (which many platforms treat as
         path separators in globbing). Collapse every non-portable character to
         ``_``so a durable record is one flat file and reads back deterministically.
+        Lossy mappings carry a digest suffix so ``feature/orders`` and
+        ``feature_orders`` cannot converge on the same file.
         """
-        return "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in operation_id)
+        safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in operation_id)
+        if safe != operation_id:
+            safe = f"{safe}__{hashlib.sha256(operation_id.encode()).hexdigest()[:8]}"
+        return safe
 
     # -- protocol ----------------------------------------------------------
 

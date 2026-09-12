@@ -1,76 +1,56 @@
 """Shared utilities for Iceberg table maintenance operations.
 
-This module provides common helpers used by Iceberg maintenance jobs
-and sensors. It includes configuration models, telemetry tagging, logging
-utilities, and catalog interaction functions.
-
-Configuration:
-    MaintenanceConfig: Pydantic model for maintenance parameters:
-    - namespace: Target namespace or "all"
-    - snapshot_retention_days: Age threshold for snapshot expiration
-    - snapshot_retain_last: Minimum snapshots to preserve
-    - orphan_retention_days: Age threshold for orphan file deletion
-    - dry_run: Plan-only mode; snapshot execution requires an explicit plan token and executor
-    - catalog, confirmation_token, confirmation_tokens: Plan-binding fields for guarded snapshot expiry
-    - max_affected_objects, max_affected_bytes: Finite limits revalidated before provider submission
-    - ref: Nessie branch reference (default: main)
-    - table_allowlist: Optional restriction to specific tables
-
-Telemetry Support:
-    - maintenance_tags(): Build telemetry context tags
-    - maintenance_payload(): Construct structured event payloads
-    - maintenance_log_extra(): Prepare logging extra fields
-    - start_maintenance_op(): Emit start telemetry and logs
-    - finish_maintenance_op(): Emit completion telemetry and metrics
-    - emit_maintenance_metrics(): Publish standard metrics
-
-Catalog Operations:
-    - list_tables(): Get fully qualified table names in a namespace
-    - list_namespaces(): Get all namespaces for a reference
-    - resolve_namespaces(): Expand "all" or return specific namespace
-
-Integration Requirements:
-    Requires a registered ``table_store:iceberg`` provider implementing the
-    neutral maintenance discovery contract. Functions resolve that capability
-    at runtime without importing a concrete provider package.
-
-Example:
-    Configuration and telemetry::
-
-        from phlo_dagster.iceberg_maintenance_utils import (
-            MaintenanceConfig,
-            start_maintenance_op,
-            finish_maintenance_op,
-        )
-
-        config = MaintenanceConfig(
-            namespace="raw",
-            snapshot_retention_days=7,
-            ref="main",
-        )
-
-        telemetry = start_maintenance_op(context, config, "expire_snapshots")
-        # ... perform maintenance ...
-        summary = finish_maintenance_op(
-            context, config, telemetry, "expire_snapshots",
-            duration_seconds=elapsed, errors=errors,
-            tables_processed=10, snapshots_deleted=50,
-        )
-
+MaintenanceConfig models the maintenance parameters; the remaining helpers
+build telemetry tags, list catalog tables, and resolve the configured
+durable journal. Callers resolve ``table_store:iceberg`` at runtime rather
+than importing a concrete provider package.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Annotated, Any, Optional
 
 import dagster as dg
 from phlo.capabilities import MaintenanceDiscovery, resolve_capability
 from phlo.hooks import HookCorrelation, TelemetryEventContext, TelemetryEventEmitter
+from phlo.operations.journal import OperationJournalStore
+from phlo.operations.journal_store import FileOperationJournalStore
 from pydantic import Field
 
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def durable_maintenance_journal() -> OperationJournalStore:
+    """Resolve the configured durable journal; fail closed when none is present.
+
+    Scheduled maintenance mutates real tables, so it shares the CLI's
+    fail-before-mutation contract: without PHLO_OPERATIONS_JOURNAL_DIR the
+    exactly-once journal would degrade to in-memory and disappear with the
+    process, so the run is refused instead.
+    """
+    directory = os.environ.get("PHLO_OPERATIONS_JOURNAL_DIR")
+    if not directory:
+        raise RuntimeError(
+            "scheduled maintenance requires a durable operation journal: set "
+            "PHLO_OPERATIONS_JOURNAL_DIR before enabling non-dry-run maintenance"
+        )
+    return FileOperationJournalStore(directory)
+
+
+def is_outcome_unknown(result: dict[str, Any]) -> bool:
+    """True when the provider submitted the operation but cannot confirm its outcome.
+
+    Providers report this via ``failure.outcome == "unknown"`` or the
+    ``*_outcome_unknown*`` failure codes; the operation may have committed,
+    so the journal must record UNKNOWN rather than a retryable FAILED.
+    """
+    failure = result.get("failure")
+    if not isinstance(failure, dict):
+        return False
+    return failure.get("outcome") == "unknown" or "outcome_unknown" in str(failure.get("code", ""))
 
 
 def resolve_maintenance_discovery() -> MaintenanceDiscovery:
