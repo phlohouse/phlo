@@ -195,6 +195,14 @@ def test_enforcement_probe_fails_when_minio_deny_allows(monkeypatch, project):
         nightly_evidence.enforcement_probe(project)
 
 
+def test_host_endpoint_override_precreates_nessie_mount_source(project):
+    """The bind-mount source must exist host-owned before services start."""
+    nightly_evidence.write_host_endpoint_override(project)
+
+    assert (project / ".phlo" / "nessie").is_dir()
+    assert (project / ".phlo" / "overrides" / "compose.yaml").is_file()
+
+
 def test_compose_includes_override_layer(monkeypatch, tmp_path, project):
     override = project / ".phlo" / "overrides" / "compose.yaml"
     override.parent.mkdir(parents=True)
