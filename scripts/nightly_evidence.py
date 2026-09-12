@@ -240,7 +240,13 @@ def write_host_endpoint_override(project: Path) -> Path:
     server's own ``endpoint`` stays ``minio:9000`` for commit writes. The
     scratch lane starts no in-compose data-plane clients, so advertising
     ``localhost:${MINIO_API_PORT}`` is safe.
+
+    Also pre-creates ``.phlo/nessie``: compose bind-mounts it into the
+    container, and on Linux runners Docker auto-creates a missing mount
+    source root-owned — leaving the runner user unable to write
+    ``authz.properties`` at sync time.
     """
+    (project / ".phlo" / "nessie").mkdir(parents=True, exist_ok=True)
     override = project / ".phlo" / "overrides" / "compose.yaml"
     override.parent.mkdir(parents=True, exist_ok=True)
     override.write_text(
