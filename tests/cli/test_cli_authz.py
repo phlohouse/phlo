@@ -274,6 +274,32 @@ def test_verify_drift(runner, monkeypatch, tmp_path):
     assert "grant_reader_select" in result.output
 
 
+def test_verify_backend_error_is_drift(runner, monkeypatch, tmp_path):
+    """A backend that fails verification cannot read as converged."""
+    ctrl = _FakeController()
+    ctrl.verify_return = {
+        "postgres": VerifyResult(backend="postgres", in_sync=True),
+        "minio": VerifyResult(
+            backend="minio",
+            in_sync=False,
+            error="inspection timed out",
+        ),
+    }
+    _patch(monkeypatch, controller=ctrl)
+    result = runner.invoke(authz_group, ["verify", "--path", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "Error: inspection timed out" in result.output
+
+
+def test_verify_empty_results_exit_nonzero(runner, monkeypatch, tmp_path):
+    """An empty verification is inconclusive, not success."""
+    ctrl = _FakeController()
+    ctrl.verify_return = {}
+    _patch(monkeypatch, controller=ctrl)
+    result = runner.invoke(authz_group, ["verify", "--path", str(tmp_path)])
+    assert result.exit_code == 1
+
+
 # -- revert -------------------------------------------------------------------
 
 

@@ -176,8 +176,9 @@ class SyncController:
         environment: str = "development",
     ) -> dict[str, VerifyResult]:
         """Compare backend state with the desired RBAC model on ``backends``
-        (default: all registered) under ``environment``; backends whose
-        verification raises are logged and omitted from the results."""
+        (default: all registered) under ``environment``; a backend whose
+        verification raises is recorded as a failed (out-of-sync) result
+        so an unverifiable backend can never read as converged."""
         rbac = self.load_rbac()
         results: dict[str, VerifyResult] = {}
 
@@ -210,6 +211,11 @@ class SyncController:
                 logger.error(
                     "verify_failed",
                     backend=backend_name,
+                    error=str(e),
+                )
+                results[backend_name] = VerifyResult(
+                    backend=backend_name,
+                    in_sync=False,
                     error=str(e),
                 )
 

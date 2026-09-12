@@ -252,14 +252,20 @@ def verify(path, backend, environment):
         sys.exit(1)
 
     if not results:
-        click.echo("No verification results.")
-        sys.exit(0)
+        click.echo("No verification results — nothing was verified.", err=True)
+        sys.exit(1)
 
     has_drift = False
 
     for backend_name, result in results.items():
         click.echo(f"\n=== {backend_name} ===")
         click.echo(f"In sync: {result.in_sync}")
+
+        if not result.in_sync:
+            has_drift = True
+
+        if result.error:
+            click.echo(f"Error: {result.error}")
 
         if result.missing:
             click.echo(f"\nMissing artifacts: {len(result.missing)}")
