@@ -1,25 +1,10 @@
 #!/usr/bin/env python3
 """Report how close a staged release candidate is to qualifying.
 
-Read-only companion to ``promote_release_candidate.py``: where promotion
-adjudicates an evidence set in one pass and fails on the first broken rule,
-this report evaluates every staged bundle independently, records a
-per-bundle verdict with its reason, and summarizes the remaining gap to
-qualification (run count, distinct hosts, distinct UTC days, freshness,
-no-predating-staging). It consumes the same staged candidate BOM and
-``phlo.release-candidate-evidence/v1`` bundles; it never tags, publishes,
-or edits support status.
-
-Usage::
-
-    python scripts/release_qualification_status.py \
-        --candidate-bom bom.json --evidence-dir bundles/
-    python scripts/release_qualification_status.py \
-        --candidate-bom bom.json --evidence run1.json run2.json --json
-
-Exit code is ``0`` when the set qualifies, ``1`` when it does not, and
-``2`` on usage errors. The verdict is advisory: only the promotion gate
-itself adjudicates promotion.
+Read-only companion to ``promote_release_candidate.py``: each staged
+``phlo.release-candidate-evidence/v1`` bundle gets an independent verdict
+plus the remaining gap to qualification. Exit ``0`` when the set
+qualifies, ``1`` when not, ``2`` on usage errors; advisory only.
 """
 
 from __future__ import annotations
@@ -97,6 +82,7 @@ def evaluate_bundle(bundle: dict[str, object], bom: dict[str, object]) -> tuple[
         return "failed_run", f"concluded {bundle.get('conclusion')!r}"
     try:
         promote._check_bundle_environment(bundle)
+        promote.bundle_host(bundle)
     except promote.PromotionGateError as exc:
         return "wrong_environment", str(exc)
     return "", ""
@@ -137,9 +123,13 @@ def report_status(
             reason, detail = "replayed_evidence", "already consumed by a prior receipt"
         host = ""
         if not reason:
-            environment = bundle.get("environment")
-            host = str(environment.get("host", "")) if isinstance(environment, dict) else ""
+            host = promote.bundle_host(bundle)
         started, finished = _timestamps(bundle) if not reason else ("", "")
+        if not reason and (not started or not finished):
+            reason, detail = (
+                "invalid_bundle",
+                "bundle carries invalid started/finished timestamps",
+            )
         report.verdicts.append(
             BundleVerdict(
                 path=None,
@@ -278,6 +268,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Current UTC instant for freshness evaluation (testing; default: real clock)",
     )
+    parser.add_argument(
+        "--prior-receipt",
+        type=Path,
+        action="append",
+        default=[],
+        help="Prior promotion receipt path (repeatable; consumed evidence is replayed)",
+    )
     parser.add_argument("--json", action="store_true", help="Emit the JSON report")
     return parser.parse_args(argv)
 
@@ -289,11 +286,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         bom = promote.load_candidate_bom(args.candidate_bom)
         bundles = [promote.load_evidence_bundle(path) for path in paths]
+        prior = promote._prior_bundle_checksums(args.prior_receipt)
+        now_utc = promote.parse_utc(args.now) if args.now else datetime.now(UTC)
+        report = report_status(
+            bundles,
+            bom,
+            now_utc=now_utc,
+            staged_utc=args.staged_utc,
+            prior_receipt_bundles=prior,
+        )
     except promote.PromotionGateError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    now_utc = promote.parse_utc(args.now) if args.now else datetime.now(UTC)
-    report = report_status(bundles, bom, now_utc=now_utc, staged_utc=args.staged_utc)
     for verdict, path in zip(report.verdicts, paths, strict=True):
         verdict.path = path
     print(_render_json(report) if args.json else _render_human(report))

@@ -219,6 +219,41 @@ class TestReportStatus:
         assert not report.qualified
         assert any("predate candidate staging" in gap for gap in report.gaps)
 
+    def test_missing_host_is_rejected_not_counted(self) -> None:
+        bom = _bom()
+        bundles = _qualifying_set(bom)
+        no_host = _day_bundle(bom, "clean-host-d", 11, 20)
+        del no_host["environment"]["host"]
+        no_host["checksum"] = {
+            "algorithm": "sha256",
+            "value": release_evidence.bundle_checksum(no_host),
+        }
+        report = status.report_status(bundles + [no_host], bom, now_utc=NOW)
+        rejected = [v for v in report.verdicts if v.status == status.STATUS_REJECTED]
+        assert len(rejected) == 1 and rejected[0].reason == "wrong_environment"
+
+    def test_missing_timestamps_rejected_and_report_emits(self) -> None:
+        bom = _bom()
+        bundles = _qualifying_set(bom)
+        no_ts = _day_bundle(bom, "clean-host-d", 11, 20)
+        del no_ts["started_utc"]
+        no_ts["checksum"] = {
+            "algorithm": "sha256",
+            "value": release_evidence.bundle_checksum(no_ts),
+        }
+        report = status.report_status(bundles + [no_ts], bom, now_utc=NOW)
+        rejected = [v for v in report.verdicts if v.status == status.STATUS_REJECTED]
+        assert len(rejected) == 1 and rejected[0].reason == "invalid_bundle"
+        assert report.qualified  # three good bundles still qualify the set
+
+    def test_replayed_evidence_rejected(self) -> None:
+        bom = _bom()
+        bundles = _qualifying_set(bom)
+        consumed = {promote.bundle_checksum(bundles[0])}
+        report = status.report_status(bundles, bom, now_utc=NOW, prior_receipt_bundles=consumed)
+        assert report.verdicts[0].reason == "replayed_evidence"
+        assert len(report.qualifying) == 2
+
 
 class TestCli:
     """End-to-end CLI behaviour over bundle files on disk."""
@@ -277,3 +312,41 @@ class TestCli:
         code = status.main(["--candidate-bom", str(tmp_path / "nope.json")])
         assert code == 2
         assert "error:" in capsys.readouterr().err
+
+    def test_main_invalid_now_is_usage_error(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        bom = _bom()
+        bom_path = tmp_path / "bom.json"
+        bom_path.write_text(json.dumps(bom))
+        code = status.main(["--candidate-bom", str(bom_path), "--now", "not-a-timestamp"])
+        assert code == 2
+        assert "error:" in capsys.readouterr().err
+
+    def test_main_prior_receipt_marks_consumed_bundles(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        bom = _bom()
+        bom_path = tmp_path / "bom.json"
+        bom_path.write_text(json.dumps(bom))
+        bundles = _qualifying_set(bom)
+        evidence_dir = self._write(tmp_path / "bundles", bundles)
+        receipt = tmp_path / "receipt.json"
+        receipt.write_text(
+            json.dumps({"evidence": {"bundle_checksums": [promote.bundle_checksum(bundles[0])]}})
+        )
+        code = status.main(
+            [
+                "--candidate-bom",
+                str(bom_path),
+                "--evidence-dir",
+                str(evidence_dir),
+                "--prior-receipt",
+                str(receipt),
+                "--now",
+                "2026-09-12T00:00:00Z",
+            ]
+        )
+        out = capsys.readouterr().out
+        assert code == 1
+        assert "replayed_evidence" in out

@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Shared harness utilities for the golden-path scripts.
 
-Both golden-path drivers run on a bare Python interpreter (no installed
-dependencies), so this module is stdlib-only and lives beside them on the
-scripts path. ``release_golden_path.py`` is the artifact-bound acceptance
-driver; ``run_golden_path.py`` is the interactive debug driver — they share
-this layer so harness behavior (env layering, HTTP probes, port handling,
-process execution) cannot drift between them.
+Stdlib-only so both drivers run on a bare interpreter: env layering, HTTP
+probes, port handling, and process execution live here so the acceptance
+driver and debug driver cannot drift on harness behavior.
 """
 
 from __future__ import annotations
