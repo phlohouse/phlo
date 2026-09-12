@@ -32,9 +32,9 @@ ARG PHLO_UV_LOCKED=""
 RUN apt-get update \
     && apt-get upgrade --no-install-recommends --yes \
     && apt-get install --yes --no-install-recommends \
-        bash=5.2.37-2+b9 \
+        bash=5.2.37-2+b10 \
         ca-certificates=20250419 \
-        curl=8.14.1-2+deb13u4 \
+        curl=8.14.1-2+deb13u5 \
         git=1:2.47.3-0+deb13u1 \
         gosu=1.17-3+b4 \
     && rm -rf /var/lib/apt/lists/* \

@@ -48,7 +48,7 @@ def test_compose_uses_isolated_ports_and_supported_stack_images(tmp_path):
     assert nessie_env["nessie.catalog.warehouses.warehouse.location"] == "s3://lake/warehouse"
     assert nessie_env["nessie.catalog.service.s3.default-options.endpoint"] == "http://minio:9000/"
     assert nessie_env["nessie.catalog.service.s3.default-options.path-style-access"] == "true"
-    assert recovery_drill.MC_IMAGE.startswith("minio/mc@sha256:")
+    assert recovery_drill.MC_IMAGE.startswith("quay.io/minio/mc@sha256:")
     assert recovery_drill.NESSIE_ADMIN_IMAGE.startswith(
         "ghcr.io/projectnessie/nessie-server-admin@sha256:"
     )
