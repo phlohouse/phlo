@@ -17,13 +17,19 @@ import {
   runObservatoryQuery,
   saveObservatoryQuery,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { useLiveResource } from '@/observatory/routes/liveResource'
 import {
   readQueryWorkspace,
   recordQueryExecution,
   writeQueryWorkspace,
 } from '@/observatory/shell/localActivity'
+import { Page, PageHeader } from '@/components/observatory/page'
+import { EmptyBlock } from '@/components/observatory/states'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/queries')({ component: Queries })
 
@@ -172,55 +178,80 @@ export function Queries() {
   }
 
   return (
-    <ObservatoryPage
-      kicker="Data"
-      title="Queries"
-      description="A read-only SQL workspace backed by the active query provider, with project-persisted saved queries."
-      action={
-        <span className="phlo-observatory-pill">
-          {savedQueries.length} saved
-        </span>
-      }
-    >
-      <section className="phlo-observatory-query-workspace">
-        <aside className="phlo-observatory-query-library">
-          <div className="phlo-observatory-workspace-toolbar">
-            <span>
-              <Save className="size-4" />
+    <Page>
+      <PageHeader
+        actions={
+          <>
+            <Badge variant="secondary">{savedQueries.length} saved</Badge>
+            <Badge variant="secondary">read-only</Badge>
+            <Link
+              className={cn(
+                'border-input hover:bg-accent inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors',
+              )}
+              to="/query-history"
+            >
+              <History className="size-3.5" />
+              History
+            </Link>
+          </>
+        }
+        description="Read-only SQL workbench backed by the active query provider, with project-persisted saved queries."
+        title="Query workbench"
+      />
+      <div className="ring-foreground/10 grid grid-cols-1 gap-0 overflow-hidden rounded-md ring-1 lg:grid-cols-[16rem_minmax(0,1fr)]">
+        {/* Saved query library */}
+        <aside className="bg-card flex min-h-0 flex-col border-b lg:border-r lg:border-b-0">
+          <div className="flex items-center justify-between border-b px-3 py-2">
+            <span className="text-muted-foreground flex items-center gap-1.5 text-[10px] font-medium tracking-widest uppercase">
+              <Save className="size-3.5" />
               Saved queries
             </span>
-            <button aria-label="New query" onClick={newScratch} type="button">
+            <Button onClick={newScratch} size="xs" variant="ghost">
               <Plus className="size-3.5" />
               New
-            </button>
+            </Button>
           </div>
-          <div className="phlo-observatory-detail-list">
-            {savedQueries.map((query) => (
-              <button
-                className="phlo-observatory-mini-row"
-                key={query.id}
-                onClick={() => openSavedQuery(query)}
-                type="button"
-              >
-                <span>{query.name}</span>
-                <small>{query.branch ?? 'main'}</small>
-              </button>
-            ))}
-            {!savedQueries.length && (
-              <div className="phlo-observatory-mini-row">
-                <span>No saved queries</span>
-                <small>Save the editor contents to create one</small>
-              </div>
-            )}
-          </div>
+          <ScrollArea className="max-h-72 lg:max-h-none lg:flex-1">
+            <div className="divide-y divide-border">
+              {savedQueries.map((query) => (
+                <button
+                  className="hover:bg-accent/50 flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors"
+                  key={query.id}
+                  onClick={() => openSavedQuery(query)}
+                  type="button"
+                >
+                  <span className="text-foreground truncate text-xs">
+                    {query.name}
+                  </span>
+                  <span className="text-muted-foreground font-mono text-[10px]">
+                    {query.branch ?? 'main'}
+                  </span>
+                </button>
+              ))}
+              {!savedQueries.length && (
+                <p className="text-muted-foreground px-3 py-4 text-[11px]">
+                  No saved queries. Save the editor contents to create one.
+                </p>
+              )}
+            </div>
+          </ScrollArea>
         </aside>
-        <div className="phlo-observatory-query-editor-surface">
-          <div className="phlo-observatory-query-tabs" role="tablist">
+
+        {/* Editor surface */}
+        <div className="bg-card flex min-w-0 flex-col">
+          <div
+            className="border-border flex items-center overflow-x-auto border-b"
+            role="tablist"
+          >
             {workspace.tabs.map((tab) => (
               <button
                 aria-selected={tab.id === workspace.activeId}
-                className="phlo-observatory-query-tab"
-                data-active={tab.id === workspace.activeId}
+                className={cn(
+                  'border-border flex h-8 flex-none items-center gap-2 border-r px-3 text-xs transition-colors',
+                  tab.id === workspace.activeId
+                    ? 'bg-background text-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
                 key={tab.id}
                 onClick={() =>
                   setWorkspace((current) => ({ ...current, activeId: tab.id }))
@@ -228,11 +259,11 @@ export function Queries() {
                 role="tab"
                 type="button"
               >
-                <span>{tab.name}</span>
+                <span className="max-w-36 truncate">{tab.name}</span>
                 {workspace.tabs.length > 1 && (
                   <X
                     aria-label={`Close ${tab.name}`}
-                    className="size-3"
+                    className="text-muted-foreground hover:text-foreground size-3"
                     onClick={(event) => {
                       event.stopPropagation()
                       closeTab(tab.id)
@@ -243,100 +274,102 @@ export function Queries() {
             ))}
             <button
               aria-label="New query tab"
-              className="phlo-observatory-query-tab-add"
+              className="text-muted-foreground hover:text-foreground flex h-8 flex-none items-center px-3 transition-colors"
               onClick={newScratch}
               type="button"
             >
               <Plus className="size-3.5" />
             </button>
           </div>
-          <div className="phlo-observatory-workspace-toolbar">
-            <span>
-              <Database className="size-4" />
-              SQL editor
-            </span>
-            <span className="phlo-observatory-pill">Read only</span>
-            <Link
-              className="phlo-observatory-query-history-link"
-              to="/query-history"
-            >
-              <History className="size-3.5" />
-              History
-            </Link>
+          <div className="text-muted-foreground flex items-center gap-2 border-b px-3 py-1.5 text-[10px] font-medium tracking-widest uppercase">
+            <Database className="size-3.5" />
+            SQL editor
           </div>
           <textarea
             aria-label="SQL query"
+            className="bg-background text-foreground placeholder:text-muted-foreground min-h-44 w-full resize-y border-b p-3 font-mono text-xs outline-none"
             onChange={(event) => updateActiveTab({ sql: event.target.value })}
             spellCheck={false}
             value={sql}
           />
-          <div className="phlo-observatory-query-actions">
-            <button
+          <div className="flex flex-wrap items-center gap-2 border-b p-2">
+            <Button
               disabled={!sql.trim() || running}
               onClick={() => void runQuery()}
-              type="button"
+              size="sm"
             >
               <Play className="size-3.5" />
               {running ? 'Running…' : 'Run query'}
-            </button>
-            <label>
-              <span>Saved query name</span>
-              <input
+            </Button>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <Input
+                aria-label="Saved query name"
+                className="max-w-64"
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Daily revenue sample"
+                placeholder="Name to save as"
                 value={name}
               />
-            </label>
-            <button
-              disabled={!name.trim() || !sql.trim()}
-              onClick={() => void saveQuery()}
-              type="button"
-            >
-              <Save className="size-3.5" />
-              Save
-            </button>
+              <Button
+                disabled={!name.trim() || !sql.trim()}
+                onClick={() => void saveQuery()}
+                size="sm"
+                variant="outline"
+              >
+                <Save className="size-3.5" />
+                Save
+              </Button>
+            </div>
+            <span className="text-muted-foreground font-mono text-[10px]">
+              {message}
+            </span>
           </div>
-          <div className="phlo-observatory-panel-note">{message}</div>
           <QueryResults result={result} />
         </div>
-      </section>
-    </ObservatoryPage>
+      </div>
+    </Page>
   )
 }
 
 function QueryResults({ result }: { result: ObservatoryQueryResult | null }) {
   if (!result)
     return (
-      <div className="phlo-observatory-operation-empty">
-        <div>
-          <h2>No query result yet</h2>
-          <p>
-            Run a read-only SELECT statement to inspect provider-backed rows.
-          </p>
-        </div>
-      </div>
+      <EmptyBlock
+        className="py-10"
+        description="Run a read-only SELECT statement to inspect provider-backed rows."
+        title="No query result yet"
+      />
     )
   return (
-    <div className="phlo-observatory-query-results">
-      <table>
-        <thead>
+    <ScrollArea className="max-h-96">
+      <table className="w-full text-left">
+        <thead className="bg-muted/50 sticky top-0">
           <tr>
             {result.columns.map((column) => (
-              <th key={column}>{column}</th>
+              <th
+                className="text-muted-foreground border-b px-3 py-1.5 font-mono text-[10px] font-medium tracking-widest uppercase"
+                key={column}
+              >
+                {column}
+              </th>
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y divide-border">
           {result.rows.map((row, index) => (
             <tr key={index}>
               {result.columns.map((column) => (
-                <td key={column}>{formatCell(row[column])}</td>
+                <td
+                  className="text-foreground px-3 py-1.5 font-mono text-[11px] whitespace-nowrap"
+                  key={column}
+                >
+                  {formatCell(row[column])}
+                </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollArea>
   )
 }
 

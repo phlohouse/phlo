@@ -38,12 +38,24 @@ import {
 } from '@/observatory/api/resources'
 import { ActionButton } from '@/observatory/components/ActionButton'
 import { ObservatoryFlowCanvas } from '@/observatory/components/ObservatoryFlowCanvas'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import {
   invalidateCachedResources,
   loadCachedResource,
   useLiveResource,
 } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/quality')({
   component: Quality,
@@ -181,234 +193,277 @@ export function Quality() {
   }, [selectedDatasetTarget])
 
   return (
-    <ObservatoryPage
-      kicker="Quality"
-      title="Quality triage"
-      description="Resolve the exact checks blocking trust, publication, and downstream use."
-      action={
-        <span className="phlo-observatory-pill">
-          {isLoading ? 'Loading' : `${checks.length} checks`}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-quality-shell">
-        <div className="phlo-observatory-quality-board">
-          {selected && (
-            <SelectedQualityWorkbench
-              detail={selectedDetail}
-              selected={selected}
-              target={selectedDatasetTarget}
-            />
-          )}
-          <div className="phlo-observatory-quality-command">
-            <div className="phlo-observatory-quality-score">
-              <strong>
-                {isLoading ? 'Loading' : score === null ? '—' : score}
-              </strong>
-              <span>Observed health</span>
-              <small>
-                {isLoading
-                  ? 'Reading live quality evidence'
-                  : `${observed} observed · ${failing} failing · ${unknown} pending`}
-              </small>
-            </div>
-            <div className="phlo-observatory-command-strip">
-              <Metric
-                icon={<Shield className="size-4" />}
-                label="Blocking"
-                value={isLoading ? 'Loading' : blocking}
-              />
-              <Metric
-                icon={<AlertTriangle className="size-4" />}
-                label="Warnings"
-                value={isLoading ? 'Loading' : warnings}
-              />
-              <Metric
-                icon={<CircleHelp className="size-4" />}
-                label="Not observed"
-                value={isLoading ? 'Loading' : unknown}
-              />
-            </div>
-          </div>
-          <div className="phlo-observatory-data-main-tabs" role="tablist">
-            {qualityViews.map((view) => (
-              <button
-                aria-selected={activeView === view.id}
-                data-active={activeView === view.id}
-                key={view.id}
-                onClick={() => setActiveView(view.id)}
-                role="tab"
-                type="button"
-              >
-                {view.icon}
-                {view.label}
-              </button>
-            ))}
-          </div>
-          {activeView === 'graph' ? (
-            <div className="phlo-observatory-flow-band">
-              <div className="phlo-observatory-workspace-toolbar">
-                <span>Quality dependencies</span>
-                <span className="phlo-observatory-pill">
-                  {isLoading ? 'Loading' : `${graph.edges.length} bindings`}
-                </span>
-              </div>
-              <ObservatoryFlowCanvas
-                edges={graph.edges}
-                nodes={graph.nodes}
-                onSelect={selectCheck}
-                selectedId={selected?.id}
-              />
-            </div>
-          ) : (
-            <>
-              <div className="phlo-observatory-quality-table-head">
-                <span>Check</span>
-                <span>Impact</span>
-                <span>Evidence</span>
-                <span>Next</span>
-              </div>
-              <div className="phlo-observatory-check-list">
-                {sortedChecks.map((check) => (
-                  <CheckRow
-                    key={check.id}
-                    check={check}
-                    detail={check.id === selected?.id ? selectedDetail : null}
-                    onSelect={selectCheck}
-                    selected={check.id === selected?.id}
-                  />
-                ))}
-                {isLoading ? (
-                  <div className="phlo-observatory-empty-state">
-                    Reading live quality checks and evidence.
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {isLoading ? 'Loading' : `${checks.length} checks`}
+          </Badge>
+        }
+        description="Resolve the exact checks blocking trust, publication, and downstream use."
+        title="Quality triage"
+      />
+      <SplitView
+        inspector={
+          <>
+            <InspectorSection
+              label={`Triage evidence · ${selected?.name ?? 'none'}`}
+            >
+              {selected ? (
+                <>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-muted-foreground min-w-0 text-xs/relaxed">
+                      {selected.description ??
+                        `Dataset ${qualityDatasetLabel(selected, selectedDetail)}`}
+                    </p>
+                    <Badge variant="secondary">
+                      {qualityStatusLabel(selected)}
+                    </Badge>
                   </div>
-                ) : (
-                  checks.length === 0 && (
-                    <div className="phlo-observatory-empty-state">
-                      No quality checks registered yet.
+                  <FactGrid>
+                    <Fact
+                      label="Dataset"
+                      value={qualityDatasetLabel(selected, selectedDetail)}
+                    />
+                    <Fact
+                      label="Severity"
+                      value={selected.severity ?? 'unspecified'}
+                    />
+                    <Fact
+                      label="Blocking"
+                      value={selected.blocking ? 'yes' : 'no'}
+                    />
+                    <Fact label="Status" value={qualityStatusLabel(selected)} />
+                    <Fact
+                      label="Owner"
+                      value={readQualityOwner(selected, selectedDetail)}
+                    />
+                  </FactGrid>
+                  <div className="border-border flex flex-col gap-0.5 border-l-2 px-3 py-1.5">
+                    <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+                      Next action
+                    </span>
+                    <strong className="text-foreground text-[11px]">
+                      {qualityNextAction(selected, selectedDetail)}
+                    </strong>
+                    <span className="text-muted-foreground text-[10px]/relaxed">
+                      {qualityNextActionReason(selected, selectedDetail)}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {isLoading
+                    ? 'Loading selected quality check and triage evidence.'
+                    : 'No quality check selected.'}
+                </p>
+              )}
+            </InspectorSection>
+            {selected && (
+              <>
+                <InspectorSection label="Dataset readiness">
+                  <DatasetReadinessContext
+                    profile={selectedDatasetProfile}
+                    selected={selected}
+                    target={selectedDatasetTarget}
+                  />
+                </InspectorSection>
+                <InspectorSection label="Evidence">
+                  <QualityEvidence
+                    detail={selectedDetail}
+                    selected={selected}
+                    target={selectedDatasetTarget}
+                  />
+                </InspectorSection>
+                <InspectorSection label="History">
+                  <QualityHistory detail={selectedDetail} selected={selected} />
+                </InspectorSection>
+                <InspectorSection label="Next actions">
+                  <QualityNextActions
+                    detail={selectedDetail}
+                    selected={selected}
+                    target={selectedDatasetTarget}
+                  />
+                  {(selectedDetail?.actions ?? []).length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-2">
+                      {(selectedDetail?.actions ?? []).map((action) => (
+                        <ActionButton
+                          action={action}
+                          key={action.id}
+                          onRun={(actionId) => {
+                            void runObservatoryAction({
+                              data: { actionId },
+                            }).then((next) => {
+                              invalidateCachedResources([
+                                'observatory:operations',
+                                'observatory:quality',
+                              ])
+                              setActionMessage(
+                                next.data?.message ??
+                                  next.error ??
+                                  'Action requested',
+                              )
+                            })
+                          }}
+                        />
+                      ))}
                     </div>
-                  )
-                )}
-              </div>
-            </>
-          )}
-        </div>
-
-        <aside className="phlo-observatory-inspector">
-          <div className="phlo-observatory-inspector-label">
-            Triage evidence
-          </div>
-          {selected ? (
-            <>
-              <div
-                className="phlo-observatory-quality-triage-summary"
-                data-state={qualityVisualState(selected)}
-              >
-                <div>
-                  <h2>{selected.name}</h2>
-                  <p>
-                    {selected.description ??
-                      `Dataset ${qualityDatasetLabel(selected, selectedDetail)}`}
+                  )}
+                  {actionMessage && (
+                    <p className="text-muted-foreground pt-2 font-mono text-[10px] break-all">
+                      {actionMessage}
+                    </p>
+                  )}
+                </InspectorSection>
+              </>
+            )}
+            {(detail.error ?? datasetProfile.error ?? result.error) && (
+              <InspectorSection label="Errors">
+                {detail.error && (
+                  <p className="text-status-error font-mono text-[10px] break-all">
+                    {detail.error}
                   </p>
-                </div>
-                <span className="phlo-observatory-pill">
-                  {qualityStatusLabel(selected)}
+                )}
+                {datasetProfile.error && (
+                  <p className="text-status-error font-mono text-[10px] break-all">
+                    Dataset readiness context is unavailable:{' '}
+                    {datasetProfile.error}
+                  </p>
+                )}
+                {result.error && (
+                  <p className="text-status-error font-mono text-[10px] break-all">
+                    {result.error}
+                  </p>
+                )}
+              </InspectorSection>
+            )}
+          </>
+        }
+        inspectorWidth="w-[24rem]"
+        list={
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+            {selected && (
+              <SelectedQualityWorkbench
+                detail={selectedDetail}
+                selected={selected}
+                target={selectedDatasetTarget}
+              />
+            )}
+            <div className="flex items-end gap-4">
+              <div className="flex flex-col">
+                <strong className="text-foreground text-3xl font-semibold tracking-tight">
+                  {isLoading ? '—' : (score ?? '—')}
+                </strong>
+                <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+                  Observed health
+                </span>
+                <span className="text-muted-foreground font-mono text-[10px]">
+                  {isLoading
+                    ? 'Reading live quality evidence'
+                    : `${observed} observed · ${failing} failing · ${unknown} pending`}
                 </span>
               </div>
-              <dl className="phlo-observatory-facts">
-                <Fact
-                  label="Dataset"
-                  value={qualityDatasetLabel(selected, selectedDetail)}
-                />
-                <Fact
-                  label="Severity"
-                  value={selected.severity ?? 'unspecified'}
-                />
-                <Fact
+              <StatGrid className="flex-1 xl:grid-cols-3">
+                <StatCard
+                  icon={<Shield className="size-3.5" />}
                   label="Blocking"
-                  value={selected.blocking ? 'yes' : 'no'}
+                  state={blocking ? 'error' : 'ok'}
+                  value={isLoading ? '—' : blocking}
                 />
-                <Fact label="Status" value={qualityStatusLabel(selected)} />
-                <Fact
-                  label="Owner"
-                  value={readQualityOwner(selected, selectedDetail)}
+                <StatCard
+                  icon={<AlertTriangle className="size-3.5" />}
+                  label="Warnings"
+                  state={warnings ? 'warning' : 'ok'}
+                  value={isLoading ? '—' : warnings}
                 />
-              </dl>
-              <div className="phlo-observatory-quality-next-step">
-                <span>Next action</span>
-                <strong>{qualityNextAction(selected, selectedDetail)}</strong>
-                <small>
-                  {qualityNextActionReason(selected, selectedDetail)}
-                </small>
-              </div>
-              <DatasetReadinessContext
-                profile={selectedDatasetProfile}
-                selected={selected}
-                target={selectedDatasetTarget}
-              />
-              <QualityEvidence
-                detail={selectedDetail}
-                selected={selected}
-                target={selectedDatasetTarget}
-              />
-              <QualityHistory detail={selectedDetail} selected={selected} />
-              <QualityNextActions
-                detail={selectedDetail}
-                selected={selected}
-                target={selectedDatasetTarget}
-              />
-              {(selectedDetail?.actions ?? []).length > 0 && (
-                <div className="phlo-observatory-action-row">
-                  {(selectedDetail?.actions ?? []).map((action) => (
-                    <ActionButton
-                      action={action}
-                      key={action.id}
-                      onRun={(actionId) => {
-                        void runObservatoryAction({ data: { actionId } }).then(
-                          (next) => {
-                            invalidateCachedResources([
-                              'observatory:operations',
-                              'observatory:quality',
-                            ])
-                            setActionMessage(
-                              next.data?.message ??
-                                next.error ??
-                                'Action requested',
-                            )
-                          },
-                        )
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-              {actionMessage && (
-                <div className="phlo-observatory-panel-footer">
-                  {actionMessage}
-                </div>
-              )}
-            </>
-          ) : (
-            <p>
-              {isLoading
-                ? 'Loading selected quality check and triage evidence.'
-                : 'No quality check selected.'}
-            </p>
-          )}
-          {detail.error && (
-            <div className="phlo-observatory-panel-footer">{detail.error}</div>
-          )}
-          {datasetProfile.error && (
-            <div className="phlo-observatory-panel-footer">
-              Dataset readiness context is unavailable: {datasetProfile.error}
+                <StatCard
+                  icon={<CircleHelp className="size-3.5" />}
+                  label="Not observed"
+                  value={isLoading ? '—' : unknown}
+                />
+              </StatGrid>
             </div>
-          )}
-          {result.error && (
-            <div className="phlo-observatory-panel-footer">{result.error}</div>
-          )}
-        </aside>
-      </section>
-    </ObservatoryPage>
+            <div
+              aria-label="Quality views"
+              className="flex items-center gap-1.5"
+              role="tablist"
+            >
+              {qualityViews.map((view) => (
+                <Button
+                  aria-selected={activeView === view.id}
+                  key={view.id}
+                  onClick={() => setActiveView(view.id)}
+                  role="tab"
+                  size="xs"
+                  type="button"
+                  variant={activeView === view.id ? 'default' : 'outline'}
+                >
+                  {view.icon}
+                  {view.label}
+                </Button>
+              ))}
+            </div>
+            {activeView === 'graph' ? (
+              <SectionCard
+                actions={
+                  <Badge variant="secondary">
+                    {isLoading ? 'Loading' : `${graph.edges.length} bindings`}
+                  </Badge>
+                }
+                contentClassName="p-0"
+                title="Quality dependencies"
+              >
+                <div className="bg-surface-sunken min-h-[26rem]">
+                  <ObservatoryFlowCanvas
+                    edges={graph.edges}
+                    nodes={graph.nodes}
+                    onSelect={selectCheck}
+                    selectedId={selected?.id}
+                  />
+                </div>
+              </SectionCard>
+            ) : (
+              <SectionCard contentClassName="p-0" title="Check queue">
+                <div className="border-border text-muted-foreground grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 border-b px-3 py-1.5 text-[9px] font-medium tracking-widest uppercase">
+                  <span>Check</span>
+                  <span>Impact</span>
+                  <span>Evidence</span>
+                  <span>Next</span>
+                </div>
+                <ScrollArea className="max-h-[30rem]">
+                  <div className="divide-border divide-y">
+                    {sortedChecks.map((check) => (
+                      <CheckRow
+                        key={check.id}
+                        check={check}
+                        detail={
+                          check.id === selected?.id ? selectedDetail : null
+                        }
+                        onSelect={selectCheck}
+                        selected={check.id === selected?.id}
+                      />
+                    ))}
+                    {isLoading ? (
+                      <LoadingBlock
+                        className="p-3"
+                        label="Reading live quality checks and evidence"
+                      />
+                    ) : (
+                      checks.length === 0 && (
+                        <EmptyBlock
+                          description="Register quality checks in the lakehouse to see them here."
+                          title="No quality checks registered yet."
+                        />
+                      )
+                    )}
+                  </div>
+                </ScrollArea>
+              </SectionCard>
+            )}
+          </div>
+        }
+      />
+    </Page>
   )
 }
 
@@ -429,30 +484,35 @@ function DatasetReadinessContext({
   const dataset = profile?.dataset
 
   return (
-    <div className="phlo-observatory-quality-readiness">
-      <div className="phlo-observatory-quality-readiness-header">
-        <span>Dataset readiness</span>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+          Dataset readiness
+        </span>
         {target ? (
-          <Link params={{ datasetId: target.id }} to="/datasets/$datasetId">
+          <Link
+            className="text-foreground text-[10px] font-medium hover:underline"
+            params={{ datasetId: target.id }}
+            to="/datasets/$datasetId"
+          >
             Open Dataset
           </Link>
         ) : (
-          <Link to={qualityLineageHref(selected)}>Open Lineage</Link>
+          <Link
+            className="text-foreground text-[10px] font-medium hover:underline"
+            to={qualityLineageHref(selected)}
+          >
+            Open Lineage
+          </Link>
         )}
       </div>
       {profile && dataset ? (
         <>
-          <div className="phlo-observatory-quality-readiness-grid">
-            <ReadinessFact
-              label="Publication"
-              value={dataset.publication_state}
-            />
-            <ReadinessFact label="Readiness" value={dataset.readiness_state} />
-            <ReadinessFact
-              label="Owner"
-              value={dataset.owner ?? 'unassigned'}
-            />
-            <ReadinessFact
+          <FactGrid className="grid-cols-2">
+            <Fact label="Publication" value={dataset.publication_state} />
+            <Fact label="Readiness" value={dataset.readiness_state} />
+            <Fact label="Owner" value={dataset.owner ?? 'unassigned'} />
+            <Fact
               label="Classifications"
               value={
                 dataset.classifications.length
@@ -460,25 +520,20 @@ function DatasetReadinessContext({
                   : 'unassigned'
               }
             />
-          </div>
-          <div className="phlo-observatory-detail-list">
+          </FactGrid>
+          <div className="divide-border -mx-3 divide-y border-y">
             {blockers.slice(0, 3).map((blocker) => (
-              <div className="phlo-observatory-mini-row" key={blocker}>
-                <span>{blocker}</span>
-                <small>release blocker</small>
-              </div>
+              <MiniRow detail="release blocker" key={blocker} label={blocker} />
             ))}
             {missingEvidence
               .slice(0, 3 - blockers.slice(0, 3).length)
               .map((item) => (
-                <div
-                  className="phlo-observatory-mini-row"
-                  data-state="unknown"
+                <MiniRow
+                  detail="missing evidence"
                   key={item}
-                >
-                  <span>{item}</span>
-                  <small>missing evidence</small>
-                </div>
+                  label={item}
+                  state="unknown"
+                />
               ))}
             {warnings
               .slice(
@@ -486,57 +541,107 @@ function DatasetReadinessContext({
                 Math.max(0, 3 - blockers.length - missingEvidence.length),
               )
               .map((warning) => (
-                <div
-                  className="phlo-observatory-mini-row"
-                  data-state="warning"
+                <MiniRow
+                  detail="warning"
                   key={warning}
-                >
-                  <span>{warning}</span>
-                  <small>warning</small>
-                </div>
+                  label={warning}
+                  state="warning"
+                />
               ))}
             {blockers.length === 0 &&
               missingEvidence.length === 0 &&
               warnings.length === 0 &&
               failingControls.length === 0 && (
-                <div className="phlo-observatory-mini-row">
-                  <span>Ready for publication controls</span>
-                  <small>{profile.publishing.policy_name}</small>
-                </div>
+                <MiniRow
+                  detail={profile.publishing.policy_name}
+                  label="Ready for publication controls"
+                />
               )}
             {failingControls
               .filter((control) => !blockers.includes(control.message ?? ''))
               .slice(0, 2)
               .map((control) => (
-                <div className="phlo-observatory-mini-row" key={control.id}>
-                  <span>{control.label}</span>
-                  <small>{control.message ?? control.status}</small>
-                </div>
+                <MiniRow
+                  detail={control.message ?? control.status}
+                  key={control.id}
+                  label={control.label}
+                />
               ))}
           </div>
         </>
       ) : (
-        <div className="phlo-observatory-mini-row">
-          <span>
-            {target ? 'Loading readiness context' : 'No Dataset binding found'}
-          </span>
-          <small>
-            {target?.label ??
-              'Use lineage evidence to bind this resource to a Dataset.'}
-          </small>
+        <div className="divide-border -mx-3 divide-y border-y">
+          <MiniRow
+            detail={
+              target?.label ??
+              'Use lineage evidence to bind this resource to a Dataset.'
+            }
+            label={
+              target ? 'Loading readiness context' : 'No Dataset binding found'
+            }
+          />
         </div>
       )}
     </div>
   )
 }
 
-function ReadinessFact({ label, value }: { label: string; value: string }) {
+function MiniRow({
+  detail,
+  label,
+  state,
+}: {
+  detail: string
+  label: string
+  state?: string
+}) {
   return (
-    <div>
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div
+      className="flex items-center justify-between gap-2 px-3 py-2"
+      data-state={state}
+    >
+      <span className="text-foreground min-w-0 text-[11px]">{label}</span>
+      <span className="text-muted-foreground flex-none text-right font-mono text-[10px]">
+        {detail}
+      </span>
     </div>
   )
+}
+
+function EvidenceCard({
+  children,
+  href,
+  label,
+  title,
+}: {
+  children: ReactNode
+  href?: string
+  label: string
+  title: ReactNode
+}) {
+  const content = (
+    <>
+      <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      <span className="text-foreground text-[11px] font-medium break-all">
+        {title}
+      </span>
+      <span className="text-muted-foreground text-[10px]/relaxed">
+        {children}
+      </span>
+    </>
+  )
+  const className =
+    'border-border hover:bg-accent/50 flex flex-col gap-0.5 border-l-2 px-3 py-1.5 transition-colors'
+  if (href) {
+    return (
+      <a className={className} href={href}>
+        {content}
+      </a>
+    )
+  }
+  return <div className={className}>{content}</div>
 }
 
 function QualityEvidence({
@@ -553,71 +658,72 @@ function QualityEvidence({
   const latestRun = history[0]
   const latestLog = logs[0]
   return (
-    <div className="phlo-observatory-quality-evidence">
-      <div className="phlo-observatory-quality-evidence-card">
-        <span>Impact</span>
-        <strong>{qualityImpact(selected, detail)}</strong>
-        <small>
-          {urgentReason(selected) ?? qualityResultSummary(selected)}
-        </small>
-      </div>
-      <div className="phlo-observatory-quality-evidence-card">
-        <span>Related run</span>
-        {latestRun ? (
-          <a
-            href={`/operations?operationId=${encodeURIComponent(latestRun.id)}`}
-          >
-            {latestRun.name}
-          </a>
-        ) : (
-          <strong>No linked run</strong>
-        )}
-        <small>
-          {latestRun
-            ? `${latestRun.status} · ${formatDateTime(latestRun.completed_at)}`
-            : 'No run evidence is linked to this check yet.'}
-        </small>
-      </div>
-      <div className="phlo-observatory-quality-evidence-card">
-        <span>Latest log</span>
-        {latestLog ? (
-          <a href={`/logs?logId=${encodeURIComponent(latestLog.id)}`}>
-            {latestLog.message}
-          </a>
-        ) : (
-          <strong>No linked log</strong>
-        )}
-        <small>
-          {latestLog
-            ? `${latestLog.level} · ${formatDateTime(latestLog.timestamp)}`
-            : 'No log evidence is linked to this check yet.'}
-        </small>
-      </div>
-      <div className="phlo-observatory-quality-evidence-card">
-        <span>Evidence depth</span>
-        <strong>
-          {history.length} runs · {logs.length} logs
-        </strong>
-        <small>{qualityActionsSummary(detail)}</small>
-      </div>
+    <div className="flex flex-col gap-2">
+      <EvidenceCard label="Impact" title={qualityImpact(selected, detail)}>
+        {urgentReason(selected) ?? qualityResultSummary(selected)}
+      </EvidenceCard>
+      <EvidenceCard
+        href={
+          latestRun
+            ? `/operations?operationId=${encodeURIComponent(latestRun.id)}`
+            : undefined
+        }
+        label="Related run"
+        title={latestRun?.name ?? 'No linked run'}
+      >
+        {latestRun
+          ? `${latestRun.status} · ${formatDateTime(latestRun.completed_at)}`
+          : 'No run evidence is linked to this check yet.'}
+      </EvidenceCard>
+      <EvidenceCard
+        href={
+          latestLog
+            ? `/logs?logId=${encodeURIComponent(latestLog.id)}`
+            : undefined
+        }
+        label="Latest log"
+        title={latestLog?.message ?? 'No linked log'}
+      >
+        {latestLog
+          ? `${latestLog.level} · ${formatDateTime(latestLog.timestamp)}`
+          : 'No log evidence is linked to this check yet.'}
+      </EvidenceCard>
+      <EvidenceCard
+        label="Evidence depth"
+        title={`${history.length} runs · ${logs.length} logs`}
+      >
+        {qualityActionsSummary(detail)}
+      </EvidenceCard>
       {target ? (
         <Link
-          className="phlo-observatory-quality-evidence-card"
+          className="border-border hover:bg-accent/50 flex flex-col gap-0.5 border-l-2 px-3 py-1.5 transition-colors"
           params={{ datasetId: target.id }}
           to="/datasets/$datasetId"
         >
-          <span>Dataset profile</span>
-          <strong>{target.label}</strong>
-          <small>Readiness, ownership, publication, and controls.</small>
+          <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+            Dataset profile
+          </span>
+          <span className="text-foreground text-[11px] font-medium">
+            {target.label}
+          </span>
+          <span className="text-muted-foreground text-[10px]/relaxed">
+            Readiness, ownership, publication, and controls.
+          </span>
         </Link>
       ) : (
         <a
-          className="phlo-observatory-quality-evidence-card"
+          className="border-border hover:bg-accent/50 flex flex-col gap-0.5 border-l-2 px-3 py-1.5 transition-colors"
           href={qualityLineageHref(selected)}
         >
-          <span>Source binding</span>
-          <strong>{detail?.asset?.name ?? selected.asset_id}</strong>
-          <small>Bind this source before treating it as a Dataset.</small>
+          <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+            Source binding
+          </span>
+          <span className="text-foreground text-[11px] font-medium break-all">
+            {detail?.asset?.name ?? selected.asset_id}
+          </span>
+          <span className="text-muted-foreground text-[10px]/relaxed">
+            Bind this source before treating it as a Dataset.
+          </span>
         </a>
       )}
     </div>
@@ -635,42 +741,44 @@ function QualityHistory({
   const logs = detail?.logs ?? []
 
   return (
-    <div className="phlo-observatory-quality-history">
-      <span className="phlo-observatory-inspector-label">History</span>
-      <div className="phlo-observatory-detail-list">
-        {history.slice(0, 3).map((run) => (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            key={run.id}
-            search={{ operationId: run.id }}
-            to="/operations"
-          >
-            <span>{run.name}</span>
-            <small>
-              {run.status} · {formatDateTime(run.completed_at)}
-            </small>
-          </Link>
-        ))}
-        {logs.slice(0, Math.max(0, 3 - history.length)).map((log) => (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            key={log.id}
-            search={{ logId: log.id }}
-            to="/logs"
-          >
-            <span>{log.message}</span>
-            <small>
-              {log.level} · {formatDateTime(log.timestamp)}
-            </small>
-          </Link>
-        ))}
-        {history.length === 0 && logs.length === 0 && (
-          <div className="phlo-observatory-mini-row" data-state="unknown">
-            <span>No attached history yet</span>
-            <small>{selected.asset_id}</small>
-          </div>
-        )}
-      </div>
+    <div className="divide-border -mx-3 divide-y border-y">
+      {history.slice(0, 3).map((run) => (
+        <Link
+          className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
+          key={run.id}
+          search={{ operationId: run.id }}
+          to="/operations"
+        >
+          <span className="text-foreground min-w-0 truncate text-[11px]">
+            {run.name}
+          </span>
+          <span className="text-muted-foreground flex-none font-mono text-[10px]">
+            {run.status} · {formatDateTime(run.completed_at)}
+          </span>
+        </Link>
+      ))}
+      {logs.slice(0, Math.max(0, 3 - history.length)).map((log) => (
+        <Link
+          className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
+          key={log.id}
+          search={{ logId: log.id }}
+          to="/logs"
+        >
+          <span className="text-foreground min-w-0 truncate text-[11px]">
+            {log.message}
+          </span>
+          <span className="text-muted-foreground flex-none font-mono text-[10px]">
+            {log.level} · {formatDateTime(log.timestamp)}
+          </span>
+        </Link>
+      ))}
+      {history.length === 0 && logs.length === 0 && (
+        <MiniRow
+          detail={selected.asset_id}
+          label="No attached history yet"
+          state="unknown"
+        />
+      )}
     </div>
   )
 }
@@ -692,70 +800,77 @@ function QualityNextActions({
   )?.reason
 
   return (
-    <div className="phlo-observatory-quality-next-actions">
-      <span className="phlo-observatory-inspector-label">Next actions</span>
-      <div className="phlo-observatory-detail-list">
-        {enabledAction ? (
-          <div className="phlo-observatory-mini-row" data-state="ok">
-            <span>{enabledAction.label}</span>
-            <small>
-              {[
-                'available now',
-                enabledAction.risk_level
-                  ? `${enabledAction.risk_level} risk`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </small>
-          </div>
-        ) : (
-          <div className="phlo-observatory-mini-row" data-state="unknown">
-            <span>{qualityNextActionShort(selected, detail)}</span>
-            <small>
-              {disabledReason ?? qualityNextActionReason(selected, detail)}
-            </small>
-          </div>
-        )}
-        {latestRun && (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            search={{ operationId: latestRun.id }}
-            to="/operations"
-          >
-            <span>Open related run</span>
-            <small>{latestRun.name}</small>
-          </Link>
-        )}
-        {latestLog && (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            search={{ logId: latestLog.id }}
-            to="/logs"
-          >
-            <span>Open latest log</span>
-            <small>{latestLog.level}</small>
-          </Link>
-        )}
-        {target ? (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            params={{ datasetId: target.id }}
-            to="/datasets/$datasetId"
-          >
-            <span>Open affected Dataset</span>
-            <small>{target.label}</small>
-          </Link>
-        ) : (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            to={qualityLineageHref(selected)}
-          >
-            <span>Open lineage binding</span>
-            <small>{selected.asset_id}</small>
-          </Link>
-        )}
-      </div>
+    <div className="divide-border -mx-3 divide-y border-y">
+      {enabledAction ? (
+        <MiniRow
+          detail={[
+            'available now',
+            enabledAction.risk_level
+              ? `${enabledAction.risk_level} risk`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+          label={enabledAction.label}
+          state="ok"
+        />
+      ) : (
+        <MiniRow
+          detail={disabledReason ?? qualityNextActionReason(selected, detail)}
+          label={qualityNextActionShort(selected, detail)}
+          state="unknown"
+        />
+      )}
+      {latestRun && (
+        <Link
+          className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
+          search={{ operationId: latestRun.id }}
+          to="/operations"
+        >
+          <span className="text-foreground text-[11px]">Open related run</span>
+          <span className="text-muted-foreground flex-none font-mono text-[10px]">
+            {latestRun.name}
+          </span>
+        </Link>
+      )}
+      {latestLog && (
+        <Link
+          className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
+          search={{ logId: latestLog.id }}
+          to="/logs"
+        >
+          <span className="text-foreground text-[11px]">Open latest log</span>
+          <span className="text-muted-foreground flex-none font-mono text-[10px]">
+            {latestLog.level}
+          </span>
+        </Link>
+      )}
+      {target ? (
+        <Link
+          className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
+          params={{ datasetId: target.id }}
+          to="/datasets/$datasetId"
+        >
+          <span className="text-foreground text-[11px]">
+            Open affected Dataset
+          </span>
+          <span className="text-muted-foreground flex-none font-mono text-[10px]">
+            {target.label}
+          </span>
+        </Link>
+      ) : (
+        <Link
+          className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
+          to={qualityLineageHref(selected)}
+        >
+          <span className="text-foreground text-[11px]">
+            Open lineage binding
+          </span>
+          <span className="text-muted-foreground flex-none font-mono text-[10px]">
+            {selected.asset_id}
+          </span>
+        </Link>
+      )}
     </div>
   )
 }
@@ -781,28 +896,37 @@ function SelectedQualityWorkbench({
       : `/datasets/${encodeURIComponent(target.id)}`
 
   return (
-    <div
-      className="phlo-observatory-quality-workbench"
+    <section
+      className="bg-card ring-foreground/10 ring-1"
       data-state={qualityVisualState(selected)}
     >
-      <div className="phlo-observatory-quality-workbench-title">
-        <div>
-          <span className="phlo-observatory-dot-label">
+      <div className="border-border flex flex-wrap items-start justify-between gap-3 border-b px-3 py-3">
+        <div className="min-w-0">
+          <span className="text-muted-foreground flex items-center gap-1.5 text-[9px] font-medium tracking-widest uppercase">
             <span
-              className="phlo-observatory-dot"
+              className="status-dot"
               data-state={qualityVisualState(selected)}
             />
             {qualityStatusLabel(selected)}
           </span>
-          <h2>{selected.name}</h2>
-          <p>{qualityImpact(selected, detail)}</p>
+          <h2 className="text-foreground mt-0.5 text-base font-semibold">
+            {selected.name}
+          </h2>
+          <p className="text-muted-foreground mt-0.5 text-xs/relaxed">
+            {qualityImpact(selected, detail)}
+          </p>
         </div>
-        <a className="phlo-observatory-action-link" href={resourceHref}>
+        <Button
+          nativeButton={false}
+          render={<a href={resourceHref} />}
+          size="xs"
+          variant="outline"
+        >
           <Database className="size-3.5" />
           {target?.label ?? datasetLabel}
-        </a>
+        </Button>
       </div>
-      <div className="phlo-observatory-quality-workbench-grid">
+      <div className="grid grid-cols-4 max-xl:grid-cols-2">
         <WorkbenchCell
           icon={<ClipboardCheck className="size-4" />}
           label="Why it matters"
@@ -846,7 +970,7 @@ function SelectedQualityWorkbench({
           detail={qualityNextActionReason(selected, detail)}
         />
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -865,45 +989,35 @@ function WorkbenchCell({
 }) {
   const content = (
     <>
-      <span>
+      <span className="text-muted-foreground flex items-center gap-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
         {icon}
         {label}
       </span>
-      <strong>{title}</strong>
-      <small>{detail}</small>
-      {href && <ExternalLink className="phlo-observatory-cell-link-icon" />}
+      <strong className="text-foreground mt-1 text-[11px] break-all">
+        {title}
+      </strong>
+      <span className="text-muted-foreground mt-0.5 line-clamp-2 text-[10px]/relaxed">
+        {detail}
+      </span>
+      {href && (
+        <ExternalLink className="text-muted-foreground absolute top-2 right-2 size-3" />
+      )}
     </>
+  )
+  const className = cn(
+    'border-border relative flex flex-col border-r px-3 py-2.5 text-left',
+    href && 'hover:bg-accent/50 transition-colors',
   )
 
   if (href) {
     return (
-      <a className="phlo-observatory-quality-workbench-cell" href={href}>
+      <a className={className} href={href}>
         {content}
       </a>
     )
   }
 
-  return (
-    <div className="phlo-observatory-quality-workbench-cell">{content}</div>
-  )
-}
-
-function Metric({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-command-metric">
-      {icon}
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  )
+  return <div className={className}>{content}</div>
 }
 
 type QualityView = 'queue' | 'graph'
@@ -934,39 +1048,44 @@ function CheckRow({
 }) {
   return (
     <button
-      className="phlo-observatory-check-row"
+      className={cn(
+        'hover:bg-accent/50 grid w-full grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-start gap-2 px-3 py-2 text-left transition-colors',
+        selected && 'bg-accent/60 hover:bg-accent/60',
+      )}
       data-active={selected}
       onClick={() => onSelect(check.id)}
       type="button"
     >
-      <span
-        className="phlo-observatory-dot"
-        data-state={
-          check.status === 'failing'
-            ? 'error'
-            : check.status === 'unknown'
-              ? 'warning'
-              : check.status
-        }
-      />
-      <div>
-        <div className="phlo-observatory-row-title">
-          <ShieldCheck className="size-4" />
-          {check.name}
-        </div>
-        <div className="phlo-observatory-row-meta">
-          {qualityDatasetLabel(check, detail)} · {qualityStatusLabel(check)} ·{' '}
-          {check.severity ?? 'severity unset'} ·{' '}
-          {check.blocking ? 'blocking' : 'advisory'}
-        </div>
-      </div>
-      <span className="phlo-observatory-quality-cell">
+      <span className="flex min-w-0 items-start gap-2">
+        <span
+          className="status-dot mt-1 flex-none"
+          data-state={
+            check.status === 'failing'
+              ? 'error'
+              : check.status === 'unknown'
+                ? 'warning'
+                : check.status
+          }
+        />
+        <span className="min-w-0">
+          <span className="text-foreground flex items-center gap-1.5 text-xs font-medium">
+            <ShieldCheck className="text-muted-foreground size-3.5 flex-none" />
+            <span className="truncate">{check.name}</span>
+          </span>
+          <span className="text-muted-foreground mt-0.5 block truncate font-mono text-[10px]">
+            {qualityDatasetLabel(check, detail)} · {qualityStatusLabel(check)} ·{' '}
+            {check.severity ?? 'severity unset'} ·{' '}
+            {check.blocking ? 'blocking' : 'advisory'}
+          </span>
+        </span>
+      </span>
+      <span className="text-muted-foreground truncate text-[10px]/relaxed">
         {qualityImpactShort(check, detail)}
       </span>
-      <span className="phlo-observatory-quality-cell">
+      <span className="text-muted-foreground truncate text-[10px]/relaxed">
         {qualityEvidenceSummary(check, detail)}
       </span>
-      <span className="phlo-observatory-quality-cell">
+      <span className="text-muted-foreground truncate text-[10px]/relaxed">
         {qualityNextActionShort(check, detail)}
       </span>
     </button>
@@ -1264,13 +1383,4 @@ function readAssetMetadata(
   const value = asset?.metadata[key]
   if (value === null || value === undefined || value === '') return null
   return String(value)
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </>
-  )
 }

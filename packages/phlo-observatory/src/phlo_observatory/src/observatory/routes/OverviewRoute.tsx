@@ -1,14 +1,13 @@
 /**
- * Overview dashboard shared by the index route. Aggregates overview,
+ * Mission control overview shared by the index route. Aggregates overview,
  * assets, branches, services, operations, quality, and log data into one
  * reducer-driven snapshot; loadOverviewSnapshotFromApi lets a route loader
  * pre-fetch the full state.
  */
 import {
-  Activity,
   AlertCircle,
   Boxes,
-  Database,
+  ExternalLink,
   GitBranch,
   GitCommitHorizontal,
   ListChecks,
@@ -17,7 +16,6 @@ import {
 } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useMemo, useReducer } from 'react'
-import type { ReactNode } from 'react'
 
 import type {
   ObservatoryAsset,
@@ -41,18 +39,18 @@ import {
   getObservatoryQualityRecords,
   getObservatoryServices,
 } from '@/observatory/api/resources'
-import { StatusBadge } from '@/observatory/components/StatusBadge'
 import { loadCachedResource } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import { RowItem, RowList } from '@/components/observatory/resource-list'
+import { SectionCard } from '@/components/observatory/section'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { StatusBadge, statusStateFor } from '@/components/observatory/status'
+import { formatRelativeTime } from '@/components/observatory/time'
+import { EmptyBlock } from '@/components/observatory/states'
+import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
 
 const formatter = new Intl.NumberFormat('en')
-const refreshTimeFormatter = new Intl.DateTimeFormat('en-GB', {
-  hour: '2-digit',
-  hour12: false,
-  minute: '2-digit',
-  second: '2-digit',
-  timeZone: 'UTC',
-})
-const emptyResult = { data: null, error: null }
 const stageTransitions = ['ingest', 'normalize', 'model', 'publish']
 
 type OverviewState = {
@@ -155,14 +153,14 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
     },
     setOverviewState,
   ] = useReducer(overviewReducer, {
-    assets: initialSnapshot?.assets ?? emptyResult,
-    branches: initialSnapshot?.branches ?? emptyResult,
+    assets: initialSnapshot?.assets ?? { data: null, error: null },
+    branches: initialSnapshot?.branches ?? { data: null, error: null },
     capabilities: initialSnapshot?.capabilities ?? null,
-    logs: initialSnapshot?.logs ?? emptyResult,
-    operations: initialSnapshot?.operations ?? emptyResult,
-    overview: initialSnapshot?.overview ?? emptyResult,
-    quality: initialSnapshot?.quality ?? emptyResult,
-    services: initialSnapshot?.services ?? emptyResult,
+    logs: initialSnapshot?.logs ?? { data: null, error: null },
+    operations: initialSnapshot?.operations ?? { data: null, error: null },
+    overview: initialSnapshot?.overview ?? { data: null, error: null },
+    quality: initialSnapshot?.quality ?? { data: null, error: null },
+    services: initialSnapshot?.services ?? { data: null, error: null },
     updatedAt: initialSnapshot?.updatedAt
       ? new Date(initialSnapshot.updatedAt)
       : null,
@@ -172,100 +170,40 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
     let cancelled = false
 
     function load(force = false) {
-      loadCachedResource('observatory:services', getObservatoryServices, {
-        force,
-        staleMs: 60_000,
-      }).then((nextServices) => {
-        if (!cancelled) {
-          setOverviewState({ services: nextServices, updatedAt: new Date() })
-        }
-      })
-
-      loadCachedResource(
-        'observatory:operations',
-        getObservatoryOperationRecords,
-        {
+      const requests: Array<
+        [
+          keyof Omit<OverviewState, 'updatedAt'>,
+          () => Promise<ObservatoryResourceResult<unknown>>,
+          number,
+        ]
+      > = [
+        ['services', getObservatoryServices, 60_000],
+        ['operations', getObservatoryOperationRecords, 60_000],
+        ['assets', getObservatoryAssetRecords, 60_000],
+        ['quality', getObservatoryQualityRecords, 60_000],
+        ['logs', getObservatoryLogRecords, 30_000],
+        ['branches', getObservatoryBranchRecords, 60_000],
+        ['capabilities', getObservatoryCapabilities, 120_000],
+        ['overview', getObservatoryOverview, 30_000],
+      ]
+      for (const [field, loader, staleMs] of requests) {
+        void loadCachedResource(`observatory:${field}`, loader, {
           force,
-          staleMs: 60_000,
-        },
-      ).then((nextOperations) => {
-        if (!cancelled) {
+          staleMs,
+        }).then((next) => {
+          if (cancelled) return
           setOverviewState({
-            operations: nextOperations,
+            [field]: next,
             updatedAt: new Date(),
-          })
-        }
-      })
-
-      loadCachedResource('observatory:assets', getObservatoryAssetRecords, {
-        force,
-        staleMs: 60_000,
-      }).then((nextAssets) => {
-        if (!cancelled) {
-          setOverviewState({ assets: nextAssets, updatedAt: new Date() })
-        }
-      })
-
-      loadCachedResource('observatory:quality', getObservatoryQualityRecords, {
-        force,
-        staleMs: 60_000,
-      }).then((nextQuality) => {
-        if (!cancelled) {
-          setOverviewState({ quality: nextQuality, updatedAt: new Date() })
-        }
-      })
-
-      loadCachedResource('observatory:logs', getObservatoryLogRecords, {
-        force,
-        staleMs: 30_000,
-      }).then((nextLogs) => {
-        if (!cancelled) {
-          setOverviewState({ logs: nextLogs, updatedAt: new Date() })
-        }
-      })
-
-      loadCachedResource('observatory:branches', getObservatoryBranchRecords, {
-        force,
-        staleMs: 60_000,
-      }).then((nextBranches) => {
-        if (!cancelled) {
-          setOverviewState({ branches: nextBranches, updatedAt: new Date() })
-        }
-      })
-
-      loadCachedResource(
-        'observatory:capabilities',
-        getObservatoryCapabilities,
-        {
-          force,
-          staleMs: 120_000,
-        },
-      ).then((nextCapabilities) => {
-        if (!cancelled) {
-          setOverviewState({
-            capabilities: nextCapabilities,
-            updatedAt: new Date(),
-          })
-        }
-      })
-
-      loadCachedResource('observatory:overview', getObservatoryOverview, {
-        force,
-        staleMs: 30_000,
-      }).then((nextOverview) => {
-        if (!cancelled) {
-          setOverviewState({ overview: nextOverview, updatedAt: new Date() })
-        }
-      })
+          } as Partial<OverviewState>)
+        })
+      }
     }
 
     load(true)
     const interval = window.setInterval(() => {
-      if (document.visibilityState !== 'hidden') {
-        load(true)
-      }
+      if (document.visibilityState !== 'hidden') load(true)
     }, 30_000)
-
     return () => {
       cancelled = true
       window.clearInterval(interval)
@@ -300,7 +238,6 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
     (operation) => operation.status === 'failed',
   ).length
   const activeBranches = branchRows.filter((branch) => !branch.current).length
-  const errorLogs = logRows.filter((log) => log.level === 'error').length
   const hasLakehouseEvidence =
     serviceRows.length > 0 ||
     operationRows.length > 0 ||
@@ -334,7 +271,6 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
     () => buildIntegrationLinks(serviceRows),
     [serviceRows],
   )
-  const recentEvidence = logRows.filter((log) => !isNoisyLog(log)).slice(0, 4)
   const derivedHealth =
     overview.data?.health ??
     (hasLakehouseEvidence
@@ -342,7 +278,7 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
           message:
             attentionItems.length > 0
               ? `${attentionItems.length} items need attention`
-              : 'Lakehouse snapshot ready',
+              : 'All systems nominal',
           state:
             attentionItems.length > 0 ? ('warning' as const) : ('ok' as const),
         }
@@ -357,388 +293,249 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
     (hasLakehouseEvidence ? null : overview.error)
   const statusLabel =
     derivedHealth?.message ??
-    (apiError ? 'API needs attention' : 'Loading lakehouse snapshot')
-  const statusState =
-    derivedHealth?.state ??
-    (apiError ? ('warning' as const) : ('unknown' as const))
+    (apiError ? 'Lakehouse API unreachable' : 'Syncing lakehouse state')
+  const statusState = derivedHealth?.state ?? (apiError ? 'error' : 'unknown')
 
   return (
-    <div className="phlo-observatory-content">
-      <header className="phlo-observatory-section-header">
-        <div>
-          <div className="phlo-observatory-kicker">Home</div>
-          <h1 className="phlo-observatory-title">Lakehouse control</h1>
-          <p className="phlo-observatory-subtitle">
-            The cross-domain queue: what needs attention, why it matters, and
-            where to move next.
-          </p>
-        </div>
-        <StatusBadge label={statusLabel} state={statusState} />
-      </header>
+    <Page>
+      <PageHeader
+        actions={
+          <div className="flex items-center gap-2">
+            {updatedAt && (
+              <span className="text-muted-foreground font-mono text-[10px]">
+                synced {formatRelativeTime(updatedAt.toISOString())}
+              </span>
+            )}
+            <StatusBadge label={statusLabel} state={statusState} />
+            <Link
+              className={cn(
+                'border-input hover:bg-accent inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors',
+              )}
+              to="/workflows/new"
+            >
+              <Workflow className="size-3.5" />
+              New workflow
+            </Link>
+          </div>
+        }
+        description="Lakehouse mission control: what needs attention, why it matters, and where to go next."
+        title="Overview"
+      />
 
-      <section className="phlo-observatory-grid" aria-label="Platform counters">
-        <MetricTile
-          icon={<Server className="size-4" />}
+      <StatGrid>
+        <StatCard
+          href="/services"
+          icon={<Server className="size-3.5" />}
           label="Services"
-          note={`${formatter.format(configuredServices)} configured`}
-          value={formatter.format(runningServices)}
+          note={`${formatter.format(configuredServices)} in stack`}
+          state={attentionServices > 0 ? 'warning' : 'ok'}
+          value={`${formatter.format(runningServices)}`}
         />
-        <MetricTile
-          icon={<AlertCircle className="size-4" />}
+        <StatCard
+          icon={<AlertCircle className="size-3.5" />}
           label="Attention"
-          note="Services, checks, operations, logs"
+          note="Across services, checks, operations"
+          state={attentionItems.length > 0 ? 'warning' : 'ok'}
           value={formatter.format(attentionItems.length)}
         />
-        <MetricTile
-          icon={<Boxes className="size-4" />}
-          label="Operational scope"
-          note="Datasets and lineage"
+        <StatCard
+          href="/lineage"
+          icon={<Boxes className="size-3.5" />}
+          label="Assets"
+          note="Mapped lineage resources"
           value={counterValue(counters.assets, assetRows.length)}
         />
+        <StatCard
+          href="/quality"
+          icon={<ListChecks className="size-3.5" />}
+          label="Blocking checks"
+          note={`${formatter.format(qualityRows.length)} checks total`}
+          state={blockingChecks > 0 ? 'error' : 'ok'}
+          value={formatter.format(blockingChecks)}
+        />
+        <StatCard
+          href="/operations"
+          icon={<GitCommitHorizontal className="size-3.5" />}
+          label="Failed ops"
+          note={`${formatter.format(operationRows.length)} operations`}
+          state={failedOperations > 0 ? 'error' : 'ok'}
+          value={formatter.format(failedOperations)}
+        />
         {featureEnabled(capabilities?.data, 'branches') && (
-          <MetricTile
-            icon={<GitBranch className="size-4" />}
-            label="Change Risk"
-            note="Non-current lakehouse branches"
+          <StatCard
+            href="/branches"
+            icon={<GitBranch className="size-3.5" />}
+            label="Branches"
+            note="Non-default change sets"
+            state={activeBranches > 0 ? 'warning' : 'ok'}
             value={formatter.format(activeBranches)}
           />
         )}
-      </section>
+      </StatGrid>
 
-      <section
-        className="phlo-observatory-lakehouse-map"
-        aria-label="Lakehouse map"
+      {/* Lakehouse stage map */}
+      <SectionCard
+        actions={
+          <Badge variant="secondary">
+            {formatter.format(
+              lakehouseStages.reduce((sum, stage) => sum + stage.assets, 0),
+            )}{' '}
+            assets
+          </Badge>
+        }
+        title="Lakehouse map"
       >
-        <div className="phlo-observatory-map-header">
-          <h2>Lakehouse map</h2>
-          <Link className="phlo-observatory-map-action" to="/workflows/new">
-            <Workflow className="size-4" />
-            Build workflow
-          </Link>
-        </div>
-        <div className="phlo-observatory-flow-stage-map">
+        <div className="deck-grid grid grid-cols-1 gap-2 p-3 sm:grid-cols-2 xl:grid-cols-5">
           {lakehouseStages.map((stage, index) => (
             <Link
-              className="phlo-observatory-stage-card"
-              data-state={stage.state}
-              data-transition={stageTransitions[index] ?? ''}
+              className="group ring-foreground/10 bg-card hover:bg-accent/40 flex flex-col gap-2 rounded-md p-3 ring-1 transition-colors"
               key={stage.id}
               to={stage.href}
             >
-              <div className="phlo-observatory-stage-card-top">
-                <span>{stage.label}</span>
-                <StatusBadge label={stage.state} state={stage.state} />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground font-mono text-[10px] tracking-widest uppercase">
+                  {stageTransitions[index] ?? stage.id}
+                </span>
+                <StatusBadge state={stage.state} />
               </div>
-              <div className="phlo-observatory-stage-body">
-                <div className="phlo-observatory-stage-primary">
-                  <strong>{formatter.format(stage.records)}</strong>
-                  <span>records</span>
+              <div>
+                <div className="text-foreground text-sm font-semibold">
+                  {stage.label}
                 </div>
-                <small>
-                  {stage.assets} mapped dependencies · {stage.datasets} Datasets
-                  · {stage.blocking} checks
-                </small>
+                <div className="text-muted-foreground mt-0.5 font-mono text-[10px]">
+                  {formatter.format(stage.records)} records · {stage.assets}{' '}
+                  assets · {stage.blocking} blocking
+                </div>
               </div>
-              <div className="phlo-observatory-stage-samples">
+              <div className="mt-auto flex flex-wrap gap-1">
                 {stage.samples.length > 0 ? (
                   stage.samples.map((sample) => (
-                    <span key={`${stage.id}:${sample}`}>{sample}</span>
+                    <span
+                      className="bg-muted text-muted-foreground rounded-sm px-1.5 py-0.5 font-mono text-[10px]"
+                      key={`${stage.id}:${sample}`}
+                    >
+                      {sample}
+                    </span>
                   ))
                 ) : (
-                  <span>No Datasets in this stage</span>
+                  <span className="text-muted-foreground font-mono text-[10px]">
+                    no datasets mapped
+                  </span>
                 )}
               </div>
-              <div className="phlo-observatory-stage-meter">
-                <span style={{ width: `${stage.weight}%` }} />
+              <div className="bg-muted h-1 overflow-hidden rounded-full">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-[width]',
+                    stage.state === 'error'
+                      ? 'bg-status-error'
+                      : stage.state === 'warning'
+                        ? 'bg-status-warning'
+                        : 'bg-primary',
+                  )}
+                  style={{ width: `${stage.weight}%` }}
+                />
               </div>
             </Link>
           ))}
         </div>
-        <div className="phlo-observatory-evidence-grid">
-          <div className="phlo-observatory-evidence-panel">
-            <div className="phlo-observatory-panel-header">
-              <h2 className="phlo-observatory-panel-title">Event story</h2>
-              <span className="phlo-observatory-pill">
-                <GitCommitHorizontal className="size-3.5" />
-                {eventRows.length > 0
-                  ? `${eventRows.length} relevant`
-                  : 'Empty'}
-              </span>
-            </div>
-            <div className="phlo-observatory-list">
-              {eventRows.length > 0 ? (
-                eventRows.map((event) => (
-                  <Link
-                    className="phlo-observatory-row"
-                    data-state={event.state}
-                    key={event.id}
-                    to={event.href}
-                  >
-                    <div className="phlo-observatory-row-main">
-                      <div className="phlo-observatory-row-title">
-                        <span
-                          className="phlo-observatory-dot"
-                          data-state={event.state}
-                        />
-                        <span>{event.label}</span>
-                      </div>
-                      <div className="phlo-observatory-row-meta">
-                        {event.meta}
-                      </div>
-                      {event.reason && (
-                        <div className="phlo-observatory-row-evidence">
-                          {event.reason}
-                        </div>
-                      )}
-                    </div>
-                    <span className="phlo-observatory-pill">{event.kind}</span>
-                  </Link>
-                ))
-              ) : (
-                <EmptyRow label="No events yet" />
-              )}
-            </div>
-          </div>
-          <div className="phlo-observatory-evidence-panel">
-            <div className="phlo-observatory-panel-header">
-              <h2 className="phlo-observatory-panel-title">
-                Native workbenches
-              </h2>
-              <span className="phlo-observatory-pill">
-                <Database className="size-3.5" />
-                {integrationLinks.length || 'None'}
-              </span>
-            </div>
-            <div className="phlo-observatory-integration-grid">
-              {integrationLinks.length > 0 ? (
-                integrationLinks.map((link) => (
-                  <a
-                    className="phlo-observatory-integration-link"
-                    data-state={link.status}
-                    href={link.url}
-                    key={`${link.service}:${link.label}:${link.url}`}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    <span className="phlo-observatory-integration-mark">
-                      {link.initials}
-                    </span>
-                    <span className="phlo-observatory-integration-copy">
-                      <strong>{link.label}</strong>
-                      <span className="phlo-observatory-integration-meta">
-                        <span>{link.service}</span>
-                        <span>{link.description}</span>
-                      </span>
-                      <code>{link.host}</code>
-                    </span>
-                    <span className="phlo-observatory-integration-status">
-                      {link.status}
-                    </span>
-                  </a>
-                ))
-              ) : (
-                <EmptyRow label="No native links available" />
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
+      </SectionCard>
 
-      <section className="phlo-observatory-command">
-        <div className="phlo-observatory-command-primary">
-          <div className="phlo-observatory-panel">
-            <div className="phlo-observatory-panel-header">
-              <h2 className="phlo-observatory-panel-title">Attention queue</h2>
-              <span className="phlo-observatory-pill">
-                <Activity className="size-3.5" />
-                {attentionItems.length || 'Clear'}
-              </span>
-            </div>
-            <div className="phlo-observatory-list">
-              {attentionItems.length > 0 ? (
-                attentionItems.map((item) => (
-                  <Link
-                    className="phlo-observatory-row"
-                    data-state={item.state}
-                    key={item.id}
-                    to={item.href}
-                  >
-                    <div className="phlo-observatory-row-main">
-                      <div className="phlo-observatory-row-title">
-                        <span
-                          className="phlo-observatory-dot"
-                          data-state={item.state}
-                        />
-                        <span>{item.label}</span>
-                      </div>
-                      <div className="phlo-observatory-row-meta">
-                        {item.meta}
-                      </div>
-                      {item.reason && (
-                        <div className="phlo-observatory-row-evidence">
-                          {item.reason}
-                        </div>
-                      )}
-                    </div>
-                    <span className="phlo-observatory-pill">{item.kind}</span>
-                  </Link>
-                ))
-              ) : (
-                <EmptyRow label="No active attention items" />
-              )}
-            </div>
-          </div>
-
-          <section className="phlo-observatory-diff-metrics">
-            {(featureEnabled(capabilities?.data, 'quality') ||
-              qualityRows.length > 0) && (
-              <CommandTile
-                href="/quality"
-                icon={<ListChecks className="size-5" />}
-                label="Triage checks"
-                value={`${blockingChecks} blocking`}
-              />
-            )}
-            {featureEnabled(capabilities?.data, 'operations') && (
-              <CommandTile
-                href="/operations"
-                icon={<Activity className="size-5" />}
-                label="Review actions"
-                value={`${failedOperations} failed`}
-              />
-            )}
-            <CommandTile
-              href="/lineage"
-              icon={<Boxes className="size-5" />}
-              label="Inspect impact"
-              value={`${assetRows.length} mapped dependencies`}
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        <SectionCard
+          actions={
+            <Badge variant="secondary">
+              {attentionItems.length || 'clear'}
+            </Badge>
+          }
+          description="Ranked by severity: failing checks, failed work, degraded services, error logs."
+          title="Attention queue"
+        >
+          {attentionItems.length > 0 ? (
+            <RowList>
+              {attentionItems.map((item) => (
+                <RowItem
+                  badge={item.kind}
+                  href={item.href}
+                  key={item.id}
+                  meta={item.meta}
+                  reason={item.reason}
+                  state={statusStateFor(item.state)}
+                  title={item.label}
+                />
+              ))}
+            </RowList>
+          ) : (
+            <EmptyBlock
+              description="Services, checks, operations, and logs are all nominal."
+              title="Nothing needs attention"
             />
-            {featureEnabled(capabilities?.data, 'branches') && (
-              <CommandTile
-                href="/branches"
-                icon={<GitBranch className="size-5" />}
-                label="Check changes"
-                value={`${activeBranches} active`}
-              />
-            )}
-          </section>
-        </div>
-
-        <aside className="phlo-observatory-inspector">
-          <div className="phlo-observatory-inspector-label">
-            Control context
-          </div>
-          <h2>{statusLabel}</h2>
-          <p>
-            Last refreshed{' '}
-            {updatedAt
-              ? refreshTimeFormatter.format(updatedAt)
-              : 'after first load'}
-            .
-          </p>
-          <dl className="phlo-observatory-facts">
-            <Fact
-              label="Services needing attention"
-              value={attentionServices}
-            />
-            <Fact label="Blocking checks" value={blockingChecks} />
-            <Fact label="Failed operations" value={failedOperations} />
-            <Fact label="Error logs" value={errorLogs} />
-          </dl>
-          <div className="phlo-observatory-detail-list">
-            {recentEvidence.length > 0 ? (
-              recentEvidence.map((log) => (
-                <div className="phlo-observatory-mini-row" key={log.id}>
-                  <span>{log.message}</span>
-                  <small>
-                    {[log.level, log.source, log.timestamp]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </small>
-                </div>
-              ))
-            ) : (
-              <div className="phlo-observatory-mini-row">
-                <span>No recent evidence</span>
-                <small>
-                  Logs will appear as Phlo and stack services emit events.
-                </small>
-              </div>
-            )}
-          </div>
-          {apiError && (
-            <div className="phlo-observatory-panel-footer">{apiError}</div>
           )}
-        </aside>
-      </section>
-    </div>
-  )
-}
+        </SectionCard>
 
-function MetricTile({
-  icon,
-  label,
-  note,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  note: string
-  value: string
-}) {
-  return (
-    <div className="phlo-observatory-tile">
-      <div className="phlo-observatory-tile-label">
-        <span>{label}</span>
-        {icon}
+        <SectionCard
+          actions={<Badge variant="secondary">{eventRows.length}</Badge>}
+          description="Latest operations and platform events with evidence links."
+          title="Event story"
+        >
+          {eventRows.length > 0 ? (
+            <RowList>
+              {eventRows.map((event) => (
+                <RowItem
+                  badge={event.kind}
+                  href={event.href}
+                  key={event.id}
+                  meta={event.meta}
+                  reason={event.reason}
+                  state={statusStateFor(event.state)}
+                  title={event.label}
+                />
+              ))}
+            </RowList>
+          ) : (
+            <EmptyBlock title="No events yet" />
+          )}
+        </SectionCard>
       </div>
-      <div className="phlo-observatory-tile-value">{value}</div>
-      <div className="phlo-observatory-tile-note">{note}</div>
-    </div>
-  )
-}
 
-function CommandTile({
-  href,
-  icon,
-  label,
-  value,
-}: {
-  href: string
-  icon: ReactNode
-  label: string
-  value: string
-}) {
-  return (
-    <Link className="phlo-observatory-diff-metric" to={href}>
-      {icon}
-      <div>
-        <strong>{value}</strong>
-        <span>{label}</span>
-      </div>
-    </Link>
-  )
-}
-
-function Fact({ label, value }: { label: string; value: string | number }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{String(value)}</dd>
-    </>
-  )
-}
-
-function EmptyRow({ label }: { label: string }) {
-  return (
-    <div className="phlo-observatory-row">
-      <div className="phlo-observatory-row-main">
-        <div className="phlo-observatory-row-title">{label}</div>
-        <div className="phlo-observatory-row-meta">
-          Connect a running lakehouse or add Datasets to populate this surface.
-        </div>
-      </div>
-    </div>
+      <SectionCard
+        actions={<Badge variant="secondary">{integrationLinks.length}</Badge>}
+        description="Native consoles exposed by running services."
+        title="Workbenches"
+      >
+        {integrationLinks.length > 0 ? (
+          <div className="grid grid-cols-1 gap-px sm:grid-cols-2 xl:grid-cols-3">
+            {integrationLinks.map((link) => (
+              <a
+                className="border-border hover:bg-accent/50 flex items-center gap-3 border-b px-3 py-2.5 transition-colors sm:border-r sm:last:border-r-0 sm:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(3n)]:border-r-0"
+                href={link.url}
+                key={`${link.service}:${link.label}:${link.url}`}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <span className="bg-muted text-muted-foreground flex size-8 flex-none items-center justify-center rounded-md font-mono text-[11px] font-semibold">
+                  {link.initials}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="text-foreground block truncate text-xs font-medium">
+                    {link.label}
+                  </span>
+                  <span className="text-muted-foreground block truncate text-[11px]">
+                    {link.description} · {link.host}
+                  </span>
+                </span>
+                <ExternalLink className="text-muted-foreground size-3.5 flex-none" />
+              </a>
+            ))}
+          </div>
+        ) : (
+          <EmptyBlock
+            description="Workbench links appear once services are running."
+            title="No workbenches available"
+          />
+        )}
+      </SectionCard>
+    </Page>
   )
 }
 

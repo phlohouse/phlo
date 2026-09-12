@@ -11,7 +11,6 @@ import {
 } from '@tanstack/react-router'
 import { Navigation, Plug, Route as RouteIcon, Settings } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
 
 import type {
   ObservatoryExtension,
@@ -22,9 +21,20 @@ import {
   getObservatoryExtensionDetailDirect,
   getObservatoryExtensions,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { useLiveResource } from '@/observatory/routes/liveResource'
 import { labelValue, metadataDisplayText } from '@/observatory/platformMetadata'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { StatusBadge } from '@/components/observatory/status'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/extensions')({
   component: Extensions,
@@ -100,195 +110,206 @@ export function Extensions() {
   }
 
   return (
-    <ObservatoryPage
-      kicker="Extensions"
-      title="Extension registry"
-      description="Installed Observatory providers, declared navigation targets, settings scopes, and manifest coverage."
-      action={
-        <span className="phlo-observatory-pill">
-          {refreshState ? `${refreshState} · ` : ''}
-          {extensions.length} installed
-        </span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-surface-shell phlo-observatory-extensions-shell">
-        <div className="phlo-observatory-command-primary phlo-observatory-surface-list">
-          <div className="phlo-observatory-platform-summary">
-            <PlatformMetric
-              icon={<Plug className="size-4" />}
-              label="Installed"
-              value={summary.installed}
-            />
-            <PlatformMetric
-              icon={<Navigation className="size-4" />}
-              label="Nav entries"
-              value={summary.navEntries}
-            />
-            <PlatformMetric
-              icon={<RouteIcon className="size-4" />}
-              label="Routes"
-              value={summary.routes}
-            />
-            <PlatformMetric
-              icon={<Settings className="size-4" />}
-              label="Settings scopes"
-              value={summary.settingsScopes}
-            />
-          </div>
-          <div className="phlo-observatory-browser-toolbar">
-            <span>
-              <Plug className="size-4" />
-              Extension manifests
-            </span>
-            <span className="phlo-observatory-pill">
-              {refreshState ? `${refreshState} · ` : ''}
-              {extensions.length} registered
-            </span>
-          </div>
-          <div className="phlo-observatory-platform-table" role="table">
-            <div className="phlo-observatory-platform-head" role="row">
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {refreshState ? `${refreshState} · ` : ''}
+            {extensions.length} installed
+          </Badge>
+        }
+        description="Installed Observatory providers, declared navigation targets, settings scopes, and manifest coverage."
+        title="Extension registry"
+      />
+      <StatGrid>
+        <StatCard
+          icon={<Plug className="size-3.5" />}
+          label="Installed"
+          value={summary.installed}
+        />
+        <StatCard
+          icon={<Navigation className="size-3.5" />}
+          label="Nav entries"
+          value={summary.navEntries}
+        />
+        <StatCard
+          icon={<RouteIcon className="size-3.5" />}
+          label="Routes"
+          value={summary.routes}
+        />
+        <StatCard
+          icon={<Settings className="size-3.5" />}
+          label="Settings scopes"
+          value={summary.settingsScopes}
+        />
+      </StatGrid>
+      <SplitView
+        inspector={
+          <>
+            <InspectorSection label="Extension detail">
+              {selected ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-foreground text-xs font-semibold">
+                      {selected.name}
+                    </span>
+                    <StatusBadge
+                      label={selected.enabled ? 'enabled' : 'disabled'}
+                      state={selected.enabled ? 'ok' : 'unknown'}
+                    />
+                  </div>
+                  <p className="text-muted-foreground mt-1 text-xs/relaxed">
+                    {extensionSummary(selected)}
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {isLoading
+                    ? 'Reading extension manifest and contribution details.'
+                    : 'Select an extension to inspect manifest and contribution details.'}
+                </p>
+              )}
+            </InspectorSection>
+            {selected && (
+              <InspectorSection label="Facts">
+                <FactGrid>
+                  <Fact
+                    label="State"
+                    value={selected.enabled ? 'enabled' : 'disabled'}
+                  />
+                  <Fact
+                    label="Version"
+                    value={selected.version ?? 'not reported'}
+                  />
+                  <Fact
+                    label="Settings"
+                    value={
+                      selected.settings_scope
+                        ? labelValue(selected.settings_scope)
+                        : 'none'
+                    }
+                  />
+                  <Fact
+                    label="Plugin"
+                    value={metadataDisplayText(selected, 'plugin')}
+                  />
+                </FactGrid>
+              </InspectorSection>
+            )}
+            {selected && (
+              <InspectorSection label="Navigation">
+                <div className="divide-border divide-y border-y">
+                  {contributedNav(selected).map((navItem) => (
+                    <Link
+                      className="hover:bg-accent/50 flex items-center justify-between gap-2 py-1.5 transition-colors"
+                      key={navItem}
+                      to={navItem}
+                    >
+                      <span className="text-foreground font-mono text-[11px]">
+                        {navItem}
+                      </span>
+                      <span className="text-muted-foreground font-mono text-[10px]">
+                        navigation target
+                      </span>
+                    </Link>
+                  ))}
+                  {contributedNav(selected).length === 0 && (
+                    <div className="flex items-center justify-between gap-2 py-1.5">
+                      <span className="text-foreground text-[11px]">
+                        Navigation
+                      </span>
+                      <span className="text-muted-foreground font-mono text-[10px]">
+                        No navigation entry declared
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </InspectorSection>
+            )}
+            {selected && (
+              <InspectorSection label="Contributions">
+                <div className="divide-border divide-y border-y">
+                  {(detail.data?.routes ?? selected.routes).map((route) => (
+                    <div
+                      className="flex items-center justify-between gap-2 py-1.5"
+                      key={route}
+                    >
+                      <span className="text-foreground font-mono text-[11px]">
+                        {contributedRoute(route)}
+                      </span>
+                      <span className="text-muted-foreground font-mono text-[10px]">
+                        route
+                      </span>
+                    </div>
+                  ))}
+                  {detail.data && detail.data.capabilities.length > 0
+                    ? detail.data.capabilities.map((capability) => (
+                        <div
+                          className="flex items-center justify-between gap-2 py-1.5"
+                          key={capability.id}
+                        >
+                          <span className="text-foreground text-[11px]">
+                            {capability.label}
+                          </span>
+                          <span className="text-muted-foreground font-mono text-[10px]">
+                            {labelValue(capability.kind)}
+                          </span>
+                        </div>
+                      ))
+                    : null}
+                  {detail.data && detail.data.routes.length === 0 && (
+                    <div className="flex items-center justify-between gap-2 py-1.5">
+                      <span className="text-foreground text-[11px]">
+                        Routes
+                      </span>
+                      <span className="text-muted-foreground font-mono text-[10px]">
+                        No extension routes declared
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {(detail.error ?? result.error) && (
+                  <p className="text-status-error mt-2 font-mono text-[10px] break-all">
+                    {detail.error ?? result.error}
+                  </p>
+                )}
+              </InspectorSection>
+            )}
+          </>
+        }
+        inspectorWidth="w-[24rem]"
+        list={
+          <SectionCard className="ring-0" title="Extension manifests">
+            <div className="text-muted-foreground grid grid-cols-[minmax(0,1.2fr)_minmax(0,0.6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.6fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
               <span>Extension</span>
               <span>Version</span>
               <span>Navigation</span>
               <span>Routes</span>
               <span>State</span>
             </div>
-            {extensions.map((extension) => (
-              <ExtensionRow
-                extension={extension}
-                key={extension.id}
-                onSelect={() => selectExtension(extension.id)}
-                selected={extension.id === selected?.id}
-              />
-            ))}
             {isInitialLoading ? (
-              <div className="phlo-observatory-run-provider-empty">
-                <div>
-                  <span className="phlo-observatory-inspector-label">
-                    Extensions
-                  </span>
-                  <h2>Loading extensions</h2>
-                  <p>
-                    Reading installed manifests, routes, and settings scopes.
-                  </p>
-                </div>
-              </div>
+              <LoadingBlock className="p-3" label="Loading extensions" />
+            ) : extensions.length === 0 ? (
+              <EmptyBlock
+                description="Install or enable extensions to inspect contributed routes, actions, and manifests."
+                title="No extensions installed"
+              />
             ) : (
-              extensions.length === 0 && (
-                <div className="phlo-observatory-run-provider-empty">
-                  <div>
-                    <span className="phlo-observatory-inspector-label">
-                      Extensions
-                    </span>
-                    <h2>No extensions installed</h2>
-                    <p>
-                      Install or enable extensions to inspect contributed
-                      routes, actions, and manifests.
-                    </p>
-                  </div>
-                </div>
-              )
+              <div className="divide-border divide-y">
+                {extensions.map((extension) => (
+                  <ExtensionRow
+                    extension={extension}
+                    key={extension.id}
+                    onSelect={() => selectExtension(extension.id)}
+                    selected={extension.id === selected?.id}
+                  />
+                ))}
+              </div>
             )}
-          </div>
-        </div>
-
-        <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-          <div className="phlo-observatory-inspector-label">
-            Extension detail
-          </div>
-          {selected ? (
-            <>
-              <h2>{selected.name}</h2>
-              <p>{extensionSummary(selected)}</p>
-              <dl className="phlo-observatory-facts">
-                <Fact
-                  label="State"
-                  value={selected.enabled ? 'enabled' : 'disabled'}
-                />
-                <Fact
-                  label="Version"
-                  value={selected.version ?? 'not reported'}
-                />
-                <Fact
-                  label="Settings"
-                  value={
-                    selected.settings_scope
-                      ? labelValue(selected.settings_scope)
-                      : 'none'
-                  }
-                />
-                <Fact
-                  label="Plugin"
-                  value={metadataDisplayText(selected, 'plugin')}
-                />
-              </dl>
-              <div className="phlo-observatory-detail-list">
-                {contributedNav(selected).map((navItem) => (
-                  <Link
-                    className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-                    key={navItem}
-                    to={navItem}
-                  >
-                    <span>{navItem}</span>
-                    <small>navigation target</small>
-                  </Link>
-                ))}
-                {contributedNav(selected).length === 0 && (
-                  <div className="phlo-observatory-mini-row">
-                    <span>Navigation</span>
-                    <small>No navigation entry declared</small>
-                  </div>
-                )}
-              </div>
-              <div className="phlo-observatory-detail-list">
-                {(detail.data?.routes ?? selected.routes).map((route) => (
-                  <div className="phlo-observatory-mini-row" key={route}>
-                    <span>{contributedRoute(route)}</span>
-                    <small>route</small>
-                  </div>
-                ))}
-                {detail.data && detail.data.capabilities.length > 0
-                  ? detail.data.capabilities.map((capability) => (
-                      <div
-                        className="phlo-observatory-mini-row"
-                        key={capability.id}
-                      >
-                        <span>{capability.label}</span>
-                        <small>{labelValue(capability.kind)}</small>
-                      </div>
-                    ))
-                  : null}
-                {detail.data && detail.data.routes.length === 0 && (
-                  <div className="phlo-observatory-mini-row">
-                    <span>Routes</span>
-                    <small>No extension routes declared</small>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <h2>
-                {isLoading
-                  ? 'Checking extension detail'
-                  : 'No extension selected'}
-              </h2>
-              <p>
-                {isLoading
-                  ? 'Reading extension manifest and contribution details.'
-                  : 'Select an extension to inspect manifest and contribution details.'}
-              </p>
-            </>
-          )}
-          {detail.error && (
-            <div className="phlo-observatory-panel-footer">{detail.error}</div>
-          )}
-          {result.error && (
-            <div className="phlo-observatory-panel-footer">{result.error}</div>
-          )}
-        </aside>
-      </section>
-    </ObservatoryPage>
+          </SectionCard>
+        }
+      />
+    </Page>
   )
 }
 
@@ -303,38 +324,29 @@ function ExtensionRow({
 }) {
   return (
     <button
-      className="phlo-observatory-platform-row"
-      data-active={selected}
+      className={cn(
+        'hover:bg-accent/50 grid w-full grid-cols-[minmax(0,1.2fr)_minmax(0,0.6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.6fr)] items-center gap-3 px-3 py-2 text-left transition-colors',
+        selected && 'bg-accent/60 hover:bg-accent/60',
+      )}
       onClick={onSelect}
-      role="row"
       type="button"
     >
-      <span>{extension.name}</span>
-      <span>{extension.version ?? 'not reported'}</span>
-      <span>{contributedNav(extension).join(', ') || 'none'}</span>
-      <span>{extension.routes.map(contributedRoute).join(', ') || 'none'}</span>
-      <span>{extension.enabled ? 'enabled' : 'disabled'}</span>
-    </button>
-  )
-}
-
-function PlatformMetric({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-platform-summary-cell">
-      <span>
-        {icon}
-        {label}
+      <span className="text-foreground truncate text-xs font-medium">
+        {extension.name}
       </span>
-      <strong>{value}</strong>
-    </div>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {extension.version ?? 'not reported'}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {contributedNav(extension).join(', ') || 'none'}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {extension.routes.map(contributedRoute).join(', ') || 'none'}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {extension.enabled ? 'enabled' : 'disabled'}
+      </span>
+    </button>
   )
 }
 
@@ -385,13 +397,4 @@ export function contributedRoute(route: string): string {
 
 function uniqueRoutes(routes: Array<string>): Array<string> {
   return Array.from(new Set(routes))
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </>
-  )
 }

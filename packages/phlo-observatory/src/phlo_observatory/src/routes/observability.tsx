@@ -5,7 +5,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Activity, Bell, Database, Radio } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
 
 import type {
   ObservatoryService,
@@ -15,13 +14,24 @@ import {
   getObservatoryObservabilityItems,
   getObservatoryServices,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { useLiveResource } from '@/observatory/routes/liveResource'
 import {
   metadataDisplayText,
   platformMetadataRows,
   rawMetadataText,
 } from '@/observatory/platformMetadata'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { HealthDot, StatusBadge } from '@/components/observatory/status'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/observability')({
   component: Observability,
@@ -86,180 +96,184 @@ export function Observability() {
   }, [selected, selectedId])
 
   return (
-    <ObservatoryPage
-      kicker="Platform"
-      title="Observability"
-      description="Telemetry provider registration, expected backend, service dependencies, and alerting coverage."
-      action={
-        <span className="phlo-observatory-pill">
-          {refreshState ? `${refreshState} · ` : ''}
-          {items.length} providers
-        </span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-surface-shell phlo-observatory-observability-shell">
-        <div className="phlo-observatory-command-primary phlo-observatory-surface-list">
-          <div className="phlo-observatory-platform-summary">
-            <ObservabilityMetric
-              icon={<Radio className="size-4" />}
-              label="Registered"
-              value={summary.registered}
-            />
-            <ObservabilityMetric
-              icon={<Activity className="size-4" />}
-              label="Backends"
-              value={summary.backends}
-            />
-            <ObservabilityMetric
-              icon={<Database className="size-4" />}
-              label="Services running"
-              value={`${summary.runningDeps}/${summary.requiredDeps}`}
-            />
-            <ObservabilityMetric
-              icon={<Bell className="size-4" />}
-              label="Alert sinks"
-              value={summary.alertSinks}
-            />
-          </div>
-          <div className="phlo-observatory-browser-toolbar">
-            <span>
-              <Radio className="size-4" />
-              Providers
-            </span>
-            <span className="phlo-observatory-pill">
-              {refreshState ? `${refreshState} · ` : ''}
-              {items.length} registered
-            </span>
-          </div>
-          <div className="phlo-observatory-platform-table" role="table">
-            <div className="phlo-observatory-platform-head" role="row">
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {refreshState ? `${refreshState} · ` : ''}
+            {items.length} providers
+          </Badge>
+        }
+        description="Telemetry provider registration, expected backend, service dependencies, and alerting coverage."
+        title="Observability"
+      />
+      <StatGrid>
+        <StatCard
+          icon={<Radio className="size-3.5" />}
+          label="Registered"
+          value={summary.registered}
+        />
+        <StatCard
+          icon={<Activity className="size-3.5" />}
+          label="Backends"
+          value={summary.backends}
+        />
+        <StatCard
+          icon={<Database className="size-3.5" />}
+          label="Services running"
+          state={
+            summary.requiredDeps > 0 &&
+            summary.runningDeps < summary.requiredDeps
+              ? 'warning'
+              : 'ok'
+          }
+          value={`${summary.runningDeps}/${summary.requiredDeps}`}
+        />
+        <StatCard
+          icon={<Bell className="size-3.5" />}
+          label="Alert sinks"
+          value={summary.alertSinks}
+        />
+      </StatGrid>
+      <SplitView
+        inspector={
+          <>
+            <InspectorSection label="Provider detail">
+              {selected ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-foreground text-xs font-semibold">
+                      {selected.name}
+                    </span>
+                    <StatusBadge state={selected.health.state} />
+                  </div>
+                  <p className="text-muted-foreground mt-1 text-xs/relaxed">
+                    {selected.summary ?? 'No provider summary available.'}
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {isLoading
+                    ? 'Reading live telemetry and service dependency evidence.'
+                    : 'Select a provider to inspect telemetry and service evidence.'}
+                </p>
+              )}
+            </InspectorSection>
+            {selected && (
+              <InspectorSection label="Facts">
+                <FactGrid>
+                  <Fact label="Health" value={selected.health.state} />
+                  <Fact
+                    label="Backend"
+                    value={metadataDisplayText(selected, 'backend')}
+                  />
+                  <Fact
+                    label="Capability"
+                    value={metadataDisplayText(selected, 'capability_type')}
+                  />
+                  <Fact
+                    label="Provider"
+                    value={metadataDisplayText(selected, 'provider')}
+                  />
+                </FactGrid>
+              </InspectorSection>
+            )}
+            {selected && (
+              <InspectorSection label="Service dependencies">
+                {selectedDependencies.length ? (
+                  <div className="divide-y divide-border border-y">
+                    {selectedDependencies.map((service) => (
+                      <div
+                        className="flex items-start gap-2 py-2"
+                        key={service.id}
+                      >
+                        <HealthDot
+                          className="mt-1"
+                          state={service.runtime_state ?? service.status}
+                        />
+                        <span className="min-w-0">
+                          <span className="text-foreground block text-xs">
+                            {service.name}
+                          </span>
+                          <span className="text-muted-foreground block font-mono text-[10px]">
+                            {[
+                              service.runtime_state ?? service.status,
+                              service.in_stack ? 'in stack' : 'not in stack',
+                              service.health.message,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    No required services declared.
+                  </p>
+                )}
+              </InspectorSection>
+            )}
+            {selected && (
+              <InspectorSection label="Metadata">
+                {platformMetadataRows(selected.metadata).length ? (
+                  <FactGrid>
+                    {platformMetadataRows(selected.metadata).map((row) => (
+                      <Fact
+                        key={row.label}
+                        label={row.label}
+                        value={row.value}
+                      />
+                    ))}
+                  </FactGrid>
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    No structured fields.
+                  </p>
+                )}
+                {(result.error ?? servicesResult.error) && (
+                  <p className="text-status-error font-mono text-[10px] break-all">
+                    {result.error ?? servicesResult.error}
+                  </p>
+                )}
+              </InspectorSection>
+            )}
+          </>
+        }
+        inspectorWidth="w-[24rem]"
+        list={
+          <SectionCard className="ring-0" title="Providers">
+            <div className="text-muted-foreground grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
               <span>Provider</span>
               <span>Capability</span>
-              <span>Backend</span>
               <span>Required services</span>
               <span>State</span>
             </div>
-            {items.map((item) => (
-              <ProviderRow
-                item={item}
-                key={item.id}
-                onSelect={() => selectProvider(item.id)}
-                selected={item.id === selected?.id}
-                services={services}
-              />
-            ))}
             {isInitialLoading ? (
-              <div className="phlo-observatory-run-provider-empty">
-                <div>
-                  <span className="phlo-observatory-inspector-label">
-                    Observability
-                  </span>
-                  <h2>Loading observability providers</h2>
-                  <p>Reading live telemetry and alerting provider records.</p>
-                </div>
-              </div>
+              <LoadingBlock className="p-3" label="Loading providers" />
+            ) : items.length === 0 ? (
+              <EmptyBlock
+                description="The active stack has no telemetry or alerting provider records to inspect."
+                title="No observability providers configured"
+              />
             ) : (
-              items.length === 0 && (
-                <div className="phlo-observatory-run-provider-empty">
-                  <div>
-                    <span className="phlo-observatory-inspector-label">
-                      Observability
-                    </span>
-                    <h2>No observability providers configured</h2>
-                    <p>
-                      The active stack has no telemetry or alerting provider
-                      records to inspect.
-                    </p>
-                  </div>
-                </div>
-              )
+              <div className="divide-y divide-border">
+                {items.map((item) => (
+                  <ProviderRow
+                    item={item}
+                    key={item.id}
+                    onSelect={() => selectProvider(item.id)}
+                    selected={item.id === selected?.id}
+                    services={services}
+                  />
+                ))}
+              </div>
             )}
-          </div>
-        </div>
-
-        <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-          <div className="phlo-observatory-inspector-label">
-            Provider detail
-          </div>
-          {selected ? (
-            <>
-              <h2>{selected.name}</h2>
-              <p>{selected.summary ?? 'No provider summary available.'}</p>
-              <dl className="phlo-observatory-facts">
-                <Fact label="Health" value={selected.health.state} />
-                <Fact
-                  label="Backend"
-                  value={metadataDisplayText(selected, 'backend')}
-                />
-                <Fact
-                  label="Capability"
-                  value={metadataDisplayText(selected, 'capability_type')}
-                />
-                <Fact
-                  label="Provider"
-                  value={metadataDisplayText(selected, 'provider')}
-                />
-              </dl>
-              <div className="phlo-observatory-detail-list">
-                {selectedDependencies.map((service) => (
-                  <div
-                    className="phlo-observatory-mini-row"
-                    data-state={service.runtime_state ?? service.status}
-                    key={service.id}
-                  >
-                    <span>{service.name}</span>
-                    <small>
-                      {[
-                        service.runtime_state ?? service.status,
-                        service.in_stack ? 'in stack' : 'not in stack',
-                        service.health.message,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </small>
-                  </div>
-                ))}
-                {selectedDependencies.length === 0 && (
-                  <div className="phlo-observatory-mini-row">
-                    <span>Service dependencies</span>
-                    <small>No required services declared</small>
-                  </div>
-                )}
-              </div>
-              <div className="phlo-observatory-detail-list">
-                {platformMetadataRows(selected.metadata).map((row) => (
-                  <div className="phlo-observatory-mini-row" key={row.label}>
-                    <span>{row.label}</span>
-                    <small>{row.value}</small>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <>
-              <h2>
-                {isInitialLoading
-                  ? 'Checking provider detail'
-                  : 'No provider selected'}
-              </h2>
-              <p>
-                {isLoading
-                  ? 'Reading live telemetry and service dependency evidence.'
-                  : 'Select a provider to inspect telemetry and service evidence.'}
-              </p>
-            </>
-          )}
-          {result.error && (
-            <div className="phlo-observatory-panel-footer">{result.error}</div>
-          )}
-          {servicesResult.error && (
-            <div className="phlo-observatory-panel-footer">
-              {servicesResult.error}
-            </div>
-          )}
-        </aside>
-      </section>
-    </ObservatoryPage>
+          </SectionCard>
+        }
+      />
+    </Page>
   )
 }
 
@@ -280,42 +294,28 @@ function ProviderRow({
   ).length
   return (
     <button
-      className="phlo-observatory-platform-row"
-      data-active={selected}
+      className={cn(
+        'hover:bg-accent/50 grid w-full grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-3 px-3 py-2 text-left transition-colors',
+        selected && 'bg-accent/60 hover:bg-accent/60',
+      )}
       onClick={onSelect}
-      role="row"
       type="button"
     >
-      <span>{item.name}</span>
-      <span>{metadataDisplayText(item, 'capability_type')}</span>
-      <span>{metadataDisplayText(item, 'backend')}</span>
-      <span>
+      <span className="text-foreground truncate text-xs font-medium">
+        {item.name}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {metadataDisplayText(item, 'capability_type')}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
         {dependencies.length
           ? `${running}/${dependencies.length} running`
-          : 'No dependency declared'}
+          : 'no dependency declared'}
       </span>
-      <span>{item.health.message ?? item.health.state}</span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {item.health.message ?? item.health.state}
+      </span>
     </button>
-  )
-}
-
-function ObservabilityMetric({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-platform-summary-cell">
-      <span>
-        {icon}
-        {label}
-      </span>
-      <strong>{value}</strong>
-    </div>
   )
 }
 
@@ -368,13 +368,4 @@ function serviceDependencyIds(item: ObservatorySurfaceItem): Array<string> {
   const value = item.metadata.service_dependencies
   if (!Array.isArray(value)) return []
   return value.filter((entry): entry is string => typeof entry === 'string')
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </>
-  )
 }

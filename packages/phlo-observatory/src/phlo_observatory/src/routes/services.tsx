@@ -7,15 +7,12 @@ import { createFileRoute } from '@tanstack/react-router'
 import {
   Download,
   ExternalLink,
-  Package,
   Play,
-  Radio,
   RotateCcw,
   Server,
   Square,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
 
 import type {
   ObservatoryResourceResult,
@@ -32,12 +29,23 @@ import {
   runObservatoryAction,
   runObservatoryActionDirect,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import {
   invalidateCachedResources,
   loadCachedResource,
   useLiveResource,
 } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/services')({
   component: Services,
@@ -229,78 +237,163 @@ export function Services() {
   }, [selected])
 
   return (
-    <ObservatoryPage
-      kicker="Services"
-      title="Runtime services"
-      description="Active Docker services first, with optional service definitions separated from runtime health."
-      action={
-        <span className="phlo-observatory-pill">
-          {isLoading ? 'Loading' : `${summary.running} running`}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-surface-shell phlo-observatory-services-shell">
-        <div className="phlo-observatory-command-primary phlo-observatory-surface-list">
-          <div className="phlo-observatory-platform-summary">
-            <PlatformMetric
-              icon={<Radio className="size-4" />}
-              label="Running"
-              value={isLoading ? 'Loading' : summary.running}
-            />
-            <PlatformMetric
-              icon={<Server className="size-4" />}
-              label="Stack entries"
-              value={isLoading ? 'Loading' : summary.stackEntries}
-            />
-            <PlatformMetric
-              icon={<Play className="size-4" />}
-              label="Setup complete"
-              value={isLoading ? 'Loading' : summary.setupJobs}
-            />
-            <PlatformMetric
-              icon={<Package className="size-4" />}
-              label="Definitions"
-              value={isLoading ? 'Loading' : summary.definitions}
-            />
-          </div>
-          <div className="phlo-observatory-browser-toolbar">
-            <span>
-              <Server className="size-4" />
-              {serviceViewTitle(view)}
-            </span>
-            <div
-              className="phlo-observatory-service-view-toggle"
-              role="group"
-              aria-label="Service view"
-            >
-              <button
-                data-active={view === 'active'}
-                onClick={() => setView('active')}
-                type="button"
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {isLoading ? 'Loading' : `${summary.running} running`}
+          </Badge>
+        }
+        description="Active Docker services first, with optional service definitions separated from runtime health."
+        title="Runtime services"
+      />
+      <StatGrid className="xl:grid-cols-4">
+        <StatCard
+          label="Running"
+          state={summary.running ? 'ok' : 'unknown'}
+          value={isLoading ? '—' : summary.running}
+        />
+        <StatCard
+          label="Stack entries"
+          value={isLoading ? '—' : summary.stackEntries}
+        />
+        <StatCard
+          label="Setup complete"
+          value={isLoading ? '—' : summary.setupJobs}
+        />
+        <StatCard
+          label="Definitions"
+          value={isLoading ? '—' : summary.definitions}
+        />
+      </StatGrid>
+      <SplitView
+        inspector={
+          <>
+            <InspectorSection label="Service detail">
+              {selected ? (
+                <ServiceDetail
+                  detail={detail.data}
+                  onAction={(actionId, confirmationMessage) => {
+                    setPendingAction({
+                      type: 'action',
+                      id: actionId,
+                      message:
+                        confirmationMessage ??
+                        `Run ${actionId}. This calls phlo-api to change a local service.`,
+                    })
+                  }}
+                  onInstall={(packageName) => {
+                    setPendingAction({
+                      type: 'install',
+                      packageName,
+                      message: `Install ${packageName}. This modifies the Python environment used by phlo-api.`,
+                    })
+                  }}
+                  service={selected}
+                />
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {isLoading
+                    ? 'Reading live runtime state and actions.'
+                    : 'Select a service to inspect runtime state and actions.'}
+                </p>
+              )}
+            </InspectorSection>
+            {pendingAction && (
+              <InspectorSection label="Confirm service change">
+                <p className="text-muted-foreground text-xs/relaxed whitespace-pre-wrap">
+                  {pendingAction.message}
+                </p>
+                <div className="flex items-center gap-2 pt-2">
+                  <Button
+                    onClick={() => {
+                      const action = pendingAction
+                      setPendingAction(null)
+                      if (action.type === 'action') runServiceAction(action.id)
+                      else installPackage(action.packageName)
+                    }}
+                    size="sm"
+                    type="button"
+                  >
+                    {pendingAction.type === 'install'
+                      ? 'Install package'
+                      : 'Run action'}
+                  </Button>
+                  <Button
+                    onClick={() => setPendingAction(null)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </InspectorSection>
+            )}
+            {(actionMessage ??
+              detail.error ??
+              result.error ??
+              directResult?.error) && (
+              <InspectorSection label="Result">
+                {actionMessage && (
+                  <p className="text-muted-foreground font-mono text-[10px] break-all">
+                    {actionMessage}
+                  </p>
+                )}
+                {detail.error && (
+                  <p className="text-status-error font-mono text-[10px] break-all">
+                    {detail.error}
+                  </p>
+                )}
+                {result.error && (
+                  <p className="text-status-error font-mono text-[10px] break-all">
+                    {result.error}
+                  </p>
+                )}
+                {!result.error && directResult?.error && (
+                  <p className="text-status-error font-mono text-[10px] break-all">
+                    {directResult.error}
+                  </p>
+                )}
+              </InspectorSection>
+            )}
+          </>
+        }
+        list={
+          <div className="bg-card flex min-h-0 flex-1 flex-col">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+              <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
+                <Server className="text-muted-foreground size-3.5" />
+                {serviceViewTitle(view)}
+              </span>
+              <div
+                aria-label="Service view"
+                className="border-input flex border"
+                role="group"
               >
-                Active stack
-              </button>
-              <button
-                data-active={view === 'definitions'}
-                onClick={() => setView('definitions')}
-                type="button"
-              >
-                Definitions
-              </button>
-              <button
-                data-active={view === 'all'}
-                onClick={() => setView('all')}
-                type="button"
-              >
-                All
-              </button>
+                {(
+                  [
+                    ['active', 'Active stack'],
+                    ['definitions', 'Definitions'],
+                    ['all', 'All'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    className={cn(
+                      'text-muted-foreground hover:bg-accent/50 px-2.5 py-1 text-[11px] transition-colors',
+                      view === value && 'bg-accent text-foreground',
+                    )}
+                    data-active={view === value}
+                    key={value}
+                    onClick={() => setView(value)}
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-          <div
-            className="phlo-observatory-platform-table phlo-observatory-services-table"
-            role="table"
-          >
-            <div className="phlo-observatory-platform-head" role="row">
+            <div className="text-muted-foreground grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_6rem_minmax(0,1.2fr)_5rem_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase max-lg:hidden">
               <span>Service</span>
               <span>Package</span>
               <span>Stack</span>
@@ -308,106 +401,34 @@ export function Services() {
               <span>Role</span>
               <span>Links</span>
             </div>
-            {visibleRows.map((service) => (
-              <ServiceRow
-                key={service.id}
-                onSelect={() => selectService(service.id)}
-                selected={service.id === selected?.id}
-                service={service}
-              />
-            ))}
-            {isLoading ? (
-              <div className="phlo-observatory-run-provider-empty">
-                <div>
-                  <span className="phlo-observatory-inspector-label">
-                    Service inventory
-                  </span>
-                  <h2>Loading services</h2>
-                  <p>Reading live Docker services and runtime definitions.</p>
-                </div>
-              </div>
-            ) : (
-              visibleRows.length === 0 && (
-                <div className="phlo-observatory-run-provider-empty">
-                  <div>
-                    <span className="phlo-observatory-inspector-label">
-                      Service inventory
-                    </span>
-                    <h2>No services configured</h2>
-                    <p>The active stack has no service records to inspect.</p>
-                  </div>
-                </div>
-              )
-            )}
-          </div>
-        </div>
-
-        <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-          <div className="phlo-observatory-inspector-label">Service detail</div>
-          {selected ? (
-            <>
-              <ServiceDetail
-                detail={detail.data}
-                onAction={(actionId, confirmationMessage) => {
-                  setPendingAction({
-                    type: 'action',
-                    id: actionId,
-                    message:
-                      confirmationMessage ??
-                      `Run ${actionId}. This calls phlo-api to change a local service.`,
-                  })
-                }}
-                onInstall={(packageName) => {
-                  setPendingAction({
-                    type: 'install',
-                    packageName,
-                    message: `Install ${packageName}. This modifies the Python environment used by phlo-api.`,
-                  })
-                }}
-                service={selected}
-              />
-              {pendingAction && (
-                <ServiceActionConfirm
-                  action={pendingAction}
-                  onCancel={() => setPendingAction(null)}
-                  onConfirm={() => {
-                    const action = pendingAction
-                    setPendingAction(null)
-                    if (action.type === 'action') runServiceAction(action.id)
-                    else installPackage(action.packageName)
-                  }}
+            <ScrollArea className="min-h-0 flex-1">
+              {visibleRows.map((service) => (
+                <ServiceRow
+                  key={service.id}
+                  onSelect={() => selectService(service.id)}
+                  selected={service.id === selected?.id}
+                  service={service}
                 />
+              ))}
+              {isLoading ? (
+                <LoadingBlock
+                  className="p-3"
+                  label="Reading live Docker services and runtime definitions"
+                />
+              ) : (
+                visibleRows.length === 0 && (
+                  <EmptyBlock
+                    className="py-10"
+                    description="The active stack has no service records to inspect."
+                    title="No services configured"
+                  />
+                )
               )}
-            </>
-          ) : (
-            <>
-              <h2>
-                {isLoading ? 'Loading service detail' : 'No service selected'}
-              </h2>
-              <p>
-                {isLoading
-                  ? 'Reading live runtime state and actions.'
-                  : 'Select a service to inspect runtime state and actions.'}
-              </p>
-            </>
-          )}
-          {actionMessage && (
-            <div className="phlo-observatory-panel-footer">{actionMessage}</div>
-          )}
-          {detail.error && (
-            <div className="phlo-observatory-panel-footer">{detail.error}</div>
-          )}
-          {result.error && (
-            <div className="phlo-observatory-panel-footer">{result.error}</div>
-          )}
-          {!result.error && directResult?.error && (
-            <div className="phlo-observatory-panel-footer">
-              {directResult.error}
-            </div>
-          )}
-        </aside>
-      </section>
-    </ObservatoryPage>
+            </ScrollArea>
+          </div>
+        }
+      />
+    </Page>
   )
 }
 
@@ -422,59 +443,40 @@ function ServiceRow({
 }) {
   return (
     <button
-      className="phlo-observatory-platform-row phlo-observatory-service-inventory-row"
+      className={cn(
+        'hover:bg-accent/50 grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_6rem_minmax(0,1.2fr)_5rem_minmax(0,1fr)] items-center gap-3 border-b px-3 py-2 text-left transition-colors max-lg:grid-cols-[minmax(0,1fr)_6rem_minmax(0,1fr)]',
+        selected && 'bg-accent/60 hover:bg-accent/60',
+      )}
       data-active={selected}
       data-state={serviceState(service)}
       onClick={onSelect}
-      role="row"
       type="button"
     >
-      <span>
+      <span className="text-foreground flex items-center gap-2 truncate text-xs font-medium">
         <i
-          className="phlo-observatory-dot"
+          className="status-dot flex-none"
           data-state={serviceDotState(service)}
         />
         {service.name}
       </span>
-      <span>{servicePackageName(service) ?? 'native'}</span>
-      <span>{stackLabel(service)}</span>
-      <span>{serviceHealthLabel(service)}</span>
-      <span>{service.kind}</span>
-      <span>
+      <span className="text-muted-foreground truncate font-mono text-[10px] max-lg:hidden">
+        {servicePackageName(service) ?? 'native'}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {stackLabel(service)}
+      </span>
+      <span className="text-muted-foreground truncate text-[10px]">
+        {serviceHealthLabel(service)}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px] max-lg:hidden">
+        {service.kind}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px] max-lg:hidden">
         {service.links.length
           ? service.links.map((link) => link.label).join(', ')
           : 'none'}
       </span>
     </button>
-  )
-}
-
-function ServiceActionConfirm({
-  action,
-  onCancel,
-  onConfirm,
-}: {
-  action: PendingServiceAction
-  onCancel: () => void
-  onConfirm: () => void
-}) {
-  return (
-    <div className="phlo-observatory-service-confirm">
-      <div>
-        <span className="phlo-observatory-inspector-label">
-          Confirm service change
-        </span>
-        <p>{action.message}</p>
-      </div>
-      <div className="phlo-observatory-inline-actions">
-        <button onClick={onConfirm} type="button">
-          {action.type === 'install' ? 'Install package' : 'Run action'}
-        </button>
-        <button onClick={onCancel} type="button">
-          Cancel
-        </button>
-      </div>
-    </div>
   )
 }
 
@@ -508,84 +510,88 @@ function ServiceDetail({
       .join(', ') || 'none'
 
   return (
-    <>
-      <h2>{service.name}</h2>
-      <p>{serviceDescription(service)}</p>
-      <dl className="phlo-observatory-facts">
+    <div className="flex flex-col gap-3">
+      <div>
+        <h2 className="text-foreground text-sm font-semibold">
+          {service.name}
+        </h2>
+        <p className="text-muted-foreground mt-1 text-xs/relaxed">
+          {serviceDescription(service)}
+        </p>
+      </div>
+      <FactGrid>
         <Fact label="Stack" value={stackLabel(service)} />
         <Fact label="Status" value={service.status} />
         <Fact label="Runtime" value={serviceHealthLabel(service)} />
         <Fact label="Package" value={packageName ?? 'native'} />
-      </dl>
+      </FactGrid>
       {(visibleActions.length > 0 || canAddToStack || canInstallPackage) && (
-        <div className="phlo-observatory-action-row">
+        <div className="flex flex-wrap items-center gap-1.5">
           {canAddToStack && (
-            <button
+            <Button
               onClick={() =>
                 onAction(
                   addActionId,
                   `Add ${service.name} to this stack?\n\nThis will update the local service configuration.`,
                 )
               }
+              size="xs"
               type="button"
+              variant="outline"
             >
               <Play className="size-3.5" />
               Add to stack
-            </button>
+            </Button>
           )}
           {canInstallPackage && packageName && (
-            <button onClick={() => onInstall(packageName)} type="button">
+            <Button
+              onClick={() => onInstall(packageName)}
+              size="xs"
+              type="button"
+              variant="outline"
+            >
               <Download className="size-3.5" />
               Install package
-            </button>
+            </Button>
           )}
           {visibleActions.map((action) => (
-            <button
+            <Button
               disabled={!action.enabled}
               key={action.id}
               onClick={() => onAction(action.id)}
+              size="xs"
               title={action.reason ?? undefined}
               type="button"
+              variant="outline"
             >
               {iconForAction(action.kind)}
               {action.label}
-            </button>
+            </Button>
           ))}
         </div>
       )}
-      <div className="phlo-observatory-detail-list">
-        <div
-          className="phlo-observatory-mini-row"
-          data-state={serviceState(service)}
-        >
-          <span>Runtime evidence</span>
-          <small>{serviceRuntimeEvidence(service)}</small>
-        </div>
-        <div className="phlo-observatory-mini-row">
-          <span>Dependencies</span>
-          <small>{dependencies}</small>
-        </div>
-        <div className="phlo-observatory-mini-row">
-          <span>Dependents</span>
-          <small>{dependents}</small>
-        </div>
-        <div className="phlo-observatory-mini-row">
-          <span>Ports</span>
-          <small>{ports}</small>
-        </div>
-        <div className="phlo-observatory-mini-row">
-          <span>Config</span>
-          <small>{detail?.config.length ?? 0} entries</small>
-        </div>
-        <div className="phlo-observatory-mini-row">
-          <span>Logs</span>
-          <small>{detail?.logs.length ?? 0} linked events</small>
-        </div>
+      <div className="divide-border divide-y border-y">
+        <ServiceFactRow
+          detail={serviceRuntimeEvidence(service)}
+          state={serviceState(service)}
+          title="Runtime evidence"
+        />
+        <ServiceFactRow detail={dependencies} title="Dependencies" />
+        <ServiceFactRow detail={dependents} title="Dependents" />
+        <ServiceFactRow detail={ports} title="Ports" />
+        <ServiceFactRow
+          detail={`${detail?.config.length ?? 0} entries`}
+          title="Config"
+        />
+        <ServiceFactRow
+          detail={`${detail?.logs.length ?? 0} linked events`}
+          title="Logs"
+        />
       </div>
-      <div className="phlo-observatory-chip-cloud">
+      <div className="flex flex-wrap items-center gap-1.5">
         {service.links.map((link) => (
           <a
-            className="phlo-observatory-chip"
+            className="border-input hover:bg-accent inline-flex h-6 items-center gap-1 border px-2 font-mono text-[10px] transition-colors"
             href={link.url}
             key={`${link.kind}:${link.label}`}
           >
@@ -594,32 +600,34 @@ function ServiceDetail({
           </a>
         ))}
         {service.links.length === 0 && (
-          <span className="phlo-observatory-chip">
+          <span className="border-input text-muted-foreground inline-flex h-6 items-center gap-1 border px-2 font-mono text-[10px]">
             <Server className="size-3" />
             No links exposed
           </span>
         )}
       </div>
-    </>
+    </div>
   )
 }
 
-function PlatformMetric({
-  icon,
-  label,
-  value,
+function ServiceFactRow({
+  detail,
+  state,
+  title,
 }: {
-  icon: ReactNode
-  label: string
-  value: string | number
+  detail: string
+  state?: string
+  title: string
 }) {
   return (
-    <div className="phlo-observatory-platform-summary-cell">
-      <span>
-        {icon}
-        {label}
+    <div
+      className="flex items-start justify-between gap-2 py-1.5"
+      data-state={state}
+    >
+      <span className="text-foreground text-[11px]">{title}</span>
+      <span className="text-muted-foreground text-right font-mono text-[10px] break-all">
+        {detail}
       </span>
-      <strong>{value}</strong>
     </div>
   )
 }
@@ -786,13 +794,4 @@ function iconForAction(kind: string) {
   if (kind.endsWith('stop')) return <Square className="size-3.5" />
   if (kind.endsWith('restart')) return <RotateCcw className="size-3.5" />
   return <Play className="size-3.5" />
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </>
-  )
 }

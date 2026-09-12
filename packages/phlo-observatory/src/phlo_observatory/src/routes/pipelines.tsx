@@ -3,15 +3,9 @@
  * with the selection mirrored into ?pipelineId.
  */
 import { Link, createFileRoute } from '@tanstack/react-router'
-import {
-  Activity,
-  AlertCircle,
-  CheckCircle2,
-  Clock3,
-  PlayCircle,
-} from 'lucide-react'
+import { AlertCircle, CheckCircle2, Clock3, PlayCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 
 import type {
   ObservatoryAction,
@@ -35,11 +29,23 @@ import {
   resolveVerificationTarget,
   startRunActionVerification,
 } from '@/observatory/api/runActionVerification'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import {
   invalidateCachedResources,
   useLiveResource,
 } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { HealthDot, StatusBadge } from '@/components/observatory/status'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/pipelines')({
   component: Pipelines,
@@ -81,6 +87,12 @@ const VERIFICATION_TONES: Record<
   proven: 'ok',
   'pending-incomplete': 'warning',
   failed: 'error',
+}
+
+const TONE_CLASS: Record<'ok' | 'warning' | 'error', string> = {
+  ok: 'border-status-ok/40 bg-status-ok/5',
+  warning: 'border-status-warning/40 bg-status-warning/5',
+  error: 'border-status-error/40 bg-status-error/5',
 }
 
 /** Safe, human-renderable summary of one guarded run-action outcome. */
@@ -192,105 +204,99 @@ export function Pipelines() {
   }, [selected, selectedId])
 
   return (
-    <ObservatoryPage
-      kicker="Operations"
-      title="Pipelines"
-      description="Recovery queue for Dataset freshness, failed stage evidence, supported actions, and linked runs."
-      action={
-        <span className="phlo-observatory-pill">
-          {isLoading ? 'Loading' : `${pipelines.length} pipelines`}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-surface-shell">
-        <div className="phlo-observatory-command-primary phlo-observatory-surface-list">
-          <div className="phlo-observatory-pipeline-summary">
-            <PipelineMetric
-              icon={<CheckCircle2 className="size-4" />}
-              label="Healthy"
-              value={isLoading ? 'Loading' : counts.ok}
-            />
-            <PipelineMetric
-              icon={<AlertCircle className="size-4" />}
-              label="Blocked"
-              value={isLoading ? 'Loading' : counts.error}
-            />
-            <PipelineMetric
-              icon={<Clock3 className="size-4" />}
-              label="Needs attention"
-              value={isLoading ? 'Loading' : counts.warning + counts.unknown}
-            />
-            <PipelineMetric
-              icon={<PlayCircle className="size-4" />}
-              label="Actions ready"
-              value={isLoading ? 'Loading' : counts.actionsReady}
-            />
-          </div>
-          <div className="phlo-observatory-browser-toolbar">
-            <div className="phlo-observatory-row-title">
-              <Activity className="size-4" />
-              Recovery queue
-            </div>
-          </div>
-          {isLoading ? (
-            <EmptyFlow
-              detail="Reading live freshness, stage state, and action eligibility."
-              title="Loading pipelines"
-            />
-          ) : result.error ? (
-            <EmptyFlow detail={result.error} />
-          ) : pipelines.length ? (
-            <div className="phlo-observatory-pipeline-table" role="table">
-              <div className="phlo-observatory-pipeline-head" role="row">
-                <span>Dataset</span>
-                <span>Freshness</span>
-                <span>Stage evidence</span>
-                <span>Next action</span>
-                <span>Run evidence</span>
-              </div>
-              {sortedPipelines.map((pipeline, index) => (
-                <PipelineRow
-                  key={pipelineKey(pipeline) || `pipeline-${index}`}
-                  onOpenRunAction={(action) =>
-                    setRunAction({ action, pipeline })
-                  }
-                  onSelect={() => selectPipeline(pipelineKey(pipeline))}
-                  pipeline={pipeline}
-                  selected={pipelineKey(pipeline) === pipelineKey(selected)}
-                />
-              ))}
-            </div>
-          ) : (
-            <EmptyFlow detail="No Dataset pipelines are available yet." />
-          )}
-        </div>
-        <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-          <div className="phlo-observatory-inspector-label">
-            Selected pipeline
-          </div>
-          {selected ? (
-            <PipelineInspector
-              onOpenRunAction={(action) =>
-                setRunAction({ action, pipeline: selected })
-              }
-              pipeline={selected}
-            />
-          ) : (
-            <>
-              <h2>
-                {isLoading
-                  ? 'Loading pipeline evidence'
-                  : 'No pipeline selected'}
-              </h2>
-              <p>
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {isLoading ? 'Loading' : `${pipelines.length} pipelines`}
+          </Badge>
+        }
+        description="Recovery queue for Dataset freshness, failed stage evidence, supported actions, and linked runs."
+        title="Pipelines"
+      />
+      <StatGrid>
+        <StatCard
+          icon={<CheckCircle2 className="size-3.5" />}
+          label="Healthy"
+          value={isLoading ? 'Loading' : counts.ok}
+        />
+        <StatCard
+          icon={<AlertCircle className="size-3.5" />}
+          label="Blocked"
+          state={counts.error > 0 ? 'error' : 'ok'}
+          value={isLoading ? 'Loading' : counts.error}
+        />
+        <StatCard
+          icon={<Clock3 className="size-3.5" />}
+          label="Needs attention"
+          value={isLoading ? 'Loading' : counts.warning + counts.unknown}
+        />
+        <StatCard
+          icon={<PlayCircle className="size-3.5" />}
+          label="Actions ready"
+          value={isLoading ? 'Loading' : counts.actionsReady}
+        />
+      </StatGrid>
+      <SplitView
+        inspector={
+          <InspectorSection label="Selected pipeline">
+            {selected ? (
+              <PipelineInspector
+                onOpenRunAction={(action) =>
+                  setRunAction({ action, pipeline: selected })
+                }
+                pipeline={selected}
+              />
+            ) : (
+              <p className="text-muted-foreground text-xs">
                 {isLoading
                   ? 'Reading live freshness, stage state, and action eligibility.'
                   : 'Select a Dataset pipeline to inspect freshness, affected scope, and the next supported action.'}
               </p>
-            </>
-          )}
-        </aside>
-      </section>
+            )}
+          </InspectorSection>
+        }
+        inspectorWidth="w-[24rem]"
+        list={
+          <SectionCard className="ring-0" title="Recovery queue">
+            <div className="text-muted-foreground grid grid-cols-[10px_minmax(0,1.2fr)_minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,0.8fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+              <span />
+              <span>Dataset</span>
+              <span>Freshness</span>
+              <span>Stage evidence</span>
+              <span>Next action</span>
+              <span>Run evidence</span>
+            </div>
+            {isLoading ? (
+              <LoadingBlock className="p-3" label="Loading pipelines" />
+            ) : result.error ? (
+              <EmptyBlock
+                description={result.error}
+                title="Pipelines unavailable"
+              />
+            ) : pipelines.length ? (
+              <div className="divide-border divide-y">
+                {sortedPipelines.map((pipeline, index) => (
+                  <PipelineRow
+                    key={pipelineKey(pipeline) || `pipeline-${index}`}
+                    onOpenRunAction={(action) =>
+                      setRunAction({ action, pipeline })
+                    }
+                    onSelect={() => selectPipeline(pipelineKey(pipeline))}
+                    pipeline={pipeline}
+                    selected={pipelineKey(pipeline) === pipelineKey(selected)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptyBlock
+                description="No Dataset pipelines are available yet."
+                title="No Dataset pipeline available"
+              />
+            )}
+          </SectionCard>
+        }
+      />
       {runAction && (
         <RunActionDialog
           action={runAction.action}
@@ -298,7 +304,7 @@ export function Pipelines() {
           pipeline={runAction.pipeline}
         />
       )}
-    </ObservatoryPage>
+    </Page>
   )
 }
 
@@ -315,80 +321,93 @@ function PipelineRow({
 }) {
   const dataset = pipeline.dataset
   const readyActions = pipeline.actions.filter((action) => action.enabled)
-  const selectWithKeyboard = (event: React.KeyboardEvent) => {
+  const selectWithKeyboard = (event: ReactKeyboardEvent) => {
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
     onSelect()
   }
   return (
     <div
-      className="phlo-observatory-pipeline-row"
-      data-active={selected}
-      data-state={pipeline.freshness_state}
+      className={cn(
+        'hover:bg-accent/50 grid w-full cursor-pointer grid-cols-[10px_minmax(0,1.2fr)_minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,0.8fr)] items-center gap-3 px-3 py-2 transition-colors',
+        selected && 'bg-accent/60 hover:bg-accent/60',
+      )}
       onClick={onSelect}
       onKeyDown={selectWithKeyboard}
       role="row"
       tabIndex={0}
     >
-      <span
-        className="phlo-observatory-dot"
-        data-state={pipeline.freshness_state}
-      />
-      <div className="phlo-observatory-pipeline-dataset">
-        <div className="phlo-observatory-row-title">
-          <PlayCircle className="size-4" />
-          <span>{dataset?.name ?? 'Unassigned pipeline'}</span>
+      <HealthDot state={pipeline.freshness_state} />
+      <div className="min-w-0">
+        <div className="text-foreground flex items-center gap-1.5 text-xs font-medium">
+          <PlayCircle className="text-muted-foreground size-3.5 flex-none" />
+          <span className="truncate">
+            {dataset?.name ?? 'Unassigned pipeline'}
+          </span>
         </div>
-        <div className="phlo-observatory-row-meta">
+        <div className="text-muted-foreground truncate font-mono text-[10px]">
           {pipeline.last_run?.label ?? fallbackPipelineDetail(pipeline)}
         </div>
       </div>
-      <div className="phlo-observatory-pipeline-run">
-        <span>{stateLabel(pipeline.freshness_state)}</span>
-        <small>{pipeline.freshness_at ?? freshnessFallback(pipeline)}</small>
+      <div className="min-w-0">
+        <div className="text-foreground font-mono text-[10px] tracking-wide uppercase">
+          {stateLabel(pipeline.freshness_state)}
+        </div>
+        <div className="text-muted-foreground truncate font-mono text-[10px]">
+          {pipeline.freshness_at ?? freshnessFallback(pipeline)}
+        </div>
       </div>
-      <div className="phlo-observatory-pipeline-stages">
+      <div className="flex min-w-0 items-center gap-1 overflow-hidden">
         {pipeline.stages.map((stage) => (
           <span
-            className="phlo-observatory-pipeline-stage"
-            data-state={stage.state}
+            className="border-border flex min-w-0 flex-col border px-1.5 py-0.5"
             key={stage.id}
+            title={stageEvidenceLabel(stage)}
           >
-            <strong>{stage.label}</strong>
-            <small>{stageEvidenceLabel(stage)}</small>
+            <span className="flex items-center gap-1">
+              <HealthDot state={stage.state} />
+              <span className="text-foreground truncate font-mono text-[9px]">
+                {stage.label}
+              </span>
+            </span>
           </span>
         ))}
       </div>
-      <div className="phlo-observatory-pipeline-actions">
-        {readyActions.length > 0
-          ? readyActions.map((action) =>
-              isRunActionControl(action) ? (
-                <button
-                  className="phlo-observatory-pipeline-action"
-                  data-enabled="true"
-                  key={action.id}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onOpenRunAction(action)
-                  }}
-                  title={`${action.label} run ${action.background_operation_id ?? ''}`.trim()}
-                  type="button"
-                >
-                  {action.label}
-                </button>
-              ) : (
-                <span
-                  className="phlo-observatory-pipeline-action"
-                  data-enabled={action.enabled}
-                  key={action.id}
-                >
-                  {action.label}
-                </span>
-              ),
-            )
-          : nextActionFallback(pipeline)}
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
+        {readyActions.length > 0 ? (
+          readyActions.map((action) =>
+            isRunActionControl(action) ? (
+              <Button
+                key={action.id}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onOpenRunAction(action)
+                }}
+                size="xs"
+                title={`${action.label} run ${action.background_operation_id ?? ''}`.trim()}
+                type="button"
+                variant="outline"
+              >
+                {action.label}
+              </Button>
+            ) : (
+              <span
+                className="text-muted-foreground font-mono text-[10px]"
+                key={action.id}
+              >
+                {action.label}
+              </span>
+            ),
+          )
+        ) : (
+          <span className="text-muted-foreground truncate font-mono text-[10px]">
+            {nextActionFallback(pipeline)}
+          </span>
+        )}
       </div>
-      <span>{pipeline.last_run?.id ?? runEvidenceFallback(pipeline)}</span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {pipeline.last_run?.id ?? runEvidenceFallback(pipeline)}
+      </span>
     </div>
   )
 }
@@ -402,115 +421,146 @@ function PipelineInspector({
 }) {
   const dataset = pipeline.dataset
   return (
-    <>
-      <h2>{dataset?.name ?? 'Pipeline'}</h2>
-      <p>{pipelineSummary(pipeline)}</p>
-      <div className="phlo-observatory-pipeline-recovery-strip">
-        <div>
-          <span className="phlo-observatory-inspector-label">
+    <div className="flex flex-col gap-4">
+      <div>
+        <div className="flex items-center gap-2">
+          <span className="text-foreground text-xs font-semibold">
+            {dataset?.name ?? 'Pipeline'}
+          </span>
+          <StatusBadge
+            label={stateLabel(pipeline.freshness_state)}
+            state={pipeline.freshness_state}
+          />
+        </div>
+        <p className="text-muted-foreground mt-1 text-xs/relaxed">
+          {pipelineSummary(pipeline)}
+        </p>
+      </div>
+      <div className="grid grid-cols-1 gap-2">
+        <div className="border-border border px-2.5 py-2">
+          <span className="text-muted-foreground block text-[10px] font-medium tracking-widest uppercase">
             Why it matters
           </span>
-          <strong>{recoveryImpact(pipeline)}</strong>
+          <span className="text-foreground mt-0.5 block text-[11px]/relaxed">
+            {recoveryImpact(pipeline)}
+          </span>
         </div>
-        <div>
-          <span className="phlo-observatory-inspector-label">Next action</span>
-          <strong>{primaryActionLabel(pipeline)}</strong>
+        <div className="border-border border px-2.5 py-2">
+          <span className="text-muted-foreground block text-[10px] font-medium tracking-widest uppercase">
+            Next action
+          </span>
+          <span className="text-foreground mt-0.5 block text-[11px]/relaxed">
+            {primaryActionLabel(pipeline)}
+          </span>
         </div>
       </div>
-      <div className="phlo-observatory-detail-list">
+      <div className="divide-border divide-y border-y">
         {dataset && (
           <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+            className="hover:bg-accent/50 flex items-center justify-between gap-2 py-1.5 transition-colors"
             params={{ datasetId: dataset.id }}
             to="/datasets/$datasetId"
           >
-            <span>Open Dataset</span>
-            <small>
+            <span className="text-foreground text-[11px]">Open Dataset</span>
+            <span className="text-muted-foreground font-mono text-[10px]">
               {[dataset.publication_state, dataset.readiness_state]
                 .filter(Boolean)
                 .join(' · ')}
-            </small>
+            </span>
           </Link>
         )}
         {pipeline.last_run && (
           <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+            className="hover:bg-accent/50 flex items-center justify-between gap-2 py-1.5 transition-colors"
             search={{ operationId: pipeline.last_run.id }}
             to="/operations"
           >
-            <span>Open recovery run</span>
-            <small>{pipeline.last_run.label}</small>
+            <span className="text-foreground text-[11px]">
+              Open recovery run
+            </span>
+            <span className="text-muted-foreground font-mono text-[10px]">
+              {pipeline.last_run.label}
+            </span>
           </Link>
         )}
         {dataset && (
           <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+            className="hover:bg-accent/50 flex items-center justify-between gap-2 py-1.5 transition-colors"
             to="/quality"
           >
-            <span>Review quality evidence</span>
-            <small>Checks and failure context for this Dataset</small>
+            <span className="text-foreground text-[11px]">
+              Review quality evidence
+            </span>
+            <span className="text-muted-foreground font-mono text-[10px]">
+              Checks and failure context for this Dataset
+            </span>
           </Link>
         )}
       </div>
-      <div className="phlo-observatory-inspector-label">Stage evidence</div>
-      <div className="phlo-observatory-detail-list">
-        {pipeline.stages.map((stage) => (
-          <div
-            className="phlo-observatory-mini-row"
-            data-state={stage.state}
-            key={stage.id}
-          >
-            <span>{stage.label}</span>
-            <small>
-              {[
-                stateLabel(stage.state),
-                stage.resource?.label ?? stageEvidenceLabel(stage),
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </small>
-          </div>
-        ))}
-      </div>
-      <div className="phlo-observatory-inspector-label">Action eligibility</div>
-      <div className="phlo-observatory-detail-list">
-        {pipeline.actions.map((action) => (
-          <div
-            className="phlo-observatory-mini-row phlo-observatory-pipeline-action-row"
-            data-state={action.enabled ? 'ok' : 'unknown'}
-            key={action.id}
-          >
-            <span>
-              {isRunActionControl(action) ? (
-                <button
-                  className="phlo-observatory-pipeline-action"
-                  data-enabled="true"
-                  onClick={() => onOpenRunAction(action)}
-                  type="button"
-                >
-                  {action.label} run
-                </button>
-              ) : (
-                action.label
-              )}
-            </span>
-            <small>
-              {action.enabled
-                ? [
-                    'available now',
-                    action.risk_level ? `${action.risk_level} risk` : null,
-                    action.background_operation_id
-                      ? `tracks ${action.background_operation_id}`
-                      : null,
+      <InspectorSection label="Stage evidence">
+        <div className="divide-border divide-y border-y">
+          {pipeline.stages.map((stage) => (
+            <div className="flex items-start gap-2 py-1.5" key={stage.id}>
+              <HealthDot className="mt-1" state={stage.state} />
+              <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                <span className="text-foreground text-[11px]">
+                  {stage.label}
+                </span>
+                <span className="text-muted-foreground truncate font-mono text-[10px]">
+                  {[
+                    stateLabel(stage.state),
+                    stage.resource?.label ?? stageEvidenceLabel(stage),
                   ]
                     .filter(Boolean)
-                    .join(' · ')
-                : actionReasonLabel(action.reason)}
-            </small>
-          </div>
-        ))}
-      </div>
-    </>
+                    .join(' · ')}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </InspectorSection>
+      <InspectorSection label="Action eligibility">
+        <div className="divide-border divide-y border-y">
+          {pipeline.actions.map((action) => (
+            <div className="flex items-start gap-2 py-1.5" key={action.id}>
+              <HealthDot
+                className="mt-1"
+                state={action.enabled ? 'ok' : 'unknown'}
+              />
+              <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                <span className="text-foreground text-[11px]">
+                  {isRunActionControl(action) ? (
+                    <Button
+                      onClick={() => onOpenRunAction(action)}
+                      size="xs"
+                      type="button"
+                      variant="outline"
+                    >
+                      {action.label} run
+                    </Button>
+                  ) : (
+                    action.label
+                  )}
+                </span>
+                <span className="text-muted-foreground font-mono text-[10px]">
+                  {action.enabled
+                    ? [
+                        'available now',
+                        action.risk_level ? `${action.risk_level} risk` : null,
+                        action.background_operation_id
+                          ? `tracks ${action.background_operation_id}`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')
+                    : actionReasonLabel(action.reason)}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </InspectorSection>
+    </div>
   )
 }
 
@@ -643,29 +693,30 @@ export function RunActionDialog({
     <div
       aria-label={`${action.label} run`}
       aria-modal="true"
-      className="phlo-observatory-command-overlay"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="dialog"
     >
       <button
         aria-label="Close dialog"
-        className="phlo-observatory-command-backdrop"
+        className="bg-background/80 absolute inset-0 cursor-default backdrop-blur-sm"
         onClick={onClose}
         type="button"
       />
-      <div className="phlo-observatory-search-popover">
-        <div className="phlo-observatory-workspace-toolbar">
-          <span className="phlo-observatory-row-title">{action.label} run</span>
-          <span className="phlo-observatory-pill">
-            {action.risk_level} risk
+      <div className="bg-card ring-foreground/15 relative flex max-h-[85vh] w-full max-w-lg flex-col gap-3 overflow-y-auto p-4 ring-1">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-foreground text-sm font-semibold">
+            {action.label} run
           </span>
+          <Badge variant="outline">{action.risk_level} risk</Badge>
         </div>
-        <p>
-          Guarded orchestration action for run <strong>{runId}</strong> on{' '}
+        <p className="text-muted-foreground text-xs/relaxed">
+          Guarded orchestration action for run{' '}
+          <strong className="text-foreground">{runId}</strong> on{' '}
           {pipeline.dataset?.name ?? 'this pipeline'}. Review the guard evidence
           before confirming; the request is idempotent, so resubmitting the same
           intent can never double-invoke the provider.
         </p>
-        <dl className="phlo-observatory-facts">
+        <FactGrid>
           <Fact
             label="Capability"
             value={action.required_capability ?? 'not reported'}
@@ -679,28 +730,47 @@ export function RunActionDialog({
             value={action.requires_confirmation ? 'required' : 'not required'}
           />
           <Fact label="Target run" value={runId} />
-        </dl>
-        <div className="phlo-observatory-detail-list">
-          <div className="phlo-observatory-mini-row">
-            <span>Expected evidence</span>
-            <small>{action.expected_evidence.join(' · ')}</small>
+        </FactGrid>
+        <div className="divide-border divide-y border-y">
+          <div className="flex items-center justify-between gap-2 py-1.5">
+            <span className="text-foreground text-[11px]">
+              Expected evidence
+            </span>
+            <span className="text-muted-foreground font-mono text-[10px]">
+              {action.expected_evidence.join(' · ')}
+            </span>
           </div>
-          <div className="phlo-observatory-mini-row">
-            <span>Idempotency key</span>
-            <small>{idempotencyKey}</small>
+          <div className="flex items-center justify-between gap-2 py-1.5">
+            <span className="text-foreground text-[11px]">Idempotency key</span>
+            <span className="text-muted-foreground font-mono text-[10px]">
+              {idempotencyKey}
+            </span>
           </div>
         </div>
         {outcomeSummary && outcome?.data && (
           <div
-            className="phlo-observatory-operation-recovery-card"
-            data-state={outcomeSummary.tone}
+            className={cn(
+              'flex flex-col gap-1 border px-3 py-2',
+              TONE_CLASS[outcomeSummary.tone],
+            )}
           >
-            <span>Outcome</span>
-            <strong>{outcomeSummary.headline}</strong>
-            <small>{outcomeSummary.detail}</small>
-            {outcome.data.message && <small>{outcome.data.message}</small>}
+            <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+              Outcome
+            </span>
+            <strong className="text-foreground text-xs">
+              {outcomeSummary.headline}
+            </strong>
+            <span className="text-muted-foreground font-mono text-[10px] break-all">
+              {outcomeSummary.detail}
+            </span>
+            {outcome.data.message && (
+              <span className="text-muted-foreground font-mono text-[10px] break-all">
+                {outcome.data.message}
+              </span>
+            )}
             {canonical && (
               <Link
+                className="text-primary text-[11px] underline-offset-2 hover:underline"
                 params={{
                   attempt: String(canonical.attempt),
                   projectId: canonical.project_id,
@@ -715,18 +785,29 @@ export function RunActionDialog({
         )}
         {needsVerification && (
           <div
-            className="phlo-observatory-operation-recovery-card"
-            data-state={
-              verification ? VERIFICATION_TONES[verification.state] : 'warning'
-            }
+            className={cn(
+              'flex flex-col gap-1 border px-3 py-2',
+              TONE_CLASS[
+                verification
+                  ? VERIFICATION_TONES[verification.state]
+                  : 'warning'
+              ],
+            )}
           >
-            <span>Verification</span>
+            <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+              Verification
+            </span>
             {verification ? (
               <>
-                <strong>{verification.headline}</strong>
-                <small>{verification.detail}</small>
+                <strong className="text-foreground text-xs">
+                  {verification.headline}
+                </strong>
+                <span className="text-muted-foreground font-mono text-[10px] break-all">
+                  {verification.detail}
+                </span>
                 {verification.identity && (
                   <Link
+                    className="text-primary text-[11px] underline-offset-2 hover:underline"
                     params={{
                       attempt: String(verification.identity.attempt),
                       projectId: verification.identity.project_id,
@@ -739,30 +820,41 @@ export function RunActionDialog({
                 )}
               </>
             ) : (
-              <strong>Checking durable run evidence…</strong>
+              <strong className="text-foreground text-xs">
+                Checking durable run evidence…
+              </strong>
             )}
             {verifying && (
-              <button onClick={stopVerification} type="button">
+              <Button
+                onClick={stopVerification}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
                 Stop verifying
-              </button>
+              </Button>
             )}
             {verificationStopped && (
-              <small>
+              <span className="text-muted-foreground font-mono text-[10px]">
                 Verification stopped before complete evidence arrived. The
                 action outcome above remains the record; nothing is claimed as
                 proven.
-              </small>
+              </span>
             )}
           </div>
         )}
         {outcome?.error && (
-          <div className="phlo-observatory-failure-callout">
-            <strong>Action could not be completed</strong>
-            <span>{outcome.error}</span>
+          <div className="border-status-error/40 bg-status-error/5 flex flex-col gap-1 border px-3 py-2">
+            <strong className="text-status-error text-xs">
+              Action could not be completed
+            </strong>
+            <span className="text-muted-foreground font-mono text-[10px] break-all">
+              {outcome.error}
+            </span>
           </div>
         )}
-        <div className="phlo-observatory-action-row">
-          <button
+        <div className="flex items-center justify-end gap-2">
+          <Button
             disabled={submitting || submitted}
             onClick={confirm}
             type="button"
@@ -774,28 +866,13 @@ export function RunActionDialog({
                 : outcome?.error
                   ? 'Retry submission'
                   : `Confirm ${action.label.toLowerCase()}`}
-          </button>
-          <button onClick={onClose} type="button">
+          </Button>
+          <Button onClick={onClose} type="button" variant="outline">
             Close
-          </button>
+          </Button>
         </div>
       </div>
     </div>
-  )
-}
-
-function Fact({
-  label,
-  value,
-}: {
-  label: string
-  value: string | number | boolean | null
-}) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value === null || value === '' ? 'not reported' : String(value)}</dd>
-    </>
   )
 }
 
@@ -872,26 +949,6 @@ function stateLabel(state: string): string {
   return state.replace(/_/g, ' ')
 }
 
-function PipelineMetric({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-pipeline-summary-cell">
-      <span>
-        {icon}
-        {label}
-      </span>
-      <strong>{value}</strong>
-    </div>
-  )
-}
-
 function pipelineKey(pipeline: ObservatoryDatasetPipeline | null): string {
   if (!pipeline) return ''
   return (
@@ -941,22 +998,4 @@ function pipelineScore(pipeline: ObservatoryDatasetPipeline): number {
   const actionScore =
     pipeline.actions.filter((action) => action.enabled).length * 1_000_000
   return stateScore + actionScore + (Number.isNaN(time) ? 0 : time / 1_000)
-}
-
-function EmptyFlow({
-  detail,
-  title = 'No Dataset pipeline available',
-}: {
-  detail: string
-  title?: string
-}) {
-  return (
-    <div className="phlo-observatory-operation-empty">
-      <div>
-        <span className="phlo-observatory-inspector-label">Pipelines</span>
-        <h2>{title}</h2>
-        <p>{detail}</p>
-      </div>
-    </div>
-  )
 }

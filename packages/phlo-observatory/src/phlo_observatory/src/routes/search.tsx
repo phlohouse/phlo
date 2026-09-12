@@ -9,7 +9,7 @@
  * collection so they do not collapse to one filtered page.
  */
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Search as SearchIcon } from 'lucide-react'
+import { ChevronRight, Search as SearchIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ObservatorySearchResult } from '@/observatory/api/types'
@@ -21,7 +21,19 @@ import {
   serializeSearchFilters,
   walkSearchPages,
 } from '@/observatory/api/datasetDiscovery'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
+import { Page, PageHeader } from '@/components/observatory/page'
+import { EmptyBlock } from '@/components/observatory/states'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 type SearchRouteSearch = {
   q?: string
@@ -213,91 +225,112 @@ export function SearchResults() {
   const filtered = results
 
   return (
-    <ObservatoryPage
-      action={
-        <span className="phlo-observatory-pill">{filtered.length} loaded</span>
-      }
-      description="Search across catalog objects, operational evidence, platform resources, and authored work."
-      kicker="Workspace"
-      title="Search"
-    >
-      <section className="phlo-observatory-search-results-surface">
-        <div className="phlo-observatory-search-results-toolbar">
-          <label className="phlo-observatory-search-field">
-            <SearchIcon className="size-4" />
-            <input
+    <Page>
+      <PageHeader
+        actions={<Badge variant="secondary">{filtered.length} loaded</Badge>}
+        description="Search across catalog objects, operational evidence, platform resources, and authored work."
+        title="Search"
+      />
+      <SectionCard>
+        <div className="flex flex-wrap items-center gap-2 border-b p-2">
+          <div className="relative min-w-56 flex-1">
+            <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
+            <Input
               aria-label="Search all Observatory resources"
               autoFocus
+              className="pl-7"
               onChange={(event) => updateFilter({ query: event.target.value })}
               placeholder="Search datasets, tables, operations, checks, services"
               value={filters.query}
             />
-          </label>
-          <select
-            aria-label="Filter by type"
-            onChange={(event) => updateFilter({ kind: event.target.value })}
+          </div>
+          <Select
+            onValueChange={(value) => updateFilter({ kind: value ?? 'all' })}
             value={filters.kind}
           >
-            <option value="all">All types</option>
-            {kinds.map((entry) => (
-              <option key={entry} value={entry}>
-                {displayKind(entry)}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Filter by owner"
-            onChange={(event) => updateFilter({ owner: event.target.value })}
+            <SelectTrigger aria-label="Filter by type" className="w-40">
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              {kinds.map((entry) => (
+                <SelectItem key={entry} value={entry}>
+                  {displayKind(entry)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            onValueChange={(value) => updateFilter({ owner: value ?? 'all' })}
             value={filters.owner}
           >
-            <option value="all">All owners</option>
-            {owners.map((entry) => (
-              <option key={entry} value={entry}>
-                {entry}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger aria-label="Filter by owner" className="w-40">
+              <SelectValue placeholder="All owners" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All owners</SelectItem>
+              {owners.map((entry) => (
+                <SelectItem key={entry} value={entry}>
+                  {entry}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <div className="phlo-observatory-panel-note">{message}</div>
-        <div className="phlo-observatory-search-result-list">
+        <div className="text-muted-foreground border-b px-3 py-1.5 font-mono text-[10px]">
+          {message}
+        </div>
+        <div className="divide-y divide-border">
           {filtered.map((result) => (
             <Link
-              className="phlo-observatory-search-result-row"
+              className="hover:bg-accent/50 flex items-center gap-3 px-3 py-2 transition-colors"
               key={`${result.kind}:${result.id}`}
               to={resultHref(result)}
             >
-              <span className="phlo-observatory-search-result-kind">
+              <Badge
+                className="w-24 flex-none justify-center font-mono text-[10px]"
+                variant="secondary"
+              >
                 {displayKind(result.kind)}
+              </Badge>
+              <span className="min-w-0 flex-1">
+                <span className="text-foreground block truncate text-xs font-medium">
+                  {result.label}
+                </span>
+                <span className="text-muted-foreground block truncate text-[11px]">
+                  {result.summary ?? result.id}
+                </span>
               </span>
-              <span>
-                <strong>{result.label}</strong>
-                <small>{result.summary ?? result.id}</small>
+              <span className="text-muted-foreground hidden font-mono text-[10px] sm:inline">
+                {resultOwner(result) ?? 'shared'}
               </span>
-              <span>
-                <small>{resultOwner(result) ?? 'shared'}</small>
-              </span>
+              <ChevronRight className="text-muted-foreground size-3.5" />
             </Link>
           ))}
           {filters.query.trim().length >= 2 && filtered.length === 0 && (
-            <div className="phlo-observatory-empty-state">
-              No resources match the current search and filters.
-            </div>
+            <EmptyBlock
+              description="No resources match the current search and filters."
+              title="No matches"
+            />
           )}
           {nextCursor !== null && (
-            <button
-              className="phlo-observatory-load-more"
-              disabled={isLoadingMore}
-              onClick={loadMore}
-              type="button"
-            >
-              {isLoadingMore
-                ? 'Loading more…'
-                : `Load more results (${filtered.length} loaded)`}
-            </button>
+            <div className="p-2">
+              <Button
+                className="w-full"
+                disabled={isLoadingMore}
+                onClick={loadMore}
+                size="sm"
+                variant="outline"
+              >
+                {isLoadingMore
+                  ? 'Loading more…'
+                  : `Load more results (${filtered.length} loaded)`}
+              </Button>
+            </div>
           )}
         </div>
-      </section>
-    </ObservatoryPage>
+      </SectionCard>
+    </Page>
   )
 }
 

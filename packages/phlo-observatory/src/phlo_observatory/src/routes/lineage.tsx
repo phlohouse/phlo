@@ -37,9 +37,16 @@ import {
   getObservatoryTableRecords,
 } from '@/observatory/api/resources'
 import { ObservatoryFlowCanvas } from '@/observatory/components/ObservatoryFlowCanvas'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
-import { ObservatoryIndexTable } from '@/observatory/components/ObservatoryTable'
 import { readMetric, useLiveResource } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import { InspectorSection } from '@/components/observatory/split-view'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/lineage')({
   component: Lineage,
@@ -194,139 +201,143 @@ function LineageIndex() {
   }, [selected, selectedId])
 
   return (
-    <ObservatoryPage
-      kicker="Impact"
-      title="Lineage"
-      description="Trace Dataset dependencies, downstream blast radius, quality evidence, tables, and operational activity."
-      action={
-        <span className="phlo-observatory-pill">
-          {isLoading ? 'Loading' : `${assets.length} mapped dependencies`}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-lineage-summary">
-        <LineageSummaryCell
-          icon={<Database className="size-4" />}
-          label="Selected dependency"
-          value={
-            isLoading ? 'Loading' : (selected?.name ?? 'No dependency selected')
-          }
-          detail={
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {isLoading ? 'Loading' : `${assets.length} mapped dependencies`}
+          </Badge>
+        }
+        description="Trace Dataset dependencies, downstream blast radius, quality evidence, tables, and operational activity."
+        title="Lineage"
+      />
+      <StatGrid className="xl:grid-cols-5">
+        <StatCard
+          note={
             isLoading
               ? 'Reading live lineage graph'
               : (selected?.id ?? `${assets.length} mapped dependencies`)
           }
+          label="Selected dependency"
+          value={isLoading ? '—' : (selected?.name ?? 'No dependency selected')}
         />
-        <LineageSummaryCell
-          icon={<GitBranch className="size-4" />}
+        <StatCard
+          note={
+            isLoading ? 'Reading dependencies' : `${dependencies} total links`
+          }
           label="Dependencies"
           value={
             isLoading
-              ? 'Loading'
+              ? '—'
               : impact
                 ? `${impact.upstream} up / ${impact.downstream} down`
                 : dependencies
           }
-          detail={
-            isLoading ? 'Reading dependencies' : `${dependencies} total links`
-          }
         />
-        <LineageSummaryCell
-          href={impact?.qualityHref}
-          icon={<ShieldCheck className="size-4" />}
+        <StatCard
+          note="Open triage evidence"
+          href={impact?.qualityHref ?? undefined}
           label="Quality"
           value={
             isLoading
-              ? 'Loading'
+              ? '—'
               : (impact?.qualityLabel ?? `${qualityChecks} checks`)
           }
-          detail="Open triage evidence"
         />
-        <LineageSummaryCell
-          href={impact?.tableHref}
-          icon={<Table2 className="size-4" />}
-          label="Bound table"
-          value={
-            isLoading ? 'Loading' : (primaryTable?.id ?? 'No table linked')
-          }
-          detail={
+        <StatCard
+          note={
             isLoading
               ? 'Reading tables'
               : (selectedTableStats?.format ?? `${groups} groups`)
           }
+          href={impact?.tableHref ?? undefined}
+          label="Bound table"
+          value={isLoading ? '—' : (primaryTable?.id ?? 'No table linked')}
         />
-        <LineageSummaryCell
-          href={impact?.operationHref}
-          icon={<Activity className="size-4" />}
+        <StatCard
+          note="Open run or log evidence"
+          href={impact?.operationHref ?? undefined}
           label="Activity"
           value={
-            isLoading
-              ? 'Loading'
-              : (impact?.activityLabel ?? 'No linked activity')
+            isLoading ? '—' : (impact?.activityLabel ?? 'No linked activity')
           }
-          detail="Open run or log evidence"
         />
-      </section>
-
-      <section className="phlo-observatory-assets-workbench">
-        <div className="phlo-observatory-asset-index">
-          <div className="phlo-observatory-index-toolbar">
-            <h2>Lineage index</h2>
-            <label className="phlo-observatory-search-field">
-              <Search className="size-4" />
-              <input
+      </StatGrid>
+      <div className="grid min-h-0 flex-1 grid-cols-[16rem_minmax(0,1fr)_22rem] max-xl:grid-cols-[14rem_minmax(0,1fr)] max-lg:grid-cols-1">
+        <div className="bg-card ring-foreground/10 flex min-h-0 flex-col ring-1">
+          <div className="flex items-center gap-2 border-b p-2">
+            <span className="text-foreground px-1 text-xs font-semibold">
+              Lineage index
+            </span>
+            <div className="relative min-w-0 flex-1">
+              <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
+              <Input
                 aria-label="Search lineage"
+                className="pl-7"
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search Datasets, tables, groups, checks"
                 value={query}
               />
-            </label>
+            </div>
           </div>
-          <ObservatoryIndexTable
-            columnTemplate="minmax(150px, 1fr) minmax(72px, 0.42fr) 58px"
-            columns={[
-              { key: 'name', label: 'Name' },
-              { key: 'quality', label: 'Quality' },
-              { key: 'impact', label: 'Impact' },
-            ]}
-            empty={
-              <div className="phlo-observatory-empty-state">
-                {isLoading
-                  ? 'Reading live dependency and impact evidence.'
-                  : 'No dependencies match the current search.'}
-              </div>
-            }
-            rows={filteredAssets.map((asset) => ({
-              active: asset.id === selected?.id,
-              key: asset.id,
-              onSelect: () => selectAsset(asset.id),
-              cells: [
-                asset.name,
-                qualityLabelForAsset(asset, quality),
-                downstreamCounts.get(asset.id) ?? 0,
-              ],
-            }))}
-            variant="compact"
-          />
+          <div className="text-muted-foreground grid grid-cols-[minmax(0,1fr)_4.5rem_3.5rem] gap-2 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+            <span>Name</span>
+            <span>Quality</span>
+            <span>Impact</span>
+          </div>
+          <ScrollArea className="min-h-0 flex-1">
+            {filteredAssets.map((asset) => (
+              <button
+                className={cn(
+                  'hover:bg-accent/50 grid w-full grid-cols-[minmax(0,1fr)_4.5rem_3.5rem] items-center gap-2 border-b px-3 py-1.5 text-left transition-colors',
+                  asset.id === selected?.id &&
+                    'bg-accent/60 hover:bg-accent/60',
+                )}
+                data-active={asset.id === selected?.id}
+                key={asset.id}
+                onClick={() => selectAsset(asset.id)}
+                type="button"
+              >
+                <span className="text-foreground truncate text-[11px]">
+                  {asset.name}
+                </span>
+                <span className="text-muted-foreground truncate font-mono text-[10px]">
+                  {qualityLabelForAsset(asset, quality)}
+                </span>
+                <span className="text-muted-foreground font-mono text-[10px] tabular-nums">
+                  {downstreamCounts.get(asset.id) ?? 0}
+                </span>
+              </button>
+            ))}
+            {filteredAssets.length === 0 && (
+              <EmptyBlock
+                className="py-8"
+                description={
+                  isLoading
+                    ? 'Reading live dependency and impact evidence.'
+                    : 'No dependencies match the current search.'
+                }
+                title={isLoading ? 'Loading' : 'No dependencies'}
+              />
+            )}
+          </ScrollArea>
         </div>
 
-        <div className="phlo-observatory-asset-flow">
-          <div className="phlo-observatory-workspace-toolbar">
-            <span>
-              <Network className="size-4" />
+        <div className="bg-surface-sunken ring-foreground/10 flex min-h-0 flex-col ring-1 max-xl:hidden">
+          <div className="bg-card flex items-center justify-between gap-2 border-b px-3 py-2">
+            <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
+              <Network className="text-muted-foreground size-3.5" />
               Neighborhood
             </span>
-            <span className="phlo-observatory-pill">
+            <Badge variant="secondary">
               {isLoading ? 'Loading' : `${graph.edges.length} links`}
-            </span>
+            </Badge>
           </div>
           {isLoading ? (
-            <div className="phlo-observatory-flow-canvas">
-              <div className="phlo-observatory-flow-empty">
-                <Database className="size-4" />
-                <span>Reading live lineage graph</span>
-              </div>
-            </div>
+            <LoadingBlock
+              className="flex-1"
+              label="Reading live lineage graph"
+            />
           ) : (
             <ObservatoryFlowCanvas
               edges={graph.edges}
@@ -337,114 +348,127 @@ function LineageIndex() {
           )}
         </div>
 
-        <aside className="phlo-observatory-asset-detail">
-          {selected ? (
-            <>
-              <div className="phlo-observatory-detail-header">
-                <span>{selected.group ?? 'Dependency map'}</span>
-                <h2>{selected.name}</h2>
-                <p>{summarizeDescription(selected.description)}</p>
-              </div>
-              <dl className="phlo-observatory-facts">
-                <Fact
-                  label="Downstream"
-                  value={downstreamCounts.get(selected.id) ?? 0}
-                />
-                <Fact
-                  label="Owner"
-                  value={readMetric(selected.metadata, 'owner')}
-                />
-                <Fact
-                  label="Records"
-                  value={
-                    selectedTableStats?.records ??
-                    readMetric(selected.metadata, 'records')
-                  }
-                />
-                <Fact
-                  label="Columns"
-                  value={
-                    selectedTableStats?.columns ??
-                    readMetric(selected.metadata, 'columns')
-                  }
-                />
-                <Fact
-                  label="Format"
-                  value={
-                    selectedTableStats?.format ??
-                    readMetric(selected.metadata, 'format')
-                  }
-                />
-                <Fact
-                  label="Namespace"
-                  value={
-                    selectedTableStats?.namespace ??
-                    readMetric(selected.metadata, 'namespace')
-                  }
-                />
-              </dl>
-              <div className="phlo-observatory-chip-cloud">
-                {selected.dependencies.map((dependency) => (
-                  <DependencyChip
-                    assets={assets}
-                    dependency={dependency}
-                    key={dependency}
-                    onSelect={selectAsset}
-                  />
-                ))}
-                {selected.checks.map((check) => (
-                  <Link
-                    className="phlo-observatory-chip"
-                    key={check}
-                    search={{ checkId: check }}
-                    to="/quality"
-                  >
-                    <ShieldCheck className="size-3" />
-                    {check}
-                  </Link>
-                ))}
-              </div>
-              <div
-                className="phlo-observatory-tab-row"
-                role="tablist"
-                aria-label="Dependency detail"
-              >
-                {assetDetailTabs.map((tab) => (
-                  <button
-                    aria-selected={activeDetail === tab.id}
-                    data-active={activeDetail === tab.id}
-                    key={tab.id}
-                    onClick={() => setActiveDetail(tab.id)}
-                    role="tab"
-                    type="button"
-                  >
-                    {tab.icon}
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-              {detail && (
-                <AssetDetailPanel
-                  active={activeDetail}
-                  detail={detail}
-                  preview={selectedPreview}
-                  selected={selected}
-                />
-              )}
-            </>
-          ) : (
-            <p>
-              {isLoading
-                ? 'Loading dependency detail and evidence.'
-                : 'No dependency evidence is available yet.'}
+        <aside className="bg-card ring-foreground/10 flex min-h-0 flex-col ring-1 max-lg:min-h-[24rem]">
+          <ScrollArea className="min-h-0 flex-1">
+            {selected ? (
+              <>
+                <InspectorSection label={selected.group ?? 'Dependency map'}>
+                  <h2 className="text-foreground text-sm font-semibold">
+                    {selected.name}
+                  </h2>
+                  <p className="text-muted-foreground text-xs/relaxed">
+                    {summarizeDescription(selected.description)}
+                  </p>
+                  <FactGrid>
+                    <Fact
+                      label="Downstream"
+                      value={downstreamCounts.get(selected.id) ?? 0}
+                    />
+                    <Fact
+                      label="Owner"
+                      value={readMetric(selected.metadata, 'owner')}
+                    />
+                    <Fact
+                      label="Records"
+                      value={
+                        selectedTableStats?.records ??
+                        readMetric(selected.metadata, 'records')
+                      }
+                    />
+                    <Fact
+                      label="Columns"
+                      value={
+                        selectedTableStats?.columns ??
+                        readMetric(selected.metadata, 'columns')
+                      }
+                    />
+                    <Fact
+                      label="Format"
+                      value={
+                        selectedTableStats?.format ??
+                        readMetric(selected.metadata, 'format')
+                      }
+                    />
+                    <Fact
+                      label="Namespace"
+                      value={
+                        selectedTableStats?.namespace ??
+                        readMetric(selected.metadata, 'namespace')
+                      }
+                    />
+                  </FactGrid>
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    {selected.dependencies.map((dependency) => (
+                      <DependencyChip
+                        assets={assets}
+                        dependency={dependency}
+                        key={dependency}
+                        onSelect={selectAsset}
+                      />
+                    ))}
+                    {selected.checks.map((check) => (
+                      <Link
+                        className="border-input hover:bg-accent inline-flex h-6 items-center gap-1 border px-2 font-mono text-[10px] transition-colors"
+                        key={check}
+                        search={{ checkId: check }}
+                        to="/quality"
+                      >
+                        <ShieldCheck className="size-3" />
+                        {check}
+                      </Link>
+                    ))}
+                  </div>
+                </InspectorSection>
+                <div
+                  aria-label="Dependency detail"
+                  className="border-border flex border-b"
+                  role="tablist"
+                >
+                  {assetDetailTabs.map((tab) => (
+                    <button
+                      aria-selected={activeDetail === tab.id}
+                      className={cn(
+                        'text-muted-foreground hover:bg-accent/50 flex flex-1 items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium tracking-widest uppercase transition-colors',
+                        activeDetail === tab.id && 'bg-accent text-foreground',
+                      )}
+                      data-active={activeDetail === tab.id}
+                      key={tab.id}
+                      onClick={() => setActiveDetail(tab.id)}
+                      role="tab"
+                      type="button"
+                    >
+                      {tab.icon}
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="px-3">
+                  {detail && (
+                    <AssetDetailPanel
+                      active={activeDetail}
+                      detail={detail}
+                      preview={selectedPreview}
+                      selected={selected}
+                    />
+                  )}
+                </div>
+              </>
+            ) : (
+              <p className="text-muted-foreground p-3 text-xs">
+                {isLoading
+                  ? 'Loading dependency detail and evidence.'
+                  : 'No dependency evidence is available yet.'}
+              </p>
+            )}
+          </ScrollArea>
+          {result.error && (
+            <p className="text-status-error border-t px-3 py-2 font-mono text-[10px] break-all">
+              {result.error}
             </p>
           )}
-          {result.error && (
-            <div className="phlo-observatory-panel-footer">{result.error}</div>
-          )}
         </aside>
-      </section>
-    </ObservatoryPage>
+      </div>
+    </Page>
   )
 }
 
@@ -478,6 +502,53 @@ interface AssetDetailModel {
   operations: Array<ObservatoryOperation>
 }
 
+function DetailRow({
+  children,
+  href,
+  meta,
+  search,
+  title,
+  to,
+}: {
+  children?: ReactNode
+  href?: string
+  meta?: string
+  search?: Record<string, string>
+  title: string
+  to?: string
+}) {
+  const className =
+    'hover:bg-accent/50 flex items-center justify-between gap-2 border-b px-1 py-2 transition-colors last:border-b-0'
+  const body = (
+    <>
+      <span className="text-foreground flex min-w-0 items-center gap-1.5 truncate text-[11px]">
+        {children}
+        {title}
+      </span>
+      {meta && (
+        <span className="text-muted-foreground flex-none font-mono text-[10px]">
+          {meta}
+        </span>
+      )}
+    </>
+  )
+  if (to) {
+    return (
+      <Link className={className} search={search} to={to}>
+        {body}
+      </Link>
+    )
+  }
+  if (href) {
+    return (
+      <a className={className} href={href}>
+        {body}
+      </a>
+    )
+  }
+  return <div className={className}>{body}</div>
+}
+
 function AssetDetailPanel({
   active,
   detail,
@@ -491,22 +562,13 @@ function AssetDetailPanel({
 }) {
   if (active === 'tables') {
     return (
-      <div className="phlo-observatory-detail-list">
+      <div className="flex flex-col py-1">
         {detail.tables.length ? (
           detail.tables.map((table) => (
-            <Link
-              className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+            <DetailRow
               key={table.id}
-              search={{ tableId: table.id }}
-              to="/tables"
-            >
-              <span>
-                {table.namespace
-                  ? `${table.namespace}.${table.name}`
-                  : table.name}
-              </span>
-              <small>
-                {table.id === preview?.table.id
+              meta={
+                table.id === preview?.table.id
                   ? [
                       table.format,
                       preview.row_count === null ||
@@ -518,12 +580,21 @@ function AssetDetailPanel({
                       .filter(Boolean)
                       .join(' · ')
                   : [table.format, table.branch].filter(Boolean).join(' · ') ||
-                    'bound table'}
-              </small>
-            </Link>
+                    'bound table'
+              }
+              search={{ tableId: table.id }}
+              title={
+                table.namespace
+                  ? `${table.namespace}.${table.name}`
+                  : table.name
+              }
+              to="/tables"
+            />
           ))
         ) : (
-          <p>No bound tables linked to this dependency yet.</p>
+          <p className="text-muted-foreground py-2 text-xs">
+            No bound tables linked to this dependency yet.
+          </p>
         )}
       </div>
     )
@@ -531,26 +602,23 @@ function AssetDetailPanel({
 
   if (active === 'quality') {
     return (
-      <div className="phlo-observatory-detail-list">
+      <div className="flex flex-col py-1">
         {detail.quality.length ? (
           detail.quality.map((check) => (
-            <Link
-              className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+            <DetailRow
               key={check.id}
+              meta={[check.status, check.severity].filter(Boolean).join(' · ')}
               search={{ checkId: check.id }}
+              title={check.name}
               to="/quality"
             >
-              <span>
-                <ShieldCheck className="size-3.5" />
-                {check.name}
-              </span>
-              <small>
-                {[check.status, check.severity].filter(Boolean).join(' · ')}
-              </small>
-            </Link>
+              <ShieldCheck className="size-3.5 flex-none" />
+            </DetailRow>
           ))
         ) : (
-          <p>No quality checks linked to this Dataset yet.</p>
+          <p className="text-muted-foreground py-2 text-xs">
+            No quality checks linked to this Dataset yet.
+          </p>
         )}
       </div>
     )
@@ -572,55 +640,48 @@ function AssetDetailPanel({
       })),
     ]
     return (
-      <div className="phlo-observatory-detail-list">
+      <div className="flex flex-col py-1">
         {activity.length ? (
           activity.map((item) => (
-            <Link
-              className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+            <DetailRow
+              href={item.href}
               key={item.id}
-              to={item.href}
-            >
-              <span>{item.label}</span>
-              <small>{item.meta}</small>
-            </Link>
+              meta={item.meta}
+              title={item.label}
+            />
           ))
         ) : (
-          <p>No run or log evidence linked to this Dataset yet.</p>
+          <p className="text-muted-foreground py-2 text-xs">
+            No run or log evidence linked to this Dataset yet.
+          </p>
         )}
       </div>
     )
   }
 
   return (
-    <div className="phlo-observatory-detail-list">
+    <div className="flex flex-col py-1">
       {datasetHrefForAsset(selected) && (
-        <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-          to={datasetHrefForAsset(selected) ?? '/datasets'}
+        <DetailRow
+          href={datasetHrefForAsset(selected) ?? '/datasets'}
+          meta={datasetLabelForAsset(selected)}
+          title="Open Dataset"
         >
-          <span>
-            <Database className="size-3.5" />
-            Open Dataset
-          </span>
-          <small>{datasetLabelForAsset(selected)}</small>
-        </Link>
+          <Database className="size-3.5 flex-none" />
+        </DetailRow>
       )}
-      <div className="phlo-observatory-mini-row">
-        <span>Upstream</span>
-        <small>
-          {detail.upstream.map((asset) => asset.name).join(', ') || 'none'}
-        </small>
-      </div>
-      <div className="phlo-observatory-mini-row">
-        <span>Downstream</span>
-        <small>
-          {detail.downstream.map((asset) => asset.name).join(', ') || 'none'}
-        </small>
-      </div>
-      <div className="phlo-observatory-mini-row">
-        <span>External refs</span>
-        <small>{selected.resources.join(', ') || 'none'}</small>
-      </div>
+      <DetailRow
+        meta={detail.upstream.map((asset) => asset.name).join(', ') || 'none'}
+        title="Upstream"
+      />
+      <DetailRow
+        meta={detail.downstream.map((asset) => asset.name).join(', ') || 'none'}
+        title="Downstream"
+      />
+      <DetailRow
+        meta={selected.resources.join(', ') || 'none'}
+        title="External refs"
+      />
     </div>
   )
 }
@@ -656,6 +717,8 @@ function DependencyChip({
   onSelect: (assetId: string) => void
 }) {
   const exists = assets.some((asset) => asset.id === dependency)
+  const className =
+    'border-input inline-flex h-6 items-center gap-1 border px-2 font-mono text-[10px]'
   const content = (
     <>
       <GitBranch className="size-3" />
@@ -663,52 +726,19 @@ function DependencyChip({
     </>
   )
   if (!exists) {
-    return <span className="phlo-observatory-chip">{content}</span>
+    return (
+      <span className={cn(className, 'text-muted-foreground')}>{content}</span>
+    )
   }
   return (
     <button
-      className="phlo-observatory-chip"
+      className={cn(className, 'hover:bg-accent transition-colors')}
       onClick={() => onSelect(dependency)}
       type="button"
     >
       {content}
     </button>
   )
-}
-
-function LineageSummaryCell({
-  detail,
-  href,
-  icon,
-  label,
-  value,
-}: {
-  detail: string
-  href?: string | null
-  icon: ReactNode
-  label: string
-  value: string | number
-}) {
-  const content = (
-    <>
-      <span>
-        {icon}
-        {label}
-      </span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
-    </>
-  )
-
-  if (href) {
-    return (
-      <Link className="phlo-observatory-lineage-summary-cell" to={href}>
-        {content}
-      </Link>
-    )
-  }
-
-  return <div className="phlo-observatory-lineage-summary-cell">{content}</div>
 }
 
 function qualityLabelForAsset(
@@ -934,25 +964,6 @@ function summarizeDescription(description?: string | null): string {
   if (!description) return 'No description available.'
   const compact = description.replace(/\s+/g, ' ').trim()
   return compact.length > 220 ? `${compact.slice(0, 217)}...` : compact
-}
-
-function Fact({
-  label,
-  value,
-}: {
-  label: string
-  value: string | number | boolean | null | undefined
-}) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>
-        {value === null || value === undefined || value === ''
-          ? 'unknown'
-          : String(value)}
-      </dd>
-    </>
-  )
 }
 
 function tableStats(
