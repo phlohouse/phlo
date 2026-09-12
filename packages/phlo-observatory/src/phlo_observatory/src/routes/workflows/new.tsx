@@ -555,7 +555,7 @@ function useWorkflowCanvasBuilder(initialSnapshot?: WorkflowBuilderSnapshot) {
                 selectedNodeId={selectedNodeId}
               />
               {inspectorOpen && selectedNode && selectedContribution ? (
-                <aside className="bg-card ring-foreground/10 flex flex-col ring-1">
+                <aside className="bg-sheet border-rule flex flex-col border">
                   <div className="border-border flex justify-end border-b px-3 py-1.5">
                     <Button
                       onClick={() => setInspectorOpen(false)}
@@ -633,7 +633,7 @@ function PipelineLane({
   )
 
   return (
-    <div className="bg-surface-sunken ring-foreground/10 min-h-[24rem] overflow-x-auto p-4 ring-1">
+    <div className="bg-paper border-rule min-h-[24rem] overflow-x-auto p-4 border">
       <div
         aria-label="Workflow pipeline"
         className="flex min-w-max items-stretch gap-0"
@@ -707,7 +707,7 @@ function AddStepMenu({
   onCloseAddMenu: () => void
 }) {
   return (
-    <div className="bg-card ring-foreground/10 flex max-h-96 w-72 flex-col ring-1">
+    <div className="bg-sheet border-rule flex max-h-96 w-72 flex-col border">
       <div className="border-border flex items-start justify-between gap-2 border-b px-3 py-2">
         <div>
           <h2 className="text-foreground text-xs font-semibold">
@@ -839,8 +839,8 @@ function PipelineNode({
   return (
     <article
       className={cn(
-        'bg-card ring-foreground/10 flex w-56 flex-none flex-col ring-1',
-        selected && 'ring-primary ring-2',
+        'bg-sheet border-rule flex w-56 flex-none flex-col border',
+        selected && 'border-ink border-2',
       )}
       data-selected={selected}
     >
@@ -1082,7 +1082,7 @@ function ReviewPanel({
                 {file.mode}
               </em>
             </summary>
-            <pre className="bg-surface-sunken text-foreground max-h-72 overflow-auto px-3 py-2 font-mono text-[10px]/relaxed">
+            <pre className="console max-h-72 overflow-auto px-3 py-2 font-mono text-[10px]/relaxed">
               {file.content}
             </pre>
           </details>

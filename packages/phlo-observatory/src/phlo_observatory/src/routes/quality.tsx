@@ -413,7 +413,7 @@ export function Quality() {
                 contentClassName="p-0"
                 title="Quality dependencies"
               >
-                <div className="bg-surface-sunken min-h-[26rem]">
+                <div className="bg-paper min-h-[26rem]">
                   <ObservatoryFlowCanvas
                     edges={graph.edges}
                     nodes={graph.nodes}
@@ -897,7 +897,7 @@ function SelectedQualityWorkbench({
 
   return (
     <section
-      className="bg-card ring-foreground/10 ring-1"
+      className="bg-sheet border-rule border"
       data-state={qualityVisualState(selected)}
     >
       <div className="border-border flex flex-wrap items-start justify-between gap-3 border-b px-3 py-3">

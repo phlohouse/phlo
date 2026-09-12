@@ -1,6 +1,6 @@
 /**
- * Split view: a scrollable item list beside an inspector panel — the core
- * mission-control layout for collection + detail pages.
+ * Split view: the record sheet beside its continuation form — the core
+ * collection + detail layout. The inspector is ruled off in ink.
  */
 import type { ReactNode } from 'react'
 
@@ -25,14 +25,14 @@ export function SplitView({
   return (
     <div
       className={cn(
-        'ring-foreground/10 bg-card grid min-h-0 flex-1 grid-cols-1 overflow-hidden rounded-none ring-1 lg:grid-cols-[minmax(0,1fr)_auto]',
+        'border-rule bg-sheet grid min-h-0 flex-1 grid-cols-1 overflow-hidden border lg:grid-cols-[minmax(0,1fr)_auto]',
         className,
       )}
     >
       <div className={cn('flex min-w-0 flex-col', listClassName)}>{list}</div>
       <aside
         className={cn(
-          'border-t lg:border-t-0 lg:border-l flex min-h-0 flex-col',
+          'border-rule bg-paper flex min-h-0 flex-col border-t lg:border-t-0 lg:border-l',
           inspectorWidth,
           inspectorClassName,
         )}
@@ -56,9 +56,7 @@ export function InspectorSection({
 }) {
   return (
     <section className={cn('flex flex-col gap-1.5', className)}>
-      <h3 className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
-        {label}
-      </h3>
+      <h3 className="stamp text-ink-soft text-[9px]">{label}</h3>
       {children}
     </section>
   )

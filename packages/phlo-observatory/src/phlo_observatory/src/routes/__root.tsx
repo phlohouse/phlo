@@ -19,7 +19,6 @@ import { ObservatorySettingsProvider } from '@/hooks/useObservatorySettings'
 import { buttonVariants } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/toaster'
 import { AppShell } from '@/components/shell/app-shell'
-import { OBSERVATORY_THEME_STORAGE_KEY } from '@/observatory/shell/theme'
 import { cn } from '@/lib/utils'
 
 if (typeof window !== 'undefined') {
@@ -58,16 +57,6 @@ export const Route = createRootRoute({
   notFoundComponent: NotFound,
 })
 
-const THEME_BOOTSTRAP = `;(() => {
-  try {
-    var mode = window.localStorage.getItem('${OBSERVATORY_THEME_STORAGE_KEY}');
-    var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    var dark = mode === 'dark' || (mode !== 'light' && systemDark);
-    document.documentElement.classList.toggle('dark', dark);
-    document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-  } catch (_) {}
-})();`
-
 function runtimeBrowserApiUrl() {
   return typeof process !== 'undefined'
     ? process.env.PHLO_API_BROWSER_URL || ''
@@ -88,10 +77,6 @@ function RootLayout() {
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta name="phlo-api-browser-url" content={browserApiUrl} />
-        <script
-          suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }}
-        />
         <script
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: runtimeBootstrapScript() }}
@@ -118,11 +103,12 @@ function RootLayout() {
 function NotFound() {
   return (
     <div className="flex h-full items-center justify-center p-6">
-      <div className="max-w-sm text-center">
-        <h1 className="text-foreground text-lg font-semibold">
-          Page not found
-        </h1>
-        <p className="text-muted-foreground mt-1 text-xs">
+      <div className="border-rule-soft max-w-sm border border-dashed p-6 text-center">
+        <p className="text-ink-faint font-mono text-[10px] tracking-[0.2em] uppercase">
+          — end of form —
+        </p>
+        <h1 className="stamp text-ink mt-2 text-sm">Page not found</h1>
+        <p className="text-ink-soft mt-1 font-mono text-[11px]">
           This Observatory surface does not exist.
         </p>
         <Link

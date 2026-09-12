@@ -258,7 +258,7 @@ function useSettingsRoute() {
         title="Platform settings"
       />
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-        <div className="bg-card ring-foreground/10 flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 ring-1">
+        <div className="bg-sheet border-rule flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 border">
           <div className="flex flex-col gap-0.5">
             <strong className="text-foreground text-sm font-semibold">
               Platform trust and preferences

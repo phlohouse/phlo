@@ -702,7 +702,7 @@ export function RunActionDialog({
         onClick={onClose}
         type="button"
       />
-      <div className="bg-card ring-foreground/15 relative flex max-h-[85vh] w-full max-w-lg flex-col gap-3 overflow-y-auto p-4 ring-1">
+      <div className="bg-sheet border-rule relative flex max-h-[85vh] w-full max-w-lg flex-col gap-3 overflow-y-auto p-4 border">
         <div className="flex items-center justify-between gap-2">
           <span className="text-foreground text-sm font-semibold">
             {action.label} run

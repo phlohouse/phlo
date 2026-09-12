@@ -236,7 +236,7 @@ function DatasetDecisionStrip({
   const blocker = datasetBlocker(profile)
   const nextAction = datasetNextAction(profile)
   return (
-    <div className="bg-card ring-foreground/10 grid grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,1.4fr)] ring-1 max-lg:grid-cols-2">
+    <div className="bg-sheet border-rule grid grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,1.4fr)] border max-lg:grid-cols-2">
       <DecisionFact
         label="Status"
         state={dataset.readiness_state}
@@ -438,7 +438,7 @@ function WorkflowPanel({
 }) {
   return (
     <section
-      className="bg-card ring-foreground/10 flex flex-col ring-1"
+      className="bg-sheet border-rule flex flex-col border"
       data-state={state}
     >
       <header className="border-border flex items-center justify-between gap-2 border-b px-3 py-2">

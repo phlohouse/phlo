@@ -26,9 +26,9 @@ export function LoadingBlock({
   className?: string
 }) {
   return (
-    <div aria-label={label} className={cn('flex flex-col gap-2', className)}>
+    <div aria-label={label} className={cn('bands flex flex-col', className)}>
       {Array.from({ length: rows }, (_, index) => (
-        <Skeleton className="h-9 w-full" key={index} />
+        <Skeleton className="h-7 w-full" key={index} />
       ))}
     </div>
   )
@@ -70,7 +70,7 @@ export function ErrorBlock({
 }) {
   return (
     <Empty className={className}>
-      <EmptyIcon className="text-status-error">
+      <EmptyIcon className="text-print-red">
         <AlertTriangle />
       </EmptyIcon>
       <EmptyTitle>{title}</EmptyTitle>

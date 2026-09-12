@@ -59,11 +59,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     >
       <button
         aria-label="Close search"
-        className="fixed inset-0 bg-black/50 supports-backdrop-filter:backdrop-blur-sm"
+        className="bg-ink/30 fixed inset-0"
         onClick={onClose}
         type="button"
       />
-      <div className="ring-foreground/15 bg-popover relative w-full max-w-xl overflow-hidden rounded-lg shadow-2xl ring-1">
+      <div className="border-rule bg-sheet relative w-full max-w-xl overflow-hidden border">
         <Command shouldFilter={false}>
           <CommandInput
             autoFocus

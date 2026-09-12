@@ -175,7 +175,7 @@ function useObservatoryTable({
   return (
     <div
       className={cn(
-        'flex flex-col rounded-none border border-border bg-card overflow-hidden text-xs',
+        'flex flex-col rounded-none border border-border bg-sheet overflow-hidden text-xs',
         onRowClick ? 'select-none' : '',
         containerClassName,
       )}
@@ -331,7 +331,7 @@ function useObservatoryTable({
                 <div
                   key={row.id}
                   className={cn(
-                    'absolute left-0 right-0 flex border-b border-border last:border-b-0 bg-card',
+                    'absolute left-0 right-0 flex border-b border-border last:border-b-0 bg-sheet',
                     onRowClick
                       ? 'hover:bg-muted/30 cursor-pointer transition-colors'
                       : '',
@@ -382,7 +382,7 @@ function useObservatoryTable({
                           'min-w-0 whitespace-nowrap align-middle',
                           monospace ? 'font-mono text-xs' : '',
                           pinState
-                            ? 'bg-card shadow-[1px_0_0_0_var(--border)]'
+                            ? 'bg-sheet shadow-[1px_0_0_0_var(--border)]'
                             : '',
                         )}
                         style={{ width: column.getSize(), ...stickyStyles }}

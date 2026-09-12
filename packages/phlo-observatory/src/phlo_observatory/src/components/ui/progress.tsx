@@ -17,8 +17,8 @@ function Progress({
       {...props}
     >
       {children ?? (
-        <ProgressPrimitive.Track className="bg-muted block h-1.5 w-full overflow-hidden rounded-none">
-          <ProgressPrimitive.Indicator className="bg-primary block h-full transition-[width] duration-200" />
+        <ProgressPrimitive.Track className="bg-band block h-1.5 w-full overflow-hidden rounded-none">
+          <ProgressPrimitive.Indicator className="bg-ink block h-full" />
         </ProgressPrimitive.Track>
       )}
     </ProgressPrimitive.Root>

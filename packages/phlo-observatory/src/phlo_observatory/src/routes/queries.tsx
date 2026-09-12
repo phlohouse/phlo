@@ -186,7 +186,7 @@ export function Queries() {
             <Badge variant="secondary">read-only</Badge>
             <Link
               className={cn(
-                'border-input hover:bg-accent inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors',
+                'border-input hover:bg-accent inline-flex h-7 items-center gap-1.5 rounded-none border px-2.5 text-xs font-medium transition-colors',
               )}
               to="/query-history"
             >
@@ -198,9 +198,9 @@ export function Queries() {
         description="Read-only SQL workbench backed by the active query provider, with project-persisted saved queries."
         title="Query workbench"
       />
-      <div className="ring-foreground/10 grid grid-cols-1 gap-0 overflow-hidden rounded-md ring-1 lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <div className="border-rule grid grid-cols-1 gap-0 overflow-hidden rounded-none border lg:grid-cols-[16rem_minmax(0,1fr)]">
         {/* Saved query library */}
-        <aside className="bg-card flex min-h-0 flex-col border-b lg:border-r lg:border-b-0">
+        <aside className="bg-sheet flex min-h-0 flex-col border-b lg:border-r lg:border-b-0">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <span className="text-muted-foreground flex items-center gap-1.5 text-[10px] font-medium tracking-widest uppercase">
               <Save className="size-3.5" />
@@ -238,7 +238,7 @@ export function Queries() {
         </aside>
 
         {/* Editor surface */}
-        <div className="bg-card flex min-w-0 flex-col">
+        <div className="bg-sheet flex min-w-0 flex-col">
           <div
             className="border-border flex items-center overflow-x-auto border-b"
             role="tablist"

@@ -221,7 +221,7 @@ export function Logs() {
             )}
             {selected?.resource && routeHrefForResource(selected.resource) && (
               <a
-                className="border-input hover:bg-accent inline-flex h-7 items-center gap-1.5 self-start rounded-md border px-2.5 text-xs font-medium transition-colors"
+                className="border-input hover:bg-accent inline-flex h-7 items-center gap-1.5 self-start rounded-none border px-2.5 text-xs font-medium transition-colors"
                 href={routeHrefForResource(selected.resource)!}
               >
                 <FileText className="size-3.5" />
@@ -262,7 +262,7 @@ export function Logs() {
         }
         inspectorWidth="w-[24rem]"
         list={
-          <div className="bg-card flex min-h-0 flex-1 flex-col">
+          <div className="bg-sheet flex min-h-0 flex-1 flex-col">
             <div className="flex flex-wrap items-center gap-2 border-b p-2">
               <span className="text-muted-foreground flex items-center gap-1.5 px-1 text-[10px] font-medium tracking-widest uppercase">
                 <Terminal className="size-3.5" />

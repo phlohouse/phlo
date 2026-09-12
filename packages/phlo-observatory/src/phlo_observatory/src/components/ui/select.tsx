@@ -76,7 +76,7 @@ function SelectContent({
         <SelectPrimitive.Popup
           data-slot="select-content"
           className={cn(
-            'bg-popover text-popover-foreground ring-foreground/10 data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 relative z-50 max-h-(--available-height) min-w-(--anchor-width) overflow-y-auto rounded-none shadow-md ring-1 duration-100',
+            'bg-popover text-popover-foreground ring-foreground/10 data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 relative z-50 max-h-(--available-height) min-w-(--anchor-width) overflow-y-auto rounded-none shadow-none ring-1 ring-rule duration-100',
             className,
           )}
           {...props}

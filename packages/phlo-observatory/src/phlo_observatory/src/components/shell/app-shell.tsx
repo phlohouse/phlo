@@ -1,11 +1,12 @@
 /**
- * Observatory app shell: a fixed mission sidebar with grouped navigation,
- * a compact top bar (page context, command search, theme), and the routed
- * content region. Capability pages from phlo-api gate which nav entries
- * render; extension-contributed pages append as their own group.
+ * Observatory app shell: the sheet. A continuous-form printout framed by
+ * sprocket-hole margins, headed by a report masthead (title stamp, sheet
+ * number, health stamp, search field) and a two-level contents index —
+ * numbered mission sections with their pages printed beneath the active
+ * section. No sidebar; the sheet is a single column of bands and rules.
  */
 import { Link, useRouterState } from '@tanstack/react-router'
-import { Menu, Monitor, Moon, Search, Sun } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
@@ -13,27 +14,17 @@ import type {
   ObservatoryCapabilities,
   ObservatoryResourceResult,
 } from '@/observatory/api/types'
-import type { ObservatoryThemeMode } from '@/observatory/shell/theme'
 import type { NavItem } from '@/components/shell/nav'
 import {
   getObservatoryCapabilities,
   getObservatoryOverview,
 } from '@/observatory/api/resources'
 import { recordRecentVisit } from '@/observatory/shell/localActivity'
-import {
-  OBSERVATORY_THEME_STORAGE_KEY,
-  readObservatoryThemeMode,
-  resolveObservatoryTheme,
-} from '@/observatory/shell/theme'
 import { loadCachedResource } from '@/observatory/routes/liveResource'
 import { useObservatoryExtensions } from '@/extensions/registry'
 import { NAV_GROUPS, navItemForPath } from '@/components/shell/nav'
 import { HealthDot } from '@/components/observatory/status'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
-import { Sheet, SheetContent } from '@/components/ui/sheet'
 import {
   Tooltip,
   TooltipContent,
@@ -47,25 +38,12 @@ const CommandPalette = lazy(() =>
   })),
 )
 
-const themeModes = [
-  { mode: 'light', label: 'Light', icon: Sun },
-  { mode: 'dark', label: 'Dark', icon: Moon },
-  { mode: 'system', label: 'System', icon: Monitor },
-] satisfies Array<{
-  mode: ObservatoryThemeMode
-  label: string
-  icon: typeof Monitor
-}>
-
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
   const [searchOpen, setSearchOpen] = useState(false)
-  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [hydrated, setHydrated] = useState(false)
-  const [systemPrefersDark, setSystemPrefersDark] = useState(false)
-  const [themeMode, setThemeMode] = useState<ObservatoryThemeMode>('system')
   const [capabilities, setCapabilities] =
     useState<ObservatoryResourceResult<ObservatoryCapabilities> | null>(null)
   const [health, setHealth] = useState<{
@@ -73,8 +51,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     message?: string | null
   } | null>(null)
   const { navItems: extensionNavItems } = useObservatoryExtensions()
-
-  const resolvedTheme = resolveObservatoryTheme(themeMode, systemPrefersDark)
 
   // Capability pages gate nav visibility; unknown page ids stay visible so a
   // partially deployed API never blanks the console.
@@ -104,44 +80,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       description: 'Extension page',
     }))
     if (extra.length) {
-      core.push({
-        id: 'extension-pages',
-        label: 'Extensions',
-        items: extra,
-      })
+      core.push({ id: 'extension-pages', label: 'Extensions', items: extra })
     }
     return core
   }, [capabilityById, extensionNavItems])
 
   const activeItem = navItemForPath(pathname)
+  const activeGroup = groups.find((group) =>
+    group.items.some((item) => item.id === activeItem?.id),
+  )
   const activeCap = activeItem ? capabilityById.get(activeItem.id) : null
   const pageUnavailable =
     hydrated && activeCap !== null && activeCap?.available === false
+  const groupIndex = activeGroup ? groups.indexOf(activeGroup) : -1
 
-  useEffect(() => {
-    const media = window.matchMedia?.('(prefers-color-scheme: dark)')
-    setSystemPrefersDark(media?.matches ?? false)
-    setThemeMode(readObservatoryThemeMode(window.localStorage))
-    setHydrated(true)
-    if (!media) return
-    const update = () => setSystemPrefersDark(media.matches)
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [])
-
-  useEffect(() => {
-    if (!hydrated) return
-    window.localStorage.setItem(OBSERVATORY_THEME_STORAGE_KEY, themeMode)
-  }, [hydrated, themeMode])
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', resolvedTheme === 'dark')
-    document.documentElement.style.colorScheme = resolvedTheme
-    return () => {
-      document.documentElement.classList.remove('dark')
-      document.documentElement.style.removeProperty('color-scheme')
-    }
-  }, [resolvedTheme])
+  useEffect(() => setHydrated(true), [])
 
   useEffect(() => {
     if (!hydrated || !activeItem) return
@@ -155,10 +108,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         loadCachedResource(
           'observatory:capabilities',
           getObservatoryCapabilities,
-          {
-            force: true,
-            staleMs: 30_000,
-          },
+          { force: true, staleMs: 30_000 },
         ),
         loadCachedResource('observatory:overview', getObservatoryOverview, {
           force: true,
@@ -186,174 +136,120 @@ export function AppShell({ children }: { children: ReactNode }) {
         event.preventDefault()
         setSearchOpen((open) => !open)
       }
-      if (event.key === 'Escape') {
-        setSearchOpen(false)
-        setMobileNavOpen(false)
-      }
+      if (event.key === 'Escape') setSearchOpen(false)
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  useEffect(() => setMobileNavOpen(false), [pathname])
-
-  const sidebar = (
-    <SidebarNav
-      groups={groups}
-      hydrated={hydrated}
-      onNavigate={() => setMobileNavOpen(false)}
-      pathname={pathname}
-    />
-  )
-
   return (
-    <div className="bg-background text-foreground flex h-svh overflow-hidden">
-      {/* Desktop sidebar */}
-      <aside className="bg-sidebar border-sidebar-border hidden w-56 flex-none flex-col border-r md:flex">
-        {sidebar}
+    <div className="bg-paper text-ink flex h-svh overflow-hidden">
+      {/* Left sprocket rail with the active section stamped vertically. */}
+      <aside
+        aria-hidden="true"
+        className="sprocket border-rule-soft bg-band/60 hidden w-9 flex-none flex-col items-center border-r pt-3 sm:flex"
+      >
+        {activeGroup && (
+          <span className="text-ink-soft font-mono text-[9px] font-bold tracking-[0.2em] uppercase [writing-mode:vertical-rl]">
+            SEC.{String(groupIndex + 1).padStart(2, '0')} {activeGroup.label}
+          </span>
+        )}
       </aside>
 
-      {/* Mobile sidebar */}
-      <Sheet onOpenChange={setMobileNavOpen} open={mobileNavOpen}>
-        <SheetContent className="bg-sidebar w-64 border-r p-0" side="left">
-          {sidebar}
-        </SheetContent>
-      </Sheet>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Top bar */}
-        <header className="border-border bg-background/95 supports-backdrop-filter:bg-background/80 flex h-11 flex-none items-center gap-2 border-b px-3 backdrop-blur">
-          <Button
-            aria-label="Open navigation"
-            className="md:hidden"
-            onClick={() => setMobileNavOpen(true)}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <Menu className="size-4" />
-          </Button>
-          <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs">
-            <span className="hidden sm:inline">Observatory</span>
-            <span className="hidden sm:inline">/</span>
-            <span className="text-foreground font-medium">
-              {activeItem?.label ?? 'Page'}
+      {/* The sheet */}
+      <div className="bg-sheet flex min-w-0 flex-1 flex-col">
+        <header className="border-rule-soft flex-none border-b">
+          {/* Report masthead */}
+          <div className="rule-double flex h-11 items-center gap-3 px-4">
+            <Link
+              aria-label="Observatory home"
+              className="flex items-baseline gap-2"
+              to="/"
+            >
+              <span className="stamp text-sm">Phlo Observatory</span>
+              <span className="text-ink-faint hidden font-mono text-[10px] tracking-widest uppercase md:inline">
+                Lakehouse status report
+              </span>
+            </Link>
+            <span className="text-ink-faint hidden font-mono text-[10px] tracking-widest uppercase lg:inline">
+              FORM OBS-{String(Math.max(groupIndex, 0) + 1).padStart(2, '0')}
             </span>
-          </div>
-          <div className="flex-1" />
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger
-                render={<span className="flex items-center gap-1.5" />}
-              >
-                <HealthDot state={health?.state ?? 'unknown'} />
-                <span className="text-muted-foreground hidden font-mono text-[10px] tracking-wide uppercase lg:inline">
-                  {health?.state ?? 'link'}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {health?.message ?? 'Waiting for lakehouse status'}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <button
-            aria-expanded={searchOpen}
-            aria-haspopup="dialog"
-            className="border-input bg-surface-sunken text-muted-foreground hover:border-ring/60 hover:text-foreground flex h-7 w-44 items-center gap-2 rounded-md border px-2 text-xs transition-colors sm:w-56"
-            onClick={() => setSearchOpen(true)}
-            type="button"
-          >
-            <Search className="size-3.5" />
-            <span className="flex-1 text-left">Search</span>
-            <kbd className="border-border text-muted-foreground hidden rounded-sm border px-1 font-mono text-[9px] sm:inline">
-              ⌘K
-            </kbd>
-          </button>
-          <div className="border-border flex items-center rounded-md border p-0.5">
-            {themeModes.map((item) => {
-              const Icon = item.icon
-              const active = themeMode === item.mode
-              return (
-                <button
-                  aria-label={`${item.label} theme`}
-                  aria-pressed={active}
-                  className={cn(
-                    'flex size-6 items-center justify-center rounded-sm transition-colors',
-                    active
-                      ? 'bg-accent text-foreground'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                  key={item.mode}
-                  onClick={() => setThemeMode(item.mode)}
-                  suppressHydrationWarning
-                  title={`${item.label} theme`}
-                  type="button"
+            <div className="flex-1" />
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span className="border-rule-soft flex items-center gap-1.5 border px-1.5 py-0.5" />
+                  }
                 >
-                  <Icon className="size-3" />
-                </button>
-              )
-            })}
+                  <HealthDot state={health?.state ?? 'unknown'} />
+                  <span className="font-mono text-[9px] font-bold tracking-[0.16em] uppercase">
+                    {health?.state ?? 'link'}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {health?.message ?? 'Waiting for lakehouse status'}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <button
+              aria-expanded={searchOpen}
+              aria-haspopup="dialog"
+              className="border-rule-soft hover:border-ink text-ink-soft hover:text-ink flex h-6 items-center gap-1.5 border px-2 font-mono text-[10px] tracking-wider uppercase"
+              onClick={() => setSearchOpen(true)}
+              type="button"
+            >
+              <Search className="size-3" />
+              <span className="hidden sm:inline">Search</span>
+              <kbd className="border-rule-soft hidden border px-0.5 font-mono text-[9px] sm:inline">
+                ⌘K
+              </kbd>
+            </button>
           </div>
-        </header>
 
-        {/* Content */}
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          {pageUnavailable ? (
-            <UnavailablePage label={activeItem?.label ?? 'This page'} />
-          ) : (
-            children
-          )}
-        </main>
-      </div>
-
-      {searchOpen && (
-        <Suspense fallback={null}>
-          <CommandPalette onClose={() => setSearchOpen(false)} />
-        </Suspense>
-      )}
-    </div>
-  )
-}
-
-function SidebarNav({
-  groups,
-  hydrated,
-  onNavigate,
-  pathname,
-}: {
-  groups: Array<{ id: string; label: string; items: Array<NavItem> }>
-  hydrated: boolean
-  onNavigate: () => void
-  pathname: string
-}) {
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <Link
-        aria-label="Observatory home"
-        className="border-sidebar-border flex h-11 flex-none items-center gap-2.5 border-b px-3"
-        to="/"
-      >
-        <span className="bg-primary text-primary-foreground flex size-6 items-center justify-center rounded-sm font-mono text-[11px] font-bold">
-          Φ
-        </span>
-        <span className="flex flex-col leading-none">
-          <span className="text-sidebar-foreground text-xs font-semibold tracking-wide">
-            PHLO
-          </span>
-          <span className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
-            Observatory
-          </span>
-        </span>
-      </Link>
-      <ScrollArea className="min-h-0 flex-1">
-        <nav aria-label="Observatory" className="flex flex-col gap-4 p-2">
-          {groups.map((group) => (
-            <div key={group.id}>
-              <div className="text-muted-foreground px-2 pt-1 pb-1 text-[10px] font-medium tracking-widest uppercase">
-                {group.label}
-              </div>
-              <div className="flex flex-col gap-px">
-                {group.items.map((item) => {
-                  const Icon = item.icon
+          {/* Contents index: numbered sections, then the active section's pages. */}
+          <nav aria-label="Observatory" className="px-4">
+            <div className="scrollbar-thin flex items-center gap-0 overflow-x-auto font-mono text-[10px] font-bold tracking-[0.14em] uppercase">
+              <span className="text-ink-faint mr-3 flex-none py-1.5">
+                Contents
+              </span>
+              {groups.map((group, index) => {
+                const active = group.id === activeGroup?.id
+                const first = group.items[0]
+                return (
+                  <span className="flex flex-none items-center" key={group.id}>
+                    {index > 0 && (
+                      <span className="text-rule-soft mx-1.5">|</span>
+                    )}
+                    {first && (
+                      <Link
+                        aria-current={active ? 'true' : undefined}
+                        className={cn(
+                          'px-1 py-0.5',
+                          active
+                            ? 'overstrike'
+                            : 'text-ink-soft hover:bg-band hover:text-ink',
+                        )}
+                        to={first.path}
+                      >
+                        <span
+                          className={cn('mr-1', active ? '' : 'text-ink-faint')}
+                        >
+                          {String(index + 1).padStart(2, '0')}
+                        </span>
+                        {group.label}
+                      </Link>
+                    )}
+                  </span>
+                )
+              })}
+            </div>
+            {activeGroup && (
+              <div className="scrollbar-thin border-rule-soft flex items-center gap-0 overflow-x-auto border-t border-dashed py-1 font-mono text-[10px] tracking-[0.1em] uppercase">
+                <span className="text-ink-faint mr-3 flex-none">
+                  {'└'.padEnd(2, '─')} {String(groupIndex + 1).padStart(2, '0')}
+                </span>
+                {activeGroup.items.map((item, index) => {
                   const active =
                     hydrated &&
                     (item.path === '/'
@@ -367,32 +263,21 @@ function SidebarNav({
                             <Link
                               aria-current={active ? 'page' : undefined}
                               className={cn(
-                                'relative flex h-7 items-center gap-2 rounded-md px-2 text-xs transition-colors',
+                                'mr-4 flex-none px-1 py-0.5 whitespace-nowrap',
                                 active
-                                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                                  : 'text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
+                                  ? 'overstrike'
+                                  : 'text-ink-soft hover:bg-band hover:text-ink',
                               )}
-                              onClick={onNavigate}
                               to={item.path}
                             />
                           }
                         >
-                          {Icon && (
-                            <Icon
-                              className={cn(
-                                'size-3.5 flex-none',
-                                active
-                                  ? 'text-primary'
-                                  : 'text-muted-foreground',
-                              )}
-                            />
-                          )}
-                          <span className="truncate">{item.label}</span>
-                          {active && (
-                            <span className="bg-primary absolute top-1/2 -left-2 h-3.5 w-0.5 -translate-y-1/2 rounded-full" />
-                          )}
+                          <span className="text-ink-faint mr-1">
+                            {groupIndex + 1}.{index + 1}
+                          </span>
+                          {item.label}
                         </TooltipTrigger>
-                        <TooltipContent side="right">
+                        <TooltipContent side="bottom">
                           {item.description}
                         </TooltipContent>
                       </Tooltip>
@@ -400,16 +285,31 @@ function SidebarNav({
                   )
                 })}
               </div>
-            </div>
-          ))}
-        </nav>
-      </ScrollArea>
-      <Separator />
-      <div className="text-muted-foreground flex h-9 flex-none items-center gap-2 px-3">
-        <span className="font-mono text-[9px] tracking-widest uppercase">
-          Lakehouse mission control
-        </span>
+            )}
+          </nav>
+        </header>
+
+        {/* Sheet body */}
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          {pageUnavailable ? (
+            <UnavailablePage label={activeItem?.label ?? 'This page'} />
+          ) : (
+            children
+          )}
+        </main>
       </div>
+
+      {/* Right sprocket rail */}
+      <aside
+        aria-hidden="true"
+        className="sprocket border-rule-soft bg-band/60 hidden w-9 flex-none border-l sm:block"
+      />
+
+      {searchOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette onClose={() => setSearchOpen(false)} />
+        </Suspense>
+      )}
     </div>
   )
 }
@@ -417,11 +317,9 @@ function SidebarNav({
 function UnavailablePage({ label }: { label: string }) {
   return (
     <div className="flex h-full items-center justify-center p-6">
-      <div className="max-w-sm text-center">
-        <h1 className="text-foreground text-sm font-semibold">
-          {label} is not available
-        </h1>
-        <p className="text-muted-foreground mt-1 text-xs">
+      <div className="border-rule max-w-sm border p-6 text-center">
+        <h1 className="stamp text-ink text-xs">{label} is not available</h1>
+        <p className="text-ink-soft mt-2 font-mono text-[11px]">
           This surface is disabled by the current lakehouse configuration.
           Enable the capability that provides it to bring it online.
         </p>
