@@ -46,13 +46,13 @@ export function HealthDot({
   )
 }
 
-/* State rendered as a tinted band chip — a stamp, not a pill. */
+/* State rendered as a tinted pill chip with a status dot. */
 const badgeClassByState: Record<string, string> = {
   ok: 'bg-status-band-ok text-ok-ink',
   warning: 'bg-status-band-warning text-amber-ink',
   error: 'bg-status-band-error text-print-red',
   info: 'bg-status-band-info text-status-info',
-  unknown: 'bg-band text-ink-faint',
+  unknown: 'bg-hover text-ink-soft',
 }
 
 export function StatusBadge({
@@ -68,7 +68,7 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-[0.14em] uppercase',
+        'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium',
         badgeClassByState[normalized] ?? badgeClassByState.unknown,
         className,
       )}

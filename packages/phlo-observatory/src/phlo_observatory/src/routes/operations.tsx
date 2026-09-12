@@ -234,7 +234,7 @@ export function Operations() {
         >
           <div className="flex flex-wrap items-start justify-between gap-3 border-b px-3 py-3">
             <div className="min-w-0">
-              <span className="text-muted-foreground font-mono text-[10px] uppercase">
+              <span className="text-muted-foreground text-[10px] font-medium uppercase">
                 {humanizeLabel(latest.kind)}
               </span>
               <h2 className="text-foreground mt-0.5 text-base font-semibold">
@@ -524,7 +524,7 @@ function InvestigationPath({
       className="flex flex-col gap-1 px-3 py-3"
     >
       <span className={cn(stepClass, stepCurrent)} data-current="true">
-        <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+        <small className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
           1 · Failure
         </small>
         <strong className="text-foreground text-[11px]">
@@ -536,7 +536,7 @@ function InvestigationPath({
         search={{ runId: operation.id }}
         to="/runs"
       >
-        <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+        <small className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
           2 · Run
         </small>
         <strong className="text-foreground text-[11px]">
@@ -549,7 +549,7 @@ function InvestigationPath({
           search={{ logId: firstLog.id }}
           to="/logs"
         >
-          <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+          <small className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
             3 · Logs
           </small>
           <strong className="text-foreground text-[11px]">
@@ -561,7 +561,7 @@ function InvestigationPath({
           className={cn(stepClass, 'hover:bg-accent/50 transition-colors')}
           to="/logs"
         >
-          <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+          <small className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
             3 · Logs
           </small>
           <strong className="text-foreground text-[11px]">
@@ -574,7 +574,7 @@ function InvestigationPath({
           className={cn(stepClass, 'hover:bg-accent/50 transition-colors')}
           to={targetHref}
         >
-          <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+          <small className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
             4 · Target
           </small>
           <strong className="text-foreground text-[11px]">
@@ -583,7 +583,7 @@ function InvestigationPath({
         </Link>
       ) : (
         <span className={stepClass}>
-          <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+          <small className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
             4 · Target
           </small>
           <strong className="text-foreground text-[11px]">Platform</strong>
@@ -602,7 +602,7 @@ function RecoveryCard({
 }) {
   return (
     <div className="border-border flex flex-col gap-1 border-l-2 px-3 py-1.5">
-      <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
         {label}
       </span>
       {children}
@@ -735,7 +735,7 @@ function WapOperationFocus({ operation }: { operation: ObservatoryOperation }) {
         <SectionCard title="Publish steps">
           <div className="divide-border divide-y">
             <div className="flex flex-col gap-0.5 px-3 py-2">
-              <span className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+              <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
                 Branch
               </span>
               <strong className="text-foreground text-[11px]">
@@ -746,7 +746,7 @@ function WapOperationFocus({ operation }: { operation: ObservatoryOperation }) {
               </span>
             </div>
             <div className="flex flex-col gap-0.5 px-3 py-2">
-              <span className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+              <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
                 Table
               </span>
               <strong className="text-foreground text-[11px]">
@@ -759,7 +759,7 @@ function WapOperationFocus({ operation }: { operation: ObservatoryOperation }) {
               </span>
             </div>
             <div className="flex flex-col gap-0.5 px-3 py-2">
-              <span className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+              <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
                 Publish
               </span>
               <strong className="text-foreground text-[11px]">

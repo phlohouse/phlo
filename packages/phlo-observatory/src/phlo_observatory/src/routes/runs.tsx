@@ -186,7 +186,7 @@ export function Runs() {
                   cells: [
                     <HealthDot state={stateForStatus(run.status)} />,
                     <RunSummary run={run} />,
-                    <span className="font-mono text-[10px] tracking-wide uppercase">
+                    <span className="text-[10px] font-medium tracking-wider uppercase">
                       {run.status}
                     </span>,
                     <span className="text-muted-foreground font-mono text-[10px]">

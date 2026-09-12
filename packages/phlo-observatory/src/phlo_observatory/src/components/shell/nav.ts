@@ -21,11 +21,14 @@ import {
   MonitorCheck,
   Package2,
   Plug,
+  Radio,
   Search,
   Server,
   Settings,
+  Siren,
   Table2,
   UploadCloud,
+  Waypoints,
 } from 'lucide-react'
 
 export interface NavItem {
@@ -44,19 +47,40 @@ export interface NavGroup {
 
 export const NAV_GROUPS: Array<NavGroup> = [
   {
-    id: 'command',
-    label: 'Command',
+    id: 'mission',
+    label: 'Mission',
     items: [
       {
-        id: 'overview',
-        label: 'Overview',
+        id: 'map',
+        label: 'Map',
         path: '/',
-        description: 'Lakehouse health, attention queue, and activity.',
-        icon: LayoutDashboard,
+        description:
+          'The living lakehouse graph — every asset, its state, its flow.',
+        icon: Waypoints,
       },
       {
+        id: 'now',
+        label: 'Now',
+        path: '/now',
+        description: 'Ranked queue of everything needing a human.',
+        icon: Siren,
+      },
+      {
+        id: 'pulse',
+        label: 'Pulse',
+        path: '/pulse',
+        description: 'Live stream of runs and platform events.',
+        icon: Radio,
+      },
+    ],
+  },
+  {
+    id: 'command',
+    label: 'Workspace',
+    items: [
+      {
         id: 'workspace',
-        label: 'Workspace',
+        label: 'Projects',
         path: '/workspace',
         description: 'Authored resources and project objects.',
         icon: FolderKanban,

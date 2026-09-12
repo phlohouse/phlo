@@ -1,7 +1,6 @@
 /**
- * Figures strip: the printed totals line. Cells sit side by side on one
- * banded row divided by vertical rules — not a grid of cards. A figure's
- * `state` tints its cell band; `href` makes the cell navigable.
+ * Figures strip: headline metrics as a grid of elevated cards. A figure's
+ * `state` sets its status dot; `href` makes the card navigable.
  */
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
@@ -15,7 +14,7 @@ const bandByState: Record<string, string> = {
   warning: 'bg-status-band-warning',
   error: 'bg-status-band-error',
   info: 'bg-status-band-info',
-  unknown: 'bg-sheet',
+  unknown: 'bg-panel',
 }
 
 export function StatCard({
@@ -37,26 +36,22 @@ export function StatCard({
   const body = (
     <>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-ink-soft flex items-center gap-1 font-mono text-[9px] font-bold tracking-[0.16em] uppercase">
+        <span className="text-ink-soft flex items-center gap-1.5 text-xs font-medium">
           {icon}
           {label}
         </span>
         {state && <HealthDot className="status-dot-sm" state={state} />}
       </div>
-      <div className="text-ink tabular mt-0.5 font-mono text-xl font-bold">
+      <div className="text-ink tabular text-xl font-semibold tracking-tight">
         {value}
       </div>
-      {note && (
-        <div className="text-ink-faint mt-0.5 truncate font-mono text-[10px]">
-          {note}
-        </div>
-      )}
+      {note && <div className="text-ink-faint truncate text-xs">{note}</div>}
     </>
   )
   const className = cn(
-    'flex min-w-0 flex-1 flex-col px-3 py-2',
+    'border-rule flex min-w-0 flex-1 flex-col gap-1 rounded-xl border px-3.5 py-3 transition-colors',
     band,
-    href && 'hover:bg-band-strong',
+    href && 'hover:border-ink-faint/40 hover:bg-raised',
   )
   if (href) {
     return (
@@ -78,7 +73,7 @@ export function StatGrid({
   return (
     <div
       className={cn(
-        'border-rule bg-sheet divide-rule-soft flex divide-x overflow-x-auto border',
+        'grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6',
         className,
       )}
     >

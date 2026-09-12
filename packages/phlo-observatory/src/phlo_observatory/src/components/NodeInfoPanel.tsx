@@ -94,14 +94,14 @@ export function NodeInfoPanel({
               <ArrowUpRight className="size-4" />
               <span className="text-xs font-medium">Upstream</span>
             </div>
-            <div className="text-xl font-bold">{node.upstreamCount}</div>
+            <div className="text-xl font-semibold">{node.upstreamCount}</div>
           </div>
           <div className="bg-muted/50 border border-border p-3">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
               <ArrowDownLeft className="size-4" />
               <span className="text-xs font-medium">Downstream</span>
             </div>
-            <div className="text-xl font-bold">{node.downstreamCount}</div>
+            <div className="text-xl font-semibold">{node.downstreamCount}</div>
           </div>
         </div>
 

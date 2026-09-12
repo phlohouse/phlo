@@ -485,7 +485,7 @@ function useWorkflowCanvasBuilder(initialSnapshot?: WorkflowBuilderSnapshot) {
                   onClick={() => applyLakehouseTemplate(template)}
                   type="button"
                 >
-                  <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+                  <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
                     {template.domain}
                   </span>
                   <strong className="text-foreground text-xs font-medium">
@@ -730,7 +730,7 @@ function AddStepMenu({
         {groupedContributions.map((group) =>
           group.items.length ? (
             <section key={group.stage}>
-              <h3 className="text-muted-foreground border-border border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+              <h3 className="text-muted-foreground border-border border-b px-3 py-1.5 text-[10px] font-medium tracking-wider uppercase">
                 {STAGE_LABELS[group.stage]}
               </h3>
               <div className="divide-border divide-y">
@@ -849,7 +849,7 @@ function PipelineNode({
         onClick={() => onSelectNode(node.id)}
         type="button"
       >
-        <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+        <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
           {STAGE_LABELS[node.data.stage]}
         </span>
         <strong className="text-foreground text-xs font-medium">

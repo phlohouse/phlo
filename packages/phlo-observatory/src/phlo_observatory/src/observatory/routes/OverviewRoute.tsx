@@ -1,26 +1,19 @@
 /**
- * Mission control overview shared by the index route. Aggregates overview,
- * assets, branches, services, operations, quality, and log data into one
- * reducer-driven snapshot; loadOverviewSnapshotFromApi lets a route loader
- * pre-fetch the full state.
+ * The lakehouse map — home posture. Aggregates overview, assets, datasets,
+ * pipelines, services, operations, quality, and logs into one
+ * reducer-driven snapshot; the graph, attention strip, and selection dock
+ * render from it. Selection lives in the ?node= search param so map state
+ * is shareable. loadOverviewSnapshotFromApi lets the route loader pre-fetch
+ * the full state.
  */
-import {
-  AlertCircle,
-  Boxes,
-  ExternalLink,
-  GitBranch,
-  GitCommitHorizontal,
-  ListChecks,
-  Server,
-  Workflow,
-} from 'lucide-react'
-import { Link } from '@tanstack/react-router'
-import { useEffect, useMemo, useReducer } from 'react'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
+import { useCallback, useEffect, useMemo, useReducer } from 'react'
 
 import type {
   ObservatoryAsset,
-  ObservatoryBranch,
   ObservatoryCapabilities,
+  ObservatoryDataset,
+  ObservatoryDatasetPipeline,
   ObservatoryLogEvent,
   ObservatoryOperation,
   ObservatoryOverview,
@@ -31,38 +24,37 @@ import type {
 } from '@/observatory/api/types'
 import {
   getObservatoryAssetRecords,
-  getObservatoryBranchRecords,
   getObservatoryCapabilities,
+  getObservatoryDatasetRecords,
   getObservatoryLogRecords,
   getObservatoryOperationRecords,
   getObservatoryOverview,
+  getObservatoryPipelineRecords,
   getObservatoryQualityRecords,
   getObservatoryServices,
 } from '@/observatory/api/resources'
 import { loadCachedResource } from '@/observatory/routes/liveResource'
-import { Page, PageHeader } from '@/components/observatory/page'
-import { RowItem, RowList } from '@/components/observatory/resource-list'
-import { SectionCard } from '@/components/observatory/section'
-import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { LakehouseMap } from '@/components/map/lakehouse-map'
+import { buildLakehouseMap } from '@/components/map/map-model'
+import { NodeDock } from '@/components/map/node-dock'
 import {
   HealthDot,
   StatusBadge,
   statusStateFor,
 } from '@/components/observatory/status'
 import { formatRelativeTime } from '@/components/observatory/time'
-import { EmptyBlock } from '@/components/observatory/states'
 import { cn } from '@/lib/utils'
 
 const formatter = new Intl.NumberFormat('en')
-const stageTransitions = ['ingest', 'normalize', 'model', 'publish']
 
 type OverviewState = {
   assets: ObservatoryResourceResult<Array<ObservatoryAsset>>
-  branches: ObservatoryResourceResult<Array<ObservatoryBranch>>
   capabilities: ObservatoryResourceResult<ObservatoryCapabilities> | null
+  datasets: ObservatoryResourceResult<Array<ObservatoryDataset>>
   logs: ObservatoryResourceResult<Array<ObservatoryLogEvent>>
   operations: ObservatoryResourceResult<Array<ObservatoryOperation>>
   overview: ObservatoryResourceResult<ObservatoryOverview>
+  pipelines: ObservatoryResourceResult<Array<ObservatoryDatasetPipeline>>
   quality: ObservatoryResourceResult<Array<ObservatoryQualityCheck>>
   services: ObservatoryResourceResult<Array<ObservatoryService>>
   updatedAt: Date | null
@@ -88,11 +80,12 @@ export function loadOverviewSnapshot(): OverviewSnapshot {
 
   return {
     assets: empty,
-    branches: empty,
     capabilities: null,
+    datasets: empty,
     logs: empty,
     operations: empty,
     overview: pending,
+    pipelines: empty,
     quality: empty,
     services: empty,
     updatedAt: null,
@@ -107,7 +100,8 @@ export async function loadOverviewSnapshotFromApi(): Promise<OverviewSnapshot> {
     assets,
     quality,
     logs,
-    branches,
+    datasets,
+    pipelines,
     capabilities,
   ] = await Promise.all([
     getObservatoryOverview(),
@@ -116,17 +110,19 @@ export async function loadOverviewSnapshotFromApi(): Promise<OverviewSnapshot> {
     getObservatoryAssetRecords(),
     getObservatoryQualityRecords(),
     getObservatoryLogRecords(),
-    getObservatoryBranchRecords(),
+    getObservatoryDatasetRecords(),
+    getObservatoryPipelineRecords(),
     getObservatoryCapabilities(),
   ])
 
   return {
     assets,
-    branches,
     capabilities,
+    datasets,
     logs,
     operations,
     overview,
+    pipelines,
     quality,
     services,
     updatedAt: new Date().toISOString(),
@@ -145,11 +141,12 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
   const [
     {
       assets,
-      branches,
       capabilities,
+      datasets,
       logs,
       operations,
       overview,
+      pipelines,
       quality,
       services,
       updatedAt,
@@ -157,11 +154,12 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
     setOverviewState,
   ] = useReducer(overviewReducer, {
     assets: initialSnapshot?.assets ?? { data: null, error: null },
-    branches: initialSnapshot?.branches ?? { data: null, error: null },
     capabilities: initialSnapshot?.capabilities ?? null,
+    datasets: initialSnapshot?.datasets ?? { data: null, error: null },
     logs: initialSnapshot?.logs ?? { data: null, error: null },
     operations: initialSnapshot?.operations ?? { data: null, error: null },
     overview: initialSnapshot?.overview ?? { data: null, error: null },
+    pipelines: initialSnapshot?.pipelines ?? { data: null, error: null },
     quality: initialSnapshot?.quality ?? { data: null, error: null },
     services: initialSnapshot?.services ?? { data: null, error: null },
     updatedAt: initialSnapshot?.updatedAt
@@ -185,7 +183,8 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
         ['assets', getObservatoryAssetRecords, 60_000],
         ['quality', getObservatoryQualityRecords, 60_000],
         ['logs', getObservatoryLogRecords, 30_000],
-        ['branches', getObservatoryBranchRecords, 60_000],
+        ['datasets', getObservatoryDatasetRecords, 60_000],
+        ['pipelines', getObservatoryPipelineRecords, 60_000],
         ['capabilities', getObservatoryCapabilities, 120_000],
         ['overview', getObservatoryOverview, 30_000],
       ]
@@ -218,29 +217,8 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
   const assetRows = assets.data ?? []
   const qualityRows = quality.data ?? []
   const logRows = logs.data ?? []
-  const branchRows = branches.data ?? []
-  const counters = overview.data?.counters ?? {}
-  const runningServices = useMemo(
-    () =>
-      serviceRows.filter(
-        (service) =>
-          isConfiguredService(service) && service.status === 'running',
-      ).length,
-    [serviceRows],
-  )
-  const configuredServices = useMemo(
-    () => serviceRows.filter(isConfiguredService).length,
-    [serviceRows],
-  )
-  const attentionServices = useMemo(
-    () => serviceRows.filter(serviceNeedsAttention).length,
-    [serviceRows],
-  )
-  const blockingChecks = qualityRows.filter(isBlockingQualityIssue).length
-  const failedOperations = operationRows.filter(
-    (operation) => operation.status === 'failed',
-  ).length
-  const activeBranches = branchRows.filter((branch) => !branch.current).length
+  const datasetRows = datasets.data ?? []
+  const pipelineRows = pipelines.data ?? []
   const hasLakehouseEvidence =
     serviceRows.length > 0 ||
     operationRows.length > 0 ||
@@ -258,21 +236,15 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
     overview.data?.attention && overview.data.attention.length > 0
       ? normalizeOverviewRows(overview.data.attention, fallbackAttentionItems)
       : fallbackAttentionItems
-  const lakehouseStages = useMemo(
-    () => buildLakehouseStages(assetRows, qualityRows),
-    [assetRows, qualityRows],
-  )
-  const fallbackEventStory = useMemo(
-    () => buildEventStory(operationRows, logRows),
-    [logRows, operationRows],
-  )
-  const eventRows =
-    overview.data?.events && overview.data.events.length > 0
-      ? normalizeOverviewRows(overview.data.events, fallbackEventStory.events)
-      : fallbackEventStory.events
-  const integrationLinks = useMemo(
-    () => buildIntegrationLinks(serviceRows),
-    [serviceRows],
+  const mapModel = useMemo(
+    () =>
+      buildLakehouseMap({
+        assets: assetRows,
+        datasets: datasetRows,
+        quality: qualityRows,
+        operations: operationRows,
+      }),
+    [assetRows, datasetRows, qualityRows, operationRows],
   )
   const derivedHealth =
     overview.data?.health ??
@@ -292,325 +264,177 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
     assets.error ??
     quality.error ??
     logs.error ??
-    branches.error ??
+    datasets.error ??
+    pipelines.error ??
     (hasLakehouseEvidence ? null : overview.error)
   const statusLabel =
     derivedHealth?.message ??
     (apiError ? 'Lakehouse API unreachable' : 'Syncing lakehouse state')
   const statusState = derivedHealth?.state ?? (apiError ? 'error' : 'unknown')
 
+  const search = useSearch({ strict: false })
+  const navigate = useNavigate()
+  const selectedId = search.node ?? null
+  const setSelected = useCallback(
+    (id: string | null) => {
+      void navigate({
+        replace: true,
+        search: id ? { node: id } : {},
+        to: '/',
+      })
+    },
+    [navigate],
+  )
+
+  const selectedNode = mapModel.nodes.find((node) => node.id === selectedId)
+  const selectedPipeline = selectedNode
+    ? pipelineRows.find(
+        (pipeline) => pipeline.dataset?.id === selectedNode.datasetId,
+      )
+    : undefined
+  const runningCount = mapModel.nodes.filter(
+    (node) => node.activity === 'running',
+  ).length
+
+  const refresh = () => {
+    for (const field of [
+      'assets',
+      'datasets',
+      'quality',
+      'operations',
+      'pipelines',
+      'overview',
+    ]) {
+      void loadCachedResource(
+        `observatory:${field}`,
+        REFRESH_LOADERS[field] ??
+          (() => Promise.resolve({ data: null, error: null })),
+        { force: true, staleMs: 0 },
+      ).then((next) => {
+        setOverviewState({
+          [field]: next,
+          updatedAt: new Date(),
+        } as Partial<OverviewState>)
+      })
+    }
+  }
+
   return (
-    <Page>
-      <PageHeader
-        actions={
-          <div className="flex items-center gap-2">
-            {updatedAt && (
-              <span className="text-ink-faint font-mono text-[10px]">
-                synced {formatRelativeTime(updatedAt.toISOString())}
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Map command bar: state of the system + posture links. */}
+      <div className="border-rule flex flex-none flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <h1 className="text-ink text-sm font-semibold">Lakehouse map</h1>
+          <StatusBadge label={statusLabel} state={statusState} />
+        </div>
+        <div className="text-ink-faint flex items-center gap-2 text-xs">
+          <span>{formatter.format(mapModel.nodes.length)} nodes</span>
+          <span aria-hidden="true">·</span>
+          <span>{formatter.format(mapModel.edges.length)} edges</span>
+          {runningCount > 0 && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="text-blue">{runningCount} running</span>
+            </>
+          )}
+        </div>
+        <div className="flex-1" />
+        <div className="flex items-center gap-2">
+          {updatedAt && (
+            <span className="text-ink-faint font-mono text-[10px]">
+              synced {formatRelativeTime(updatedAt.toISOString())}
+            </span>
+          )}
+          <Link
+            className="border-rule text-ink-soft hover:border-foreground/25 hover:text-ink inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors"
+            to="/now"
+          >
+            Triage
+            {attentionItems.length > 0 && (
+              <span className="bg-status-band-warning text-amber-ink rounded-full px-1.5 text-[10px] font-semibold">
+                {attentionItems.length}
               </span>
             )}
-            <StatusBadge label={statusLabel} state={statusState} />
+          </Link>
+          <Link
+            className="border-rule text-ink-soft hover:border-foreground/25 hover:text-ink inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors"
+            to="/pulse"
+          >
+            Pulse
+          </Link>
+        </div>
+      </div>
+
+      {/* Attention strip: ranked triage chips, one line, horizontally scrolled. */}
+      {attentionItems.length > 0 && (
+        <div className="border-rule scrollbar-thin flex flex-none gap-2 overflow-x-auto border-b px-4 py-2">
+          {attentionItems.map((item) => (
             <Link
               className={cn(
-                'border-rule hover:bg-band inline-flex h-7 items-center gap-1.5 border px-2.5 font-mono text-[10px] font-bold tracking-[0.1em] uppercase',
+                'flex h-8 flex-none items-center gap-2 rounded-full border px-3 text-xs whitespace-nowrap transition-colors',
+                attentionChipClass(statusStateFor(item.state)),
               )}
-              to="/workflows/new"
+              key={item.id}
+              title={item.reason ?? undefined}
+              to={item.href}
             >
-              <Workflow className="size-3.5" />
-              New workflow
-            </Link>
-          </div>
-        }
-        description="Lakehouse status report — what needs attention, why it matters, and where to go next."
-        title="Overview"
-      />
-
-      {/* Figures line: the report's totals, ruled off as one strip. */}
-      <StatGrid>
-        <StatCard
-          href="/services"
-          icon={<Server className="size-3.5" />}
-          label="Services"
-          note={`${formatter.format(configuredServices)} in stack`}
-          state={attentionServices > 0 ? 'warning' : 'ok'}
-          value={`${formatter.format(runningServices)}`}
-        />
-        <StatCard
-          icon={<AlertCircle className="size-3.5" />}
-          label="Attention"
-          note="Across services, checks, operations"
-          state={attentionItems.length > 0 ? 'warning' : 'ok'}
-          value={formatter.format(attentionItems.length)}
-        />
-        <StatCard
-          href="/lineage"
-          icon={<Boxes className="size-3.5" />}
-          label="Assets"
-          note="Mapped lineage resources"
-          value={counterValue(counters.assets, assetRows.length)}
-        />
-        <StatCard
-          href="/quality"
-          icon={<ListChecks className="size-3.5" />}
-          label="Blocking checks"
-          note={`${formatter.format(qualityRows.length)} checks total`}
-          state={blockingChecks > 0 ? 'error' : 'ok'}
-          value={formatter.format(blockingChecks)}
-        />
-        <StatCard
-          href="/operations"
-          icon={<GitCommitHorizontal className="size-3.5" />}
-          label="Failed ops"
-          note={`${formatter.format(operationRows.length)} operations`}
-          state={failedOperations > 0 ? 'error' : 'ok'}
-          value={formatter.format(failedOperations)}
-        />
-        {featureEnabled(capabilities?.data, 'branches') && (
-          <StatCard
-            href="/branches"
-            icon={<GitBranch className="size-3.5" />}
-            label="Branches"
-            note="Non-default change sets"
-            state={activeBranches > 0 ? 'warning' : 'ok'}
-            value={formatter.format(activeBranches)}
-          />
-        )}
-      </StatGrid>
-
-      {/* Stage track: the pipeline as a printed flow line, tinted by state. */}
-      <SectionCard
-        actions={
-          <span className="text-ink-faint font-mono text-[9px] tracking-[0.14em] uppercase">
-            {formatter.format(
-              lakehouseStages.reduce((sum, stage) => sum + stage.assets, 0),
-            )}{' '}
-            assets
-          </span>
-        }
-        title="Pipeline track"
-      >
-        <div className="border-rule scrollbar-thin flex items-stretch overflow-x-auto border">
-          {lakehouseStages.map((stage, index) => (
-            <Link
-              className={cn(
-                'group flex min-w-40 flex-1 flex-col gap-1.5 px-3 py-2',
-                stageBandClass(stage.state),
-                'hover:bg-band-strong',
-              )}
-              key={stage.id}
-              to={stage.href}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-ink-soft font-mono text-[9px] font-bold tracking-[0.16em] uppercase">
-                  {stageTransitions[index] ?? stage.id}
-                </span>
-                <HealthDot className="status-dot-sm" state={stage.state} />
-              </div>
-              <div className="text-ink text-xs font-bold">{stage.label}</div>
-              <div className="text-ink-soft font-mono text-[10px]">
-                {formatter.format(stage.records)} rec · {stage.assets} assets
-              </div>
-              <div className="text-ink-faint truncate font-mono text-[9px]">
-                {stage.samples.length > 0
-                  ? stage.samples.join(', ')
-                  : 'no datasets mapped'}
-              </div>
+              <HealthDot state={statusStateFor(item.state)} />
+              <span className="text-[10px] font-medium tracking-wide uppercase opacity-70">
+                {item.kind}
+              </span>
+              <span className="max-w-56 truncate font-medium">
+                {item.label}
+              </span>
             </Link>
           ))}
         </div>
-        <div className="text-ink-faint mt-1 flex justify-between font-mono text-[9px] tracking-[0.14em] uppercase">
-          <span>source</span>
-          <span>serving</span>
+      )}
+
+      {/* The map + selection dock. */}
+      <div className="relative flex min-h-0 flex-1">
+        <div className="min-w-0 flex-1">
+          <LakehouseMap
+            model={mapModel}
+            onSelect={(id) => setSelected(id === selectedId ? null : id)}
+            selectedId={selectedId}
+          />
         </div>
-      </SectionCard>
-
-      {/* Attention queue: the sheet's main block of state-tinted bands. */}
-      <SectionCard
-        actions={
-          <span className="text-ink-faint font-mono text-[9px] tracking-[0.14em] uppercase">
-            {attentionItems.length || 'clear'}
-          </span>
-        }
-        description="Ranked by severity: failing checks, failed work, degraded services, error logs."
-        title="Attention queue"
-      >
-        {attentionItems.length > 0 ? (
-          <RowList>
-            {attentionItems.map((item) => (
-              <RowItem
-                badge={item.kind}
-                href={item.href}
-                key={item.id}
-                meta={item.meta}
-                reason={item.reason}
-                state={statusStateFor(item.state)}
-                title={item.label}
-              />
-            ))}
-          </RowList>
-        ) : (
-          <EmptyBlock
-            description="Services, checks, operations, and logs are all nominal."
-            title="Nothing needs attention"
+        {selectedNode && (
+          <NodeDock
+            node={selectedNode}
+            onClose={() => setSelected(null)}
+            onMutated={refresh}
+            pipeline={selectedPipeline ?? null}
           />
         )}
-      </SectionCard>
-
-      {/* Event feed: the printout's running commentary. */}
-      <SectionCard
-        actions={
-          <span className="text-ink-faint font-mono text-[9px] tracking-[0.14em] uppercase">
-            {eventRows.length} lines
-          </span>
-        }
-        description="Latest operations and platform events with evidence links."
-        title="Event feed"
-      >
-        {eventRows.length > 0 ? (
-          <RowList>
-            {eventRows.map((event) => (
-              <RowItem
-                badge={event.kind}
-                href={event.href}
-                key={event.id}
-                meta={event.meta}
-                reason={event.reason}
-                state={statusStateFor(event.state)}
-                title={event.label}
-              />
-            ))}
-          </RowList>
-        ) : (
-          <EmptyBlock title="No events yet" />
-        )}
-      </SectionCard>
-
-      {/* Workbenches: external consoles printed as index lines. */}
-      <SectionCard
-        actions={
-          <span className="text-ink-faint font-mono text-[9px] tracking-[0.14em] uppercase">
-            {integrationLinks.length} consoles
-          </span>
-        }
-        description="Native consoles exposed by running services."
-        title="Workbenches"
-      >
-        {integrationLinks.length > 0 ? (
-          <RowList>
-            {integrationLinks.map((link) => (
-              <a
-                className="band band-hover flex h-7 items-center gap-2.5 px-3"
-                href={link.url}
-                key={`${link.service}:${link.label}:${link.url}`}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <span className="text-ink w-16 flex-none truncate font-mono text-[11px] font-bold">
-                  {link.label}
-                </span>
-                <span className="text-ink-soft hidden truncate font-mono text-[10px] md:inline">
-                  {link.description} · {link.host}
-                </span>
-                <span className="flex-1" />
-                <ExternalLink className="text-ink-faint size-3 flex-none" />
-              </a>
-            ))}
-          </RowList>
-        ) : (
-          <EmptyBlock
-            description="Workbench links appear once services are running."
-            title="No workbenches available"
-          />
-        )}
-      </SectionCard>
-    </Page>
+      </div>
+    </div>
   )
 }
 
-function stageBandClass(state: string): string {
+const REFRESH_LOADERS: Record<
+  string,
+  () => Promise<ObservatoryResourceResult<unknown>>
+> = {
+  assets: getObservatoryAssetRecords,
+  datasets: getObservatoryDatasetRecords,
+  operations: getObservatoryOperationRecords,
+  overview: getObservatoryOverview,
+  pipelines: getObservatoryPipelineRecords,
+  quality: getObservatoryQualityRecords,
+}
+
+function attentionChipClass(state: string): string {
   switch (state) {
     case 'error':
-      return 'bg-status-band-error'
+      return 'border-print-red/30 bg-status-band-error text-print-red'
     case 'warning':
-      return 'bg-status-band-warning'
+      return 'border-amber-ink/30 bg-status-band-warning text-amber-ink'
     case 'ok':
-      return 'bg-status-band-ok'
+      return 'border-ok-ink/30 bg-status-band-ok text-ok-ink'
     default:
-      return 'bg-sheet'
+      return 'border-rule bg-raised text-ink-soft'
   }
-}
-
-function buildLakehouseStages(
-  assets: Array<ObservatoryAsset>,
-  quality: Array<ObservatoryQualityCheck>,
-) {
-  const stageOrder = ['source', 'bronze', 'silver', 'gold', 'serving']
-  const stages = new Map(
-    stageOrder.map((stage) => [
-      stage,
-      {
-        id: stage,
-        label: stageLabel(stage),
-        assets: 0,
-        datasets: 0,
-        records: 0,
-        blocking: 0,
-        state: 'unknown' as 'ok' | 'warning' | 'error' | 'unknown',
-        href: stage === 'serving' ? '/apis' : '/datasets',
-        weight: 8,
-        samples: [] as Array<string>,
-      },
-    ]),
-  )
-  const qualityByAsset = new Map<string, Array<ObservatoryQualityCheck>>()
-  for (const check of quality) {
-    const checks = qualityByAsset.get(check.asset_id)
-    if (checks) {
-      checks.push(check)
-    } else {
-      qualityByAsset.set(check.asset_id, [check])
-    }
-  }
-
-  for (const asset of assets) {
-    const stageId = inferStage(asset)
-    const stage =
-      stages.get(stageId) ??
-      stages.get(stageId.replace('analytics', 'gold')) ??
-      stages.get('gold')
-    if (!stage) continue
-
-    const records = readNumber(asset.metadata.records)
-    const tables = asset.kinds.some((kind) =>
-      ['table', 'dataset', 'analytics'].includes(kind),
-    )
-      ? 1
-      : 0
-    const checks = qualityByAsset.get(asset.id) ?? []
-    const hasFailingCheck = checks.some((check) => check.status === 'failing')
-    const hasWarningCheck = checks.some((check) => check.status === 'warning')
-    const blockingChecks = checks.filter(isBlockingQualityIssue).length
-    stage.assets += 1
-    stage.datasets += tables
-    stage.records += records
-    stage.blocking += blockingChecks
-    if (stage.samples.length < 3) stage.samples.push(asset.name)
-    if (hasFailingCheck) stage.state = 'error'
-    else if (hasWarningCheck && stage.state !== 'error') {
-      stage.state = 'warning'
-    } else if (stage.state === 'unknown') {
-      stage.state = 'ok'
-    }
-  }
-
-  const maxRecords = Math.max(
-    1,
-    ...Array.from(stages.values()).map((stage) => stage.records),
-  )
-  return Array.from(stages.values()).map((stage) => ({
-    ...stage,
-    weight: Math.max(8, Math.round((stage.records / maxRecords) * 100)),
-  }))
 }
 
 export function buildEventStory(
@@ -716,7 +540,7 @@ function isFrontPageLog(log: ObservatoryLogEvent): boolean {
   return !isNoisyLog(log) && Boolean(log.resource)
 }
 
-function isNoisyLog(log: ObservatoryLogEvent): boolean {
+export function isNoisyLog(log: ObservatoryLogEvent): boolean {
   const message = log.message.toLowerCase()
   const source = log.source?.toLowerCase() ?? ''
   const event = String(log.metadata?.event ?? '').toLowerCase()
@@ -737,126 +561,6 @@ function isNoisyLog(log: ObservatoryLogEvent): boolean {
       source.includes(needle) ||
       event.includes(needle),
   )
-}
-
-function buildIntegrationLinks(services: Array<ObservatoryService>) {
-  const browserWorkbenches = new Map<
-    string,
-    {
-      label: string
-      path?: string
-      preferredPortLabel?: string
-      preferredLink?: 'first' | 'last'
-      requiresRunning?: boolean
-    }
-  >([
-    ['observatory', { label: 'Observatory', requiresRunning: true }],
-    [
-      'hasura',
-      { label: 'Hasura console', path: '/console', requiresRunning: true },
-    ],
-    ['phlo-api', { label: 'API docs', path: '/docs', requiresRunning: true }],
-    ['dagster', { label: 'Dagster UI', requiresRunning: true }],
-    ['grafana', { label: 'Grafana', requiresRunning: true }],
-    ['superset', { label: 'Superset', requiresRunning: true }],
-    [
-      'minio',
-      {
-        label: 'Object browser',
-        preferredLink: 'last',
-        requiresRunning: true,
-      },
-    ],
-    ['pgweb', { label: 'Postgres browser', requiresRunning: true }],
-    ['openmetadata', { label: 'OpenMetadata', requiresRunning: true }],
-    ['trino', { label: 'Trino UI', requiresRunning: true }],
-  ])
-
-  return services
-    .flatMap((service) => {
-      const workbench = browserWorkbenches.get(service.id)
-      if (!workbench) return []
-      if (workbench.requiresRunning && service.status !== 'running') return []
-      const firstLink = chooseWorkbenchLink(
-        service.links,
-        workbench.preferredPortLabel,
-        workbench.preferredLink,
-      )
-      if (!firstLink?.url) return []
-      return [
-        {
-          service: service.name,
-          label: workbench.label,
-          status: service.status,
-          url: withPath(firstLink.url, workbench.path),
-          host: readableHost(firstLink.url),
-          description: describeWorkbench(service.id),
-          initials: serviceInitials(service.name),
-        },
-      ]
-    })
-    .slice(0, 6)
-}
-
-function chooseWorkbenchLink(
-  links: Array<ObservatoryService['links'][number]>,
-  preferredPortLabel?: string,
-  preferredLink: 'first' | 'last' = 'first',
-) {
-  if (!links.length) return null
-
-  const preferred = preferredPortLabel
-    ? links.find((link) => link.label === preferredPortLabel)
-    : null
-  const projectLink = preferredLink === 'last' ? links.at(-1) : links[0]
-
-  return preferred ?? projectLink ?? links[0]
-}
-
-function describeWorkbench(serviceId: string): string {
-  const descriptions: Record<string, string> = {
-    dagster: 'Pipeline runs and schedules',
-    grafana: 'Metrics and service dashboards',
-    hasura: 'Metadata graph and API console',
-    minio: 'Lakehouse object storage',
-    observatory: 'Current Phlo control plane',
-    openmetadata: 'Catalog and ownership',
-    'phlo-api': 'Phlo API contract and probes',
-    pgweb: 'Postgres metadata browser',
-    superset: 'Analytics workspace',
-    trino: 'Distributed SQL console',
-  }
-  return descriptions[serviceId] ?? 'Native service workbench'
-}
-
-function readableHost(url: string): string {
-  try {
-    return new URL(url).host
-  } catch {
-    return url.replace(/^https?:\/\//, '')
-  }
-}
-
-function serviceInitials(name: string): string {
-  const words = name.replace(/[-_]/g, ' ').trim().split(/\s+/)
-  if (words.length === 0 || !words[0]) return 'PH'
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
-  return words
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join('')
-    .toUpperCase()
-}
-
-function withPath(url: string, path?: string): string {
-  if (!path) return url
-  try {
-    const parsed = new URL(url)
-    parsed.pathname = path
-    return parsed.toString()
-  } catch {
-    return url
-  }
 }
 
 function failureReason(operation: ObservatoryOperation): string | undefined {
@@ -882,49 +586,6 @@ function firstTextMetric(
     if (typeof value === 'string' && value.trim()) return value
   }
   return undefined
-}
-
-function inferStage(asset: ObservatoryAsset): string {
-  const raw = [
-    asset.group,
-    asset.id,
-    asset.name,
-    asset.metadata.stage,
-    asset.metadata.namespace,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase()
-  if (raw.includes('bronze') || raw.includes('raw')) return 'bronze'
-  if (raw.includes('silver') || raw.includes('clean')) return 'silver'
-  if (
-    raw.includes('gold') ||
-    raw.includes('analytics') ||
-    raw.includes('mart')
-  ) {
-    return 'gold'
-  }
-  if (
-    raw.includes('serving') ||
-    raw.includes('api') ||
-    raw.includes('publish')
-  ) {
-    return 'serving'
-  }
-  return raw.includes('source') || raw.includes('input') ? 'source' : 'gold'
-}
-
-function readNumber(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0
-}
-
-function stageLabel(stage: string): string {
-  return stage.charAt(0).toUpperCase() + stage.slice(1)
-}
-
-function counterValue(primary?: number, fallback?: number): string {
-  const value = typeof fallback === 'number' ? fallback : primary
-  return typeof value === 'number' ? formatter.format(value) : '--'
 }
 
 export function buildAttentionItems({
@@ -1161,14 +822,6 @@ function qualityAttentionReason(check: ObservatoryQualityCheck): string {
     return 'Open triage and collect fresh quality evidence.'
   }
   return 'Open quality evidence.'
-}
-
-function featureEnabled(
-  capabilities: ObservatoryCapabilities | null | undefined,
-  key: string,
-): boolean {
-  if (!capabilities) return true
-  return capabilities.features[key] !== false
 }
 
 function serviceNeedsAttention(service: ObservatoryService): boolean {

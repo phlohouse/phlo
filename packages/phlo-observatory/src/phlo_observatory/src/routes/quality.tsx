@@ -240,7 +240,7 @@ export function Quality() {
                     />
                   </FactGrid>
                   <div className="border-border flex flex-col gap-0.5 border-l-2 px-3 py-1.5">
-                    <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+                    <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
                       Next action
                     </span>
                     <strong className="text-foreground text-[11px]">
@@ -486,7 +486,7 @@ function DatasetReadinessContext({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+        <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
           Dataset readiness
         </span>
         {target ? (
@@ -621,7 +621,7 @@ function EvidenceCard({
 }) {
   const content = (
     <>
-      <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
         {label}
       </span>
       <span className="text-foreground text-[11px] font-medium break-all">
@@ -700,7 +700,7 @@ function QualityEvidence({
           params={{ datasetId: target.id }}
           to="/datasets/$datasetId"
         >
-          <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+          <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
             Dataset profile
           </span>
           <span className="text-foreground text-[11px] font-medium">
@@ -715,7 +715,7 @@ function QualityEvidence({
           className="border-border hover:bg-accent/50 flex flex-col gap-0.5 border-l-2 px-3 py-1.5 transition-colors"
           href={qualityLineageHref(selected)}
         >
-          <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+          <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
             Source binding
           </span>
           <span className="text-foreground text-[11px] font-medium break-all">
@@ -989,7 +989,7 @@ function WorkbenchCell({
 }) {
   const content = (
     <>
-      <span className="text-muted-foreground flex items-center gap-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+      <span className="text-muted-foreground flex items-center gap-1.5 text-[10px] font-medium tracking-wider uppercase">
         {icon}
         {label}
       </span>

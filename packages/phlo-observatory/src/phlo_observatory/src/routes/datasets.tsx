@@ -660,7 +660,7 @@ function DatasetList({
 
   return (
     <ScrollArea className="min-h-0 flex-1">
-      <div className="text-muted-foreground grid grid-cols-[minmax(0,1.5fr)_7rem_minmax(0,6rem)_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase max-lg:grid-cols-[minmax(0,1.5fr)_7rem_minmax(0,1fr)]">
+      <div className="text-muted-foreground grid grid-cols-[minmax(0,1.5fr)_7rem_minmax(0,6rem)_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 text-[10px] font-medium tracking-wider uppercase max-lg:grid-cols-[minmax(0,1.5fr)_7rem_minmax(0,1fr)]">
         <span>Dataset</span>
         <span>Status</span>
         <span className="max-lg:hidden">Owner</span>

@@ -150,7 +150,7 @@ export function Ingestion() {
         }
         list={
           <SectionCard className="ring-0" title="Ingestion queue">
-            <div className="text-muted-foreground grid grid-cols-[auto_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+            <div className="text-muted-foreground grid grid-cols-[auto_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 text-[10px] font-medium tracking-wider uppercase">
               <span />
               <span>Dataset</span>
               <span>Pipeline state</span>

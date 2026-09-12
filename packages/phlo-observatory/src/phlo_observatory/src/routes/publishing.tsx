@@ -280,7 +280,7 @@ export function Publishing() {
               />
             ) : promoted.length ? (
               <>
-                <div className="text-muted-foreground grid grid-cols-[minmax(0,1fr)_7rem_6rem_4rem_10rem] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+                <div className="text-muted-foreground grid grid-cols-[minmax(0,1fr)_7rem_6rem_4rem_10rem] gap-3 border-b px-3 py-1.5 text-[10px] font-medium tracking-wider uppercase">
                   <span>Dataset</span>
                   <span>Owner</span>
                   <span>Approval</span>

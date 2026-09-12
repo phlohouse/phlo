@@ -317,7 +317,7 @@ export function Logs() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="text-muted-foreground grid grid-cols-[8rem_5.5rem_minmax(0,1fr)_9rem] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase max-lg:grid-cols-[6rem_4.5rem_minmax(0,1fr)]">
+            <div className="text-muted-foreground grid grid-cols-[8rem_5.5rem_minmax(0,1fr)_9rem] gap-3 border-b px-3 py-1.5 text-[10px] font-medium tracking-wider uppercase max-lg:grid-cols-[6rem_4.5rem_minmax(0,1fr)]">
               <span>Time</span>
               <span>Level</span>
               <span>Message</span>
@@ -493,7 +493,7 @@ function LogLine({
       </span>
       <span
         className={cn(
-          'flex items-center gap-1 font-mono text-[10px] uppercase',
+          'flex items-center gap-1 text-[10px] font-medium uppercase',
           log.level === 'error' && 'text-status-error',
           log.level === 'warning' && 'text-status-warning',
           log.level === 'info' && 'text-status-info',

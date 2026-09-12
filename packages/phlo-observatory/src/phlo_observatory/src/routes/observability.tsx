@@ -244,7 +244,7 @@ export function Observability() {
         inspectorWidth="w-[24rem]"
         list={
           <SectionCard className="ring-0" title="Providers">
-            <div className="text-muted-foreground grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+            <div className="text-muted-foreground grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 text-[10px] font-medium tracking-wider uppercase">
               <span>Provider</span>
               <span>Capability</span>
               <span>Required services</span>

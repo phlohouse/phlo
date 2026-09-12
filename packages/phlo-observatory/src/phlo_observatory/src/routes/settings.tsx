@@ -1122,7 +1122,7 @@ function CacheMetric({
 }) {
   return (
     <div className={cn('flex flex-col gap-0.5 px-3 py-2')}>
-      <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
         {label}
       </span>
       <strong className="text-foreground truncate font-mono text-[11px]">

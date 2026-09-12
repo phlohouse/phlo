@@ -10,7 +10,7 @@ function Empty({ className, ...props }: ComponentProps<'div'>) {
     <div
       data-slot="empty"
       className={cn(
-        'border-rule-soft mx-auto flex max-w-lg flex-col items-center justify-center gap-2 border border-dashed px-6 py-8 text-center',
+        'border-rule mx-auto flex max-w-lg flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center',
         className,
       )}
       {...props}
@@ -23,7 +23,7 @@ function EmptyIcon({ className, ...props }: ComponentProps<'div'>) {
     <div
       data-slot="empty-icon"
       className={cn(
-        'text-muted-foreground [&_svg]:size-5 flex items-center justify-center',
+        'text-ink-faint bg-raised border-rule [&_svg]:size-4 flex size-8 items-center justify-center rounded-lg border',
         className,
       )}
       {...props}
@@ -35,7 +35,7 @@ function EmptyTitle({ className, ...props }: ComponentProps<'div'>) {
   return (
     <div
       data-slot="empty-title"
-      className={cn('stamp text-ink text-[11px]', className)}
+      className={cn('text-ink text-sm font-medium', className)}
       {...props}
     />
   )

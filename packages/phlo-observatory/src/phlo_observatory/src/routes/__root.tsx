@@ -103,12 +103,9 @@ function RootLayout() {
 function NotFound() {
   return (
     <div className="flex h-full items-center justify-center p-6">
-      <div className="border-rule-soft max-w-sm border border-dashed p-6 text-center">
-        <p className="text-ink-faint font-mono text-[10px] tracking-[0.2em] uppercase">
-          — end of form —
-        </p>
-        <h1 className="stamp text-ink mt-2 text-sm">Page not found</h1>
-        <p className="text-ink-soft mt-1 font-mono text-[11px]">
+      <div className="bg-panel border-rule max-w-sm rounded-xl border p-6 text-center">
+        <h1 className="text-ink text-sm font-semibold">Page not found</h1>
+        <p className="text-ink-soft mt-1 text-xs">
           This Observatory surface does not exist.
         </p>
         <Link

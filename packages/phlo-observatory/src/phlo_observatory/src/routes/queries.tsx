@@ -346,7 +346,7 @@ function QueryResults({ result }: { result: ObservatoryQueryResult | null }) {
           <tr>
             {result.columns.map((column) => (
               <th
-                className="text-muted-foreground border-b px-3 py-1.5 font-mono text-[10px] font-medium tracking-widest uppercase"
+                className="text-muted-foreground border-b px-3 py-1.5 text-[10px] font-medium tracking-wider uppercase"
                 key={column}
               >
                 {column}
