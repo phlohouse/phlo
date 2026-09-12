@@ -9,30 +9,30 @@ import type { VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  "focus-visible:border-ink focus-visible:ring-ink/30 aria-invalid:ring-print-red/30 aria-invalid:border-print-red rounded-none border border-transparent bg-clip-padding font-mono text-[11px] font-bold tracking-[0.1em] uppercase focus-visible:ring-1 aria-invalid:ring-1 [&_svg:not([class*='size-'])]:size-4 inline-flex items-center justify-center whitespace-nowrap disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none shrink-0 [&_svg]:shrink-0 outline-none group/button select-none",
+  "focus-visible:ring-ring/50 aria-invalid:ring-destructive/30 aria-invalid:border-destructive rounded-lg border border-transparent bg-clip-padding text-xs font-medium focus-visible:ring-2 aria-invalid:ring-1 [&_svg:not([class*='size-'])]:size-4 inline-flex items-center justify-center whitespace-nowrap disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none shrink-0 [&_svg]:shrink-0 outline-none group/button select-none transition-colors",
   {
     variants: {
       variant: {
-        default: 'bg-ink text-paper [a]:hover:bg-ink/85',
+        default: 'bg-blue text-white [a]:hover:bg-blue/90',
         outline:
-          'border-rule-soft bg-sheet hover:bg-band hover:text-ink aria-expanded:bg-band aria-expanded:text-ink',
+          'border-rule bg-raised hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink',
         secondary:
-          'bg-band text-ink hover:bg-band-strong aria-expanded:bg-band aria-expanded:text-ink',
+          'bg-hover text-ink hover:bg-selected aria-expanded:bg-selected aria-expanded:text-ink',
         ghost:
-          'hover:bg-band hover:text-ink aria-expanded:bg-band aria-expanded:text-ink',
+          'hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink',
         destructive:
-          'bg-print-red text-paper hover:bg-print-red/90 focus-visible:ring-print-red/30 focus-visible:border-print-red/50',
-        link: 'text-ink underline underline-offset-4 hover:decoration-2',
+          'bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/40',
+        link: 'text-link underline-offset-4 hover:underline',
       },
       size: {
         default:
-          'h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
-        xs: "h-6 gap-1 rounded-none px-2 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 rounded-none px-2.5 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: 'h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3',
+          'h-8 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
+        xs: "h-6 gap-1 rounded-md px-2 text-[11px] has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-7 gap-1 rounded-md px-2.5 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: 'h-9 gap-1.5 rounded-lg px-3.5 text-sm has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3',
         icon: 'size-8',
-        'icon-xs': "size-6 rounded-none [&_svg:not([class*='size-'])]:size-3",
-        'icon-sm': 'size-7 rounded-none',
+        'icon-xs': "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
+        'icon-sm': 'size-7 rounded-md',
         'icon-lg': 'size-9',
       },
     },

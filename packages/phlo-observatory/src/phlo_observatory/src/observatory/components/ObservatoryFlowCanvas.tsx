@@ -7,6 +7,7 @@ import { useCallback, useMemo } from 'react'
 
 import {
   Background,
+  BackgroundVariant,
   Controls,
   Handle,
   MarkerType,
@@ -88,43 +89,53 @@ const kindIcon = {
 } satisfies Record<ObservatoryFlowNodeKind, typeof Database>
 
 const kindTone: Record<ObservatoryFlowNodeKind, string> = {
-  asset: 'text-primary',
+  asset: 'text-blue',
   table: 'text-status-info',
   quality: 'text-status-ok',
   operation: 'text-status-warning',
   branch: 'text-status-info',
-  service: 'text-muted-foreground',
+  service: 'text-ink-faint',
 }
 
-const handleClass =
-  '!size-1.5 !border-0 !bg-muted-foreground/60 !min-w-0 !min-h-0'
+const handleStyle = {
+  width: 6,
+  height: 6,
+  border: 0,
+  minWidth: 0,
+  minHeight: 0,
+  background: 'var(--ink-faint)',
+}
 
 function FlowNode({ data, selected }: NodeProps<Node<FlowNodeData, 'phlo'>>) {
   const Icon = kindIcon[data.kind]
 
   return (
     <>
-      <Handle type="target" position={Position.Left} className={handleClass} />
+      <Handle position={Position.Left} style={handleStyle} type="target" />
       <div
         className={cn(
-          'bg-card ring-foreground/15 hover:ring-foreground/30 w-44 cursor-pointer px-2.5 py-2 ring-1 transition-shadow',
-          selected && 'ring-primary ring-2',
+          'bg-panel border-rule hover:border-ink-faint/50 w-44 cursor-pointer rounded-xl border px-2.5 py-2 transition-colors',
+          selected && 'border-blue ring-blue/40 ring-1',
         )}
       >
         <div className="flex items-center gap-1.5">
           <span className={cn('flex-none', kindTone[data.kind])}>
             <Icon className="size-3.5" />
           </span>
-          <span className="text-foreground truncate text-[11px] font-medium">
+          <span className="text-ink truncate text-[11px] font-medium">
             {data.label}
           </span>
         </div>
-        <div className="text-muted-foreground mt-1 flex items-center justify-between gap-2 font-mono text-[9px] tracking-wide uppercase">
+        <div className="text-ink-faint mt-1 flex items-center justify-between gap-2 text-[9px] tracking-wide uppercase">
           <span className="truncate">{data.lane}</span>
-          {data.metric && <span className="flex-none">{data.metric}</span>}
+          {data.metric && (
+            <span className="flex-none font-mono normal-case">
+              {data.metric}
+            </span>
+          )}
         </div>
       </div>
-      <Handle type="source" position={Position.Right} className={handleClass} />
+      <Handle position={Position.Right} style={handleStyle} type="source" />
     </>
   )
 }
@@ -231,9 +242,10 @@ function ObservatoryFlowCanvasInstance({
   )
 
   return (
-    <div className="bg-surface-sunken h-full min-h-80 w-full">
+    <div className="bg-canvas h-full min-h-80 w-full">
       {nodes.length > 0 ? (
         <ReactFlow
+          colorMode="dark"
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
@@ -246,11 +258,16 @@ function ObservatoryFlowCanvasInstance({
           maxZoom={1.8}
           proOptions={{ hideAttribution: true }}
         >
-          <Background color="var(--border)" gap={20} />
-          <Controls showInteractive={false} />
+          <Background
+            color="rgba(255,255,255,0.13)"
+            gap={22}
+            size={1}
+            variant={BackgroundVariant.Dots}
+          />
+          <Controls position="bottom-left" showInteractive={false} />
         </ReactFlow>
       ) : (
-        <div className="text-muted-foreground flex h-full min-h-80 flex-col items-center justify-center gap-2">
+        <div className="text-ink-faint flex h-full min-h-80 flex-col items-center justify-center gap-2">
           <Database className="size-4" />
           <span className="text-xs">No dependencies yet</span>
         </div>

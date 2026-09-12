@@ -21,10 +21,12 @@ import { Route as GovernanceRouteImport } from './routes/governance'
 import { Route as IngestionRouteImport } from './routes/ingestion'
 import { Route as LineageRouteImport } from './routes/lineage'
 import { Route as LogsRouteImport } from './routes/logs'
+import { Route as NowRouteImport } from './routes/now'
 import { Route as ObservabilityRouteImport } from './routes/observability'
 import { Route as OperationsRouteImport } from './routes/operations'
 import { Route as PipelinesRouteImport } from './routes/pipelines'
 import { Route as PublishingRouteImport } from './routes/publishing'
+import { Route as PulseRouteImport } from './routes/pulse'
 import { Route as QualityRouteImport } from './routes/quality'
 import { Route as QueriesRouteImport } from './routes/queries'
 import { Route as QueryHistoryRouteImport } from './routes/query-history'
@@ -101,6 +103,11 @@ const LogsRoute = LogsRouteImport.update({
   path: '/logs',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NowRoute = NowRouteImport.update({
+  id: '/now',
+  path: '/now',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ObservabilityRoute = ObservabilityRouteImport.update({
   id: '/observability',
   path: '/observability',
@@ -119,6 +126,11 @@ const PipelinesRoute = PipelinesRouteImport.update({
 const PublishingRoute = PublishingRouteImport.update({
   id: '/publishing',
   path: '/publishing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PulseRoute = PulseRouteImport.update({
+  id: '/pulse',
+  path: '/pulse',
   getParentRoute: () => rootRouteImport,
 } as any)
 const QualityRoute = QualityRouteImport.update({
@@ -211,10 +223,12 @@ export interface FileRoutesByFullPath {
   '/ingestion': typeof IngestionRoute
   '/lineage': typeof LineageRoute
   '/logs': typeof LogsRoute
+  '/now': typeof NowRoute
   '/observability': typeof ObservabilityRoute
   '/operations': typeof OperationsRoute
   '/pipelines': typeof PipelinesRoute
   '/publishing': typeof PublishingRoute
+  '/pulse': typeof PulseRoute
   '/quality': typeof QualityRoute
   '/queries': typeof QueriesRoute
   '/query-history': typeof QueryHistoryRoute
@@ -244,10 +258,12 @@ export interface FileRoutesByTo {
   '/ingestion': typeof IngestionRoute
   '/lineage': typeof LineageRoute
   '/logs': typeof LogsRoute
+  '/now': typeof NowRoute
   '/observability': typeof ObservabilityRoute
   '/operations': typeof OperationsRoute
   '/pipelines': typeof PipelinesRoute
   '/publishing': typeof PublishingRoute
+  '/pulse': typeof PulseRoute
   '/quality': typeof QualityRoute
   '/queries': typeof QueriesRoute
   '/query-history': typeof QueryHistoryRoute
@@ -278,10 +294,12 @@ export interface FileRoutesById {
   '/ingestion': typeof IngestionRoute
   '/lineage': typeof LineageRoute
   '/logs': typeof LogsRoute
+  '/now': typeof NowRoute
   '/observability': typeof ObservabilityRoute
   '/operations': typeof OperationsRoute
   '/pipelines': typeof PipelinesRoute
   '/publishing': typeof PublishingRoute
+  '/pulse': typeof PulseRoute
   '/quality': typeof QualityRoute
   '/queries': typeof QueriesRoute
   '/query-history': typeof QueryHistoryRoute
@@ -313,10 +331,12 @@ export interface FileRouteTypes {
     | '/ingestion'
     | '/lineage'
     | '/logs'
+    | '/now'
     | '/observability'
     | '/operations'
     | '/pipelines'
     | '/publishing'
+    | '/pulse'
     | '/quality'
     | '/queries'
     | '/query-history'
@@ -346,10 +366,12 @@ export interface FileRouteTypes {
     | '/ingestion'
     | '/lineage'
     | '/logs'
+    | '/now'
     | '/observability'
     | '/operations'
     | '/pipelines'
     | '/publishing'
+    | '/pulse'
     | '/quality'
     | '/queries'
     | '/query-history'
@@ -379,10 +401,12 @@ export interface FileRouteTypes {
     | '/ingestion'
     | '/lineage'
     | '/logs'
+    | '/now'
     | '/observability'
     | '/operations'
     | '/pipelines'
     | '/publishing'
+    | '/pulse'
     | '/quality'
     | '/queries'
     | '/query-history'
@@ -413,10 +437,12 @@ export interface RootRouteChildren {
   IngestionRoute: typeof IngestionRoute
   LineageRoute: typeof LineageRoute
   LogsRoute: typeof LogsRoute
+  NowRoute: typeof NowRoute
   ObservabilityRoute: typeof ObservabilityRoute
   OperationsRoute: typeof OperationsRoute
   PipelinesRoute: typeof PipelinesRoute
   PublishingRoute: typeof PublishingRoute
+  PulseRoute: typeof PulseRoute
   QualityRoute: typeof QualityRoute
   QueriesRoute: typeof QueriesRoute
   QueryHistoryRoute: typeof QueryHistoryRoute
@@ -517,6 +543,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LogsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/now': {
+      id: '/now'
+      path: '/now'
+      fullPath: '/now'
+      preLoaderRoute: typeof NowRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/observability': {
       id: '/observability'
       path: '/observability'
@@ -543,6 +576,13 @@ declare module '@tanstack/react-router' {
       path: '/publishing'
       fullPath: '/publishing'
       preLoaderRoute: typeof PublishingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pulse': {
+      id: '/pulse'
+      path: '/pulse'
+      fullPath: '/pulse'
+      preLoaderRoute: typeof PulseRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/quality': {
@@ -701,10 +741,12 @@ const rootRouteChildren: RootRouteChildren = {
   IngestionRoute: IngestionRoute,
   LineageRoute: LineageRoute,
   LogsRoute: LogsRoute,
+  NowRoute: NowRoute,
   ObservabilityRoute: ObservabilityRoute,
   OperationsRoute: OperationsRoute,
   PipelinesRoute: PipelinesRoute,
   PublishingRoute: PublishingRoute,
+  PulseRoute: PulseRoute,
   QualityRoute: QualityRoute,
   QueriesRoute: QueriesRoute,
   QueryHistoryRoute: QueryHistoryRoute,

@@ -725,7 +725,7 @@ function SummaryCell({
 }) {
   return (
     <div className="flex flex-col gap-0.5 px-3 py-2">
-      <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
         {label}
       </span>
       <strong className="text-foreground truncate font-mono text-[11px]">
@@ -765,7 +765,7 @@ function TableEvidenceBand({
     >
       <div className="border-border flex items-center justify-between gap-2 border-b px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+          <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
             Selected table
           </span>
           <strong className="text-foreground truncate font-mono text-[11px]">
@@ -837,7 +837,7 @@ function ProfileFact({
 }) {
   const content = (
     <>
-      <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
         {label}
       </span>
       <strong className="text-foreground truncate text-[11px]">
@@ -895,7 +895,7 @@ function DataPreviewTable({
       >
         <div role="table">
           <div
-            className="border-border text-muted-foreground grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase"
+            className="border-border text-muted-foreground grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] border-b px-3 py-1.5 text-[10px] font-medium tracking-wider uppercase"
             role="row"
           >
             <span>Column</span>
@@ -1265,7 +1265,7 @@ function DataDetailPanel({
     return (
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+          <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
             Preview query
           </span>
           <Badge variant="secondary">

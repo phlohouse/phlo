@@ -1,6 +1,7 @@
 /**
- * Index route. The loader fetches the overview snapshot before render and
- * passes it to the shared OverviewRoute component as initial data.
+ * Index route — the lakehouse map. The loader fetches the overview
+ * snapshot before render and passes it to the shared OverviewRoute
+ * component as initial data. ?node= holds the selected map node.
  */
 import { createFileRoute } from '@tanstack/react-router'
 
@@ -11,6 +12,8 @@ import {
 
 export const Route = createFileRoute('/')({
   loader: loadOverviewSnapshotFromApi,
+  validateSearch: (search: Record<string, unknown>) =>
+    typeof search.node === 'string' ? { node: search.node } : {},
   component: ObservatoryIndexOverviewRoute,
 })
 

@@ -393,7 +393,7 @@ export function Services() {
                 ))}
               </div>
             </div>
-            <div className="text-muted-foreground grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_6rem_minmax(0,1.2fr)_5rem_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase max-lg:hidden">
+            <div className="text-muted-foreground grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_6rem_minmax(0,1.2fr)_5rem_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 text-[10px] font-medium tracking-wider uppercase max-lg:hidden">
               <span>Service</span>
               <span>Package</span>
               <span>Stack</span>

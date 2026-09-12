@@ -107,7 +107,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                     >
                       <CornerDownLeft />
                       <span className="truncate">{result.label}</span>
-                      <span className="text-muted-foreground ml-auto font-mono text-[10px] uppercase">
+                      <span className="text-muted-foreground ml-auto text-[10px] font-medium uppercase">
                         {result.kind}
                       </span>
                     </CommandItem>

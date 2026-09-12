@@ -20,7 +20,7 @@ function SelectTrigger({
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 dark:bg-input/30 data-placeholder:text-muted-foreground [&_svg:not([class*='size-'])]:size-4 flex h-8 w-full items-center justify-between gap-1.5 rounded-none border bg-transparent px-2.5 py-1 text-xs whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+        "border-rule focus-visible:border-blue/60 focus-visible:ring-ring/30 aria-invalid:ring-destructive/30 aria-invalid:border-destructive bg-raised data-placeholder:text-muted-foreground [&_svg:not([class*='size-'])]:size-4 flex h-8 w-full items-center justify-between gap-1.5 rounded-lg border px-2.5 py-1 text-xs whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
         className,
       )}
       {...props}
@@ -76,7 +76,7 @@ function SelectContent({
         <SelectPrimitive.Popup
           data-slot="select-content"
           className={cn(
-            'bg-popover text-popover-foreground ring-foreground/10 data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 relative z-50 max-h-(--available-height) min-w-(--anchor-width) overflow-y-auto rounded-none shadow-none ring-1 ring-rule duration-100',
+            'bg-popover text-popover-foreground border-rule data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 relative z-50 max-h-(--available-height) min-w-(--anchor-width) overflow-y-auto rounded-xl border shadow-xl shadow-black/40 duration-100',
             className,
           )}
           {...props}

@@ -1,6 +1,6 @@
 /**
- * Split view: the record sheet beside its continuation form — the core
- * collection + detail layout. The inspector is ruled off in ink.
+ * Split view: collection beside its detail inspector — the core
+ * list + detail layout. The inspector sits on a raised surface.
  */
 import type { ReactNode } from 'react'
 
@@ -25,20 +25,20 @@ export function SplitView({
   return (
     <div
       className={cn(
-        'border-rule bg-sheet grid min-h-0 flex-1 grid-cols-1 overflow-hidden border lg:grid-cols-[minmax(0,1fr)_auto]',
+        'border-rule bg-panel grid min-h-0 flex-1 grid-cols-1 overflow-hidden rounded-xl border lg:grid-cols-[minmax(0,1fr)_auto]',
         className,
       )}
     >
       <div className={cn('flex min-w-0 flex-col', listClassName)}>{list}</div>
       <aside
         className={cn(
-          'border-rule bg-paper flex min-h-0 flex-col border-t lg:border-t-0 lg:border-l',
+          'border-rule bg-raised/40 flex min-h-0 flex-col border-t lg:border-t-0 lg:border-l',
           inspectorWidth,
           inspectorClassName,
         )}
       >
         <ScrollArea className="min-h-0 flex-1">
-          <div className="flex flex-col gap-4 p-3">{inspector}</div>
+          <div className="flex flex-col gap-4 p-3.5">{inspector}</div>
         </ScrollArea>
       </aside>
     </div>
@@ -56,7 +56,7 @@ export function InspectorSection({
 }) {
   return (
     <section className={cn('flex flex-col gap-1.5', className)}>
-      <h3 className="stamp text-ink-soft text-[9px]">{label}</h3>
+      <h3 className="stamp">{label}</h3>
       {children}
     </section>
   )

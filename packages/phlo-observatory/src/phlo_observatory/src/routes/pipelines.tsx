@@ -259,7 +259,7 @@ export function Pipelines() {
         inspectorWidth="w-[24rem]"
         list={
           <SectionCard className="ring-0" title="Recovery queue">
-            <div className="text-muted-foreground grid grid-cols-[10px_minmax(0,1.2fr)_minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,0.8fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+            <div className="text-muted-foreground grid grid-cols-[10px_minmax(0,1.2fr)_minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,0.8fr)] gap-3 border-b px-3 py-1.5 text-[10px] font-medium tracking-wider uppercase">
               <span />
               <span>Dataset</span>
               <span>Freshness</span>
@@ -350,7 +350,7 @@ function PipelineRow({
         </div>
       </div>
       <div className="min-w-0">
-        <div className="text-foreground font-mono text-[10px] tracking-wide uppercase">
+        <div className="text-foreground text-[10px] font-medium tracking-wider uppercase">
           {stateLabel(pipeline.freshness_state)}
         </div>
         <div className="text-muted-foreground truncate font-mono text-[10px]">

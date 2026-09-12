@@ -1,7 +1,7 @@
 /**
- * Page scaffolding for the sheet: a report header (reference line, impact
- * caps title, mono description, stamp actions) over a single column of
- * content, plus the perforated tear line used between major sections.
+ * Page scaffolding: a report header (breadcrumb, title, description,
+ * actions) over a single column of content, plus the divider used between
+ * major sections.
  */
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
@@ -36,20 +36,20 @@ export function PageHeader({
   children?: ReactNode
 }) {
   return (
-    <header className="rule-double flex flex-col gap-2 pb-3">
+    <header className="flex flex-col gap-2 pb-1">
       {breadcrumb && breadcrumb.length > 0 && (
         <nav
           aria-label="Breadcrumb"
-          className="text-ink-faint flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] uppercase"
+          className="text-ink-faint flex items-center gap-1.5 text-xs"
         >
           {breadcrumb.map((item, index) => (
             <span
               className="flex items-center gap-1.5"
               key={`${item.label}-${index}`}
             >
-              {index > 0 && <span aria-hidden="true">›</span>}
+              {index > 0 && <span aria-hidden="true">/</span>}
               {item.to && index < breadcrumb.length - 1 ? (
-                <Link className="hover:text-ink hover:underline" to={item.to}>
+                <Link className="hover:text-ink" to={item.to}>
                   {item.label}
                 </Link>
               ) : (
@@ -61,9 +61,11 @@ export function PageHeader({
       )}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="stamp text-ink text-base leading-tight">{title}</h1>
+          <h1 className="text-ink text-lg leading-tight font-semibold tracking-tight">
+            {title}
+          </h1>
           {description && (
-            <p className="text-ink-soft mt-1 max-w-3xl font-mono text-[11px]/relaxed">
+            <p className="text-ink-soft mt-1 max-w-3xl text-sm/relaxed">
               {description}
             </p>
           )}
@@ -77,12 +79,12 @@ export function PageHeader({
   )
 }
 
-/** Perforated section boundary; the optional index prints at the fold. */
+/** Section divider; the optional index sits on the rule as a faint chip. */
 export function Tear({ index }: { index?: string }) {
   return (
     <div aria-hidden="true" className="tear my-1 flex justify-end">
       {index && (
-        <span className="bg-sheet text-ink-faint relative -top-2 px-1 font-mono text-[9px] tracking-[0.2em] uppercase">
+        <span className="bg-panel border-rule text-ink-faint relative -top-2 rounded-full border px-2 text-[10px]">
           {index}
         </span>
       )}

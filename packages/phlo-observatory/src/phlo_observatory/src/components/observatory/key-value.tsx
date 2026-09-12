@@ -37,10 +37,7 @@ export function Fact({
   return (
     <>
       <dt
-        className={cn(
-          'text-muted-foreground truncate text-[11px] font-medium tracking-wide uppercase',
-          className,
-        )}
+        className={cn('text-ink-faint truncate text-xs font-medium', className)}
       >
         {label}
       </dt>

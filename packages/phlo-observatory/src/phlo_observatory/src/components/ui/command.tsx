@@ -85,7 +85,7 @@ function CommandGroup({
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        'text-foreground **:[[cmdk-group-heading]]:text-muted-foreground overflow-hidden **:[[cmdk-group-heading]]:px-2.5 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-[10px] **:[[cmdk-group-heading]]:font-medium **:[[cmdk-group-heading]]:tracking-widest **:[[cmdk-group-heading]]:uppercase',
+        'text-foreground **:[[cmdk-group-heading]]:text-ink-faint overflow-hidden p-1 **:[[cmdk-group-heading]]:px-2.5 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-[11px] **:[[cmdk-group-heading]]:font-medium',
         className,
       )}
       {...props}
@@ -101,7 +101,7 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "data-[selected=true]:bg-ink data-[selected=true]:text-paper [&_svg:not([class*='size-'])]:size-3.5 relative flex cursor-default items-center gap-2 px-2.5 py-1.5 font-mono text-[11px] outline-none select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-muted-foreground data-[selected=true]:[&_svg]:text-paper",
+        "data-[selected=true]:bg-selected data-[selected=true]:text-ink [&_svg:not([class*='size-'])]:size-4 relative flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] outline-none select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-ink-faint data-[selected=true]:[&_svg]:text-blue",
         className,
       )}
       {...props}
@@ -113,10 +113,7 @@ function CommandShortcut({ className, ...props }: ComponentProps<'span'>) {
   return (
     <span
       data-slot="command-shortcut"
-      className={cn(
-        'text-muted-foreground ml-auto font-mono text-[10px] tracking-widest',
-        className,
-      )}
+      className={cn('text-ink-faint ml-auto font-mono text-[10px]', className)}
       {...props}
     />
   )

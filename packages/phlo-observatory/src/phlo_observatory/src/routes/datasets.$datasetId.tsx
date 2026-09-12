@@ -486,7 +486,7 @@ function ReadinessCockpit({ profile }: { profile: ObservatoryDatasetProfile }) {
     <div className="flex flex-col" data-state={dataset.readiness_state}>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b px-3 py-3">
         <div className="min-w-0">
-          <span className="text-muted-foreground flex items-center gap-1.5 font-mono text-[10px] uppercase">
+          <span className="text-muted-foreground flex items-center gap-1.5 text-[10px] font-medium uppercase">
             <span
               className="status-dot"
               data-state={

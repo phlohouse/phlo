@@ -280,7 +280,7 @@ export function Extensions() {
         inspectorWidth="w-[24rem]"
         list={
           <SectionCard className="ring-0" title="Extension manifests">
-            <div className="text-muted-foreground grid grid-cols-[minmax(0,1.2fr)_minmax(0,0.6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.6fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+            <div className="text-muted-foreground grid grid-cols-[minmax(0,1.2fr)_minmax(0,0.6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.6fr)] gap-3 border-b px-3 py-1.5 text-[10px] font-medium tracking-wider uppercase">
               <span>Extension</span>
               <span>Version</span>
               <span>Navigation</span>
