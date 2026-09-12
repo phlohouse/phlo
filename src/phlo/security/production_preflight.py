@@ -143,7 +143,17 @@ _WORKLOAD_CHECK_BY_NAME: dict[str, ProductionReadinessCheckId] = {
 
 
 def _workload_identity_checks(effective_env: Mapping[str, str]) -> list[ProductionReadinessCheck]:
-    from phlo.security.workload_identities import evaluate_workload_identity_references
+    from phlo.security.validation import _project_rbac_loader
+    from phlo.security.workload_identities import (
+        evaluate_workload_identity_bindings,
+        evaluate_workload_identity_references,
+    )
+
+    try:
+        rbac = _project_rbac_loader().load()
+    except Exception:
+        rbac = None
+    unbound = evaluate_workload_identity_bindings(rbac, effective_env) if rbac else None
 
     checks: list[ProductionReadinessCheck] = []
     for evaluation in evaluate_workload_identity_references(effective_env):
@@ -151,13 +161,43 @@ def _workload_identity_checks(effective_env: Mapping[str, str]) -> list[Producti
         if check_id is None:
             continue
         if evaluation.passed:
+            if unbound is None:
+                checks.append(
+                    ProductionReadinessCheck(
+                        id=check_id,
+                        state=ProductionReadinessState.UNAVAILABLE,
+                        message=(
+                            f"{evaluation.name} workload identity references are distinct "
+                            "and non-default; canonical subject bindings unobservable "
+                            "(no loadable RBAC model)"
+                        ),
+                        remediation="Provide a loadable RBAC model so workload subject bindings can be verified.",
+                        source="declared credential references",
+                    )
+                )
+                continue
+            unbound_refs = unbound.get(evaluation.name, ())
+            if unbound_refs:
+                checks.append(
+                    ProductionReadinessCheck(
+                        id=check_id,
+                        state=ProductionReadinessState.FAILED,
+                        message=(
+                            f"{evaluation.name} workload identity has principals not "
+                            f"bound to canonical subjects: {', '.join(sorted(unbound_refs))}"
+                        ),
+                        remediation="Bind each workload credential's principal to a canonical role under subjects in roles.yaml.",
+                        source="canonical subject bindings",
+                    )
+                )
+                continue
             checks.append(
                 ProductionReadinessCheck(
                     id=check_id,
                     state=ProductionReadinessState.PASSED,
-                    message=evaluation.message(),
+                    message=evaluation.message() + "; principals bound to canonical subjects",
                     remediation="",
-                    source="declared credential references",
+                    source="declared credential references + canonical subject bindings",
                 )
             )
         else:
@@ -666,7 +706,7 @@ def _check_policy_compiled_verification(context: _CheckContext) -> ProductionRea
     return ProductionReadinessCheck(
         id=ProductionReadinessCheckId.POLICY_COMPILED_VERIFICATION,
         state=ProductionReadinessState.PASSED,
-        message="compiled RBAC policy loads; backend drift verification pending provider adapters",
+        message="compiled RBAC policy loads; per-backend drift verification runs in backend.readiness",
         remediation="",
         source=source,
     )

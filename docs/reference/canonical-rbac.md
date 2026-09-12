@@ -247,16 +247,16 @@ An em dash (—) means the action is not applicable to that backend.
 
 | Action | Trino | PostgreSQL | Hasura | MinIO | Nessie |
 |--------|-------|-----------|--------|-------|--------|
-| `dataset.read` | ✓ | ✓ | ✓ | — | — |
-| `dataset.query` | ✓ | ✓ | ✓ | — | — |
+| `dataset.read` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `dataset.query` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `asset.read` | ✓ | ✓ | ✓ | — | — |
 | `asset.execute` | ✓ | ✓ | ✓ | — | — |
 | `service.read` | ✓ | ✓ | ✓ | — | — |
 | `service.manage` | ✓ | ✓ | ✓ | — | — |
 | `admin.read` | ✓ | ✓ | ✓ | — | — |
 | `admin.manage` | ✓ | ✓ | ✓ | — | — |
-| `dataset.write` | — | — | — | — | — |
-| `dataset.publish` | — | — | — | — | — |
+| `dataset.write` | — | ✓ | — | ✓ | ✓ |
+| `dataset.publish` | — | — | — | — | ✓ |
 | `asset.approve` | — | — | — | — | — |
 | `settings.read` | — | — | — | — | — |
 | `settings.manage` | — | — | — | — | — |
@@ -285,11 +285,11 @@ the configured RBAC policies.
 
 | Backend | Supported canonical actions | Deny support | Verify coverage | Notes |
 |---------|---------------------------|--------------|-----------------|-------|
-| `trino` | `dataset.read`, `dataset.query`, `asset.read`, `asset.execute`, `service.read`, `service.manage`, `admin.read`, `admin.manage` | No | Compares desired vs current managed grants; reports missing and extra artifacts | Best current drift coverage. Managed state is derived from governance backend `list_policies()` output and filtered to managed role names. |
-| `postgresql` | `dataset.read`, `dataset.query`, `asset.read`, `asset.execute`, `service.read`, `service.manage`, `admin.read`, `admin.manage` | No | Desired-state only; current-state introspection is not implemented | Plan and verify cannot detect extra live grants. Expect manual review or backend-native inspection after sync. |
+| `trino` | `dataset.read`, `dataset.query`, `asset.read`, `asset.execute`, `service.read`, `service.manage`, `admin.read`, `admin.manage` | No | Compares desired vs current managed grants; reports missing and extra artifacts | Managed state is derived from governance backend `list_policies()` output and filtered to managed role names. |
+| `postgresql` | `dataset.read`, `dataset.query`, `dataset.write` | No | Compares desired vs current managed grants with coverage semantics; reports missing and extra artifacts | A `schema.*` policy is satisfied by a full-coverage grant or a predefined `pg_*_all_data` membership. `object.*` resources belong to MinIO and compile as S3 policies, not Postgres grants. |
 | `hasura` | `dataset.read`, `dataset.query`, `asset.read`, `asset.execute`, `service.read`, `service.manage`, `admin.read`, `admin.manage` | No | Desired-state only; current-state introspection is not implemented | Canonical actions map to Hasura permission artifacts, but verify cannot confirm live metadata drift yet. |
-| `minio` | `object.read`, `object.write` | No | Desired-state only; current-state introspection is not implemented | Sync compiles IAM policy documents. Follow up with MinIO admin inspection if you need live-state confirmation. |
-| `nessie` | `catalog.read`, `catalog.manage` | No | Desired-state only; current-state introspection is not implemented | Sync compiles Nessie authorization rules. Verify cannot yet read current Nessie authz state. |
+| `minio` | `object.read`, `object.write`, `dataset.read`, `dataset.query`, `dataset.write` | No | Compares desired vs current managed policy documents including group attachment; reports missing, extra, and mismatched artifacts | A same-named document with stale content or no group attachment is drift, not state. `dataset.*` policies map onto warehouse object prefixes. |
+| `nessie` | `catalog.read`, `catalog.manage`, `dataset.read`, `dataset.query`, `dataset.write`, `dataset.publish` | No | Compares desired vs rendered managed authz rules; readiness probe also requires a live Nessie that has loaded the rendered file | Rules are static Quarkus config rendered into `.phlo/nessie/authz.properties`; a write stages config and convergence stays pending until Nessie restarts. |
 
 ## Backend-Specific Follow-Up
 
@@ -301,10 +301,11 @@ After `phlo authz sync`, backend-specific setup still matters:
   rules outside the canonical compiler output
 - Hasura: confirm permissions are reflected in Hasura metadata and JWT role
   claims align with the roles you compiled
-- MinIO: confirm OIDC or IAM subject mapping attaches the generated policies to
-  the principals you expect
-- Nessie: confirm the server-side authorization backend is enabled and reading
-  the compiled rules you applied
+- MinIO: sync verifies group attachment, so confirm canonical roles exist as
+  MinIO groups (the OIDC or IAM subject mapping still maps users to groups)
+- Nessie: rendered rules only apply at container start — restart Nessie after
+  `phlo authz sync` for staged rules to take effect; readiness reports
+  `nessie_rules_pending_restart` until then
 
 ## Related Docs
 

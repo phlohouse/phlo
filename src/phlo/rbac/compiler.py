@@ -212,6 +212,16 @@ class GovernanceCompiler(ABC):
         """Check if an artifact name is managed by Phlo."""
         return name.startswith(context.managed_prefix)
 
+    def _artifact_equivalent(
+        self,
+        desired: BackendArtifact,
+        current: BackendArtifact,
+    ) -> bool:
+        """Return whether a same-named observed artifact satisfies the
+        desired one. The default compares rendered statement content;
+        compilers may add binding checks (e.g. group attachment)."""
+        return desired.statement == current.statement
+
     def _apply_generic_policy_change(
         self,
         change: PolicyChange,
@@ -626,6 +636,22 @@ class TrinoCompiler(GovernanceCompiler):
 COMPILER_REGISTRY: dict[str, type[GovernanceCompiler]] = {
     "trino": TrinoCompiler,
 }
+
+
+def _register_default_compilers() -> None:
+    """Register the blessed-backend compilers from the sibling module.
+
+    ``phlo.rbac.compilers`` imports this module's base classes, so the
+    import is deferred to module bottom to keep the dependency one-way.
+    """
+    from phlo.rbac.compilers import MinioCompiler, NessieCompiler, PostgresCompiler
+
+    COMPILER_REGISTRY.setdefault("postgres", PostgresCompiler)
+    COMPILER_REGISTRY.setdefault("minio", MinioCompiler)
+    COMPILER_REGISTRY.setdefault("nessie", NessieCompiler)
+
+
+_register_default_compilers()
 
 
 def get_compiler(

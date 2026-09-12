@@ -157,9 +157,36 @@ def isolated_preflight(monkeypatch: pytest.MonkeyPatch, project: Path):
 
     monkeypatch.setattr("phlo.capabilities.resolve_capability", _passing_readiness)
 
+    from phlo.rbac.models import CanonicalRBAC, PoliciesConfig, RolesConfig
+
+    subject_names = [
+        "dagster-minio-access",
+        "dagster-trino-user",
+        "dagster-pg-user",
+        "query-access",
+        "query-user",
+        "catalog-access",
+        "catalog-pg-user",
+        "maintenance-user",
+        "maintenance-access",
+    ]
+    rbac_model = CanonicalRBAC.from_configs(
+        RolesConfig.from_dict(
+            {
+                "version": 1,
+                "roles": {"workload": {"inherits": []}},
+                "subjects": {
+                    "services": {name: ["workload"] for name in subject_names},
+                    "users": {},
+                },
+            }
+        ),
+        PoliciesConfig.from_dict({"version": 1, "policies": []}),
+    )
+
     class _FakeRbacLoader:
-        def load(self) -> dict:
-            return {"policies": []}
+        def load(self) -> CanonicalRBAC:
+            return rbac_model
 
     monkeypatch.setattr(
         "phlo.security.validation._project_rbac_loader",

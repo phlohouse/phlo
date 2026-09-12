@@ -13,6 +13,8 @@ import os
 from phlo.security.backend_readiness import (
     BackendReadinessResult,
     BackendReadinessState,
+    observe_policy_convergence,
+    stamp,
 )
 
 REQUIRED_REFERENCES = ["QUARKUS_DATASOURCE_USERNAME", "QUARKUS_DATASOURCE_PASSWORD"]
@@ -34,6 +36,9 @@ class NessieReadinessProvider:
                 + ", ".join(sorted(missing)),
                 evidence_source="declared configuration",
             )
+        observed = observe_policy_convergence("nessie")
+        if observed is not None:
+            return stamp(observed)
         return BackendReadinessResult(
             backend="nessie",
             state=BackendReadinessState.UNAVAILABLE,

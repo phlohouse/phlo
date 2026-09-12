@@ -11,14 +11,24 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
 class WorkloadIdentitySpec:
-    """One required workload identity and its credential references."""
+    """One required workload identity and its credential references.
+
+    ``credential_refs`` names every environment reference that supplies the
+    workload's credentials; ``subject_refs`` is the subset whose *values*
+    name a principal (usernames, access keys) that must be bound to a
+    canonical subject in the RBAC model for grant convergence to be
+    observable. Secret/file references carry no principal name and are
+    excluded from binding checks.
+    """
 
     name: str
     credential_refs: tuple[str, ...]
+    subject_refs: tuple[str, ...] = ()
 
 
 # The blessed workload identities and the non-secret environment references
@@ -27,6 +37,7 @@ WORKLOAD_IDENTITY_SPECS: tuple[WorkloadIdentitySpec, ...] = (
     WorkloadIdentitySpec(
         "api",
         ("PHLO_SERVICE_CREDENTIALS_FILE",),
+        (),
     ),
     WorkloadIdentitySpec(
         "orchestration",
@@ -37,6 +48,11 @@ WORKLOAD_IDENTITY_SPECS: tuple[WorkloadIdentitySpec, ...] = (
             "DAGSTER_POSTGRES_USER",
             "DAGSTER_POSTGRES_PASSWORD",
         ),
+        (
+            "DAGSTER_MINIO_ACCESS_KEY",
+            "DAGSTER_TRINO_USER",
+            "DAGSTER_POSTGRES_USER",
+        ),
     ),
     WorkloadIdentitySpec(
         "query",
@@ -45,6 +61,10 @@ WORKLOAD_IDENTITY_SPECS: tuple[WorkloadIdentitySpec, ...] = (
             "TRINO_QUERY_SECRET_KEY",
             "TRINO_USER",
             "TRINO_ROLE",
+        ),
+        (
+            "TRINO_QUERY_ACCESS_KEY",
+            "TRINO_USER",
         ),
     ),
     WorkloadIdentitySpec(
@@ -55,6 +75,10 @@ WORKLOAD_IDENTITY_SPECS: tuple[WorkloadIdentitySpec, ...] = (
             "QUARKUS_DATASOURCE_USERNAME",
             "QUARKUS_DATASOURCE_PASSWORD",
         ),
+        (
+            "NESSIE_CATALOG_ACCESS_KEY",
+            "QUARKUS_DATASOURCE_USERNAME",
+        ),
     ),
     WorkloadIdentitySpec(
         "maintenance",
@@ -63,6 +87,10 @@ WORKLOAD_IDENTITY_SPECS: tuple[WorkloadIdentitySpec, ...] = (
             "MAINTENANCE_TRINO_ROLE",
             "MAINTENANCE_ACCESS_KEY",
             "MAINTENANCE_SECRET_KEY",
+        ),
+        (
+            "MAINTENANCE_TRINO_USER",
+            "MAINTENANCE_ACCESS_KEY",
         ),
     ),
 )
@@ -151,3 +179,35 @@ def evaluate_workload_identity_references(
             )
         )
     return tuple(evaluations)
+
+
+def evaluate_workload_identity_bindings(
+    rbac: Any,
+    env: Mapping[str, str],
+) -> dict[str, tuple[str, ...]] | None:
+    """Return {workload_name: unbound subject refs} for grant observation.
+
+    A subject ref is unbound when its value names a principal that has no
+    entry in the canonical model's subject assignments — that workload's
+    credentials could hold grants no compiler will ever converge or verify.
+    Workloads with no subject refs (file-sourced credentials) are skipped.
+    Returns ``None`` when the model does not expose subject assignments —
+    bindings are then unobservable, not satisfied.
+    """
+    roles = getattr(rbac, "roles", None)
+    subjects = getattr(roles, "subjects", None)
+    services = getattr(subjects, "services", None)
+    users = getattr(subjects, "users", None)
+    if not isinstance(services, dict) or not isinstance(users, dict):
+        return None
+    bound = set(services) | set(users)
+    unbound: dict[str, tuple[str, ...]] = {}
+    for spec in WORKLOAD_IDENTITY_SPECS:
+        refs = tuple(
+            ref
+            for ref in spec.subject_refs
+            if env.get(ref, "").strip() and env[ref].strip() not in bound
+        )
+        if refs:
+            unbound[spec.name] = refs
+    return unbound

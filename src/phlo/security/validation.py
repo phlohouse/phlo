@@ -226,7 +226,7 @@ def _check_backend_coverage() -> ValidationResult:
             for compiler_class in COMPILER_REGISTRY.values():
                 compiler = compiler_class(backend=None)
                 applicability = compiler.policy_applicability(policy.action, policy.resource_type)
-                if applicability in {"trino", "surface"}:
+                if applicability != "unsupported":
                     action_supported = True
                     break
             if not action_supported:

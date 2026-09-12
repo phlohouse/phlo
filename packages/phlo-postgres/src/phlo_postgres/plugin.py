@@ -28,7 +28,9 @@ from phlo.capabilities import (
     SlingConnectionSpec,
     BackendReadinessSpec,
     BackupContributorSpec,
+    CapabilitySupport,
     DatasetStateStoreSpec,
+    GovernanceBackendSpec,
 )
 from phlo.plugins import (
     PackageYamlServicePlugin,
@@ -134,6 +136,18 @@ class PostgresResourceProvider(ResourceProviderPlugin):
         from phlo_postgres.continuity import PostgresBackupContributor
 
         return [BackupContributorSpec(name="postgres", provider=PostgresBackupContributor())]
+
+    def get_governance_backends(self) -> list[GovernanceBackendSpec]:
+        """Expose the postgres governance backend for SQL grants."""
+        from phlo_postgres.governance import PostgresGovernanceBackend
+
+        return [
+            GovernanceBackendSpec(
+                name="postgres",
+                provider=PostgresGovernanceBackend(),
+                support=CapabilitySupport(),
+            )
+        ]
 
     """Resource provider plugin that exposes PostgreSQL capabilities.
 

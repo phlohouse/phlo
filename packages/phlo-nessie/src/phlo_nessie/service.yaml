@@ -40,6 +40,13 @@ compose:
     QUARKUS_OIDC_TOKEN_ISSUER: ${NESSIE_OIDC_ISSUER:-}
     # Authorization
     NESSIE_SERVER_AUTHORIZATION_ENABLED: ${NESSIE_AUTHZ_ENABLED:-false}
+    # Managed authorization rules rendered by phlo governance sync into
+    # .phlo/nessie/authz.properties. Quarkus rejects the "optional:" scheme,
+    # so the location is the mounted directory itself; an empty directory is
+    # valid and simply contributes no extra config. Restart picks up rules.
+    QUARKUS_CONFIG_LOCATIONS: file:/deployments/phlo-authz/
+  volumes:
+    - ./nessie:/deployments/phlo-authz:ro
   ports:
     - "${NESSIE_PORT:-10003}:19120"
   healthcheck:

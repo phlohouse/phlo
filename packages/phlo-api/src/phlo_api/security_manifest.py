@@ -729,6 +729,16 @@ def _enforce_scoped_run_report_service_identity(
         )
 
 
+_READ_ONLY_ACTION_SUFFIXES = (".read", ".query")
+
+
+def _requires_durable_audit(action: str) -> bool:
+    """Return whether an action mutates state and so must persist audit
+    evidence to succeed — a permitted mutation without durable evidence is
+    itself a production failure (fail-closed, ADR 0047)."""
+    return not action.endswith(_READ_ONLY_ACTION_SUFFIXES)
+
+
 async def enforce_http_operation(
     request: Request,
     spec: OperationSpec,
@@ -777,6 +787,7 @@ async def enforce_http_operation(
             request_id=correlation_id,
             surface="phlo-api",
             correlation_id=correlation_id,
+            require_durable_audit=_requires_durable_audit(spec.action),
         )
         if result.variant == "error":
             raise HTTPException(

@@ -1,9 +1,10 @@
 """Provider-owned postgres security readiness (read-only).
 
-Inspects only locally inspectable facts (configuration present, non-default).
-Authoritative grant/audit observation requires a live backend and is reported
-``unavailable`` until that evidence is obtainable; ``unavailable`` and
-``failed`` both block production readiness.
+Inspects locally inspectable facts (configuration present, non-default),
+then observes managed-grant convergence against the canonical RBAC model
+through the postgres governance backend when that path is wired. When no
+live observation is possible the result stays ``unavailable``;
+``unavailable`` and ``failed`` both block production readiness.
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ import os
 from phlo.security.backend_readiness import (
     BackendReadinessResult,
     BackendReadinessState,
+    observe_policy_convergence,
+    stamp,
 )
 
 REQUIRED_REFERENCES = ["POSTGRES_USER", "POSTGRES_PASSWORD"]
@@ -34,6 +37,9 @@ class PostgresReadinessProvider:
                 + ", ".join(sorted(missing)),
                 evidence_source="declared configuration",
             )
+        observed = observe_policy_convergence("postgres")
+        if observed is not None:
+            return stamp(observed)
         return BackendReadinessResult(
             backend="postgres",
             state=BackendReadinessState.UNAVAILABLE,
