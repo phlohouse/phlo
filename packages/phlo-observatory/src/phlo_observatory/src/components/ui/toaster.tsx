@@ -16,7 +16,7 @@ export function Toaster() {
         <div
           key={toast.id}
           className={cn(
-            'pointer-events-auto rounded-md border bg-card p-4 shadow-lg transition-[opacity,transform] duration-200 ease-out',
+            'pointer-events-auto rounded-none border border-rule bg-sheet p-4 transition-[opacity,transform] duration-200 ease-out',
             toast.open
               ? 'animate-in slide-in-from-bottom-5'
               : 'animate-out fade-out-80 slide-out-to-right-full',

@@ -18,7 +18,6 @@ import {
 import {
   Boxes,
   CheckCircle2,
-  Filter,
   GitBranch,
   ListChecks,
   Search,
@@ -28,7 +27,6 @@ import {
   XCircle,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
 
 import type {
   ObservatoryDataset,
@@ -51,9 +49,21 @@ import {
   serializeDatasetFilters,
   walkDatasetPages,
 } from '@/observatory/api/datasetDiscovery'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
-import { StatusBadge } from '@/observatory/components/StatusBadge'
 import { invalidateCachedResources } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { StatusBadge } from '@/components/observatory/status'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 type DatasetsSearch = {
   q?: string
@@ -305,236 +315,251 @@ export function Datasets() {
   }
 
   return (
-    <ObservatoryPage
-      kicker="Lakehouse"
-      title="Datasets"
-      description="Browse governed datasets first, then inspect candidate tables that look ready to be claimed."
-      action={
-        <span className="phlo-observatory-pill">
-          {isLoading
-            ? 'Loading'
-            : `${datasets.length} loaded${nextCursor ? ' · more available' : ''}`}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-surface-shell">
-        <div className="phlo-observatory-command-primary phlo-observatory-surface-list">
-          <div className="phlo-observatory-dataset-queue-strip">
-            <DatasetQueueMetric
-              icon={<Boxes className="size-4" />}
-              label="Governed"
-              value={loadedCount(promoted.length, nextCursor)}
-              detail={`${candidates.length} candidates`}
-            />
-            <DatasetQueueMetric
-              icon={<ShieldCheck className="size-4" />}
-              label="Needs owner"
-              value={loadedCount(needsOwner, nextCursor)}
-              detail={`${needsClassification} missing classification`}
-              state={
-                needsOwner > 0 || needsClassification > 0 ? 'warning' : 'ok'
-              }
-            />
-            <DatasetQueueMetric
-              icon={<UploadCloud className="size-4" />}
-              label="Release blocked"
-              value={loadedCount(releaseBlocked, nextCursor)}
-              detail={`${publishedCount(promoted)} published`}
-              state={releaseBlocked > 0 ? 'error' : 'ok'}
-            />
-          </div>
-          <div className="phlo-observatory-browser-toolbar">
-            <span>
-              <Boxes className="size-4" />
-              Dataset queue
-            </span>
-            <label className="phlo-observatory-search-field">
-              <Search className="size-4" />
-              <input
-                aria-label="Search Datasets"
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search Datasets"
-                value={filters.query}
-              />
-            </label>
-          </div>
-          <div className="phlo-observatory-dataset-filters">
-            <SelectFilter
-              label="Owner"
-              onChange={setOwner}
-              value={filters.owner}
-              values={owners}
-            />
-            <SelectFilter
-              label="Classification"
-              onChange={setClassification}
-              value={filters.classification}
-              values={classifications}
-            />
-            <SelectFilter
-              label="Publication"
-              onChange={setPublicationState}
-              value={filters.publicationState}
-              values={publicationStates}
-            />
-            <SelectFilter
-              label="Readiness"
-              onChange={setReadinessState}
-              value={filters.readinessState}
-              values={readinessStates}
-            />
-            <SelectFilter
-              labels={{ false: 'Governed only', true: 'Candidates only' }}
-              label="Candidate"
-              onChange={setCandidate}
-              value={filters.candidate}
-              values={['true', 'false']}
-            />
-          </div>
-          <DatasetList
-            error={collectionError}
-            isLoading={isLoading}
-            datasets={filtered}
-            readinessMap={readinessMap}
-          />
-          {!isLoading && nextCursor !== null && (
-            <button
-              className="phlo-observatory-load-more"
-              disabled={isLoadingMore}
-              onClick={loadMore}
-              type="button"
-            >
-              {isLoadingMore
-                ? 'Loading more…'
-                : `Load more datasets (${datasets.length} loaded)`}
-            </button>
-          )}
-        </div>
-
-        <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-          <div className="phlo-observatory-inspector-label">
-            Selected dataset
-          </div>
-          <h2>
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
             {isLoading
-              ? 'Loading datasets'
-              : (selectedDataset?.name ?? 'No dataset selected')}
-          </h2>
-          <p>
-            {selectedDataset
-              ? canonicalInspectorSummary(
-                  selectedDataset,
-                  readinessMap[selectedDataset.id] ?? null,
-                )
-              : 'Use the queue to inspect readiness, ownership, publication, and candidate state.'}
-          </p>
-          {selectedDataset && (
-            <>
-              <div
-                className="phlo-observatory-dataset-inspector-callout"
-                data-state={selectedDataset.readiness_state}
-              >
-                <span>Blocker</span>
-                <strong>
-                  {canonicalQueueReason(
-                    selectedDataset,
-                    readinessMap[selectedDataset.id] ?? null,
-                  )}
-                </strong>
-                <small>
-                  Next:{' '}
-                  {canonicalNextAction(
-                    selectedDataset,
-                    readinessMap[selectedDataset.id] ?? null,
-                  )}
-                </small>
+              ? 'Loading'
+              : `${datasets.length} loaded${nextCursor ? ' · more available' : ''}`}
+          </Badge>
+        }
+        description="Browse governed datasets first, then inspect candidate tables that look ready to be claimed."
+        title="Datasets"
+      />
+      <StatGrid className="xl:grid-cols-3">
+        <StatCard
+          note={`${candidates.length} candidates`}
+          label="Governed"
+          value={loadedCount(promoted.length, nextCursor)}
+        />
+        <StatCard
+          note={`${needsClassification} missing classification`}
+          label="Needs owner"
+          state={needsOwner > 0 || needsClassification > 0 ? 'warning' : 'ok'}
+          value={loadedCount(needsOwner, nextCursor)}
+        />
+        <StatCard
+          note={`${publishedCount(promoted)} published`}
+          label="Release blocked"
+          state={releaseBlocked > 0 ? 'error' : 'ok'}
+          value={loadedCount(releaseBlocked, nextCursor)}
+        />
+      </StatGrid>
+      <SplitView
+        inspector={
+          <>
+            <InspectorSection
+              label={`Selected dataset · ${selectedDataset?.name ?? 'none'}`}
+            >
+              {isLoading ? (
+                <LoadingBlock className="p-3" label="Loading datasets" />
+              ) : selectedDataset ? (
+                <>
+                  <p className="text-muted-foreground text-xs/relaxed">
+                    {canonicalInspectorSummary(
+                      selectedDataset,
+                      readinessMap[selectedDataset.id] ?? null,
+                    )}
+                  </p>
+                  <div
+                    className={cn(
+                      'flex flex-col gap-1 border px-3 py-2',
+                      selectedDataset.readiness_state === 'error' &&
+                        'border-status-error/40 bg-status-error/5',
+                      selectedDataset.readiness_state === 'warning' &&
+                        'border-status-warning/40 bg-status-warning/5',
+                      selectedDataset.readiness_state === 'ok' &&
+                        'border-status-ok/40 bg-status-ok/5',
+                      (selectedDataset.readiness_state === 'unknown' ||
+                        !['ok', 'warning', 'error'].includes(
+                          selectedDataset.readiness_state,
+                        )) &&
+                        'border-border bg-muted/30',
+                    )}
+                    data-state={selectedDataset.readiness_state}
+                  >
+                    <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+                      Blocker
+                    </span>
+                    <strong className="text-foreground text-xs">
+                      {canonicalQueueReason(
+                        selectedDataset,
+                        readinessMap[selectedDataset.id] ?? null,
+                      )}
+                    </strong>
+                    <span className="text-muted-foreground font-mono text-[10px]">
+                      Next:{' '}
+                      {canonicalNextAction(
+                        selectedDataset,
+                        readinessMap[selectedDataset.id] ?? null,
+                      )}
+                    </span>
+                  </div>
+                  <FactGrid>
+                    <Fact
+                      label="Owner"
+                      value={selectedDataset.owner ?? 'unassigned'}
+                    />
+                    <Fact
+                      label="Publication"
+                      value={selectedDataset.publication_state}
+                    />
+                    <Fact
+                      label="Readiness"
+                      value={selectedDataset.readiness_state}
+                    />
+                    <Fact
+                      label="Classification"
+                      value={
+                        selectedDataset.classifications.join(', ') || 'none'
+                      }
+                    />
+                  </FactGrid>
+                  <Button
+                    nativeButton={false}
+                    render={
+                      <Link
+                        params={{ datasetId: selectedDataset.id }}
+                        to="/datasets/$datasetId"
+                      />
+                    }
+                    size="sm"
+                    variant="outline"
+                  >
+                    <Boxes className="size-3.5" />
+                    Open Dataset profile
+                  </Button>
+                  <DatasetEvidenceLinks dataset={selectedDataset} compact />
+                </>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  Use the queue to inspect readiness, ownership, publication,
+                  and candidate state.
+                </p>
+              )}
+            </InspectorSection>
+            <InspectorSection label="Candidate datasets">
+              <p className="text-muted-foreground font-mono text-[10px]">
+                claim, promote, or reject
+              </p>
+              <div className="divide-border -mx-3 divide-y">
+                {candidates.slice(0, 6).map((candidate) => (
+                  <CandidateRow
+                    candidate={candidate}
+                    key={candidate.id}
+                    onAction={(actionId) => {
+                      setActionMessage('Requesting workflow action...')
+                      void runObservatoryActionDirect({ actionId }).then(
+                        (next) => {
+                          invalidateCachedResources([
+                            'observatory:datasets',
+                            'observatory:operations',
+                          ])
+                          // Re-run the cursor-aware collection walk; the old
+                          // liveResource focus refresh no longer applies here.
+                          setRefreshTick((tick) => tick + 1)
+                          setActionMessage(
+                            next.data?.message ??
+                              next.error ??
+                              'Action requested',
+                          )
+                        },
+                      )
+                    }}
+                  />
+                ))}
+                {!isLoading && candidates.length === 0 && (
+                  <p className="text-muted-foreground px-3 py-2 text-xs">
+                    No candidate datasets — nothing to claim.
+                  </p>
+                )}
               </div>
-              <dl className="phlo-observatory-facts">
-                <dt>Owner</dt>
-                <dd>{selectedDataset.owner ?? 'unassigned'}</dd>
-                <dt>Publication</dt>
-                <dd>{selectedDataset.publication_state}</dd>
-                <dt>Readiness</dt>
-                <dd>{selectedDataset.readiness_state}</dd>
-                <dt>Classification</dt>
-                <dd>{selectedDataset.classifications.join(', ') || 'none'}</dd>
-              </dl>
-              <Link
-                className="phlo-observatory-map-action phlo-observatory-full-width-action"
-                params={{ datasetId: selectedDataset.id }}
-                to="/datasets/$datasetId"
-              >
-                <Boxes className="size-4" />
-                Open Dataset profile
-              </Link>
-              <div className="phlo-observatory-inspector-section-label">
-                Supporting evidence
+              {actionMessage && (
+                <p className="text-muted-foreground pt-2 font-mono text-[10px] break-all">
+                  {actionMessage}
+                </p>
+              )}
+            </InspectorSection>
+          </>
+        }
+        list={
+          <div className="bg-sheet flex min-h-0 flex-1 flex-col">
+            <div className="flex flex-wrap items-center gap-2 border-b p-2">
+              <span className="text-muted-foreground flex items-center gap-1.5 px-1 text-[10px] font-medium tracking-widest uppercase">
+                <Boxes className="size-3.5" />
+                Dataset queue
+              </span>
+              <div className="relative min-w-48 flex-1">
+                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
+                <Input
+                  aria-label="Search Datasets"
+                  className="pl-7"
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search Datasets"
+                  value={filters.query}
+                />
               </div>
-              <DatasetEvidenceLinks dataset={selectedDataset} compact />
-            </>
-          )}
-          <div className="phlo-observatory-detail-list">
-            <div className="phlo-observatory-mini-row">
-              <span>Candidate datasets</span>
-              <small>claim, promote, or reject</small>
             </div>
-            {candidates.slice(0, 6).map((candidate) => (
-              <CandidateRow
-                candidate={candidate}
-                key={candidate.id}
-                onAction={(actionId) => {
-                  setActionMessage('Requesting workflow action...')
-                  void runObservatoryActionDirect({ actionId }).then((next) => {
-                    invalidateCachedResources([
-                      'observatory:datasets',
-                      'observatory:operations',
-                    ])
-                    // Re-run the cursor-aware collection walk; the old
-                    // liveResource focus refresh no longer applies here.
-                    setRefreshTick((tick) => tick + 1)
-                    setActionMessage(
-                      next.data?.message ?? next.error ?? 'Action requested',
-                    )
-                  })
-                }}
+            <div className="flex flex-wrap items-center gap-2 border-b px-2 py-1.5">
+              <SelectFilter
+                label="Owner"
+                onChange={setOwner}
+                value={filters.owner}
+                values={owners}
               />
-            ))}
-            {!isLoading && candidates.length === 0 && (
-              <div className="phlo-observatory-mini-row">
-                <span>No candidate datasets</span>
-                <small>nothing to claim</small>
+              <SelectFilter
+                label="Classification"
+                onChange={setClassification}
+                value={filters.classification}
+                values={classifications}
+              />
+              <SelectFilter
+                label="Publication"
+                onChange={setPublicationState}
+                value={filters.publicationState}
+                values={publicationStates}
+              />
+              <SelectFilter
+                label="Readiness"
+                onChange={setReadinessState}
+                value={filters.readinessState}
+                values={readinessStates}
+              />
+              <SelectFilter
+                labels={{ false: 'Governed only', true: 'Candidates only' }}
+                label="Candidate"
+                onChange={setCandidate}
+                value={filters.candidate}
+                values={['true', 'false']}
+              />
+            </div>
+            <DatasetList
+              error={collectionError}
+              isLoading={isLoading}
+              datasets={filtered}
+              readinessMap={readinessMap}
+            />
+            {!isLoading && nextCursor !== null && (
+              <div className="border-t p-2">
+                <Button
+                  className="w-full"
+                  disabled={isLoadingMore}
+                  onClick={loadMore}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {isLoadingMore
+                    ? 'Loading more…'
+                    : `Load more datasets (${datasets.length} loaded)`}
+                </Button>
               </div>
             )}
           </div>
-          {actionMessage && (
-            <div className="phlo-observatory-panel-footer">{actionMessage}</div>
-          )}
-        </aside>
-      </section>
-    </ObservatoryPage>
-  )
-}
-
-function DatasetQueueMetric({
-  detail,
-  icon,
-  label,
-  state = 'unknown',
-  value,
-}: {
-  detail: string
-  icon: ReactNode
-  label: string
-  state?: 'ok' | 'warning' | 'error' | 'unknown'
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-dataset-queue-metric" data-state={state}>
-      {icon}
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
-    </div>
+        }
+      />
+    </Page>
   )
 }
 
@@ -547,40 +572,52 @@ function CandidateRow({
 }) {
   const sourceId = candidate.source_refs[0]?.id ?? candidate.id
   return (
-    <div className="phlo-observatory-mini-row phlo-observatory-candidate-row">
-      <Link params={{ datasetId: candidate.id }} to="/datasets/$datasetId">
-        <span>{candidate.name}</span>
-        <small>
+    <div className="flex items-center justify-between gap-2 px-3 py-2">
+      <Link
+        className="min-w-0"
+        params={{ datasetId: candidate.id }}
+        to="/datasets/$datasetId"
+      >
+        <span className="text-foreground block truncate text-xs font-medium hover:underline">
+          {candidate.name}
+        </span>
+        <span className="text-muted-foreground block font-mono text-[10px]">
           {candidate.source_refs
             .map((ref) => resourceKindLabel(ref.kind))
             .join(', ') || 'source'}
-        </small>
+        </span>
       </Link>
-      <div className="phlo-observatory-inline-actions">
-        <button
+      <div className="flex flex-none items-center gap-1">
+        <Button
           onClick={() => onAction(`candidate:${sourceId}:claim`)}
+          size="xs"
           title="Assign an owner before promotion"
           type="button"
+          variant="outline"
         >
-          <UserPlus className="size-3.5" />
+          <UserPlus className="size-3" />
           Claim
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={() => onAction(`candidate:${sourceId}:promote`)}
+          size="xs"
           title="Promote to a governed Dataset"
           type="button"
+          variant="outline"
         >
-          <CheckCircle2 className="size-3.5" />
+          <CheckCircle2 className="size-3" />
           Promote
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={() => onAction(`candidate:${sourceId}:reject`)}
+          size="xs"
           title="Hide this candidate from Dataset review"
           type="button"
+          variant="ghost"
         >
-          <XCircle className="size-3.5" />
+          <XCircle className="size-3" />
           Reject
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -599,96 +636,88 @@ function DatasetList({
 }) {
   if (isLoading) {
     return (
-      <div className="phlo-observatory-operation-empty">
-        <div>
-          <span className="phlo-observatory-inspector-label">
-            Loading Dataset inventory
-          </span>
-          <h2>Reading live lakehouse state.</h2>
-          <p>
-            Datasets, candidates, owners, classifications, and readiness filters
-            will appear together.
-          </p>
-        </div>
-      </div>
+      <LoadingBlock
+        className="p-3"
+        label="Reading live lakehouse state. Datasets, candidates, owners, classifications, and readiness filters will appear together."
+      />
     )
   }
 
   if (datasets.length === 0) {
     return (
-      <div className="phlo-observatory-operation-empty">
-        <div>
-          <span className="phlo-observatory-inspector-label">
-            {error ? 'Dataset inventory unavailable' : 'No datasets in view'}
-          </span>
-          <h2>
-            {error ? 'Datasets could not load.' : 'No promoted datasets found.'}
-          </h2>
-          <p>
-            {error ??
-              'Promote candidate Datasets when they have enough ownership, quality, and publishing evidence.'}
-          </p>
-        </div>
-      </div>
+      <EmptyBlock
+        className="py-10"
+        description={
+          error ??
+          'Promote candidate Datasets when they have enough ownership, quality, and publishing evidence.'
+        }
+        title={
+          error ? 'Datasets could not load.' : 'No promoted datasets found.'
+        }
+      />
     )
   }
 
   return (
-    <div className="phlo-observatory-list phlo-observatory-dataset-table">
-      <div className="phlo-observatory-dataset-head">
+    <ScrollArea className="min-h-0 flex-1">
+      <div className="text-muted-foreground grid grid-cols-[minmax(0,1.5fr)_7rem_minmax(0,6rem)_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase max-lg:grid-cols-[minmax(0,1.5fr)_7rem_minmax(0,1fr)]">
         <span>Dataset</span>
         <span>Status</span>
-        <span>Owner</span>
+        <span className="max-lg:hidden">Owner</span>
         <span>Blocker</span>
-        <span>Next action</span>
+        <span className="max-lg:hidden">Next action</span>
       </div>
       {datasets.map((dataset) => (
-        <article className="phlo-observatory-dataset-row" key={dataset.id}>
-          <span
-            className="phlo-observatory-dot"
-            data-state={dataset.readiness_state}
-          />
-          <div className="phlo-observatory-dataset-row-main">
-            <div className="phlo-observatory-row-title">
-              <Boxes className="size-4" />
-              <Link
-                params={{ datasetId: dataset.id }}
-                to="/datasets/$datasetId"
-              >
-                {dataset.name}
-              </Link>
-            </div>
-            <div className="phlo-observatory-row-meta">
-              {[
-                dataset.classifications.join(', ') || 'unclassified',
-                dataset.candidate ? 'candidate' : 'governed',
-                dataset.source_refs
-                  .map((ref) => resourceKindLabel(ref.kind))
-                  .join(', ') || 'source',
-              ].join(' · ')}
+        <article
+          className="hover:bg-accent/40 grid grid-cols-[minmax(0,1.5fr)_7rem_minmax(0,6rem)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-3 border-b px-3 py-2 transition-colors max-lg:grid-cols-[minmax(0,1.5fr)_7rem_minmax(0,1fr)]"
+          key={dataset.id}
+        >
+          <div className="flex min-w-0 items-start gap-2">
+            <span
+              className="status-dot mt-1.5 flex-none"
+              data-state={dataset.readiness_state}
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs font-medium">
+                <Boxes className="text-muted-foreground size-3.5 flex-none" />
+                <Link
+                  className="text-foreground truncate hover:underline"
+                  params={{ datasetId: dataset.id }}
+                  to="/datasets/$datasetId"
+                >
+                  {dataset.name}
+                </Link>
+              </div>
+              <div className="text-muted-foreground mt-0.5 truncate font-mono text-[10px]">
+                {[
+                  dataset.classifications.join(', ') || 'unclassified',
+                  dataset.candidate ? 'candidate' : 'governed',
+                  dataset.source_refs
+                    .map((ref) => resourceKindLabel(ref.kind))
+                    .join(', ') || 'source',
+                ].join(' · ')}
+              </div>
             </div>
           </div>
-          <div className="phlo-observatory-dataset-row-status">
-            {dataset.candidate && (
-              <span className="phlo-observatory-pill">candidate</span>
-            )}
+          <div className="flex items-center gap-1">
+            {dataset.candidate && <Badge variant="outline">candidate</Badge>}
             <StatusBadge
               label={dataset.publication_state}
               state={dataset.readiness_state}
             />
           </div>
-          <span className="phlo-observatory-dataset-row-owner">
+          <span className="text-muted-foreground truncate font-mono text-[10px] max-lg:hidden">
             {dataset.owner ?? 'unassigned'}
           </span>
-          <span className="phlo-observatory-dataset-row-blocker">
+          <span className="text-muted-foreground truncate text-[10px]">
             {canonicalQueueReason(dataset, readinessMap[dataset.id] ?? null)}
           </span>
-          <span className="phlo-observatory-dataset-row-next">
+          <span className="text-muted-foreground truncate font-mono text-[10px] max-lg:hidden">
             {canonicalNextAction(dataset, readinessMap[dataset.id] ?? null)}
           </span>
         </article>
       ))}
-    </div>
+    </ScrollArea>
   )
 }
 
@@ -704,40 +733,63 @@ function DatasetEvidenceLinks({
     firstResourceHref(dataset, 'table') ??
     `/lineage`
   return (
-    <div
-      className="phlo-observatory-dataset-evidence-links"
-      data-compact={compact}
-    >
+    <div className="flex flex-wrap items-center gap-1.5">
       {!compact && (
-        <Link
-          params={{ datasetId: dataset.id }}
-          title="Open quality, operations, lineage, publishing, and governance evidence"
-          to="/datasets/$datasetId"
+        <Button
+          nativeButton={false}
+          render={
+            <Link
+              params={{ datasetId: dataset.id }}
+              title="Open quality, operations, lineage, publishing, and governance evidence"
+              to="/datasets/$datasetId"
+            />
+          }
+          size="xs"
+          variant="outline"
         >
           <ListChecks className="size-3.5" />
           Profile
-        </Link>
+        </Button>
       )}
-      <Link to={lineageTarget} title="Open linked lineage">
+      <Button
+        nativeButton={false}
+        render={<Link title="Open linked lineage" to={lineageTarget} />}
+        size="xs"
+        variant="outline"
+      >
         <GitBranch className="size-3.5" />
         Lineage
-      </Link>
-      <Link
-        search={{ datasetId: dataset.id }}
-        title="Open publishing policy"
-        to="/publishing"
+      </Button>
+      <Button
+        nativeButton={false}
+        render={
+          <Link
+            search={{ datasetId: dataset.id }}
+            title="Open publishing policy"
+            to="/publishing"
+          />
+        }
+        size="xs"
+        variant="outline"
       >
         <UploadCloud className="size-3.5" />
         Publishing
-      </Link>
-      <Link
-        search={{ datasetId: dataset.id }}
-        title="Open governance controls"
-        to="/governance"
+      </Button>
+      <Button
+        nativeButton={false}
+        render={
+          <Link
+            search={{ datasetId: dataset.id }}
+            title="Open governance controls"
+            to="/governance"
+          />
+        }
+        size="xs"
+        variant="outline"
       >
         <ShieldCheck className="size-3.5" />
         Governance
-      </Link>
+      </Button>
     </div>
   )
 }
@@ -756,10 +808,13 @@ function SelectFilter({
   values: Array<string>
 }) {
   return (
-    <label className="phlo-observatory-filter-field">
-      <Filter className="size-3.5" />
-      <span>{label}</span>
-      <select onChange={(event) => onChange(event.target.value)} value={value}>
+    <label className="text-muted-foreground flex items-center gap-1.5 font-mono text-[10px]">
+      <span className="font-medium tracking-widest uppercase">{label}</span>
+      <select
+        className="border-input bg-background h-7 border px-1.5 text-[11px]"
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
         <option value="all">All</option>
         {values.map((item) => (
           <option key={item} value={item}>

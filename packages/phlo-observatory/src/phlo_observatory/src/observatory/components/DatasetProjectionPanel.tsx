@@ -11,6 +11,8 @@ import type {
   CanonicalDatasetControlEntry,
   CanonicalDatasetProjection,
 } from '@/observatory/api/types'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { HealthDot } from '@/components/observatory/status'
 
 export function DatasetProjectionPanel({
   projection,
@@ -20,82 +22,111 @@ export function DatasetProjectionPanel({
   const { readiness } = projection
   return (
     <div
-      className="phlo-observatory-dataset-projection"
+      className="flex flex-col gap-3"
       data-candidate={projection.candidate}
       data-state={readiness.ready ? 'ok' : 'error'}
     >
-      <div className="phlo-observatory-inspector-label">
+      <div className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
         Canonical projection · {readiness.policy_version}
       </div>
-      <dl className="phlo-observatory-facts">
-        <dt>Dataset</dt>
-        <dd>{projection.dataset_id}</dd>
-        <dt>Table</dt>
-        <dd>{projection.table_id}</dd>
-        <dt>Owner</dt>
-        <dd>{projection.owner ?? 'unassigned'}</dd>
-        <dt>Classification</dt>
-        <dd>{projection.classifications.join(', ') || 'none'}</dd>
-        <dt>Workflow state</dt>
-        <dd>{projection.workflow_state ?? 'unknown'}</dd>
-        <dt>Publication</dt>
-        <dd>{projection.publication_state ?? 'unknown'}</dd>
-        <dt>Approval</dt>
-        <dd>{projection.approval_state ?? 'unknown'}</dd>
-        <dt>Last action</dt>
-        <dd>{projection.last_action_id ?? 'none'}</dd>
-        <dt>Allowed transitions</dt>
-        <dd>{projection.allowed_transitions.join(', ') || 'none'}</dd>
-      </dl>
-      <div className="phlo-observatory-detail-list">
+      <FactGrid>
+        <Fact label="Dataset" value={projection.dataset_id} />
+        <Fact label="Table" value={projection.table_id} />
+        <Fact label="Owner" value={projection.owner ?? 'unassigned'} />
+        <Fact
+          label="Classification"
+          value={projection.classifications.join(', ') || 'none'}
+        />
+        <Fact
+          label="Workflow state"
+          value={projection.workflow_state ?? 'unknown'}
+        />
+        <Fact
+          label="Publication"
+          value={projection.publication_state ?? 'unknown'}
+        />
+        <Fact label="Approval" value={projection.approval_state ?? 'unknown'} />
+        <Fact label="Last action" value={projection.last_action_id ?? 'none'} />
+        <Fact
+          label="Allowed transitions"
+          value={projection.allowed_transitions.join(', ') || 'none'}
+        />
+      </FactGrid>
+      <div className="divide-border divide-y border-y">
         {projection.controls.map((control) => (
           <ControlRow control={control} key={control.control} />
         ))}
         {projection.controls.length === 0 && (
-          <div className="phlo-observatory-mini-row" data-state="unknown">
-            <span>No controls evaluated</span>
-            <small>projection carried no control set</small>
-          </div>
+          <MiniRow
+            detail="projection carried no control set"
+            state="unknown"
+            title="No controls evaluated"
+          />
         )}
       </div>
-      <div className="phlo-observatory-inspector-section-label">
-        Readiness reasons (canonical order)
-      </div>
-      <div className="phlo-observatory-detail-list">
-        {readiness.reasons.length === 0 ? (
-          <div className="phlo-observatory-mini-row" data-state="ok">
-            <span>No readiness reasons</span>
-            <small>policy verdict is clear</small>
-          </div>
-        ) : (
-          readiness.reasons.map((reason) => (
-            <div className="phlo-observatory-mini-row" key={reason}>
-              <span>{reason}</span>
-            </div>
-          ))
-        )}
+      <div>
+        <div className="text-muted-foreground mb-1 text-[10px] font-medium tracking-widest uppercase">
+          Readiness reasons (canonical order)
+        </div>
+        <div className="divide-border divide-y border-y">
+          {readiness.reasons.length === 0 ? (
+            <MiniRow
+              detail="policy verdict is clear"
+              state="ok"
+              title="No readiness reasons"
+            />
+          ) : (
+            readiness.reasons.map((reason) => (
+              <div className="py-1.5" key={reason}>
+                <span className="text-foreground font-mono text-[11px]">
+                  {reason}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
       </div>
       {projection.evidence.length > 0 && (
-        <>
-          <div className="phlo-observatory-inspector-section-label">
+        <div>
+          <div className="text-muted-foreground mb-1 text-[10px] font-medium tracking-widest uppercase">
             Evidence behind the controls
           </div>
-          <div className="phlo-observatory-detail-list">
+          <div className="divide-border divide-y border-y">
             {projection.evidence.map((entry) => (
-              <div
-                className="phlo-observatory-mini-row"
-                data-state={entry.status}
+              <MiniRow
+                detail={entry.source}
                 key={`${entry.kind}:${entry.subject}`}
-              >
-                <span>
-                  {entry.kind} · {entry.subject}
-                </span>
-                <small>{entry.source}</small>
-              </div>
+                state={entry.status}
+                title={`${entry.kind} · ${entry.subject}`}
+              />
             ))}
           </div>
-        </>
+        </div>
       )}
+    </div>
+  )
+}
+
+function MiniRow({
+  detail,
+  state,
+  title,
+}: {
+  detail: string
+  state?: string
+  title: string
+}) {
+  return (
+    <div className="flex items-start gap-2 py-1.5">
+      <HealthDot className="mt-1" state={state} />
+      <span className="min-w-0">
+        <span className="text-foreground block font-mono text-[11px]">
+          {title}
+        </span>
+        <span className="text-muted-foreground block font-mono text-[10px]">
+          {detail}
+        </span>
+      </span>
     </div>
   )
 }
@@ -108,11 +139,10 @@ function ControlRow({ control }: { control: CanonicalDatasetControlEntry }) {
         ? 'error'
         : 'unknown'
   return (
-    <div className="phlo-observatory-mini-row" data-state={state}>
-      <span>
-        {control.control} · {control.status}
-      </span>
-      <small>{control.severity ?? 'control'}</small>
-    </div>
+    <MiniRow
+      detail={control.severity ?? 'control'}
+      state={state}
+      title={`${control.control} · ${control.status}`}
+    />
   )
 }

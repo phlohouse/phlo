@@ -1,10 +1,27 @@
 // @vitest-environment jsdom
 
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { RunReportView } from './RunReportView'
+import type { ReactNode } from 'react'
 import type { ObservatoryRunReport } from '@/observatory/api/types'
+
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({
+    children,
+    className,
+    to,
+  }: {
+    children?: ReactNode
+    className?: string
+    to: string
+  }) => (
+    <a className={className} href={to}>
+      {children}
+    </a>
+  ),
+}))
 
 const request = { projectId: 'finance', runId: 'daily-orders', attempt: '2' }
 

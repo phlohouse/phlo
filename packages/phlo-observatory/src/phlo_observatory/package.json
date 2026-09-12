@@ -22,8 +22,6 @@
   "dependencies": {
     "@base-ui/react": "^1.0.0",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@primer/primitives": "^11.8.1",
-    "@primer/react": "^38.22.0",
     "@tanstack/react-query": "^5.101.0",
     "@tanstack/react-router": "^1.132.0",
     "@tanstack/react-table": "^8.21.3",

@@ -6,15 +6,12 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   Activity,
-  Boxes,
   CheckCircle2,
-  Database,
   GitBranch,
   ListChecks,
   ShieldCheck,
   UploadCloud,
   UserPlus,
-  UserRound,
   XCircle,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -32,9 +29,20 @@ import {
 import { profileProjection } from '@/observatory/api/datasetProjection'
 import { DatasetProjectionPanel } from '@/observatory/components/DatasetProjectionPanel'
 import { ActionButton } from '@/observatory/components/ActionButton'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
-import { StatusBadge } from '@/observatory/components/StatusBadge'
 import { invalidateCachedResources } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { StatusBadge } from '@/components/observatory/status'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/datasets/$datasetId')({
   component: DatasetProfileRoute,
@@ -68,29 +76,31 @@ export function DatasetProfile({ datasetId }: { datasetId: string }) {
   const dataset = profile?.dataset
 
   return (
-    <ObservatoryPage
-      kicker="Dataset"
-      title={dataset?.name ?? datasetId}
-      description={
-        dataset?.description ??
-        'Dataset readiness cockpit for ownership, lineage, quality, publishing, and platform context.'
-      }
-      action={
-        dataset ? (
-          <span className="phlo-observatory-pill">
-            {dataset.publication_state}
-          </span>
-        ) : null
-      }
-    >
+    <Page>
+      <PageHeader
+        actions={
+          dataset ? (
+            <Badge variant="secondary">{dataset.publication_state}</Badge>
+          ) : null
+        }
+        breadcrumb={[
+          { label: 'Datasets', to: '/datasets' },
+          { label: dataset?.name ?? datasetId },
+        ]}
+        description={
+          dataset?.description ??
+          'Dataset readiness cockpit for ownership, lineage, quality, publishing, and platform context.'
+        }
+        title={dataset?.name ?? datasetId}
+      />
       {profile ? (
         <ProfileContent onRefresh={refreshProfile} profile={profile} />
+      ) : result.error ? (
+        <EmptyBlock description={result.error} title="Dataset unavailable" />
       ) : (
-        <div className="phlo-observatory-empty-state">
-          {result.error ?? 'Loading Dataset'}
-        </div>
+        <LoadingBlock label="Loading Dataset" />
       )}
-    </ObservatoryPage>
+    </Page>
   )
 }
 
@@ -119,93 +129,101 @@ function ProfileContent({
   }
 
   return (
-    <section className="phlo-observatory-surface-grid">
-      <div className="phlo-observatory-list-surface phlo-observatory-dataset-profile-surface">
-        <div className="phlo-observatory-browser-toolbar">
-          <span>
-            <Boxes className="size-4" />
-            Readiness cockpit
-          </span>
-          <StatusBadge
-            label={dataset.readiness_state}
-            state={dataset.readiness_state}
-          />
-        </div>
-        <ReadinessCockpit profile={profile} />
-        <DatasetDecisionStrip profile={profile} />
-        <div className="phlo-observatory-dataset-summary">
-          <SummaryMetric
-            icon={<Database className="size-5" />}
-            label="Tables"
-            value={profile.tables.length}
-            detail={profile.tables[0]?.namespace ?? 'bound sources'}
-          />
-          <SummaryMetric
-            icon={<ListChecks className="size-5" />}
-            label="Checks"
-            value={profile.quality.length}
-            detail={`${dataset.readiness_state} readiness`}
-          />
-          <SummaryMetric
-            icon={<GitBranch className="size-5" />}
-            label="Lineage"
-            value={profile.upstream.length + profile.downstream.length}
-            detail={`${profile.upstream.length} up · ${profile.downstream.length} down`}
-          />
-          <SummaryMetric
-            icon={<ShieldCheck className="size-5" />}
-            label="Classifications"
-            value={dataset.classifications.length}
-            detail={
-              dataset.classifications.length
-                ? dataset.classifications.join(', ')
-                : 'none declared'
+    <SplitView
+      inspector={
+        <>
+          <InspectorSection label={`Overview · ${dataset.name}`}>
+            <p className="text-muted-foreground text-xs/relaxed">
+              {dataset.description ?? 'No description available.'}
+            </p>
+            <FactGrid>
+              <Fact label="Owner" value={dataset.owner ?? 'unassigned'} />
+              <Fact label="Publication" value={dataset.publication_state} />
+              <Fact label="Readiness" value={dataset.readiness_state} />
+              <Fact
+                label="Classification"
+                value={
+                  dataset.classifications.length
+                    ? dataset.classifications.join(', ')
+                    : 'none'
+                }
+              />
+            </FactGrid>
+          </InspectorSection>
+          <InspectorSection label="Readiness">
+            <div className="divide-border -mx-3 divide-y">
+              <ReadinessInspectorRows onAction={onAction} profile={profile} />
+              <ExactEvidenceRows profile={profile} />
+              {profile.tables.map((table) => (
+                <LinkedMiniRow
+                  detail={table.namespace ?? 'table'}
+                  href={`/tables?tableId=${encodeURIComponent(table.id)}`}
+                  key={table.id}
+                  label={table.name}
+                />
+              ))}
+              {profile.tables.length === 0 && (
+                <EmptyRow label="No table binding" />
+              )}
+            </div>
+          </InspectorSection>
+          {canonical && (
+            <InspectorSection label="Projection">
+              <DatasetProjectionPanel projection={canonical} />
+            </InspectorSection>
+          )}
+        </>
+      }
+      inspectorWidth="w-[24rem]"
+      list={
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+          <SectionCard
+            actions={
+              <StatusBadge
+                label={dataset.readiness_state}
+                state={dataset.readiness_state}
+              />
             }
-          />
-        </div>
-        <DatasetEvidenceWorkbench onAction={onAction} profile={profile} />
-        {actionMessage && (
-          <div className="phlo-observatory-panel-footer">{actionMessage}</div>
-        )}
-      </div>
-
-      <aside className="phlo-observatory-inspector">
-        <div className="phlo-observatory-inspector-label">Overview</div>
-        <h2>{dataset.name}</h2>
-        <p>{dataset.description ?? 'No description available.'}</p>
-        <dl className="phlo-observatory-facts">
-          <Fact
-            icon={<UserRound className="size-3.5" />}
-            label="Owner"
-            value={dataset.owner ?? 'unassigned'}
-          />
-          <Fact label="Publication" value={dataset.publication_state} />
-          <Fact label="Readiness" value={dataset.readiness_state} />
-          <Fact
-            label="Classification"
-            value={
-              dataset.classifications.length
-                ? dataset.classifications.join(', ')
-                : 'none'
-            }
-          />
-        </dl>
-        <div className="phlo-observatory-detail-list">
-          <ReadinessInspectorRows onAction={onAction} profile={profile} />
-          <ExactEvidenceRows profile={profile} />
-          {canonical && <DatasetProjectionPanel projection={canonical} />}
-          {profile.tables.map((table) => (
-            <LinkedMiniRow
-              detail={table.namespace ?? 'table'}
-              href={`/tables?tableId=${encodeURIComponent(table.id)}`}
-              key={table.id}
-              label={table.name}
+            title="Readiness cockpit"
+          >
+            <ReadinessCockpit profile={profile} />
+          </SectionCard>
+          <DatasetDecisionStrip profile={profile} />
+          <StatGrid className="xl:grid-cols-4">
+            <StatCard
+              label="Tables"
+              note={profile.tables[0]?.namespace ?? 'bound sources'}
+              value={profile.tables.length}
             />
-          ))}
-          {profile.tables.length === 0 && <EmptyRow label="No table binding" />}
+            <StatCard
+              label="Checks"
+              note={`${dataset.readiness_state} readiness`}
+              value={profile.quality.length}
+            />
+            <StatCard
+              label="Lineage"
+              note={`${profile.upstream.length} up · ${profile.downstream.length} down`}
+              value={profile.upstream.length + profile.downstream.length}
+            />
+            <StatCard
+              label="Classifications"
+              note={
+                dataset.classifications.length
+                  ? dataset.classifications.join(', ')
+                  : 'none declared'
+              }
+              value={dataset.classifications.length}
+            />
+          </StatGrid>
+          <DatasetEvidenceWorkbench onAction={onAction} profile={profile} />
+          {actionMessage && (
+            <p className="text-muted-foreground font-mono text-[10px] break-all">
+              {actionMessage}
+            </p>
+          )}
         </div>
-      </aside>
-    </section>
+      }
+    />
   )
 }
 
@@ -218,7 +236,7 @@ function DatasetDecisionStrip({
   const blocker = datasetBlocker(profile)
   const nextAction = datasetNextAction(profile)
   return (
-    <div className="phlo-observatory-dataset-decision-strip">
+    <div className="bg-sheet border-rule grid grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,1.4fr)] border max-lg:grid-cols-2">
       <DecisionFact
         label="Status"
         state={dataset.readiness_state}
@@ -239,7 +257,7 @@ function DatasetDecisionStrip({
         state={nextAction.state}
         value={nextAction.label}
       />
-      <div className="phlo-observatory-dataset-evidence-rail">
+      <div className="flex flex-col divide-y max-lg:col-span-2">
         <EvidenceLink
           detail={firstQualityLabel(profile)}
           href={qualityHref(profile)}
@@ -285,9 +303,15 @@ function DecisionFact({
   value: string
 }) {
   return (
-    <div className="phlo-observatory-dataset-decision-fact" data-state={state}>
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div
+      className="border-border flex flex-col gap-0.5 border-r px-3 py-2 last:border-r-0"
+      data-state={state}
+    >
+      <span className="text-muted-foreground flex items-center gap-1.5 text-[9px] font-medium tracking-widest uppercase">
+        <span className="status-dot" data-state={state} />
+        {label}
+      </span>
+      <strong className="text-foreground truncate text-[11px]">{value}</strong>
     </div>
   )
 }
@@ -304,12 +328,17 @@ function EvidenceLink({
   label: string
 }) {
   return (
-    <Link className="phlo-observatory-dataset-evidence-link" to={href}>
-      <span>
+    <Link
+      className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-1.5 transition-colors"
+      to={href}
+    >
+      <span className="text-foreground flex items-center gap-1.5 text-[11px] font-medium">
         {icon}
         {label}
       </span>
-      <small>{detail}</small>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {detail}
+      </span>
     </Link>
   )
 }
@@ -324,7 +353,7 @@ function DatasetEvidenceWorkbench({
   const lineage = [...profile.upstream, ...profile.downstream]
   const publishingIssues = datasetPublishingIssues(profile)
   return (
-    <div className="phlo-observatory-dataset-evidence-workbench">
+    <div className="grid grid-cols-2 gap-3 max-lg:grid-cols-1">
       <WorkflowPanel
         detail={
           publishingIssues.length
@@ -409,17 +438,19 @@ function WorkflowPanel({
 }) {
   return (
     <section
-      className="phlo-observatory-dataset-workflow-panel"
+      className="bg-sheet border-rule flex flex-col border"
       data-state={state}
     >
-      <header>
-        <div>
-          <h3>{title}</h3>
-          <p>{detail}</p>
+      <header className="border-border flex items-center justify-between gap-2 border-b px-3 py-2">
+        <div className="min-w-0">
+          <h3 className="text-foreground text-xs font-semibold">{title}</h3>
+          <p className="text-muted-foreground font-mono text-[10px]">
+            {detail}
+          </p>
         </div>
-        <span className="phlo-observatory-dot" data-state={state} />
+        <span className="status-dot flex-none" data-state={state} />
       </header>
-      <div className="phlo-observatory-dataset-workflow-list">{children}</div>
+      <div className="divide-border divide-y">{children}</div>
     </section>
   )
 }
@@ -452,15 +483,12 @@ function ReadinessCockpit({ profile }: { profile: ObservatoryDatasetProfile }) {
           : 'Readiness needs review'
 
   return (
-    <div
-      className="phlo-observatory-dataset-cockpit"
-      data-state={dataset.readiness_state}
-    >
-      <div className="phlo-observatory-dataset-cockpit-header">
-        <div>
-          <span className="phlo-observatory-dot-label">
+    <div className="flex flex-col" data-state={dataset.readiness_state}>
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b px-3 py-3">
+        <div className="min-w-0">
+          <span className="text-muted-foreground flex items-center gap-1.5 font-mono text-[10px] uppercase">
             <span
-              className="phlo-observatory-dot"
+              className="status-dot"
               data-state={
                 dataset.readiness_state === 'error'
                   ? 'error'
@@ -469,26 +497,22 @@ function ReadinessCockpit({ profile }: { profile: ObservatoryDatasetProfile }) {
             />
             {dataset.publication_state}
           </span>
-          <h2>{headline}</h2>
-          <p>
+          <h2 className="text-foreground mt-1 text-base font-semibold">
+            {headline}
+          </h2>
+          <p className="text-muted-foreground mt-0.5 text-xs/relaxed">
             {dataset.name} is governed by {publishing.policy_name}; publication
             is{' '}
             {publishing.internal_only ? 'internal only' : 'externally visible'}.
           </p>
         </div>
-        <div className="phlo-observatory-dataset-cockpit-actions">
-          {publicationAction ? (
-            <span className="phlo-observatory-pill">
-              {publicationAction.label}
-            </span>
-          ) : (
-            <span className="phlo-observatory-pill">
-              {publicationActionReason}
-            </span>
-          )}
-        </div>
+        <Badge variant="secondary">
+          {publicationAction
+            ? publicationAction.label
+            : publicationActionReason}
+        </Badge>
       </div>
-      <div className="phlo-observatory-dataset-cockpit-grid">
+      <div className="grid grid-cols-4 max-lg:grid-cols-2">
         <CockpitCell
           detail={
             blockingCheck
@@ -624,29 +648,53 @@ function CockpitCell({
 }) {
   const content = (
     <>
-      <span>
+      <span className="text-muted-foreground flex items-center gap-1.5 text-[9px] font-medium tracking-widest uppercase">
         {icon}
         {label}
       </span>
-      <strong>{title}</strong>
-      <small>{detail ?? 'No evidence linked'}</small>
+      <strong className="text-foreground truncate text-xs">{title}</strong>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {detail ?? 'No evidence linked'}
+      </span>
     </>
+  )
+  const className = cn(
+    'border-border flex flex-col gap-1 border-r px-3 py-2.5 transition-colors last:border-r-0 max-lg:border-b',
+    href && 'hover:bg-accent/50',
   )
   if (!href) {
     return (
-      <div className="phlo-observatory-dataset-cockpit-cell" data-state={state}>
+      <div className={className} data-state={state}>
         {content}
       </div>
     )
   }
   return (
-    <Link
-      className="phlo-observatory-dataset-cockpit-cell"
-      data-state={state}
-      to={href}
-    >
+    <Link className={className} data-state={state} to={href}>
       {content}
     </Link>
+  )
+}
+
+function MiniRow({
+  detail,
+  label,
+  state,
+}: {
+  detail: ReactNode
+  label: ReactNode
+  state?: string | null
+}) {
+  return (
+    <div
+      className="flex items-center justify-between gap-2 px-3 py-2"
+      data-state={state ?? undefined}
+    >
+      <span className="text-foreground min-w-0 text-[11px]">{label}</span>
+      <span className="text-muted-foreground flex-none text-right font-mono text-[10px] break-all">
+        {detail}
+      </span>
+    </div>
   )
 }
 
@@ -664,34 +712,28 @@ function BlockerRows({ profile }: { profile: ObservatoryDatasetProfile }) {
   return (
     <>
       {blockers.map((blocker) => (
-        <div
-          className="phlo-observatory-mini-row"
-          data-state="error"
+        <MiniRow
+          detail="blocker"
           key={`blocker:${blocker}`}
-        >
-          <span>{blocker}</span>
-          <small>blocker</small>
-        </div>
+          label={blocker}
+          state="error"
+        />
       ))}
       {missingEvidence.map((item) => (
-        <div
-          className="phlo-observatory-mini-row"
-          data-state="unknown"
+        <MiniRow
+          detail="missing evidence"
           key={`missing:${item}`}
-        >
-          <span>{item}</span>
-          <small>missing evidence</small>
-        </div>
+          label={item}
+          state="unknown"
+        />
       ))}
       {warnings.map((warning) => (
-        <div
-          className="phlo-observatory-mini-row"
-          data-state="warning"
+        <MiniRow
+          detail="warning"
           key={`warning:${warning}`}
-        >
-          <span>{warning}</span>
-          <small>warning</small>
-        </div>
+          label={warning}
+          state="warning"
+        />
       ))}
     </>
   )
@@ -734,14 +776,12 @@ function GovernanceRows({ profile }: { profile: ObservatoryDatasetProfile }) {
             state={controlStatusState(control.status)}
           />
         ) : (
-          <div
-            className="phlo-observatory-mini-row"
-            data-state={controlStatusState(control.status)}
+          <MiniRow
+            detail={control.message ?? control.status.replace('_', ' ')}
             key={control.id}
-          >
-            <span>{control.label}</span>
-            <small>{control.message ?? control.status.replace('_', ' ')}</small>
-          </div>
+            label={control.label}
+            state={controlStatusState(control.status)}
+          />
         )
       })}
     </>
@@ -816,42 +856,37 @@ function ReadinessInspectorRows({
   const releaseIssueCount = datasetPublishingIssues(profile).length
   return (
     <>
-      <div className="phlo-observatory-mini-row" data-state={publishing.state}>
-        <span>Publication policy</span>
-        <small>{publishing.policy_name}</small>
-      </div>
-      <div
-        className="phlo-observatory-mini-row"
-        data-state={publishing.blockers.length ? 'error' : publishing.state}
-      >
-        <span>Release issues</span>
-        <small>{releaseIssueCount}</small>
-      </div>
-      <div
-        className="phlo-observatory-mini-row"
-        data-state={publishing.missing_evidence.length ? 'unknown' : 'ok'}
-      >
-        <span>Missing evidence</span>
-        <small>{publishing.missing_evidence.length}</small>
-      </div>
-      <div className="phlo-observatory-mini-row">
-        <span>Next publish action</span>
-        <small>
-          {enabledPublicationAction?.label ??
-            publishing.actions[0]?.reason ??
-            'No publication action'}
-        </small>
-      </div>
-      <div className="phlo-observatory-mini-row">
-        <span>Pipeline action</span>
-        <small>
-          {pipelineAction?.label ??
-            profile.pipeline.actions[0]?.reason ??
-            'none'}
-        </small>
-      </div>
+      <MiniRow
+        detail={publishing.policy_name}
+        label="Publication policy"
+        state={publishing.state}
+      />
+      <MiniRow
+        detail={releaseIssueCount}
+        label="Release issues"
+        state={publishing.blockers.length ? 'error' : publishing.state}
+      />
+      <MiniRow
+        detail={publishing.missing_evidence.length}
+        label="Missing evidence"
+        state={publishing.missing_evidence.length ? 'unknown' : 'ok'}
+      />
+      <MiniRow
+        detail={
+          enabledPublicationAction?.label ??
+          publishing.actions[0]?.reason ??
+          'No publication action'
+        }
+        label="Next publish action"
+      />
+      <MiniRow
+        detail={
+          pipelineAction?.label ?? profile.pipeline.actions[0]?.reason ?? 'none'
+        }
+        label="Pipeline action"
+      />
       {publishing.actions.length > 0 && (
-        <div className="phlo-observatory-action-row">
+        <div className="flex flex-wrap items-center gap-1.5 px-3 py-2">
           {publishing.actions.map((action) => (
             <ActionButton
               action={{
@@ -905,14 +940,12 @@ function PipelineRows({ profile }: { profile: ObservatoryDatasetProfile }) {
         />
       ))}
       {pipeline.actions.map((action) => (
-        <div
-          className="phlo-observatory-mini-row"
-          data-state={action.enabled ? 'ok' : 'unknown'}
+        <MiniRow
+          detail={action.enabled ? 'available' : action.reason}
           key={action.id}
-        >
-          <span>{action.label}</span>
-          <small>{action.enabled ? 'available' : action.reason}</small>
-        </div>
+          label={action.label}
+          state={action.enabled ? 'ok' : 'unknown'}
+        />
       ))}
     </>
   )
@@ -931,30 +964,29 @@ function PublishingDecisionRows({
   )
   return (
     <>
-      <div className="phlo-observatory-mini-row" data-state={publishing.state}>
-        <span>Publication policy</span>
-        <small>{publishing.policy_name}</small>
-      </div>
-      <div className="phlo-observatory-mini-row">
-        <span>Internal only</span>
-        <small>{publishing.internal_only ? 'yes' : 'no'}</small>
-      </div>
-      <div
-        className="phlo-observatory-mini-row"
-        data-state={publishing.missing_evidence.length ? 'unknown' : 'ok'}
-      >
-        <span>Missing evidence</span>
-        <small>{publishing.missing_evidence.length}</small>
-      </div>
-      <div className="phlo-observatory-mini-row">
-        <span>Next publish action</span>
-        <small>
-          {enabledPublicationAction?.label ??
-            publishing.actions[0]?.reason ??
-            'No publication action'}
-        </small>
-      </div>
-      <div className="phlo-observatory-action-row">
+      <MiniRow
+        detail={publishing.policy_name}
+        label="Publication policy"
+        state={publishing.state}
+      />
+      <MiniRow
+        detail={publishing.internal_only ? 'yes' : 'no'}
+        label="Internal only"
+      />
+      <MiniRow
+        detail={publishing.missing_evidence.length}
+        label="Missing evidence"
+        state={publishing.missing_evidence.length ? 'unknown' : 'ok'}
+      />
+      <MiniRow
+        detail={
+          enabledPublicationAction?.label ??
+          publishing.actions[0]?.reason ??
+          'No publication action'
+        }
+        label="Next publish action"
+      />
+      <div className="flex flex-wrap items-center gap-1.5 px-3 py-2">
         {publishing.actions.map((action) => (
           <ActionButton
             action={{
@@ -1044,36 +1076,42 @@ function CandidateWorkflowRows({
   const sourceId = profile.dataset.source_refs[0]?.id ?? profile.dataset.id
   return (
     <>
-      <div className="phlo-observatory-mini-row">
-        <span>Claim</span>
-        <small>assign one accountable owner before promotion</small>
-      </div>
-      <div className="phlo-observatory-mini-row">
-        <span>Promote</span>
-        <small>turn the candidate into a governed Dataset</small>
-      </div>
-      <div className="phlo-observatory-inline-actions">
-        <button
+      <MiniRow
+        detail="assign one accountable owner before promotion"
+        label="Claim"
+      />
+      <MiniRow
+        detail="turn the candidate into a governed Dataset"
+        label="Promote"
+      />
+      <div className="flex flex-wrap items-center gap-1.5 px-3 py-2">
+        <Button
           onClick={() => onAction(`candidate:${sourceId}:claim`)}
+          size="xs"
           type="button"
+          variant="outline"
         >
           <UserPlus className="size-3.5" />
           Claim
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={() => onAction(`candidate:${sourceId}:promote`)}
+          size="xs"
           type="button"
+          variant="outline"
         >
           <CheckCircle2 className="size-3.5" />
           Promote
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={() => onAction(`candidate:${sourceId}:reject`)}
+          size="xs"
           type="button"
+          variant="ghost"
         >
           <XCircle className="size-3.5" />
           Reject
-        </button>
+        </Button>
       </div>
     </>
   )
@@ -1088,22 +1126,18 @@ function UsageRows({ profile }: { profile: ObservatoryDatasetProfile }) {
   ].filter((gap): gap is string => Boolean(gap))
   return (
     <>
-      <div className="phlo-observatory-mini-row">
-        <span>Access Activity</span>
-        <small>{usage.access_activity.length}</small>
-      </div>
+      <MiniRow detail={usage.access_activity.length} label="Access Activity" />
       {usage.access_activity.slice(0, 4).map((activity) => (
-        <div className="phlo-observatory-mini-row" key={activity.id}>
-          <span>{activity.action}</span>
-          <small>
-            {activity.actor_label ?? 'access'} · {activity.count}
-          </small>
-        </div>
+        <MiniRow
+          detail={`${activity.actor_label ?? 'access'} · ${activity.count}`}
+          key={activity.id}
+          label={activity.action}
+        />
       ))}
-      <div className="phlo-observatory-mini-row">
-        <span>Dependency Activity</span>
-        <small>{usage.dependency_activity.length}</small>
-      </div>
+      <MiniRow
+        detail={usage.dependency_activity.length}
+        label="Dependency Activity"
+      />
       {usage.dependency_activity.slice(0, 4).map((activity) => (
         <LinkedMiniRow
           detail={activityKindLabel(activity.kind)}
@@ -1112,26 +1146,25 @@ function UsageRows({ profile }: { profile: ObservatoryDatasetProfile }) {
           label={activity.source.label}
         />
       ))}
-      <div className="phlo-observatory-mini-row">
-        <span>Consumer Adoption</span>
-        <small>{usage.consumer_adoption.length}</small>
-      </div>
+      <MiniRow
+        detail={usage.consumer_adoption.length}
+        label="Consumer Adoption"
+      />
       {usage.consumer_adoption.slice(0, 4).map((consumer) => (
-        <div className="phlo-observatory-mini-row" key={consumer.id}>
-          <span>{consumer.consumer}</span>
-          <small>
-            {consumer.kind} · {consumer.status}
-          </small>
-        </div>
+        <MiniRow
+          detail={`${consumer.kind} · ${consumer.status}`}
+          key={consumer.id}
+          label={consumer.consumer}
+        />
       ))}
-      <div className="phlo-observatory-mini-row">
-        <span>Privacy</span>
-        <small>{usage.privacy_policy.identity_detail.replace('_', ' ')}</small>
-      </div>
-      <div className="phlo-observatory-mini-row">
-        <span>Telemetry gaps</span>
-        <small>{gaps.length ? gaps.join(', ') : 'none'}</small>
-      </div>
+      <MiniRow
+        detail={usage.privacy_policy.identity_detail.replace('_', ' ')}
+        label="Privacy"
+      />
+      <MiniRow
+        detail={gaps.length ? gaps.join(', ') : 'none'}
+        label="Telemetry gaps"
+      />
     </>
   )
 }
@@ -1149,12 +1182,16 @@ function LinkedMiniRow({
 }) {
   return (
     <Link
-      className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+      className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
       data-state={state ?? undefined}
       to={href}
     >
-      <span>{label}</span>
-      <small>{detail || 'open'}</small>
+      <span className="text-foreground min-w-0 truncate text-[11px]">
+        {label}
+      </span>
+      <span className="text-muted-foreground flex-none font-mono text-[10px]">
+        {detail || 'open'}
+      </span>
     </Link>
   )
 }
@@ -1207,10 +1244,9 @@ function operationLabel(profile: ObservatoryDatasetProfile): string {
   const failedOperation = profile.operations.find(
     (item) => item.status === 'failed',
   )
-  const operationLabel =
-    failedOperation?.name ?? profile.pipeline.last_run?.label
-  return operationLabel
-    ? `${operationLabel} · ${profile.pipeline.freshness_state}`
+  const label = failedOperation?.name ?? profile.pipeline.last_run?.label
+  return label
+    ? `${label} · ${profile.pipeline.freshness_state}`
     : profile.pipeline.freshness_state
 }
 
@@ -1288,54 +1324,6 @@ function formatDateTime(value?: string | null): string | null {
   }).format(date)} UTC`
 }
 
-function SummaryMetric({
-  detail,
-  icon,
-  label,
-  value,
-}: {
-  detail: string
-  icon: ReactNode
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-dataset-summary-item">
-      {icon}
-      <div>
-        <span>{label}</span>
-        <strong>{value}</strong>
-        <small>{detail}</small>
-      </div>
-    </div>
-  )
-}
-
-function Fact({
-  icon,
-  label,
-  value,
-}: {
-  icon?: ReactNode
-  label: string
-  value: string
-}) {
-  return (
-    <>
-      <dt>
-        {icon}
-        {label}
-      </dt>
-      <dd>{value}</dd>
-    </>
-  )
-}
-
 function EmptyRow({ label }: { label: string }) {
-  return (
-    <div className="phlo-observatory-mini-row">
-      <span>{label}</span>
-      <small>empty</small>
-    </div>
-  )
+  return <MiniRow detail="empty" label={label} />
 }

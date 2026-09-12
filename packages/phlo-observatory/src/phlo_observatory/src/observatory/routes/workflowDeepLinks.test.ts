@@ -82,11 +82,18 @@ describe('Observatory workflow deep links', () => {
     const operationsSource = routeSource('operations.tsx')
     const governanceSource = routeSource('governance.tsx')
     const commandPaletteSource = readFileSync(
-      resolve(import.meta.dirname, '../shell/ObservatoryCommandPalette.tsx'),
+      resolve(
+        import.meta.dirname,
+        '../../components/shell/command-palette.tsx',
+      ),
+      'utf8',
+    )
+    const refLinkSource = readFileSync(
+      resolve(import.meta.dirname, '../../components/observatory/ref-link.tsx'),
       'utf8',
     )
     const shellSource = readFileSync(
-      resolve(import.meta.dirname, '../shell/ObservatoryShell.tsx'),
+      resolve(import.meta.dirname, '../../components/shell/app-shell.tsx'),
       'utf8',
     )
 
@@ -117,9 +124,8 @@ describe('Observatory workflow deep links', () => {
     expect(governanceSource).toContain(
       'return `/lineage?assetId=${encodeURIComponent(resource.id)}`',
     )
-    expect(commandPaletteSource).toContain(
-      'value={`open:/tables?tableId=${encodeURIComponent(table.id)}`}',
-    )
+    expect(commandPaletteSource).toContain('resourceRefHref')
+    expect(refLinkSource).toContain('`/tables?tableId=${id}`')
     expect(source).not.toContain(
       '`/lineage/${encodeURIComponent(selected.asset_id)}`',
     )

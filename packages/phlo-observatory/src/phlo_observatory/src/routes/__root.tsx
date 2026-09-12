@@ -1,9 +1,8 @@
 /**
- * Root layout. Wires theme, React Query, extension, and settings providers
- * around the Observatory shell, injects the runtime API URL bootstrap
- * script, and renders the app-wide not-found page.
+ * Root layout. Wires React Query, extension, and settings providers around
+ * the Observatory shell, injects the runtime API URL bootstrap script, and
+ * renders the app-wide not-found page.
  */
-import { BaseStyles, ThemeProvider } from '@primer/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   HeadContent,
@@ -15,16 +14,12 @@ import {
 import * as React from 'react'
 
 import appCss from '../styles.css?url'
-import observatoryLedgerCss from '../observatory/design/ledger.css?url'
 import { ObservatoryExtensionProvider } from '@/extensions/registry'
 import { ObservatorySettingsProvider } from '@/hooks/useObservatorySettings'
-import { cn } from '@/lib/utils'
 import { buttonVariants } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/toaster'
-import { ObservatoryShell } from '@/observatory/shell/ObservatoryShell'
-import { OBSERVATORY_THEME_STORAGE_KEY } from '@/observatory/shell/theme'
-
-const observatoryLedgerHref = `${observatoryLedgerCss}?v=20260711-nav-alignment`
+import { AppShell } from '@/components/shell/app-shell'
+import { cn } from '@/lib/utils'
 
 if (typeof window !== 'undefined') {
   ;(
@@ -49,12 +44,11 @@ export const Route = createRootRoute({
       { title: 'Phlo Observatory' },
       {
         name: 'description',
-        content: 'Unified visibility into your data platform',
+        content: 'Mission control for the lakehouse',
       },
     ],
     links: [
       { rel: 'stylesheet', href: appCss },
-      { rel: 'stylesheet', href: observatoryLedgerHref },
       { rel: 'icon', href: '/favicon.ico' },
     ],
   }),
@@ -62,17 +56,6 @@ export const Route = createRootRoute({
   component: RootLayout,
   notFoundComponent: NotFound,
 })
-
-const OBSERVATORY_THEME_BOOTSTRAP = `;(() => {
-  try {
-    var mode = window.localStorage.getItem('${OBSERVATORY_THEME_STORAGE_KEY}');
-    var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    var dark = mode === 'dark' || (mode !== 'light' && systemDark);
-    document.documentElement.dataset.phloObservatoryRoute = 'true';
-    document.documentElement.dataset.phloObservatoryTheme = dark ? 'dark' : 'light';
-    document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-  } catch (_) {}
-})();`
 
 function runtimeBrowserApiUrl() {
   return typeof process !== 'undefined'
@@ -91,38 +74,25 @@ function RootLayout() {
   const browserApiUrl = runtimeBrowserApiUrl()
 
   return (
-    <html lang="en" className="" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
         <meta name="phlo-api-browser-url" content={browserApiUrl} />
-        <script
-          suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: OBSERVATORY_THEME_BOOTSTRAP }}
-        />
         <script
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: runtimeBootstrapScript() }}
         />
         <HeadContent />
       </head>
-      <body className="phlo-observatory-document min-h-svh bg-background text-foreground">
-        <ThemeProvider
-          colorMode="auto"
-          dayScheme="light"
-          nightScheme="dark"
-          preventSSRMismatch
-        >
-          <BaseStyles className="phlo-primer-base">
-            <QueryClientProvider client={queryClient}>
-              <ObservatorySettingsProvider>
-                <ObservatoryExtensionProvider>
-                  <ObservatoryShell>
-                    <Outlet />
-                  </ObservatoryShell>
-                </ObservatoryExtensionProvider>
-              </ObservatorySettingsProvider>
-            </QueryClientProvider>
-          </BaseStyles>
-        </ThemeProvider>
+      <body className="bg-background text-foreground min-h-svh">
+        <QueryClientProvider client={queryClient}>
+          <ObservatorySettingsProvider>
+            <ObservatoryExtensionProvider>
+              <AppShell>
+                <Outlet />
+              </AppShell>
+            </ObservatoryExtensionProvider>
+          </ObservatorySettingsProvider>
+        </QueryClientProvider>
         <Toaster />
         <Scripts />
       </body>
@@ -132,16 +102,22 @@ function RootLayout() {
 
 function NotFound() {
   return (
-    <div className="phlo-observatory-content">
-      <section className="phlo-observatory-panel phlo-observatory-empty-panel">
-        <h1 className="phlo-observatory-title">Page not found</h1>
-        <p className="phlo-observatory-subtitle">
-          This Observatory surface is not available.
+    <div className="flex h-full items-center justify-center p-6">
+      <div className="border-rule-soft max-w-sm border border-dashed p-6 text-center">
+        <p className="text-ink-faint font-mono text-[10px] tracking-[0.2em] uppercase">
+          — end of form —
         </p>
-        <Link to="/" className={cn(buttonVariants({ size: 'sm' }))}>
-          Go Home
+        <h1 className="stamp text-ink mt-2 text-sm">Page not found</h1>
+        <p className="text-ink-soft mt-1 font-mono text-[11px]">
+          This Observatory surface does not exist.
+        </p>
+        <Link
+          className={cn(buttonVariants({ size: 'sm' }), 'mt-4 inline-flex')}
+          to="/"
+        >
+          Back to overview
         </Link>
-      </section>
+      </div>
     </div>
   )
 }

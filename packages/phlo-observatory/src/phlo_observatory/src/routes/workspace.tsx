@@ -3,7 +3,14 @@
  * branches, and saved queries as a landing index.
  */
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { Boxes, Database, FileCode2, GitBranch, Workflow } from 'lucide-react'
+import {
+  Boxes,
+  ChevronRight,
+  FileCode2,
+  GitBranch,
+  Table2,
+  Workflow,
+} from 'lucide-react'
 
 import {
   getObservatoryBranchRecords,
@@ -12,8 +19,13 @@ import {
   getObservatorySavedQueries,
   getObservatoryTableRecords,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { useLiveResource } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { buttonVariants } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/workspace')({ component: Workspace })
 
@@ -50,7 +62,7 @@ export function Workspace() {
   const resources = [
     {
       label: 'Datasets',
-      detail: 'Governed and candidate data products',
+      detail: 'Governed and candidate datasets',
       count: datasets.data?.length ?? 0,
       href: '/datasets',
       icon: Boxes,
@@ -60,7 +72,7 @@ export function Workspace() {
       detail: 'Queryable physical inventory',
       count: tables.data?.length ?? 0,
       href: '/tables',
-      icon: Database,
+      icon: Table2,
     },
     {
       label: 'Pipelines',
@@ -87,73 +99,59 @@ export function Workspace() {
   const total = resources.reduce((sum, item) => sum + item.count, 0)
 
   return (
-    <ObservatoryPage
-      kicker="Workspace"
-      title="Workspace"
-      description="Authored project resources, governed objects, and active change surfaces available through the current Phlo project."
-      action={
-        <span className="phlo-observatory-pill">
-          {loading ? 'Loading' : `${total} objects`}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-local-index-shell">
-        <div className="phlo-observatory-command-primary">
-          <div className="phlo-observatory-workspace-toolbar">
-            <span>
-              <FolderTitle />
-              Project inventory
-            </span>
-            <Link className="phlo-observatory-map-action" to="/workflows/new">
-              Create workflow
+    <Page>
+      <PageHeader
+        actions={
+          <>
+            <Badge variant="secondary">
+              {loading ? 'loading' : `${total} objects`}
+            </Badge>
+            <Link
+              className={cn(buttonVariants({ size: 'sm' }))}
+              to="/workflows/new"
+            >
+              <Workflow className="size-3.5" />
+              New workflow
             </Link>
-          </div>
-          <div className="phlo-observatory-workspace-object-grid">
-            {resources.map((resource) => {
-              const Icon = resource.icon
-              return (
-                <Link
-                  className="phlo-observatory-workspace-object"
-                  key={resource.label}
-                  to={resource.href}
-                >
-                  <Icon className="size-4" />
-                  <span>
-                    <strong>{resource.label}</strong>
-                    <small>{resource.detail}</small>
+          </>
+        }
+        description="Authored project resources, governed objects, and active change surfaces in the current Phlo project."
+        title="Workspace"
+      />
+      <SectionCard title="Project inventory">
+        <div className="divide-y divide-border">
+          {resources.map((resource) => {
+            const Icon = resource.icon
+            return (
+              <Link
+                className="hover:bg-accent/50 group flex items-center gap-3 px-3 py-2.5 transition-colors"
+                key={resource.label}
+                to={resource.href}
+              >
+                <span className="bg-muted text-muted-foreground flex size-7 flex-none items-center justify-center rounded-none">
+                  <Icon className="size-3.5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="text-foreground block text-xs font-medium">
+                    {resource.label}
                   </span>
-                  <strong>{loading ? '—' : resource.count}</strong>
-                </Link>
-              )
-            })}
-          </div>
+                  <span className="text-muted-foreground block truncate text-[11px]">
+                    {resource.detail}
+                  </span>
+                </span>
+                {loading ? (
+                  <Skeleton className="h-4 w-8" />
+                ) : (
+                  <span className="text-foreground tabular font-mono text-sm font-semibold">
+                    {resource.count}
+                  </span>
+                )}
+                <ChevronRight className="text-muted-foreground size-3.5" />
+              </Link>
+            )
+          })}
         </div>
-        <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-          <div className="phlo-observatory-inspector-label">
-            Workspace scope
-          </div>
-          <h2>Current Phlo project</h2>
-          <p>
-            Counts come from the active Observatory read models. This surface
-            does not claim notebook or repository objects that Phlo does not
-            currently expose.
-          </p>
-          <div className="phlo-observatory-detail-list">
-            <div className="phlo-observatory-mini-row">
-              <span>Next action</span>
-              <small>Create or inspect an authored workflow</small>
-            </div>
-            <div className="phlo-observatory-mini-row">
-              <span>Runtime evidence</span>
-              <small>Open Services or Operations</small>
-            </div>
-          </div>
-        </aside>
-      </section>
-    </ObservatoryPage>
+      </SectionCard>
+    </Page>
   )
-}
-
-function FolderTitle() {
-  return <FileCode2 className="size-4" />
 }

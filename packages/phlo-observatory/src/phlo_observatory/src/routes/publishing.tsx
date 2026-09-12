@@ -7,7 +7,7 @@
  * attempt, and every result reloads durable API state.
  */
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { Archive, FileText, ShieldAlert, UploadCloud } from 'lucide-react'
+import { Archive, FileText, UploadCloud } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { DatasetTransitionAction } from '@/observatory/api/datasetProjection'
@@ -24,12 +24,23 @@ import {
   getObservatoryPublishingReadinessDirect,
   runObservatoryActionDirect,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
-import { StatusBadge } from '@/observatory/components/StatusBadge'
 import {
   invalidateCachedResources,
   useLiveResource,
 } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { StatusBadge } from '@/components/observatory/status'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/publishing')({
   component: Publishing,
@@ -178,173 +189,148 @@ export function Publishing() {
     [reloadDurableState],
   )
 
-  return (
-    <ObservatoryPage
-      kicker="Publishing"
-      title="Publication readiness"
-      description="Review internal publication state, canonical blockers, and explain-then-execute publish or retire transitions."
-      action={
-        <span className="phlo-observatory-pill">
-          {isLoading ? 'Loading' : `${published.length} published`}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-surface-shell">
-        <div className="phlo-observatory-command-primary phlo-observatory-surface-list">
-          <div className="phlo-observatory-browser-toolbar">
-            <div className="phlo-observatory-row-title">
-              <UploadCloud className="size-4" />
-              Publication states
-            </div>
-          </div>
-          {result.error ? (
-            <EmptyPublishing detail={result.error} />
-          ) : isLoading ? (
-            <EmptyPublishing detail="Reading Dataset publication readiness from the active lakehouse." />
-          ) : promoted.length ? (
-            <>
-              <PublicationSummary
-                drafts={drafts.length}
-                datasets={promoted}
-                promoted={promoted.length}
-                published={published.length}
-                readinessMap={readinessMap}
-              />
-              <div className="phlo-observatory-publication-head">
-                <span>Dataset</span>
-                <span>Owner</span>
-                <span>Approval</span>
-                <span>Issues</span>
-                <span>Next</span>
-              </div>
-              <div className="phlo-observatory-list">
-                {promoted.map((dataset) => (
-                  <PublishingRow
-                    key={dataset.id}
-                    dataset={dataset}
-                    onExplain={(action) => {
-                      selectDataset(dataset.id)
-                      setPending({ datasetId: dataset.id, action })
-                    }}
-                    onSelect={selectDataset}
-                    readiness={readinessMap[dataset.id] ?? null}
-                    selected={selected?.id === dataset.id}
-                  />
-                ))}
-              </div>
-              {readinessError && (
-                <div className="phlo-observatory-panel-footer">
-                  Canonical readiness unavailable: {readinessError}
-                </div>
-              )}
-            </>
-          ) : (
-            <EmptyPublishing detail="No promoted Datasets are ready for publication review." />
-          )}
-          {actionMessage && (
-            <div
-              className="phlo-observatory-panel-footer"
-              data-state={actionState}
-            >
-              {actionMessage}
-            </div>
-          )}
-        </div>
-
-        <PublishingInspector
-          drafts={drafts.length}
-          isLoading={isLoading}
-          pending={pending}
-          promoted={promoted.length}
-          published={published.length}
-          readinessMap={readinessMap}
-          selected={selected}
-          onCancelPending={() => setPending(null)}
-          onExecute={executeTransition}
-        />
-      </section>
-    </ObservatoryPage>
-  )
-}
-
-function PublicationSummary({
-  drafts,
-  promoted,
-  published,
-  readinessMap,
-  datasets,
-}: {
-  datasets: Array<ObservatoryDataset>
-  drafts: number
-  promoted: number
-  published: number
-  readinessMap: ReadinessMap
-}) {
   // Counts come from the canonical verdict only; datasets whose readiness has
   // not loaded count as pending rather than inferred.
-  const withReadiness = datasets.filter(
+  const withReadiness = promoted.filter(
     (dataset) => readinessMap[dataset.id] !== undefined,
   )
-  const blocked = withReadiness.filter(
+  const blockedCount = withReadiness.filter(
     (dataset) => (readinessMap[dataset.id]?.blockers.length ?? 0) > 0,
   ).length
-  const needsEvidence = withReadiness.filter(
+  const needsEvidenceCount = withReadiness.filter(
     (dataset) => (readinessMap[dataset.id]?.missing_evidence.length ?? 0) > 0,
   ).length
-  const warning = withReadiness.filter(
+  const warningCount = withReadiness.filter(
     (dataset) => (readinessMap[dataset.id]?.warnings.length ?? 0) > 0,
   ).length
-  const pendingCount = datasets.length - withReadiness.length
-  return (
-    <div className="phlo-observatory-publication-summary">
-      <PublicationSummaryCell label="Promoted" state="ok" value={promoted} />
-      <PublicationSummaryCell
-        label="Draft"
-        state={drafts ? 'warning' : 'ok'}
-        value={drafts}
-      />
-      <PublicationSummaryCell
-        label="Blocked"
-        state={blocked ? 'error' : 'ok'}
-        value={blocked}
-      />
-      <PublicationSummaryCell
-        label="Needs evidence"
-        state={needsEvidence ? 'unknown' : 'ok'}
-        value={needsEvidence}
-      />
-      <PublicationSummaryCell
-        label="Warnings"
-        state={warning ? 'warning' : 'ok'}
-        value={warning}
-      />
-      <PublicationSummaryCell
-        label="Readiness pending"
-        state={pendingCount ? 'unknown' : 'ok'}
-        value={pendingCount}
-      />
-      <PublicationSummaryCell label="Published" state="ok" value={published} />
-    </div>
-  )
-}
+  const readinessPending = promoted.length - withReadiness.length
 
-function PublicationSummaryCell({
-  label,
-  state,
-  value,
-}: {
-  label: string
-  state: string
-  value: string | number
-}) {
   return (
-    <div
-      className="phlo-observatory-publication-summary-cell"
-      data-state={state}
-    >
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {isLoading ? 'Loading' : `${published.length} published`}
+          </Badge>
+        }
+        description="Review internal publication state, canonical blockers, and explain-then-execute publish or retire transitions."
+        title="Publication readiness"
+      />
+      <StatGrid className="xl:grid-cols-7">
+        <StatCard label="Promoted" state="ok" value={promoted.length} />
+        <StatCard
+          label="Draft"
+          state={drafts.length ? 'warning' : 'ok'}
+          value={drafts.length}
+        />
+        <StatCard
+          label="Blocked"
+          state={blockedCount ? 'error' : 'ok'}
+          value={blockedCount}
+        />
+        <StatCard
+          label="Needs evidence"
+          state={needsEvidenceCount ? 'unknown' : 'ok'}
+          value={needsEvidenceCount}
+        />
+        <StatCard
+          label="Warnings"
+          state={warningCount ? 'warning' : 'ok'}
+          value={warningCount}
+        />
+        <StatCard
+          label="Readiness pending"
+          state={readinessPending ? 'unknown' : 'ok'}
+          value={readinessPending}
+        />
+        <StatCard label="Published" state="ok" value={published.length} />
+      </StatGrid>
+      <SplitView
+        inspector={
+          <PublishingInspector
+            drafts={drafts.length}
+            isLoading={isLoading}
+            pending={pending}
+            promoted={promoted.length}
+            published={published.length}
+            readinessMap={readinessMap}
+            selected={selected}
+            onCancelPending={() => setPending(null)}
+            onExecute={executeTransition}
+          />
+        }
+        list={
+          <div className="bg-sheet flex min-h-0 flex-1 flex-col">
+            <div className="flex items-center gap-2 border-b px-3 py-2">
+              <UploadCloud className="text-muted-foreground size-3.5" />
+              <span className="text-foreground text-xs font-semibold">
+                Publication states
+              </span>
+            </div>
+            {result.error ? (
+              <EmptyBlock
+                className="m-3"
+                description={result.error}
+                title="No publication state"
+              />
+            ) : isLoading ? (
+              <LoadingBlock
+                className="p-3"
+                label="Reading Dataset publication readiness from the active lakehouse"
+              />
+            ) : promoted.length ? (
+              <>
+                <div className="text-muted-foreground grid grid-cols-[minmax(0,1fr)_7rem_6rem_4rem_10rem] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+                  <span>Dataset</span>
+                  <span>Owner</span>
+                  <span>Approval</span>
+                  <span>Issues</span>
+                  <span>Next</span>
+                </div>
+                <ScrollArea className="min-h-0 flex-1">
+                  {promoted.map((dataset) => (
+                    <PublishingRow
+                      key={dataset.id}
+                      dataset={dataset}
+                      onExplain={(action) => {
+                        selectDataset(dataset.id)
+                        setPending({ datasetId: dataset.id, action })
+                      }}
+                      onSelect={selectDataset}
+                      readiness={readinessMap[dataset.id] ?? null}
+                      selected={selected?.id === dataset.id}
+                    />
+                  ))}
+                </ScrollArea>
+                {readinessError && (
+                  <p className="text-status-warning border-t px-3 py-2 font-mono text-[10px]">
+                    Canonical readiness unavailable: {readinessError}
+                  </p>
+                )}
+              </>
+            ) : (
+              <EmptyBlock
+                className="m-3"
+                description="No promoted Datasets are ready for publication review."
+                title="No publication state"
+              />
+            )}
+            {actionMessage && (
+              <p
+                className={cn(
+                  'border-t px-3 py-2 font-mono text-[10px]',
+                  actionState === 'ok' && 'text-status-ok',
+                  actionState === 'error' && 'text-status-error',
+                  actionState === 'unknown' && 'text-muted-foreground',
+                )}
+              >
+                {actionMessage}
+              </p>
+            )}
+          </div>
+        }
+      />
+    </Page>
   )
 }
 
@@ -373,7 +359,10 @@ function PublishingRow({
   const approval = approvalState(dataset)
   return (
     <div
-      className="phlo-observatory-dataset-row phlo-observatory-publication-row"
+      className={cn(
+        'hover:bg-accent/50 grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_7rem_6rem_4rem_10rem] items-center gap-3 border-b px-3 py-2 transition-colors',
+        selected && 'bg-accent/60 hover:bg-accent/60',
+      )}
       data-selected={selected}
       onClick={() => onSelect(dataset.id)}
       role="button"
@@ -382,75 +371,83 @@ function PublishingRow({
         if (event.key === 'Enter' || event.key === ' ') onSelect(dataset.id)
       }}
     >
-      <span
-        className="phlo-observatory-dot"
-        data-state={readiness?.state ?? 'unknown'}
-      />
-      <div>
-        <Link
-          className="phlo-observatory-row-title"
-          params={{ datasetId: dataset.id }}
-          to="/datasets/$datasetId"
-        >
-          <UploadCloud className="size-4" />
-          {dataset.name}
-        </Link>
-        <div className="phlo-observatory-row-meta">
-          {[
-            dataset.owner ? `Owner ${dataset.owner}` : 'No owner',
-            `Approval ${approval}`,
-            dataset.publication_state,
-          ].join(' · ')}
-        </div>
-        {readiness === null ? (
-          <div className="phlo-observatory-row-evidence">
-            Canonical readiness loading from phlo-api
+      <div className="flex min-w-0 items-start gap-2">
+        <span
+          className="status-dot mt-1.5"
+          data-state={readiness?.state ?? 'unknown'}
+        />
+        <div className="min-w-0">
+          <Link
+            className="text-foreground flex items-center gap-1.5 text-xs font-medium hover:underline"
+            params={{ datasetId: dataset.id }}
+            to="/datasets/$datasetId"
+          >
+            <UploadCloud className="text-muted-foreground size-3.5" />
+            {dataset.name}
+          </Link>
+          <div className="text-muted-foreground mt-0.5 font-mono text-[10px]">
+            {[
+              dataset.owner ? `Owner ${dataset.owner}` : 'No owner',
+              `Approval ${approval}`,
+              dataset.publication_state,
+            ].join(' · ')}
           </div>
-        ) : (
-          canonicalIssues[0] && (
-            <div className="phlo-observatory-row-evidence">
-              {canonicalIssues[0]}
+          {readiness === null ? (
+            <div className="text-muted-foreground mt-0.5 font-mono text-[10px]">
+              Canonical readiness loading from phlo-api
             </div>
-          )
-        )}
+          ) : (
+            canonicalIssues[0] && (
+              <div className="text-status-warning mt-0.5 font-mono text-[10px]">
+                {canonicalIssues[0]}
+              </div>
+            )
+          )}
+        </div>
       </div>
-      <span className="phlo-observatory-publication-cell">
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
         {dataset.owner ?? 'unassigned'}
       </span>
-      <span className="phlo-observatory-publication-cell">{approval}</span>
-      <span className="phlo-observatory-publication-cell">
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {approval}
+      </span>
+      <span className="text-muted-foreground font-mono text-[10px]">
         {readiness ? canonicalIssues.length : '—'}
       </span>
-      <div className="phlo-observatory-publication-actions">
+      <div className="flex items-center justify-end gap-2">
         <StatusBadge
           label={dataset.publication_state}
           state={readiness?.state ?? 'unknown'}
         />
-        <div className="phlo-observatory-inline-actions">
-          <button
+        <div className="flex items-center gap-1">
+          <Button
             disabled={readiness === null}
             onClick={(event) => {
               event.stopPropagation()
               onExplain('publish')
             }}
+            size="xs"
             title="Explain the publish transition before executing"
             type="button"
+            variant="outline"
           >
             <UploadCloud className="size-3.5" />
             Publish
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={readiness === null}
             onClick={(event) => {
               event.stopPropagation()
               onExplain('retire')
             }}
+            size="xs"
             title="Explain the retire transition before executing"
             type="button"
+            variant="ghost"
           >
             <Archive className="size-3.5" />
             Retire
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -460,21 +457,6 @@ function PublishingRow({
 function approvalState(dataset: ObservatoryDataset): string {
   const explicit = dataset.metadata.approval_state
   return typeof explicit === 'string' && explicit.trim() ? explicit : '—'
-}
-
-function EmptyPublishing({ detail }: { detail: string }) {
-  return (
-    <div className="phlo-observatory-operation-empty">
-      <div>
-        <span className="phlo-observatory-inspector-label">Publishing</span>
-        <h2>No publication state</h2>
-        <p>
-          <ShieldAlert className="size-4" />
-          {detail}
-        </p>
-      </div>
-    </div>
-  )
 }
 
 function PublishingInspector({
@@ -504,24 +486,22 @@ function PublishingInspector({
   const [executing, setExecuting] = useState(false)
   if (isLoading) {
     return (
-      <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-        <div className="phlo-observatory-inspector-label">Policy</div>
-        <h2>Loading readiness</h2>
-        <p>
-          Publication blockers, evidence, and actions will appear once Datasets
-          load.
-        </p>
-      </aside>
+      <InspectorSection label="Policy">
+        <LoadingBlock
+          className="p-3"
+          label="Publication blockers, evidence, and actions will appear once Datasets load"
+        />
+      </InspectorSection>
     )
   }
 
   if (!selected) {
     return (
-      <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-        <div className="phlo-observatory-inspector-label">Policy</div>
-        <h2>Internal publication</h2>
-        <p>No promoted Datasets are ready for publication review.</p>
-      </aside>
+      <InspectorSection label="Policy">
+        <p className="text-muted-foreground px-3 pb-3 text-xs">
+          No promoted Datasets are ready for publication review.
+        </p>
+      </InspectorSection>
     )
   }
 
@@ -535,102 +515,125 @@ function PublishingInspector({
     : []
 
   return (
-    <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-      <div className="phlo-observatory-inspector-label">Policy</div>
-      <h2>{selected.name}</h2>
-      <p>
-        {selected.description ??
-          'Publishing is internal-only here and does not create external sharing.'}
-      </p>
-      <dl className="phlo-observatory-facts">
-        <dt>Owner</dt>
-        <dd>{selected.owner ?? 'unassigned'}</dd>
-        <dt>Classification</dt>
-        <dd>{selected.classifications.join(', ') || 'unclassified'}</dd>
-        <dt>Promoted</dt>
-        <dd>{promoted}</dd>
-        <dt>Draft</dt>
-        <dd>{drafts}</dd>
-        <dt>Published</dt>
-        <dd>{published}</dd>
-        <dt>Policy</dt>
-        <dd>{readiness?.policy_name ?? 'loading'}</dd>
-        <dt>Readiness</dt>
-        <dd>{readiness?.state ?? 'loading'}</dd>
-      </dl>
-      <div className="phlo-observatory-detail-list">
+    <>
+      <InspectorSection label={`Policy · ${selected.name}`}>
+        <p className="text-muted-foreground text-xs/relaxed">
+          {selected.description ??
+            'Publishing is internal-only here and does not create external sharing.'}
+        </p>
+        <FactGrid>
+          <Fact label="Owner" value={selected.owner ?? 'unassigned'} />
+          <Fact
+            label="Classification"
+            value={selected.classifications.join(', ') || 'unclassified'}
+          />
+          <Fact label="Promoted" value={promoted} />
+          <Fact label="Draft" value={drafts} />
+          <Fact label="Published" value={published} />
+          <Fact label="Policy" value={readiness?.policy_name ?? 'loading'} />
+          <Fact label="Readiness" value={readiness?.state ?? 'loading'} />
+        </FactGrid>
+      </InspectorSection>
+      <InspectorSection label="Release issues">
         <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+          className="border-input hover:bg-accent mb-2 flex items-center justify-between gap-2 border px-2.5 py-1.5 text-xs font-medium transition-colors"
           params={{ datasetId: selected.id }}
           to="/datasets/$datasetId"
         >
-          <span>
+          <span className="flex items-center gap-1.5">
             <FileText className="size-3.5" />
             Open Dataset
           </span>
-          <small>{selected.publication_state}</small>
+          <span className="text-muted-foreground font-mono text-[10px]">
+            {selected.publication_state}
+          </span>
         </Link>
         {readiness === null ? (
-          <div className="phlo-observatory-mini-row" data-state="unknown">
-            <span>Canonical readiness loading from phlo-api</span>
-            <small>no local readiness is assumed</small>
-          </div>
+          <IssueRow
+            detail="no local readiness is assumed"
+            state="unknown"
+            title="Canonical readiness loading from phlo-api"
+          />
         ) : canonicalIssues.length === 0 ? (
-          <div className="phlo-observatory-mini-row" data-state="ok">
-            <span>No canonical release issues</span>
-            <small>readiness verdict is clear</small>
-          </div>
+          <IssueRow
+            detail="readiness verdict is clear"
+            state="ok"
+            title="No canonical release issues"
+          />
         ) : (
           canonicalIssues.map((issue, index) => (
-            <div
-              className="phlo-observatory-mini-row"
-              data-state={
+            <IssueRow
+              detail={
+                readiness.blockers.includes(issue)
+                  ? 'blocker'
+                  : readiness.missing_evidence.includes(issue)
+                    ? 'missing evidence'
+                    : 'warning'
+              }
+              key={`${issue}:${index}`}
+              state={
                 readiness.blockers.includes(issue)
                   ? 'error'
                   : readiness.missing_evidence.includes(issue)
                     ? 'unknown'
                     : 'warning'
               }
-              key={`${issue}:${index}`}
-            >
-              <span>{issue}</span>
-              <small>
-                {readiness.blockers.includes(issue)
-                  ? 'blocker'
-                  : readiness.missing_evidence.includes(issue)
-                    ? 'missing evidence'
-                    : 'warning'}
-              </small>
-            </div>
+              title={issue}
+            />
           ))
         )}
-      </div>
+      </InspectorSection>
       {pending && pending.datasetId === selected.id && (
-        <TransitionExplainPanel
-          action={pending.action}
-          dataset={selected}
-          executing={executing}
-          readiness={readiness}
-          onCancel={onCancelPending}
-          onConfirm={async () => {
-            setExecuting(true)
-            try {
-              await onExecute(pending, selected.publication_state)
-            } finally {
-              setExecuting(false)
-            }
-          }}
-        />
+        <InspectorSection label="Pending transition">
+          <TransitionExplainPanel
+            action={pending.action}
+            dataset={selected}
+            executing={executing}
+            readiness={readiness}
+            onCancel={onCancelPending}
+            onConfirm={async () => {
+              setExecuting(true)
+              try {
+                await onExecute(pending, selected.publication_state)
+              } finally {
+                setExecuting(false)
+              }
+            }}
+          />
+        </InspectorSection>
       )}
       {!pending && (
-        <div className="phlo-observatory-detail-list">
-          <div className="phlo-observatory-mini-row" data-state="unknown">
-            <span>Explain a transition to enable it</span>
-            <small>Publish or Retire on the selected row</small>
-          </div>
-        </div>
+        <InspectorSection label="Next">
+          <IssueRow
+            detail="Publish or Retire on the selected row"
+            state="unknown"
+            title="Explain a transition to enable it"
+          />
+        </InspectorSection>
       )}
-    </aside>
+    </>
+  )
+}
+
+function IssueRow({
+  detail,
+  state,
+  title,
+}: {
+  detail: string
+  state: 'ok' | 'warning' | 'error' | 'info' | 'unknown'
+  title: string
+}) {
+  return (
+    <div className="border-border flex items-start gap-2 border-b py-2 last:border-b-0">
+      <span className="status-dot mt-1" data-state={state} />
+      <span className="min-w-0">
+        <span className="text-foreground block text-[11px]">{title}</span>
+        <span className="text-muted-foreground block font-mono text-[10px]">
+          {detail}
+        </span>
+      </span>
+    </div>
   )
 }
 
@@ -663,58 +666,65 @@ function TransitionExplainPanel({
     : []
   const serverAction = readiness?.actions.find((item) => item.id === action)
   return (
-    <div className="phlo-observatory-detail-list" data-state="warning">
-      <div className="phlo-observatory-mini-row">
-        <span>Explain before execute</span>
-        <small>transition runs only after confirmation</small>
-      </div>
-      <div className="phlo-observatory-mini-row">
-        <span>Action</span>
-        <small>{serverAction?.label ?? action}</small>
-      </div>
-      <div className="phlo-observatory-mini-row">
-        <span>Dataset</span>
-        <small>{dataset.id}</small>
-      </div>
-      <div className="phlo-observatory-mini-row">
-        <span>Exact version</span>
-        <small>{dataset.publication_state}</small>
-      </div>
+    <div className="flex flex-col">
+      <IssueRow
+        detail="transition runs only after confirmation"
+        state="warning"
+        title="Explain before execute"
+      />
+      <IssueRow
+        detail={serverAction?.label ?? action}
+        state="unknown"
+        title="Action"
+      />
+      <IssueRow detail={dataset.id} state="unknown" title="Dataset" />
+      <IssueRow
+        detail={dataset.publication_state}
+        state="unknown"
+        title="Exact version"
+      />
       {orderedReasons.map((reason, index) => (
-        <div
-          className="phlo-observatory-mini-row"
-          data-state={
+        <IssueRow
+          detail="canonical reason"
+          key={`${reason}:${index}`}
+          state={
             readiness?.blockers.includes(reason)
               ? 'error'
               : readiness?.missing_evidence.includes(reason)
                 ? 'unknown'
                 : 'warning'
           }
-          key={`${reason}:${index}`}
-        >
-          <span>{reason}</span>
-          <small>canonical reason</small>
-        </div>
+          title={reason}
+        />
       ))}
       {(serverAction?.consequences ?? []).map((consequence) => (
-        <div className="phlo-observatory-mini-row" key={consequence}>
-          <span>{consequence}</span>
-          <small>consequence</small>
-        </div>
+        <IssueRow
+          detail="consequence"
+          key={consequence}
+          state="unknown"
+          title={consequence}
+        />
       ))}
-      <div className="phlo-observatory-inline-actions">
-        <button
+      <div className="flex items-center gap-2 pt-3">
+        <Button
           disabled={executing}
           onClick={() => {
             void onConfirm()
           }}
+          size="sm"
           type="button"
         >
           {executing ? 'Executing…' : `Confirm ${action}`}
-        </button>
-        <button disabled={executing} onClick={onCancel} type="button">
+        </Button>
+        <Button
+          disabled={executing}
+          onClick={onCancel}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   )

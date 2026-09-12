@@ -16,7 +16,10 @@ import type {
   ObservatoryRunReportResult,
 } from '@/observatory/api/resources'
 import type { ReactNode } from 'react'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
+import { Page, PageHeader } from '@/components/observatory/page'
+import { SectionCard } from '@/components/observatory/section'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { Badge } from '@/components/ui/badge'
 
 export interface RunReportRequest {
   projectId: string
@@ -33,14 +36,17 @@ export function RunReportView({
 }) {
   const report = result?.data
   return (
-    <ObservatoryPage
-      action={
-        <span className="phlo-observatory-pill">Attempt {request.attempt}</span>
-      }
-      description={`Attempt-scoped evidence for ${request.projectId} / ${request.runId}.`}
-      kicker="Run report"
-      title="Run report"
-    >
+    <Page>
+      <PageHeader
+        actions={<Badge variant="secondary">Attempt {request.attempt}</Badge>}
+        breadcrumb={[
+          { label: 'Runs', to: '/runs' },
+          { label: request.runId },
+          { label: 'Report' },
+        ]}
+        description={`Attempt-scoped evidence for ${request.projectId} / ${request.runId}.`}
+        title="Run report"
+      />
       {!result ? (
         <ReportState
           title="Loading run report"
@@ -59,7 +65,7 @@ export function RunReportView({
           title="No report evidence"
         />
       )}
-    </ObservatoryPage>
+    </Page>
   )
 }
 
@@ -67,10 +73,10 @@ function ReportState({ title, detail }: { title: string; detail: string }) {
   return (
     <section
       aria-busy={title.startsWith('Loading')}
-      className="phlo-observatory-empty-state"
+      className="bg-card ring-foreground/10 flex flex-col items-center justify-center gap-1.5 px-6 py-14 text-center ring-1"
     >
-      <h2>{title}</h2>
-      <p>{detail}</p>
+      <h2 className="text-foreground text-sm font-semibold">{title}</h2>
+      <p className="text-muted-foreground max-w-md text-xs/relaxed">{detail}</p>
     </section>
   )
 }
@@ -101,21 +107,19 @@ function ReportContent({ report }: { report: ObservatoryRunReport }) {
 
   if (empty) {
     return (
-      <section className="phlo-observatory-command">
-        <div className="phlo-observatory-command-primary phlo-observatory-panel">
-          <ReportState
-            title="No attempt-scoped evidence recorded"
-            detail="This report contains no lifecycle or evidence records for the requested attempt."
-          />
-          <Gaps gaps={report.gaps} />
-        </div>
-      </section>
+      <SectionCard>
+        <ReportState
+          title="No attempt-scoped evidence recorded"
+          detail="This report contains no lifecycle or evidence records for the requested attempt."
+        />
+        <Gaps gaps={report.gaps} />
+      </SectionCard>
     )
   }
 
   return (
-    <section className="phlo-observatory-command phlo-observatory-surface-grid">
-      <div className="phlo-observatory-command-primary">
+    <div className="ring-foreground/10 bg-card grid grid-cols-1 rounded-none ring-1 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="flex min-w-0 flex-col">
         <Summary report={report} />
         <ReportSection title="Lifecycle">
           {run ? (
@@ -128,10 +132,8 @@ function ReportContent({ report }: { report: ObservatoryRunReport }) {
         <ReportSection title="Stages and transformations">
           <StageList stages={report.stages} />
           {report.transformations.length > 0 && (
-            <div className="phlo-observatory-detail-list">
-              <div className="phlo-observatory-inspector-label">
-                Transformations
-              </div>
+            <div>
+              <MiniLabel>Transformations</MiniLabel>
               <StageList stages={report.transformations} />
             </div>
           )}
@@ -143,21 +145,15 @@ function ReportContent({ report }: { report: ObservatoryRunReport }) {
         </ReportSection>
         <ReportSection title="Lineage">
           {report.lineage.length ? (
-            <div className="phlo-observatory-detail-list">
+            <MiniList>
               {report.lineage.map((edge) => (
-                <div
-                  className="phlo-observatory-mini-row"
+                <MiniRow
+                  detail={`${edge.origin} · ${edge.derivation}`}
                   key={edge.lineage_edge_id}
-                >
-                  <span>
-                    {edge.source} → {edge.target}
-                  </span>
-                  <small>
-                    {edge.origin} · {edge.derivation}
-                  </small>
-                </div>
+                  title={`${edge.source} → ${edge.target}`}
+                />
               ))}
-            </div>
+            </MiniList>
           ) : (
             <MissingEvidence text="No lineage evidence was recorded." />
           )}
@@ -184,18 +180,20 @@ function ReportContent({ report }: { report: ObservatoryRunReport }) {
           )}
         </ReportSection>
       </div>
-      <aside className="phlo-observatory-inspector">
-        <div className="phlo-observatory-inspector-label">Outcome and gaps</div>
+      <aside className="border-t p-3 xl:border-t-0 xl:border-l">
+        <h3 className="text-muted-foreground mb-2 text-[10px] font-medium tracking-widest uppercase">
+          Outcome and gaps
+        </h3>
         <TerminalOutcome report={report} />
         <Gaps gaps={report.gaps} />
       </aside>
-    </section>
+    </div>
   )
 }
 
 function Summary({ report }: { report: ObservatoryRunReport }) {
   return (
-    <div className="phlo-observatory-command-strip">
+    <div className="grid grid-cols-2 gap-px border-b sm:grid-cols-4">
       <Metric label="Project" value={report.project_id} />
       <Metric label="Run" value={report.run_id} />
       <Metric label="Attempt" value={report.attempt} />
@@ -206,9 +204,13 @@ function Summary({ report }: { report: ObservatoryRunReport }) {
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="phlo-observatory-command-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className="px-3 py-2">
+      <div className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+        {label}
+      </div>
+      <div className="text-foreground truncate font-mono text-xs font-semibold">
+        {value}
+      </div>
     </div>
   )
 }
@@ -221,12 +223,35 @@ function ReportSection({
   children: ReactNode
 }) {
   return (
-    <section className="phlo-observatory-panel">
-      <div className="phlo-observatory-browser-toolbar">
-        <span>{title}</span>
-      </div>
-      {children}
+    <section className="border-b last:border-b-0">
+      <h3 className="text-muted-foreground border-b px-3 py-1.5 text-[10px] font-medium tracking-widest uppercase">
+        {title}
+      </h3>
+      <div className="px-3 py-2">{children}</div>
     </section>
+  )
+}
+
+function MiniLabel({ children }: { children: ReactNode }) {
+  return (
+    <h4 className="text-muted-foreground mt-2 mb-1 text-[10px] font-medium tracking-widest uppercase">
+      {children}
+    </h4>
+  )
+}
+
+function MiniList({ children }: { children: ReactNode }) {
+  return <div className="divide-border divide-y border-y">{children}</div>
+}
+
+function MiniRow({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 py-2">
+      <span className="text-foreground font-mono text-[11px]">{title}</span>
+      <span className="text-muted-foreground font-mono text-[10px] break-all">
+        {detail}
+      </span>
+    </div>
   )
 }
 
@@ -236,7 +261,7 @@ function RunFacts({
   run: NonNullable<ObservatoryRunReport['lifecycle']['run']>
 }) {
   return (
-    <dl className="phlo-observatory-facts">
+    <FactGrid>
       <Fact label="Pipeline" value={run.pipeline_name} />
       <Fact label="Provider run" value={run.provider_run_id} />
       <Fact label="Status" value={run.status} />
@@ -244,7 +269,7 @@ function RunFacts({
       <Fact label="Finished" value={run.finished_at} />
       <Fact label="Evidence completeness" value={run.evidence_completeness} />
       <Fact label="Failure summary" value={run.failure_summary} />
-    </dl>
+    </FactGrid>
   )
 }
 
@@ -254,19 +279,15 @@ function EventList({
   events: ObservatoryRunReport['lifecycle']['events']
 }) {
   return events.length ? (
-    <div className="phlo-observatory-detail-list">
+    <MiniList>
       {events.map((event) => (
-        <div className="phlo-observatory-mini-row" key={event.event_id}>
-          <span>
-            {event.event_type} · {event.producer}
-          </span>
-          <small>
-            {event.observed_at ?? 'not timestamped'} · sequence{' '}
-            {display(event.sequence)}
-          </small>
-        </div>
+        <MiniRow
+          detail={`${event.observed_at ?? 'not timestamped'} · sequence ${display(event.sequence)}`}
+          key={event.event_id}
+          title={`${event.event_type} · ${event.producer}`}
+        />
       ))}
-    </div>
+    </MiniList>
   ) : (
     <MissingEvidence text="No lifecycle events were recorded." />
   )
@@ -274,20 +295,15 @@ function EventList({
 
 function StageList({ stages }: { stages: Array<ObservatoryReportStage> }) {
   return stages.length ? (
-    <div className="phlo-observatory-detail-list">
+    <MiniList>
       {stages.map((stage) => (
-        <div className="phlo-observatory-mini-row" key={stage.stage_id}>
-          <span>
-            {stage.stage_id} · {stage.stage_type} · {stage.status}
-          </span>
-          <small>
-            {stage.provider ?? 'provider not reported'} ·{' '}
-            {stage.asset ?? 'asset not reported'} ·{' '}
-            {stage.error_fingerprint ?? 'no error fingerprint'}
-          </small>
-        </div>
+        <MiniRow
+          detail={`${stage.provider ?? 'provider not reported'} · ${stage.asset ?? 'asset not reported'} · ${stage.error_fingerprint ?? 'no error fingerprint'}`}
+          key={stage.stage_id}
+          title={`${stage.stage_id} · ${stage.stage_type} · ${stage.status}`}
+        />
       ))}
-    </div>
+    </MiniList>
   ) : (
     <MissingEvidence text="No stage evidence was recorded." />
   )
@@ -301,12 +317,14 @@ function ResourceGroup({
   resources: Array<ObservatoryReportResource>
 }) {
   return (
-    <div className="phlo-observatory-detail-list">
-      <div className="phlo-observatory-inspector-label">{label}</div>
+    <div>
+      <MiniLabel>{label}</MiniLabel>
       {resources.length ? (
-        resources.map((resource) => (
-          <ResourceRow key={resource.resource_id} resource={resource} />
-        ))
+        <MiniList>
+          {resources.map((resource) => (
+            <ResourceRow key={resource.resource_id} resource={resource} />
+          ))}
+        </MiniList>
       ) : (
         <MissingEvidence
           text={`No ${label.toLowerCase()} evidence was recorded.`}
@@ -318,20 +336,15 @@ function ResourceGroup({
 
 function ResourceRow({ resource }: { resource: ObservatoryReportResource }) {
   return (
-    <div className="phlo-observatory-mini-row">
-      <span>
-        {resource.resource_id} · {resource.resource_kind}
-      </span>
-      <small>
-        {resource.table_name ??
-          resource.normalized_identity ??
-          resource.uri ??
-          'identity not reported'}{' '}
-        · {resource.record_count ?? 'records not reported'} records ·{' '}
-        {resource.byte_count ?? 'bytes not reported'} bytes · snapshots{' '}
-        {display(resource.snapshot_before)} → {display(resource.snapshot_after)}
-      </small>
-    </div>
+    <MiniRow
+      detail={`${
+        resource.table_name ??
+        resource.normalized_identity ??
+        resource.uri ??
+        'identity not reported'
+      } · ${resource.record_count ?? 'records not reported'} records · ${resource.byte_count ?? 'bytes not reported'} bytes · snapshots ${display(resource.snapshot_before)} → ${display(resource.snapshot_after)}`}
+      title={`${resource.resource_id} · ${resource.resource_kind}`}
+    />
   )
 }
 
@@ -341,25 +354,15 @@ function QualityList({
   quality: Array<ObservatoryReportQuality>
 }) {
   return (
-    <div className="phlo-observatory-detail-list">
+    <MiniList>
       {quality.map((check) => (
-        <div
-          className="phlo-observatory-mini-row"
+        <MiniRow
+          detail={`${check.asset ?? 'asset not reported'} · severity ${display(check.severity)} · evaluated ${display(check.evaluated_count)} · failed ${display(check.failed_count)}`}
           key={check.quality_result_id}
-        >
-          <span>
-            {check.check_id} · {check.passed ? 'passed' : 'failed'}
-            {check.blocking ? ' · blocking' : ''}
-          </span>
-          <small>
-            {check.asset ?? 'asset not reported'} · severity{' '}
-            {display(check.severity)} · evaluated{' '}
-            {display(check.evaluated_count)} · failed{' '}
-            {display(check.failed_count)}
-          </small>
-        </div>
+          title={`${check.check_id} · ${check.passed ? 'passed' : 'failed'}${check.blocking ? ' · blocking' : ''}`}
+        />
       ))}
-    </div>
+    </MiniList>
   )
 }
 
@@ -369,24 +372,15 @@ function CatalogChanges({
   changes: Array<ObservatoryReportCatalogChange>
 }) {
   return changes.length ? (
-    <div className="phlo-observatory-detail-list">
+    <MiniList>
       {changes.map((change) => (
-        <div
-          className="phlo-observatory-mini-row"
+        <MiniRow
+          detail={`${change.catalog_ref ?? 'catalog not reported'} · ref ${display(change.content_key)} · commit ${display(change.commit_hash)} · outcome ${display(change.merge_outcome)} · snapshots ${display(change.snapshot_before)} → ${display(change.snapshot_after)}`}
           key={change.catalog_change_id}
-        >
-          <span>
-            {change.catalog_change_id} · {change.operation}
-          </span>
-          <small>
-            {change.catalog_ref ?? 'catalog not reported'} · ref{' '}
-            {display(change.content_key)} · commit {display(change.commit_hash)}{' '}
-            · outcome {display(change.merge_outcome)} · snapshots{' '}
-            {display(change.snapshot_before)} → {display(change.snapshot_after)}
-          </small>
-        </div>
+          title={`${change.catalog_change_id} · ${change.operation}`}
+        />
       ))}
-    </div>
+    </MiniList>
   ) : (
     <MissingEvidence text="No catalog or Nessie changes were recorded." />
   )
@@ -398,36 +392,29 @@ function ArtifactList({
   artifacts: Array<ObservatoryReportArtifact>
 }) {
   return (
-    <div className="phlo-observatory-detail-list">
+    <MiniList>
       {artifacts.map((artifact) => (
-        <div className="phlo-observatory-mini-row" key={artifact.artifact_id}>
-          <span>
-            {artifact.artifact_id} · {artifact.artifact_kind} ·{' '}
-            {artifact.status}
-          </span>
-          <small>
-            {artifact.uri ?? 'URI not reported'} ·{' '}
-            {artifact.content_type ?? 'content type not reported'} · checksum{' '}
-            {display(artifact.checksum)} · legal hold{' '}
-            {String(artifact.legal_hold)}
-          </small>
-        </div>
+        <MiniRow
+          detail={`${artifact.uri ?? 'URI not reported'} · ${artifact.content_type ?? 'content type not reported'} · checksum ${display(artifact.checksum)} · legal hold ${String(artifact.legal_hold)}`}
+          key={artifact.artifact_id}
+          title={`${artifact.artifact_id} · ${artifact.artifact_kind} · ${artifact.status}`}
+        />
       ))}
-    </div>
+    </MiniList>
   )
 }
 
 function TerminalOutcome({ report }: { report: ObservatoryRunReport }) {
   const outcome = report.terminal_outcome
   return (
-    <div className="phlo-observatory-detail-list">
+    <div className="mb-3">
       {outcome ? (
-        <>
+        <FactGrid>
           <Fact label="Status" value={outcome.status} />
           <Fact label="Source" value={outcome.source} />
           <Fact label="Evidence" value={outcome.evidence_id} />
           <Fact label="Observed" value={outcome.observed_at} />
-        </>
+        </FactGrid>
       ) : (
         <MissingEvidence text="No terminal outcome was recorded; the result remains unknown." />
       )}
@@ -437,20 +424,20 @@ function TerminalOutcome({ report }: { report: ObservatoryRunReport }) {
 
 function Gaps({ gaps }: { gaps: ObservatoryRunReport['gaps'] }) {
   return (
-    <div className="phlo-observatory-detail-list">
-      <div className="phlo-observatory-inspector-label">Explicit gaps</div>
+    <div>
+      <h3 className="text-muted-foreground mb-1.5 text-[10px] font-medium tracking-widest uppercase">
+        Explicit gaps
+      </h3>
       {gaps.length ? (
-        gaps.map((gap) => (
-          <div
-            className="phlo-observatory-mini-row"
-            key={`${gap.field}:${gap.reason}`}
-          >
-            <span>
-              {gap.field} · {gap.status}
-            </span>
-            <small>{gap.reason}</small>
-          </div>
-        ))
+        <MiniList>
+          {gaps.map((gap) => (
+            <MiniRow
+              detail={gap.reason}
+              key={`${gap.field}:${gap.reason}`}
+              title={`${gap.field} · ${gap.status}`}
+            />
+          ))}
+        </MiniList>
       ) : (
         <MissingEvidence text="No explicit gaps were returned." />
       )}
@@ -458,23 +445,8 @@ function Gaps({ gaps }: { gaps: ObservatoryRunReport['gaps'] }) {
   )
 }
 
-function Fact({
-  label,
-  value,
-}: {
-  label: string
-  value?: string | number | null
-}) {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{display(value)}</dd>
-    </div>
-  )
-}
-
 function MissingEvidence({ text }: { text: string }) {
-  return <p className="phlo-observatory-panel-footer">{text}</p>
+  return <p className="text-muted-foreground py-1.5 text-[11px]">{text}</p>
 }
 
 function display(value: unknown) {

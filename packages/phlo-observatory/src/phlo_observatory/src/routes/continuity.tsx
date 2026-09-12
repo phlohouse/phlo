@@ -12,7 +12,7 @@
  * here adds backend behavior or broadens a provider boundary.
  */
 import { createFileRoute } from '@tanstack/react-router'
-import { ArchiveRestore, ShieldAlert } from 'lucide-react'
+import { ShieldAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type {
@@ -31,8 +31,19 @@ import {
   planContinuityOperation,
 } from '@/observatory/api/continuity'
 import { startContinuityVerification } from '@/observatory/api/continuityVerification'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { loadCachedResource } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/continuity')({
   component: Continuity,
@@ -55,6 +66,12 @@ const VERIFICATION_TONES: Record<
   proven: 'ok',
   'pending-incomplete': 'warning',
   failed: 'error',
+}
+
+const TONE_CLASS: Record<'ok' | 'warning' | 'error', string> = {
+  ok: 'border-status-ok/40 bg-status-ok/5',
+  warning: 'border-status-warning/40 bg-status-warning/5',
+  error: 'border-status-error/40 bg-status-error/5',
 }
 
 /**
@@ -101,129 +118,129 @@ export function Continuity() {
   }, [operations])
 
   return (
-    <ObservatoryPage
-      kicker="Operations"
-      title="Continuity"
-      description="Supported continuity capabilities: verified backups, explicit-target restores, bounded maintenance, and the supported version upgrade — plan-first, confirmed, applied once, and evidence-verified."
-      action={
-        <span className="phlo-observatory-pill">
-          {inventory === null
-            ? 'Loading'
-            : `${operations.length} supported operations`}
-        </span>
-      }
-    >
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {inventory === null
+              ? 'Loading'
+              : `${operations.length} supported operations`}
+          </Badge>
+        }
+        description="Supported continuity capabilities: verified backups, explicit-target restores, bounded maintenance, and the supported version upgrade — plan-first, confirmed, applied once, and evidence-verified."
+        title="Continuity"
+      />
       {inventory === null ? (
-        <section className="phlo-observatory-panel phlo-observatory-empty-panel">
-          <h2>Reading continuity capabilities</h2>
-          <p>
-            Observatory is reading the backend operation inventory before
-            offering any continuity action.
-          </p>
-        </section>
+        <SectionCard>
+          <LoadingBlock
+            className="p-3"
+            label="Reading continuity capabilities"
+          />
+        </SectionCard>
       ) : inventory.error ? (
         <CapabilityMissingPanel detail={inventory.error} />
       ) : (
         <>
-          <section className="phlo-observatory-command phlo-observatory-surface-shell">
-            <div className="phlo-observatory-command-primary phlo-observatory-surface-list">
-              <div className="phlo-observatory-browser-toolbar">
-                <div className="phlo-observatory-row-title">
-                  <ArchiveRestore className="size-4" />
-                  Supported operations
-                </div>
-              </div>
-              <p>
-                These are the only continuity actions Observatory offers, one
-                per backend family. Every action runs explain &gt; confirm &gt;
-                act &gt; verify: a dry-run plan first, an exact confirmation of
-                the reviewed plan token, one idempotent apply, and canonical
-                durable evidence before any success is claimed.
-              </p>
-              <div className="phlo-observatory-detail-list">
-                {operations.map((entry) => (
-                  <div
-                    className="phlo-observatory-mini-row"
-                    key={entry.operation}
-                  >
-                    <span>{entry.operation}</span>
-                    <small>
-                      {[
-                        `${entry.family} family`,
-                        `${entry.surface} surface`,
-                        entry.requires_confirmation
-                          ? 'plan-token confirmation required'
-                          : 'no plan confirmation',
-                      ].join(' · ')}
-                    </small>
+          <SplitView
+            inspector={
+              <InspectorSection label="Explicitly unsupported">
+                {unsupported.length > 0 ? (
+                  <div className="divide-border divide-y border-y">
+                    {unsupported.map((entry) => (
+                      <div
+                        className="flex items-start gap-2 py-2"
+                        key={entry.operation}
+                      >
+                        <ShieldAlert className="text-muted-foreground mt-0.5 size-3.5 flex-none" />
+                        <span className="min-w-0">
+                          <span className="text-foreground block font-mono text-[11px]">
+                            {entry.operation}
+                          </span>
+                          <span className="text-muted-foreground block text-[10px]/relaxed">
+                            {entry.reason} Never offered as an action.
+                          </span>
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              {availableActions.length > 0 ? (
-                <div className="phlo-observatory-action-row">
-                  {availableActions.map((candidate) => (
-                    <button
-                      data-active={action === candidate}
-                      key={candidate}
-                      onClick={() => setAction(candidate)}
-                      type="button"
-                    >
-                      {ACTION_LABELS[candidate]}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-              <div className="phlo-observatory-inspector-label">
-                Explicitly unsupported
-              </div>
-              {unsupported.length > 0 ? (
-                <div className="phlo-observatory-detail-list">
-                  {unsupported.map((entry) => (
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    No unsupported operations were reported.
+                  </p>
+                )}
+              </InspectorSection>
+            }
+            inspectorWidth="w-[22rem]"
+            list={
+              <SectionCard
+                className="ring-0"
+                description="These are the only continuity actions Observatory offers, one per backend family. Every action runs explain, confirm, act, verify: a dry-run plan first, an exact confirmation of the reviewed plan token, one idempotent apply, and canonical durable evidence before any success is claimed."
+                title="Supported operations"
+              >
+                <div className="divide-border divide-y">
+                  {operations.map((entry) => (
                     <div
-                      className="phlo-observatory-mini-row"
-                      data-state="unknown"
+                      className="flex items-center justify-between gap-2 px-3 py-2"
                       key={entry.operation}
                     >
-                      <span>
-                        <ShieldAlert className="size-4" /> {entry.operation}
+                      <span className="text-foreground font-mono text-[11px]">
+                        {entry.operation}
                       </span>
-                      <small>{entry.reason} Never offered as an action.</small>
+                      <span className="text-muted-foreground font-mono text-[10px]">
+                        {[
+                          `${entry.family} family`,
+                          `${entry.surface} surface`,
+                          entry.requires_confirmation
+                            ? 'plan-token confirmation required'
+                            : 'no plan confirmation',
+                        ].join(' · ')}
+                      </span>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <p>No unsupported operations were reported.</p>
-              )}
-            </aside>
-          </section>
+                {availableActions.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-2 border-t px-3 py-2.5">
+                    {availableActions.map((candidate) => (
+                      <Button
+                        key={candidate}
+                        onClick={() => setAction(candidate)}
+                        size="sm"
+                        type="button"
+                        variant={action === candidate ? 'default' : 'outline'}
+                      >
+                        {ACTION_LABELS[candidate]}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </SectionCard>
+            }
+          />
           {action && <ContinuityActionPanel action={action} />}
         </>
       )}
-    </ObservatoryPage>
+    </Page>
   )
 }
 
 function CapabilityMissingPanel({ detail }: { detail: string }) {
   return (
-    <section className="phlo-observatory-panel phlo-observatory-empty-panel phlo-observatory-capability-panel">
-      <div>
-        <h2>Continuity is not available in this stack</h2>
-        <p>
-          The guarded continuity action API is not reachable, so no continuity
-          control is offered. Observatory never approximates these operations
-          client-side.
-        </p>
-        <dl className="phlo-observatory-capability-grid">
-          <dt>Status</dt>
-          <dd>not connected</dd>
-          <dt>Next step</dt>
-          <dd>enable the phlo-api continuity surface</dd>
-        </dl>
-        <small>{detail}</small>
-      </div>
-    </section>
+    <SectionCard>
+      <EmptyBlock
+        description="The guarded continuity action API is not reachable, so no continuity control is offered. Observatory never approximates these operations client-side."
+        title="Continuity is not available in this stack"
+      />
+      <FactGrid className="mx-auto max-w-md pb-4">
+        <Fact label="Status" value="not connected" />
+        <Fact
+          label="Next step"
+          value="enable the phlo-api continuity surface"
+        />
+      </FactGrid>
+      <p className="text-muted-foreground px-6 pb-5 text-center font-mono text-[10px] break-all">
+        {detail}
+      </p>
+    </SectionCard>
   )
 }
 
@@ -349,23 +366,20 @@ function ContinuityActionPanel({ action }: { action: ContinuityAction }) {
   }, [])
 
   return (
-    <section className="phlo-observatory-command phlo-observatory-surface-shell">
-      <div className="phlo-observatory-command-primary phlo-observatory-surface-list">
-        <div className="phlo-observatory-browser-toolbar">
-          <div className="phlo-observatory-row-title">
-            <ArchiveRestore className="size-4" />
-            {ACTION_LABELS[action]}
-          </div>
-          {plan && (
-            <button onClick={discardPlan} type="button">
-              Discard plan
-            </button>
-          )}
-        </div>
-
+    <SectionCard
+      actions={
+        plan && (
+          <Button onClick={discardPlan} size="xs" type="button" variant="ghost">
+            Discard plan
+          </Button>
+        )
+      }
+      title={ACTION_LABELS[action]}
+    >
+      <div className="flex flex-col gap-3 p-3">
         {action === 'backup' ? (
-          <div className="phlo-observatory-detail-list">
-            <p>
+          <div className="flex flex-col gap-2">
+            <p className="text-muted-foreground text-xs/relaxed">
               Backup create runs directly: one immutable, verified backup set
               written to the exact reviewed target directory, journaled and
               idempotent.
@@ -377,14 +391,20 @@ function ContinuityActionPanel({ action }: { action: ContinuityAction }) {
             />
           </div>
         ) : (
-          <div className="phlo-observatory-detail-list">
+          <div className="flex flex-col gap-2">
             <PlanInputFields action={action} setField={setField} value={form} />
-            <div className="phlo-observatory-action-row">
-              <button disabled={planning} onClick={submitPlan} type="button">
+            <div>
+              <Button
+                disabled={planning}
+                onClick={submitPlan}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
                 {planning ? 'Planning…' : 'Create dry-run plan'}
-              </button>
+              </Button>
             </div>
-            <p>
+            <p className="text-muted-foreground text-[11px]/relaxed">
               Planning is mutation-free: the backend returns an immutable plan
               bound to the exact set digest, target, and bounds. Apply stays
               disabled until the plan is reviewed and confirmed exactly.
@@ -392,9 +412,13 @@ function ContinuityActionPanel({ action }: { action: ContinuityAction }) {
           </div>
         )}
         {planError && (
-          <div className="phlo-observatory-failure-callout">
-            <strong>Plan not issued</strong>
-            <span>{planError}</span>
+          <div className="border-status-error/40 bg-status-error/5 flex flex-col gap-1 border px-3 py-2">
+            <strong className="text-status-error text-xs">
+              Plan not issued
+            </strong>
+            <span className="text-muted-foreground font-mono text-[10px] break-all">
+              {planError}
+            </span>
           </div>
         )}
 
@@ -420,7 +444,7 @@ function ContinuityActionPanel({ action }: { action: ContinuityAction }) {
           />
         )}
       </div>
-    </section>
+    </SectionCard>
   )
 }
 
@@ -502,16 +526,16 @@ function ConfirmAndApply({
   }
 
   return (
-    <div className="phlo-observatory-detail-list">
+    <div className="border-border flex flex-col gap-3 border-t pt-3">
       {plan && <PlanFacts plan={plan} />}
       {!submitted && (
-        <label className="phlo-observatory-field">
-          <span>
+        <label className="flex flex-col gap-1">
+          <span className="text-muted-foreground text-[11px] font-medium">
             {action === 'backup'
               ? 'Confirmation: retype the exact backup target'
               : 'Confirmation: retype the exact plan token'}
           </span>
-          <input
+          <Input
             autoComplete="off"
             onChange={(event) => setConfirmation(event.target.value)}
             placeholder={
@@ -522,14 +546,17 @@ function ConfirmAndApply({
           />
         </label>
       )}
-      <div className="phlo-observatory-mini-row">
-        <span>Idempotency key</span>
-        <small>{idempotencyKey}</small>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-foreground text-[11px]">Idempotency key</span>
+        <span className="text-muted-foreground font-mono text-[10px]">
+          {idempotencyKey}
+        </span>
       </div>
-      <div className="phlo-observatory-action-row">
-        <button
+      <div>
+        <Button
           disabled={submitting || submitted || !confirmed}
           onClick={apply}
+          size="sm"
           type="button"
         >
           {submitting
@@ -537,18 +564,22 @@ function ConfirmAndApply({
             : submitted
               ? 'Applied'
               : `Apply ${ACTION_LABELS[action].toLowerCase()}`}
-        </button>
+        </Button>
       </div>
       {applyError && (
-        <div className="phlo-observatory-failure-callout">
-          <strong>Apply could not be completed</strong>
-          <span>
+        <div className="border-status-error/40 bg-status-error/5 flex flex-col gap-1 border px-3 py-2">
+          <strong className="text-status-error text-xs">
+            Apply could not be completed
+          </strong>
+          <span className="text-muted-foreground text-[11px]/relaxed">
             {errorCode ? `Backend guard: ${errorCode}.` : ''}{' '}
             {submitted
               ? 'This intent is closed: the durable journal owns the operation, so no new idempotency key may replay it. Resolve the outcome through the canonical verification handle.'
               : 'Resubmitting reuses the same idempotency key and plan token, so the durable claim store replays instead of re-invoking the provider.'}
           </span>
-          <small>{applyError}</small>
+          <span className="text-muted-foreground font-mono text-[10px] break-all">
+            {applyError}
+          </span>
         </div>
       )}
     </div>
@@ -587,26 +618,11 @@ function PlanFacts({ plan }: { plan: ContinuityPlan }) {
     )
   }
   return (
-    <dl className="phlo-observatory-facts">
+    <FactGrid>
       {facts.map(([label, value]) => (
         <Fact key={label} label={label} value={value} />
       ))}
-    </dl>
-  )
-}
-
-function Fact({
-  label,
-  value,
-}: {
-  label: string
-  value: string | number | boolean | null
-}) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value === null || value === '' ? 'not reported' : String(value)}</dd>
-    </>
+    </FactGrid>
   )
 }
 
@@ -622,51 +638,74 @@ function ApplyOutcomeCards({
   const result = outcome.result
   const accepted = result.accepted === true || result.status === 'completed'
   return (
-    <div className="phlo-observatory-detail-list">
+    <div className="flex flex-col gap-2">
       <div
-        className="phlo-observatory-operation-recovery-card"
-        data-state={accepted ? 'ok' : 'warning'}
+        className={cn(
+          'flex flex-col gap-1 border px-3 py-2',
+          TONE_CLASS[accepted ? 'ok' : 'warning'],
+        )}
       >
-        <span>Outcome</span>
-        <strong>
+        <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+          Outcome
+        </span>
+        <strong className="text-foreground text-xs">
           {accepted
             ? 'Apply accepted by the guarded endpoint.'
             : 'Apply result recorded.'}
         </strong>
-        <small>
+        <span className="text-muted-foreground font-mono text-[10px] break-all">
           Operation handle {result.operation_id}. Idempotency key{' '}
           {outcome.idempotencyKey} — replaying this intent answers from the
           durable journal; it never re-invokes the provider.
-        </small>
+        </span>
         {typeof result.state === 'string' && (
-          <small>Reported state: {result.state}.</small>
+          <span className="text-muted-foreground font-mono text-[10px]">
+            Reported state: {result.state}.
+          </span>
         )}
       </div>
       <div
-        className="phlo-observatory-operation-recovery-card"
-        data-state={
-          verification ? VERIFICATION_TONES[verification.state] : 'warning'
-        }
+        className={cn(
+          'flex flex-col gap-1 border px-3 py-2',
+          TONE_CLASS[
+            verification ? VERIFICATION_TONES[verification.state] : 'warning'
+          ],
+        )}
       >
-        <span>Verification</span>
+        <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+          Verification
+        </span>
         {verification ? (
           <>
-            <strong>{verification.headline}</strong>
-            <small>{verification.detail}</small>
+            <strong className="text-foreground text-xs">
+              {verification.headline}
+            </strong>
+            <span className="text-muted-foreground font-mono text-[10px] break-all">
+              {verification.detail}
+            </span>
             {verification.replayBlocked && (
-              <small>
+              <span className="text-muted-foreground font-mono text-[10px]">
                 Replay blocked: no new idempotency key can resubmit this
                 operation.
-              </small>
+              </span>
             )}
             {!verification.replayBlocked && (
-              <button onClick={onCloseVerification} type="button">
-                Stop verifying
-              </button>
+              <div>
+                <Button
+                  onClick={onCloseVerification}
+                  size="xs"
+                  type="button"
+                  variant="outline"
+                >
+                  Stop verifying
+                </Button>
+              </div>
             )}
           </>
         ) : (
-          <strong>Checking canonical durable evidence…</strong>
+          <strong className="text-foreground text-xs">
+            Checking canonical durable evidence…
+          </strong>
         )}
       </div>
     </div>
@@ -726,9 +765,12 @@ function PlanInputFields({
   }
   return (
     <>
-      <label className="phlo-observatory-field">
-        <span>Maintenance operation</span>
+      <label className="flex flex-col gap-1">
+        <span className="text-muted-foreground text-[11px] font-medium">
+          Maintenance operation
+        </span>
         <select
+          className="border-input bg-background h-8 border px-2 text-xs"
           onChange={(event) =>
             setField('maintenanceOperation')(event.target.value)
           }
@@ -845,9 +887,11 @@ function TextField({
   value: string
 }) {
   return (
-    <label className="phlo-observatory-field">
-      <span>{label}</span>
-      <input
+    <label className="flex flex-col gap-1">
+      <span className="text-muted-foreground text-[11px] font-medium">
+        {label}
+      </span>
+      <Input
         autoComplete="off"
         onChange={(event) => onChange(event.target.value)}
         spellCheck={false}

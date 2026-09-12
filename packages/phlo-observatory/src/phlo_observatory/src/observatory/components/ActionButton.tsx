@@ -5,6 +5,7 @@
 import { AlertTriangle, Play } from 'lucide-react'
 
 import type { ObservatoryAction } from '@/observatory/api/types'
+import { Button } from '@/components/ui/button'
 
 export function ActionButton({
   action,
@@ -20,16 +21,21 @@ export function ActionButton({
   const title = action.reason ?? action.equivalent_cli_command ?? action.label
 
   return (
-    <button
+    <Button
       aria-label={action.label}
-      className="phlo-observatory-action-button"
       disabled={!action.enabled}
       onClick={() => onRun(action.id)}
+      size="sm"
       title={title}
       type="button"
+      variant={
+        action.risk_level === 'high' || action.risk_level === 'critical'
+          ? 'outline'
+          : 'default'
+      }
     >
-      <Icon className="size-4" aria-hidden="true" />
-      <span>{action.label}</span>
-    </button>
+      <Icon aria-hidden="true" className="size-3.5" />
+      {action.label}
+    </Button>
   )
 }

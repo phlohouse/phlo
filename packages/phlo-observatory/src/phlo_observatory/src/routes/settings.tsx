@@ -33,12 +33,25 @@ import {
   getObservatoryRuntimeSettings,
   putObservatoryDatasetWorkflowConfigDirect,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import {
   invalidateCachedResources,
   loadCachedResource,
 } from '@/observatory/routes/liveResource'
 import { labelValue } from '@/observatory/platformMetadata'
+import { Page, PageHeader } from '@/components/observatory/page'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/settings')({
   component: SettingsRoute,
@@ -174,7 +187,7 @@ function useSettingsRoute() {
     ).then(setRuntimeSettings)
   }, [])
 
-  async function fetchStats() {
+  function fetchStats() {
     dispatch({ type: 'statsLoading', loading: true })
     try {
       dispatch({ type: 'stats', stats: readBrowserCacheStats() })
@@ -233,436 +246,468 @@ function useSettingsRoute() {
   }
 
   return (
-    <ObservatoryPage
-      kicker="Settings"
-      title="Platform settings"
-      description="Runtime mode, provider coverage, cache state, workflow defaults, and local UI preferences."
-      action={
-        <span className="phlo-observatory-pill">
-          <Settings className="size-3.5" />
-          {dirty ? 'unsaved changes' : 'saved'}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-settings-workbench">
-        <div className="phlo-observatory-settings-toolbar">
-          <div>
-            <strong>Platform trust and preferences</strong>
-            <span>
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            <Settings className="size-3.5" />
+            {dirty ? 'unsaved changes' : 'saved'}
+          </Badge>
+        }
+        description="Runtime mode, provider coverage, cache state, workflow defaults, and local UI preferences."
+        title="Platform settings"
+      />
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+        <div className="bg-sheet border-rule flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 border">
+          <div className="flex flex-col gap-0.5">
+            <strong className="text-foreground text-sm font-semibold">
+              Platform trust and preferences
+            </strong>
+            <span className="text-muted-foreground text-[11px]/relaxed">
               Runtime truth comes from phlo-api. Browser preferences only affect
               this local Observatory session.
             </span>
           </div>
-          <div className="phlo-observatory-action-row">
-            <button
+          <div className="flex items-center gap-1.5">
+            <Button
               onClick={() => {
                 resetToDefaults()
                 dispatch({ type: 'error', error: null })
               }}
+              size="sm"
               type="button"
+              variant="outline"
             >
               <RotateCcw className="size-3.5" />
               Reset
-            </button>
-            <button
+            </Button>
+            <Button
               aria-label={saveHint}
               disabled={!dirty}
               onClick={save}
+              size="sm"
               title={saveHint}
               type="button"
             >
               <Save className="size-3.5" />
               Save
-            </button>
+            </Button>
           </div>
         </div>
 
         {!dirty && (
-          <div className="phlo-observatory-panel-footer">
+          <p className="text-muted-foreground font-mono text-[10px]">
             Settings are saved. Change a preference to enable Save.
-          </div>
+          </p>
         )}
 
         {error && (
-          <div className="phlo-observatory-settings-error">{error}</div>
+          <p className="border-status-error/40 bg-status-error/5 text-status-error border px-3 py-2 text-xs">
+            {error}
+          </p>
         )}
 
-        <SettingsPanel
-          description="Live phlo-api contract for enabled surfaces, providers, defaults, and local cache state."
-          icon={<Plug className="size-4" />}
-          title="Runtime truth"
-        >
-          <RuntimeTruth
-            runtimeSettings={runtimeSettings}
-            stats={stats}
-            statsLoading={statsLoading}
-          />
-        </SettingsPanel>
+        <div className="grid grid-cols-2 items-start gap-3 max-xl:grid-cols-1">
+          <SettingsPanel
+            description="Live phlo-api contract for enabled surfaces, providers, defaults, and local cache state."
+            icon={<Plug className="size-4" />}
+            title="Runtime truth"
+          >
+            <RuntimeTruth
+              runtimeSettings={runtimeSettings}
+              stats={stats}
+              statsLoading={statsLoading}
+            />
+          </SettingsPanel>
 
-        <SettingsPanel
-          description="Defaults used when opening table, query, and preview views."
-          icon={<SlidersHorizontal className="size-4" />}
-          title="Defaults"
-        >
-          <div className="phlo-observatory-settings-columns">
-            {capabilityFeatures.branches && (
-              <SettingField label="Branch">
+          <SettingsPanel
+            description="Defaults used when opening table, query, and preview views."
+            icon={<SlidersHorizontal className="size-4" />}
+            title="Defaults"
+          >
+            <div className="grid grid-cols-3 gap-3 max-lg:grid-cols-1">
+              {capabilityFeatures.branches && (
+                <SettingField label="Branch">
+                  <TextInput
+                    value={draft.defaults.branch}
+                    onChange={(value) =>
+                      updateDraft(dispatch, (current) => ({
+                        ...current,
+                        defaults: { ...current.defaults, branch: value },
+                      }))
+                    }
+                  />
+                </SettingField>
+              )}
+              <SettingField label="Query default">
                 <TextInput
-                  value={draft.defaults.branch}
+                  value={draft.defaults.catalog}
                   onChange={(value) =>
                     updateDraft(dispatch, (current) => ({
                       ...current,
-                      defaults: { ...current.defaults, branch: value },
+                      defaults: { ...current.defaults, catalog: value },
                     }))
                   }
                 />
               </SettingField>
-            )}
-            <SettingField label="Query default">
-              <TextInput
-                value={draft.defaults.catalog}
-                onChange={(value) =>
-                  updateDraft(dispatch, (current) => ({
-                    ...current,
-                    defaults: { ...current.defaults, catalog: value },
-                  }))
-                }
-              />
-            </SettingField>
-            <SettingField label="Schema">
-              <TextInput
-                value={draft.defaults.schema}
-                onChange={(value) =>
-                  updateDraft(dispatch, (current) => ({
-                    ...current,
-                    defaults: { ...current.defaults, schema: value },
-                  }))
-                }
-              />
-            </SettingField>
-          </div>
-        </SettingsPanel>
-
-        <SettingsPanel
-          description="SQL execution limits and read-only protections."
-          icon={<Database className="size-4" />}
-          title="Query"
-        >
-          <div className="phlo-observatory-settings-columns">
-            <SettingField label="Default LIMIT">
-              <NumberInput
-                value={draft.query.defaultLimit}
-                onChange={(value) =>
-                  updateDraft(dispatch, (current) => ({
-                    ...current,
-                    query: { ...current.query, defaultLimit: value },
-                  }))
-                }
-              />
-            </SettingField>
-            <SettingField label="Max LIMIT">
-              <NumberInput
-                value={draft.query.maxLimit}
-                onChange={(value) =>
-                  updateDraft(dispatch, (current) => ({
-                    ...current,
-                    query: { ...current.query, maxLimit: value },
-                  }))
-                }
-              />
-            </SettingField>
-            <SettingField label="Timeout (ms)">
-              <NumberInput
-                value={draft.query.timeoutMs}
-                onChange={(value) =>
-                  updateDraft(dispatch, (current) => ({
-                    ...current,
-                    query: { ...current.query, timeoutMs: value },
-                  }))
-                }
-              />
-            </SettingField>
-          </div>
-          <ToggleRow
-            checked={draft.query.readOnlyMode}
-            description="Blocks non-read-only statements and enforces limits in SQL workflows."
-            label="Read-only mode"
-            onChange={(checked) =>
-              updateDraft(dispatch, (current) => ({
-                ...current,
-                query: { ...current.query, readOnlyMode: checked },
-              }))
-            }
-          />
-        </SettingsPanel>
-
-        <SettingsPanel
-          description="Project defaults used by candidate and publication workflow actions."
-          icon={<SlidersHorizontal className="size-4" />}
-          title="Dataset workflow"
-        >
-          <div className="phlo-observatory-settings-columns">
-            <SettingField label="Default owner">
-              <TextInput
-                value={workflowDraft?.default_owner ?? ''}
-                onChange={(value) =>
-                  setWorkflowDraft((current) => ({
-                    default_owner: value,
-                    approval_states: current?.approval_states ?? [
-                      'draft',
-                      'review',
-                      'approved',
-                      'rejected',
-                      'retired',
-                    ],
-                  }))
-                }
-              />
-            </SettingField>
-            <SettingField
-              hint="Comma-separated states shown by publication workflows."
-              label="Approval states"
-            >
-              <TextInput
-                value={workflowDraft?.approval_states.join(', ') ?? ''}
-                onChange={(value) =>
-                  setWorkflowDraft((current) => ({
-                    default_owner: current?.default_owner ?? '',
-                    approval_states: value
-                      .split(',')
-                      .map((state) => state.trim()),
-                  }))
-                }
-              />
-            </SettingField>
-          </div>
-          <div className="phlo-observatory-action-row">
-            <button
-              disabled={
-                !workflowDraft ||
-                JSON.stringify(workflowDraft) === JSON.stringify(workflowConfig)
-              }
-              onClick={saveWorkflowConfig}
-              type="button"
-            >
-              <Save className="size-3.5" />
-              Save workflow defaults
-            </button>
-          </div>
-          {workflowMessage && (
-            <div className="phlo-observatory-panel-footer">
-              {workflowMessage}
+              <SettingField label="Schema">
+                <TextInput
+                  value={draft.defaults.schema}
+                  onChange={(value) =>
+                    updateDraft(dispatch, (current) => ({
+                      ...current,
+                      defaults: { ...current.defaults, schema: value },
+                    }))
+                  }
+                />
+              </SettingField>
             </div>
-          )}
-        </SettingsPanel>
+          </SettingsPanel>
 
-        <SettingsPanel
-          description="Display preferences shared by v1 and v2."
-          icon={<Gauge className="size-4" />}
-          title="Interface"
-        >
-          <div className="phlo-observatory-settings-columns">
-            <SettingField label="Density">
-              <SelectInput
-                options={[
-                  ['comfortable', 'Comfortable'],
-                  ['compact', 'Compact'],
-                ]}
-                value={draft.ui.density}
-                onChange={(value) =>
-                  updateDraft(dispatch, (current) => ({
-                    ...current,
-                    ui: {
-                      ...current.ui,
-                      density: value as ObservatorySettings['ui']['density'],
-                    },
-                  }))
-                }
-              />
-            </SettingField>
-            <SettingField label="Date format">
-              <SelectInput
-                options={[
-                  ['iso', 'ISO'],
-                  ['local', 'Local'],
-                ]}
-                value={draft.ui.dateFormat}
-                onChange={(value) =>
-                  updateDraft(dispatch, (current) => ({
-                    ...current,
-                    ui: {
-                      ...current.ui,
-                      dateFormat:
-                        value as ObservatorySettings['ui']['dateFormat'],
-                    },
-                  }))
-                }
-              />
-            </SettingField>
-          </div>
-        </SettingsPanel>
-
-        <SettingsPanel
-          description="Authentication token and live update behavior for this browser session."
-          icon={<KeyRound className="size-4" />}
-          title="Access and updates"
-        >
-          <SettingField
-            hint="Used when OBSERVATORY_AUTH_ENABLED=true."
-            label="Auth token"
+          <SettingsPanel
+            description="SQL execution limits and read-only protections."
+            icon={<Database className="size-4" />}
+            title="Query"
           >
-            <TextInput
-              placeholder="Enter auth token..."
-              type="password"
-              value={draft.auth?.token ?? ''}
-              onChange={(value) =>
+            <div className="grid grid-cols-3 gap-3 max-lg:grid-cols-1">
+              <SettingField label="Default LIMIT">
+                <NumberInput
+                  value={draft.query.defaultLimit}
+                  onChange={(value) =>
+                    updateDraft(dispatch, (current) => ({
+                      ...current,
+                      query: { ...current.query, defaultLimit: value },
+                    }))
+                  }
+                />
+              </SettingField>
+              <SettingField label="Max LIMIT">
+                <NumberInput
+                  value={draft.query.maxLimit}
+                  onChange={(value) =>
+                    updateDraft(dispatch, (current) => ({
+                      ...current,
+                      query: { ...current.query, maxLimit: value },
+                    }))
+                  }
+                />
+              </SettingField>
+              <SettingField label="Timeout (ms)">
+                <NumberInput
+                  value={draft.query.timeoutMs}
+                  onChange={(value) =>
+                    updateDraft(dispatch, (current) => ({
+                      ...current,
+                      query: { ...current.query, timeoutMs: value },
+                    }))
+                  }
+                />
+              </SettingField>
+            </div>
+            <ToggleRow
+              checked={draft.query.readOnlyMode}
+              description="Blocks non-read-only statements and enforces limits in SQL workflows."
+              label="Read-only mode"
+              onChange={(checked) =>
                 updateDraft(dispatch, (current) => ({
                   ...current,
-                  auth: { ...current.auth, token: value || undefined },
+                  query: { ...current.query, readOnlyMode: checked },
                 }))
               }
             />
-          </SettingField>
-          <ToggleRow
-            checked={draft.realtime?.enabled ?? true}
-            description="Automatically poll dashboard and quality views for updates."
-            label="Enable auto-refresh"
-            onChange={(checked) =>
-              updateDraft(dispatch, (current) => ({
-                ...current,
-                realtime: {
-                  enabled: checked,
-                  intervalMs: current.realtime?.intervalMs ?? 5000,
-                },
-              }))
-            }
-          />
-          <SettingField label="Polling interval (ms)">
-            <NumberInput
-              disabled={!(draft.realtime?.enabled ?? true)}
-              max={60000}
-              min={1000}
-              step={1000}
-              value={draft.realtime?.intervalMs ?? 5000}
-              onChange={(value) =>
+          </SettingsPanel>
+
+          <SettingsPanel
+            description="Project defaults used by candidate and publication workflow actions."
+            icon={<SlidersHorizontal className="size-4" />}
+            title="Dataset workflow"
+          >
+            <div className="grid grid-cols-2 gap-3 max-lg:grid-cols-1">
+              <SettingField label="Default owner">
+                <TextInput
+                  value={workflowDraft?.default_owner ?? ''}
+                  onChange={(value) =>
+                    setWorkflowDraft((current) => ({
+                      default_owner: value,
+                      approval_states: current?.approval_states ?? [
+                        'draft',
+                        'review',
+                        'approved',
+                        'rejected',
+                        'retired',
+                      ],
+                    }))
+                  }
+                />
+              </SettingField>
+              <SettingField
+                hint="Comma-separated states shown by publication workflows."
+                label="Approval states"
+              >
+                <TextInput
+                  value={workflowDraft?.approval_states.join(', ') ?? ''}
+                  onChange={(value) =>
+                    setWorkflowDraft((current) => ({
+                      default_owner: current?.default_owner ?? '',
+                      approval_states: value
+                        .split(',')
+                        .map((state) => state.trim()),
+                    }))
+                  }
+                />
+              </SettingField>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button
+                disabled={
+                  !workflowDraft ||
+                  JSON.stringify(workflowDraft) ===
+                    JSON.stringify(workflowConfig)
+                }
+                onClick={saveWorkflowConfig}
+                size="sm"
+                type="button"
+              >
+                <Save className="size-3.5" />
+                Save workflow defaults
+              </Button>
+            </div>
+            {workflowMessage && (
+              <p className="text-muted-foreground font-mono text-[10px]">
+                {workflowMessage}
+              </p>
+            )}
+          </SettingsPanel>
+
+          <SettingsPanel
+            description="Display preferences shared by v1 and v2."
+            icon={<Gauge className="size-4" />}
+            title="Interface"
+          >
+            <div className="grid grid-cols-2 gap-3 max-lg:grid-cols-1">
+              <SettingField label="Density">
+                <SelectInput
+                  options={[
+                    ['comfortable', 'Comfortable'],
+                    ['compact', 'Compact'],
+                  ]}
+                  value={draft.ui.density}
+                  onChange={(value) =>
+                    updateDraft(dispatch, (current) => ({
+                      ...current,
+                      ui: {
+                        ...current.ui,
+                        density: value as ObservatorySettings['ui']['density'],
+                      },
+                    }))
+                  }
+                />
+              </SettingField>
+              <SettingField label="Date format">
+                <SelectInput
+                  options={[
+                    ['iso', 'ISO'],
+                    ['local', 'Local'],
+                  ]}
+                  value={draft.ui.dateFormat}
+                  onChange={(value) =>
+                    updateDraft(dispatch, (current) => ({
+                      ...current,
+                      ui: {
+                        ...current.ui,
+                        dateFormat:
+                          value as ObservatorySettings['ui']['dateFormat'],
+                      },
+                    }))
+                  }
+                />
+              </SettingField>
+            </div>
+          </SettingsPanel>
+
+          <SettingsPanel
+            description="Authentication token and live update behavior for this browser session."
+            icon={<KeyRound className="size-4" />}
+            title="Access and updates"
+          >
+            <SettingField
+              hint="Used when OBSERVATORY_AUTH_ENABLED=true."
+              label="Auth token"
+            >
+              <TextInput
+                placeholder="Enter auth token..."
+                type="password"
+                value={draft.auth?.token ?? ''}
+                onChange={(value) =>
+                  updateDraft(dispatch, (current) => ({
+                    ...current,
+                    auth: { ...current.auth, token: value || undefined },
+                  }))
+                }
+              />
+            </SettingField>
+            <ToggleRow
+              checked={draft.realtime?.enabled ?? true}
+              description="Automatically poll dashboard and quality views for updates."
+              label="Enable auto-refresh"
+              onChange={(checked) =>
                 updateDraft(dispatch, (current) => ({
                   ...current,
                   realtime: {
-                    enabled: current.realtime?.enabled ?? true,
-                    intervalMs: value,
+                    enabled: checked,
+                    intervalMs: current.realtime?.intervalMs ?? 5000,
                   },
                 }))
               }
             />
-          </SettingField>
-        </SettingsPanel>
+            <SettingField label="Polling interval (ms)">
+              <NumberInput
+                disabled={!(draft.realtime?.enabled ?? true)}
+                max={60000}
+                min={1000}
+                step={1000}
+                value={draft.realtime?.intervalMs ?? 5000}
+                onChange={(value) =>
+                  updateDraft(dispatch, (current) => ({
+                    ...current,
+                    realtime: {
+                      enabled: current.realtime?.enabled ?? true,
+                      intervalMs: value,
+                    },
+                  }))
+                }
+              />
+            </SettingField>
+          </SettingsPanel>
 
-        {orderedSettingsSections.map((section) => {
-          const SectionComponent = section.component
-          return (
-            <SettingsPanel
-              description={
-                section.description ??
-                'Extension-provided settings registered with Observatory.'
-              }
-              icon={<Settings className="size-4" />}
-              key={section.id}
-              title={section.title}
-            >
-              <SectionComponent />
-            </SettingsPanel>
-          )
-        })}
-
-        <SettingsPanel
-          description="Installed providers decide which Observatory surfaces appear in navigation."
-          icon={<Plug className="size-4" />}
-          title="Capabilities"
-        >
-          <div className="phlo-observatory-detail-list">
-            {(capabilities?.data?.pages ?? []).map((page) => (
-              <div className="phlo-observatory-mini-row" key={page.id}>
-                <span>{page.label}</span>
-                <small>
-                  {page.available
-                    ? page.providers.length
-                      ? page.providers.map(labelValue).join(', ')
-                      : 'core'
-                    : (page.reason ?? 'No provider installed')}
-                </small>
-              </div>
-            ))}
-            {capabilities?.error && (
-              <div className="phlo-observatory-mini-row">
-                <span>Capability discovery</span>
-                <small>{capabilities.error}</small>
-              </div>
-            )}
-          </div>
-        </SettingsPanel>
-
-        <SettingsPanel
-          description="Operator maintenance for Observatory read-model caches."
-          icon={<RefreshCw className="size-4" />}
-          title="Advanced"
-        >
-          <div className="phlo-observatory-cache-header">
-            <strong>Metadata cache</strong>
-            <div className="phlo-observatory-action-row">
-              <button
-                disabled={statsLoading}
-                onClick={() => void fetchStats()}
-                type="button"
+          {orderedSettingsSections.map((section) => {
+            const SectionComponent = section.component
+            return (
+              <SettingsPanel
+                description={
+                  section.description ??
+                  'Extension-provided settings registered with Observatory.'
+                }
+                icon={<Settings className="size-4" />}
+                key={section.id}
+                title={section.title}
               >
-                <RefreshCw className="size-3.5" />
-                Refresh
-              </button>
-              <button
-                disabled={statsLoading}
-                onClick={() => void clearCache()}
-                type="button"
-              >
-                Clear cache
-              </button>
+                <SectionComponent />
+              </SettingsPanel>
+            )
+          })}
+
+          <SettingsPanel
+            description="Installed providers decide which Observatory surfaces appear in navigation."
+            icon={<Plug className="size-4" />}
+            title="Capabilities"
+          >
+            <div className="divide-border -mx-3 -mb-3 divide-y border-t">
+              {(capabilities?.data?.pages ?? []).map((page) => (
+                <MiniRow
+                  detail={
+                    page.available
+                      ? page.providers.length
+                        ? page.providers.map(labelValue).join(', ')
+                        : 'core'
+                      : (page.reason ?? 'No provider installed')
+                  }
+                  key={page.id}
+                  label={page.label}
+                />
+              ))}
+              {capabilities?.error && (
+                <MiniRow
+                  detail={capabilities.error}
+                  label="Capability discovery"
+                />
+              )}
             </div>
-          </div>
-          <div className="phlo-observatory-cache-grid">
-            <CacheMetric
-              label="Hits"
-              value={stats?.hits === null ? 'not tracked' : (stats?.hits ?? 0)}
-            />
-            <CacheMetric
-              label="Misses"
-              value={
-                stats?.misses === null ? 'not tracked' : (stats?.misses ?? 0)
-              }
-            />
-            <CacheMetric
-              label="Hit rate"
-              value={
-                stats?.hitRate === null || stats?.hitRate === undefined
-                  ? 'not tracked'
-                  : `${(stats.hitRate * 100).toFixed(1)}%`
-              }
-            />
-            <CacheMetric label="Entries" value={stats?.entries ?? 0} />
-          </div>
-          {stats?.entriesByPrefix &&
-            Object.keys(stats.entriesByPrefix).length > 0 && (
-              <div className="phlo-observatory-detail-list">
-                {Object.entries(stats.entriesByPrefix).map(
-                  ([prefix, count]) => (
-                    <div className="phlo-observatory-mini-row" key={prefix}>
-                      <span>{prefix}</span>
-                      <small>{count}</small>
-                    </div>
-                  ),
-                )}
+          </SettingsPanel>
+
+          <SettingsPanel
+            description="Operator maintenance for Observatory read-model caches."
+            icon={<RefreshCw className="size-4" />}
+            title="Advanced"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <strong className="text-foreground text-[11px] font-medium">
+                Metadata cache
+              </strong>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  disabled={statsLoading}
+                  onClick={() => void fetchStats()}
+                  size="xs"
+                  type="button"
+                  variant="outline"
+                >
+                  <RefreshCw className="size-3.5" />
+                  Refresh
+                </Button>
+                <Button
+                  disabled={statsLoading}
+                  onClick={() => void clearCache()}
+                  size="xs"
+                  type="button"
+                  variant="outline"
+                >
+                  Clear cache
+                </Button>
               </div>
-            )}
-        </SettingsPanel>
-      </section>
-    </ObservatoryPage>
+            </div>
+            <div className="border-border grid grid-cols-4 divide-x border-y max-lg:grid-cols-2">
+              <CacheMetric
+                label="Hits"
+                value={
+                  stats?.hits === null ? 'not tracked' : (stats?.hits ?? 0)
+                }
+              />
+              <CacheMetric
+                label="Misses"
+                value={
+                  stats?.misses === null ? 'not tracked' : (stats?.misses ?? 0)
+                }
+              />
+              <CacheMetric
+                label="Hit rate"
+                value={
+                  stats?.hitRate === null || stats?.hitRate === undefined
+                    ? 'not tracked'
+                    : `${(stats.hitRate * 100).toFixed(1)}%`
+                }
+              />
+              <CacheMetric label="Entries" value={stats?.entries ?? 0} />
+            </div>
+            {stats?.entriesByPrefix &&
+              Object.keys(stats.entriesByPrefix).length > 0 && (
+                <div className="divide-border -mx-3 -mb-3 divide-y border-t">
+                  {Object.entries(stats.entriesByPrefix).map(
+                    ([prefix, count]) => (
+                      <MiniRow
+                        detail={String(count)}
+                        key={prefix}
+                        label={prefix}
+                      />
+                    ),
+                  )}
+                </div>
+              )}
+          </SettingsPanel>
+        </div>
+      </div>
+    </Page>
+  )
+}
+
+function MiniRow({ detail, label }: { detail: string; label: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2 px-3 py-2">
+      <span className="text-foreground min-w-0 text-[11px]">{label}</span>
+      <span className="text-muted-foreground flex-none text-right font-mono text-[10px] break-all">
+        {detail}
+      </span>
+    </div>
   )
 }
 
@@ -684,8 +729,8 @@ function RuntimeTruth({
   const runtime = settings?.metadata.runtime
 
   return (
-    <div className="phlo-observatory-runtime-truth">
-      <div className="phlo-observatory-cache-grid">
+    <div className="flex flex-col gap-3">
+      <div className="border-border grid grid-cols-4 divide-x border-y max-lg:grid-cols-2">
         <CacheMetric
           label="API contract"
           value={runtimeSettingsLabel(runtimeSettings)}
@@ -697,71 +742,72 @@ function RuntimeTruth({
           value={statsLoading && !stats ? 'checking' : (stats?.entries ?? 0)}
         />
       </div>
-      <div className="phlo-observatory-runtime-columns">
-        <div className="phlo-observatory-detail-list">
-          <div className="phlo-observatory-mini-row">
-            <span>Defaults</span>
-            <small>
-              {Object.entries(defaults)
+      <div className="grid grid-cols-2 gap-3 max-lg:grid-cols-1">
+        <div className="divide-border -my-1 divide-y">
+          <MiniRow
+            detail={
+              Object.entries(defaults)
                 .map(
                   ([key, value]) =>
                     `${labelize(key)}: ${
                       typeof value === 'string' ? labelValue(value) : value
                     }`,
                 )
-                .join(' · ') || 'No workflow defaults configured'}
-            </small>
-          </div>
-          <div className="phlo-observatory-mini-row">
-            <span>Runtime context</span>
-            <small>
-              {settings
+                .join(' · ') || 'No workflow defaults configured'
+            }
+            label="Defaults"
+          />
+          <MiniRow
+            detail={
+              settings
                 ? formatSettingsStorage(settings.storage.settings)
                 : runtimeSettings?.error
                   ? 'runtime settings unavailable'
-                  : 'loading runtime settings'}
-            </small>
-          </div>
-          <div className="phlo-observatory-mini-row">
-            <span>Project path</span>
-            <small>{runtime?.project_path || 'not reported'}</small>
-          </div>
-          <div className="phlo-observatory-mini-row">
-            <span>Compose project</span>
-            <small>{runtime?.compose_project || 'not configured'}</small>
-          </div>
-          <div className="phlo-observatory-mini-row">
-            <span>API mode</span>
-            <small>{runtime?.api_source || 'not reported'}</small>
-          </div>
-          <div className="phlo-observatory-mini-row">
-            <span>Disabled surfaces</span>
-            <small>
-              {disabled.map(([feature]) => labelize(feature)).join(', ') ||
-                'none'}
-            </small>
-          </div>
+                  : 'loading runtime settings'
+            }
+            label="Runtime context"
+          />
+          <MiniRow
+            detail={runtime?.project_path || 'not reported'}
+            label="Project path"
+          />
+          <MiniRow
+            detail={runtime?.compose_project || 'not configured'}
+            label="Compose project"
+          />
+          <MiniRow
+            detail={runtime?.api_source || 'not reported'}
+            label="API mode"
+          />
+          <MiniRow
+            detail={
+              disabled.map(([feature]) => labelize(feature)).join(', ') ||
+              'none'
+            }
+            label="Disabled surfaces"
+          />
           {runtimeSettings?.error && (
-            <div className="phlo-observatory-mini-row">
-              <span>Runtime settings error</span>
-              <small>{runtimeSettings.error}</small>
-            </div>
+            <MiniRow
+              detail={runtimeSettings.error}
+              label="Runtime settings error"
+            />
           )}
         </div>
-        <div className="phlo-observatory-detail-list">
+        <div className="divide-border -my-1 divide-y">
           {providers.slice(0, 8).map(([surface, surfaceProviders]) => (
-            <div className="phlo-observatory-mini-row" key={surface}>
-              <span>{labelize(surface)}</span>
-              <small>
-                {surfaceProviders.map(labelValue).join(', ') || 'No provider'}
-              </small>
-            </div>
+            <MiniRow
+              detail={
+                surfaceProviders.map(labelValue).join(', ') || 'No provider'
+              }
+              key={surface}
+              label={labelize(surface)}
+            />
           ))}
           {providers.length === 0 && (
-            <div className="phlo-observatory-mini-row">
-              <span>Provider coverage</span>
-              <small>No provider metadata available yet.</small>
-            </div>
+            <MiniRow
+              detail="No provider metadata available yet."
+              label="Provider coverage"
+            />
           )}
         </div>
       </div>
@@ -917,14 +963,18 @@ function SettingsPanel({
   title: string
 }) {
   return (
-    <section className="phlo-observatory-settings-panel">
-      <div className="phlo-observatory-callout-title">
-        {icon}
-        {title}
-      </div>
-      <p>{description}</p>
-      <div className="phlo-observatory-settings-panel-body">{children}</div>
-    </section>
+    <SectionCard
+      contentClassName="flex flex-col gap-3 p-3"
+      description={description}
+      title={
+        <span className="flex items-center gap-1.5">
+          {icon}
+          {title}
+        </span>
+      }
+    >
+      {children}
+    </SectionCard>
   )
 }
 
@@ -938,10 +988,14 @@ function SettingField({
   label: string
 }) {
   return (
-    <label className="phlo-observatory-settings-field">
-      <span>{label}</span>
+    <label className="flex flex-col gap-1">
+      <span className="text-muted-foreground text-[11px] font-medium">
+        {label}
+      </span>
       {children}
-      {hint && <small>{hint}</small>}
+      {hint && (
+        <small className="text-muted-foreground text-[10px]">{hint}</small>
+      )}
     </label>
   )
 }
@@ -958,7 +1012,7 @@ function TextInput({
   value: string
 }) {
   return (
-    <input
+    <Input
       {...props}
       type={type}
       onChange={(event) => onChange(event.target.value)}
@@ -982,7 +1036,7 @@ function NumberInput({
   value: number
 }) {
   return (
-    <input
+    <Input
       disabled={disabled}
       max={max}
       min={min}
@@ -1004,13 +1058,23 @@ function SelectInput({
   value: string
 }) {
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value)}>
-      {options.map(([optionValue, label]) => (
-        <option key={optionValue} value={optionValue}>
-          {label}
-        </option>
-      ))}
-    </select>
+    <Select
+      onValueChange={(next) => {
+        if (typeof next === 'string') onChange(next)
+      }}
+      value={value}
+    >
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map(([optionValue, label]) => (
+          <SelectItem key={optionValue} value={optionValue}>
+            {label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -1027,17 +1091,23 @@ function ToggleRow({
 }) {
   const inputId = useId()
   return (
-    <label className="phlo-observatory-toggle-row" htmlFor={inputId}>
-      <input
+    <label
+      className="border-border flex items-center gap-2.5 border px-3 py-2"
+      htmlFor={inputId}
+    >
+      <Switch
         id={inputId}
         aria-label={label}
         checked={checked}
-        type="checkbox"
-        onChange={(event) => onChange(event.target.checked)}
+        onCheckedChange={(next) => onChange(next)}
       />
-      <span>
-        <strong>{label}</strong>
-        <small>{description}</small>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <strong className="text-foreground text-[11px] font-medium">
+          {label}
+        </strong>
+        <small className="text-muted-foreground text-[10px]/relaxed">
+          {description}
+        </small>
       </span>
     </label>
   )
@@ -1051,9 +1121,13 @@ function CacheMetric({
   value: number | string
 }) {
   return (
-    <div className="phlo-observatory-cache-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className={cn('flex flex-col gap-0.5 px-3 py-2')}>
+      <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      <strong className="text-foreground truncate font-mono text-[11px]">
+        {value}
+      </strong>
     </div>
   )
 }

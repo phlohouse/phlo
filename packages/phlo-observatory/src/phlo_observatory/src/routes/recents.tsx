@@ -3,15 +3,19 @@
  * activity history and refreshes on the localActivity event.
  */
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { Clock3, ExternalLink } from 'lucide-react'
+import { ChevronRight, Clock3 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import type { ObservatoryRecentVisit } from '@/observatory/shell/localActivity'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import {
   localActivityEvent,
   readRecentVisits,
 } from '@/observatory/shell/localActivity'
+import { Page, PageHeader } from '@/components/observatory/page'
+import { EmptyBlock } from '@/components/observatory/states'
+import { formatRelativeTime } from '@/components/observatory/time'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
 
 export const Route = createFileRoute('/recents')({ component: Recents })
 
@@ -26,68 +30,47 @@ export function Recents() {
   }, [])
 
   return (
-    <ObservatoryPage
-      kicker="Workspace"
-      title="Recents"
-      description="Resources opened in this browser, kept locally to preserve continuity without claiming shared runtime history."
-      action={
-        <span className="phlo-observatory-pill">{visits.length} recent</span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-local-index-shell">
-        <div className="phlo-observatory-command-primary">
-          <div className="phlo-observatory-workspace-toolbar">
-            <span>
-              <Clock3 className="size-4" />
-              Recently opened
-            </span>
-            <span className="phlo-observatory-pill">Browser-local</span>
+    <Page>
+      <PageHeader
+        actions={<Badge variant="secondary">{visits.length} recent</Badge>}
+        description="Resources opened in this browser — kept locally to preserve continuity, not shared runtime history."
+        title="Recents"
+      />
+      <SectionCard
+        actions={<Badge variant="secondary">browser-local</Badge>}
+        title="Recently opened"
+      >
+        {visits.length ? (
+          <div className="divide-y divide-border">
+            {visits.map((visit) => (
+              <Link
+                className="hover:bg-accent/50 flex items-center gap-3 px-3 py-2 transition-colors"
+                key={visit.path}
+                to={visit.path}
+              >
+                <Clock3 className="text-muted-foreground size-3.5 flex-none" />
+                <span className="min-w-0 flex-1">
+                  <span className="text-foreground block truncate text-xs font-medium">
+                    {visit.label}
+                  </span>
+                  <span className="text-muted-foreground block truncate font-mono text-[11px]">
+                    {visit.path}
+                  </span>
+                </span>
+                <span className="text-muted-foreground font-mono text-[10px]">
+                  {formatRelativeTime(visit.visitedAt)}
+                </span>
+                <ChevronRight className="text-muted-foreground size-3.5" />
+              </Link>
+            ))}
           </div>
-          {visits.length ? (
-            <div className="phlo-observatory-detail-list">
-              {visits.map((visit) => (
-                <Link
-                  className="phlo-observatory-local-index-row"
-                  key={visit.path}
-                  to={visit.path}
-                >
-                  <span>
-                    <strong>{visit.label}</strong>
-                    <small>{visit.path}</small>
-                  </span>
-                  <span>
-                    <small>{formatTime(visit.visitedAt)}</small>
-                    <ExternalLink className="size-3.5" />
-                  </span>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="phlo-observatory-operation-empty">
-              <div>
-                <h2>No recent resources yet</h2>
-                <p>
-                  Open a Dataset, run, query, or platform surface to build this
-                  local list.
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-        <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-          <div className="phlo-observatory-inspector-label">Evidence scope</div>
-          <h2>Local navigation history</h2>
-          <p>
-            This list belongs to the current browser. It is not presented as
-            shared project or runtime evidence.
-          </p>
-        </aside>
-      </section>
-    </ObservatoryPage>
+        ) : (
+          <EmptyBlock
+            description="Open a dataset, run, query, or platform surface to build this local list."
+            title="No recent resources yet"
+          />
+        )}
+      </SectionCard>
+    </Page>
   )
-}
-
-function formatTime(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }

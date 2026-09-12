@@ -27,6 +27,8 @@ import {
 import type { Edge, Node, NodeProps, NodeTypes } from '@xyflow/react'
 import type { MouseEvent } from 'react'
 
+import { cn } from '@/lib/utils'
+
 type ObservatoryFlowNodeKind =
   | 'asset'
   | 'table'
@@ -85,37 +87,44 @@ const kindIcon = {
   service: Database,
 } satisfies Record<ObservatoryFlowNodeKind, typeof Database>
 
+const kindTone: Record<ObservatoryFlowNodeKind, string> = {
+  asset: 'text-primary',
+  table: 'text-status-info',
+  quality: 'text-status-ok',
+  operation: 'text-status-warning',
+  branch: 'text-status-info',
+  service: 'text-muted-foreground',
+}
+
+const handleClass =
+  '!size-1.5 !border-0 !bg-muted-foreground/60 !min-w-0 !min-h-0'
+
 function FlowNode({ data, selected }: NodeProps<Node<FlowNodeData, 'phlo'>>) {
   const Icon = kindIcon[data.kind]
 
   return (
     <>
-      <Handle
-        type="target"
-        position={Position.Left}
-        className="phlo-observatory-flow-handle"
-      />
+      <Handle type="target" position={Position.Left} className={handleClass} />
       <div
-        className="phlo-observatory-flow-node"
-        data-kind={data.kind}
-        data-selected={selected ? 'true' : 'false'}
+        className={cn(
+          'bg-card ring-foreground/15 hover:ring-foreground/30 w-44 cursor-pointer px-2.5 py-2 ring-1 transition-shadow',
+          selected && 'ring-primary ring-2',
+        )}
       >
-        <div className="phlo-observatory-flow-node-title">
-          <span className="phlo-observatory-flow-node-mark">
+        <div className="flex items-center gap-1.5">
+          <span className={cn('flex-none', kindTone[data.kind])}>
             <Icon className="size-3.5" />
           </span>
-          <span>{data.label}</span>
+          <span className="text-foreground truncate text-[11px] font-medium">
+            {data.label}
+          </span>
         </div>
-        <div className="phlo-observatory-flow-node-meta">
-          <span>{data.lane}</span>
-          {data.metric && <span>{data.metric}</span>}
+        <div className="text-muted-foreground mt-1 flex items-center justify-between gap-2 font-mono text-[9px] tracking-wide uppercase">
+          <span className="truncate">{data.lane}</span>
+          {data.metric && <span className="flex-none">{data.metric}</span>}
         </div>
       </div>
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="phlo-observatory-flow-handle"
-      />
+      <Handle type="source" position={Position.Right} className={handleClass} />
     </>
   )
 }
@@ -172,10 +181,10 @@ export function ObservatoryFlowCanvas({
           target: edge.target,
           label: edge.label ?? undefined,
           type: 'smoothstep',
-          style: { stroke: 'var(--v2-sheet-border)', strokeWidth: 2 },
+          style: { stroke: 'var(--border)', strokeWidth: 1.5 },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: 'var(--v2-sheet-border)',
+            color: 'var(--border)',
           },
         }),
       ),
@@ -222,7 +231,7 @@ function ObservatoryFlowCanvasInstance({
   )
 
   return (
-    <div className="phlo-observatory-flow-canvas">
+    <div className="bg-surface-sunken h-full min-h-80 w-full">
       {nodes.length > 0 ? (
         <ReactFlow
           nodes={nodes}
@@ -235,14 +244,15 @@ function ObservatoryFlowCanvasInstance({
           fitViewOptions={{ padding: 0.24, maxZoom: 0.9 }}
           minZoom={0.15}
           maxZoom={1.8}
+          proOptions={{ hideAttribution: true }}
         >
-          <Background color="var(--v2-sheet-border)" gap={20} />
-          <Controls className="phlo-observatory-flow-controls" />
+          <Background color="var(--border)" gap={20} />
+          <Controls showInteractive={false} />
         </ReactFlow>
       ) : (
-        <div className="phlo-observatory-flow-empty">
+        <div className="text-muted-foreground flex h-full min-h-80 flex-col items-center justify-center gap-2">
           <Database className="size-4" />
-          <span>No dependencies yet</span>
+          <span className="text-xs">No dependencies yet</span>
         </div>
       )}
     </div>
