@@ -296,7 +296,7 @@ def test_snapshot_expiry_journals_outcome_unknown(monkeypatch) -> None:
         },
         "retry_safe": False,
     }
-    store = MagicMock()
+    store = FakeMaintenanceRetentionStore()
     store.expire_snapshots = MagicMock(side_effect=[plan_result, unknown_result])
     journal = InMemoryOperationJournalStore()
     _wire_expire_op(monkeypatch, store, journal, executor=FakeSnapshotExpiryExecutor())
@@ -350,7 +350,7 @@ def test_snapshot_expiry_replays_journaled_result_without_provider_access(monkey
 
     # Any provider access (planning dry-run or executor resolution) must not be
     # reached: the journaled result replays first.
-    store = MagicMock()
+    store = FakeMaintenanceRetentionStore()
     store.expire_snapshots = MagicMock(side_effect=RuntimeError("catalog unavailable"))
     _wire_expire_op(monkeypatch, store, journal, executor=None)
     monkeypatch.setattr(
