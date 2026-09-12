@@ -371,3 +371,4 @@ class VerifyResult:
     missing: tuple[BackendArtifact, ...] = ()
     extra: tuple[BackendArtifact, ...] = ()
     mismatched: tuple[BackendArtifact, ...] = ()
+    error: str | None = None

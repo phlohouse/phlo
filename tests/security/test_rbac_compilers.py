@@ -975,7 +975,7 @@ class TestNessieCompiler:
         artifacts = NessieCompiler().compile(rbac, _ctx("nessie"))
         expression = artifacts[0].metadata["expression"]
 
-        assert r"path.matches('lake\.orders')" in expression
+        assert r"path.matches('^lake\.orders$')" in expression
 
     def test_dataset_rule_escaped_path_does_not_overmatch(self) -> None:
         from phlo_nessie.governance import _evaluate_rule
@@ -989,6 +989,15 @@ class TestNessieCompiler:
         )
         assert not _evaluate_rule(
             expression, role="phlo_analyst", op="READ_ENTITY_VALUE", ref="main", path="lakeXorders"
+        )
+        # CEL matches() is unanchored; the rendered regex must be anchored so a
+        # path containing the name as a substring is not authorized.
+        assert not _evaluate_rule(
+            expression,
+            role="phlo_analyst",
+            op="READ_ENTITY_VALUE",
+            ref="main",
+            path="private.lake.orders.archive",
         )
 
     def test_unknown_pair_raises_surface_skipped(self) -> None:

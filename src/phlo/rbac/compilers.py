@@ -784,7 +784,9 @@ class NessieCompiler(GovernanceCompiler):
         if policy.resource_type == "dataset":
             resource = policy.resource_id_pattern
             _validate_sql_resource_pattern(resource, "resource_id")
-            path = re.escape(resource).replace(r"\*", ".*")
+            # CEL matches() is a partial (unanchored) match; anchor so a scoped
+            # pattern cannot authorize paths that merely contain it.
+            path = "^" + re.escape(resource).replace(r"\*", ".*") + "$"
             clauses.append(f"path.matches('{path}')")
         return " && ".join(clauses)
 

@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -167,21 +168,30 @@ def _project_name(project: Path) -> str:
     return project.name.lower().replace(" ", "-").replace("_", "-")
 
 
+def compose_files(project: Path) -> list[str]:
+    """Return the -f layer list matching what ``phlo services`` merges."""
+    phlo_dir = project / ".phlo"
+    files = ["-f", str(phlo_dir / "docker-compose.yml")]
+    for override in (phlo_dir / "overrides" / "compose.yaml",):
+        if override.is_file():
+            files += ["-f", str(override)]
+    return files
+
+
+def _compose_cmd(project: Path, *args: str) -> list[str]:
+    return [
+        "docker",
+        "compose",
+        *compose_files(project),
+        "-p",
+        _project_name(project),
+        *args,
+    ]
+
+
 def compose(project: Path, *args: str) -> str:
     """Run docker compose against the generated project stack."""
-    phlo_dir = project / ".phlo"
-    return run(
-        [
-            "docker",
-            "compose",
-            "-f",
-            str(phlo_dir / "docker-compose.yml"),
-            "-p",
-            _project_name(project),
-            *args,
-        ],
-        cwd=project,
-    ).stdout
+    return run(_compose_cmd(project, *args), cwd=project).stdout
 
 
 def read_env_layers(phlo_dir: Path) -> dict[str, str]:
@@ -266,12 +276,25 @@ def start_services(project: Path) -> None:
 
 def _try(cmd: list[str], cwd: Path) -> bool:
     """Run a probe command; True on exit 0."""
-    return (
-        subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True, timeout=60, check=False
-        ).returncode
-        == 0
+    return _probe(cmd, cwd)[0] == 0
+
+
+def _probe(cmd: list[str], cwd: Path) -> tuple[int, str]:
+    """Run a probe command; return (exit code, combined output)."""
+    completed = subprocess.run(
+        cmd, cwd=cwd, capture_output=True, text=True, timeout=60, check=False
     )
+    return completed.returncode, (completed.stdout or "") + (completed.stderr or "")
+
+
+def probe_compose(project: Path, *args: str) -> tuple[int, str]:
+    """Like compose() but returns (exit code, combined output)."""
+    return _probe(_compose_cmd(project, *args), cwd=project)
+
+
+def try_compose(project: Path, *args: str) -> bool:
+    """Like compose() but returns True/False instead of raising."""
+    return _try(_compose_cmd(project, *args), cwd=project)
 
 
 def wait_stack_ready(project: Path) -> None:
@@ -329,7 +352,11 @@ EVIDENCE_ROLES = ("phlo_nightly_reader", "phlo_nightly_writer")
 
 
 def create_postgres_roles(project: Path) -> None:
-    """Create the fixture roles so GRANT statements can target them."""
+    """Create the fixture roles so GRANT statements can target them.
+
+    Also creates the enforcement-probe fixtures before sync so the
+    ``ALL TABLES`` grant covers the allowed table directly.
+    """
     env_values = read_env_layers(project / ".phlo")
     user = env_values.get("POSTGRES_USER", "phlo")
     for role in EVIDENCE_ROLES:
@@ -344,6 +371,19 @@ def create_postgres_roles(project: Path) -> None:
             "-c",
             f"CREATE ROLE {role} NOLOGIN;",
         )
+    compose(
+        project,
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-U",
+        user,
+        "-c",
+        "CREATE TABLE IF NOT EXISTS public.nightly_probe_allow (id int);"
+        "CREATE SCHEMA IF NOT EXISTS nightly_private;"
+        "CREATE TABLE IF NOT EXISTS nightly_private.nightly_probe_deny (id int);",
+    )
 
 
 def create_minio_groups(project: Path) -> None:
@@ -476,11 +516,150 @@ def journaled_maintenance(project: Path, journal_dir: Path) -> dict[str, Any]:
         cwd=project,
         env=env,
     )
-    records = sorted(p.name for p in journal_dir.glob("*.json"))
+    execute = json.loads(apply_out)
+    states = [
+        json.loads(record.read_text(encoding="utf-8")).get("state")
+        for record in sorted(journal_dir.glob("*.json"))
+    ]
+    if execute.get("accepted") is not True or execute.get("status") not in (
+        "noop",
+        "succeeded",
+    ):
+        raise StepError(f"maintenance apply was not accepted: {apply_out[:400]}")
+    if not states or any(state != "succeeded" for state in states):
+        raise StepError(f"journal recorded no succeeded operation: {states}")
     return {
         "plan": plan,
-        "execute_result": json.loads(apply_out),
-        "journal_records": records,
+        "execute_result": execute,
+        "journal_records": [p.name for p in sorted(journal_dir.glob("*.json"))],
+        "journal_states": states,
+    }
+
+
+def _http_status(url: str) -> int | None:
+    """Return the HTTP status for a GET, or None when unreachable."""
+    try:
+        with urllib.request.urlopen(url, timeout=10) as response:
+            return int(response.status)
+    except urllib.error.HTTPError as exc:
+        return int(exc.code)
+    except Exception:
+        return None
+
+
+def enforcement_probe(project: Path) -> dict[str, Any]:
+    """Probe live allow/deny behavior against the synced policies.
+
+    Postgres and MinIO enforce at request time, so the probe issues a real
+    allowed and a real denied request on each. Nessie only evaluates its
+    authorization rules when authentication is enabled and the dev stack
+    ships no OIDC provider, so its probe enables authorization, recreates
+    the server, and records the observed anonymous status — an explicit
+    boundary record, not implied enforcement.
+    """
+    env_values = read_env_layers(project / ".phlo")
+    pg_user = env_values.get("POSTGRES_USER", "phlo")
+    nessie_port = env_values.get("NESSIE_PORT", "19120")
+    reader_secret = "phlo-nightly-reader-svc-secret-1"
+
+    pg_allow_rc, _ = probe_compose(
+        project,
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-U",
+        pg_user,
+        "-c",
+        "SET ROLE phlo_nightly_reader; SELECT count(*) FROM public.nightly_probe_allow;",
+    )
+    pg_deny_rc, pg_deny_out = probe_compose(
+        project,
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-U",
+        pg_user,
+        "-c",
+        "SET ROLE phlo_nightly_reader; SELECT * FROM nightly_private.nightly_probe_deny;",
+    )
+    postgres_allow = pg_allow_rc == 0
+    postgres_deny = pg_deny_rc != 0 or "permission denied" in pg_deny_out.lower()
+
+    # The reader service user authenticates as itself; its group policy scopes
+    # access to lake/warehouse/*. Listing the bucket root is outside the grant.
+    # mc exits 0 even on Access Denied, so deny is judged on output text.
+    minio_alias = (
+        "mc alias set probe http://localhost:9000 phlo-nightly-reader-svc "
+        f"{reader_secret} >/dev/null"
+    )
+    mc_allow_rc, mc_allow_out = probe_compose(
+        project,
+        "exec",
+        "-T",
+        "minio",
+        "/bin/sh",
+        "-c",
+        f"{minio_alias} && mc ls probe/lake/warehouse/",
+    )
+    _, mc_deny_out = probe_compose(
+        project,
+        "exec",
+        "-T",
+        "minio",
+        "/bin/sh",
+        "-c",
+        f"{minio_alias} && mc ls probe/lake/",
+    )
+    minio_allow = mc_allow_rc == 0 and "access denied" not in mc_allow_out.lower()
+    minio_deny = "access denied" in mc_deny_out.lower() or "accessdenied" in mc_deny_out.lower()
+
+    if not postgres_allow:
+        raise StepError("postgres allow probe failed: reader could not read public.*")
+    if not postgres_deny:
+        raise StepError("postgres deny probe failed: reader read nightly_private.*")
+    if not minio_allow:
+        raise StepError("minio allow probe failed: reader could not list lake/warehouse/*")
+    if not minio_deny:
+        raise StepError("minio deny probe failed: reader listed the lake bucket root")
+
+    # Nessie: enable authorization, recreate, and record what an anonymous
+    # request actually gets. Without an IdP there is no authenticated role,
+    # so this documents the boundary rather than claiming denial.
+    override = project / ".phlo" / "overrides" / "compose.yaml"
+    override.parent.mkdir(parents=True, exist_ok=True)
+    override.write_text(
+        "services:\n"
+        "  nessie:\n"
+        "    environment:\n"
+        "      nessie.catalog.service.s3.default-options.external-endpoint:"
+        ' "http://localhost:${MINIO_API_PORT:-9000}/"\n'
+        '      NESSIE_SERVER_AUTHORIZATION_ENABLED: "true"\n',
+        encoding="utf-8",
+    )
+    compose(project, "up", "-d", "nessie")
+    wait_http(f"http://localhost:{nessie_port}/api/v1/config")
+    nessie_status = _http_status(f"http://localhost:{nessie_port}/api/v1/trees")
+
+    return {
+        "postgres": {
+            "allow": postgres_allow,
+            "deny": postgres_deny,
+            "deny_evidence": pg_deny_out.strip()[:200],
+        },
+        "minio": {
+            "allow": minio_allow,
+            "deny": minio_deny,
+            "deny_evidence": mc_deny_out.strip()[:200],
+        },
+        "nessie": {
+            "authorization_enabled": True,
+            "anonymous_status": nessie_status,
+            "enforcement_evaluated": nessie_status in (401, 403),
+            "note": "dev stack ships no OIDC provider; Nessie evaluates "
+            "authorization only under authentication",
+        },
     }
 
 
@@ -550,6 +729,9 @@ def main() -> int:
         report["maintenance"] = journaled_maintenance(project, journal_dir)
         report["steps"]["journaled_maintenance"] = "ok"
         report["maintenance"]["table"] = table
+
+        report["enforcement"] = enforcement_probe(project)
+        report["steps"]["enforcement_probe"] = "ok"
         return_code = 0
     except StepError as exc:
         report["error"] = str(exc)
