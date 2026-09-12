@@ -35,12 +35,23 @@ import {
 } from '@/observatory/api/resources'
 import { ActionButton } from '@/observatory/components/ActionButton'
 import { ObservatoryFlowCanvas } from '@/observatory/components/ObservatoryFlowCanvas'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import {
   invalidateCachedResources,
   readMetric,
   useLiveResource,
 } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/operations')({
   component: Operations,
@@ -181,306 +192,318 @@ export function Operations() {
     }
   }, [latest])
 
-  return (
-    <ObservatoryPage
-      kicker="Operations"
-      title={latest ? latest.name : 'Recovery activity'}
-      description={
-        selectedIsWap && latest
-          ? 'Branch publish evidence, affected tables, and target hash movement.'
-          : latest
-            ? operationPageDescription(latest)
-            : 'Recovery operations, affected scope, evidence, and supported next steps.'
-      }
-      action={
-        <span className="phlo-observatory-pill">
-          {isLoading ? 'Loading' : `${visibleOperations.length} operations`}
-        </span>
-      }
-    >
-      <section
-        className={`phlo-observatory-command${
-          selectedIsWap ? ' phlo-observatory-wap-operation-shell' : ''
-        }`}
-      >
-        <div className="phlo-observatory-command-primary">
-          {isLoading ? (
-            <div className="phlo-observatory-operation-empty">
-              <div>
-                <span className="phlo-observatory-inspector-label">
-                  Operations
-                </span>
-                <h2>Loading operations</h2>
-                <p>
-                  Reading live recovery, service, and maintenance operation
-                  evidence.
-                </p>
-              </div>
+  const listContent = isLoading ? (
+    <SectionCard>
+      <LoadingBlock
+        className="p-3"
+        label="Reading live recovery, service, and maintenance operation evidence"
+      />
+    </SectionCard>
+  ) : visibleOperations.length > 0 ? (
+    <>
+      {!selectedIsWap && (
+        <StatGrid className="xl:grid-cols-3">
+          <StatCard
+            icon={<CheckCircle2 className="size-3.5" />}
+            label="Recovered"
+            value={isLoading ? '—' : recovered}
+          />
+          <StatCard
+            icon={<ShieldAlert className="size-3.5" />}
+            label="Failed"
+            state={failed ? 'error' : 'ok'}
+            value={isLoading ? '—' : failed}
+          />
+          <StatCard
+            icon={<Clock3 className="size-3.5" />}
+            label="Last duration"
+            value={
+              latest?.duration_seconds
+                ? `${latest.duration_seconds}s`
+                : 'not reported'
+            }
+          />
+        </StatGrid>
+      )}
+      {latest && selectedIsWap ? (
+        <WapOperationFocus operation={latest} />
+      ) : latest ? (
+        <SectionCard
+          actions={<Badge variant="secondary">{latest.status}</Badge>}
+          title="Selected operation evidence"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b px-3 py-3">
+            <div className="min-w-0">
+              <span className="text-muted-foreground font-mono text-[10px] uppercase">
+                {humanizeLabel(latest.kind)}
+              </span>
+              <h2 className="text-foreground mt-0.5 text-base font-semibold">
+                {latest.name}
+              </h2>
+              <p className="text-muted-foreground mt-0.5 text-xs/relaxed">
+                {latest.target?.label ?? 'Platform operation'}
+              </p>
+              {selectedFailure && (
+                <div className="border-status-error/40 bg-status-error/5 mt-2 flex flex-col gap-0.5 border px-3 py-2">
+                  <strong className="text-status-error text-xs">
+                    {selectedFailure.title}
+                  </strong>
+                  <span className="text-muted-foreground font-mono text-[10px] break-all">
+                    {selectedFailure.message}
+                  </span>
+                </div>
+              )}
             </div>
-          ) : visibleOperations.length > 0 ? (
-            <>
-              {!selectedIsWap && (
-                <div className="phlo-observatory-command-strip">
-                  <Metric
-                    icon={<CheckCircle2 className="size-4" />}
-                    label="Recovered"
-                    value={isLoading ? 'Loading' : recovered}
-                  />
-                  <Metric
-                    icon={<ShieldAlert className="size-4" />}
-                    label="Failed"
-                    value={isLoading ? 'Loading' : failed}
-                  />
-                  <Metric
-                    icon={<Clock3 className="size-4" />}
-                    label="Last duration"
-                    value={
-                      latest?.duration_seconds
-                        ? `${latest.duration_seconds}s`
-                        : 'not reported'
-                    }
-                  />
-                </div>
-              )}
-              {latest && selectedIsWap ? (
-                <WapOperationFocus operation={latest} />
-              ) : latest ? (
-                <div
-                  className="phlo-observatory-operation-focus"
-                  data-state={latest.health.state}
-                >
-                  <div className="phlo-observatory-workspace-toolbar">
-                    <span>Selected operation evidence</span>
-                    <span className="phlo-observatory-pill">
-                      {latest.status}
-                    </span>
-                  </div>
-                  <div className="phlo-observatory-operation-focus-body">
-                    <div className="phlo-observatory-operation-focus-main">
-                      <span className="phlo-observatory-inspector-label">
-                        {humanizeLabel(latest.kind)}
-                      </span>
-                      <h2>{latest.name}</h2>
-                      <p>{latest.target?.label ?? 'Platform operation'}</p>
-                      {selectedFailure && (
-                        <div className="phlo-observatory-failure-callout">
-                          <strong>{selectedFailure.title}</strong>
-                          <span>{selectedFailure.message}</span>
-                        </div>
-                      )}
-                    </div>
-                    <dl className="phlo-observatory-operation-evidence-grid">
-                      {operationEvidenceFacts(latest).map((fact) => (
-                        <Fact
-                          key={fact.label}
-                          label={fact.label}
-                          value={fact.value}
-                        />
-                      ))}
-                    </dl>
-                  </div>
-                  {selectedMetadata.length > 0 && (
-                    <div className="phlo-observatory-operation-metadata">
-                      {selectedMetadata.map(([key, value]) => (
-                        <span key={key}>
-                          <strong>{humanizeKey(key)}</strong>
-                          {String(value)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <InvestigationPath detail={detail.data} operation={latest} />
-                </div>
-              ) : null}
-              {!selectedIsWap && (
-                <div className="phlo-observatory-operation-ledger">
-                  <div className="phlo-observatory-workspace-toolbar">
-                    <span>Target ledger</span>
-                    <span className="phlo-observatory-pill">
-                      {ledger.length} targets
-                    </span>
-                  </div>
-                  <div className="phlo-observatory-operation-ledger-grid">
-                    {ledger.map((item) => (
-                      <button
-                        className="phlo-observatory-operation-ledger-card"
-                        data-state={item.state}
-                        key={item.id}
-                        onClick={() => selectOperation(item.latest.id)}
-                        type="button"
-                      >
-                        <span>{humanizeLabel(item.kind)}</span>
-                        <strong>{item.label}</strong>
-                        <small>{operationLedgerSummary(item)}</small>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {!selectedIsWap && (
-                <>
-                  <div className="phlo-observatory-workspace-toolbar">
-                    <span>Activity stream</span>
-                    <span className="phlo-observatory-pill">
-                      showing {displayedOperations.length}
-                      {hiddenOperationCount > 0
-                        ? ` of ${visibleOperations.length}`
-                        : ''}
-                    </span>
-                  </div>
-                  <div className="phlo-observatory-timeline">
-                    {displayedOperations.map((operation) => (
-                      <OperationLine
-                        key={operation.id}
-                        onSelect={selectOperation}
-                        operation={operation}
-                        selected={operation.id === latest?.id}
-                      />
-                    ))}
-                    {hiddenOperationCount > 0 && (
-                      <div className="phlo-observatory-noise-row">
-                        {hiddenOperationCount} older operations kept out of the
-                        DOM. Use target selection to narrow the working set.
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </>
-          ) : (
-            <div className="phlo-observatory-operation-empty">
-              <div>
-                <span className="phlo-observatory-inspector-label">
-                  No Phlo operations recorded
+            <FactGrid className="min-w-64 flex-1">
+              {operationEvidenceFacts(latest).map((fact) => (
+                <Fact key={fact.label} label={fact.label} value={fact.value} />
+              ))}
+            </FactGrid>
+          </div>
+          {selectedMetadata.length > 0 && (
+            <div className="border-border flex flex-wrap gap-x-4 gap-y-1 border-b px-3 py-2">
+              {selectedMetadata.map(([key, value]) => (
+                <span className="font-mono text-[10px]" key={key}>
+                  <strong className="text-muted-foreground mr-1 uppercase">
+                    {humanizeKey(key)}
+                  </strong>
+                  <span className="text-foreground">{String(value)}</span>
                 </span>
-                <h2>Operational history is quiet.</h2>
-                <p>
-                  Dagster owns orchestration and materialization runs.
-                  Observatory will show Phlo recovery, branch, service, and
-                  maintenance operations here once phlo-api records them.
-                </p>
-              </div>
-              <div className="phlo-observatory-detail-list">
-                <div className="phlo-observatory-mini-row">
-                  <span>Dagster runs</span>
-                  <small>Managed in Dagster</small>
-                </div>
-                <div className="phlo-observatory-mini-row">
-                  <span>Phlo operations</span>
-                  <small>0 recorded</small>
-                </div>
-                <div className="phlo-observatory-mini-row">
-                  <span>Recovery actions</span>
-                  <small>No guarded action history yet</small>
-                </div>
-              </div>
+              ))}
             </div>
           )}
-        </div>
-
-        {!selectedIsWap && (
-          <aside className="phlo-observatory-inspector">
-            <div className="phlo-observatory-inspector-label">
-              Selected operation
-            </div>
-            {latest ? (
-              <>
-                <h2>{latest.name}</h2>
-                <p>{latest.target?.label ?? humanizeLabel(latest.kind)}</p>
-                <dl className="phlo-observatory-facts">
-                  {operationInspectorFacts(latest).map((fact) => (
-                    <Fact
-                      key={fact.label}
-                      label={fact.label}
-                      value={fact.value}
-                    />
-                  ))}
-                </dl>
-                <OperationRecoveryPanel
-                  detail={detail.data}
-                  failure={selectedFailure}
-                  operation={latest}
-                  quality={selectedQuality}
+          <InvestigationPath detail={detail.data} operation={latest} />
+        </SectionCard>
+      ) : null}
+      {!selectedIsWap && (
+        <SectionCard
+          actions={<Badge variant="secondary">{ledger.length} targets</Badge>}
+          title="Target ledger"
+        >
+          <div className="grid grid-cols-4 max-xl:grid-cols-2">
+            {ledger.map((item) => (
+              <button
+                className="border-border hover:bg-accent/50 flex flex-col gap-0.5 border-r border-b px-3 py-2 text-left transition-colors"
+                data-state={item.state}
+                key={item.id}
+                onClick={() => selectOperation(item.latest.id)}
+                type="button"
+              >
+                <span className="text-muted-foreground flex items-center gap-1.5 text-[9px] font-medium tracking-widest uppercase">
+                  <span className="status-dot" data-state={item.state} />
+                  {humanizeLabel(item.kind)}
+                </span>
+                <strong className="text-foreground truncate text-[11px]">
+                  {item.label}
+                </strong>
+                <span className="text-muted-foreground truncate font-mono text-[10px]">
+                  {operationLedgerSummary(item)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+      {!selectedIsWap && (
+        <SectionCard
+          actions={
+            <Badge variant="secondary">
+              showing {displayedOperations.length}
+              {hiddenOperationCount > 0
+                ? ` of ${visibleOperations.length}`
+                : ''}
+            </Badge>
+          }
+          title="Activity stream"
+        >
+          <ScrollArea className="max-h-[26rem]">
+            <div className="divide-border divide-y">
+              {displayedOperations.map((operation) => (
+                <OperationLine
+                  key={operation.id}
+                  onSelect={selectOperation}
+                  operation={operation}
+                  selected={operation.id === latest?.id}
                 />
-                <div className="phlo-observatory-action-row">
-                  {(detail.data?.actions ?? []).map((action) => (
-                    <ActionButton
-                      action={action}
-                      key={action.id}
-                      onRun={(actionId) => {
-                        void runObservatoryAction({ data: { actionId } }).then(
-                          (next) => {
-                            const operation = next.data?.operation
-                            if (operation) {
-                              setLocalOperations((current) =>
-                                mergeOperations([operation], current),
-                              )
-                              selectOperation(operation.id)
-                            }
-                            invalidateCachedResources([
-                              'observatory:operations',
-                            ])
-                            setActionMessage(
-                              next.data?.message ??
-                                next.error ??
-                                'Action requested',
-                            )
-                          },
-                        )
-                      }}
-                    />
-                  ))}
-                </div>
-                {actionMessage && (
-                  <div className="phlo-observatory-panel-footer">
-                    {actionMessage}
-                  </div>
-                )}
-                {selectedFailure && (
-                  <div className="phlo-observatory-detail-list">
-                    <div
-                      className="phlo-observatory-mini-row"
-                      data-state="error"
-                    >
-                      <span>{selectedFailure.title}</span>
-                      <small>{selectedFailure.message}</small>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <h2>
-                  {isLoading
-                    ? 'Loading operation detail'
-                    : 'No operation selected'}
-                </h2>
-                <p>
-                  {isLoading
-                    ? 'Reading live operation records and recovery evidence.'
-                    : 'There are no operation records for this environment yet.'}
+              ))}
+              {hiddenOperationCount > 0 && (
+                <p className="text-muted-foreground px-3 py-2 font-mono text-[10px]">
+                  {hiddenOperationCount} older operations kept out of the DOM.
+                  Use target selection to narrow the working set.
                 </p>
-              </>
-            )}
-            {detail.error && (
-              <div className="phlo-observatory-panel-footer">
-                {detail.error}
-              </div>
-            )}
-            {result.error && (
-              <div className="phlo-observatory-panel-footer">
-                {result.error}
-              </div>
-            )}
-            {!result.error && directResult?.error && (
-              <div className="phlo-observatory-panel-footer">
-                {directResult.error}
-              </div>
-            )}
-          </aside>
+              )}
+            </div>
+          </ScrollArea>
+        </SectionCard>
+      )}
+    </>
+  ) : (
+    <SectionCard>
+      <EmptyBlock
+        description="Dagster owns orchestration and materialization runs. Observatory will show Phlo recovery, branch, service, and maintenance operations here once phlo-api records them."
+        title="Operational history is quiet."
+      />
+      <div className="divide-border -mt-4 divide-y border-t">
+        <InspectorlessRow detail="Managed in Dagster" label="Dagster runs" />
+        <InspectorlessRow detail="0 recorded" label="Phlo operations" />
+        <InspectorlessRow
+          detail="No guarded action history yet"
+          label="Recovery actions"
+        />
+      </div>
+    </SectionCard>
+  )
+
+  const inspector = (
+    <>
+      <InspectorSection
+        label={`Selected operation · ${latest?.name ?? 'none'}`}
+      >
+        {latest ? (
+          <>
+            <p className="text-muted-foreground text-xs/relaxed">
+              {latest.target?.label ?? humanizeLabel(latest.kind)}
+            </p>
+            <FactGrid>
+              {operationInspectorFacts(latest).map((fact) => (
+                <Fact key={fact.label} label={fact.label} value={fact.value} />
+              ))}
+            </FactGrid>
+          </>
+        ) : (
+          <p className="text-muted-foreground text-xs">
+            {isLoading
+              ? 'Reading live operation records and recovery evidence.'
+              : 'There are no operation records for this environment yet.'}
+          </p>
         )}
-      </section>
-    </ObservatoryPage>
+      </InspectorSection>
+      {latest && (
+        <InspectorSection label="Recovery">
+          <OperationRecoveryPanel
+            detail={detail.data}
+            failure={selectedFailure}
+            operation={latest}
+            quality={selectedQuality}
+          />
+          {(detail.data?.actions ?? []).length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-2">
+              {(detail.data?.actions ?? []).map((action) => (
+                <ActionButton
+                  action={action}
+                  key={action.id}
+                  onRun={(actionId) => {
+                    void runObservatoryAction({ data: { actionId } }).then(
+                      (next) => {
+                        const operation = next.data?.operation
+                        if (operation) {
+                          setLocalOperations((current) =>
+                            mergeOperations([operation], current),
+                          )
+                          selectOperation(operation.id)
+                        }
+                        invalidateCachedResources(['observatory:operations'])
+                        setActionMessage(
+                          next.data?.message ??
+                            next.error ??
+                            'Action requested',
+                        )
+                      },
+                    )
+                  }}
+                />
+              ))}
+            </div>
+          )}
+          {actionMessage && (
+            <p className="text-muted-foreground pt-2 font-mono text-[10px] break-all">
+              {actionMessage}
+            </p>
+          )}
+          {selectedFailure && (
+            <div className="border-status-error/40 bg-status-error/5 mt-2 flex flex-col gap-0.5 border px-3 py-2">
+              <strong className="text-status-error text-xs">
+                {selectedFailure.title}
+              </strong>
+              <span className="text-muted-foreground font-mono text-[10px] break-all">
+                {selectedFailure.message}
+              </span>
+            </div>
+          )}
+        </InspectorSection>
+      )}
+      {(detail.error ?? result.error ?? directResult?.error) && (
+        <InspectorSection label="Errors">
+          {detail.error && (
+            <p className="text-status-error font-mono text-[10px] break-all">
+              {detail.error}
+            </p>
+          )}
+          {result.error && (
+            <p className="text-status-error font-mono text-[10px] break-all">
+              {result.error}
+            </p>
+          )}
+          {!result.error && directResult?.error && (
+            <p className="text-status-error font-mono text-[10px] break-all">
+              {directResult.error}
+            </p>
+          )}
+        </InspectorSection>
+      )}
+    </>
+  )
+
+  return (
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {isLoading ? 'Loading' : `${visibleOperations.length} operations`}
+          </Badge>
+        }
+        description={
+          selectedIsWap && latest
+            ? 'Branch publish evidence, affected tables, and target hash movement.'
+            : latest
+              ? operationPageDescription(latest)
+              : 'Recovery operations, affected scope, evidence, and supported next steps.'
+        }
+        title={latest ? latest.name : 'Recovery activity'}
+      />
+      {selectedIsWap ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+          {listContent}
+        </div>
+      ) : (
+        <SplitView
+          inspector={inspector}
+          inspectorWidth="w-[24rem]"
+          list={
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+              {listContent}
+            </div>
+          }
+        />
+      )}
+    </Page>
+  )
+}
+
+function InspectorlessRow({
+  detail,
+  label,
+}: {
+  detail: string
+  label: string
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 px-3 py-2">
+      <span className="text-foreground text-[11px]">{label}</span>
+      <span className="text-muted-foreground font-mono text-[10px]">
+        {detail}
+      </span>
+    </div>
   )
 }
 
@@ -493,42 +516,97 @@ function InvestigationPath({
 }) {
   const firstLog = detail?.logs[0]
   const targetHref = operation.target ? resourceHref(operation.target) : null
+  const stepClass = 'flex flex-col gap-0.5 border-border border-l-2 px-3 py-1.5'
+  const stepCurrent = 'border-primary bg-accent/40'
   return (
     <nav
       aria-label="Failure investigation"
-      className="phlo-observatory-investigation-path"
+      className="flex flex-col gap-1 px-3 py-3"
     >
-      <span className="phlo-observatory-investigation-step" data-current="true">
-        <small>1 · Failure</small>
-        <strong>{operation.name}</strong>
+      <span className={cn(stepClass, stepCurrent)} data-current="true">
+        <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+          1 · Failure
+        </small>
+        <strong className="text-foreground text-[11px]">
+          {operation.name}
+        </strong>
       </span>
-      <Link search={{ runId: operation.id }} to="/runs">
-        <small>2 · Run</small>
-        <strong>Execution evidence</strong>
+      <Link
+        className={cn(stepClass, 'hover:bg-accent/50 transition-colors')}
+        search={{ runId: operation.id }}
+        to="/runs"
+      >
+        <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+          2 · Run
+        </small>
+        <strong className="text-foreground text-[11px]">
+          Execution evidence
+        </strong>
       </Link>
       {firstLog ? (
-        <Link search={{ logId: firstLog.id }} to="/logs">
-          <small>3 · Logs</small>
-          <strong>{firstLog.level} evidence</strong>
+        <Link
+          className={cn(stepClass, 'hover:bg-accent/50 transition-colors')}
+          search={{ logId: firstLog.id }}
+          to="/logs"
+        >
+          <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+            3 · Logs
+          </small>
+          <strong className="text-foreground text-[11px]">
+            {firstLog.level} evidence
+          </strong>
         </Link>
       ) : (
-        <Link to="/logs">
-          <small>3 · Logs</small>
-          <strong>Event evidence</strong>
+        <Link
+          className={cn(stepClass, 'hover:bg-accent/50 transition-colors')}
+          to="/logs"
+        >
+          <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+            3 · Logs
+          </small>
+          <strong className="text-foreground text-[11px]">
+            Event evidence
+          </strong>
         </Link>
       )}
       {targetHref ? (
-        <Link to={targetHref}>
-          <small>4 · Target</small>
-          <strong>{operation.target?.label}</strong>
+        <Link
+          className={cn(stepClass, 'hover:bg-accent/50 transition-colors')}
+          to={targetHref}
+        >
+          <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+            4 · Target
+          </small>
+          <strong className="text-foreground text-[11px]">
+            {operation.target?.label}
+          </strong>
         </Link>
       ) : (
-        <span className="phlo-observatory-investigation-step">
-          <small>4 · Target</small>
-          <strong>Platform</strong>
+        <span className={stepClass}>
+          <small className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+            4 · Target
+          </small>
+          <strong className="text-foreground text-[11px]">Platform</strong>
         </span>
       )}
     </nav>
+  )
+}
+
+function RecoveryCard({
+  children,
+  label,
+}: {
+  children: ReactNode
+  label: string
+}) {
+  return (
+    <div className="border-border flex flex-col gap-1 border-l-2 px-3 py-1.5">
+      <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      {children}
+    </div>
   )
 }
 
@@ -547,30 +625,34 @@ function OperationRecoveryPanel({
   const logs = detail?.logs ?? []
   const enabledAction = (detail?.actions ?? []).find((action) => action.enabled)
   return (
-    <div className="phlo-observatory-operation-recovery">
-      <div className="phlo-observatory-operation-recovery-card">
-        <span>Next action</span>
-        <strong>{operationNextAction(operation, enabledAction?.label)}</strong>
-        <small>
+    <div className="flex flex-col gap-3">
+      <RecoveryCard label="Next action">
+        <strong className="text-foreground text-[11px]">
+          {operationNextAction(operation, enabledAction?.label)}
+        </strong>
+        <span className="text-muted-foreground text-[10px]/relaxed">
           {operationNextActionReason(operation, failure, enabledAction?.reason)}
-        </small>
-      </div>
+        </span>
+      </RecoveryCard>
       {quality.length > 0 && (
-        <div className="phlo-observatory-operation-recovery-card">
-          <span>Quality triage</span>
+        <RecoveryCard label="Quality triage">
           {quality.slice(0, 3).map((check) => (
-            <Link key={check.id} search={{ checkId: check.id }} to="/quality">
+            <Link
+              className="text-foreground text-[11px] hover:underline"
+              key={check.id}
+              search={{ checkId: check.id }}
+              to="/quality"
+            >
               {check.name}
             </Link>
           ))}
-          <small>
+          <span className="text-muted-foreground text-[10px]">
             {quality.length} active check{quality.length === 1 ? '' : 's'} for{' '}
             {operation.target?.label ?? operation.target?.id ?? 'this target'}.
-          </small>
-        </div>
+          </span>
+        </RecoveryCard>
       )}
-      <div className="phlo-observatory-operation-recovery-card">
-        <span>Related resource</span>
+      <RecoveryCard label="Related resource">
         {(related.length > 0
           ? related
           : operation.target
@@ -580,6 +662,7 @@ function OperationRecoveryPanel({
           .slice(0, 3)
           .map((resource) => (
             <Link
+              className="text-foreground text-[11px] hover:underline"
               to={resourceHref(resource)}
               key={`${resource.kind}:${resource.id}`}
             >
@@ -587,24 +670,36 @@ function OperationRecoveryPanel({
             </Link>
           ))}
         {related.length === 0 && !operation.target && (
-          <strong>No related resource</strong>
+          <strong className="text-foreground text-[11px]">
+            No related resource
+          </strong>
         )}
-        <small>Open the affected Dataset, table, or lineage evidence.</small>
-      </div>
-      <div className="phlo-observatory-operation-recovery-card">
-        <span>Linked logs</span>
+        <span className="text-muted-foreground text-[10px]">
+          Open the affected Dataset, table, or lineage evidence.
+        </span>
+      </RecoveryCard>
+      <RecoveryCard label="Linked logs">
         {logs.slice(0, 3).map((log) => (
-          <Link key={log.id} search={{ logId: log.id }} to="/logs">
+          <Link
+            className="text-foreground flex items-center gap-1.5 text-[11px] hover:underline"
+            key={log.id}
+            search={{ logId: log.id }}
+            to="/logs"
+          >
             <FileText className="size-3.5" />
             {log.message}
           </Link>
         ))}
-        {logs.length === 0 && <strong>No linked logs</strong>}
-        <small>
+        {logs.length === 0 && (
+          <strong className="text-foreground text-[11px]">
+            No linked logs
+          </strong>
+        )}
+        <span className="text-muted-foreground text-[10px]">
           {logs.length} event{logs.length === 1 ? '' : 's'} attached to this
           operation.
-        </small>
-      </div>
+        </span>
+      </RecoveryCard>
     </div>
   )
 }
@@ -624,69 +719,77 @@ function WapOperationFocus({ operation }: { operation: ObservatoryOperation }) {
   ].filter((field): field is [string, string] => Boolean(field[1]))
 
   return (
-    <div className="phlo-observatory-wap-operation">
-      <div className="phlo-observatory-wap-operation-header">
-        <div>
-          <span className="phlo-observatory-inspector-label">
-            Branch publish execution
-          </span>
-          <strong>Execution report</strong>
-          <p>
-            {operation.status} · {branch ?? 'branch unknown'} · {tables.length}{' '}
-            table{tables.length === 1 ? '' : 's'}
-          </p>
-        </div>
-        <span className="phlo-observatory-pill">{operation.status}</span>
-      </div>
-      <dl className="phlo-observatory-wap-operation-fields">
-        {fields.map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
+    <div className="flex flex-col gap-3">
+      <SectionCard
+        actions={<Badge variant="secondary">{operation.status}</Badge>}
+        description={`${operation.status} · ${branch ?? 'branch unknown'} · ${tables.length} table${tables.length === 1 ? '' : 's'}`}
+        title="Branch publish execution · Execution report"
+      >
+        <FactGrid className="p-3">
+          {fields.map(([label, value]) => (
+            <Fact key={label} label={label} value={value} />
+          ))}
+        </FactGrid>
+      </SectionCard>
+      <div className="grid grid-cols-[14rem_minmax(0,1fr)] gap-3 max-lg:grid-cols-1">
+        <SectionCard title="Publish steps">
+          <div className="divide-border divide-y">
+            <div className="flex flex-col gap-0.5 px-3 py-2">
+              <span className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+                Branch
+              </span>
+              <strong className="text-foreground text-[11px]">
+                {branch ?? 'branch unknown'}
+              </strong>
+              <span className="text-muted-foreground font-mono text-[10px]">
+                {textMetric(metadata, 'source_hash') ?? 'source unknown'}
+              </span>
+            </div>
+            <div className="flex flex-col gap-0.5 px-3 py-2">
+              <span className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+                Table
+              </span>
+              <strong className="text-foreground text-[11px]">
+                {tables[0]?.name ?? 'table evidence missing'}
+              </strong>
+              <span className="text-muted-foreground font-mono text-[10px]">
+                {tables[0]?.records
+                  ? `${tables[0].records} rows`
+                  : 'records unknown'}
+              </span>
+            </div>
+            <div className="flex flex-col gap-0.5 px-3 py-2">
+              <span className="text-muted-foreground font-mono text-[9px] tracking-widest uppercase">
+                Publish
+              </span>
+              <strong className="text-foreground text-[11px]">
+                {operation.name}
+              </strong>
+              <span className="text-muted-foreground font-mono text-[10px]">
+                {textMetric(metadata, 'target_hash_after') ?? 'target unknown'}
+              </span>
+            </div>
           </div>
-        ))}
-      </dl>
-      <div className="phlo-observatory-wap-operation-evidence">
-        <div className="phlo-observatory-wap-operation-steps">
-          <div>
-            <span>Branch</span>
-            <strong>{branch ?? 'branch unknown'}</strong>
-            <small>
-              {textMetric(metadata, 'source_hash') ?? 'source unknown'}
-            </small>
-          </div>
-          <div>
-            <span>Table</span>
-            <strong>{tables[0]?.name ?? 'table evidence missing'}</strong>
-            <small>
-              {tables[0]?.records
-                ? `${tables[0].records} rows`
-                : 'records unknown'}
-            </small>
-          </div>
-          <div>
-            <span>Publish</span>
-            <strong>{operation.name}</strong>
-            <small>
-              {textMetric(metadata, 'target_hash_after') ?? 'target unknown'}
-            </small>
-          </div>
-        </div>
-        <div className="phlo-observatory-wap-operation-flow">
+        </SectionCard>
+        <div className="bg-surface-sunken ring-foreground/10 min-h-[20rem] ring-1">
           <ObservatoryFlowCanvas edges={flow.edges} nodes={flow.nodes} />
         </div>
-        <div className="phlo-observatory-wap-operation-tables">
-          <div className="phlo-observatory-workspace-toolbar">
-            <span>Affected tables</span>
-            <span className="phlo-observatory-pill">{tables.length}</span>
-          </div>
+      </div>
+      <SectionCard
+        actions={<Badge variant="secondary">{tables.length}</Badge>}
+        title="Affected tables"
+      >
+        <div className="divide-border divide-y">
           {tables.map((table) => (
-            <div className="phlo-observatory-mini-row" key={table.id}>
-              <span>
+            <div
+              className="flex items-center justify-between gap-2 px-3 py-2"
+              key={table.id}
+            >
+              <span className="text-foreground flex items-center gap-1.5 text-[11px]">
                 <Database className="size-3.5" />
                 {table.name}
               </span>
-              <small>
+              <span className="text-muted-foreground font-mono text-[10px]">
                 {[
                   table.namespace,
                   table.format,
@@ -694,35 +797,17 @@ function WapOperationFocus({ operation }: { operation: ObservatoryOperation }) {
                 ]
                   .filter(Boolean)
                   .join(' · ')}
-              </small>
+              </span>
             </div>
           ))}
           {tables.length === 0 && (
-            <p>
+            <p className="text-muted-foreground px-3 py-2 text-xs">
               Report has no table evidence. Branch and hash evidence are still
               shown.
             </p>
           )}
         </div>
-      </div>
-    </div>
-  )
-}
-
-function Metric({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-command-metric">
-      {icon}
-      <span>{label}</span>
-      <strong>{value}</strong>
+      </SectionCard>
     </div>
   )
 }
@@ -739,32 +824,37 @@ function OperationLine({
   const failure = operationFailure(operation)
   return (
     <button
-      className="phlo-observatory-timeline-row"
+      className={cn(
+        'hover:bg-accent/50 flex w-full items-start gap-2 px-3 py-2 text-left transition-colors',
+        selected && 'bg-accent/60 hover:bg-accent/60',
+      )}
       data-active={selected}
       onClick={() => onSelect(operation.id)}
       type="button"
     >
       <span
-        className="phlo-observatory-dot"
+        className="status-dot mt-1.5 flex-none"
         data-state={operation.health.state}
       />
-      <div>
-        <div className="phlo-observatory-row-title">
-          <RotateCcw className="size-4" />
+      <div className="min-w-0 flex-1">
+        <div className="text-foreground flex items-center gap-1.5 text-xs font-medium">
+          <RotateCcw className="text-muted-foreground size-3.5" />
           {operation.name}
         </div>
-        <div className="phlo-observatory-row-meta">
+        <div className="text-muted-foreground mt-0.5 font-mono text-[10px]">
           {humanizeLabel(operation.kind)} ·{' '}
           {operation.target?.label ?? 'platform'} ·{' '}
           {formatDateTime(operation.completed_at) ?? 'in progress'}
         </div>
         {failure && (
-          <div className="phlo-observatory-row-meta phlo-observatory-row-evidence">
+          <div className="text-status-error mt-0.5 font-mono text-[10px]">
             {failure.message}
           </div>
         )}
       </div>
-      <span className="phlo-observatory-pill">{operation.status}</span>
+      <Badge className="flex-none" variant="outline">
+        {operation.status}
+      </Badge>
     </button>
   )
 }
@@ -1207,19 +1297,4 @@ function humanizeLabel(value: string): string {
         : word.toLowerCase()
     })
     .join(' ')
-}
-
-function Fact({
-  label,
-  value,
-}: {
-  label: string
-  value: string | number | boolean | null
-}) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value === null || value === '' ? 'not reported' : String(value)}</dd>
-    </>
-  )
 }

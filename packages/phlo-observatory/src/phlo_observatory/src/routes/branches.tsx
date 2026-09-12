@@ -7,14 +7,12 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   AlertTriangle,
   Database,
-  GitBranch,
   GitCompare,
   History,
   Plus,
   Table2,
 } from 'lucide-react'
 import { useCallback, useEffect, useReducer, useState } from 'react'
-import type { ReactNode } from 'react'
 
 import type {
   ObservatoryBranch,
@@ -31,11 +29,23 @@ import {
   getObservatoryQualityRecords,
   runObservatoryBranchAction,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import {
   invalidateCachedResources,
   useLiveResource,
 } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/branches')({
   component: Branches,
@@ -225,242 +235,244 @@ export function Branches() {
     }
   }, [branches, selectedId])
 
+  const pageErrors = [
+    detail.error,
+    actionMessage,
+    result.error,
+    operationsResult.error,
+    qualityResult.error,
+  ].filter(Boolean)
+
   return (
-    <ObservatoryPage
-      kicker="Review"
-      title="Change review"
-      description="Review branch state, table drift, quality impact, and guarded change workflows."
-      action={
-        <span className="phlo-observatory-pill">
-          {isLoading
-            ? 'Loading'
-            : `${branches.length} ${pluralize(branches.length, 'branch', 'branches')}`}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-surface-grid phlo-observatory-branch-grid">
-        <div className="phlo-observatory-branch-main">
-          <div className="phlo-observatory-list-surface">
-            <div className="phlo-observatory-browser-toolbar">
-              <span>
-                <GitBranch className="size-4" />
-                Change reviews
-              </span>
-              <button
-                aria-expanded={branchDraftOpen}
-                onClick={() => setBranchDraftOpen((open) => !open)}
-                type="button"
-              >
-                <Plus className="size-3.5" />
-                Branch
-              </button>
-            </div>
-            {branchDraftOpen && (
-              <form
-                className="phlo-observatory-branch-create-panel"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  createBranch()
-                }}
-              >
-                <label>
-                  <span>Branch name</span>
-                  <input
-                    autoFocus
-                    onChange={(event) => setBranchDraftName(event.target.value)}
-                    placeholder="review/revenue-fix"
-                    value={branchDraftName}
-                  />
-                </label>
-                <p>
-                  Creates review branch state through phlo-api, then opens the
-                  new branch evidence.
-                </p>
-                <div className="phlo-observatory-inline-actions">
-                  <button
-                    disabled={!branchDraftName.trim() || isCreatingBranch}
-                    type="submit"
-                  >
-                    {isCreatingBranch ? 'Creating' : 'Create branch'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setBranchDraftName('')
-                      setBranchDraftOpen(false)
-                    }}
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {isLoading
+              ? 'Loading'
+              : `${branches.length} ${pluralize(branches.length, 'branch', 'branches')}`}
+          </Badge>
+        }
+        description="Review branch state, table drift, quality impact, and guarded change workflows."
+        title="Change review"
+      />
+      <SplitView
+        inspector={
+          <BranchInspector
+            branch={selected}
+            detail={detail.data}
+            isLoading={isLoading}
+            operations={mergeOperations(
+              branchOperations,
+              detail.data?.commits ?? [],
             )}
-            {branches.map((branch) => (
-              <button
-                className="phlo-observatory-row phlo-observatory-select-row"
-                data-active={branch.id === selected?.id}
-                key={branch.id}
-                onClick={() => selectBranch(branch.id)}
-                type="button"
-              >
-                <div className="phlo-observatory-row-main">
-                  <div className="phlo-observatory-row-title">
-                    {branch.name}
-                  </div>
-                  <div className="phlo-observatory-row-meta">
-                    {branch.current ? 'Current branch' : 'Review branch'}
-                    {branchDelta(branch) && <> · {branchDelta(branch)}</>}
-                  </div>
-                </div>
-                <span className="phlo-observatory-pill">
-                  {branch.current
-                    ? 'current'
-                    : branch.protected
-                      ? 'protected'
-                      : 'branch'}
-                </span>
-              </button>
-            ))}
-          </div>
-          {selected && (
-            <>
-              <section className="phlo-observatory-branch-summary">
-                <div className="phlo-observatory-branch-summary-copy">
-                  <div className="phlo-observatory-inspector-label">
-                    Selected branch
-                  </div>
-                  <h2>{selected.name}</h2>
-                  <p>
-                    {detail.data
-                      ? branchNarrative(detail.data)
-                      : branchNarrativeFromBranch(selected)}
+            providerState={providerState}
+            quality={selectedQuality}
+            tables={selectedTables}
+          />
+        }
+        inspectorWidth="w-[22rem]"
+        list={
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+            <SectionCard
+              actions={
+                <Button
+                  aria-expanded={branchDraftOpen}
+                  onClick={() => setBranchDraftOpen((open) => !open)}
+                  size="xs"
+                  type="button"
+                  variant="outline"
+                >
+                  <Plus className="size-3.5" />
+                  Branch
+                </Button>
+              }
+              title="Change reviews"
+            >
+              {branchDraftOpen && (
+                <form
+                  className="border-border flex flex-col gap-2 border-b px-3 py-2.5"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    createBranch()
+                  }}
+                >
+                  <label className="flex flex-col gap-1">
+                    <span className="text-muted-foreground text-[11px] font-medium">
+                      Branch name
+                    </span>
+                    <Input
+                      autoFocus
+                      onChange={(event) =>
+                        setBranchDraftName(event.target.value)
+                      }
+                      placeholder="review/revenue-fix"
+                      value={branchDraftName}
+                    />
+                  </label>
+                  <p className="text-muted-foreground text-[11px]/relaxed">
+                    Creates review branch state through phlo-api, then opens the
+                    new branch evidence.
                   </p>
-                  <p>{providerState}</p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      disabled={!branchDraftName.trim() || isCreatingBranch}
+                      size="sm"
+                      type="submit"
+                    >
+                      {isCreatingBranch ? 'Creating' : 'Create branch'}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setBranchDraftName('')
+                        setBranchDraftOpen(false)
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              )}
+              <ScrollArea className="max-h-64">
+                <div className="divide-border divide-y">
+                  {branches.map((branch) => (
+                    <button
+                      className={cn(
+                        'hover:bg-accent/50 flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors',
+                        branch.id === selected?.id &&
+                          'bg-accent/60 hover:bg-accent/60',
+                      )}
+                      data-active={branch.id === selected?.id}
+                      key={branch.id}
+                      onClick={() => selectBranch(branch.id)}
+                      type="button"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-foreground truncate text-xs font-medium">
+                          {branch.name}
+                        </div>
+                        <div className="text-muted-foreground mt-0.5 font-mono text-[10px]">
+                          {branch.current ? 'Current branch' : 'Review branch'}
+                          {branchDelta(branch) && <> · {branchDelta(branch)}</>}
+                        </div>
+                      </div>
+                      <Badge className="flex-none" variant="outline">
+                        {branch.current
+                          ? 'current'
+                          : branch.protected
+                            ? 'protected'
+                            : 'branch'}
+                      </Badge>
+                    </button>
+                  ))}
                 </div>
-                <div className="phlo-observatory-action-row">
-                  <button
-                    data-active={activePanel === 'compare'}
-                    onClick={() =>
-                      dispatch({ type: 'activePanel', panel: 'compare' })
-                    }
-                    type="button"
-                  >
-                    <GitCompare className="size-3.5" />
-                    Compare
-                  </button>
-                  <button
-                    data-active={activePanel === 'history'}
-                    onClick={() =>
-                      dispatch({ type: 'activePanel', panel: 'history' })
-                    }
-                    type="button"
-                  >
-                    <History className="size-3.5" />
-                    History
-                  </button>
-                  <button
-                    data-active={activePanel === 'contents'}
-                    onClick={() =>
-                      dispatch({ type: 'activePanel', panel: 'contents' })
-                    }
-                    type="button"
-                  >
-                    <Table2 className="size-3.5" />
-                    Contents
-                  </button>
-                </div>
-                <dl className="phlo-observatory-branch-facts">
-                  <div>
-                    <dt>Tables</dt>
-                    <dd>{selectedTableCount}</dd>
+              </ScrollArea>
+            </SectionCard>
+            {selected && (
+              <>
+                <SectionCard title={`Selected branch · ${selected.name}`}>
+                  <div className="border-border flex flex-col gap-2 border-b px-3 py-3">
+                    <p className="text-muted-foreground text-xs/relaxed">
+                      {detail.data
+                        ? branchNarrative(detail.data)
+                        : branchNarrativeFromBranch(selected)}
+                    </p>
+                    <p className="text-muted-foreground font-mono text-[10px]">
+                      {providerState}
+                    </p>
+                    <div
+                      aria-label="Branch panels"
+                      className="flex items-center gap-1.5 pt-1"
+                    >
+                      {(
+                        [
+                          ['compare', GitCompare, 'Compare'],
+                          ['history', History, 'History'],
+                          ['contents', Table2, 'Contents'],
+                        ] as const
+                      ).map(([panel, Icon, label]) => (
+                        <Button
+                          key={panel}
+                          onClick={() =>
+                            dispatch({ type: 'activePanel', panel })
+                          }
+                          size="xs"
+                          type="button"
+                          variant={
+                            activePanel === panel ? 'default' : 'outline'
+                          }
+                        >
+                          <Icon className="size-3.5" />
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <dt>Evidence</dt>
-                    <dd>{selectedEvidenceCount}</dd>
-                  </div>
-                  <div>
-                    <dt>Blocking quality</dt>
-                    <dd>{activeBlockingQuality}</dd>
-                  </div>
-                  <div>
-                    <dt>Added</dt>
-                    <dd>{selectedCompare.added ?? 0}</dd>
-                  </div>
-                  <div>
-                    <dt>Changed</dt>
-                    <dd>{selectedCompare.changed ?? 0}</dd>
-                  </div>
-                  <div>
-                    <dt>Ahead / behind</dt>
-                    <dd>
-                      {selectedCompare.ahead ?? 0} /{' '}
-                      {selectedCompare.behind ?? 0}
-                    </dd>
-                  </div>
-                </dl>
-              </section>
-              <BranchReadiness
-                branch={selected}
-                operations={mergeOperations(
-                  branchOperations,
-                  detail.data?.commits ?? [],
-                )}
-                quality={selectedQuality}
-                tables={selectedTables}
-              />
-              {detail.data ? (
-                <BranchPanelView
-                  active={activePanel}
-                  detail={detail.data}
+                  <FactGrid className="grid-cols-6 p-3 max-lg:grid-cols-3">
+                    <Fact label="Tables" value={selectedTableCount} />
+                    <Fact label="Evidence" value={selectedEvidenceCount} />
+                    <Fact
+                      label="Blocking quality"
+                      value={activeBlockingQuality}
+                    />
+                    <Fact label="Added" value={selectedCompare.added ?? 0} />
+                    <Fact
+                      label="Changed"
+                      value={selectedCompare.changed ?? 0}
+                    />
+                    <Fact
+                      label="Ahead / behind"
+                      value={`${selectedCompare.ahead ?? 0} / ${selectedCompare.behind ?? 0}`}
+                    />
+                  </FactGrid>
+                </SectionCard>
+                <BranchReadiness
+                  branch={selected}
                   operations={mergeOperations(
                     branchOperations,
-                    detail.data.commits,
+                    detail.data?.commits ?? [],
                   )}
                   quality={selectedQuality}
+                  tables={selectedTables}
                 />
-              ) : (
-                <BranchPanelFallback
-                  active={activePanel}
-                  branch={selected}
-                  operations={branchOperations}
-                />
-              )}
-            </>
-          )}
-          {detail.error && (
-            <div className="phlo-observatory-panel-footer">{detail.error}</div>
-          )}
-          {actionMessage && (
-            <div className="phlo-observatory-panel-footer">{actionMessage}</div>
-          )}
-          {result.error && (
-            <div className="phlo-observatory-panel-footer">{result.error}</div>
-          )}
-          {operationsResult.error && (
-            <div className="phlo-observatory-panel-footer">
-              {operationsResult.error}
-            </div>
-          )}
-          {qualityResult.error && (
-            <div className="phlo-observatory-panel-footer">
-              {qualityResult.error}
-            </div>
-          )}
-        </div>
-        <BranchInspector
-          branch={selected}
-          detail={detail.data}
-          isLoading={isLoading}
-          operations={mergeOperations(
-            branchOperations,
-            detail.data?.commits ?? [],
-          )}
-          providerState={providerState}
-          quality={selectedQuality}
-          tables={selectedTables}
-        />
-      </section>
-    </ObservatoryPage>
+                {detail.data ? (
+                  <BranchPanelView
+                    active={activePanel}
+                    detail={detail.data}
+                    operations={mergeOperations(
+                      branchOperations,
+                      detail.data.commits,
+                    )}
+                    quality={selectedQuality}
+                  />
+                ) : (
+                  <BranchPanelFallback
+                    active={activePanel}
+                    branch={selected}
+                    operations={branchOperations}
+                  />
+                )}
+              </>
+            )}
+            {pageErrors.length > 0 && (
+              <div className="flex flex-col gap-1">
+                {pageErrors.map((message) => (
+                  <p
+                    className="text-status-error font-mono text-[10px] break-all"
+                    key={message}
+                  >
+                    {message}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        }
+      />
+    </Page>
   )
 }
 
@@ -562,60 +574,84 @@ function BranchReadiness({
             : 'Review changed tables, impact, and approvals before publishing.'
 
   return (
-    <section className="phlo-observatory-branch-readiness" data-state={state}>
-      <div>
-        <div className="phlo-observatory-inspector-label">Review state</div>
-        <h3>{branch.current ? 'Protected baseline' : 'Review candidate'}</h3>
-        <p>{next}</p>
+    <section
+      className="bg-card ring-foreground/10 flex flex-col ring-1"
+      data-state={state}
+    >
+      <div className="border-border flex flex-wrap items-start justify-between gap-3 border-b px-3 py-3">
+        <div>
+          <span className="text-muted-foreground flex items-center gap-1.5 text-[9px] font-medium tracking-widest uppercase">
+            <span className="status-dot" data-state={state} />
+            Review state
+          </span>
+          <h3 className="text-foreground mt-0.5 text-sm font-semibold">
+            {branch.current ? 'Protected baseline' : 'Review candidate'}
+          </h3>
+          <p className="text-muted-foreground mt-0.5 text-xs/relaxed">{next}</p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Button
+            nativeButton={false}
+            render={
+              <Link
+                search={
+                  primaryQuality ? { checkId: primaryQuality.id } : undefined
+                }
+                to="/quality"
+              />
+            }
+            size="xs"
+            variant="outline"
+          >
+            Quality
+          </Button>
+          <Button
+            nativeButton={false}
+            render={
+              <Link
+                search={
+                  lineageAssetId ? { assetId: lineageAssetId } : undefined
+                }
+                to="/lineage"
+              />
+            }
+            size="xs"
+            variant="outline"
+          >
+            Lineage
+          </Button>
+          <Button
+            nativeButton={false}
+            render={
+              <Link
+                search={
+                  (failedOperation ?? runningOperation)
+                    ? {
+                        operationId: (failedOperation ?? runningOperation)?.id,
+                      }
+                    : undefined
+                }
+                to="/operations"
+              />
+            }
+            size="xs"
+            variant="outline"
+          >
+            Operations
+          </Button>
+        </div>
       </div>
-      <div className="phlo-observatory-branch-readiness-links">
-        <Link
-          search={primaryQuality ? { checkId: primaryQuality.id } : undefined}
-          to="/quality"
-        >
-          Quality
-        </Link>
-        <Link
-          search={lineageAssetId ? { assetId: lineageAssetId } : undefined}
-          to="/lineage"
-        >
-          Lineage
-        </Link>
-        <Link
-          search={
-            (failedOperation ?? runningOperation)
-              ? { operationId: (failedOperation ?? runningOperation)?.id }
-              : undefined
+      <FactGrid className="grid-cols-4 p-3 max-lg:grid-cols-2">
+        <Fact label="Tables in scope" value={tables.length} />
+        <Fact label="Quality checks" value={quality.length} />
+        <Fact label="Failing" value={failing.length} />
+        <Fact
+          label="Operation state"
+          value={
+            failedOperation ? 'failed' : runningOperation ? 'running' : 'clear'
           }
-          to="/operations"
-        >
-          Operations
-        </Link>
-      </div>
-      <dl>
-        <div>
-          <dt>Tables in scope</dt>
-          <dd>{tables.length}</dd>
-        </div>
-        <div>
-          <dt>Quality checks</dt>
-          <dd>{quality.length}</dd>
-        </div>
-        <div>
-          <dt>Failing</dt>
-          <dd>{failing.length}</dd>
-        </div>
-        <div>
-          <dt>Operation state</dt>
-          <dd>
-            {failedOperation
-              ? 'failed'
-              : runningOperation
-                ? 'running'
-                : 'clear'}
-          </dd>
-        </div>
-      </dl>
+        />
+      </FactGrid>
     </section>
   )
 }
@@ -633,24 +669,25 @@ function BranchPanelView({
 }) {
   if (active === 'compare') {
     return (
-      <div className="phlo-observatory-branch-review">
-        <div className="phlo-observatory-command-strip">
-          <BranchMetric
-            icon={<Plus className="size-4" />}
+      <div className="flex flex-col gap-3">
+        <StatGrid className="xl:grid-cols-3">
+          <StatCard
+            icon={<Plus className="size-3.5" />}
             label="Added"
             value={detail.compare.added ?? 0}
           />
-          <BranchMetric
-            icon={<GitCompare className="size-4" />}
+          <StatCard
+            icon={<GitCompare className="size-3.5" />}
             label="Changed"
             value={detail.compare.changed ?? 0}
           />
-          <BranchMetric
-            icon={<AlertTriangle className="size-4" />}
+          <StatCard
+            icon={<AlertTriangle className="size-3.5" />}
             label="Removed"
+            state={(detail.compare.removed ?? 0) > 0 ? 'warning' : 'ok'}
             value={detail.compare.removed ?? 0}
           />
-        </div>
+        </StatGrid>
         <BranchReviewEvidence
           branch={detail.branch}
           operations={operations}
@@ -664,25 +701,35 @@ function BranchPanelView({
   if (active === 'history') {
     const commits = mergeOperations(operations, detail.commits)
     return (
-      <div className="phlo-observatory-detail-list">
-        {commits.length > 0 ? (
-          commits
-            .slice(0, 8)
-            .map((commit) => <CommitRow commit={commit} key={commit.id} />)
-        ) : (
-          <p>No operation evidence is linked to this branch yet.</p>
-        )}
-      </div>
+      <SectionCard title="Branch history">
+        <div className="divide-border divide-y">
+          {commits.length > 0 ? (
+            commits
+              .slice(0, 8)
+              .map((commit) => <CommitRow commit={commit} key={commit.id} />)
+          ) : (
+            <p className="text-muted-foreground px-3 py-2 text-xs">
+              No operation evidence is linked to this branch yet.
+            </p>
+          )}
+        </div>
+      </SectionCard>
     )
   }
 
   return (
-    <div className="phlo-observatory-detail-list">
-      {detail.tables.slice(0, 8).map((table) => (
-        <TableRow key={table.id} table={table} />
-      ))}
-      {detail.tables.length === 0 && <p>No branch contents yet.</p>}
-    </div>
+    <SectionCard title="Branch contents">
+      <div className="divide-border divide-y">
+        {detail.tables.slice(0, 8).map((table) => (
+          <TableRow key={table.id} table={table} />
+        ))}
+        {detail.tables.length === 0 && (
+          <p className="text-muted-foreground px-3 py-2 text-xs">
+            No branch contents yet.
+          </p>
+        )}
+      </div>
+    </SectionCard>
   )
 }
 
@@ -698,24 +745,25 @@ function BranchPanelFallback({
   if (active === 'compare') {
     const compare = branchCompare(branch)
     return (
-      <div className="phlo-observatory-branch-review">
-        <div className="phlo-observatory-command-strip">
-          <BranchMetric
-            icon={<Plus className="size-4" />}
+      <div className="flex flex-col gap-3">
+        <StatGrid className="xl:grid-cols-3">
+          <StatCard
+            icon={<Plus className="size-3.5" />}
             label="Added"
             value={compare.added ?? 0}
           />
-          <BranchMetric
-            icon={<GitCompare className="size-4" />}
+          <StatCard
+            icon={<GitCompare className="size-3.5" />}
             label="Changed"
             value={compare.changed ?? 0}
           />
-          <BranchMetric
-            icon={<AlertTriangle className="size-4" />}
+          <StatCard
+            icon={<AlertTriangle className="size-3.5" />}
             label="Removed"
+            state={(compare.removed ?? 0) > 0 ? 'warning' : 'ok'}
             value={compare.removed ?? 0}
           />
-        </div>
+        </StatGrid>
         <BranchReviewEvidence
           branch={branch}
           operations={operations}
@@ -728,39 +776,23 @@ function BranchPanelFallback({
 
   if (active === 'history' && operations.length > 0) {
     return (
-      <div className="phlo-observatory-detail-list">
-        {operations.slice(0, 8).map((operation) => (
-          <CommitRow commit={operation} key={operation.id} />
-        ))}
-      </div>
+      <SectionCard title="Branch history">
+        <div className="divide-border divide-y">
+          {operations.slice(0, 8).map((operation) => (
+            <CommitRow commit={operation} key={operation.id} />
+          ))}
+        </div>
+      </SectionCard>
     )
   }
 
   return (
-    <div className="phlo-observatory-detail-list">
-      <p>
+    <SectionCard title="Branch contents">
+      <p className="text-muted-foreground px-3 py-2 text-xs">
         No branch contents are available yet. Branch operation evidence is shown
         above.
       </p>
-    </div>
-  )
-}
-
-function BranchMetric({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-command-metric">
-      {icon}
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
+    </SectionCard>
   )
 }
 
@@ -782,46 +814,54 @@ function BranchReviewEvidence({
         ['failed', 'running', 'succeeded'].includes(operation.status),
       )
   return (
-    <div className="phlo-observatory-branch-evidence">
-      <div className="phlo-observatory-branch-table-list">
-        <div className="phlo-observatory-inspector-label">Tables in scope</div>
-        {tables.length > 0 ? (
-          tables
-            .slice(0, 8)
-            .map((table) => <TableRow key={table.id} table={table} />)
-        ) : (
-          <p>
-            Branch evidence reported a changed table count, but the report did
-            not include table evidence.
-          </p>
-        )}
-      </div>
-      <div className="phlo-observatory-branch-table-list">
-        {quality.length > 0 && (
-          <div className="phlo-observatory-branch-impact-list">
-            <strong>Quality impact</strong>
+    <div className="grid grid-cols-2 gap-3 max-lg:grid-cols-1">
+      <SectionCard title="Tables in scope">
+        <div className="divide-border divide-y">
+          {tables.length > 0 ? (
+            tables
+              .slice(0, 8)
+              .map((table) => <TableRow key={table.id} table={table} />)
+          ) : (
+            <p className="text-muted-foreground px-3 py-2 text-xs">
+              Branch evidence reported a changed table count, but the report did
+              not include table evidence.
+            </p>
+          )}
+        </div>
+      </SectionCard>
+      <SectionCard title="Impact">
+        {quality.length > 0 ? (
+          <div className="divide-border divide-y border-b">
+            <p className="text-muted-foreground px-3 pt-2 text-[9px] font-medium tracking-widest uppercase">
+              Quality impact
+            </p>
             {quality.slice(0, 4).map((check) => (
               <Link
-                className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+                className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
                 key={check.id}
                 to="/quality"
                 search={{ checkId: check.id }}
               >
-                <span>{check.name}</span>
-                <small>
+                <span className="text-foreground truncate text-[11px]">
+                  {check.name}
+                </span>
+                <span className="text-muted-foreground flex-none font-mono text-[10px]">
                   {[qualityDatasetLabel(check), check.status, check.severity]
                     .filter(Boolean)
                     .join(' · ')}
-                </small>
+                </span>
               </Link>
             ))}
           </div>
+        ) : (
+          <p className="text-muted-foreground border-b px-3 py-2 text-xs">
+            No quality checks are attached to the current branch contents.
+          </p>
         )}
-        {quality.length === 0 && (
-          <p>No quality checks are attached to the current branch contents.</p>
-        )}
-        <div className="phlo-observatory-branch-impact-list">
-          <strong>Operation evidence</strong>
+        <p className="text-muted-foreground px-3 pt-2 text-[9px] font-medium tracking-widest uppercase">
+          Operation evidence
+        </p>
+        <div className="divide-border divide-y">
           {relatedOperations.length > 0 ? (
             relatedOperations
               .slice(0, 3)
@@ -829,10 +869,12 @@ function BranchReviewEvidence({
                 <CommitRow commit={operation} key={operation.id} />
               ))
           ) : (
-            <p>No branch operation evidence is linked to {branch.name}.</p>
+            <p className="text-muted-foreground px-3 py-2 text-xs">
+              No branch operation evidence is linked to {branch.name}.
+            </p>
           )}
         </div>
-      </div>
+      </SectionCard>
     </div>
   )
 }
@@ -856,15 +898,13 @@ function BranchInspector({
 }) {
   if (!branch) {
     return (
-      <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-        <div className="phlo-observatory-inspector-label">Review evidence</div>
-        <h2>{isLoading ? 'Loading branch evidence' : 'No branch selected'}</h2>
-        <p>
+      <InspectorSection label="Review evidence">
+        <p className="text-muted-foreground text-xs">
           {isLoading
             ? 'Reading branch state from the live lakehouse.'
             : 'Branch state appears once the live lakehouse API returns a branch.'}
         </p>
-      </aside>
+      </InspectorSection>
     )
   }
   const compare = detail?.compare ?? branchCompare(branch)
@@ -876,105 +916,120 @@ function BranchInspector({
   )
   const approvalState = branchApprovalState(branch, failing, failed, running)
   return (
-    <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-      <div className="phlo-observatory-inspector-label">Review evidence</div>
-      <h2>{branch.name}</h2>
-      <p>
-        {branch.current || branch.protected
-          ? 'Protected baseline branch.'
-          : 'Review branch awaiting approval.'}
-      </p>
-      <dl className="phlo-observatory-facts">
-        <dt>State</dt>
-        <dd>
-          {branch.protected
-            ? 'protected'
-            : branch.current
-              ? 'current'
-              : 'review'}
-        </dd>
-        <dt>Tables</dt>
-        <dd>{tables.length || metadataNumber(branch, 'tables')}</dd>
-        <dt>Changed</dt>
-        <dd>{compare.changed ?? 0}</dd>
-        <dt>Blocking quality</dt>
-        <dd>{failing.length}</dd>
-        <dt>Approval</dt>
-        <dd>{approvalState}</dd>
-      </dl>
-      <div className="phlo-observatory-detail-list">
-        <div className="phlo-observatory-mini-row">
-          <span>Branch runtime</span>
-          <small>{providerState}</small>
-        </div>
-        {report ? (
-          <CommitRow commit={report} />
-        ) : operations.length > 0 ? (
-          <div className="phlo-observatory-mini-row">
-            <span>Branch operation evidence</span>
-            <small>
-              {[
+    <>
+      <InspectorSection label={`Review evidence · ${branch.name}`}>
+        <p className="text-muted-foreground text-xs/relaxed">
+          {branch.current || branch.protected
+            ? 'Protected baseline branch.'
+            : 'Review branch awaiting approval.'}
+        </p>
+        <FactGrid>
+          <Fact
+            label="State"
+            value={
+              branch.protected
+                ? 'protected'
+                : branch.current
+                  ? 'current'
+                  : 'review'
+            }
+          />
+          <Fact
+            label="Tables"
+            value={tables.length || metadataNumber(branch, 'tables')}
+          />
+          <Fact label="Changed" value={compare.changed ?? 0} />
+          <Fact label="Blocking quality" value={failing.length} />
+          <Fact label="Approval" value={approvalState} />
+        </FactGrid>
+      </InspectorSection>
+      <InspectorSection label="Evidence">
+        <div className="divide-border -mx-3 divide-y border-y">
+          <MiniRow detail={providerState} label="Branch runtime" />
+          {report ? (
+            <CommitRow commit={report} />
+          ) : operations.length > 0 ? (
+            <MiniRow
+              detail={[
                 failed.length > 0 ? `${failed.length} failed` : null,
                 running.length > 0 ? `${running.length} running` : null,
                 operations.length > 0 ? `${operations.length} total` : null,
               ]
                 .filter(Boolean)
                 .join(' · ')}
-            </small>
-          </div>
-        ) : (
-          <div className="phlo-observatory-mini-row">
-            <span>Branch operation</span>
-            <small>No operation evidence linked</small>
-          </div>
-        )}
-        {failed.slice(0, 2).map((operation) => (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            key={operation.id}
-            search={{ operationId: operation.id }}
-            to="/operations"
-          >
-            <span>{operation.name}</span>
-            <small>{operation.health.message ?? operation.status}</small>
-          </Link>
-        ))}
-        {failing.slice(0, 3).map((check) => (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            key={check.id}
-            search={{ checkId: check.id }}
-            to="/quality"
-          >
-            <span>{check.name}</span>
-            <small>
-              {[qualityDatasetLabel(check), check.severity]
-                .filter(Boolean)
-                .join(' · ')}
-            </small>
-          </Link>
-        ))}
-      </div>
-    </aside>
+              label="Branch operation evidence"
+            />
+          ) : (
+            <MiniRow
+              detail="No operation evidence linked"
+              label="Branch operation"
+            />
+          )}
+          {failed.slice(0, 2).map((operation) => (
+            <Link
+              className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
+              key={operation.id}
+              search={{ operationId: operation.id }}
+              to="/operations"
+            >
+              <span className="text-foreground truncate text-[11px]">
+                {operation.name}
+              </span>
+              <span className="text-muted-foreground flex-none font-mono text-[10px]">
+                {operation.health.message ?? operation.status}
+              </span>
+            </Link>
+          ))}
+          {failing.slice(0, 3).map((check) => (
+            <Link
+              className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
+              key={check.id}
+              search={{ checkId: check.id }}
+              to="/quality"
+            >
+              <span className="text-foreground truncate text-[11px]">
+                {check.name}
+              </span>
+              <span className="text-muted-foreground flex-none font-mono text-[10px]">
+                {[qualityDatasetLabel(check), check.severity]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            </Link>
+          ))}
+        </div>
+      </InspectorSection>
+    </>
+  )
+}
+
+function MiniRow({ detail, label }: { detail: string; label: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2 px-3 py-2">
+      <span className="text-foreground text-[11px]">{label}</span>
+      <span className="text-muted-foreground text-right font-mono text-[10px]">
+        {detail}
+      </span>
+    </div>
   )
 }
 
 function TableRow({ table }: { table: ObservatoryTable }) {
   return (
     <Link
-      className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+      className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
       search={{ tableId: table.id }}
       to="/tables"
     >
-      <span>
-        <Database className="size-3.5" />
+      <span className="text-foreground flex min-w-0 items-center gap-1.5 truncate text-[11px]">
+        <Database className="size-3.5 flex-none" />
         {table.name}
       </span>
-      <small>
+      <span className="text-muted-foreground flex-none font-mono text-[10px]">
         {[table.namespace, table.format, `${tableRecordCount(table)} records`]
           .filter(Boolean)
           .join(' · ')}
-      </small>
+      </span>
     </Link>
   )
 }
@@ -987,14 +1042,17 @@ function CommitRow({ commit }: { commit: ObservatoryOperation }) {
     sourceHash && targetHash ? `${sourceHash} -> ${targetHash}` : null
   return (
     <Link
-      className={`phlo-observatory-mini-row${
-        commit.kind === 'wap' ? ' phlo-observatory-wap-history-row' : ''
-      } phlo-observatory-linked-mini-row`}
+      className={cn(
+        'hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors',
+        commit.kind === 'wap' && 'bg-accent/30',
+      )}
       to="/operations"
       search={{ operationId: commit.id }}
     >
-      <span>{commit.name}</span>
-      <small>
+      <span className="text-foreground min-w-0 truncate text-[11px]">
+        {commit.name}
+      </span>
+      <span className="text-muted-foreground flex-none font-mono text-[10px]">
         {[
           commit.status,
           formatDateTime(commit.completed_at),
@@ -1003,7 +1061,7 @@ function CommitRow({ commit }: { commit: ObservatoryOperation }) {
         ]
           .filter(Boolean)
           .join(' · ')}
-      </small>
+      </span>
     </Link>
   )
 }

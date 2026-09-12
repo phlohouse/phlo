@@ -5,7 +5,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Boxes, Database, HardDrive, Table2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
 
 import type {
   ObservatoryService,
@@ -17,7 +16,6 @@ import {
   getObservatoryStorageItems,
   getObservatoryTableRecords,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { useLiveResource } from '@/observatory/routes/liveResource'
 import {
   formatPlatformMetadata,
@@ -25,6 +23,18 @@ import {
   platformMetadataRows,
   rawMetadataText,
 } from '@/observatory/platformMetadata'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { HealthDot, StatusBadge } from '@/components/observatory/status'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/storage')({
   component: Storage,
@@ -101,176 +111,177 @@ export function Storage() {
   }, [selected, selectedId])
 
   return (
-    <ObservatoryPage
-      kicker="Platform"
-      title="Storage"
-      description="Registered table and object stores, active lakehouse services, and queryable table coverage."
-      action={
-        <span className="phlo-observatory-pill">
-          {refreshState ? `${refreshState} · ` : ''}
-          {providers.length} providers
-        </span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-surface-shell phlo-observatory-storage-shell">
-        <div className="phlo-observatory-command-primary phlo-observatory-surface-list">
-          <div className="phlo-observatory-platform-summary">
-            <StorageMetric
-              icon={<Table2 className="size-4" />}
-              label="Table stores"
-              value={summary.tableStores}
-            />
-            <StorageMetric
-              icon={<HardDrive className="size-4" />}
-              label="Object stores"
-              value={summary.objectStores}
-            />
-            <StorageMetric
-              icon={<Boxes className="size-4" />}
-              label="Runtime services"
-              value={`${summary.runningServices}/${summary.runtimeServices}`}
-            />
-            <StorageMetric
-              icon={<Database className="size-4" />}
-              label="Queryable tables"
-              value={`${summary.queryableTables}/${summary.tables}`}
-            />
-          </div>
-          <div className="phlo-observatory-browser-toolbar">
-            <span>
-              <HardDrive className="size-4" />
-              Storage providers
-            </span>
-            <span className="phlo-observatory-pill">
-              {refreshState ? `${refreshState} · ` : ''}
-              {providers.length} registered
-            </span>
-          </div>
-          <div className="phlo-observatory-platform-table" role="table">
-            <div className="phlo-observatory-platform-head" role="row">
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {refreshState ? `${refreshState} · ` : ''}
+            {providers.length} providers
+          </Badge>
+        }
+        description="Registered table and object stores, active lakehouse services, and queryable table coverage."
+        title="Storage"
+      />
+      <StatGrid>
+        <StatCard
+          icon={<Table2 className="size-3.5" />}
+          label="Table stores"
+          value={summary.tableStores}
+        />
+        <StatCard
+          icon={<HardDrive className="size-3.5" />}
+          label="Object stores"
+          value={summary.objectStores}
+        />
+        <StatCard
+          icon={<Boxes className="size-3.5" />}
+          label="Runtime services"
+          state={
+            summary.runtimeServices > 0 &&
+            summary.runningServices < summary.runtimeServices
+              ? 'warning'
+              : 'ok'
+          }
+          value={`${summary.runningServices}/${summary.runtimeServices}`}
+        />
+        <StatCard
+          icon={<Database className="size-3.5" />}
+          label="Queryable tables"
+          value={`${summary.queryableTables}/${summary.tables}`}
+        />
+      </StatGrid>
+      <SplitView
+        inspector={
+          <>
+            <InspectorSection label="Storage detail">
+              {selected ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-foreground text-xs font-semibold">
+                      {selected.name}
+                    </span>
+                    <StatusBadge state={selected.health.state} />
+                  </div>
+                  <p className="text-muted-foreground mt-1 text-xs/relaxed">
+                    {selected.summary ?? 'No provider summary available.'}
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {isLoading
+                    ? 'Reading live capability and service evidence.'
+                    : 'Select a storage provider to inspect capability and service evidence.'}
+                </p>
+              )}
+            </InspectorSection>
+            {selected && (
+              <InspectorSection label="Facts">
+                <FactGrid>
+                  <Fact label="Health" value={selected.health.state} />
+                  <Fact
+                    label="Provider"
+                    value={metadataDisplayText(selected, 'provider')}
+                  />
+                  <Fact
+                    label="Capability"
+                    value={metadataDisplayText(selected, 'capability_type')}
+                  />
+                  <Fact label="System" value={storageSystem(selected)} />
+                </FactGrid>
+              </InspectorSection>
+            )}
+            {selected && (
+              <InspectorSection label="Runtime services">
+                <div className="divide-y divide-border border-y">
+                  {runtimeServices.map((service) => (
+                    <div
+                      className="flex items-start gap-2 py-2"
+                      key={service.id}
+                    >
+                      <HealthDot
+                        className="mt-1"
+                        state={service.runtime_state ?? service.status}
+                      />
+                      <span className="min-w-0">
+                        <span className="text-foreground block text-xs">
+                          {service.name}
+                        </span>
+                        <span className="text-muted-foreground block font-mono text-[10px]">
+                          {[
+                            service.runtime_state ?? service.status,
+                            service.in_stack ? 'in stack' : 'not in stack',
+                            service.health.message,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </InspectorSection>
+            )}
+            {selected && (
+              <InspectorSection label="Metadata">
+                {platformMetadataRows(selected.metadata).length ? (
+                  <FactGrid>
+                    {platformMetadataRows(selected.metadata).map((row) => (
+                      <Fact
+                        key={row.label}
+                        label={row.label}
+                        value={row.value}
+                      />
+                    ))}
+                  </FactGrid>
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    No structured fields.
+                  </p>
+                )}
+                {(result.error ??
+                  servicesResult.error ??
+                  tablesResult.error) && (
+                  <p className="text-status-error font-mono text-[10px] break-all">
+                    {result.error ?? servicesResult.error ?? tablesResult.error}
+                  </p>
+                )}
+              </InspectorSection>
+            )}
+          </>
+        }
+        inspectorWidth="w-[24rem]"
+        list={
+          <SectionCard className="ring-0" title="Storage providers">
+            <div className="text-muted-foreground grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
               <span>Provider</span>
               <span>Capability</span>
               <span>System</span>
               <span>Compatibility</span>
               <span>State</span>
             </div>
-            {providers.map((provider) => (
-              <ProviderRow
-                key={provider.id}
-                onSelect={() => selectProvider(provider.id)}
-                provider={provider}
-                selected={provider.id === selected?.id}
-              />
-            ))}
             {isInitialLoading ? (
-              <div className="phlo-observatory-run-provider-empty">
-                <div>
-                  <span className="phlo-observatory-inspector-label">
-                    Storage
-                  </span>
-                  <h2>Loading storage providers</h2>
-                  <p>
-                    Reading live table stores, object stores, and runtime
-                    services.
-                  </p>
-                </div>
-              </div>
+              <LoadingBlock className="p-3" label="Loading storage providers" />
+            ) : providers.length === 0 ? (
+              <EmptyBlock
+                description="The active stack has no storage provider records to inspect."
+                title="No storage providers configured"
+              />
             ) : (
-              providers.length === 0 && (
-                <div className="phlo-observatory-run-provider-empty">
-                  <div>
-                    <span className="phlo-observatory-inspector-label">
-                      Storage
-                    </span>
-                    <h2>No storage providers configured</h2>
-                    <p>
-                      The active stack has no storage provider records to
-                      inspect.
-                    </p>
-                  </div>
-                </div>
-              )
+              <div className="divide-y divide-border">
+                {providers.map((provider) => (
+                  <ProviderRow
+                    key={provider.id}
+                    onSelect={() => selectProvider(provider.id)}
+                    provider={provider}
+                    selected={provider.id === selected?.id}
+                  />
+                ))}
+              </div>
             )}
-          </div>
-        </div>
-
-        <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-          <div className="phlo-observatory-inspector-label">Storage detail</div>
-          {selected ? (
-            <>
-              <h2>{selected.name}</h2>
-              <p>{selected.summary ?? 'No provider summary available.'}</p>
-              <dl className="phlo-observatory-facts">
-                <Fact label="Health" value={selected.health.state} />
-                <Fact
-                  label="Provider"
-                  value={metadataDisplayText(selected, 'provider')}
-                />
-                <Fact
-                  label="Capability"
-                  value={metadataDisplayText(selected, 'capability_type')}
-                />
-                <Fact label="System" value={storageSystem(selected)} />
-              </dl>
-              <div className="phlo-observatory-detail-list">
-                {runtimeServices.map((service) => (
-                  <div
-                    className="phlo-observatory-mini-row"
-                    data-state={service.runtime_state ?? service.status}
-                    key={service.id}
-                  >
-                    <span>{service.name}</span>
-                    <small>
-                      {[
-                        service.runtime_state ?? service.status,
-                        service.in_stack ? 'in stack' : 'not in stack',
-                        service.health.message,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </small>
-                  </div>
-                ))}
-              </div>
-              <div className="phlo-observatory-detail-list">
-                {platformMetadataRows(selected.metadata).map((row) => (
-                  <div className="phlo-observatory-mini-row" key={row.label}>
-                    <span>{row.label}</span>
-                    <small>{row.value}</small>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <>
-              <h2>
-                {isInitialLoading
-                  ? 'Checking storage detail'
-                  : 'No provider selected'}
-              </h2>
-              <p>
-                {isLoading
-                  ? 'Reading live capability and service evidence.'
-                  : 'Select a storage provider to inspect capability and service evidence.'}
-              </p>
-            </>
-          )}
-          {result.error && (
-            <div className="phlo-observatory-panel-footer">{result.error}</div>
-          )}
-          {servicesResult.error && (
-            <div className="phlo-observatory-panel-footer">
-              {servicesResult.error}
-            </div>
-          )}
-          {tablesResult.error && (
-            <div className="phlo-observatory-panel-footer">
-              {tablesResult.error}
-            </div>
-          )}
-        </aside>
-      </section>
-    </ObservatoryPage>
+          </SectionCard>
+        }
+      />
+    </Page>
   )
 }
 
@@ -285,38 +296,29 @@ function ProviderRow({
 }) {
   return (
     <button
-      className="phlo-observatory-platform-row"
-      data-active={selected}
+      className={cn(
+        'hover:bg-accent/50 grid w-full grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1fr)] items-center gap-3 px-3 py-2 text-left transition-colors',
+        selected && 'bg-accent/60 hover:bg-accent/60',
+      )}
       onClick={onSelect}
-      role="row"
       type="button"
     >
-      <span>{provider.name}</span>
-      <span>{metadataDisplayText(provider, 'capability_type')}</span>
-      <span>{storageSystem(provider)}</span>
-      <span>{compatibilityLabel(provider)}</span>
-      <span>{provider.health.message ?? provider.health.state}</span>
-    </button>
-  )
-}
-
-function StorageMetric({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-platform-summary-cell">
-      <span>
-        {icon}
-        {label}
+      <span className="text-foreground truncate text-xs font-medium">
+        {provider.name}
       </span>
-      <strong>{value}</strong>
-    </div>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {metadataDisplayText(provider, 'capability_type')}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {storageSystem(provider)}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {compatibilityLabel(provider)}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {provider.health.message ?? provider.health.state}
+      </span>
+    </button>
   )
 }
 
@@ -384,13 +386,4 @@ function compatibilityLabel(provider: ObservatorySurfaceItem): string {
     return formatPlatformMetadata(compatibility.target)
   }
   return 'not reported'
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </>
-  )
 }

@@ -5,16 +5,15 @@
  * proposal.
  */
 import { createFileRoute } from '@tanstack/react-router'
-import { Button, IconButton } from '@primer/react'
 import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  CheckCircleIcon,
-  FileCodeIcon,
-  PlusIcon,
-  TrashIcon,
-} from '@primer/octicons-react'
-import { WandSparkles } from 'lucide-react'
+  ArrowDown,
+  ArrowUp,
+  CheckCircle,
+  FileCode,
+  Plus,
+  Trash2,
+  WandSparkles,
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 
@@ -43,12 +42,18 @@ import {
   getObservatoryWorkflowWizard,
   runObservatoryWorkflowAction,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import {
   invalidateCachedResource,
   loadCachedResource,
   useLiveResource,
 } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import { SectionCard } from '@/components/observatory/section'
+import { EmptyBlock } from '@/components/observatory/states'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/workflows/new')({
   loader: loadWorkflowBuilderSnapshot,
@@ -397,158 +402,187 @@ function useWorkflowCanvasBuilder(initialSnapshot?: WorkflowBuilderSnapshot) {
   }
 
   return (
-    <ObservatoryPage
-      description="Compose package-provided workflow steps, configure each stage, preview generated files, then apply guarded actions."
-      kicker="Workflows"
-      title="New workflow"
-    >
+    <Page>
+      <PageHeader
+        description="Compose package-provided workflow steps, configure each stage, preview generated files, then apply guarded actions."
+        title="New workflow"
+      />
       {wizard.error && (
-        <div className="phlo-observatory-callout">{wizard.error}</div>
+        <p className="border-status-error/40 bg-status-error/5 text-status-error mb-3 border px-3 py-2 text-xs">
+          {wizard.error}
+        </p>
       )}
 
-      <nav className="phlo-workflow-stepper" aria-label="Workflow wizard steps">
+      <nav
+        aria-label="Workflow wizard steps"
+        className="border-border mb-3 grid grid-cols-3 border max-md:grid-cols-1"
+      >
         {WORKFLOW_STEPS.map((step, index) => (
-          <Button
-            alignContent="start"
-            block
-            className="phlo-workflow-step"
+          <button
+            className={cn(
+              'border-border hover:bg-accent/50 flex items-center gap-2.5 px-3 py-2 text-left transition-colors max-md:border-t first:max-md:border-t-0 md:border-l md:first:border-l-0',
+              activeStep === step.id && 'bg-accent/60',
+            )}
             data-active={activeStep === step.id}
             data-complete={index < activeStepIndex}
             key={step.id}
             onClick={() => setActiveStep(step.id)}
             type="button"
           >
-            <span className="phlo-workflow-step-index">{index + 1}</span>
-            <span className="phlo-workflow-step-copy">
-              <strong>{step.label}</strong>
-              <em>{step.description}</em>
+            <span
+              className={cn(
+                'border-border text-muted-foreground flex size-6 flex-none items-center justify-center border font-mono text-[10px]',
+                activeStep === step.id && 'border-primary text-primary',
+                index < activeStepIndex && 'border-status-ok text-status-ok',
+              )}
+            >
+              {index + 1}
             </span>
-          </Button>
+            <span className="flex min-w-0 flex-col">
+              <strong className="text-foreground text-xs font-medium">
+                {step.label}
+              </strong>
+              <em className="text-muted-foreground text-[10px] not-italic">
+                {step.description}
+              </em>
+            </span>
+          </button>
         ))}
       </nav>
 
-      {activeStep === 'info' && (
-        <section className="phlo-observatory-panel phlo-workflow-step-panel">
-          <div className="phlo-observatory-panel-header phlo-workflow-card-header">
-            <div>
-              <h2>Workflow info</h2>
-              <p>Set the workflow identity before arranging package steps.</p>
-            </div>
-            <WandSparkles className="size-4" aria-hidden />
-          </div>
-          <div className="phlo-workflow-info-grid">
-            <label>
-              <span>Workflow</span>
-              <input
-                className="phlo-workflow-input"
-                onChange={(event) => setWorkflowName(event.target.value)}
-                value={workflowName}
-              />
-            </label>
-            <label>
-              <span>Domain</span>
-              <input
-                className="phlo-workflow-input"
-                onChange={(event) => setDomain(event.target.value)}
-                value={domain}
-              />
-            </label>
-          </div>
-          <div className="phlo-workflow-template-grid">
-            {lakehouseTemplates.map((template) => (
-              <button
-                className="phlo-workflow-template-card"
-                key={template.id}
-                onClick={() => applyLakehouseTemplate(template)}
-                type="button"
-              >
-                <span>{template.domain}</span>
-                <strong>{template.label}</strong>
-                <small>{template.summary}</small>
-              </button>
-            ))}
-          </div>
-          {(tableResult.error || assetResult.error || qualityResult.error) && (
-            <div className="phlo-observatory-panel-footer">
-              {tableResult.error ?? assetResult.error ?? qualityResult.error}
-            </div>
-          )}
-          <div className="phlo-workflow-step-actions">
-            <Button
-              className="phlo-workflow-action"
-              onClick={() => setActiveStep('graph')}
-              type="button"
-              variant="primary"
-            >
-              Continue to graph
-            </Button>
-          </div>
-        </section>
-      )}
-
-      {activeStep === 'graph' && (
-        <section className="phlo-workflow-graph-step">
-          <div
-            className="phlo-workflow-canvas-main"
-            data-inspector-open={Boolean(
-              inspectorOpen && selectedNode && selectedContribution,
-            )}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {activeStep === 'info' && (
+          <SectionCard
+            actions={<WandSparkles aria-hidden className="size-4" />}
+            description="Set the workflow identity before arranging package steps."
+            title="Workflow info"
           >
-            <div className="phlo-workflow-canvas-toolbar">
+            <div className="grid grid-cols-2 gap-3 p-3 max-lg:grid-cols-1">
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground text-[11px] font-medium">
+                  Workflow
+                </span>
+                <Input
+                  onChange={(event) => setWorkflowName(event.target.value)}
+                  value={workflowName}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground text-[11px] font-medium">
+                  Domain
+                </span>
+                <Input
+                  onChange={(event) => setDomain(event.target.value)}
+                  value={domain}
+                />
+              </label>
+            </div>
+            <div className="border-border grid grid-cols-3 gap-0 divide-x border-t max-lg:grid-cols-1 max-lg:divide-x-0 max-lg:divide-y">
+              {lakehouseTemplates.map((template) => (
+                <button
+                  className="hover:bg-accent/50 flex flex-col gap-0.5 px-3 py-2.5 text-left transition-colors"
+                  key={template.id}
+                  onClick={() => applyLakehouseTemplate(template)}
+                  type="button"
+                >
+                  <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+                    {template.domain}
+                  </span>
+                  <strong className="text-foreground text-xs font-medium">
+                    {template.label}
+                  </strong>
+                  <span className="text-muted-foreground text-[10px]/relaxed">
+                    {template.summary}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {(tableResult.error ??
+              assetResult.error ??
+              qualityResult.error) && (
+              <p className="text-status-error border-border border-t px-3 py-2 font-mono text-[10px] break-all">
+                {tableResult.error ?? assetResult.error ?? qualityResult.error}
+              </p>
+            )}
+            <div className="border-border flex items-center gap-1.5 border-t px-3 py-2.5">
+              <Button onClick={() => setActiveStep('graph')} type="button">
+                Continue to graph
+              </Button>
+            </div>
+          </SectionCard>
+        )}
+
+        {activeStep === 'graph' && (
+          <section className="flex flex-col gap-3">
+            <div className="flex items-center gap-1.5">
               <Button
-                className="phlo-workflow-action"
                 disabled={proposalLoading}
-                leadingVisual={FileCodeIcon}
                 onClick={generateProposal}
                 type="button"
-                variant="primary"
               >
+                <FileCode className="size-3.5" />
                 {proposalLoading ? 'Generating…' : 'Generate proposal'}
               </Button>
             </div>
-            <PipelineLane
-              addMenuOpen={addMenuOpen}
-              contributions={contributions}
-              insertIndex={insertIndex ?? nodes.length}
-              nodes={nodes}
-              onAddContribution={addContribution}
-              onCloseAddMenu={() => setAddMenuOpen(false)}
-              onMoveNode={moveNode}
-              onRemoveNode={removeNode}
-              onSelectInsert={(index) => {
-                setInsertIndex(index)
-                setAddMenuOpen(true)
-              }}
-              onSelectNode={(nodeId) => {
-                setSelectedNodeId(nodeId)
-                setInspectorOpen(true)
-              }}
-              selectedNodeId={selectedNodeId}
-            />
-            {inspectorOpen && selectedNode && selectedContribution ? (
-              <aside className="phlo-workflow-inspector">
-                <Button
-                  className="phlo-workflow-inspector-close"
-                  onClick={() => setInspectorOpen(false)}
-                  size="small"
-                  type="button"
-                >
-                  Close
-                </Button>
-                <Inspector
-                  contribution={selectedContribution}
-                  node={selectedNode}
-                  onChange={updateNodeField}
-                  values={selectedNode ? (values[selectedNode.id] ?? {}) : {}}
-                />
-              </aside>
-            ) : null}
-          </div>
-        </section>
-      )}
+            <div
+              className={cn(
+                'grid gap-3',
+                inspectorOpen && selectedNode && selectedContribution
+                  ? 'grid-cols-[minmax(0,1fr)_20rem] max-lg:grid-cols-1'
+                  : 'grid-cols-1',
+              )}
+              data-inspector-open={Boolean(
+                inspectorOpen && selectedNode && selectedContribution,
+              )}
+            >
+              <PipelineLane
+                addMenuOpen={addMenuOpen}
+                contributions={contributions}
+                insertIndex={insertIndex ?? nodes.length}
+                nodes={nodes}
+                onAddContribution={addContribution}
+                onCloseAddMenu={() => setAddMenuOpen(false)}
+                onMoveNode={moveNode}
+                onRemoveNode={removeNode}
+                onSelectInsert={(index) => {
+                  setInsertIndex(index)
+                  setAddMenuOpen(true)
+                }}
+                onSelectNode={(nodeId) => {
+                  setSelectedNodeId(nodeId)
+                  setInspectorOpen(true)
+                }}
+                selectedNodeId={selectedNodeId}
+              />
+              {inspectorOpen && selectedNode && selectedContribution ? (
+                <aside className="bg-card ring-foreground/10 flex flex-col ring-1">
+                  <div className="border-border flex justify-end border-b px-3 py-1.5">
+                    <Button
+                      onClick={() => setInspectorOpen(false)}
+                      size="xs"
+                      type="button"
+                      variant="outline"
+                    >
+                      Close
+                    </Button>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <Inspector
+                      contribution={selectedContribution}
+                      node={selectedNode}
+                      onChange={updateNodeField}
+                      values={
+                        selectedNode ? (values[selectedNode.id] ?? {}) : {}
+                      }
+                    />
+                  </div>
+                </aside>
+              ) : null}
+            </div>
+          </section>
+        )}
 
-      {activeStep === 'proposal' && (
-        <section className="phlo-workflow-proposal-step">
+        {activeStep === 'proposal' && (
           <ReviewPanel
             actionMessage={actionMessage}
             loading={proposalLoading}
@@ -556,9 +590,9 @@ function useWorkflowCanvasBuilder(initialSnapshot?: WorkflowBuilderSnapshot) {
             onRunAction={runAction}
             proposal={proposal}
           />
-        </section>
-      )}
-    </ObservatoryPage>
+        )}
+      </div>
+    </Page>
   )
 }
 
@@ -599,8 +633,11 @@ function PipelineLane({
   )
 
   return (
-    <div className="phlo-workflow-canvas">
-      <div className="phlo-workflow-lane" aria-label="Workflow pipeline">
+    <div className="bg-surface-sunken ring-foreground/10 min-h-[24rem] overflow-x-auto p-4 ring-1">
+      <div
+        aria-label="Workflow pipeline"
+        className="flex min-w-max items-stretch gap-0"
+      >
         <InsertPoint
           active={insertIndex === 0}
           index={0}
@@ -619,7 +656,7 @@ function PipelineLane({
           ) : null}
         </InsertPoint>
         {nodes.map((node, index) => (
-          <div className="phlo-workflow-lane-item" key={node.id}>
+          <div className="flex items-stretch" key={node.id}>
             <PipelineNode
               isFirst={index === 0}
               isLast={index === nodes.length - 1}
@@ -670,35 +707,52 @@ function AddStepMenu({
   onCloseAddMenu: () => void
 }) {
   return (
-    <div className="phlo-workflow-add-menu-surface">
-      <div className="phlo-workflow-add-menu-header">
+    <div className="bg-card ring-foreground/10 flex max-h-96 w-72 flex-col ring-1">
+      <div className="border-border flex items-start justify-between gap-2 border-b px-3 py-2">
         <div>
-          <h2>Add workflow step</h2>
-          <p>Step will be inserted at position {insertIndex + 1}.</p>
+          <h2 className="text-foreground text-xs font-semibold">
+            Add workflow step
+          </h2>
+          <p className="text-muted-foreground mt-0.5 text-[10px]">
+            Step will be inserted at position {insertIndex + 1}.
+          </p>
         </div>
-        <Button onClick={onCloseAddMenu} size="small" type="button">
+        <Button
+          onClick={onCloseAddMenu}
+          size="xs"
+          type="button"
+          variant="outline"
+        >
           Close
         </Button>
       </div>
-      <div className="phlo-workflow-add-menu-list">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {groupedContributions.map((group) =>
           group.items.length ? (
             <section key={group.stage}>
-              <h3>{STAGE_LABELS[group.stage]}</h3>
-              {group.items.map((contribution) => (
-                <Button
-                  className="phlo-workflow-add-option"
-                  key={contribution.id}
-                  onClick={() => onAddContribution(contribution)}
-                  type="button"
-                >
-                  <PlusIcon size={16} />
-                  <span>
-                    <strong>{contribution.label}</strong>
-                    <em>{contribution.package}</em>
-                  </span>
-                </Button>
-              ))}
+              <h3 className="text-muted-foreground border-border border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+                {STAGE_LABELS[group.stage]}
+              </h3>
+              <div className="divide-border divide-y">
+                {group.items.map((contribution) => (
+                  <button
+                    className="hover:bg-accent/50 flex w-full items-start gap-2 px-3 py-2 text-left transition-colors"
+                    key={contribution.id}
+                    onClick={() => onAddContribution(contribution)}
+                    type="button"
+                  >
+                    <Plus className="text-muted-foreground mt-0.5 size-3.5 flex-none" />
+                    <span className="flex min-w-0 flex-col">
+                      <strong className="text-foreground text-[11px]">
+                        {contribution.label}
+                      </strong>
+                      <em className="text-muted-foreground font-mono text-[10px] not-italic">
+                        {contribution.package}
+                      </em>
+                    </span>
+                  </button>
+                ))}
+              </div>
             </section>
           ) : null,
         )}
@@ -727,20 +781,33 @@ function InsertPoint({
         if (!nextOpen) onOpenChange(false)
       }}
     >
-      <div className="phlo-workflow-insert-point" data-active={active}>
+      <div
+        className={cn('flex w-8 items-center justify-center self-stretch')}
+        data-active={active}
+      >
         <PopoverTrigger
           aria-label={`Add workflow step at position ${index + 1}`}
+          className={cn(
+            'group/insert flex h-full w-full flex-col items-center justify-center gap-1 outline-none',
+          )}
           onClick={() => onSelect(index)}
           type="button"
         >
-          <span />
-          <em>+</em>
-          <span />
+          <span className="bg-border w-px flex-1" />
+          <em
+            className={cn(
+              'border-border text-muted-foreground group-hover/insert:border-primary group-hover/insert:text-primary flex size-5 flex-none items-center justify-center border font-mono text-[10px] not-italic transition-colors',
+              active && 'border-primary text-primary',
+            )}
+          >
+            +
+          </em>
+          <span className="bg-border w-px flex-1" />
         </PopoverTrigger>
         {active && children ? (
           <PopoverContent
             align="center"
-            className="phlo-workflow-add-menu"
+            className="border-0 bg-transparent p-0 shadow-none"
             side="right"
             sideOffset={18}
           >
@@ -770,51 +837,65 @@ function PipelineNode({
   onSelectNode: (nodeId: string) => void
 }) {
   return (
-    <article className="phlo-workflow-canvas-node" data-selected={selected}>
+    <article
+      className={cn(
+        'bg-card ring-foreground/10 flex w-56 flex-none flex-col ring-1',
+        selected && 'ring-primary ring-2',
+      )}
+      data-selected={selected}
+    >
       <button
-        className="phlo-workflow-node-select"
+        className="hover:bg-accent/50 flex flex-col gap-0.5 px-3 py-2.5 text-left transition-colors"
         onClick={() => onSelectNode(node.id)}
         type="button"
       >
-        <span>{STAGE_LABELS[node.data.stage]}</span>
-        <strong>{node.data.label}</strong>
-        <p>{node.data.description}</p>
+        <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+          {STAGE_LABELS[node.data.stage]}
+        </span>
+        <strong className="text-foreground text-xs font-medium">
+          {node.data.label}
+        </strong>
+        <p className="text-muted-foreground line-clamp-2 text-[10px]/relaxed">
+          {node.data.description}
+        </p>
       </button>
-      <div className="phlo-workflow-node-footer">
-        <em>{node.data.packageName}</em>
-        <div className="phlo-workflow-node-actions">
-          <IconButton
+      <div className="border-border flex items-center justify-between gap-2 border-t px-3 py-1.5">
+        <em className="text-muted-foreground truncate font-mono text-[10px] not-italic">
+          {node.data.packageName}
+        </em>
+        <div className="flex items-center gap-0.5">
+          <Button
             aria-label="Move node up"
-            className="phlo-workflow-node-action"
             disabled={isFirst}
-            icon={ArrowUpIcon}
             onClick={() => onMoveNode(node.id, -1)}
-            size="small"
+            size="icon-xs"
             title="Move up"
             type="button"
-            variant="invisible"
-          />
-          <IconButton
+            variant="ghost"
+          >
+            <ArrowUp className="size-3.5" />
+          </Button>
+          <Button
             aria-label="Move node down"
-            className="phlo-workflow-node-action"
             disabled={isLast}
-            icon={ArrowDownIcon}
             onClick={() => onMoveNode(node.id, 1)}
-            size="small"
+            size="icon-xs"
             title="Move down"
             type="button"
-            variant="invisible"
-          />
-          <IconButton
+            variant="ghost"
+          >
+            <ArrowDown className="size-3.5" />
+          </Button>
+          <Button
             aria-label="Remove node"
-            className="phlo-workflow-node-action"
-            icon={TrashIcon}
             onClick={() => onRemoveNode(node.id)}
-            size="small"
+            size="icon-xs"
             title="Remove"
             type="button"
-            variant="invisible"
-          />
+            variant="ghost"
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
         </div>
       </div>
     </article>
@@ -834,25 +915,31 @@ function Inspector({
 }) {
   if (!node || !contribution) {
     return (
-      <div className="phlo-observatory-panel phlo-workflow-inspector-card">
-        <div className="phlo-workflow-pane-header">
-          <h2>Inspector</h2>
-        </div>
-        <p>Select a node to configure it.</p>
+      <div className="flex flex-col gap-2 p-3">
+        <h2 className="text-foreground text-xs font-semibold">Inspector</h2>
+        <p className="text-muted-foreground text-xs">
+          Select a node to configure it.
+        </p>
       </div>
     )
   }
 
   return (
-    <div className="phlo-observatory-panel phlo-workflow-inspector-card">
-      <div className="phlo-workflow-pane-header">
-        <div>
-          <h2>{contribution.label}</h2>
-          <p>{contribution.description}</p>
+    <div className="flex flex-col">
+      <div className="border-border flex items-start justify-between gap-2 border-b px-3 py-2.5">
+        <div className="min-w-0">
+          <h2 className="text-foreground text-xs font-semibold">
+            {contribution.label}
+          </h2>
+          <p className="text-muted-foreground mt-0.5 text-[10px]/relaxed">
+            {contribution.description}
+          </p>
         </div>
-        <span className="phlo-observatory-pill">{contribution.package}</span>
+        <Badge className="flex-none" variant="secondary">
+          {contribution.package}
+        </Badge>
       </div>
-      <div className="phlo-workflow-inspector-fields">
+      <div className="flex flex-col gap-3 p-3">
         {contribution.fields.map((field) => (
           <DynamicField
             field={field}
@@ -887,15 +974,21 @@ function DynamicField({
     placeholder: field.description ?? field.label,
     value,
   }
+  const inputClass =
+    'border-input bg-transparent text-foreground focus-visible:ring-ring w-full border px-2 py-1.5 font-mono text-[11px] outline-none focus-visible:ring-1'
   return (
-    <label className="phlo-workflow-field">
-      <span>
+    <label className="flex flex-col gap-1">
+      <span className="text-muted-foreground text-[11px] font-medium">
         {field.label}
         {field.required ? ' *' : ''}
       </span>
-      {field.description && <small>{field.description}</small>}
+      {field.description && (
+        <small className="text-muted-foreground text-[10px]">
+          {field.description}
+        </small>
+      )}
       {field.field_type === 'select' ? (
-        <select className="phlo-workflow-input" {...common}>
+        <select className={inputClass} {...common}>
           {field.options.map((option) => (
             <option key={option} value={option}>
               {option}
@@ -903,9 +996,9 @@ function DynamicField({
           ))}
         </select>
       ) : field.field_type === 'fields' || field.field_type === 'textarea' ? (
-        <textarea className="phlo-workflow-input" rows={4} {...common} />
+        <textarea className={inputClass} rows={4} {...common} />
       ) : (
-        <input className="phlo-workflow-input" type="text" {...common} />
+        <input className={inputClass} type="text" {...common} />
       )}
     </label>
   )
@@ -926,112 +1019,102 @@ function ReviewPanel({
 }) {
   if (proposal.error) {
     return (
-      <div className="phlo-observatory-panel phlo-workflow-review-card">
-        <div className="phlo-observatory-panel-header phlo-workflow-review-header">
-          <div>
-            <h2>Review</h2>
-            <p>Proposal generation needs attention.</p>
-          </div>
+      <SectionCard
+        description="Proposal generation needs attention."
+        title="Review"
+      >
+        <p className="text-status-error border-border border-b px-3 py-2 font-mono text-[10px] break-all">
+          {proposal.error}
+        </p>
+        <div className="px-3 py-2.5">
+          <Button disabled={loading} onClick={onGenerate} type="button">
+            <FileCode className="size-3.5" />
+            {loading ? 'Generating proposal…' : 'Try again'}
+          </Button>
         </div>
-        <div className="phlo-observatory-panel-footer">{proposal.error}</div>
-        <Button
-          className="phlo-workflow-action phlo-workflow-apply"
-          disabled={loading}
-          leadingVisual={FileCodeIcon}
-          onClick={onGenerate}
-          type="button"
-          variant="primary"
-        >
-          {loading ? 'Generating proposal…' : 'Try again'}
-        </Button>
-      </div>
+      </SectionCard>
     )
   }
   if (!proposal.data) {
     return (
-      <div className="phlo-observatory-panel phlo-workflow-review-card">
-        <div className="phlo-observatory-panel-header phlo-workflow-review-header">
-          <div>
-            <h2>Review</h2>
-            <p>Generated files and guarded actions appear here.</p>
-          </div>
-          <FileCodeIcon aria-hidden size={16} />
-        </div>
-        <div className="phlo-workflow-empty-review">
-          {loading
-            ? 'Generating a proposal from the graph…'
-            : 'Generate a proposal to preview graph-generated files.'}
-        </div>
-        <div className="phlo-workflow-step-actions">
-          <Button
-            className="phlo-workflow-action"
-            disabled={loading}
-            leadingVisual={FileCodeIcon}
-            onClick={onGenerate}
-            type="button"
-            variant="primary"
-          >
+      <SectionCard
+        actions={<FileCode aria-hidden className="size-4" />}
+        description="Generated files and guarded actions appear here."
+        title="Review"
+      >
+        <EmptyBlock
+          description={
+            loading
+              ? 'Generating a proposal from the graph…'
+              : 'Generate a proposal to preview graph-generated files.'
+          }
+          title="Proposal"
+        />
+        <div className="border-border flex items-center gap-1.5 border-t px-3 py-2.5">
+          <Button disabled={loading} onClick={onGenerate} type="button">
+            <FileCode className="size-3.5" />
             {loading ? 'Generating…' : 'Generate proposal'}
           </Button>
         </div>
-      </div>
+      </SectionCard>
     )
   }
 
   return (
-    <div className="phlo-observatory-panel phlo-workflow-review-card">
-      <div className="phlo-observatory-panel-header phlo-workflow-review-header">
-        <div>
-          <h2>Review proposal</h2>
-          <p>
-            {proposal.data.planned_assets.length} lineage{' '}
-            {proposal.data.planned_assets.length === 1
-              ? 'resource'
-              : 'resources'}
-            , {proposal.data.planned_models.length} models
-          </p>
-        </div>
-        <span className="phlo-observatory-pill">
-          {proposal.data.files.length} files
-        </span>
-      </div>
-      <div className="phlo-workflow-file-list">
+    <SectionCard
+      actions={
+        <Badge variant="secondary">{proposal.data.files.length} files</Badge>
+      }
+      description={`${proposal.data.planned_assets.length} lineage ${
+        proposal.data.planned_assets.length === 1 ? 'resource' : 'resources'
+      }, ${proposal.data.planned_models.length} models`}
+      title="Review proposal"
+    >
+      <div className="divide-border divide-y">
         {proposal.data.files.map((file) => (
-          <details className="phlo-workflow-file" key={file.path}>
-            <summary>
-              <FileCodeIcon size={16} />
-              <span>{file.path}</span>
-              <em>{file.mode}</em>
+          <details className="group" key={file.path}>
+            <summary className="hover:bg-accent/50 flex cursor-pointer items-center gap-2 px-3 py-2 text-[11px] transition-colors">
+              <FileCode className="text-muted-foreground size-3.5" />
+              <span className="text-foreground flex-1 truncate font-mono">
+                {file.path}
+              </span>
+              <em className="text-muted-foreground font-mono text-[10px] not-italic">
+                {file.mode}
+              </em>
             </summary>
-            <pre>{file.content}</pre>
+            <pre className="bg-surface-sunken text-foreground max-h-72 overflow-auto px-3 py-2 font-mono text-[10px]/relaxed">
+              {file.content}
+            </pre>
           </details>
         ))}
       </div>
-      {proposal.data.actions.map((action) => (
+      <div className="border-border flex flex-wrap items-center gap-1.5 border-t px-3 py-2.5">
+        {proposal.data.actions.map((action) => (
+          <Button
+            disabled={loading || !action.enabled}
+            key={action.id}
+            onClick={() => onRunAction(action)}
+            type="button"
+          >
+            <CheckCircle className="size-3.5" />
+            {action.label}
+          </Button>
+        ))}
         <Button
-          className="phlo-workflow-action phlo-workflow-apply"
-          disabled={loading || !action.enabled}
-          key={action.id}
-          leadingVisual={CheckCircleIcon}
-          onClick={() => onRunAction(action)}
+          disabled={loading}
+          onClick={onGenerate}
           type="button"
-          variant="primary"
+          variant="outline"
         >
-          {action.label}
+          {loading ? 'Refreshing proposal…' : 'Refresh proposal'}
         </Button>
-      ))}
-      <Button
-        className="phlo-workflow-secondary-action"
-        disabled={loading}
-        onClick={onGenerate}
-        type="button"
-      >
-        {loading ? 'Refreshing proposal…' : 'Refresh proposal'}
-      </Button>
+      </div>
       {actionMessage && (
-        <div className="phlo-observatory-panel-footer">{actionMessage}</div>
+        <p className="text-muted-foreground border-border border-t px-3 py-2 font-mono text-[10px] break-all">
+          {actionMessage}
+        </p>
       )}
-    </div>
+    </SectionCard>
   )
 }
 

@@ -3,17 +3,26 @@
  * surfacing candidates and freshness/readiness failures.
  */
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { AlertCircle, CheckCircle2, Import, Workflow } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Import, Table2 } from 'lucide-react'
 import { useMemo } from 'react'
-import type { ReactNode } from 'react'
 
 import {
   getObservatoryDatasetRecords,
   getObservatoryPipelineRecords,
   getObservatoryTableRecords,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { useLiveResource } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import { EmptyBlock } from '@/components/observatory/states'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { HealthDot } from '@/components/observatory/status'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { SectionCard } from '@/components/observatory/section'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/ingestion')({ component: Ingestion })
 
@@ -58,149 +67,152 @@ export function Ingestion() {
   const loading = datasets.isLoading || tables.isLoading || pipelines.isLoading
 
   return (
-    <ObservatoryPage
-      kicker="Deliver"
-      title="Ingestion"
-      description="Source onboarding, candidate review, Dataset readiness, and pipeline freshness in one operational queue."
-      action={
-        <Link className="phlo-observatory-map-action" to="/workflows/new">
-          <Import className="size-3.5" />
-          New ingestion workflow
-        </Link>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-local-index-shell">
-        <div className="phlo-observatory-command-primary">
-          <div className="phlo-observatory-command-strip phlo-observatory-ingestion-summary">
-            <IngestionMetric
-              icon={<CheckCircle2 className="size-4" />}
-              label="Datasets"
-              value={loading ? '—' : rows.length}
-            />
-            <IngestionMetric
-              icon={<Workflow className="size-4" />}
-              label="Queryable tables"
-              value={loading ? '—' : (tables.data?.length ?? 0)}
-            />
-            <IngestionMetric
-              icon={<Import className="size-4" />}
-              label="Candidates"
-              value={loading ? '—' : candidates}
-            />
-            <IngestionMetric
-              icon={<AlertCircle className="size-4" />}
-              label="Blocked"
-              value={loading ? '—' : blocked}
-            />
-          </div>
-          <div className="phlo-observatory-ingestion-head">
-            <span>Dataset</span>
-            <span>Source evidence</span>
-            <span>Pipeline state</span>
-            <span>Next action</span>
-          </div>
-          {rows.map(({ dataset, pipeline, sources }) => (
-            <div className="phlo-observatory-ingestion-row" key={dataset.id}>
-              <span
-                className="phlo-observatory-dot"
-                data-state={dataset.readiness_state}
-              />
-              <span>
+    <Page>
+      <PageHeader
+        actions={
+          <Link
+            className={cn(buttonVariants({ size: 'sm' }))}
+            to="/workflows/new"
+          >
+            <Import className="size-3.5" />
+            New ingestion workflow
+          </Link>
+        }
+        description="Source onboarding, candidate review, dataset readiness, and pipeline freshness in one operational queue."
+        title="Ingestion"
+      />
+      <StatGrid>
+        <StatCard
+          icon={<CheckCircle2 className="size-3.5" />}
+          label="Datasets"
+          value={loading ? '—' : rows.length}
+        />
+        <StatCard
+          icon={<Table2 className="size-3.5" />}
+          label="Queryable tables"
+          value={loading ? '—' : (tables.data?.length ?? 0)}
+        />
+        <StatCard
+          icon={<Import className="size-3.5" />}
+          label="Candidates"
+          state={candidates > 0 ? 'warning' : 'ok'}
+          value={loading ? '—' : candidates}
+        />
+        <StatCard
+          icon={<AlertCircle className="size-3.5" />}
+          label="Blocked"
+          state={blocked > 0 ? 'error' : 'ok'}
+          value={loading ? '—' : blocked}
+        />
+      </StatGrid>
+      <SplitView
+        inspector={
+          <>
+            <InspectorSection label="From source to governed dataset">
+              <p className="text-muted-foreground text-xs/relaxed">
+                Candidate tables require ownership and classification before
+                promotion. Published datasets require fresh pipeline and quality
+                evidence.
+              </p>
+            </InspectorSection>
+            <InspectorSection label="Queue shortcuts">
+              <div className="divide-y divide-border border-y">
                 <Link
-                  params={{ datasetId: dataset.id }}
-                  to="/datasets/$datasetId"
+                  className="hover:bg-accent/50 flex items-center justify-between gap-2 py-2 text-xs transition-colors"
+                  to="/datasets"
                 >
-                  <strong>{dataset.name}</strong>
+                  <span className="text-foreground">Review candidates</span>
+                  <span className="text-muted-foreground font-mono text-[10px]">
+                    {candidates} waiting
+                  </span>
                 </Link>
-                <small>
-                  {dataset.candidate ? 'candidate' : dataset.publication_state}
-                </small>
-              </span>
-              <span>
-                {sources.join(', ') || 'No source reference'}
-                <small>
-                  {dataset.source_refs.length
-                    ? 'Dataset read model'
-                    : 'source evidence missing'}
-                </small>
-              </span>
-              <span>
-                {pipeline?.freshness_state ?? 'not observed'}
-                <small>
-                  {pipeline?.freshness_at ?? 'No freshness timestamp'}
-                </small>
-              </span>
-              <span>
-                {nextAction(
-                  dataset.candidate,
-                  dataset.readiness_state,
-                  pipeline?.freshness_state,
-                )}
-                <small>
-                  {pipeline?.actions.length
-                    ? `${pipeline.actions.length} supported actions`
-                    : 'Open workflow or Dataset'}
-                </small>
-              </span>
-            </div>
-          ))}
-          {!loading && !rows.length && (
-            <div className="phlo-observatory-operation-empty">
-              <div>
-                <h2>No ingestion resources found</h2>
-                <p>
-                  Create an ingestion workflow to establish source, table, and
-                  Dataset evidence.
-                </p>
+                <Link
+                  className="hover:bg-accent/50 flex items-center justify-between gap-2 py-2 text-xs transition-colors"
+                  to="/pipelines"
+                >
+                  <span className="text-foreground">Inspect freshness</span>
+                  <span className="text-muted-foreground font-mono text-[10px]">
+                    {blocked} blocked
+                  </span>
+                </Link>
+                <Link
+                  className="hover:bg-accent/50 flex items-center justify-between gap-2 py-2 text-xs transition-colors"
+                  to="/workflows/new"
+                >
+                  <span className="text-foreground">Create workflow</span>
+                  <span className="text-muted-foreground font-mono text-[10px]">
+                    ingestion
+                  </span>
+                </Link>
               </div>
+            </InspectorSection>
+          </>
+        }
+        list={
+          <SectionCard className="ring-0" title="Ingestion queue">
+            <div className="text-muted-foreground grid grid-cols-[auto_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
+              <span />
+              <span>Dataset</span>
+              <span>Pipeline state</span>
+              <span>Next action</span>
             </div>
-          )}
-        </div>
-        <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-          <div className="phlo-observatory-inspector-label">
-            Ingestion workflow
-          </div>
-          <h2>From source to governed Dataset</h2>
-          <p>
-            Candidate tables require ownership and classification before
-            promotion. Published Datasets require fresh pipeline and quality
-            evidence.
-          </p>
-          <div className="phlo-observatory-detail-list">
-            <Link className="phlo-observatory-mini-row" to="/datasets">
-              <span>Review candidates</span>
-              <small>{candidates} waiting</small>
-            </Link>
-            <Link className="phlo-observatory-mini-row" to="/pipelines">
-              <span>Inspect freshness</span>
-              <small>{blocked} blocked</small>
-            </Link>
-            <Link className="phlo-observatory-mini-row" to="/workflows/new">
-              <span>Create workflow</span>
-              <small>Generate ingestion files</small>
-            </Link>
-          </div>
-        </aside>
-      </section>
-    </ObservatoryPage>
-  )
-}
-
-function IngestionMetric({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: number | string
-}) {
-  return (
-    <div className="phlo-observatory-command-metric">
-      {icon}
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
+            <div className="divide-y divide-border">
+              {rows.map(({ dataset, pipeline, sources }) => (
+                <div
+                  className="grid grid-cols-[auto_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-3 px-3 py-2"
+                  key={dataset.id}
+                >
+                  <HealthDot state={dataset.readiness_state} />
+                  <span className="min-w-0">
+                    <Link
+                      className="text-foreground hover:text-primary block truncate text-xs font-medium"
+                      params={{ datasetId: dataset.id }}
+                      to="/datasets/$datasetId"
+                    >
+                      {dataset.name}
+                    </Link>
+                    <span className="text-muted-foreground block truncate font-mono text-[10px]">
+                      {dataset.candidate
+                        ? 'candidate'
+                        : dataset.publication_state}
+                      {sources.length ? ` · ${sources.join(', ')}` : ''}
+                    </span>
+                  </span>
+                  <span className="min-w-0">
+                    <span className="text-foreground block truncate text-[11px]">
+                      {pipeline?.freshness_state ?? 'not observed'}
+                    </span>
+                    <span className="text-muted-foreground block truncate font-mono text-[10px]">
+                      {pipeline?.freshness_at ?? 'no freshness timestamp'}
+                    </span>
+                  </span>
+                  <span className="min-w-0">
+                    <span className="text-foreground block truncate text-[11px]">
+                      {nextAction(
+                        dataset.candidate,
+                        dataset.readiness_state,
+                        pipeline?.freshness_state,
+                      )}
+                    </span>
+                    <span className="text-muted-foreground block truncate font-mono text-[10px]">
+                      {pipeline?.actions.length
+                        ? `${pipeline.actions.length} supported actions`
+                        : 'open workflow or dataset'}
+                    </span>
+                  </span>
+                </div>
+              ))}
+              {!loading && !rows.length && (
+                <EmptyBlock
+                  description="Create an ingestion workflow to establish source, table, and dataset evidence."
+                  title="No ingestion resources found"
+                />
+              )}
+            </div>
+          </SectionCard>
+        }
+      />
+    </Page>
   )
 }
 
@@ -210,7 +222,7 @@ function nextAction(
   freshness?: string,
 ): string {
   if (candidate) return 'Claim, classify, then promote'
-  if (readiness === 'error') return 'Resolve Dataset readiness blocker'
+  if (readiness === 'error') return 'Resolve dataset readiness blocker'
   if (freshness === 'error') return 'Recover failed pipeline stage'
   if (freshness === 'warning') return 'Review freshness warning'
   return 'Monitor source and freshness evidence'

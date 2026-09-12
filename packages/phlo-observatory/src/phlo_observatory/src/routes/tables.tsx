@@ -44,13 +44,25 @@ import {
   saveObservatoryQuery,
 } from '@/observatory/api/resources'
 import { ObservatoryFlowCanvas } from '@/observatory/components/ObservatoryFlowCanvas'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { ObservatoryIndexTable } from '@/observatory/components/ObservatoryTable'
 import {
   loadCachedResource,
   readMetric,
   useLiveResource,
 } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { EmptyBlock } from '@/components/observatory/states'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 const previewLimit = 100
 
@@ -314,296 +326,334 @@ export function Tables() {
   }, [selected, selectedId])
 
   return (
-    <ObservatoryPage
-      kicker="Tables"
-      title="Table inventory"
-      description={
-        branchesAvailable
-          ? 'Inspect physical tables, branches, schemas, Dataset bindings, quality checks, and linked runs.'
-          : 'Inspect physical tables, schemas, Dataset bindings, quality checks, and linked runs.'
-      }
-      action={
-        <span className="phlo-observatory-pill">
-          {namespaces.size} namespaces
-        </span>
-      }
-    >
-      <section className="phlo-observatory-browser-shell">
-        <div className="phlo-observatory-table-browser">
-          <div className="phlo-observatory-browser-toolbar">
-            <span>
-              <Database className="size-4" />
-              Inventory
-            </span>
-            <label className="phlo-observatory-search-field phlo-observatory-data-search">
-              <Search className="size-4" />
-              <input
-                aria-label="Search tables"
-                onChange={(event) => setTableQuery(event.target.value)}
-                placeholder={
-                  branchesAvailable
-                    ? 'Search name, namespace, branch'
-                    : 'Search name, namespace, schema'
-                }
-                value={tableQuery}
-              />
-            </label>
-            <span className="phlo-observatory-pill">
-              {filteredTables.length} / {tables.length} tables
-            </span>
-          </div>
-          <TableInventorySummary summary={tableSummary} />
-          <ObservatoryIndexTable
-            columnTemplate={
-              branchesAvailable
-                ? '1.15fr 0.8fr 1.25fr 0.65fr 0.65fr 0.9fr 0.9fr'
-                : '1.15fr 0.8fr 1.25fr 0.65fr 0.8fr 0.9fr'
-            }
-            columns={[
-              { key: 'name', label: 'Name' },
-              { key: 'namespace', label: 'Namespace' },
-              { key: 'dataset', label: 'Dataset' },
-              { key: 'format', label: 'Format' },
-              ...(branchesAvailable
-                ? [{ key: 'branch', label: 'Branch' }]
-                : []),
-              { key: 'rows', label: 'Rows' },
-              { key: 'queryable', label: 'Queryable state' },
-            ]}
-            empty={
-              <div className="phlo-observatory-empty-state">
-                {!hasLoadedTables
-                  ? 'Loading tables...'
-                  : tables.length === 0
-                    ? 'No tables registered yet.'
-                    : 'No tables match this filter.'}
-              </div>
-            }
-            rows={filteredTables.map((table) => {
-              const rowDataset = datasetForTable(table, datasets)
-              const rowCount =
-                table.id === selected?.id && selectedRowCount !== null
-                  ? selectedRowCount
-                  : (readTableRecordCount(table) ?? '-')
-              return {
-                active: table.id === selected?.id,
-                key: table.id,
-                onSelect: () => selectTable(table.id),
-                cells: [
-                  table.name,
-                  table.namespace ?? 'default',
-                  tableDatasetLabel(rowDataset),
-                  table.format ?? 'unknown',
-                  ...(branchesAvailable ? [table.branch ?? 'main'] : []),
-                  rowCount,
-                  tableCatalogState(table),
-                ],
-              }
-            })}
-          />
-          {selected && selectedProfile && (
-            <TableEvidenceBand
-              dataset={selectedDataset}
-              operations={selectedOperations}
-              profile={selectedProfile}
-              quality={selectedQuality}
-              selected={selected}
-            />
-          )}
-          <div className="phlo-observatory-data-main-tabs" role="tablist">
-            {dataMainViews.map((view) => (
-              <button
-                aria-selected={mainView === view.id}
-                data-active={mainView === view.id}
-                key={view.id}
-                onClick={() => setMainView(view.id)}
-                role="tab"
-                type="button"
-              >
-                {view.icon}
-                {view.label}
-              </button>
-            ))}
-          </div>
-          {mainView === 'lineage' ? (
-            <div className="phlo-observatory-flow-band">
-              <div className="phlo-observatory-workspace-toolbar">
-                <span>Table lineage</span>
-                <span className="phlo-observatory-pill">
-                  {graph.edges.length} bindings
-                </span>
-              </div>
-              <ObservatoryFlowCanvas
-                edges={graph.edges}
-                nodes={graph.nodes}
-                onSelect={selectTable}
-                selectedId={selected?.id}
-              />
-            </div>
-          ) : (
-            <DataPreviewTable
-              isLoadingMoreRows={isLoadingMoreRows}
-              onLoadMoreRows={loadMoreRows}
-              mode={mainView}
-              preview={selectedPreview}
-              selected={selected}
-            />
-          )}
-        </div>
-
-        <aside className="phlo-observatory-inspector">
-          <div className="phlo-observatory-inspector-label">
-            Table inspector
-          </div>
-          {selected ? (
-            <>
-              <h2>{selected.name}</h2>
-              <p>
-                {selectedDataset
-                  ? `Bound to ${selectedDataset.name}.`
-                  : selected.asset_id
-                    ? `Source binding ${selected.asset_id}.`
-                    : 'No Dataset or lineage binding.'}
-              </p>
-              <dl className="phlo-observatory-facts">
-                <Fact
-                  label="Schema"
-                  value={selected.schema_name ?? 'not reported'}
-                />
-                <Fact
-                  label="Namespace"
-                  value={selected.namespace ?? 'default'}
-                />
-                <Fact label="Format" value={selected.format ?? 'unknown'} />
-                {branchesAvailable && (
-                  <Fact label="Branch" value={selected.branch ?? 'main'} />
-                )}
-                <Fact
-                  label="Queryable state"
-                  value={tableCatalogState(selected)}
-                />
-              </dl>
-              <div className="phlo-observatory-mini-preview">
-                <div>
-                  <Rows3 className="size-4" />
-                  {selectedPreview?.row_count ??
-                    readMetric(selected.metadata, 'records') ??
-                    'unknown'}{' '}
-                  records
-                </div>
-                <div>
-                  <Columns3 className="size-4" />
-                  {selectedPreview?.columns.length
-                    ? selectedPreview.columns.length
-                    : 'unknown'}{' '}
-                  columns
-                </div>
-              </div>
-              <div
-                className="phlo-observatory-tab-row"
-                role="tablist"
-                aria-label="Table detail"
-              >
-                {dataDetailTabs.map((tab) => (
-                  <button
-                    aria-selected={activeDetail === tab.id}
-                    data-active={activeDetail === tab.id}
-                    key={tab.id}
-                    onClick={() => setActiveDetail(tab.id)}
-                    role="tab"
-                    type="button"
-                  >
-                    {tab.icon}
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-              <TableWorkflowLinks
-                dataset={selectedDataset}
-                operations={selectedOperations}
-                quality={selectedQuality}
-                selected={selected}
-              />
-              <DataDetailPanel
-                active={activeDetail}
-                dataset={selectedDataset}
-                operations={selectedOperations}
-                preview={selectedPreview}
-                quality={selectedQuality}
-                queryResult={queryResult}
-                selected={selected}
-                onRefresh={() => setPreviewRefreshKey((key) => key + 1)}
-                onRunQuery={(nextSql) => {
-                  const request = {
-                    sql: nextSql,
-                    limit: 100,
-                    ...(branchesAvailable
-                      ? { branch: selected.branch ?? 'main' }
-                      : {}),
-                  }
-                  void runObservatoryQuery({
-                    data: request,
-                  }).then(setQueryResult)
-                }}
-                onSaveQuery={(nextSql, name) => {
-                  const request = {
-                    name,
-                    sql: nextSql,
-                    ...(branchesAvailable
-                      ? { branch: selected.branch ?? 'main' }
-                      : {}),
-                  }
-                  void saveObservatoryQuery({
-                    data: request,
-                  }).then((next) => {
-                    if (next.data) {
-                      setSavedQueries((current) => ({
-                        data: [next.data!, ...(current.data ?? [])],
-                        error: null,
-                      }))
-                    } else {
-                      setSavedQueries((current) => ({
-                        data: current.data,
-                        error: next.error,
-                      }))
-                    }
-                  })
-                }}
-                savedQueries={savedQueries.data ?? []}
-                showBranch={branchesAvailable}
-                setSql={setSql}
-                sql={sql}
-              />
-              {selectedPreviewError && (
-                <div className="phlo-observatory-panel-footer">
-                  {selectedPreviewError}
-                </div>
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">{namespaces.size} namespaces</Badge>
+        }
+        description={
+          branchesAvailable
+            ? 'Inspect physical tables, branches, schemas, Dataset bindings, quality checks, and linked runs.'
+            : 'Inspect physical tables, schemas, Dataset bindings, quality checks, and linked runs.'
+        }
+        title="Table inventory"
+      />
+      <SplitView
+        inspector={
+          <>
+            <InspectorSection
+              label={`Table inspector · ${selected?.name ?? 'none'}`}
+            >
+              {selected ? (
+                <>
+                  <p className="text-muted-foreground text-xs/relaxed">
+                    {selectedDataset
+                      ? `Bound to ${selectedDataset.name}.`
+                      : selected.asset_id
+                        ? `Source binding ${selected.asset_id}.`
+                        : 'No Dataset or lineage binding.'}
+                  </p>
+                  <FactGrid>
+                    <Fact
+                      label="Schema"
+                      value={selected.schema_name ?? 'not reported'}
+                    />
+                    <Fact
+                      label="Namespace"
+                      value={selected.namespace ?? 'default'}
+                    />
+                    <Fact label="Format" value={selected.format ?? 'unknown'} />
+                    {branchesAvailable && (
+                      <Fact label="Branch" value={selected.branch ?? 'main'} />
+                    )}
+                    <Fact
+                      label="Queryable state"
+                      value={tableCatalogState(selected)}
+                    />
+                  </FactGrid>
+                  <div className="border-border grid grid-cols-2 divide-x border-y">
+                    <div className="text-foreground flex items-center gap-1.5 px-3 py-2 font-mono text-[11px]">
+                      <Rows3 className="text-muted-foreground size-3.5" />
+                      {selectedPreview?.row_count ??
+                        readMetric(selected.metadata, 'records') ??
+                        'unknown'}{' '}
+                      records
+                    </div>
+                    <div className="text-foreground flex items-center gap-1.5 px-3 py-2 font-mono text-[11px]">
+                      <Columns3 className="text-muted-foreground size-3.5" />
+                      {selectedPreview?.columns.length
+                        ? selectedPreview.columns.length
+                        : 'unknown'}{' '}
+                      columns
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  No table selected.
+                </p>
               )}
-            </>
-          ) : (
-            <p>No table selected.</p>
-          )}
-          {result.error && (
-            <div className="phlo-observatory-panel-footer">{result.error}</div>
-          )}
-          {qualityResult.error && (
-            <div className="phlo-observatory-panel-footer">
-              {qualityResult.error}
+            </InspectorSection>
+            {selected && (
+              <>
+                <InspectorSection label="Workflow">
+                  <TableWorkflowLinks
+                    dataset={selectedDataset}
+                    operations={selectedOperations}
+                    quality={selectedQuality}
+                    selected={selected}
+                  />
+                </InspectorSection>
+                <InspectorSection label="Detail">
+                  <div
+                    aria-label="Table detail"
+                    className="flex items-center gap-1.5"
+                    role="tablist"
+                  >
+                    {dataDetailTabs.map((tab) => (
+                      <Button
+                        aria-selected={activeDetail === tab.id}
+                        key={tab.id}
+                        onClick={() => setActiveDetail(tab.id)}
+                        role="tab"
+                        size="xs"
+                        type="button"
+                        variant={
+                          activeDetail === tab.id ? 'default' : 'outline'
+                        }
+                      >
+                        {tab.icon}
+                        {tab.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="pt-2">
+                    <DataDetailPanel
+                      active={activeDetail}
+                      dataset={selectedDataset}
+                      operations={selectedOperations}
+                      preview={selectedPreview}
+                      quality={selectedQuality}
+                      queryResult={queryResult}
+                      selected={selected}
+                      onRefresh={() => setPreviewRefreshKey((key) => key + 1)}
+                      onRunQuery={(nextSql) => {
+                        const request = {
+                          sql: nextSql,
+                          limit: 100,
+                          ...(branchesAvailable
+                            ? { branch: selected.branch ?? 'main' }
+                            : {}),
+                        }
+                        void runObservatoryQuery({
+                          data: request,
+                        }).then(setQueryResult)
+                      }}
+                      onSaveQuery={(nextSql, name) => {
+                        const request = {
+                          name,
+                          sql: nextSql,
+                          ...(branchesAvailable
+                            ? { branch: selected.branch ?? 'main' }
+                            : {}),
+                        }
+                        void saveObservatoryQuery({
+                          data: request,
+                        }).then((next) => {
+                          if (next.data) {
+                            setSavedQueries((current) => ({
+                              data: [next.data!, ...(current.data ?? [])],
+                              error: null,
+                            }))
+                          } else {
+                            setSavedQueries((current) => ({
+                              data: current.data,
+                              error: next.error,
+                            }))
+                          }
+                        })
+                      }}
+                      savedQueries={savedQueries.data ?? []}
+                      showBranch={branchesAvailable}
+                      setSql={setSql}
+                      sql={sql}
+                    />
+                  </div>
+                  {selectedPreviewError && (
+                    <p className="text-status-error pt-2 font-mono text-[10px] break-all">
+                      {selectedPreviewError}
+                    </p>
+                  )}
+                </InspectorSection>
+              </>
+            )}
+            {(result.error ??
+              qualityResult.error ??
+              operationResult.error ??
+              datasetResult.error) && (
+              <InspectorSection label="Errors">
+                {[
+                  result.error,
+                  qualityResult.error,
+                  operationResult.error,
+                  datasetResult.error,
+                ]
+                  .filter(Boolean)
+                  .map((error) => (
+                    <p
+                      className="text-status-error font-mono text-[10px] break-all"
+                      key={error}
+                    >
+                      {error}
+                    </p>
+                  ))}
+              </InspectorSection>
+            )}
+          </>
+        }
+        inspectorWidth="w-[24rem]"
+        list={
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+            <SectionCard
+              actions={
+                <Badge variant="secondary">
+                  {filteredTables.length} / {tables.length} tables
+                </Badge>
+              }
+              title="Inventory"
+            >
+              <div className="border-border border-b px-3 py-2">
+                <label className="relative block">
+                  <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+                  <Input
+                    aria-label="Search tables"
+                    className="pl-8"
+                    onChange={(event) => setTableQuery(event.target.value)}
+                    placeholder={
+                      branchesAvailable
+                        ? 'Search name, namespace, branch'
+                        : 'Search name, namespace, schema'
+                    }
+                    value={tableQuery}
+                  />
+                </label>
+              </div>
+              <TableInventorySummary summary={tableSummary} />
+              <ScrollArea className="max-h-72">
+                <ObservatoryIndexTable
+                  columnTemplate={
+                    branchesAvailable
+                      ? '1.15fr 0.8fr 1.25fr 0.65fr 0.65fr 0.9fr 0.9fr'
+                      : '1.15fr 0.8fr 1.25fr 0.65fr 0.8fr 0.9fr'
+                  }
+                  columns={[
+                    { key: 'name', label: 'Name' },
+                    { key: 'namespace', label: 'Namespace' },
+                    { key: 'dataset', label: 'Dataset' },
+                    { key: 'format', label: 'Format' },
+                    ...(branchesAvailable
+                      ? [{ key: 'branch', label: 'Branch' }]
+                      : []),
+                    { key: 'rows', label: 'Rows' },
+                    { key: 'queryable', label: 'Queryable state' },
+                  ]}
+                  empty={
+                    <EmptyBlock
+                      description={
+                        !hasLoadedTables
+                          ? 'Loading tables...'
+                          : tables.length === 0
+                            ? 'No tables registered yet.'
+                            : 'No tables match this filter.'
+                      }
+                      title="Table inventory"
+                    />
+                  }
+                  rows={filteredTables.map((table) => {
+                    const rowDataset = datasetForTable(table, datasets)
+                    const rowCount =
+                      table.id === selected?.id && selectedRowCount !== null
+                        ? selectedRowCount
+                        : (readTableRecordCount(table) ?? '-')
+                    return {
+                      active: table.id === selected?.id,
+                      key: table.id,
+                      onSelect: () => selectTable(table.id),
+                      cells: [
+                        table.name,
+                        table.namespace ?? 'default',
+                        tableDatasetLabel(rowDataset),
+                        table.format ?? 'unknown',
+                        ...(branchesAvailable ? [table.branch ?? 'main'] : []),
+                        rowCount,
+                        tableCatalogState(table),
+                      ],
+                    }
+                  })}
+                />
+              </ScrollArea>
+            </SectionCard>
+            {selected && selectedProfile && (
+              <TableEvidenceBand
+                dataset={selectedDataset}
+                operations={selectedOperations}
+                profile={selectedProfile}
+                quality={selectedQuality}
+                selected={selected}
+              />
+            )}
+            <div
+              aria-label="Table main view"
+              className="flex items-center gap-1.5"
+              role="tablist"
+            >
+              {dataMainViews.map((view) => (
+                <Button
+                  aria-selected={mainView === view.id}
+                  key={view.id}
+                  onClick={() => setMainView(view.id)}
+                  role="tab"
+                  size="xs"
+                  type="button"
+                  variant={mainView === view.id ? 'default' : 'outline'}
+                >
+                  {view.icon}
+                  {view.label}
+                </Button>
+              ))}
             </div>
-          )}
-          {operationResult.error && (
-            <div className="phlo-observatory-panel-footer">
-              {operationResult.error}
-            </div>
-          )}
-          {datasetResult.error && (
-            <div className="phlo-observatory-panel-footer">
-              {datasetResult.error}
-            </div>
-          )}
-        </aside>
-      </section>
-    </ObservatoryPage>
+            {mainView === 'lineage' ? (
+              <SectionCard
+                actions={
+                  <Badge variant="secondary">
+                    {graph.edges.length} bindings
+                  </Badge>
+                }
+                contentClassName="p-0"
+                title="Table lineage"
+              >
+                <div className="bg-surface-sunken min-h-[26rem]">
+                  <ObservatoryFlowCanvas
+                    edges={graph.edges}
+                    nodes={graph.nodes}
+                    onSelect={selectTable}
+                    selectedId={selected?.id}
+                  />
+                </div>
+              </SectionCard>
+            ) : (
+              <DataPreviewTable
+                isLoadingMoreRows={isLoadingMoreRows}
+                onLoadMoreRows={loadMoreRows}
+                mode={mainView}
+                preview={selectedPreview}
+                selected={selected}
+              />
+            )}
+          </div>
+        }
+      />
+    </Page>
   )
 }
 
@@ -653,7 +703,7 @@ type TableProfile = {
 
 function TableInventorySummary({ summary }: { summary: TableSummary }) {
   return (
-    <div className="phlo-observatory-table-summary">
+    <div className="border-border grid grid-cols-5 divide-x border-b max-lg:grid-cols-3">
       <SummaryCell
         label="Queryable"
         value={`${summary.queryable}/${summary.total}`}
@@ -674,9 +724,13 @@ function SummaryCell({
   value: string | number
 }) {
   return (
-    <div className="phlo-observatory-table-summary-cell">
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className="flex flex-col gap-0.5 px-3 py-2">
+      <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      <strong className="text-foreground truncate font-mono text-[11px]">
+        {value}
+      </strong>
     </div>
   )
 }
@@ -705,16 +759,22 @@ function TableEvidenceBand({
         : `${quality.length} checks passing`
 
   return (
-    <div
-      className="phlo-observatory-data-profile"
+    <section
+      className="bg-card ring-foreground/10 ring-1"
       data-state={profile.qualityState}
     >
-      <div className="phlo-observatory-data-profile-stage">
-        <span>Selected table</span>
-        <strong>{selected.id}</strong>
-        <small>{profile.stage} layer</small>
+      <div className="border-border flex items-center justify-between gap-2 border-b px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+            Selected table
+          </span>
+          <strong className="text-foreground truncate font-mono text-[11px]">
+            {selected.id}
+          </strong>
+        </div>
+        <Badge variant="secondary">{profile.stage} layer</Badge>
       </div>
-      <div className="phlo-observatory-data-profile-grid">
+      <div className="border-border grid grid-cols-5 divide-x border-b max-lg:grid-cols-3">
         <ProfileFact
           href={
             dataset ? `/datasets/${encodeURIComponent(dataset.id)}` : undefined
@@ -751,18 +811,18 @@ function TableEvidenceBand({
         />
         <ProfileFact label="Rows" value={profile.records ?? 'unknown'} />
       </div>
-      <div className="phlo-observatory-data-profile-keys">
+      <div className="flex flex-wrap items-center gap-1.5 px-3 py-2">
         {profile.businessKeys.length > 0 ? (
           profile.businessKeys.map((key) => (
-            <span className="phlo-observatory-pill" key={key}>
+            <Badge key={key} variant="secondary">
               {key}
-            </span>
+            </Badge>
           ))
         ) : (
-          <span className="phlo-observatory-pill">No key columns detected</span>
+          <Badge variant="secondary">No key columns detected</Badge>
         )}
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -777,20 +837,26 @@ function ProfileFact({
 }) {
   const content = (
     <>
-      <span>{label}</span>
-      <strong>{String(value)}</strong>
+      <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      <strong className="text-foreground truncate text-[11px]">
+        {String(value)}
+      </strong>
     </>
   )
+  const className =
+    'flex min-w-0 flex-col gap-0.5 px-3 py-2 hover:bg-accent/50 transition-colors'
 
   if (href) {
     return (
-      <Link className="phlo-observatory-data-profile-fact" to={href}>
+      <Link className={className} to={href}>
         {content}
       </Link>
     )
   }
 
-  return <div className="phlo-observatory-data-profile-fact">{content}</div>
+  return <div className={cn(className, 'hover:bg-transparent')}>{content}</div>
 }
 
 function DataPreviewTable({
@@ -811,64 +877,73 @@ function DataPreviewTable({
 
   if (!selected) {
     return (
-      <div className="phlo-observatory-data-preview-empty">
-        Select a table to inspect rows and schema.
-      </div>
+      <SectionCard>
+        <EmptyBlock
+          description="Select a table to inspect rows and schema."
+          title="No table selected"
+        />
+      </SectionCard>
     )
   }
 
   if (mode === 'schema') {
     return (
-      <div className="phlo-observatory-data-preview">
-        <div className="phlo-observatory-workspace-toolbar">
-          <span>
-            <Columns3 className="size-4" />
-            {selected.name} schema
-          </span>
-          <span className="phlo-observatory-pill">
-            {columns.length} columns
-          </span>
-        </div>
-        <div className="phlo-observatory-schema-grid" role="table">
-          <div className="phlo-observatory-schema-head" role="row">
+      <SectionCard
+        actions={<Badge variant="secondary">{columns.length} columns</Badge>}
+        contentClassName="p-0"
+        title={`${selected.name} schema`}
+      >
+        <div role="table">
+          <div
+            className="border-border text-muted-foreground grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase"
+            role="row"
+          >
             <span>Column</span>
             <span>Type</span>
           </div>
-          {columns.map((column, index) => (
-            <div
-              className="phlo-observatory-schema-row"
-              key={column}
-              role="row"
-            >
-              <span>{column}</span>
-              <span>{columnTypeFor(preview, column, index)}</span>
+          <ScrollArea className="max-h-[26rem]">
+            <div className="divide-border divide-y">
+              {columns.map((column, index) => (
+                <div
+                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] px-3 py-1.5"
+                  key={column}
+                  role="row"
+                >
+                  <span className="text-foreground truncate font-mono text-[11px]">
+                    {column}
+                  </span>
+                  <span className="text-muted-foreground truncate font-mono text-[10px]">
+                    {columnTypeFor(preview, column, index)}
+                  </span>
+                </div>
+              ))}
+              {columns.length === 0 && (
+                <EmptyBlock
+                  description="No schema preview available yet."
+                  title="Schema"
+                />
+              )}
             </div>
-          ))}
-          {columns.length === 0 && (
-            <div className="phlo-observatory-empty-state">
-              No schema preview available yet.
-            </div>
-          )}
+          </ScrollArea>
         </div>
-      </div>
+      </SectionCard>
     )
   }
 
   return (
-    <div className="phlo-observatory-data-preview">
-      <div className="phlo-observatory-workspace-toolbar">
-        <span>
-          <Rows3 className="size-4" />
-          {selected.name} rows
-        </span>
-        <span className="phlo-observatory-pill">
+    <SectionCard
+      actions={
+        <Badge variant="secondary">
           {rows.length} loaded
           {preview?.row_count ? ` · ${preview.row_count} total` : ''}
-        </span>
-      </div>
+        </Badge>
+      }
+      contentClassName="p-0"
+      title={`${selected.name} rows`}
+    >
       {columns.length > 0 ? (
         <div
-          className="phlo-observatory-row-preview-scroll"
+          className="max-h-[30rem] overflow-auto"
           onScroll={(event) => {
             const target = event.currentTarget
             const remaining =
@@ -876,25 +951,38 @@ function DataPreviewTable({
             if (remaining < 96) onLoadMoreRows()
           }}
         >
-          <table className="phlo-observatory-row-preview-table">
-            <thead>
+          <table className="w-full border-collapse font-mono text-[11px]">
+            <thead className="bg-card sticky top-0">
               <tr>
                 {columns.map((column) => (
-                  <th key={column}>{column}</th>
+                  <th
+                    className="border-border text-muted-foreground border-b px-3 py-1.5 text-left text-[9px] font-medium tracking-widest uppercase"
+                    key={column}
+                  >
+                    {column}
+                  </th>
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-border divide-y">
               {rows.map((row, index) => (
                 <tr key={String(row._phlo_row_id ?? index)}>
                   {columns.map((column) => (
-                    <td key={column}>{formatCell(row[column])}</td>
+                    <td
+                      className="text-foreground max-w-64 truncate px-3 py-1.5"
+                      key={column}
+                    >
+                      {formatCell(row[column])}
+                    </td>
                   ))}
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr className="phlo-observatory-row-preview-empty-row">
-                  <td colSpan={columns.length}>
+                <tr>
+                  <td
+                    className="text-muted-foreground px-3 py-4 text-center text-xs"
+                    colSpan={columns.length}
+                  >
                     No rows matched the active query.
                   </td>
                 </tr>
@@ -902,21 +990,87 @@ function DataPreviewTable({
             </tbody>
           </table>
           {(preview?.has_more || isLoadingMoreRows) && (
-            <button
-              className="phlo-observatory-row-preview-more"
-              disabled={isLoadingMoreRows}
-              onClick={onLoadMoreRows}
-              type="button"
-            >
-              {isLoadingMoreRows ? 'Loading more rows…' : 'Load more rows'}
-            </button>
+            <div className="border-border border-t px-3 py-2">
+              <Button
+                disabled={isLoadingMoreRows}
+                onClick={onLoadMoreRows}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {isLoadingMoreRows ? 'Loading more rows…' : 'Load more rows'}
+              </Button>
+            </div>
           )}
         </div>
       ) : (
-        <div className="phlo-observatory-data-preview-empty">
-          {preview ? previewEmptyCopy(selected) : 'Loading preview rows…'}
-        </div>
+        <EmptyBlock
+          description={
+            preview ? previewEmptyCopy(selected) : 'Loading preview rows…'
+          }
+          title="Row preview"
+        />
       )}
+    </SectionCard>
+  )
+}
+
+function LinkedMiniRow({
+  children,
+  detail,
+  label,
+  state,
+  to,
+  params,
+  search,
+}: {
+  children?: ReactNode
+  detail?: string
+  label: ReactNode
+  state?: string
+  to: string
+  params?: Record<string, string>
+  search?: Record<string, string>
+}) {
+  return (
+    <Link
+      className="hover:bg-accent/50 flex items-center justify-between gap-2 px-3 py-2 transition-colors"
+      data-state={state}
+      params={params}
+      search={search}
+      to={to}
+    >
+      <span className="text-foreground flex min-w-0 items-center gap-1.5 truncate text-[11px]">
+        {children}
+        {label}
+      </span>
+      {detail && (
+        <span className="text-muted-foreground flex-none text-right font-mono text-[10px]">
+          {detail}
+        </span>
+      )}
+    </Link>
+  )
+}
+
+function MiniRow({
+  detail,
+  label,
+  state,
+}: {
+  detail: string | number
+  label: string
+  state?: string
+}) {
+  return (
+    <div
+      className="flex items-center justify-between gap-2 px-3 py-2"
+      data-state={state}
+    >
+      <span className="text-foreground min-w-0 text-[11px]">{label}</span>
+      <span className="text-muted-foreground flex-none text-right font-mono text-[10px]">
+        {detail}
+      </span>
     </div>
   )
 }
@@ -933,110 +1087,86 @@ function TableWorkflowLinks({
   selected: ObservatoryTable
 }) {
   return (
-    <div className="phlo-observatory-detail-list phlo-observatory-table-workflow-links">
+    <div className="divide-border -mx-3 divide-y border-y">
       {dataset ? (
-        <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+        <LinkedMiniRow
+          detail={[
+            dataset.name,
+            dataset.publication_state,
+            dataset.readiness_state,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+          label="Open Dataset"
           params={{ datasetId: dataset.id }}
           to="/datasets/$datasetId"
         >
-          <span>
-            <Database className="size-3.5" />
-            Open Dataset
-          </span>
-          <small>
-            {[dataset.name, dataset.publication_state, dataset.readiness_state]
-              .filter(Boolean)
-              .join(' · ')}
-          </small>
-        </Link>
+          <Database className="size-3.5 flex-none" />
+        </LinkedMiniRow>
       ) : (
-        <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-          data-state="unknown"
+        <LinkedMiniRow
+          detail="Open Datasets to claim or promote this table"
+          label="Bind to Dataset"
+          state="unknown"
           to="/datasets"
         >
-          <span>
-            <Database className="size-3.5" />
-            Bind to Dataset
-          </span>
-          <small>Open Datasets to claim or promote this table</small>
-        </Link>
+          <Database className="size-3.5 flex-none" />
+        </LinkedMiniRow>
       )}
       {selected.asset_id ? (
-        <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+        <LinkedMiniRow
+          detail={selected.asset_id}
+          label="Open Lineage"
           search={{ assetId: selected.asset_id }}
           to="/lineage"
         >
-          <span>
-            <GitBranch className="size-3.5" />
-            Open Lineage
-          </span>
-          <small>{selected.asset_id}</small>
-        </Link>
+          <GitBranch className="size-3.5 flex-none" />
+        </LinkedMiniRow>
       ) : (
-        <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-          data-state="unknown"
+        <LinkedMiniRow
+          detail="Open Lineage to connect upstream and downstream impact"
+          label="Attach lineage evidence"
+          state="unknown"
           to="/lineage"
         >
-          <span>
-            <GitBranch className="size-3.5" />
-            Attach lineage evidence
-          </span>
-          <small>Open Lineage to connect upstream and downstream impact</small>
-        </Link>
+          <GitBranch className="size-3.5 flex-none" />
+        </LinkedMiniRow>
       )}
       {quality.slice(0, 3).map((check) => (
-        <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+        <LinkedMiniRow
+          detail={[check.status, check.severity].filter(Boolean).join(' · ')}
           key={check.id}
+          label={check.name}
           search={{ checkId: check.id }}
           to="/quality"
-        >
-          <span>{check.name}</span>
-          <small>
-            {[check.status, check.severity].filter(Boolean).join(' · ')}
-          </small>
-        </Link>
+        />
       ))}
       {quality.length === 0 && (
-        <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-          data-state="unknown"
+        <LinkedMiniRow
+          detail="Open Quality to add freshness, schema, or reconciliation evidence"
+          label="Add quality coverage"
+          state="unknown"
           to="/quality"
-        >
-          <span>Add quality coverage</span>
-          <small>
-            Open Quality to add freshness, schema, or reconciliation evidence
-          </small>
-        </Link>
+        />
       )}
       {operations.slice(0, 2).map((operation) => (
-        <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+        <LinkedMiniRow
+          detail={[operation.kind, operation.status]
+            .filter(Boolean)
+            .join(' · ')}
           key={operation.id}
+          label={operation.name}
           search={{ operationId: operation.id }}
           to="/operations"
-        >
-          <span>{operation.name}</span>
-          <small>
-            {[operation.kind, operation.status].filter(Boolean).join(' · ')}
-          </small>
-        </Link>
+        />
       ))}
       {operations.length === 0 && (
-        <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-          data-state="unknown"
+        <LinkedMiniRow
+          detail="Open Operations to link refresh, materialization, or recovery runs"
+          label="Connect operation evidence"
+          state="unknown"
           to="/operations"
-        >
-          <span>Connect operation evidence</span>
-          <small>
-            Open Operations to link refresh, materialization, or recovery runs
-          </small>
-        </Link>
+        />
       )}
     </div>
   )
@@ -1133,77 +1263,88 @@ function DataDetailPanel({
 
   if (active === 'sql') {
     return (
-      <div className="phlo-observatory-query-panel">
-        <div className="phlo-observatory-workspace-toolbar">
-          <span>Preview query</span>
-          <span className="phlo-observatory-pill">
-            {preview?.limit ?? previewLimit} row limit
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground font-mono text-[9px] font-medium tracking-widest uppercase">
+            Preview query
           </span>
+          <Badge variant="secondary">
+            {preview?.limit ?? previewLimit} row limit
+          </Badge>
         </div>
         <textarea
+          className="border-input bg-surface-sunken text-foreground focus-visible:ring-ring min-h-24 w-full border px-2 py-1.5 font-mono text-[11px] outline-none focus-visible:ring-1"
           onChange={(event) => setSql(event.target.value)}
           value={sql}
         />
-        <label className="phlo-observatory-save-query-field">
-          <span>Saved query name</span>
-          <input
+        <label className="flex flex-col gap-1">
+          <span className="text-muted-foreground text-[11px] font-medium">
+            Saved query name
+          </span>
+          <Input
             onChange={(event) => setSavedQueryName(event.target.value)}
             placeholder="Daily revenue sample"
             value={savedQueryName}
           />
         </label>
-        <div className="phlo-observatory-action-row">
-          <button onClick={() => onRunQuery(sql)} type="button">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button onClick={() => onRunQuery(sql)} size="sm" type="button">
             <Play className="size-3.5" />
             Run query
-          </button>
-          <button onClick={onRefresh} type="button">
+          </Button>
+          <Button onClick={onRefresh} size="sm" type="button" variant="outline">
             <Play className="size-3.5" />
             Refresh preview
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={!sql.trim() || !savedQueryName.trim()}
             onClick={() => {
               onSaveQuery(sql, savedQueryName.trim())
               setSavedQueryName('')
             }}
+            size="sm"
             type="button"
+            variant="outline"
           >
             <Save className="size-3.5" />
             Save
-          </button>
+          </Button>
         </div>
         {savedQueries.length > 0 && (
-          <div className="phlo-observatory-detail-list">
+          <div className="divide-border -mx-3 divide-y border-y">
             {savedQueries.slice(0, 4).map((query) => (
               <button
-                className="phlo-observatory-mini-row"
+                className="hover:bg-accent/50 flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors"
                 key={query.id}
                 onClick={() => setSql(query.sql)}
                 type="button"
               >
-                <span>{query.name}</span>
-                <small>{showBranch ? (query.branch ?? 'main') : 'saved'}</small>
+                <span className="text-foreground truncate text-[11px]">
+                  {query.name}
+                </span>
+                <span className="text-muted-foreground flex-none font-mono text-[10px]">
+                  {showBranch ? (query.branch ?? 'main') : 'saved'}
+                </span>
               </button>
             ))}
           </div>
         )}
         {queryResult.data && (
-          <div className="phlo-observatory-detail-list">
-            <div className="phlo-observatory-mini-row">
-              <span>Effective SQL</span>
-              <small>{queryResult.data.effective_sql}</small>
-            </div>
-            <div className="phlo-observatory-mini-row">
-              <span>Rows</span>
-              <small>{queryResult.data.rows.length}</small>
-            </div>
+          <div className="divide-border -mx-3 divide-y border-y">
+            <MiniRow
+              detail={queryResult.data.effective_sql}
+              label="Effective SQL"
+            />
+            <MiniRow
+              detail={String(queryResult.data.rows.length)}
+              label="Rows"
+            />
           </div>
         )}
         {queryResult.error && (
-          <div className="phlo-observatory-panel-footer">
+          <p className="text-status-error font-mono text-[10px] break-all">
             {queryResult.error}
-          </div>
+          </p>
         )}
       </div>
     )
@@ -1216,143 +1357,122 @@ function DataDetailPanel({
     const owner = dataset?.owner ?? readMetric(selected.metadata, 'owner')
 
     return (
-      <div className="phlo-observatory-detail-list">
-        <div className="phlo-observatory-mini-row">
-          <span>Owner</span>
-          <small>{owner ?? 'No owner assigned'}</small>
-        </div>
-        <div className="phlo-observatory-mini-row">
-          <span>Dataset binding</span>
-          <small>{dataset ? dataset.name : 'Candidate table'}</small>
-        </div>
+      <div className="divide-border -mx-3 divide-y border-y">
+        <MiniRow detail={owner ?? 'No owner assigned'} label="Owner" />
+        <MiniRow
+          detail={dataset ? dataset.name : 'Candidate table'}
+          label="Dataset binding"
+        />
         {dataset ? (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+          <LinkedMiniRow
+            detail={[dataset.publication_state, dataset.readiness_state].join(
+              ' · ',
+            )}
+            label="Open Dataset readiness"
             params={{ datasetId: dataset.id }}
             to="/datasets/$datasetId"
-          >
-            <span>Open Dataset readiness</span>
-            <small>
-              {[dataset.publication_state, dataset.readiness_state].join(' · ')}
-            </small>
-          </Link>
+          />
         ) : (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            data-state="unknown"
+          <LinkedMiniRow
+            detail="Promote this table into a governed Dataset workflow"
+            label="Claim Dataset candidate"
+            state="unknown"
             to="/datasets"
-          >
-            <span>Claim Dataset candidate</span>
-            <small>Promote this table into a governed Dataset workflow</small>
-          </Link>
+          />
         )}
         {showBranch && (
-          <div className="phlo-observatory-mini-row">
-            <span>Branch</span>
-            <small>{selected.branch ?? 'main'}</small>
-          </div>
+          <MiniRow detail={selected.branch ?? 'main'} label="Branch" />
         )}
         {selected.asset_id && (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+          <LinkedMiniRow
+            detail={selected.asset_id}
+            label="Open dependency map"
             search={{ assetId: selected.asset_id }}
             to="/lineage"
-          >
-            <span>Open dependency map</span>
-            <small>{selected.asset_id}</small>
-          </Link>
+          />
         )}
         {nextQuality ? (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            data-state={
-              nextQuality.status === 'failing' ? 'error' : nextQuality.status
+          <LinkedMiniRow
+            detail={[nextQuality.name, nextQuality.severity]
+              .filter(Boolean)
+              .join(' · ')}
+            label={
+              nextQuality.status === 'failing'
+                ? 'Triage quality failure'
+                : 'Review quality evidence'
             }
             search={{ checkId: nextQuality.id }}
+            state={
+              nextQuality.status === 'failing' ? 'error' : nextQuality.status
+            }
             to="/quality"
-          >
-            <span>
-              {nextQuality.status === 'failing'
-                ? 'Triage quality failure'
-                : 'Review quality evidence'}
-            </span>
-            <small>
-              {[nextQuality.name, nextQuality.severity]
-                .filter(Boolean)
-                .join(' · ')}
-            </small>
-          </Link>
+          />
         ) : (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            data-state="unknown"
+          <LinkedMiniRow
+            detail="No checks are attached to this table yet"
+            label="Add quality evidence"
+            state="unknown"
             to="/quality"
-          >
-            <span>Add quality evidence</span>
-            <small>No checks are attached to this table yet</small>
-          </Link>
+          />
         )}
         {latestOperation ? (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+          <LinkedMiniRow
+            detail={[latestOperation.name, latestOperation.status]
+              .filter(Boolean)
+              .join(' · ')}
+            label="Review latest operation"
             search={{ operationId: latestOperation.id }}
             to="/operations"
-          >
-            <span>Review latest operation</span>
-            <small>
-              {[latestOperation.name, latestOperation.status]
-                .filter(Boolean)
-                .join(' · ')}
-            </small>
-          </Link>
+          />
         ) : (
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            data-state="unknown"
+          <LinkedMiniRow
+            detail="No operation is linked to this table yet"
+            label="Connect refresh evidence"
+            state="unknown"
             to="/operations"
-          >
-            <span>Connect refresh evidence</span>
-            <small>No operation is linked to this table yet</small>
-          </Link>
+          />
         )}
-        <div className="phlo-observatory-mini-row">
-          <span>Preview rows</span>
-          <small>
-            {preview
+        <MiniRow
+          detail={
+            preview
               ? `${preview.rows.length} loaded${preview.has_more ? ' · more available' : ''}`
-              : 'Preview not loaded'}
-          </small>
-        </div>
+              : 'Preview not loaded'
+          }
+          label="Preview rows"
+        />
       </div>
     )
   }
 
   return (
-    <div className="phlo-observatory-detail-list">
+    <div className="divide-border -mx-3 divide-y border-y">
       {(preview?.rows ?? []).slice(0, 4).map((row, index) => (
         <div
-          className="phlo-observatory-mini-row phlo-observatory-mini-row-stack"
+          className="flex flex-col gap-0.5 px-3 py-2"
           key={String(row._phlo_row_id ?? index)}
         >
-          <span>{String(row._phlo_row_id ?? `row-${index + 1}`)}</span>
-          <small>
+          <span className="text-foreground font-mono text-[11px]">
+            {String(row._phlo_row_id ?? `row-${index + 1}`)}
+          </span>
+          <span className="text-muted-foreground truncate font-mono text-[10px]">
             {Object.entries(row)
               .filter(([key]) => key !== '_phlo_row_id')
               .slice(0, 3)
               .map(([key, value]) => `${key}: ${String(value)}`)
               .join(' · ')}
-          </small>
+          </span>
         </div>
       ))}
       {(preview?.rows ?? []).length === 0 &&
-        (preview?.columns ?? []).slice(0, 6).map((column) => (
-          <div className="phlo-observatory-mini-row" key={column}>
-            <span>{column}</span>
-            <small>column</small>
-          </div>
-        ))}
+        (preview?.columns ?? [])
+          .slice(0, 6)
+          .map((column) => (
+            <MiniRow detail="column" key={column} label={column} />
+          ))}
       {preview && preview.columns.length === 0 && (
-        <p>No column preview available yet.</p>
+        <p className="text-muted-foreground px-3 py-2 text-xs">
+          No column preview available yet.
+        </p>
       )}
     </div>
   )
@@ -1708,19 +1828,4 @@ function tableLane(table: ObservatoryTable): string {
 
 function laneRank(lane: string): number {
   return ['raw', 'bronze', 'silver', 'gold', 'marts', 'table'].indexOf(lane)
-}
-
-function Fact({
-  label,
-  value,
-}: {
-  label: string
-  value: string | number | boolean
-}) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{String(value)}</dd>
-    </>
-  )
 }

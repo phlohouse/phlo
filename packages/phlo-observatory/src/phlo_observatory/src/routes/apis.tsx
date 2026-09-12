@@ -5,7 +5,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Braces, Radio, Route as RouteIcon, Server } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
 
 import type {
   ObservatoryService,
@@ -15,13 +14,24 @@ import {
   getObservatoryApiItems,
   getObservatoryServices,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { useLiveResource } from '@/observatory/routes/liveResource'
 import {
   metadataDisplayText,
   platformMetadataRows,
   rawMetadataText,
 } from '@/observatory/platformMetadata'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { HealthDot, StatusBadge } from '@/components/observatory/status'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/apis')({
   component: APIs,
@@ -86,175 +96,182 @@ export function APIs() {
   }, [selected, selectedId])
 
   return (
-    <ObservatoryPage
-      kicker="APIs"
-      title="API surfaces"
-      description="Published API contracts, backend providers, service attachment, and runtime readiness."
-      action={
-        <span className="phlo-observatory-pill">
-          {refreshState ? `${refreshState} · ` : ''}
-          {contracts.length} contracts
-        </span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-surface-shell phlo-observatory-apis-shell">
-        <div className="phlo-observatory-command-primary phlo-observatory-surface-list">
-          <div className="phlo-observatory-platform-summary">
-            <PlatformMetric
-              icon={<Braces className="size-4" />}
-              label="Contracts"
-              value={summary.contracts}
-            />
-            <PlatformMetric
-              icon={<RouteIcon className="size-4" />}
-              label="Backends"
-              value={summary.backends}
-            />
-            <PlatformMetric
-              icon={<Server className="size-4" />}
-              label="Services attached"
-              value={`${summary.attachedServices}/${summary.contracts}`}
-            />
-            <PlatformMetric
-              icon={<Radio className="size-4" />}
-              label="Running"
-              value={`${summary.runningServices}/${summary.attachedServices}`}
-            />
-          </div>
-          <div className="phlo-observatory-browser-toolbar">
-            <span>
-              <Braces className="size-4" />
-              API contracts
-            </span>
-            <span className="phlo-observatory-pill">
-              {refreshState ? `${refreshState} · ` : ''}
-              {contracts.length} registered
-            </span>
-          </div>
-          <div className="phlo-observatory-platform-table" role="table">
-            <div className="phlo-observatory-platform-head" role="row">
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {refreshState ? `${refreshState} · ` : ''}
+            {contracts.length} contracts
+          </Badge>
+        }
+        description="Published API contracts, backend providers, service attachment, and runtime readiness."
+        title="API surfaces"
+      />
+      <StatGrid>
+        <StatCard
+          icon={<Braces className="size-3.5" />}
+          label="Contracts"
+          value={summary.contracts}
+        />
+        <StatCard
+          icon={<RouteIcon className="size-3.5" />}
+          label="Backends"
+          value={summary.backends}
+        />
+        <StatCard
+          icon={<Server className="size-3.5" />}
+          label="Services attached"
+          value={`${summary.attachedServices}/${summary.contracts}`}
+        />
+        <StatCard
+          icon={<Radio className="size-3.5" />}
+          label="Running"
+          state={
+            summary.attachedServices > 0 &&
+            summary.runningServices < summary.attachedServices
+              ? 'warning'
+              : 'ok'
+          }
+          value={`${summary.runningServices}/${summary.attachedServices}`}
+        />
+      </StatGrid>
+      <SplitView
+        inspector={
+          <>
+            <InspectorSection label="API detail">
+              {selected ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-foreground text-xs font-semibold">
+                      {selected.name}
+                    </span>
+                    <StatusBadge state={selected.health.state} />
+                  </div>
+                  <p className="text-muted-foreground mt-1 text-xs/relaxed">
+                    {selected.summary ?? 'No API summary available.'}
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {isLoading
+                    ? 'Reading live runtime and service context.'
+                    : 'Select an API contract to inspect runtime and service context.'}
+                </p>
+              )}
+            </InspectorSection>
+            {selected && (
+              <InspectorSection label="Facts">
+                <FactGrid>
+                  <Fact label="Health" value={selected.health.state} />
+                  <Fact
+                    label="Provider"
+                    value={metadataDisplayText(selected, 'provider')}
+                  />
+                  <Fact
+                    label="Backend"
+                    value={metadataDisplayText(selected, 'backend_kind')}
+                  />
+                  <Fact
+                    label="Service"
+                    value={metadataDisplayText(selected, 'service_name')}
+                  />
+                </FactGrid>
+              </InspectorSection>
+            )}
+            {selected && (
+              <InspectorSection label="Runtime service">
+                <div className="border-y py-2">
+                  <div className="flex items-start gap-2">
+                    <HealthDot
+                      className="mt-1"
+                      state={
+                        selectedService?.runtime_state ??
+                        selectedService?.status
+                      }
+                    />
+                    <span className="min-w-0">
+                      <span className="text-foreground block text-xs">
+                        {metadataDisplayText(selected, 'service_name')}
+                      </span>
+                      <span className="text-muted-foreground block font-mono text-[10px]">
+                        {selectedService
+                          ? [
+                              selectedService.runtime_state ??
+                                selectedService.status,
+                              selectedService.in_stack
+                                ? 'in stack'
+                                : 'not in stack',
+                              selectedService.health.message,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')
+                          : 'No matching runtime service reported'}
+                      </span>
+                    </span>
+                  </div>
+                </div>
+              </InspectorSection>
+            )}
+            {selected && (
+              <InspectorSection label="Metadata">
+                {platformMetadataRows(selected.metadata).length ? (
+                  <FactGrid>
+                    {platformMetadataRows(selected.metadata).map((row) => (
+                      <Fact
+                        key={row.label}
+                        label={row.label}
+                        value={row.value}
+                      />
+                    ))}
+                  </FactGrid>
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    No structured fields.
+                  </p>
+                )}
+                {(result.error ?? servicesResult.error) && (
+                  <p className="text-status-error font-mono text-[10px] break-all">
+                    {result.error ?? servicesResult.error}
+                  </p>
+                )}
+              </InspectorSection>
+            )}
+          </>
+        }
+        inspectorWidth="w-[24rem]"
+        list={
+          <SectionCard className="ring-0" title="API contracts">
+            <div className="text-muted-foreground grid grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
               <span>Contract</span>
               <span>Backend</span>
               <span>Service</span>
               <span>Runtime</span>
               <span>State</span>
             </div>
-            {contracts.map((contract) => (
-              <ApiRow
-                contract={contract}
-                key={contract.id}
-                onSelect={() => selectApi(contract.id)}
-                selected={contract.id === selected?.id}
-                service={serviceForContract(contract, services)}
-              />
-            ))}
             {isInitialLoading ? (
-              <div className="phlo-observatory-run-provider-empty">
-                <div>
-                  <span className="phlo-observatory-inspector-label">
-                    API contracts
-                  </span>
-                  <h2>Loading API contracts</h2>
-                  <p>
-                    Reading live contracts, backend services, and runtime state.
-                  </p>
-                </div>
-              </div>
+              <LoadingBlock className="p-3" label="Loading API contracts" />
+            ) : contracts.length === 0 ? (
+              <EmptyBlock
+                description="The active stack has no API provider records to inspect."
+                title="No API contracts configured"
+              />
             ) : (
-              contracts.length === 0 && (
-                <div className="phlo-observatory-run-provider-empty">
-                  <div>
-                    <span className="phlo-observatory-inspector-label">
-                      API contracts
-                    </span>
-                    <h2>No API contracts configured</h2>
-                    <p>
-                      The active stack has no API provider records to inspect.
-                    </p>
-                  </div>
-                </div>
-              )
-            )}
-          </div>
-        </div>
-
-        <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-          <div className="phlo-observatory-inspector-label">API detail</div>
-          {selected ? (
-            <>
-              <h2>{selected.name}</h2>
-              <p>{selected.summary ?? 'No API summary available.'}</p>
-              <dl className="phlo-observatory-facts">
-                <Fact label="Health" value={selected.health.state} />
-                <Fact
-                  label="Provider"
-                  value={metadataDisplayText(selected, 'provider')}
-                />
-                <Fact
-                  label="Backend"
-                  value={metadataDisplayText(selected, 'backend_kind')}
-                />
-                <Fact
-                  label="Service"
-                  value={metadataDisplayText(selected, 'service_name')}
-                />
-              </dl>
-              <div className="phlo-observatory-detail-list">
-                <div
-                  className="phlo-observatory-mini-row"
-                  data-state={
-                    selectedService?.runtime_state ?? selectedService?.status
-                  }
-                >
-                  <span>{metadataDisplayText(selected, 'service_name')}</span>
-                  <small>
-                    {selectedService
-                      ? [
-                          selectedService.runtime_state ??
-                            selectedService.status,
-                          selectedService.in_stack
-                            ? 'in stack'
-                            : 'not in stack',
-                          selectedService.health.message,
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')
-                      : 'No matching runtime service reported'}
-                  </small>
-                </div>
-              </div>
-              <div className="phlo-observatory-detail-list">
-                {platformMetadataRows(selected.metadata).map((row) => (
-                  <div className="phlo-observatory-mini-row" key={row.label}>
-                    <span>{row.label}</span>
-                    <small>{row.value}</small>
-                  </div>
+              <div className="divide-y divide-border">
+                {contracts.map((contract) => (
+                  <ApiRow
+                    contract={contract}
+                    key={contract.id}
+                    onSelect={() => selectApi(contract.id)}
+                    selected={contract.id === selected?.id}
+                    service={serviceForContract(contract, services)}
+                  />
                 ))}
               </div>
-            </>
-          ) : (
-            <>
-              <h2>
-                {isInitialLoading ? 'Checking API detail' : 'No API selected'}
-              </h2>
-              <p>
-                {isLoading
-                  ? 'Reading live runtime and service context.'
-                  : 'Select an API contract to inspect runtime and service context.'}
-              </p>
-            </>
-          )}
-          {result.error && (
-            <div className="phlo-observatory-panel-footer">{result.error}</div>
-          )}
-          {servicesResult.error && (
-            <div className="phlo-observatory-panel-footer">
-              {servicesResult.error}
-            </div>
-          )}
-        </aside>
-      </section>
-    </ObservatoryPage>
+            )}
+          </SectionCard>
+        }
+      />
+    </Page>
   )
 }
 
@@ -271,38 +288,29 @@ function ApiRow({
 }) {
   return (
     <button
-      className="phlo-observatory-platform-row"
-      data-active={selected}
+      className={cn(
+        'hover:bg-accent/50 grid w-full grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1fr)] items-center gap-3 px-3 py-2 text-left transition-colors',
+        selected && 'bg-accent/60 hover:bg-accent/60',
+      )}
       onClick={onSelect}
-      role="row"
       type="button"
     >
-      <span>{contract.name}</span>
-      <span>{metadataDisplayText(contract, 'backend_kind')}</span>
-      <span>{metadataDisplayText(contract, 'service_name')}</span>
-      <span>{serviceRuntime(service)}</span>
-      <span>{contract.health.message ?? contract.health.state}</span>
-    </button>
-  )
-}
-
-function PlatformMetric({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-platform-summary-cell">
-      <span>
-        {icon}
-        {label}
+      <span className="text-foreground truncate text-xs font-medium">
+        {contract.name}
       </span>
-      <strong>{value}</strong>
-    </div>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {metadataDisplayText(contract, 'backend_kind')}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {metadataDisplayText(contract, 'service_name')}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {serviceRuntime(service)}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {contract.health.message ?? contract.health.state}
+      </span>
+    </button>
   )
 }
 
@@ -347,13 +355,4 @@ function serviceForContract(
 function serviceRuntime(service: ObservatoryService | null): string {
   if (!service) return 'not reported'
   return service.runtime_state ?? service.status
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </>
-  )
 }

@@ -5,6 +5,7 @@ import type {
   ObservatoryHealthState,
   ObservatoryServiceStatus,
 } from '@/observatory/api/types'
+import { StatusBadge as KitStatusBadge } from '@/components/observatory/status'
 
 type StatusValue = ObservatoryHealthState | ObservatoryServiceStatus
 
@@ -15,10 +16,5 @@ export function StatusBadge({
   label: string
   state: StatusValue
 }) {
-  return (
-    <span className="phlo-observatory-pill">
-      <span className="phlo-observatory-dot" data-state={state} />
-      {label}
-    </span>
-  )
+  return <KitStatusBadge label={label} state={state} />
 }

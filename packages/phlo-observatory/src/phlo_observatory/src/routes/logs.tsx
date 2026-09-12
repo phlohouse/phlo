@@ -15,12 +15,31 @@ import {
   getObservatoryLogFacets,
   getObservatoryLogRecords,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { platformMetadataRows } from '@/observatory/platformMetadata'
 import {
   loadCachedResource,
   useLiveResource,
 } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { StatusBadge, statusStateFor } from '@/components/observatory/status'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/logs')({
   component: Logs,
@@ -118,200 +137,217 @@ export function Logs() {
   }, [logs, selectedId])
 
   return (
-    <ObservatoryPage
-      kicker="Logs"
-      title="Evidence console"
-      description="Triage platform events, inspect structured payloads, and jump back to the affected target."
-      action={
-        <span className="phlo-observatory-pill">
-          {isLoading ? 'Loading' : `${sources.size} sources`}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-log-shell">
-        <div className="phlo-observatory-log-console">
-          <div className="phlo-observatory-log-summary">
-            <LogSummaryCell
-              label="Errors"
-              value={isLoading ? 'Loading' : summary.error}
-            />
-            <LogSummaryCell
-              label="Warnings"
-              value={isLoading ? 'Loading' : summary.warning}
-            />
-            <LogSummaryCell
-              label="Info"
-              value={isLoading ? 'Loading' : summary.info}
-            />
-            <LogSummaryCell
-              label="Sources"
-              value={isLoading ? 'Loading' : summary.sources}
-            />
-            <LogSummaryCell
-              label="Linked targets"
-              value={isLoading ? 'Loading' : summary.resources}
-            />
-          </div>
-          <div className="phlo-observatory-console-toolbar phlo-observatory-log-toolbar">
-            <span className="phlo-observatory-log-toolbar-title">
-              <Terminal className="size-4" />
-              Event evidence
-            </span>
-            <span className="phlo-observatory-pill">
-              {isLoading
-                ? 'Loading'
-                : rawLogs.length === logs.length
-                  ? `${filtered.length} / ${logs.length} events`
-                  : `${filtered.length} / ${logs.length} groups · ${rawLogs.length} events`}
-            </span>
-          </div>
-          <div className="phlo-observatory-filter-row">
-            <label className="phlo-observatory-search-field">
-              <Search className="size-4" />
-              <input
-                aria-label="Search logs"
-                onChange={(event) =>
-                  dispatch({ type: 'query', query: event.target.value })
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {isLoading
+              ? 'loading'
+              : rawLogs.length === logs.length
+                ? `${filtered.length} / ${logs.length} events`
+                : `${filtered.length} / ${logs.length} groups · ${rawLogs.length} events`}
+          </Badge>
+        }
+        description="Triage platform events, inspect structured payloads, and jump back to the affected target."
+        title="Logs"
+      />
+      <StatGrid className="xl:grid-cols-5">
+        <StatCard
+          label="Errors"
+          state={summary.error > 0 ? 'error' : 'ok'}
+          value={isLoading ? '—' : summary.error}
+        />
+        <StatCard
+          label="Warnings"
+          state={summary.warning > 0 ? 'warning' : 'ok'}
+          value={isLoading ? '—' : summary.warning}
+        />
+        <StatCard label="Info" value={isLoading ? '—' : summary.info} />
+        <StatCard label="Sources" value={isLoading ? '—' : summary.sources} />
+        <StatCard
+          label="Linked targets"
+          value={isLoading ? '—' : summary.resources}
+        />
+      </StatGrid>
+      <SplitView
+        inspector={
+          <>
+            <InspectorSection label="Event detail">
+              {selected ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <StatusBadge
+                      state={statusStateFor(selected.level)}
+                      label={selected.level}
+                    />
+                    <span className="text-muted-foreground font-mono text-[10px]">
+                      {displayLogSource(selected.source) ?? 'platform'}
+                    </span>
+                  </div>
+                  <p className="text-foreground mt-2 text-xs/relaxed">
+                    {selected.message}
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {isLoading
+                    ? 'Reading live platform events and structured log fields.'
+                    : 'Logs appear here as Phlo and stack services emit events.'}
+                </p>
+              )}
+            </InspectorSection>
+            {selected && (
+              <InspectorSection label="Facts">
+                <FactGrid>
+                  <Fact label="Level" value={selected.level} />
+                  <Fact
+                    label="Target"
+                    value={selected.resource?.label ?? 'platform'}
+                  />
+                  <Fact
+                    label="Scope"
+                    value={
+                      selected.resource
+                        ? resourceLabel(selected.resource.kind)
+                        : 'event'
+                    }
+                  />
+                  <Fact
+                    label="Timestamp"
+                    value={selected.timestamp ?? 'not timestamped'}
+                  />
+                </FactGrid>
+              </InspectorSection>
+            )}
+            {selected?.resource && routeHrefForResource(selected.resource) && (
+              <a
+                className="border-input hover:bg-accent inline-flex h-7 items-center gap-1.5 self-start rounded-md border px-2.5 text-xs font-medium transition-colors"
+                href={routeHrefForResource(selected.resource)!}
+              >
+                <FileText className="size-3.5" />
+                {resourceActionLabel(selected.resource.kind)}
+              </a>
+            )}
+            {selected && (
+              <InspectorSection label="Metadata">
+                {platformMetadataRows(selected.metadata).length ? (
+                  <FactGrid>
+                    {platformMetadataRows(selected.metadata).map((row) => (
+                      <Fact
+                        key={row.label}
+                        label={row.label}
+                        value={row.value}
+                      />
+                    ))}
+                  </FactGrid>
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    No structured fields.
+                  </p>
+                )}
+              </InspectorSection>
+            )}
+            <InspectorSection label="Facets">
+              <p className="text-muted-foreground font-mono text-[10px]">
+                {sources.size} sources · {levels.size} levels ·{' '}
+                {facets.data?.resources.length ?? 0} targets
+              </p>
+              {(facets.error ?? result.error) && (
+                <p className="text-status-error font-mono text-[10px] break-all">
+                  {facets.error ?? result.error}
+                </p>
+              )}
+            </InspectorSection>
+          </>
+        }
+        inspectorWidth="w-[24rem]"
+        list={
+          <div className="bg-card flex min-h-0 flex-1 flex-col">
+            <div className="flex flex-wrap items-center gap-2 border-b p-2">
+              <span className="text-muted-foreground flex items-center gap-1.5 px-1 text-[10px] font-medium tracking-widest uppercase">
+                <Terminal className="size-3.5" />
+                Event evidence
+              </span>
+              <div className="relative min-w-48 flex-1">
+                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
+                <Input
+                  aria-label="Search logs"
+                  className="pl-7"
+                  onChange={(event) =>
+                    dispatch({ type: 'query', query: event.target.value })
+                  }
+                  placeholder="Search evidence"
+                  value={query}
+                />
+              </div>
+              <Select
+                onValueChange={(value) =>
+                  dispatch({ type: 'source', source: value ?? 'all' })
                 }
-                placeholder="Search evidence"
-                value={query}
-              />
-            </label>
-            <select
-              value={source}
-              onChange={(event) =>
-                dispatch({ type: 'source', source: event.target.value })
-              }
-            >
-              <option value="all">All sources</option>
-              {Array.from(sources).map((entry) => (
-                <option key={entry} value={entry}>
-                  {displayLogSource(entry)}
-                </option>
-              ))}
-            </select>
-            <select
-              value={level}
-              onChange={(event) =>
-                dispatch({ type: 'level', level: event.target.value })
-              }
-            >
-              <option value="all">All levels</option>
-              {Array.from(levels).map((entry) => (
-                <option key={entry} value={entry}>
-                  {entry}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="phlo-observatory-console-body">
-            <div className="phlo-observatory-log-head" role="row">
+                value={source}
+              >
+                <SelectTrigger aria-label="Filter by source" className="w-40">
+                  <SelectValue placeholder="All sources" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All sources</SelectItem>
+                  {Array.from(sources).map((entry) => (
+                    <SelectItem key={entry} value={entry}>
+                      {displayLogSource(entry)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                onValueChange={(value) =>
+                  dispatch({ type: 'level', level: value ?? 'all' })
+                }
+                value={level}
+              >
+                <SelectTrigger aria-label="Filter by level" className="w-32">
+                  <SelectValue placeholder="All levels" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All levels</SelectItem>
+                  {Array.from(levels).map((entry) => (
+                    <SelectItem key={entry} value={entry}>
+                      {entry}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="text-muted-foreground grid grid-cols-[8rem_5.5rem_minmax(0,1fr)_9rem] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase max-lg:grid-cols-[6rem_4.5rem_minmax(0,1fr)]">
               <span>Time</span>
               <span>Level</span>
               <span>Message</span>
-              <span>Source</span>
+              <span className="max-lg:hidden">Source</span>
             </div>
-            {filtered.map((log) => (
-              <LogLine
-                key={log.id}
-                log={log}
-                onSelect={selectLog}
-                selected={log.id === selected?.id}
-              />
-            ))}
-            {isLoading ? (
-              <div className="phlo-observatory-empty-state">
-                Reading live platform event evidence.
-              </div>
-            ) : (
-              filtered.length === 0 && (
-                <div className="phlo-observatory-empty-state">
-                  No log events match the current filters.
-                </div>
-              )
-            )}
-          </div>
-        </div>
-
-        <aside className="phlo-observatory-inspector">
-          <div className="phlo-observatory-inspector-label">
-            Evidence detail
-          </div>
-          {selected ? (
-            <>
-              <h2>{displayLogSource(selected.source)}</h2>
-              <p>{selected.message}</p>
-              <dl className="phlo-observatory-facts">
-                <Fact label="Level" value={selected.level} />
-                <Fact
-                  label="Target"
-                  value={selected.resource?.label ?? 'platform'}
+            <ScrollArea className="min-h-0 flex-1">
+              {filtered.map((log) => (
+                <LogLine
+                  key={log.id}
+                  log={log}
+                  onSelect={selectLog}
+                  selected={log.id === selected?.id}
                 />
-                <Fact
-                  label="Scope"
-                  value={
-                    selected.resource
-                      ? resourceLabel(selected.resource.kind)
-                      : 'event'
-                  }
-                />
-                <Fact
-                  label="Timestamp"
-                  value={selected.timestamp ?? 'not timestamped'}
-                />
-              </dl>
-              {selected.resource && routeHrefForResource(selected.resource) && (
-                <a
-                  className="phlo-observatory-linked-resource"
-                  href={routeHrefForResource(selected.resource)!}
-                >
-                  <FileText className="size-3.5" />
-                  {resourceActionLabel(selected.resource.kind)}
-                </a>
+              ))}
+              {isLoading ? (
+                <LoadingBlock className="p-3" label="Reading event evidence" />
+              ) : (
+                filtered.length === 0 && (
+                  <EmptyBlock
+                    className="py-10"
+                    description="No log events match the current filters."
+                    title="No events"
+                  />
+                )
               )}
-              <div className="phlo-observatory-detail-list">
-                {platformMetadataRows(selected.metadata).map((row) => (
-                  <div className="phlo-observatory-mini-row" key={row.label}>
-                    <span>{row.label}</span>
-                    <small>{row.value}</small>
-                  </div>
-                ))}
-                {platformMetadataRows(selected.metadata).length === 0 && (
-                  <div className="phlo-observatory-mini-row">
-                    <span>Metadata</span>
-                    <small>No structured fields</small>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <h2>{isLoading ? 'Loading evidence' : 'No events'}</h2>
-              <p>
-                {isLoading
-                  ? 'Reading live platform events and structured log fields.'
-                  : 'Logs will appear here as Phlo and stack services emit events.'}
-              </p>
-            </>
-          )}
-          <div className="phlo-observatory-detail-list">
-            <div className="phlo-observatory-mini-row">
-              <span>Facets</span>
-              <small>
-                {sources.size} sources · {levels.size} levels ·{' '}
-                {facets.data?.resources.length ?? 0} targets
-              </small>
-            </div>
+            </ScrollArea>
           </div>
-          {facets.error && (
-            <div className="phlo-observatory-panel-footer">{facets.error}</div>
-          )}
-          {result.error && (
-            <div className="phlo-observatory-panel-footer">{result.error}</div>
-          )}
-        </aside>
-      </section>
-    </ObservatoryPage>
+        }
+      />
+    </Page>
   )
 }
 
@@ -412,21 +448,6 @@ function collapseRepeatedLogs(
   )
 }
 
-function LogSummaryCell({
-  label,
-  value,
-}: {
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-log-summary-cell">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  )
-}
-
 function matchesLogQuery(log: ObservatoryLogEvent, query: string): boolean {
   const needle = query.trim().toLowerCase()
   if (!needle) return true
@@ -459,20 +480,32 @@ function LogLine({
 
   return (
     <button
-      className="phlo-observatory-log-line"
+      className={cn(
+        'hover:bg-accent/50 grid w-full grid-cols-[8rem_5.5rem_minmax(0,1fr)_9rem] items-center gap-3 px-3 py-1.5 text-left transition-colors max-lg:grid-cols-[6rem_4.5rem_minmax(0,1fr)]',
+        selected && 'bg-accent/60 hover:bg-accent/60',
+      )}
       data-active={selected}
       onClick={() => onSelect(log.id)}
       type="button"
     >
-      <span className="phlo-observatory-log-time">
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
         {log.timestamp ?? '--:--:--'}
       </span>
-      <span className="phlo-observatory-log-level" data-level={log.level}>
-        <Icon className="size-3.5" />
+      <span
+        className={cn(
+          'flex items-center gap-1 font-mono text-[10px] uppercase',
+          log.level === 'error' && 'text-status-error',
+          log.level === 'warning' && 'text-status-warning',
+          log.level === 'info' && 'text-status-info',
+        )}
+      >
+        <Icon className="size-3" />
         {log.level}
       </span>
-      <span className="phlo-observatory-log-message">{log.message}</span>
-      <span className="phlo-observatory-log-source">
+      <span className="text-foreground truncate text-[11px]">
+        {log.message}
+      </span>
+      <span className="text-muted-foreground truncate font-mono text-[10px] max-lg:hidden">
         {displayLogSource(log.source) ?? log.resource?.label ?? 'platform'}
       </span>
     </button>
@@ -483,13 +516,4 @@ function displayLogSource(source?: string | null): string | null {
   if (!source) return source ?? null
   if (source === 'observatory-fixture') return 'Lakehouse manifest'
   return source.replace(/\bassets\b/gi, 'resources')
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </>
-  )
 }

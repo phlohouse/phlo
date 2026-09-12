@@ -11,7 +11,6 @@ import {
   ListChecks,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
 
 import type {
   ObservatoryMetadata,
@@ -23,9 +22,20 @@ import {
   getObservatoryOperationRecords,
   getObservatoryRunRecords,
 } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { ObservatoryIndexTable } from '@/observatory/components/ObservatoryTable'
 import { useLiveResource } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { HealthDot, StatusBadge } from '@/components/observatory/status'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { EmptyBlock, LoadingBlock } from '@/components/observatory/states'
+import { Badge } from '@/components/ui/badge'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/runs')({
   component: Runs,
@@ -89,55 +99,75 @@ export function Runs() {
   }, [selected, selectedId])
 
   return (
-    <ObservatoryPage
-      kicker="Operations"
-      title="Runs"
-      description={
-        usingRecoveredRuns
-          ? 'Recovered run evidence from live operations while dedicated run history is unavailable.'
-          : 'Run history, affected scope, and handoff to recovery evidence.'
-      }
-      action={
-        <span className="phlo-observatory-pill">
-          {isLoading ? 'Loading' : `${runs.length} runs`}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-runs-shell">
-        <div className="phlo-observatory-command-primary phlo-observatory-run-list-surface">
-          <div className="phlo-observatory-command-strip phlo-observatory-run-summary">
-            <Metric
-              icon={<CheckCircle2 className="size-4" />}
-              label="Succeeded"
-              value={counts.succeeded}
-            />
-            <Metric
-              icon={<AlertCircle className="size-4" />}
-              label="Failed"
-              value={counts.failed}
-            />
-            <Metric
-              icon={<Clock3 className="size-4" />}
-              label="Running"
-              value={counts.running}
-            />
-            <Metric
-              icon={<ListChecks className="size-4" />}
-              label="Visible"
-              value={isLoading ? 'Loading' : runs.length}
-            />
-          </div>
-
-          {isLoading ? (
-            <RunProviderEmpty loading />
-          ) : runs.length > 0 ? (
-            <>
-              {usingRecoveredRuns && (
-                <div className="phlo-observatory-panel-note">
-                  Dedicated run history has no rows; showing recovered operation
-                  runs with the same recovery evidence.
-                </div>
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {isLoading ? 'Loading' : `${runs.length} runs`}
+          </Badge>
+        }
+        description={
+          usingRecoveredRuns
+            ? 'Recovered run evidence from live operations while dedicated run history is unavailable.'
+            : 'Run history, affected scope, and handoff to recovery evidence.'
+        }
+        title="Runs"
+      />
+      <StatGrid>
+        <StatCard
+          icon={<CheckCircle2 className="size-3.5" />}
+          label="Succeeded"
+          value={counts.succeeded}
+        />
+        <StatCard
+          icon={<AlertCircle className="size-3.5" />}
+          label="Failed"
+          state={counts.failed > 0 ? 'error' : 'ok'}
+          value={counts.failed}
+        />
+        <StatCard
+          icon={<Clock3 className="size-3.5" />}
+          label="Running"
+          value={counts.running}
+        />
+        <StatCard
+          icon={<ListChecks className="size-3.5" />}
+          label="Visible"
+          value={isLoading ? 'Loading' : runs.length}
+        />
+      </StatGrid>
+      <SplitView
+        inspector={
+          <>
+            <InspectorSection label="Run evidence">
+              {selected ? (
+                <SelectedRun run={selected} />
+              ) : (
+                <RunProviderInspector
+                  error={result.error ?? operationResult.error}
+                  loading={isLoading}
+                />
               )}
+            </InspectorSection>
+            {(result.error ?? operationResult.error) && (
+              <p className="text-status-error font-mono text-[10px] break-all">
+                {result.error ?? operationResult.error}
+              </p>
+            )}
+          </>
+        }
+        inspectorWidth="w-[24rem]"
+        list={
+          <div className="flex min-h-0 flex-1 flex-col">
+            {usingRecoveredRuns && (
+              <p className="text-muted-foreground border-b px-3 py-2 text-[11px]">
+                Dedicated run history has no rows; showing recovered operation
+                runs with the same recovery evidence.
+              </p>
+            )}
+            {isLoading ? (
+              <LoadingBlock className="p-3" label="Loading run history" />
+            ) : runs.length > 0 ? (
               <ObservatoryIndexTable
                 columnTemplate="10px minmax(220px, 1.25fr) minmax(86px, 0.45fr) minmax(176px, 0.75fr) minmax(86px, 0.35fr) minmax(190px, 0.8fr)"
                 columns={[
@@ -154,71 +184,43 @@ export function Runs() {
                   onSelect: () => selectRun(run.id),
                   status: run.status,
                   cells: [
-                    <span
-                      className="phlo-observatory-dot"
-                      data-state={stateForStatus(run.status)}
-                    />,
+                    <HealthDot state={stateForStatus(run.status)} />,
                     <RunSummary run={run} />,
-                    <span className="phlo-observatory-pill">{run.status}</span>,
-                    run.started_at ?? 'not timestamped',
-                    formatDuration(run.duration_seconds),
-                    `${run.assets.length} affected Datasets · ${run.checks.length} checks · ${run.logs.length} logs`,
+                    <span className="font-mono text-[10px] tracking-wide uppercase">
+                      {run.status}
+                    </span>,
+                    <span className="text-muted-foreground font-mono text-[10px]">
+                      {run.started_at ?? 'not timestamped'}
+                    </span>,
+                    <span className="text-muted-foreground font-mono text-[10px]">
+                      {formatDuration(run.duration_seconds)}
+                    </span>,
+                    <span className="text-muted-foreground font-mono text-[10px]">
+                      {`${run.assets.length} affected Datasets · ${run.checks.length} checks · ${run.logs.length} logs`}
+                    </span>,
                   ],
                 }))}
               />
-            </>
-          ) : (
-            <RunProviderEmpty error={result.error ?? operationResult.error} />
-          )}
-        </div>
-
-        <aside className="phlo-observatory-inspector">
-          <div className="phlo-observatory-inspector-label">Run evidence</div>
-          {selected ? (
-            <SelectedRun run={selected} />
-          ) : (
-            <RunProviderInspector
-              error={result.error ?? operationResult.error}
-              loading={isLoading}
-            />
-          )}
-          {(result.error || operationResult.error) && (
-            <div className="phlo-observatory-panel-footer">
-              {result.error ?? operationResult.error}
-            </div>
-          )}
-        </aside>
-      </section>
-    </ObservatoryPage>
-  )
-}
-
-function Metric({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="phlo-observatory-command-metric">
-      {icon}
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
+            ) : (
+              <RunProviderEmpty error={result.error ?? operationResult.error} />
+            )}
+          </div>
+        }
+      />
+    </Page>
   )
 }
 
 function RunSummary({ run }: { run: ObservatoryRun }) {
   return (
-    <div className="phlo-observatory-run-row-main">
-      <div className="phlo-observatory-row-title">
-        <ListChecks className="size-4" />
-        {run.name}
+    <div className="min-w-0">
+      <div className="text-foreground flex items-center gap-1.5 text-xs font-medium">
+        <ListChecks className="text-muted-foreground size-3.5 flex-none" />
+        <span className="truncate">{run.name}</span>
       </div>
-      <div className="phlo-observatory-row-meta">{run.id}</div>
+      <div className="text-muted-foreground truncate font-mono text-[10px]">
+        {run.id}
+      </div>
     </div>
   )
 }
@@ -226,9 +228,16 @@ function RunSummary({ run }: { run: ObservatoryRun }) {
 function SelectedRun({ run }: { run: ObservatoryRun }) {
   return (
     <>
-      <h2>{run.name}</h2>
-      <p>{runNarrative(run)}</p>
-      <dl className="phlo-observatory-facts">
+      <div className="flex items-center gap-2">
+        <span className="text-foreground text-xs font-semibold">
+          {run.name}
+        </span>
+        <StatusBadge state={stateForStatus(run.status)} label={run.status} />
+      </div>
+      <p className="text-muted-foreground text-xs/relaxed">
+        {runNarrative(run)}
+      </p>
+      <FactGrid>
         <Fact label="Status" value={run.status} />
         <Fact label="Started" value={run.started_at ?? 'not reported'} />
         <Fact label="Completed" value={run.completed_at ?? 'not completed'} />
@@ -236,29 +245,33 @@ function SelectedRun({ run }: { run: ObservatoryRun }) {
         <Fact label="Affected Datasets" value={run.assets.length} />
         <Fact label="Checks" value={run.checks.length} />
         <Fact label="Logs" value={run.logs.length} />
-      </dl>
+      </FactGrid>
       {runFailureReason(run) && (
-        <div className="phlo-observatory-detail-list">
-          <div className="phlo-observatory-mini-row phlo-observatory-run-evidence-row">
-            <span>Failure reason</span>
-            <small>{runFailureReason(run)}</small>
-          </div>
+        <div className="border-status-error/40 bg-status-error/5 px-2.5 py-2">
+          <span className="text-status-error block text-[10px] font-medium tracking-widest uppercase">
+            Failure reason
+          </span>
+          <span className="text-foreground font-mono text-[11px] break-all">
+            {runFailureReason(run)}
+          </span>
         </div>
       )}
       <RelatedList title="Affected Datasets" refs={run.assets} />
       <RelatedList title="Checks" refs={run.checks} />
       <RelatedList title="Logs" refs={run.logs} />
       {typeof run.metadata.operation_id === 'string' && (
-        <div className="phlo-observatory-detail-list">
-          <Link
-            className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-            to="/operations"
-            search={{ operationId: run.metadata.operation_id }}
-          >
-            <span>Open operation evidence</span>
-            <small>{run.metadata.operation_id}</small>
-          </Link>
-        </div>
+        <Link
+          className="hover:bg-accent/50 flex items-center justify-between gap-2 border-y py-1.5 transition-colors"
+          search={{ operationId: run.metadata.operation_id }}
+          to="/operations"
+        >
+          <span className="text-foreground text-[11px]">
+            Open operation evidence
+          </span>
+          <span className="text-muted-foreground font-mono text-[10px]">
+            {run.metadata.operation_id}
+          </span>
+        </Link>
       )}
       <RunReportLink run={run} />
     </>
@@ -269,22 +282,20 @@ export function RunReportLink({ run }: { run: ObservatoryRun }) {
   const identity = runReportIdentity(run)
   if (!identity) return null
   return (
-    <div className="phlo-observatory-detail-list">
-      <Link
-        className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-        to="/runs/$projectId/$runId/attempts/$attempt/report"
-        params={{
-          projectId: identity.project_id,
-          runId: identity.run_id,
-          attempt: String(identity.attempt),
-        }}
-      >
-        <span>Open run report</span>
-        <small>
-          {identity.project_id}/{identity.run_id} · attempt {identity.attempt}
-        </small>
-      </Link>
-    </div>
+    <Link
+      className="hover:bg-accent/50 flex items-center justify-between gap-2 border-y py-1.5 transition-colors"
+      params={{
+        projectId: identity.project_id,
+        runId: identity.run_id,
+        attempt: String(identity.attempt),
+      }}
+      to="/runs/$projectId/$runId/attempts/$attempt/report"
+    >
+      <span className="text-foreground text-[11px]">Open run report</span>
+      <span className="text-muted-foreground font-mono text-[10px]">
+        {identity.project_id}/{identity.run_id} · attempt {identity.attempt}
+      </span>
+    </Link>
   )
 }
 
@@ -320,47 +331,43 @@ function RunProviderEmpty({
   loading?: boolean
 }) {
   if (loading) {
-    return (
-      <div className="phlo-observatory-run-provider-empty">
-        <div>
-          <span className="phlo-observatory-inspector-label">Run history</span>
-          <h2>Loading run history</h2>
-          <p>Reading live run evidence and recovery context.</p>
-        </div>
-      </div>
-    )
+    return <LoadingBlock className="p-3" label="Loading run history" />
   }
   return (
-    <div className="phlo-observatory-run-provider-empty">
-      <div>
-        <span className="phlo-observatory-inspector-label">Run history</span>
-        <h2>
-          {error ? 'Run history unavailable' : 'No dedicated runs available'}
-        </h2>
-        <p>
-          Operations and Pipelines still show what is wrong, the affected scope,
-          and the next supported recovery step. Use this page again once
-          dedicated run rows are available.
-        </p>
-      </div>
-      <div className="phlo-observatory-run-provider-actions">
-        <Link to="/operations">
-          <Activity className="size-4" />
+    <div className="flex flex-col gap-4 p-6">
+      <EmptyBlock
+        description="Operations and Pipelines still show what is wrong, the affected scope, and the next supported recovery step. Use this page again once dedicated run rows are available."
+        title={
+          error ? 'Run history unavailable' : 'No dedicated runs available'
+        }
+      />
+      <div className="flex items-center justify-center gap-2">
+        <Link
+          className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}
+          to="/operations"
+        >
+          <Activity className="size-3.5" />
           Open Operations
         </Link>
-        <Link to="/pipelines">
-          <ListChecks className="size-4" />
+        <Link
+          className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}
+          to="/pipelines"
+        >
+          <ListChecks className="size-3.5" />
           Open Pipelines
         </Link>
       </div>
-      <dl>
-        <dt>Current evidence</dt>
-        <dd>Operations and Pipeline recovery rows</dd>
-        <dt>Rows</dt>
-        <dd>No dedicated run rows available</dd>
-        <dt>Next action</dt>
-        <dd>Open Operations for failures or Pipelines for stale Datasets</dd>
-      </dl>
+      <FactGrid className="mx-auto max-w-md">
+        <Fact
+          label="Current evidence"
+          value="Operations and Pipeline recovery rows"
+        />
+        <Fact label="Rows" value="No dedicated run rows available" />
+        <Fact
+          label="Next action"
+          value="Open Operations for failures or Pipelines for stale Datasets"
+        />
+      </FactGrid>
     </div>
   )
 }
@@ -374,36 +381,39 @@ function RunProviderInspector({
 }) {
   if (loading) {
     return (
-      <>
-        <h2>Loading run evidence</h2>
-        <p>Reading live run evidence and recovery context.</p>
-      </>
+      <p className="text-muted-foreground text-xs">
+        Reading live run evidence and recovery context.
+      </p>
     )
   }
   return (
     <>
-      <h2>
+      <p className="text-foreground text-xs font-semibold">
         {error ? 'Run history unavailable' : 'No dedicated runs available'}
-      </h2>
-      <p>
+      </p>
+      <p className="text-muted-foreground text-xs/relaxed">
         Run rows are not available yet. Recovery operations and Dataset
         pipelines still show failures, affected scope, linked evidence, and the
         next supported action.
       </p>
-      <div className="phlo-observatory-detail-list">
+      <div className="divide-border divide-y border-y">
         <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+          className="hover:bg-accent/50 flex items-center justify-between gap-2 py-1.5 transition-colors"
           to="/operations"
         >
-          <span>Open Operations</span>
-          <small>Failed, running, and completed recovery records</small>
+          <span className="text-foreground text-[11px]">Open Operations</span>
+          <span className="text-muted-foreground font-mono text-[10px]">
+            Failed, running, and completed recovery records
+          </span>
         </Link>
         <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+          className="hover:bg-accent/50 flex items-center justify-between gap-2 py-1.5 transition-colors"
           to="/pipelines"
         >
-          <span>Open Pipelines</span>
-          <small>Freshness, stage state, and action eligibility</small>
+          <span className="text-foreground text-[11px]">Open Pipelines</span>
+          <span className="text-muted-foreground font-mono text-[10px]">
+            Freshness, stage state, and action eligibility
+          </span>
         </Link>
       </div>
     </>
@@ -418,13 +428,11 @@ function RelatedList({
   refs: ObservatoryRun['assets']
 }) {
   return (
-    <div className="phlo-observatory-detail-list">
-      <div className="phlo-observatory-mini-row">
-        <span>{title}</span>
-        <small>
-          {refs.length > 0 ? refs.map((ref) => ref.label).join(', ') : 'none'}
-        </small>
-      </div>
+    <div className="flex items-center justify-between gap-2 border-b py-1.5">
+      <span className="text-foreground text-[11px]">{title}</span>
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {refs.length > 0 ? refs.map((ref) => ref.label).join(', ') : 'none'}
+      </span>
     </div>
   )
 }
@@ -432,21 +440,6 @@ function RelatedList({
 function formatDuration(duration: number | null | undefined): string {
   if (duration === null || duration === undefined) return 'not reported'
   return `${duration}s`
-}
-
-function Fact({
-  label,
-  value,
-}: {
-  label: string
-  value: string | number | boolean | null
-}) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value === null ? 'not reported' : String(value)}</dd>
-    </>
-  )
 }
 
 function countRuns(

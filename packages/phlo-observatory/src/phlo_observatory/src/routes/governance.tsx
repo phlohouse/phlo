@@ -3,7 +3,7 @@
  * defaults selection to the first row with a failing control.
  */
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { FileCheck2, ShieldCheck } from 'lucide-react'
+import { FileCheck2, ShieldAlert, ShieldCheck, Tag, User } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type {
@@ -14,8 +14,23 @@ import type {
   ObservatoryResourceResult,
 } from '@/observatory/api/types'
 import { getObservatoryGovernanceItems } from '@/observatory/api/resources'
-import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { loadCachedResource } from '@/observatory/routes/liveResource'
+import { Page, PageHeader } from '@/components/observatory/page'
+import {
+  InspectorSection,
+  SplitView,
+} from '@/components/observatory/split-view'
+import {
+  EmptyBlock,
+  ErrorBlock,
+  LoadingBlock,
+} from '@/components/observatory/states'
+import { Fact, FactGrid } from '@/components/observatory/key-value'
+import { HealthDot, StatusBadge } from '@/components/observatory/status'
+import { StatCard, StatGrid } from '@/components/observatory/stat'
+import { SectionCard } from '@/components/observatory/section'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/governance')({
   component: Governance,
@@ -87,53 +102,45 @@ export function Governance() {
   }, [rows, selectDataset, selected, selectedId])
 
   return (
-    <ObservatoryPage
-      kicker="Governance"
-      title="Dataset controls"
-      description="Scan ownership, classification, and evidence-backed controls across Datasets."
-      action={
-        <span className="phlo-observatory-pill">
-          {isLoading ? 'Loading' : `${rows.length} datasets`}
-        </span>
-      }
-    >
-      <section className="phlo-observatory-command phlo-observatory-surface-shell">
-        <div className="phlo-observatory-command-primary phlo-observatory-surface-list">
-          <div className="phlo-observatory-browser-toolbar">
-            <div className="phlo-observatory-row-title">
-              <ShieldCheck className="size-4" />
-              Control matrix
-            </div>
-          </div>
-          {result.error ? (
-            <EmptyMatrix
-              title="Governance could not load"
-              detail={result.error}
-            />
-          ) : isLoading ? (
-            <EmptyMatrix
-              title="Loading Dataset controls"
-              detail="Reading ownership, classifications, and control evidence from the active lakehouse."
-            />
-          ) : rows.length ? (
-            <>
-              <GovernanceSummary rows={rows} selected={selected} />
+    <Page>
+      <PageHeader
+        actions={
+          <Badge variant="secondary">
+            {isLoading ? 'Loading' : `${rows.length} datasets`}
+          </Badge>
+        }
+        description="Scan ownership, classification, and evidence-backed controls across Datasets."
+        title="Dataset controls"
+      />
+      <GovernanceSummary rows={rows} selected={selected} />
+      <SplitView
+        inspector={<GovernanceInspector isLoading={isLoading} row={selected} />}
+        inspectorWidth="w-[24rem]"
+        list={
+          <SectionCard className="ring-0" title="Control matrix">
+            {result.error ? (
+              <ErrorBlock
+                error={result.error}
+                title="Governance could not load"
+              />
+            ) : isLoading ? (
+              <LoadingBlock className="p-3" label="Loading Dataset controls" />
+            ) : rows.length ? (
               <ControlMatrix
                 onSelect={selectDataset}
                 rows={rows}
                 selectedId={selected?.dataset.id ?? null}
               />
-            </>
-          ) : (
-            <EmptyMatrix
-              title="No Dataset controls configured"
-              detail="Create Datasets to populate the governance matrix."
-            />
-          )}
-        </div>
-        <GovernanceInspector isLoading={isLoading} row={selected} />
-      </section>
-    </ObservatoryPage>
+            ) : (
+              <EmptyBlock
+                description="Create Datasets to populate the governance matrix."
+                title="No Dataset controls configured"
+              />
+            )}
+          </SectionCard>
+        }
+      />
+    </Page>
   )
 }
 
@@ -157,48 +164,32 @@ function GovernanceSummary({
   const selectedFailures =
     selected?.controls.filter((control) => control.status === 'fail') ?? []
   return (
-    <div className="phlo-observatory-governance-summary">
-      <SummaryCell
+    <StatGrid>
+      <StatCard
+        icon={<ShieldAlert className="size-3.5" />}
         label="Failed controls"
         state={failedControls ? 'error' : 'ok'}
         value={failedControls}
       />
-      <SummaryCell
+      <StatCard
+        icon={<User className="size-3.5" />}
         label="Missing owners"
         state={missingOwners ? 'warning' : 'ok'}
         value={missingOwners}
       />
-      <SummaryCell
+      <StatCard
+        icon={<Tag className="size-3.5" />}
         label="Missing classification"
         state={missingClassifications ? 'warning' : 'ok'}
         value={missingClassifications}
       />
-      <SummaryCell
+      <StatCard
+        icon={<ShieldCheck className="size-3.5" />}
         label="Selected"
         state={selectedFailures.length ? 'error' : 'ok'}
         value={selected?.dataset.name ?? 'none'}
       />
-    </div>
-  )
-}
-
-function SummaryCell({
-  label,
-  state,
-  value,
-}: {
-  label: string
-  state: string
-  value: string | number
-}) {
-  return (
-    <div
-      className="phlo-observatory-governance-summary-cell"
-      data-state={state}
-    >
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
+    </StatGrid>
   )
 }
 
@@ -212,75 +203,72 @@ function ControlMatrix({
   selectedId: string | null
 }) {
   return (
-    <div className="phlo-observatory-governance-matrix">
-      <div className="phlo-observatory-governance-row phlo-observatory-governance-header">
+    <div>
+      <div className="text-muted-foreground grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1.2fr)] gap-3 border-b px-3 py-1.5 font-mono text-[9px] font-medium tracking-widest uppercase">
         <span>Dataset</span>
         <span>Owner</span>
         <span>Classification</span>
         <span>Blocking quality</span>
         <span>Next action</span>
       </div>
-      {rows.map((row) => {
-        const owner = controlById(row, 'owner')
-        const classification = controlById(row, 'classification')
-        const blockingQuality = controlById(row, 'blocking_quality')
-        return (
-          <button
-            className="phlo-observatory-governance-row"
-            data-selected={selectedId === row.dataset.id}
-            key={row.dataset.id}
-            onClick={() => onSelect(row.dataset.id)}
-            type="button"
-          >
-            <span>
-              <strong>{row.dataset.name}</strong>
-              <small>{row.dataset.publication_state}</small>
-            </span>
-            <ControlCell
-              control={owner}
-              fallback="unassigned"
-              value={row.owner ?? 'unassigned'}
-            />
-            <ControlCell
-              control={classification}
-              fallback="missing"
-              value={row.classifications.join(', ') || 'missing'}
-            />
-            <ControlCell
-              control={blockingQuality}
-              fallback="not reported"
-              value={controlLabel(blockingQuality?.status ?? 'unknown')}
-            />
-            <span className="phlo-observatory-control-cell">
-              {governanceNextAction(row)}
-            </span>
-          </button>
-        )
-      })}
+      <div className="divide-border divide-y">
+        {rows.map((row) => {
+          const owner = controlById(row, 'owner')
+          const classification = controlById(row, 'classification')
+          const blockingQuality = controlById(row, 'blocking_quality')
+          return (
+            <button
+              className={cn(
+                'hover:bg-accent/50 grid w-full grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1.2fr)] items-center gap-3 px-3 py-2 text-left transition-colors',
+                selectedId === row.dataset.id &&
+                  'bg-accent/60 hover:bg-accent/60',
+              )}
+              key={row.dataset.id}
+              onClick={() => onSelect(row.dataset.id)}
+              type="button"
+            >
+              <span className="min-w-0">
+                <span className="text-foreground block truncate text-xs font-medium">
+                  {row.dataset.name}
+                </span>
+                <span className="text-muted-foreground block truncate font-mono text-[10px]">
+                  {row.dataset.publication_state}
+                </span>
+              </span>
+              <ControlCell control={owner} value={row.owner ?? 'unassigned'} />
+              <ControlCell
+                control={classification}
+                value={row.classifications.join(', ') || 'missing'}
+              />
+              <ControlCell
+                control={blockingQuality}
+                value={controlLabel(blockingQuality?.status ?? 'unknown')}
+              />
+              <span className="text-muted-foreground truncate font-mono text-[10px]">
+                {governanceNextAction(row)}
+              </span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
 
 function ControlCell({
   control,
-  fallback,
   value,
 }: {
   control: ObservatoryGovernanceRow['controls'][number] | undefined
-  fallback: string
   value: string
 }) {
   const status = control?.status ?? 'unknown'
   return (
-    <span
-      className="phlo-observatory-control-cell"
-      data-label={control?.label ?? fallback}
-    >
-      <span
-        className="phlo-observatory-dot"
-        data-state={controlHealth(status)}
-      />
-      {value}
+    <span className="flex min-w-0 items-center gap-1.5" title={control?.label}>
+      <HealthDot state={controlHealth(status)} />
+      <span className="text-muted-foreground truncate font-mono text-[10px]">
+        {value}
+      </span>
     </span>
   )
 }
@@ -294,24 +282,22 @@ function GovernanceInspector({
 }) {
   if (isLoading) {
     return (
-      <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-        <div className="phlo-observatory-inspector-label">Evidence</div>
-        <h2>Loading controls</h2>
-        <p>Control evidence appears once Dataset governance records load.</p>
-      </aside>
+      <InspectorSection label="Evidence">
+        <p className="text-muted-foreground text-xs">
+          Control evidence appears once Dataset governance records load.
+        </p>
+      </InspectorSection>
     )
   }
 
   if (!row) {
     return (
-      <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-        <div className="phlo-observatory-inspector-label">Evidence</div>
-        <h2>No dataset selected</h2>
-        <p>
+      <InspectorSection label="Evidence">
+        <p className="text-muted-foreground text-xs">
           Select a dataset to inspect owners, classifications, controls, and
           evidence.
         </p>
-      </aside>
+      </InspectorSection>
     )
   }
 
@@ -331,93 +317,123 @@ function GovernanceInspector({
   const nextAction = governanceNextAction(row)
   const nextActionHref = governanceNextActionHref(row)
   return (
-    <aside className="phlo-observatory-inspector phlo-observatory-surface-inspector">
-      <div className="phlo-observatory-inspector-label">Evidence</div>
-      <h2>{row.dataset.name}</h2>
-      <p>{row.dataset.description ?? 'Control evidence for this Dataset.'}</p>
-      <dl className="phlo-observatory-facts">
-        <dt>Owner</dt>
-        <dd>{row.owner ?? 'unassigned'}</dd>
-        <dt>Classification</dt>
-        <dd>{row.classifications.join(', ') || 'none'}</dd>
-        <dt>Controls</dt>
-        <dd>{controlSummary(row)}</dd>
-        <dt>Evidence</dt>
-        <dd>{evidenceCount}</dd>
-      </dl>
-      {nextActionHref ? (
-        <Link
-          className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
-          data-state={controlHealth(row.status)}
-          to={nextActionHref}
-        >
-          <span>Next action</span>
-          <small>{nextAction}</small>
-        </Link>
-      ) : (
-        <div
-          className="phlo-observatory-mini-row"
-          data-state={controlHealth(row.status)}
-        >
-          <span>Next action</span>
-          <small>{nextAction}</small>
+    <>
+      <InspectorSection label="Evidence">
+        <div className="flex items-center gap-2">
+          <span className="text-foreground text-xs font-semibold">
+            {row.dataset.name}
+          </span>
+          <StatusBadge
+            label={controlLabel(row.status)}
+            state={controlHealth(row.status)}
+          />
         </div>
-      )}
-      <div className="phlo-observatory-detail-list">
-        {row.controls.map((control) => (
-          <div
-            className="phlo-observatory-governance-control-block"
-            key={control.id}
+        <p className="text-muted-foreground text-xs/relaxed">
+          {row.dataset.description ?? 'Control evidence for this Dataset.'}
+        </p>
+        <FactGrid>
+          <Fact label="Owner" value={row.owner ?? 'unassigned'} />
+          <Fact
+            label="Classification"
+            value={row.classifications.join(', ') || 'none'}
+          />
+          <Fact label="Controls" value={controlSummary(row)} />
+          <Fact label="Evidence" value={evidenceCount} />
+        </FactGrid>
+      </InspectorSection>
+      <InspectorSection label="Next action">
+        {nextActionHref ? (
+          <Link
+            className="hover:bg-accent/50 flex items-start gap-2 border-y py-2 transition-colors"
+            to={nextActionHref}
           >
-            <div
-              className="phlo-observatory-mini-row"
-              data-state={controlHealth(control.status)}
-            >
-              <span>{control.label}</span>
-              <small>{controlLabel(control.status)}</small>
-              <p>{control.message}</p>
+            <HealthDot className="mt-1" state={controlHealth(row.status)} />
+            <span className="min-w-0">
+              <span className="text-foreground block text-[11px]">
+                Next action
+              </span>
+              <span className="text-muted-foreground block font-mono text-[10px]">
+                {nextAction}
+              </span>
+            </span>
+          </Link>
+        ) : (
+          <div className="flex items-start gap-2 border-y py-2">
+            <HealthDot className="mt-1" state={controlHealth(row.status)} />
+            <span className="min-w-0">
+              <span className="text-foreground block text-[11px]">
+                Next action
+              </span>
+              <span className="text-muted-foreground block font-mono text-[10px]">
+                {nextAction}
+              </span>
+            </span>
+          </div>
+        )}
+      </InspectorSection>
+      <InspectorSection label="Controls">
+        <div className="divide-border divide-y border-y">
+          {row.controls.map((control) => (
+            <div className="py-2" key={control.id}>
+              <div className="flex items-start gap-2">
+                <HealthDot
+                  className="mt-1"
+                  state={controlHealth(control.status)}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-foreground text-[11px]">
+                      {control.label}
+                    </span>
+                    <span className="text-muted-foreground font-mono text-[10px]">
+                      {controlLabel(control.status)}
+                    </span>
+                  </span>
+                  {control.message && (
+                    <span className="text-muted-foreground mt-0.5 block text-[10px]/relaxed">
+                      {control.message}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="mt-1 ml-4 flex flex-col gap-1">
+                {control.evidence.map((evidence) => (
+                  <EvidenceRow evidence={evidence} key={evidence.id} />
+                ))}
+                {control.evidence.length === 0 && (
+                  <span className="text-muted-foreground font-mono text-[10px]">
+                    No evidence linked · missing
+                  </span>
+                )}
+              </div>
             </div>
-            {control.evidence.map((evidence) => (
-              <EvidenceRow evidence={evidence} key={evidence.id} />
-            ))}
-            {control.evidence.length === 0 && (
-              <div className="phlo-observatory-mini-row">
-                <span>No evidence linked</span>
-                <small>missing</small>
+          ))}
+          {failedControls.length === 0 &&
+            warningControls.length === 0 &&
+            unknownControls.length === 0 && (
+              <div className="flex items-center gap-2 py-2">
+                <HealthDot state="ok" />
+                <span className="text-foreground text-[11px]">
+                  Ready for publication controls
+                </span>
+                <span className="text-muted-foreground font-mono text-[10px]">
+                  no failing governance controls
+                </span>
               </div>
             )}
-          </div>
-        ))}
-        {failedControls.length === 0 &&
-          warningControls.length === 0 &&
-          unknownControls.length === 0 && (
-            <div className="phlo-observatory-mini-row" data-state="ok">
-              <span>Ready for publication controls</span>
-              <small>no failing governance controls</small>
-            </div>
-          )}
-      </div>
-      <Link
-        className="phlo-observatory-linked-resource"
-        params={{ datasetId: row.dataset.id }}
-        to="/datasets/$datasetId"
-      >
-        <FileCheck2 className="size-3.5" />
-        Open Dataset
-      </Link>
-    </aside>
-  )
-}
-
-function EmptyMatrix({ detail, title }: { detail: string; title: string }) {
-  return (
-    <div className="phlo-observatory-operation-empty">
-      <div>
-        <span className="phlo-observatory-inspector-label">Matrix</span>
-        <h2>{title}</h2>
-        <p>{detail}</p>
-      </div>
-    </div>
+        </div>
+      </InspectorSection>
+      <InspectorSection label="Dataset">
+        <Link
+          className="hover:bg-accent/50 text-foreground flex items-center gap-1.5 border-y py-2 text-[11px] transition-colors"
+          params={{ datasetId: row.dataset.id }}
+          to="/datasets/$datasetId"
+        >
+          <FileCheck2 className="size-3.5" />
+          Open Dataset
+        </Link>
+      </InspectorSection>
+    </>
   )
 }
 
@@ -488,24 +504,30 @@ function EvidenceRow({
 }) {
   const content = (
     <>
-      <span>
-        <FileCheck2 className="size-3.5" />
+      <span className="text-foreground flex items-center gap-1.5 text-[11px]">
+        <FileCheck2 className="size-3" />
         {evidence.label}
       </span>
-      <small>{evidence.value ?? evidence.kind}</small>
+      <span className="text-muted-foreground font-mono text-[10px]">
+        {evidence.value ?? evidence.kind}
+      </span>
     </>
   )
   if (evidence.resource) {
     return (
       <Link
-        className="phlo-observatory-mini-row phlo-observatory-linked-mini-row"
+        className="hover:bg-accent/50 flex items-center justify-between gap-2 py-1 transition-colors"
         to={resourceHref(evidence.resource)}
       >
         {content}
       </Link>
     )
   }
-  return <div className="phlo-observatory-mini-row">{content}</div>
+  return (
+    <div className="flex items-center justify-between gap-2 py-1">
+      {content}
+    </div>
+  )
 }
 
 function resourceHref(resource: ObservatoryResourceRef): string {

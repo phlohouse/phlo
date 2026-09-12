@@ -16,13 +16,15 @@ export const Route = createFileRoute('/$')({
 
 function ObservatoryNotFoundRoute() {
   return (
-    <div className="phlo-observatory-content">
-      <section className="phlo-observatory-panel phlo-observatory-empty-panel">
-        <h1 className="phlo-observatory-title">Page not found</h1>
-        <p className="phlo-observatory-subtitle">
+    <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+      <section className="bg-card ring-foreground/10 flex max-w-md flex-col items-center gap-2 px-8 py-10 text-center ring-1">
+        <h1 className="text-foreground text-lg font-semibold tracking-tight">
+          Page not found
+        </h1>
+        <p className="text-muted-foreground text-xs/relaxed">
           This Observatory surface is not available.
         </p>
-        <Link to="/" className={cn(buttonVariants({ size: 'sm' }))}>
+        <Link to="/" className={cn(buttonVariants({ size: 'sm' }), 'mt-3')}>
           Go Home
         </Link>
       </section>
