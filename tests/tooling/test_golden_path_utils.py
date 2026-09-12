@@ -1,6 +1,7 @@
 """Unit tests for golden-path runner utility functions.
 
-Tests pure functions from scripts/run_golden_path.py without requiring
+Tests pure functions from scripts/golden_path_common.py — the harness layer
+shared by run_golden_path.py and release_golden_path.py — without requiring
 Docker or running infrastructure.
 """
 
@@ -13,14 +14,14 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Import the script as a module
+# Import the shared harness module
 _spec = importlib.util.spec_from_file_location(
-    "run_golden_path",
-    REPO_ROOT / "scripts" / "run_golden_path.py",
+    "golden_path_common",
+    REPO_ROOT / "scripts" / "golden_path_common.py",
 )
 assert _spec and _spec.loader
 _mod = importlib.util.module_from_spec(_spec)
-sys.modules["run_golden_path"] = _mod
+sys.modules["golden_path_common"] = _mod
 _spec.loader.exec_module(_mod)
 _mod_any = cast(Any, _mod)
 
