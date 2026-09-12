@@ -196,7 +196,7 @@ function AggregationExplanation({
   aggregation: NonNullable<StageDiffResult['aggregation']>
 }) {
   return (
-    <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-4 space-y-3">
+    <div className="border border-amber-500/30 bg-amber-500/5 rounded-none p-4 space-y-3">
       <div className="flex items-center gap-2">
         <Badge variant="outline" className="border-amber-500 text-amber-500">
           N:1

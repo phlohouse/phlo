@@ -10,7 +10,7 @@ function Empty({ className, ...props }: ComponentProps<'div'>) {
     <div
       data-slot="empty"
       className={cn(
-        'flex flex-col items-center justify-center gap-2 px-6 py-10 text-center',
+        'border-rule-soft mx-auto flex max-w-lg flex-col items-center justify-center gap-2 border border-dashed px-6 py-8 text-center',
         className,
       )}
       {...props}
@@ -35,7 +35,7 @@ function EmptyTitle({ className, ...props }: ComponentProps<'div'>) {
   return (
     <div
       data-slot="empty-title"
-      className={cn('text-foreground text-sm font-medium', className)}
+      className={cn('stamp text-ink text-[11px]', className)}
       {...props}
     />
   )

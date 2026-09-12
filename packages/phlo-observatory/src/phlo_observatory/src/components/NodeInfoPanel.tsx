@@ -49,7 +49,7 @@ export function NodeInfoPanel({
     : 'Never'
 
   return (
-    <div className="w-80 bg-card border-l border-border flex flex-col h-full">
+    <div className="w-80 bg-sheet border-l border-border flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-2">

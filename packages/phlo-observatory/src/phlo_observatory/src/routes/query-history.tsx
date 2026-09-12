@@ -74,7 +74,7 @@ export function QueryHistory() {
                   label={selected.status}
                   state={selected.status === 'succeeded' ? 'ok' : 'error'}
                 />
-                <pre className="bg-muted text-foreground mt-2 overflow-x-auto rounded-md p-2 font-mono text-[11px] whitespace-pre-wrap">
+                <pre className="console mt-2 overflow-x-auto rounded-none p-2 font-mono text-[11px] whitespace-pre-wrap">
                   {selected.sql}
                 </pre>
               </InspectorSection>

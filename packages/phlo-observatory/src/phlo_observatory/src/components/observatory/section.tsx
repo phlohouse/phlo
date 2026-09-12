@@ -1,5 +1,6 @@
 /**
- * Section card: titled panel used to group related blocks on a page.
+ * Section: a form block on the sheet — stamped header over a ruled body.
+ * Not a card; the boundary is ink, not a box.
  */
 import type { ReactNode } from 'react'
 
@@ -21,22 +22,13 @@ export function SectionCard({
   contentClassName?: string
 }) {
   return (
-    <section
-      className={cn(
-        'bg-card ring-foreground/10 flex flex-col rounded-none ring-1',
-        className,
-      )}
-    >
+    <section className={cn('flex flex-col', className)}>
       {(title || actions || description) && (
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+        <header className="border-rule flex flex-wrap items-center justify-between gap-2 border-b pb-1">
           <div className="min-w-0">
-            {title && (
-              <h2 className="text-foreground text-xs font-semibold tracking-wide">
-                {title}
-              </h2>
-            )}
+            {title && <h2 className="stamp text-ink text-[11px]">{title}</h2>}
             {description && (
-              <p className="text-muted-foreground mt-0.5 text-[11px]/relaxed">
+              <p className="text-ink-soft mt-0.5 font-mono text-[10px]/relaxed normal-case">
                 {description}
               </p>
             )}
@@ -44,7 +36,9 @@ export function SectionCard({
           {actions && <div className="flex items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className={cn('min-w-0 flex-1', contentClassName)}>{children}</div>
+      <div className={cn('min-w-0 flex-1 pt-2', contentClassName)}>
+        {children}
+      </div>
     </section>
   )
 }

@@ -25,45 +25,14 @@ import { Database } from 'lucide-react'
 import type { GraphEdge, GraphNode } from '@/observatory/api/graph'
 import type { Edge, Node, NodeProps, NodeTypes } from '@xyflow/react'
 
-const LAYER_STYLES: Record<
-  string,
-  { accentBorder: string; icon: string; label: string }
-> = {
-  source: {
-    accentBorder: 'border-l-emerald-400/60',
-    icon: 'text-emerald-400',
-    label: 'text-foreground',
-  },
-  bronze: {
-    accentBorder: 'border-l-amber-400/70',
-    icon: 'text-amber-400',
-    label: 'text-foreground',
-  },
-  silver: {
-    accentBorder: 'border-l-border',
-    icon: 'text-muted-foreground',
-    label: 'text-foreground',
-  },
-  gold: {
-    accentBorder: 'border-l-primary',
-    icon: 'text-primary',
-    label: 'text-foreground',
-  },
-  marts: {
-    accentBorder: 'border-l-emerald-400/60',
-    icon: 'text-emerald-400',
-    label: 'text-foreground',
-  },
-  publish: {
-    accentBorder: 'border-l-lime-400/70',
-    icon: 'text-lime-400',
-    label: 'text-foreground',
-  },
-  unknown: {
-    accentBorder: 'border-l-border',
-    icon: 'text-muted-foreground',
-    label: 'text-foreground',
-  },
+const LAYER_STYLES: Record<string, { icon: string; tag: string }> = {
+  source: { icon: 'text-ink-soft', tag: 'bg-band text-ink-soft' },
+  bronze: { icon: 'text-amber-ink', tag: 'bg-band-warn text-amber-ink' },
+  silver: { icon: 'text-ink-faint', tag: 'bg-band text-ink-faint' },
+  gold: { icon: 'text-ink', tag: 'bg-band-strong text-ink' },
+  marts: { icon: 'text-ink', tag: 'bg-band-strong text-ink' },
+  publish: { icon: 'text-ok-ink', tag: 'bg-status-band-ok text-ok-ink' },
+  unknown: { icon: 'text-ink-faint', tag: 'bg-band text-ink-faint' },
 }
 
 interface AssetNodeData {
@@ -84,13 +53,15 @@ function AssetNode({ data, selected }: NodeProps<AssetNodeType>) {
 
   return (
     <>
-      <Handle type="target" position={Position.Left} className="!bg-border" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!bg-rule-soft"
+      />
       <div
         className={[
-          'min-w-[160px] cursor-pointer border border-border border-l-4 bg-card px-3 py-2 shadow-sm transition-colors',
-          'hover:bg-muted/50',
-          styles.accentBorder,
-          selected ? 'ring-2 ring-primary/40' : '',
+          'border-rule bg-sheet hover:bg-band min-w-[160px] cursor-pointer border px-3 py-2',
+          selected ? 'border-ink border-2' : '',
         ].join(' ')}
         onClick={() => data.onSelect(data.keyPath)}
         onKeyDown={(event) => {
@@ -104,17 +75,26 @@ function AssetNode({ data, selected }: NodeProps<AssetNodeType>) {
       >
         <div className="flex items-center gap-2">
           <Database className={`size-4 ${styles.icon}`} />
-          <span className={`text-sm font-medium ${styles.label}`}>
+          <span className="text-ink font-mono text-xs font-bold">
             {data.label}
+          </span>
+          <span
+            className={`ml-auto px-1 font-mono text-[8px] font-bold tracking-[0.14em] uppercase ${styles.tag}`}
+          >
+            {data.layer}
           </span>
         </div>
         {data.computeKind && (
-          <div className="mt-1 text-xs text-muted-foreground">
+          <div className="text-ink-soft mt-1 font-mono text-[10px]">
             {data.computeKind}
           </div>
         )}
       </div>
-      <Handle type="source" position={Position.Right} className="!bg-border" />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!bg-rule-soft"
+      />
     </>
   )
 }
@@ -386,11 +366,11 @@ export function GraphCanvas({
         className="bg-background"
       >
         <Background color="var(--border)" gap={20} />
-        <Controls className="!bg-card !border-border !rounded-none [&>button]:!bg-card [&>button]:!border-border [&>button]:!fill-muted-foreground [&>button:hover]:!bg-muted" />
+        <Controls className="!bg-sheet !border-border !rounded-none [&>button]:!bg-sheet [&>button]:!border-border [&>button]:!fill-muted-foreground [&>button:hover]:!bg-muted" />
         <MiniMap
           nodeColor={miniMapNodeColor}
           maskColor="rgba(0, 0, 0, 0.6)"
-          className="!bg-card !border-border !rounded-none"
+          className="!bg-sheet !border-border !rounded-none"
         />
       </ReactFlow>
     </div>
@@ -409,19 +389,18 @@ export function GraphLegend() {
   ]
 
   return (
-    <div className="flex items-center gap-4 px-4 py-2 bg-card/80 backdrop-blur-sm border border-border">
-      <span className="text-xs text-muted-foreground font-medium">Layers:</span>
+    <div className="border-rule bg-sheet flex items-center gap-4 border px-4 py-2">
+      <span className="stamp text-ink-soft text-[9px]">Layers</span>
       {layers.map(({ key, label }) => {
         const styles = LAYER_STYLES[key] || LAYER_STYLES.unknown
         return (
           <div key={key} className="flex items-center gap-1.5">
-            <div
-              className={[
-                'size-3 border border-border bg-card',
-                styles.accentBorder,
-              ].join(' ')}
-            />
-            <span className="text-xs text-muted-foreground">{label}</span>
+            <span
+              className={`px-1 font-mono text-[8px] font-bold tracking-[0.14em] uppercase ${styles.tag}`}
+            >
+              {key}
+            </span>
+            <span className="text-ink-soft font-mono text-[10px]">{label}</span>
           </div>
         )
       })}

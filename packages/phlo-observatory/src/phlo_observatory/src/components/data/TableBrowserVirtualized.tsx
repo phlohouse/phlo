@@ -344,7 +344,7 @@ export function TableBrowserVirtualized({
                   isSelected
                     ? 'bg-primary/10 text-foreground font-medium'
                     : 'hover:bg-muted/50 text-muted-foreground hover:text-foreground',
-                  isFocused && 'ring-1 ring-inset ring-primary',
+                  isFocused && 'border ring-inset border-ink',
                 )}
                 style={{
                   height: `${virtualRow.size}px`,

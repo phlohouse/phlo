@@ -360,7 +360,7 @@ export function Services() {
           </>
         }
         list={
-          <div className="bg-card flex min-h-0 flex-1 flex-col">
+          <div className="bg-sheet flex min-h-0 flex-1 flex-col">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
               <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
                 <Server className="text-muted-foreground size-3.5" />

@@ -1,18 +1,12 @@
 /**
- * Page scaffolding: consistent header (kicker, title, description, actions)
- * and content width for every Observatory surface.
+ * Page scaffolding for the sheet: a report header (reference line, impact
+ * caps title, mono description, stamp actions) over a single column of
+ * content, plus the perforated tear line used between major sections.
  */
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb'
 
 export function Page({
   children,
@@ -22,7 +16,7 @@ export function Page({
   className?: string
 }) {
   return (
-    <div className={cn('flex flex-col gap-4 p-4 md:p-5', className)}>
+    <div className={cn('flex flex-col gap-5 p-4 md:px-6', className)}>
       {children}
     </div>
   )
@@ -42,35 +36,34 @@ export function PageHeader({
   children?: ReactNode
 }) {
   return (
-    <header className="flex flex-col gap-3">
+    <header className="rule-double flex flex-col gap-2 pb-3">
       {breadcrumb && breadcrumb.length > 0 && (
-        <Breadcrumb>
-          <BreadcrumbList>
-            {breadcrumb.map((item, index) => (
-              <BreadcrumbItem key={`${item.label}-${index}`}>
-                {index > 0 && <BreadcrumbSeparator />}
-                {item.to && index < breadcrumb.length - 1 ? (
-                  <Link
-                    className="hover:text-foreground transition-colors"
-                    to={item.to}
-                  >
-                    {item.label}
-                  </Link>
-                ) : (
-                  <BreadcrumbPage>{item.label}</BreadcrumbPage>
-                )}
-              </BreadcrumbItem>
-            ))}
-          </BreadcrumbList>
-        </Breadcrumb>
+        <nav
+          aria-label="Breadcrumb"
+          className="text-ink-faint flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] uppercase"
+        >
+          {breadcrumb.map((item, index) => (
+            <span
+              className="flex items-center gap-1.5"
+              key={`${item.label}-${index}`}
+            >
+              {index > 0 && <span aria-hidden="true">›</span>}
+              {item.to && index < breadcrumb.length - 1 ? (
+                <Link className="hover:text-ink hover:underline" to={item.to}>
+                  {item.label}
+                </Link>
+              ) : (
+                <span className="text-ink-soft">{item.label}</span>
+              )}
+            </span>
+          ))}
+        </nav>
       )}
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-foreground text-lg font-semibold tracking-tight">
-            {title}
-          </h1>
+          <h1 className="stamp text-ink text-base leading-tight">{title}</h1>
           {description && (
-            <p className="text-muted-foreground mt-0.5 max-w-3xl text-xs/relaxed">
+            <p className="text-ink-soft mt-1 max-w-3xl font-mono text-[11px]/relaxed">
               {description}
             </p>
           )}
@@ -81,5 +74,18 @@ export function PageHeader({
       </div>
       {children}
     </header>
+  )
+}
+
+/** Perforated section boundary; the optional index prints at the fold. */
+export function Tear({ index }: { index?: string }) {
+  return (
+    <div aria-hidden="true" className="tear my-1 flex justify-end">
+      {index && (
+        <span className="bg-sheet text-ink-faint relative -top-2 px-1 font-mono text-[9px] tracking-[0.2em] uppercase">
+          {index}
+        </span>
+      )}
+    </div>
   )
 }

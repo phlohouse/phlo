@@ -128,7 +128,7 @@ export function Workspace() {
                 key={resource.label}
                 to={resource.href}
               >
-                <span className="bg-muted text-muted-foreground flex size-7 flex-none items-center justify-center rounded-md">
+                <span className="bg-muted text-muted-foreground flex size-7 flex-none items-center justify-center rounded-none">
                   <Icon className="size-3.5" />
                 </span>
                 <span className="min-w-0 flex-1">

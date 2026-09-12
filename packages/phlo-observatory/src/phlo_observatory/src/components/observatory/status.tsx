@@ -6,7 +6,6 @@ import type { ReactNode } from 'react'
 
 import type { ObservatoryHealthState } from '@/observatory/api/types'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
 
 export type StatusState = ObservatoryHealthState | 'info'
 
@@ -47,23 +46,13 @@ export function HealthDot({
   )
 }
 
-const badgeVariantByState: Record<
-  string,
-  'default' | 'secondary' | 'destructive' | 'outline'
-> = {
-  ok: 'secondary',
-  warning: 'outline',
-  error: 'destructive',
-  info: 'secondary',
-  unknown: 'secondary',
-}
-
+/* State rendered as a tinted band chip — a stamp, not a pill. */
 const badgeClassByState: Record<string, string> = {
-  ok: 'border-status-ok/40 bg-status-ok/10 text-status-ok',
-  warning: 'border-status-warning/40 bg-status-warning/10 text-status-warning',
-  error: 'border-status-error/40 bg-status-error/10 text-status-error',
-  info: 'border-status-info/40 bg-status-info/10 text-status-info',
-  unknown: 'border-border bg-muted text-muted-foreground',
+  ok: 'bg-status-band-ok text-ok-ink',
+  warning: 'bg-status-band-warning text-amber-ink',
+  error: 'bg-status-band-error text-print-red',
+  info: 'bg-status-band-info text-status-info',
+  unknown: 'bg-band text-ink-faint',
 }
 
 export function StatusBadge({
@@ -77,17 +66,16 @@ export function StatusBadge({
 }) {
   const normalized = state ?? 'unknown'
   return (
-    <Badge
+    <span
       className={cn(
-        'gap-1.5 font-mono text-[10px] tracking-wide uppercase',
+        'inline-flex items-center gap-1.5 px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-[0.14em] uppercase',
         badgeClassByState[normalized] ?? badgeClassByState.unknown,
         className,
       )}
-      variant={badgeVariantByState[normalized] ?? 'secondary'}
     >
-      <HealthDot state={normalized} className="status-dot-sm" />
+      <HealthDot className="status-dot-sm" state={normalized} />
       {label ?? normalized}
-    </Badge>
+    </span>
   )
 }
 

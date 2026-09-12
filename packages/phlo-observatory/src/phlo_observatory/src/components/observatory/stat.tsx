@@ -1,5 +1,7 @@
 /**
- * Metric tiles for command decks: label, big tabular value, and a note.
+ * Figures strip: the printed totals line. Cells sit side by side on one
+ * banded row divided by vertical rules — not a grid of cards. A figure's
+ * `state` tints its cell band; `href` makes the cell navigable.
  */
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
@@ -7,6 +9,14 @@ import type { ReactNode } from 'react'
 import type { StatusState } from '@/components/observatory/status'
 import { HealthDot } from '@/components/observatory/status'
 import { cn } from '@/lib/utils'
+
+const bandByState: Record<string, string> = {
+  ok: 'bg-status-band-ok',
+  warning: 'bg-status-band-warning',
+  error: 'bg-status-band-error',
+  info: 'bg-status-band-info',
+  unknown: 'bg-sheet',
+}
 
 export function StatCard({
   label,
@@ -23,28 +33,30 @@ export function StatCard({
   state?: StatusState | string
   href?: string
 }) {
+  const band = bandByState[state ?? 'unknown'] ?? bandByState.unknown
   const body = (
     <>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground flex items-center gap-1.5 text-[11px] font-medium tracking-wide uppercase">
+        <span className="text-ink-soft flex items-center gap-1 font-mono text-[9px] font-bold tracking-[0.16em] uppercase">
           {icon}
           {label}
         </span>
-        {state && <HealthDot state={state} />}
+        {state && <HealthDot className="status-dot-sm" state={state} />}
       </div>
-      <div className="text-foreground tabular mt-1 font-mono text-2xl font-semibold">
+      <div className="text-ink tabular mt-0.5 font-mono text-xl font-bold">
         {value}
       </div>
       {note && (
-        <div className="text-muted-foreground mt-0.5 truncate text-[11px]">
+        <div className="text-ink-faint mt-0.5 truncate font-mono text-[10px]">
           {note}
         </div>
       )}
     </>
   )
   const className = cn(
-    'bg-card ring-foreground/10 hover:bg-accent/40 flex flex-col rounded-none p-3 ring-1 transition-colors',
-    href && 'cursor-pointer',
+    'flex min-w-0 flex-1 flex-col px-3 py-2',
+    band,
+    href && 'hover:bg-band-strong',
   )
   if (href) {
     return (
@@ -66,7 +78,7 @@ export function StatGrid({
   return (
     <div
       className={cn(
-        'grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6',
+        'border-rule bg-sheet divide-rule-soft flex divide-x overflow-x-auto border',
         className,
       )}
     >

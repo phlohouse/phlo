@@ -181,7 +181,7 @@ function useNodeDetailPanel({
 
   if (isLoading) {
     return (
-      <div className="bg-card border border-border p-6">
+      <div className="bg-sheet border border-border p-6">
         <div className="flex items-center gap-3">
           <Loader2 className="size-5 text-primary animate-spin" />
           <span className="text-muted-foreground">
@@ -194,7 +194,7 @@ function useNodeDetailPanel({
 
   if (!details) {
     return (
-      <div className="bg-card border border-border p-6 text-center text-muted-foreground">
+      <div className="bg-sheet border border-border p-6 text-center text-muted-foreground">
         <Database className="size-8 mx-auto mb-2 opacity-50" />
         <p>Click a node above to view its details</p>
       </div>
@@ -209,7 +209,7 @@ function useNodeDetailPanel({
   }
 
   return (
-    <div className="bg-card border border-border overflow-hidden">
+    <div className="bg-sheet border border-border overflow-hidden">
       <Sheet
         open={contribOpen}
         onOpenChange={(open) => {
@@ -248,7 +248,7 @@ function useNodeDetailPanel({
                 </Label>
                 <select
                   id="contrib-page-size"
-                  className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                  className="h-8 rounded-none border border-input bg-background px-2 text-sm"
                   value={String(contribPageSize)}
                   onChange={(e) => {
                     setContribPageSize(Number(e.target.value))
@@ -315,7 +315,7 @@ function useNodeDetailPanel({
 
           <div className="px-4 pb-4 flex flex-col gap-4 min-h-0 flex-1">
             {contribResult?.query ? (
-              <details className="rounded-md border border-border bg-muted/30">
+              <details className="rounded-none border border-border bg-muted/30">
                 <summary className="cursor-pointer select-none px-3 py-2 text-xs text-muted-foreground">
                   SQL (read-only)
                 </summary>
@@ -395,7 +395,7 @@ function useNodeDetailPanel({
               language="sql"
             >
               {({ style, tokens, getLineProps, getTokenProps }) => (
-                <div className="rounded-md border border-border bg-muted/30 overflow-x-auto max-h-64">
+                <div className="rounded-none border border-border bg-muted/30 overflow-x-auto max-h-64">
                   <pre
                     style={{
                       ...style,
@@ -444,7 +444,7 @@ function useNodeDetailPanel({
                   return (
                     <div
                       key={upstreamAssetKey}
-                      className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2"
+                      className="flex items-center justify-between gap-3 rounded-none border border-border bg-muted/20 px-3 py-2"
                     >
                       <div className="text-xs text-foreground">
                         {upstreamLabel}
@@ -927,7 +927,7 @@ function useRowJourney({
           <Background color="var(--border)" gap={16} />
           <Controls
             showInteractive={false}
-            className="!bg-card !border-border !rounded-none [&>button]:!bg-card [&>button]:!border-border [&>button]:!fill-muted-foreground [&>button:hover]:!bg-muted"
+            className="!bg-sheet !border-border !rounded-none [&>button]:!bg-sheet [&>button]:!border-border [&>button]:!fill-muted-foreground [&>button:hover]:!bg-muted"
           />
         </ReactFlow>
       </div>

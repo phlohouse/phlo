@@ -771,7 +771,7 @@ function WapOperationFocus({ operation }: { operation: ObservatoryOperation }) {
             </div>
           </div>
         </SectionCard>
-        <div className="bg-surface-sunken ring-foreground/10 min-h-[20rem] ring-1">
+        <div className="bg-paper border-rule min-h-[20rem] border">
           <ObservatoryFlowCanvas edges={flow.edges} nodes={flow.nodes} />
         </div>
       </div>

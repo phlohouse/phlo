@@ -3,137 +3,117 @@
 @import 'shadcn/tailwind.css';
 @import '@fontsource-variable/jetbrains-mono';
 
-@custom-variant dark (&:is(.dark *));
-
 /*
- * Observatory design tokens.
+ * Observatory — Green-Bar Printout.
  *
- * Mission-control surfaces: a near-neutral canvas, hairline borders, one
- * warm amber action color, and a fixed status ramp (ok / warning / error /
- * info) that every health indicator shares. Dark is the primary context;
- * light exists for bright environments.
+ * The lakehouse as a live continuous-form line-printer sheet: paper ground,
+ * green-bar bands for scan speed, sprocket-hole margins, perforated tear
+ * lines between sections, print-head red for faults. Bands carry state;
+ * selection inverts to ink; there is no dark mode — the sheet is paper.
+ * See DESIGN.md for the direction contract.
  */
 :root {
-  --background: oklch(0.985 0 0);
-  --foreground: oklch(0.18 0.005 60);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.005 60);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.005 60);
-  --primary: oklch(0.62 0.15 55);
-  --primary-foreground: oklch(0.99 0.01 95);
-  --secondary: oklch(0.955 0.002 60);
-  --secondary-foreground: oklch(0.24 0.006 60);
-  --muted: oklch(0.96 0.001 60);
-  --muted-foreground: oklch(0.5 0.004 60);
-  --accent: oklch(0.945 0.003 60);
-  --accent-foreground: oklch(0.22 0.005 60);
-  --destructive: oklch(0.577 0.215 27.33);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.9 0.002 60);
-  --input: oklch(0.9 0.002 60);
-  --ring: oklch(0.62 0.15 55);
-  --radius: 0.375rem;
+  /* The sheet */
+  --paper: #f7f5ec;
+  --sheet: #fbfaf3;
+  --band: #e4eedd;
+  --band-strong: #d3e2c9;
+  --band-warn: #f0e3bd;
+  --band-danger: #f2d4cb;
+  --band-info: #dde7ee;
 
-  /* Status ramp — shared by every health/state indicator. */
-  --status-ok: oklch(0.6 0.14 155);
-  --status-ok-foreground: oklch(0.98 0.01 155);
-  --status-warning: oklch(0.68 0.15 70);
-  --status-warning-foreground: oklch(0.28 0.05 60);
-  --status-error: oklch(0.577 0.215 27.33);
-  --status-error-foreground: oklch(0.985 0 0);
-  --status-info: oklch(0.55 0.12 240);
-  --status-info-foreground: oklch(0.98 0.01 240);
-  --status-unknown: oklch(0.62 0.004 60);
-  --status-unknown-foreground: oklch(0.99 0 0);
+  /* Ink and rules */
+  --ink: #20241f;
+  --ink-soft: #5a5f55;
+  --ink-faint: #8d9184;
+  --rule: #20241f;
+  --rule-soft: #c9c6b4;
 
-  /* Surface steps: canvas -> panel -> inset. */
-  --surface-raised: oklch(1 0 0);
-  --surface-sunken: oklch(0.965 0.002 60);
-  --surface-overlay: oklch(1 0 0);
+  /* State ink (text/icons) */
+  --print-red: #b3402e;
+  --amber: #8a6414;
+  --ok-ink: #2f5d35;
+  --link: #1f4e79;
 
-  /* Sidebar */
-  --sidebar: oklch(0.975 0.001 60);
-  --sidebar-foreground: oklch(0.24 0.005 60);
-  --sidebar-primary: oklch(0.62 0.15 55);
-  --sidebar-primary-foreground: oklch(0.99 0.01 95);
-  --sidebar-accent: oklch(0.945 0.003 60);
-  --sidebar-accent-foreground: oklch(0.22 0.005 60);
-  --sidebar-border: oklch(0.9 0.002 60);
-  --sidebar-ring: oklch(0.62 0.15 55);
+  /* shadcn token map onto the sheet */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--sheet);
+  --card-foreground: var(--ink);
+  --popover: var(--sheet);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: var(--band);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper);
+  --muted-foreground: var(--ink-soft);
+  --accent: var(--band-strong);
+  --accent-foreground: var(--ink);
+  --destructive: var(--print-red);
+  --destructive-foreground: var(--paper);
+  --border: var(--rule-soft);
+  --input: var(--rule-soft);
+  --ring: var(--ink);
+  --radius: 0rem;
 
-  /* Data visualization ramp (warm spectrum anchored on primary). */
-  --chart-1: oklch(0.85 0.14 90);
-  --chart-2: oklch(0.75 0.15 72);
-  --chart-3: oklch(0.65 0.15 57);
-  --chart-4: oklch(0.55 0.14 48);
-  --chart-5: oklch(0.47 0.12 44);
+  /* Status ramp: ink for labels, band tints for fills. */
+  --status-ok: var(--ok-ink);
+  --status-ok-foreground: var(--paper);
+  --status-warning: var(--amber);
+  --status-warning-foreground: var(--paper);
+  --status-error: var(--print-red);
+  --status-error-foreground: var(--paper);
+  --status-info: var(--link);
+  --status-info-foreground: var(--paper);
+  --status-unknown: var(--ink-faint);
+  --status-unknown-foreground: var(--paper);
 
-  /* Table density knobs (compact mode halves padding). */
-  --table-head-height: 2.25rem;
-  --table-cell-px: 0.625rem;
-  --table-cell-py: 0.4375rem;
-}
+  --status-band-ok: var(--band);
+  --status-band-warning: var(--band-warn);
+  --status-band-error: var(--band-danger);
+  --status-band-info: var(--band-info);
+  --status-band-unknown: var(--band);
 
-.dark {
-  --background: oklch(0.155 0.003 60);
-  --foreground: oklch(0.93 0.004 70);
-  --card: oklch(0.185 0.003 60);
-  --card-foreground: oklch(0.93 0.004 70);
-  --popover: oklch(0.19 0.003 60);
-  --popover-foreground: oklch(0.9 0.004 70);
-  --primary: oklch(0.77 0.15 68);
-  --primary-foreground: oklch(0.25 0.06 45);
-  --secondary: oklch(0.24 0.004 60);
-  --secondary-foreground: oklch(0.93 0.004 70);
-  --muted: oklch(0.23 0.003 60);
-  --muted-foreground: oklch(0.65 0.004 60);
-  --accent: oklch(0.27 0.004 60);
-  --accent-foreground: oklch(0.93 0.004 70);
-  --destructive: oklch(0.66 0.19 24);
-  --destructive-foreground: oklch(0.97 0.01 70);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 13%);
-  --ring: oklch(0.77 0.15 68);
+  --surface-raised: var(--sheet);
+  --surface-sunken: var(--paper);
+  --surface-overlay: var(--sheet);
 
-  --status-ok: oklch(0.72 0.15 158);
-  --status-ok-foreground: oklch(0.2 0.05 155);
-  --status-warning: oklch(0.79 0.15 75);
-  --status-warning-foreground: oklch(0.26 0.05 60);
-  --status-error: oklch(0.68 0.2 24);
-  --status-error-foreground: oklch(0.21 0.05 24);
-  --status-info: oklch(0.7 0.12 235);
-  --status-info-foreground: oklch(0.2 0.04 240);
-  --status-unknown: oklch(0.56 0.004 60);
-  --status-unknown-foreground: oklch(0.95 0 0);
+  --sidebar: var(--paper);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--paper);
+  --sidebar-accent: var(--band-strong);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--rule-soft);
+  --sidebar-ring: var(--ink);
 
-  --surface-raised: oklch(0.19 0.003 60);
-  --surface-sunken: oklch(0.13 0.003 60);
-  --surface-overlay: oklch(0.21 0.003 60);
+  /* Chart ramp: ink-to-paper steps plus the two state inks. */
+  --chart-1: var(--ink);
+  --chart-2: var(--ink-soft);
+  --chart-3: var(--print-red);
+  --chart-4: var(--amber);
+  --chart-5: var(--ink-faint);
 
-  --sidebar: oklch(0.175 0.003 60);
-  --sidebar-foreground: oklch(0.78 0.004 60);
-  --sidebar-primary: oklch(0.77 0.15 68);
-  --sidebar-primary-foreground: oklch(0.25 0.06 45);
-  --sidebar-accent: oklch(0.24 0.004 60);
-  --sidebar-accent-foreground: oklch(0.93 0.004 70);
-  --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.77 0.15 68);
+  /* Phosphor console — the one dark surface (raw output machine). */
+  --console: #0c1409;
+  --console-ink: #9fd08f;
 
-  --chart-1: oklch(0.88 0.14 92);
-  --chart-2: oklch(0.77 0.15 70);
-  --chart-3: oklch(0.66 0.15 57);
-  --chart-4: oklch(0.56 0.14 48);
-  --chart-5: oklch(0.48 0.12 44);
+  --table-head-height: 1.75rem;
+  --table-cell-px: 0.75rem;
+  --table-cell-py: 0.375rem;
 }
 
 @theme inline {
   --font-sans:
-    'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    ui-monospace, 'JetBrains Mono Variable', SFMono-Regular, Menlo, Monaco,
+    Consolas, 'Liberation Mono', 'Courier New', monospace;
   --font-mono:
     'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Monaco,
     Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --font-prose:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -155,6 +135,24 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
+  --color-paper: var(--paper);
+  --color-sheet: var(--sheet);
+  --color-band: var(--band);
+  --color-band-strong: var(--band-strong);
+  --color-band-warn: var(--band-warn);
+  --color-band-danger: var(--band-danger);
+  --color-band-info: var(--band-info);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-rule: var(--rule);
+  --color-rule-soft: var(--rule-soft);
+  --color-print-red: var(--print-red);
+  --color-amber-ink: var(--amber);
+  --color-ok-ink: var(--ok-ink);
+  --color-console: var(--console);
+  --color-console-ink: var(--console-ink);
+
   --color-status-ok: var(--status-ok);
   --color-status-ok-foreground: var(--status-ok-foreground);
   --color-status-warning: var(--status-warning);
@@ -165,6 +163,11 @@
   --color-status-info-foreground: var(--status-info-foreground);
   --color-status-unknown: var(--status-unknown);
   --color-status-unknown-foreground: var(--status-unknown-foreground);
+  --color-status-band-ok: var(--status-band-ok);
+  --color-status-band-warning: var(--status-band-warning);
+  --color-status-band-error: var(--status-band-error);
+  --color-status-band-info: var(--status-band-info);
+  --color-status-band-unknown: var(--status-band-unknown);
 
   --color-surface-raised: var(--surface-raised);
   --color-surface-sunken: var(--surface-sunken);
@@ -185,23 +188,26 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    border-radius: 0;
   }
   html {
-    @apply font-sans;
-    scrollbar-color: var(--border) transparent;
+    @apply font-mono;
+    scrollbar-color: var(--rule-soft) transparent;
   }
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply bg-background text-foreground font-mono;
     font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
   }
   code,
   pre,
@@ -210,81 +216,171 @@
     font-family: var(--font-mono);
   }
   ::selection {
-    background: color-mix(in oklch, var(--primary) 30%, transparent);
+    background: var(--ink);
+    color: var(--paper);
   }
 }
 
 @layer utilities {
-  /* Thin scrollbars on scrollable panels. */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
+    scrollbar-color: var(--rule-soft) transparent;
   }
   .scrollbar-thin::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 4px;
+    background: var(--rule-soft);
   }
   .scrollbar-thin::-webkit-scrollbar-track {
     background: transparent;
   }
 
-  /* Status helpers: dot + text + soft badge fill. */
+  /*
+   * Sprocket rail: perforated feed holes down the sheet margin.
+   * Apply to a fixed-width column; holes run on 14px centers.
+   */
+  .sprocket {
+    background-image: radial-gradient(
+      circle,
+      var(--paper) 2.5px,
+      var(--rule-soft) 3px,
+      transparent 3.5px
+    );
+    background-size: 100% 14px;
+    background-position: center 7px;
+    background-repeat: repeat-y;
+  }
+
+  /* Tear line: perforated section boundary. */
+  .tear {
+    border-top: 1px dashed var(--rule-soft);
+    position: relative;
+  }
+  .tear::before {
+    content: '· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -0.62em;
+    overflow: hidden;
+    white-space: nowrap;
+    color: var(--rule-soft);
+    font-size: 0.5625rem;
+    letter-spacing: 0.1em;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  /* Double rule: printed header underline / sheet bounds. */
+  .rule-double {
+    border-bottom: 3px double var(--rule);
+  }
+  .rule-double-soft {
+    border-bottom: 3px double var(--rule-soft);
+  }
+
+  /*
+   * Bands: the green-bar row. `.bands` marks a striped container;
+   * `.band` is a single row that may carry a state. Fixed height,
+   * no wrapping — density is the point.
+   */
+  .bands > *:nth-child(even) {
+    background: var(--band);
+  }
+  .band {
+    background: var(--sheet);
+  }
+  .band[data-state='ok'] {
+    background: var(--status-band-ok);
+  }
+  .band[data-state='warning'] {
+    background: var(--status-band-warning);
+  }
+  .band[data-state='error'] {
+    background: var(--status-band-error);
+  }
+  .band[data-state='info'] {
+    background: var(--status-band-info);
+  }
+  .band[data-selected='true'],
+  .band[data-state='selected'] {
+    background: var(--ink);
+    color: var(--paper);
+  }
+  .band[data-selected='true'] *,
+  .band[data-state='selected'] * {
+    color: inherit;
+  }
+  /* Hover: one tint deeper, instant — paper doesn't animate. */
+  .band-hover:hover {
+    background: var(--band-strong);
+  }
+  .band[data-state='warning'].band-hover:hover,
+  .band[data-state='warning']:hover.band-hover {
+    background: color-mix(in srgb, var(--band-warn) 80%, var(--amber));
+  }
+  .band[data-state='error'].band-hover:hover,
+  .band[data-state='error']:hover.band-hover {
+    background: color-mix(in srgb, var(--band-danger) 80%, var(--print-red));
+  }
+  /* Focus dims the rest. */
+  .bands:focus-within > *:not(:focus-within):not([data-selected='true']) {
+    opacity: 0.6;
+  }
+
+  /* Impact-printed caps for headers and stamps. */
+  .stamp {
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 700;
+  }
+
+  /* Overstrike: the active mark — ink bar behind paper text. */
+  .overstrike {
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+  /* Status dot: a printed glyph, not a glowing LED. */
   .status-dot {
     display: inline-block;
     width: 0.5rem;
     height: 0.5rem;
-    border-radius: 9999px;
     background: var(--status-unknown);
     flex: none;
   }
   .status-dot[data-state='ok'] {
     background: var(--status-ok);
-    box-shadow: 0 0 0 3px color-mix(in oklch, var(--status-ok) 18%, transparent);
   }
   .status-dot[data-state='warning'] {
     background: var(--status-warning);
-    box-shadow: 0 0 0 3px
-      color-mix(in oklch, var(--status-warning) 18%, transparent);
   }
   .status-dot[data-state='error'] {
     background: var(--status-error);
-    box-shadow: 0 0 0 3px
-      color-mix(in oklch, var(--status-error) 18%, transparent);
   }
   .status-dot[data-state='info'] {
     background: var(--status-info);
-    box-shadow: 0 0 0 3px
-      color-mix(in oklch, var(--status-info) 18%, transparent);
   }
   .status-dot-sm {
     width: 0.375rem;
     height: 0.375rem;
   }
-  .status-dot-sm[data-state] {
-    box-shadow: none;
-  }
 
-  /* Blueprint grid backdrop for the command deck. */
-  .deck-grid {
-    background-image:
-      linear-gradient(
-        to right,
-        color-mix(in oklch, var(--border) 45%, transparent) 1px,
-        transparent 1px
-      ),
-      linear-gradient(
-        to bottom,
-        color-mix(in oklch, var(--border) 45%, transparent) 1px,
-        transparent 1px
-      );
-    background-size: 28px 28px;
+  /* Phosphor console surface for raw output. */
+  .console {
+    background: var(--console);
+    color: var(--console-ink);
   }
 
   .tabular {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Focus ring: a ruled box, not a glow. */
+  .focus-print:focus-visible {
+    outline: 1px solid var(--ink);
+    outline-offset: 1px;
   }
 }

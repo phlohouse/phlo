@@ -632,7 +632,7 @@ export function Tables() {
                 contentClassName="p-0"
                 title="Table lineage"
               >
-                <div className="bg-surface-sunken min-h-[26rem]">
+                <div className="bg-paper min-h-[26rem]">
                   <ObservatoryFlowCanvas
                     edges={graph.edges}
                     nodes={graph.nodes}
@@ -760,7 +760,7 @@ function TableEvidenceBand({
 
   return (
     <section
-      className="bg-card ring-foreground/10 ring-1"
+      className="bg-sheet border-rule border"
       data-state={profile.qualityState}
     >
       <div className="border-border flex items-center justify-between gap-2 border-b px-3 py-2">
@@ -952,7 +952,7 @@ function DataPreviewTable({
           }}
         >
           <table className="w-full border-collapse font-mono text-[11px]">
-            <thead className="bg-card sticky top-0">
+            <thead className="bg-sheet sticky top-0">
               <tr>
                 {columns.map((column) => (
                   <th
@@ -1273,7 +1273,7 @@ function DataDetailPanel({
           </Badge>
         </div>
         <textarea
-          className="border-input bg-surface-sunken text-foreground focus-visible:ring-ring min-h-24 w-full border px-2 py-1.5 font-mono text-[11px] outline-none focus-visible:ring-1"
+          className="border-input bg-paper text-foreground focus-visible:ring-ring min-h-24 w-full border px-2 py-1.5 font-mono text-[11px] outline-none focus-visible:ring-1"
           onChange={(event) => setSql(event.target.value)}
           value={sql}
         />

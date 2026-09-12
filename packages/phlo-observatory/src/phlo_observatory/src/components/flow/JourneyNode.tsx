@@ -54,34 +54,23 @@ export function JourneyNode({ data }: NodeProps) {
       aria-current={isCurrent ? 'true' : undefined}
       type={isClickable ? 'button' : undefined}
       className={cn(
-        'border bg-card text-left transition-colors',
-        isClickable ? 'cursor-pointer' : '',
-        isClickable
-          ? cn(
-              'border-2',
-              isCurrent
-                ? 'border-primary shadow-sm ring-1 ring-primary/20'
-                : 'border-border hover:border-primary/50 hover:bg-muted/50',
-            )
-          : cn(
-              'border-border border-l-4 shadow-sm hover:bg-muted/50',
-              isCurrent
-                ? 'border-l-primary ring-2 ring-primary/40'
-                : 'border-l-border',
-            ),
+        'border-rule bg-sheet border text-left',
+        isClickable ? 'hover:bg-band cursor-pointer' : '',
+        isCurrent && 'border-ink border-2',
       )}
     >
-      <Handle type="target" position={Position.Left} className="!bg-border" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!bg-rule-soft"
+      />
 
       <div className="px-4 py-3">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="mb-1 flex items-center gap-2">
           <Database
-            className={cn(
-              'size-4',
-              isCurrent ? 'text-primary' : 'text-muted-foreground',
-            )}
+            className={cn('size-4', isCurrent ? 'text-ink' : 'text-ink-faint')}
           />
-          <span className="font-medium text-sm text-foreground">{label}</span>
+          <span className="text-ink font-mono text-xs font-bold">{label}</span>
         </div>
 
         <div className="flex items-center gap-2 text-xs">

@@ -17,7 +17,7 @@ export const Route = createFileRoute('/$')({
 function ObservatoryNotFoundRoute() {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-      <section className="bg-card ring-foreground/10 flex max-w-md flex-col items-center gap-2 px-8 py-10 text-center ring-1">
+      <section className="bg-sheet border-rule flex max-w-md flex-col items-center gap-2 px-8 py-10 text-center border">
         <h1 className="text-foreground text-lg font-semibold tracking-tight">
           Page not found
         </h1>

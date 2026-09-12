@@ -264,7 +264,7 @@ function LineageIndex() {
         />
       </StatGrid>
       <div className="grid min-h-0 flex-1 grid-cols-[16rem_minmax(0,1fr)_22rem] max-xl:grid-cols-[14rem_minmax(0,1fr)] max-lg:grid-cols-1">
-        <div className="bg-card ring-foreground/10 flex min-h-0 flex-col ring-1">
+        <div className="bg-sheet border-rule flex min-h-0 flex-col border">
           <div className="flex items-center gap-2 border-b p-2">
             <span className="text-foreground px-1 text-xs font-semibold">
               Lineage index
@@ -323,8 +323,8 @@ function LineageIndex() {
           </ScrollArea>
         </div>
 
-        <div className="bg-surface-sunken ring-foreground/10 flex min-h-0 flex-col ring-1 max-xl:hidden">
-          <div className="bg-card flex items-center justify-between gap-2 border-b px-3 py-2">
+        <div className="bg-paper border-rule flex min-h-0 flex-col border max-xl:hidden">
+          <div className="bg-sheet flex items-center justify-between gap-2 border-b px-3 py-2">
             <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
               <Network className="text-muted-foreground size-3.5" />
               Neighborhood
@@ -348,7 +348,7 @@ function LineageIndex() {
           )}
         </div>
 
-        <aside className="bg-card ring-foreground/10 flex min-h-0 flex-col ring-1 max-lg:min-h-[24rem]">
+        <aside className="bg-sheet border-rule flex min-h-0 flex-col border max-lg:min-h-[24rem]">
           <ScrollArea className="min-h-0 flex-1">
             {selected ? (
               <>

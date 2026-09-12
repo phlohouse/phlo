@@ -575,7 +575,7 @@ function BranchReadiness({
 
   return (
     <section
-      className="bg-card ring-foreground/10 flex flex-col ring-1"
+      className="bg-sheet border-rule flex flex-col border"
       data-state={state}
     >
       <div className="border-border flex flex-wrap items-start justify-between gap-3 border-b px-3 py-3">

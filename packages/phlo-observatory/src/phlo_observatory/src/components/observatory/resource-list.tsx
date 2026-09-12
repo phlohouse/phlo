@@ -1,15 +1,14 @@
 /**
- * Row-list pattern used across Observatory: a status dot, title, meta line,
- * and a kind/label badge. Works as link or button.
+ * Banded row list: the printout's core unit. Rows sit on green-bar bands;
+ * a row's `state` tints its band, selection inverts to ink. Fixed single-
+ * line height, no wrapping — the sheet is dense.
  */
 import { Link } from '@tanstack/react-router'
-import { ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import type { StatusState } from '@/components/observatory/status'
 import { HealthDot } from '@/components/observatory/status'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
 
 export function RowList({
   children,
@@ -19,7 +18,9 @@ export function RowList({
   className?: string
 }) {
   return (
-    <div className={cn('divide-y divide-border', className)}>{children}</div>
+    <div className={cn('bands border-rule border-t border-b', className)}>
+      {children}
+    </div>
   )
 }
 
@@ -48,47 +49,57 @@ export function RowItem({
 }) {
   const body = (
     <>
-      <HealthDot state={state} className="mt-1" />
-      <span className="min-w-0 flex-1">
-        <span className="text-foreground block truncate text-xs font-medium">
-          {title}
+      <HealthDot className="status-dot-sm" state={state} />
+      <span className="truncate font-mono text-[11px] font-bold">{title}</span>
+      {meta && (
+        <span className="text-ink-soft hidden truncate font-mono text-[10px] md:inline">
+          {meta}
         </span>
-        {meta && (
-          <span className="text-muted-foreground mt-0.5 block truncate font-mono text-[11px]">
-            {meta}
-          </span>
-        )}
-        {reason && (
-          <span className="text-muted-foreground mt-0.5 block truncate text-[11px]">
-            {reason}
-          </span>
-        )}
-      </span>
+      )}
+      {reason && (
+        <span className="text-ink-faint hidden min-w-0 flex-1 truncate font-mono text-[10px] lg:inline">
+          {reason}
+        </span>
+      )}
+      <span className="flex-1" />
       {badge && (
-        <Badge className="font-mono text-[10px]" variant="secondary">
+        <span className="text-ink-faint flex-none font-mono text-[9px] tracking-[0.12em] uppercase">
           {badge}
-        </Badge>
+        </span>
       )}
       {actions}
       {(href || onClick) && !actions && (
-        <ChevronRight className="text-muted-foreground size-3.5 flex-none" />
+        <span
+          aria-hidden="true"
+          className="text-ink-faint font-mono text-[10px]"
+        >
+          &gt;
+        </span>
       )}
     </>
   )
   const itemClass = cn(
-    'hover:bg-accent/50 flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors',
-    selected && 'bg-accent/60 hover:bg-accent/60',
+    'band band-hover flex h-7 w-full items-center gap-2.5 px-3 text-left',
     className,
   )
+  const dataProps = {
+    'data-state': selected ? 'selected' : state,
+    'data-selected': selected ? 'true' : undefined,
+  }
   if (href) {
     return (
-      <Link className={itemClass} to={href}>
+      <Link className={itemClass} to={href} {...dataProps}>
         {body}
       </Link>
     )
   }
   return (
-    <button className={itemClass} onClick={onClick} type="button">
+    <button
+      className={itemClass}
+      onClick={onClick}
+      type="button"
+      {...dataProps}
+    >
       {body}
     </button>
   )

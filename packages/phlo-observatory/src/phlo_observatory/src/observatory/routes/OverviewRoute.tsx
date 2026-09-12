@@ -44,11 +44,14 @@ import { Page, PageHeader } from '@/components/observatory/page'
 import { RowItem, RowList } from '@/components/observatory/resource-list'
 import { SectionCard } from '@/components/observatory/section'
 import { StatCard, StatGrid } from '@/components/observatory/stat'
-import { StatusBadge, statusStateFor } from '@/components/observatory/status'
+import {
+  HealthDot,
+  StatusBadge,
+  statusStateFor,
+} from '@/components/observatory/status'
 import { formatRelativeTime } from '@/components/observatory/time'
 import { EmptyBlock } from '@/components/observatory/states'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
 
 const formatter = new Intl.NumberFormat('en')
 const stageTransitions = ['ingest', 'normalize', 'model', 'publish']
@@ -302,14 +305,14 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
         actions={
           <div className="flex items-center gap-2">
             {updatedAt && (
-              <span className="text-muted-foreground font-mono text-[10px]">
+              <span className="text-ink-faint font-mono text-[10px]">
                 synced {formatRelativeTime(updatedAt.toISOString())}
               </span>
             )}
             <StatusBadge label={statusLabel} state={statusState} />
             <Link
               className={cn(
-                'border-input hover:bg-accent inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors',
+                'border-rule hover:bg-band inline-flex h-7 items-center gap-1.5 border px-2.5 font-mono text-[10px] font-bold tracking-[0.1em] uppercase',
               )}
               to="/workflows/new"
             >
@@ -318,10 +321,11 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
             </Link>
           </div>
         }
-        description="Lakehouse mission control: what needs attention, why it matters, and where to go next."
+        description="Lakehouse status report — what needs attention, why it matters, and where to go next."
         title="Overview"
       />
 
+      {/* Figures line: the report's totals, ruled off as one strip. */}
       <StatGrid>
         <StatCard
           href="/services"
@@ -373,161 +377,145 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
         )}
       </StatGrid>
 
-      {/* Lakehouse stage map */}
+      {/* Stage track: the pipeline as a printed flow line, tinted by state. */}
       <SectionCard
         actions={
-          <Badge variant="secondary">
+          <span className="text-ink-faint font-mono text-[9px] tracking-[0.14em] uppercase">
             {formatter.format(
               lakehouseStages.reduce((sum, stage) => sum + stage.assets, 0),
             )}{' '}
             assets
-          </Badge>
+          </span>
         }
-        title="Lakehouse map"
+        title="Pipeline track"
       >
-        <div className="deck-grid grid grid-cols-1 gap-2 p-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="border-rule scrollbar-thin flex items-stretch overflow-x-auto border">
           {lakehouseStages.map((stage, index) => (
             <Link
-              className="group ring-foreground/10 bg-card hover:bg-accent/40 flex flex-col gap-2 rounded-md p-3 ring-1 transition-colors"
+              className={cn(
+                'group flex min-w-40 flex-1 flex-col gap-1.5 px-3 py-2',
+                stageBandClass(stage.state),
+                'hover:bg-band-strong',
+              )}
               key={stage.id}
               to={stage.href}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground font-mono text-[10px] tracking-widest uppercase">
+                <span className="text-ink-soft font-mono text-[9px] font-bold tracking-[0.16em] uppercase">
                   {stageTransitions[index] ?? stage.id}
                 </span>
-                <StatusBadge state={stage.state} />
+                <HealthDot className="status-dot-sm" state={stage.state} />
               </div>
-              <div>
-                <div className="text-foreground text-sm font-semibold">
-                  {stage.label}
-                </div>
-                <div className="text-muted-foreground mt-0.5 font-mono text-[10px]">
-                  {formatter.format(stage.records)} records · {stage.assets}{' '}
-                  assets · {stage.blocking} blocking
-                </div>
+              <div className="text-ink text-xs font-bold">{stage.label}</div>
+              <div className="text-ink-soft font-mono text-[10px]">
+                {formatter.format(stage.records)} rec · {stage.assets} assets
               </div>
-              <div className="mt-auto flex flex-wrap gap-1">
-                {stage.samples.length > 0 ? (
-                  stage.samples.map((sample) => (
-                    <span
-                      className="bg-muted text-muted-foreground rounded-sm px-1.5 py-0.5 font-mono text-[10px]"
-                      key={`${stage.id}:${sample}`}
-                    >
-                      {sample}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-muted-foreground font-mono text-[10px]">
-                    no datasets mapped
-                  </span>
-                )}
-              </div>
-              <div className="bg-muted h-1 overflow-hidden rounded-full">
-                <div
-                  className={cn(
-                    'h-full rounded-full transition-[width]',
-                    stage.state === 'error'
-                      ? 'bg-status-error'
-                      : stage.state === 'warning'
-                        ? 'bg-status-warning'
-                        : 'bg-primary',
-                  )}
-                  style={{ width: `${stage.weight}%` }}
-                />
+              <div className="text-ink-faint truncate font-mono text-[9px]">
+                {stage.samples.length > 0
+                  ? stage.samples.join(', ')
+                  : 'no datasets mapped'}
               </div>
             </Link>
           ))}
         </div>
+        <div className="text-ink-faint mt-1 flex justify-between font-mono text-[9px] tracking-[0.14em] uppercase">
+          <span>source</span>
+          <span>serving</span>
+        </div>
       </SectionCard>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <SectionCard
-          actions={
-            <Badge variant="secondary">
-              {attentionItems.length || 'clear'}
-            </Badge>
-          }
-          description="Ranked by severity: failing checks, failed work, degraded services, error logs."
-          title="Attention queue"
-        >
-          {attentionItems.length > 0 ? (
-            <RowList>
-              {attentionItems.map((item) => (
-                <RowItem
-                  badge={item.kind}
-                  href={item.href}
-                  key={item.id}
-                  meta={item.meta}
-                  reason={item.reason}
-                  state={statusStateFor(item.state)}
-                  title={item.label}
-                />
-              ))}
-            </RowList>
-          ) : (
-            <EmptyBlock
-              description="Services, checks, operations, and logs are all nominal."
-              title="Nothing needs attention"
-            />
-          )}
-        </SectionCard>
-
-        <SectionCard
-          actions={<Badge variant="secondary">{eventRows.length}</Badge>}
-          description="Latest operations and platform events with evidence links."
-          title="Event story"
-        >
-          {eventRows.length > 0 ? (
-            <RowList>
-              {eventRows.map((event) => (
-                <RowItem
-                  badge={event.kind}
-                  href={event.href}
-                  key={event.id}
-                  meta={event.meta}
-                  reason={event.reason}
-                  state={statusStateFor(event.state)}
-                  title={event.label}
-                />
-              ))}
-            </RowList>
-          ) : (
-            <EmptyBlock title="No events yet" />
-          )}
-        </SectionCard>
-      </div>
-
+      {/* Attention queue: the sheet's main block of state-tinted bands. */}
       <SectionCard
-        actions={<Badge variant="secondary">{integrationLinks.length}</Badge>}
+        actions={
+          <span className="text-ink-faint font-mono text-[9px] tracking-[0.14em] uppercase">
+            {attentionItems.length || 'clear'}
+          </span>
+        }
+        description="Ranked by severity: failing checks, failed work, degraded services, error logs."
+        title="Attention queue"
+      >
+        {attentionItems.length > 0 ? (
+          <RowList>
+            {attentionItems.map((item) => (
+              <RowItem
+                badge={item.kind}
+                href={item.href}
+                key={item.id}
+                meta={item.meta}
+                reason={item.reason}
+                state={statusStateFor(item.state)}
+                title={item.label}
+              />
+            ))}
+          </RowList>
+        ) : (
+          <EmptyBlock
+            description="Services, checks, operations, and logs are all nominal."
+            title="Nothing needs attention"
+          />
+        )}
+      </SectionCard>
+
+      {/* Event feed: the printout's running commentary. */}
+      <SectionCard
+        actions={
+          <span className="text-ink-faint font-mono text-[9px] tracking-[0.14em] uppercase">
+            {eventRows.length} lines
+          </span>
+        }
+        description="Latest operations and platform events with evidence links."
+        title="Event feed"
+      >
+        {eventRows.length > 0 ? (
+          <RowList>
+            {eventRows.map((event) => (
+              <RowItem
+                badge={event.kind}
+                href={event.href}
+                key={event.id}
+                meta={event.meta}
+                reason={event.reason}
+                state={statusStateFor(event.state)}
+                title={event.label}
+              />
+            ))}
+          </RowList>
+        ) : (
+          <EmptyBlock title="No events yet" />
+        )}
+      </SectionCard>
+
+      {/* Workbenches: external consoles printed as index lines. */}
+      <SectionCard
+        actions={
+          <span className="text-ink-faint font-mono text-[9px] tracking-[0.14em] uppercase">
+            {integrationLinks.length} consoles
+          </span>
+        }
         description="Native consoles exposed by running services."
         title="Workbenches"
       >
         {integrationLinks.length > 0 ? (
-          <div className="grid grid-cols-1 gap-px sm:grid-cols-2 xl:grid-cols-3">
+          <RowList>
             {integrationLinks.map((link) => (
               <a
-                className="border-border hover:bg-accent/50 flex items-center gap-3 border-b px-3 py-2.5 transition-colors sm:border-r sm:last:border-r-0 sm:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(3n)]:border-r-0"
+                className="band band-hover flex h-7 items-center gap-2.5 px-3"
                 href={link.url}
                 key={`${link.service}:${link.label}:${link.url}`}
                 rel="noreferrer"
                 target="_blank"
               >
-                <span className="bg-muted text-muted-foreground flex size-8 flex-none items-center justify-center rounded-md font-mono text-[11px] font-semibold">
-                  {link.initials}
+                <span className="text-ink w-16 flex-none truncate font-mono text-[11px] font-bold">
+                  {link.label}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="text-foreground block truncate text-xs font-medium">
-                    {link.label}
-                  </span>
-                  <span className="text-muted-foreground block truncate text-[11px]">
-                    {link.description} · {link.host}
-                  </span>
+                <span className="text-ink-soft hidden truncate font-mono text-[10px] md:inline">
+                  {link.description} · {link.host}
                 </span>
-                <ExternalLink className="text-muted-foreground size-3.5 flex-none" />
+                <span className="flex-1" />
+                <ExternalLink className="text-ink-faint size-3 flex-none" />
               </a>
             ))}
-          </div>
+          </RowList>
         ) : (
           <EmptyBlock
             description="Workbench links appear once services are running."
@@ -537,6 +525,19 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
       </SectionCard>
     </Page>
   )
+}
+
+function stageBandClass(state: string): string {
+  switch (state) {
+    case 'error':
+      return 'bg-status-band-error'
+    case 'warning':
+      return 'bg-status-band-warning'
+    case 'ok':
+      return 'bg-status-band-ok'
+    default:
+      return 'bg-sheet'
+  }
 }
 
 function buildLakehouseStages(
