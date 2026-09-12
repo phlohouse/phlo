@@ -1,11 +1,9 @@
 """MinIO governance backend for managed IAM policy documents.
 
-Implements the GovernanceBackend protocol over ``mc admin policy`` commands
-executed inside the generated MinIO container. Canonical roles map to MinIO
-groups: ``apply_policy`` creates or replaces a named policy document and
-attaches it to the group named for the role; ``revoke_policy`` detaches and
-removes it; ``list_policies`` returns the managed documents the core
-``MinioCompiler`` diffs for plan and verify.
+Wraps ``mc admin policy`` inside the generated MinIO container. Roles map
+to MinIO groups; ``list_policies`` reports each managed document with the
+group it is actually attached to so drift covers attachment, not just
+the document.
 """
 
 from __future__ import annotations
@@ -78,13 +76,6 @@ def _extract_document(row: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def _policy_role(policy_name: str) -> str:
-    """Recover the canonical role name from a managed policy name."""
-    body = policy_name[len(_MANAGED_PREFIX) :] if policy_name.startswith(_MANAGED_PREFIX) else ""
-    role, _, _ = body.rpartition("__")
-    return role
-
-
 class MinioGovernanceBackend:
     """GovernanceBackend implementation using mc admin policy commands."""
 
@@ -100,13 +91,29 @@ class MinioGovernanceBackend:
             return False
         return True
 
+    def _attached_groups(self, name: str) -> list[str]:
+        """Return the MinIO groups the named policy is attached to."""
+        entities = self._runner(
+            f"mc admin policy entities {_ALIAS} --policy {shlex.quote(name)} --json"
+        )
+        groups: set[str] = set()
+        for row in _parse_json_lines(entities):
+            result = row.get("result") or {}
+            for key in ("groupPolicyMappings", "policyMappings"):
+                for mapping in result.get(key) or []:
+                    group = mapping.get("group")
+                    if isinstance(group, str) and group:
+                        groups.add(group)
+        return sorted(groups)
+
     def list_policies(self, *, table_name: str | None = None) -> list[dict[str, Any]]:
-        """List managed policy documents and their attached canonical role."""
-        try:
-            listing = self._runner(f"mc admin policy list {_ALIAS} --json")
-        except Exception:
-            logger.warning("minio_governance_policy_list_failed", exc_info=True)
-            return []
+        """List managed policy documents with their real group attachment.
+
+        ``role`` is the single attached group, ``""`` when detached, or a
+        comma-joined list when attached to several groups — only the exact
+        desired attachment counts as converged state.
+        """
+        listing = self._runner(f"mc admin policy list {_ALIAS} --json")
         names = [
             str(row.get("policy", ""))
             for row in _parse_json_lines(listing)
@@ -114,31 +121,37 @@ class MinioGovernanceBackend:
         ]
         rows: list[dict[str, Any]] = []
         for name in names:
-            try:
-                info = self._runner(f"mc admin policy info {_ALIAS} {shlex.quote(name)} --json")
-            except Exception:
-                logger.warning("minio_governance_policy_info_failed", policy=name, exc_info=True)
-                continue
+            info = self._runner(f"mc admin policy info {_ALIAS} {shlex.quote(name)} --json")
             document: dict[str, Any] = {}
             for row in _parse_json_lines(info):
                 parsed = _extract_document(row)
                 if parsed is not None:
                     document = parsed
                     break
+            groups = self._attached_groups(name)
             rows.append(
                 {
                     "policy_name": name,
                     "document": json.dumps(document, sort_keys=True),
-                    "role": _policy_role(name),
+                    "role": ",".join(groups),
                 }
             )
         return rows
 
     def apply_policy(self, *, policy: AccessPolicy) -> None:
-        """Create the policy document and attach it to the role's group."""
+        """Create the policy document and attach it to the role's group.
+
+        A stale or detached document under the same name is detached and
+        removed first so apply also repairs drift, not just creates.
+        """
         name = policy.policy_id
         if not name or not name.startswith(_MANAGED_PREFIX):
             raise ValueError(f"Managed policy names must start with {_MANAGED_PREFIX!r}")
+        for group in self._attached_groups(name):
+            self._runner(
+                f"mc admin policy detach {_ALIAS} {shlex.quote(name)} --group {shlex.quote(group)}"
+            )
+        self._runner(f"mc admin policy remove {_ALIAS} {shlex.quote(name)} >/dev/null 2>&1 || true")
         document = json.loads(policy.table_pattern)
         encoded = base64.b64encode(json.dumps(document, sort_keys=True).encode("utf-8")).decode(
             "ascii"
@@ -160,19 +173,18 @@ class MinioGovernanceBackend:
         )
 
     def revoke_policy(self, *, policy_id: str) -> None:
-        """Detach a managed policy from its group and remove it."""
-        role = _policy_role(policy_id)
-        if role:
+        """Detach a managed policy from its attached groups and remove it."""
+        for group in self._attached_groups(policy_id):
             try:
                 self._runner(
                     f"mc admin policy detach {_ALIAS} {shlex.quote(policy_id)} "
-                    f"--group {shlex.quote(role)}"
+                    f"--group {shlex.quote(group)}"
                 )
             except Exception:
                 logger.warning(
                     "minio_governance_policy_detach_failed",
                     policy=policy_id,
-                    group=role,
+                    group=group,
                     exc_info=True,
                 )
         self._runner(f"mc admin policy remove {_ALIAS} {shlex.quote(policy_id)}")

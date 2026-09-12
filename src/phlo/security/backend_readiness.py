@@ -1,10 +1,8 @@
 """Neutral backend security readiness contract (ADR 0047 §5, §7.2).
 
-Every blessed backend registers a provider-owned readiness result through the
-``backend_readiness`` capability family. ``inspect()`` is strictly read-only
-and returns one sanitized result. A missing required adapter, a ``failed``
-result, or an ``unavailable`` result blocks production readiness; a provider
-never reports a fact it cannot authoritatively observe.
+Every blessed backend registers a provider-owned, read-only ``inspect()``
+through the ``backend_readiness`` family. A missing adapter, ``failed``,
+or ``unavailable`` blocks production readiness.
 """
 
 from __future__ import annotations
@@ -122,11 +120,16 @@ def observe_policy_convergence(backend_name: str) -> BackendReadinessResult | No
         except Exception:
             reachable = False
         if not reachable:
+            reason = getattr(resolution.provider, "probe_reason", None)
+            detail = reason() if callable(reason) else ""
             return BackendReadinessResult(
                 backend=backend_name,
                 state=BackendReadinessState.UNAVAILABLE,
-                reason_code="backend_unreachable",
-                message=f"{backend_name} could not be reached for policy observation",
+                reason_code=detail or "backend_unreachable",
+                message=(
+                    f"{backend_name} could not be observed for policy evidence"
+                    + (f" ({detail.replace('_', ' ')})" if detail else "")
+                ),
                 evidence_source="governance backend",
             )
     context = CompilerContext(environment="production", backend_name=backend_name)
@@ -147,7 +150,11 @@ def observe_policy_convergence(backend_name: str) -> BackendReadinessResult | No
     if not verified.in_sync:
         drift = tuple(
             {"direction": direction, "artifact": artifact.name}
-            for direction, artifacts in (("missing", verified.missing), ("extra", verified.extra))
+            for direction, artifacts in (
+                ("missing", verified.missing),
+                ("extra", verified.extra),
+                ("mismatched", verified.mismatched),
+            )
             for artifact in artifacts
         )
         return BackendReadinessResult(
@@ -156,7 +163,8 @@ def observe_policy_convergence(backend_name: str) -> BackendReadinessResult | No
             reason_code="policy_drift",
             message=(
                 f"{backend_name} managed policy state differs from the canonical "
-                f"model: {len(verified.missing)} missing, {len(verified.extra)} extra"
+                f"model: {len(verified.missing)} missing, {len(verified.extra)} extra, "
+                f"{len(verified.mismatched)} mismatched"
             ),
             desired_policy_digest=desired_digest,
             observed_policy_digest=observed_digest,

@@ -1,10 +1,8 @@
 """PostgreSQL governance backend for access control via SQL grants.
 
-Implements the GovernanceBackend protocol over ``PostgresResource``: apply
-and revoke translate canonical grants into GRANT/REVOKE/ALTER DEFAULT
-PRIVILEGES statements, and ``list_policies`` returns managed grants as
-typed rows (``table_grant``, ``schema_usage``, ``all_tables``,
-``default_privileges``, ``role_membership``) that the core
+Implements the GovernanceBackend protocol over ``PostgresResource``:
+apply/revoke emit GRANT/REVOKE/ALTER DEFAULT PRIVILEGES, and
+``list_policies`` returns managed grants as typed rows the core
 ``PostgresCompiler`` diffs for plan and verify.
 """
 

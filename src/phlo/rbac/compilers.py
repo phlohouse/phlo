@@ -1,10 +1,8 @@
 """Governance compilers for the remaining blessed backends.
 
-Postgres, MinIO, and Nessie each get a ``GovernanceCompiler`` so the
-canonical RBAC model converges on every reachable plane, not only Trino.
-Each compiler emits backend-native artifacts and leaves canonical pairs it
-does not own to the surface layer; unknown pairs still raise so a policy
-that names no enforcing backend fails loudly instead of silently allowing.
+Postgres, MinIO, and Nessie each get a ``GovernanceCompiler``. Canonical
+pairs a compiler does not own skip to the surface layer; unknown pairs
+raise so a policy naming no enforcing backend fails loudly.
 """
 
 from __future__ import annotations
@@ -25,7 +23,9 @@ from phlo.rbac.compiler import (
 from phlo.rbac.models import (
     BackendArtifact,
     CanonicalRBAC,
+    PolicyChange,
     PolicyRule,
+    SyncPlan,
     VerifyResult,
 )
 
@@ -35,6 +35,77 @@ _SAFE_SLUG_RE = re.compile(r"[^a-zA-Z0-9_-]+")
 def _slug(value: str) -> str:
     """Reduce a resource or action name to a backend-safe artifact slug."""
     return _SAFE_SLUG_RE.sub("_", value).strip("_") or "all"
+
+
+def _plan_content_aware(
+    compiler: GovernanceCompiler,
+    rbac: CanonicalRBAC,
+    context: CompilerContext,
+) -> SyncPlan:
+    """Plan by name and content: a same-name artifact whose rendered
+    content differs is replaced (delete + create), not skipped."""
+    desired_by_name = {a.name: a for a in compiler.compile(rbac, context)}
+    current_by_name = {a.name: a for a in compiler.read_current_state(context)}
+    changes: list[PolicyChange] = []
+    for name, artifact in desired_by_name.items():
+        observed = current_by_name.get(name)
+        if observed is not None and not compiler._artifact_equivalent(artifact, observed):
+            changes.append(
+                PolicyChange(
+                    change_type="delete",
+                    backend=compiler.backend_name,
+                    artifact=observed,
+                )
+            )
+            observed = None
+        if observed is None:
+            changes.append(
+                PolicyChange(
+                    change_type="create",
+                    backend=compiler.backend_name,
+                    artifact=artifact,
+                    revert_id=compiler._generate_revert_id(),
+                )
+            )
+    for name, artifact in current_by_name.items():
+        if name not in desired_by_name:
+            changes.append(
+                PolicyChange(
+                    change_type="delete",
+                    backend=compiler.backend_name,
+                    artifact=artifact,
+                )
+            )
+    return SyncPlan(
+        version_hash=rbac.version_hash or "",
+        backend=compiler.backend_name,
+        changes=tuple(changes),
+    )
+
+
+def _verify_content_aware(
+    compiler: GovernanceCompiler,
+    rbac: CanonicalRBAC,
+    context: CompilerContext,
+) -> VerifyResult:
+    """Verify by name and content: same-name artifacts whose rendered
+    content differs are reported as ``mismatched``."""
+    desired_by_name = {a.name: a for a in compiler.compile(rbac, context)}
+    current_by_name = {a.name: a for a in compiler.read_current_state(context)}
+    missing = [a for n, a in desired_by_name.items() if n not in current_by_name]
+    extra = [a for n, a in current_by_name.items() if n not in desired_by_name]
+    mismatched = [
+        a
+        for n, a in desired_by_name.items()
+        if (o := current_by_name.get(n)) is not None and not compiler._artifact_equivalent(a, o)
+    ]
+    return VerifyResult(
+        backend=compiler.backend_name,
+        in_sync=not missing and not extra and not mismatched,
+        missing=tuple(missing),
+        extra=tuple(extra),
+        mismatched=tuple(mismatched),
+    )
 
 
 class PostgresCompiler(GovernanceCompiler):
@@ -51,8 +122,6 @@ class PostgresCompiler(GovernanceCompiler):
             ("dataset.read", "dataset"),
             ("dataset.query", "dataset"),
             ("dataset.write", "dataset"),
-            ("object.read", "object"),
-            ("object.write", "object"),
         }
     )
 
@@ -60,8 +129,6 @@ class PostgresCompiler(GovernanceCompiler):
         "dataset.read": ("SELECT",),
         "dataset.query": ("SELECT",),
         "dataset.write": ("INSERT", "UPDATE", "DELETE"),
-        "object.read": ("SELECT",),
-        "object.write": ("INSERT", "UPDATE", "DELETE"),
     }
 
     _READ_ALL_ROLE = "pg_read_all_data"
@@ -138,9 +205,7 @@ class PostgresCompiler(GovernanceCompiler):
 
     def _all_data_artifact(self, role_name: str, policy: PolicyRule) -> BackendArtifact:
         predefined = (
-            self._WRITE_ALL_ROLE
-            if policy.action in {"dataset.write", "object.write"}
-            else self._READ_ALL_ROLE
+            self._WRITE_ALL_ROLE if policy.action == "dataset.write" else self._READ_ALL_ROLE
         )
         return self._artifact(
             name=f"{role_name}__*__{predefined}",
@@ -234,19 +299,17 @@ class PostgresCompiler(GovernanceCompiler):
     ) -> list[BackendArtifact]:
         """Read managed grants, schema usage, default privileges, and
         predefined-role memberships from postgres via the backend's
-        ``list_policies`` rows (a failed listing degrades to no state)."""
+        ``list_policies`` rows. A failed listing propagates so readiness
+        reports an observation failure instead of an empty state."""
         if self._backend is None:
             return []
 
         artifacts: list[BackendArtifact] = []
-        try:
-            for row in self._backend.list_policies():
-                grantee = str(row.get("grantee", ""))
-                if not grantee or not self._matches_managed(grantee, context):
-                    continue
-                artifacts.append(self._row_artifact(row, grantee))
-        except Exception:
-            pass
+        for row in self._backend.list_policies():
+            grantee = str(row.get("grantee", ""))
+            if not grantee or not self._matches_managed(grantee, context):
+                continue
+            artifacts.append(self._row_artifact(row, grantee))
         return artifacts
 
     _ROW_SCOPE = {
@@ -284,6 +347,7 @@ class PostgresCompiler(GovernanceCompiler):
                 "resource": resource,
                 "scope": self._ROW_SCOPE.get(kind, "table"),
                 "complete": row.get("complete", True),
+                "inferred": kind == "all_tables",
             },
         )
 
@@ -326,7 +390,11 @@ class PostgresCompiler(GovernanceCompiler):
             return bool(res_h.endswith(".*") and res_w.startswith(res_h[:-1]))
 
         missing = [want for want in desired if not any(covers(have, want) for have in current)]
-        extra = [have for have in current if not any(covers(want, have) for want in desired)]
+        extra = [
+            have
+            for have in current
+            if not have.metadata.get("inferred") and not any(covers(want, have) for want in desired)
+        ]
         return VerifyResult(
             backend=self.backend_name,
             in_sync=not missing and not extra,
@@ -365,9 +433,11 @@ class PostgresCompiler(GovernanceCompiler):
 class MinioCompiler(GovernanceCompiler):
     """Compiler for MinIO managed IAM policy documents.
 
-    Each (role, resource-pattern) pair compiles to one named policy document
-    listing S3 actions on the mapped object prefixes; the backend attaches
-    the document to the MinIO group named for the canonical role.
+    Each (role, action, resource-pattern) triple compiles to one named
+    policy document listing S3 actions on the mapped object prefixes; the
+    backend attaches the document to the MinIO group named for the role.
+    The action is part of the artifact name so read and write grants on
+    the same resource do not collide.
     """
 
     MINIO_POLICY_PAIRS = frozenset(
@@ -448,7 +518,9 @@ class MinioCompiler(GovernanceCompiler):
             document = self._policy_document(bucket, prefix, actions)
             for role_name in policy.principal_roles:
                 _validate_sql_identifier(role_name, "role_name")
-                name = f"phlo_{role_name}__{_slug(policy.resource_id_pattern)}"
+                name = (
+                    f"phlo_{role_name}__{_slug(policy.resource_id_pattern)}__{_slug(policy.action)}"
+                )
                 artifacts.append(
                     BackendArtifact(
                         backend=self.backend_name,
@@ -503,31 +575,55 @@ class MinioCompiler(GovernanceCompiler):
         context: CompilerContext,
     ) -> list[BackendArtifact]:
         """Read managed MinIO policy documents via the backend's
-        ``list_policies`` rows (a failed listing degrades to no state)."""
+        ``list_policies`` rows. A failed listing propagates so readiness
+        reports an observation failure instead of an empty state."""
         if self._backend is None:
             return []
         artifacts: list[BackendArtifact] = []
-        try:
-            for row in self._backend.list_policies():
-                name = str(row.get("policy_name", ""))
-                if not name or not self._matches_managed(name, context):
-                    continue
-                artifacts.append(
-                    BackendArtifact(
-                        backend=self.backend_name,
-                        artifact_type="policy_doc",
-                        name=name,
-                        statement=str(row.get("document", "")),
-                        managed=True,
-                        metadata={
-                            "policy_name": name,
-                            "role": str(row.get("role", "")),
-                        },
-                    )
+        for row in self._backend.list_policies():
+            name = str(row.get("policy_name", ""))
+            if not name or not self._matches_managed(name, context):
+                continue
+            artifacts.append(
+                BackendArtifact(
+                    backend=self.backend_name,
+                    artifact_type="policy_doc",
+                    name=name,
+                    statement=str(row.get("document", "")),
+                    managed=True,
+                    metadata={
+                        "policy_name": name,
+                        "role": str(row.get("role", "")),
+                    },
                 )
-        except Exception:
-            pass
+            )
         return artifacts
+
+    def _artifact_equivalent(
+        self,
+        desired: BackendArtifact,
+        current: BackendArtifact,
+    ) -> bool:
+        """A MinIO document is equivalent only when its content matches
+        and it is attached to the group named for the canonical role —
+        a detached or wrong-group document is drift, not state."""
+        return desired.statement == current.statement and str(
+            desired.metadata.get("role", "")
+        ) == str(current.metadata.get("role", ""))
+
+    def plan(
+        self,
+        rbac: CanonicalRBAC,
+        context: CompilerContext,
+    ) -> SyncPlan:
+        return _plan_content_aware(self, rbac, context)
+
+    def verify(
+        self,
+        rbac: CanonicalRBAC,
+        context: CompilerContext,
+    ) -> VerifyResult:
+        return _verify_content_aware(self, rbac, context)
 
     def _apply_generic_policy_change(self, change: Any) -> None:
         """Apply or detach a managed policy document via the backend."""
@@ -661,7 +757,7 @@ class NessieCompiler(GovernanceCompiler):
         if policy.resource_type == "dataset":
             resource = policy.resource_id_pattern
             _validate_sql_resource_pattern(resource, "resource_id")
-            path = resource.replace("*", ".*")
+            path = re.escape(resource).replace(r"\*", ".*")
             clauses.append(f"path=~'{path}'")
         return " && ".join(clauses)
 
@@ -670,29 +766,41 @@ class NessieCompiler(GovernanceCompiler):
         context: CompilerContext,
     ) -> list[BackendArtifact]:
         """Read managed Nessie rules via the backend's ``list_policies``
-        rows (a failed listing degrades to no state)."""
+        rows. A failed listing propagates so readiness reports an
+        observation failure instead of an empty state."""
         if self._backend is None:
             return []
         artifacts: list[BackendArtifact] = []
-        try:
-            for row in self._backend.list_policies():
-                name = str(row.get("policy_id", ""))
-                if not name or not self._matches_managed(name, context):
-                    continue
-                expression = str(row.get("rule", ""))
-                artifacts.append(
-                    BackendArtifact(
-                        backend=self.backend_name,
-                        artifact_type="authz_rule",
-                        name=name,
-                        statement=f"nessie.server.authorization.rules.{name}={expression}",
-                        managed=True,
-                        metadata={"rule_name": name, "expression": expression},
-                    )
+        for row in self._backend.list_policies():
+            name = str(row.get("policy_id", ""))
+            if not name or not self._matches_managed(name, context):
+                continue
+            expression = str(row.get("rule", ""))
+            artifacts.append(
+                BackendArtifact(
+                    backend=self.backend_name,
+                    artifact_type="authz_rule",
+                    name=name,
+                    statement=f"nessie.server.authorization.rules.{name}={expression}",
+                    managed=True,
+                    metadata={"rule_name": name, "expression": expression},
                 )
-        except Exception:
-            pass
+            )
         return artifacts
+
+    def plan(
+        self,
+        rbac: CanonicalRBAC,
+        context: CompilerContext,
+    ) -> SyncPlan:
+        return _plan_content_aware(self, rbac, context)
+
+    def verify(
+        self,
+        rbac: CanonicalRBAC,
+        context: CompilerContext,
+    ) -> VerifyResult:
+        return _verify_content_aware(self, rbac, context)
 
     def _apply_generic_policy_change(self, change: Any) -> None:
         """Write or remove one managed rule via the backend."""

@@ -212,6 +212,16 @@ class GovernanceCompiler(ABC):
         """Check if an artifact name is managed by Phlo."""
         return name.startswith(context.managed_prefix)
 
+    def _artifact_equivalent(
+        self,
+        desired: BackendArtifact,
+        current: BackendArtifact,
+    ) -> bool:
+        """Return whether a same-named observed artifact satisfies the
+        desired one. The default compares rendered statement content;
+        compilers may add binding checks (e.g. group attachment)."""
+        return desired.statement == current.statement
+
     def _apply_generic_policy_change(
         self,
         change: PolicyChange,

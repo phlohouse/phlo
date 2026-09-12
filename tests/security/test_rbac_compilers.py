@@ -1,9 +1,8 @@
 """Tests for the postgres, minio, and nessie governance compilers.
 
-Covers canonical-pair routing (backend-owned vs. surface-only vs. unknown),
-artifact emission per resource-pattern shape, verify semantics (coverage,
-drift, predefined-role subsumption), and each provider backend's apply /
-revoke / list / check_access behavior through fakes.
+Covers canonical-pair routing, artifact emission, verify semantics
+(coverage, content drift, attachment), and each backend's
+apply/revoke/list/check_access behavior through fakes.
 """
 
 from __future__ import annotations
@@ -173,6 +172,14 @@ class TestPostgresCompiler:
         assert result.in_sync
         assert not result.missing and not result.extra
 
+    def test_object_policies_are_surface_not_postgres(self) -> None:
+        """``object.*`` resources are MinIO territory: postgres must not
+        claim them (bucket paths cannot compile to schema.table grants)."""
+        compiler = PostgresCompiler()
+        assert compiler.policy_applicability("object.read", "object") == "surface"
+        rbac = _rbac([_policy("p1", "object.read", "object", "lake/orders")])
+        assert compiler.compile(rbac, _ctx("postgres")) == []
+
     def test_verify_detects_missing_and_extra(self) -> None:
         backend = _FakePostgresGovernanceBackend(
             rows=[
@@ -256,6 +263,45 @@ class TestPostgresCompiler:
 
         assert not result.in_sync
         assert any(a.metadata.get("scope") == "all_tables" for a in result.missing)
+
+    def test_verify_suppresses_inferred_coverage_from_extra(self) -> None:
+        """``all_tables`` coverage rows are derived from concrete grants —
+        they satisfy desired wildcards but must not appear as extras; the
+        concrete grants underneath still flag as drift."""
+        backend = _FakePostgresGovernanceBackend(
+            rows=[
+                {
+                    "kind": "table_grant",
+                    "grantee": "phlo_analyst",
+                    "schema": "analytics",
+                    "table": "orders",
+                    "privilege": "SELECT",
+                },
+                {
+                    "kind": "all_tables",
+                    "grantee": "phlo_analyst",
+                    "schema": "analytics",
+                    "table": "",
+                    "privilege": "SELECT",
+                    "complete": True,
+                },
+                {
+                    "kind": "table_grant",
+                    "grantee": "phlo_analyst",
+                    "schema": "analytics",
+                    "table": "orders",
+                    "privilege": "DELETE",
+                },
+            ]
+        )
+        compiler = PostgresCompiler(backend=cast(GovernanceBackend, backend))
+        rbac = _rbac([_policy("p1", "dataset.read", "dataset", "analytics.orders")])
+
+        result = compiler.verify(rbac, _ctx("postgres"))
+
+        assert not result.in_sync
+        assert not result.missing
+        assert [a.name for a in result.extra] == ["phlo_analyst__analytics.orders__DELETE"]
 
     def test_verify_predefined_role_covers_table_grant(self) -> None:
         """A predefined-role membership satisfies a desired table grant but
@@ -499,7 +545,7 @@ class TestMinioCompiler:
         assert len(artifacts) == 1
         artifact = artifacts[0]
         assert artifact.artifact_type == "policy_doc"
-        assert artifact.name == "phlo_phlo_analyst__lake_orders"
+        assert artifact.name == "phlo_phlo_analyst__lake_orders__dataset_read"
         document = json.loads(artifact.statement)
         assert document["Version"] == "2012-10-17"
         actions = {action for stmt in document["Statement"] for action in stmt["Action"]}
@@ -552,6 +598,87 @@ class TestMinioCompiler:
         assert not result.in_sync
         assert len(result.missing) == 1
 
+    def test_read_and_write_on_same_resource_do_not_collide(self) -> None:
+        rbac = _rbac(
+            [
+                _policy("p1", "dataset.read", "dataset", "lake.orders"),
+                _policy("p2", "dataset.write", "dataset", "lake.orders"),
+            ]
+        )
+        artifacts = MinioCompiler().compile(rbac, _ctx("minio"))
+        names = [a.name for a in artifacts]
+
+        assert len(set(names)) == 2
+        assert names == [
+            "phlo_phlo_analyst__lake_orders__dataset_read",
+            "phlo_phlo_analyst__lake_orders__dataset_write",
+        ]
+
+        backend = _FakeMinioGovernanceBackend(rows=[])
+        compiler = MinioCompiler(backend=cast(GovernanceBackend, backend))
+        plan = compiler.plan(rbac, _ctx("minio"))
+
+        creates = [c.artifact.name for c in plan.changes if c.change_type == "create"]
+        assert creates == names
+
+    def test_verify_flags_detached_document_as_mismatched(self) -> None:
+        rbac = _rbac([_policy("p1", "dataset.read", "dataset", "lake.orders")])
+        desired = MinioCompiler().compile(rbac, _ctx("minio"))
+        backend = _FakeMinioGovernanceBackend(
+            rows=[
+                {
+                    "policy_name": desired[0].name,
+                    "document": desired[0].statement,
+                    "role": "",
+                }
+            ]
+        )
+        compiler = MinioCompiler(backend=cast(GovernanceBackend, backend))
+
+        result = compiler.verify(rbac, _ctx("minio"))
+
+        assert not result.in_sync
+        assert [a.name for a in result.mismatched] == [desired[0].name]
+        assert not result.missing and not result.extra
+
+        plan = compiler.plan(rbac, _ctx("minio"))
+        sequence = [(c.change_type, c.artifact.name) for c in plan.changes]
+        assert sequence == [("delete", desired[0].name), ("create", desired[0].name)]
+
+    def test_verify_flags_stale_document_content_as_mismatched(self) -> None:
+        rbac = _rbac([_policy("p1", "dataset.read", "dataset", "lake.orders")])
+        desired = MinioCompiler().compile(rbac, _ctx("minio"))
+        stale = json.loads(desired[0].statement)
+        stale["Statement"][1]["Action"].append("s3:PutObject")
+        backend = _FakeMinioGovernanceBackend(
+            rows=[
+                {
+                    "policy_name": desired[0].name,
+                    "document": json.dumps(stale, sort_keys=True),
+                    "role": "phlo_analyst",
+                }
+            ]
+        )
+        compiler = MinioCompiler(backend=cast(GovernanceBackend, backend))
+
+        result = compiler.verify(rbac, _ctx("minio"))
+
+        assert not result.in_sync
+        assert len(result.mismatched) == 1
+
+    def test_listing_failure_propagates(self) -> None:
+        class _FailingBackend(_FakeMinioGovernanceBackend):
+            def list_policies(self, *, table_name: str | None = None) -> list[dict[str, Any]]:
+                raise RuntimeError("mc unreachable")
+
+        compiler = MinioCompiler(backend=cast(GovernanceBackend, _FailingBackend()))
+        rbac = _rbac([_policy("p1", "dataset.read", "dataset", "lake.orders")])
+
+        with pytest.raises(RuntimeError, match="mc unreachable"):
+            compiler.read_current_state(_ctx("minio"))
+        with pytest.raises(RuntimeError, match="mc unreachable"):
+            compiler.verify(rbac, _ctx("minio"))
+
 
 class TestMinioGovernanceBackend:
     def test_apply_creates_and_attaches_policy(self) -> None:
@@ -570,10 +697,45 @@ class TestMinioGovernanceBackend:
             )
         )
 
-        assert len(runner.scripts) == 2
-        assert "base64 -d" in runner.scripts[0]
-        assert "mc admin policy create local phlo_phlo_analyst__lake_orders" in runner.scripts[0]
+        assert len(runner.scripts) == 4
+        assert runner.scripts[0] == (
+            "mc admin policy entities local --policy phlo_phlo_analyst__lake_orders --json"
+        )
         assert runner.scripts[1] == (
+            "mc admin policy remove local phlo_phlo_analyst__lake_orders >/dev/null 2>&1 || true"
+        )
+        assert "base64 -d" in runner.scripts[2]
+        assert "mc admin policy create local phlo_phlo_analyst__lake_orders" in runner.scripts[2]
+        assert runner.scripts[3] == (
+            "mc admin policy attach local phlo_phlo_analyst__lake_orders --group phlo_analyst"
+        )
+
+    def test_apply_repairs_wrong_attachment(self) -> None:
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        runner = _FakeMcRunner(
+            outputs={
+                "policy entities": json.dumps(
+                    {"result": {"groupPolicyMappings": [{"group": "phlo_other", "policies": []}]}}
+                )
+            }
+        )
+        backend = MinioGovernanceBackend(runner=runner)
+        backend.apply_policy(
+            policy=AccessPolicy(
+                policy_id="phlo_phlo_analyst__lake_orders",
+                principal="phlo_analyst",
+                table_pattern='{"Version": "2012-10-17", "Statement": []}',
+                action="policy_doc",
+                effect="ALLOW",
+            )
+        )
+
+        assert runner.scripts[1] == (
+            "mc admin policy detach local phlo_phlo_analyst__lake_orders --group phlo_other"
+        )
+        assert "policy remove" in runner.scripts[2]
+        assert runner.scripts[-1] == (
             "mc admin policy attach local phlo_phlo_analyst__lake_orders --group phlo_analyst"
         )
 
@@ -595,21 +757,31 @@ class TestMinioGovernanceBackend:
     def test_revoke_detaches_then_removes(self) -> None:
         from phlo_minio.governance import MinioGovernanceBackend
 
-        runner = _FakeMcRunner()
+        runner = _FakeMcRunner(
+            outputs={
+                "policy entities": json.dumps(
+                    {"result": {"groupPolicyMappings": [{"group": "phlo_analyst", "policies": []}]}}
+                )
+            }
+        )
         backend = MinioGovernanceBackend(runner=runner)
         backend.revoke_policy(policy_id="phlo_phlo_analyst__lake_orders")
 
         assert runner.scripts == [
+            "mc admin policy entities local --policy phlo_phlo_analyst__lake_orders --json",
             "mc admin policy detach local phlo_phlo_analyst__lake_orders --group phlo_analyst",
             "mc admin policy remove local phlo_phlo_analyst__lake_orders",
         ]
 
-    def test_revoke_without_role_skips_detach(self) -> None:
+    def test_revoke_detached_policy_just_removes(self) -> None:
         from phlo_minio.governance import MinioGovernanceBackend
 
         runner = _FakeMcRunner()
-        MinioGovernanceBackend(runner=runner).revoke_policy(policy_id="phlo_")
-        assert runner.scripts == ["mc admin policy remove local phlo_"]
+        MinioGovernanceBackend(runner=runner).revoke_policy(policy_id="phlo_orphan")
+        assert runner.scripts == [
+            "mc admin policy entities local --policy phlo_orphan --json",
+            "mc admin policy remove local phlo_orphan",
+        ]
 
     def test_list_policies_filters_managed(self) -> None:
         from phlo_minio.governance import MinioGovernanceBackend
@@ -624,6 +796,9 @@ class TestMinioGovernanceBackend:
                     ]
                 ),
                 "policy info": json.dumps({"policyDocument": doc}),
+                "policy entities": json.dumps(
+                    {"result": {"groupPolicyMappings": [{"group": "phlo_analyst", "policies": []}]}}
+                ),
             }
         )
         rows = MinioGovernanceBackend(runner=runner).list_policies()
@@ -632,6 +807,27 @@ class TestMinioGovernanceBackend:
         assert rows[0]["policy_name"] == "phlo_phlo_analyst__lake_orders"
         assert rows[0]["role"] == "phlo_analyst"
         assert json.loads(rows[0]["document"]) == doc
+
+    def test_list_policies_reports_detached_document(self) -> None:
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        runner = _FakeMcRunner(
+            outputs={
+                "policy list": json.dumps({"policy": "phlo_phlo_analyst__lake_orders"}),
+                "policy info": json.dumps({"policyDocument": {"Statement": []}}),
+            }
+        )
+        rows = MinioGovernanceBackend(runner=runner).list_policies()
+
+        assert rows[0]["role"] == ""
+
+    def test_list_policies_propagates_mc_failure(self) -> None:
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        runner = _FakeMcRunner()
+        runner.fail = True
+        with pytest.raises(RuntimeError, match="mc exploded"):
+            MinioGovernanceBackend(runner=runner).list_policies()
 
     def test_check_access(self) -> None:
         from phlo_minio.governance import MinioGovernanceBackend
@@ -718,7 +914,21 @@ class TestNessieCompiler:
         artifacts = NessieCompiler().compile(rbac, _ctx("nessie"))
         expression = artifacts[0].metadata["expression"]
 
-        assert "path=~'lake.orders'" in expression
+        assert r"path=~'lake\.orders'" in expression
+
+    def test_dataset_rule_escaped_path_does_not_overmatch(self) -> None:
+        from phlo_nessie.governance import _evaluate_rule
+
+        rbac = _rbac([_policy("p1", "dataset.read", "dataset", "lake.orders")])
+        artifacts = NessieCompiler().compile(rbac, _ctx("nessie"))
+        expression = artifacts[0].metadata["expression"]
+
+        assert _evaluate_rule(
+            expression, role="phlo_analyst", op="READ_ENTITY_VALUE", ref="main", path="lake.orders"
+        )
+        assert not _evaluate_rule(
+            expression, role="phlo_analyst", op="READ_ENTITY_VALUE", ref="main", path="lakeXorders"
+        )
 
     def test_unknown_pair_raises_surface_skipped(self) -> None:
         rbac = _rbac([_policy("p1", "settings.read", "settings", "x")])
@@ -829,8 +1039,73 @@ class TestNessieGovernanceBackend:
             action="dataset.read",
         )
 
-    def test_probe_missing_file_ok(self, tmp_path) -> None:
+    def test_probe_requires_live_nessie(self, tmp_path) -> None:
         from phlo_nessie.governance import NessieGovernanceBackend
 
-        backend = NessieGovernanceBackend(rules_path=tmp_path / "missing.properties")
+        backend = NessieGovernanceBackend(
+            rules_path=tmp_path / "missing.properties",
+            live_check=lambda: False,
+        )
+        assert not backend.probe()
+        assert backend.probe_reason() == "nessie_unreachable"
+
+    def test_probe_missing_rules_file_ok_when_live(self, tmp_path) -> None:
+        from phlo_nessie.governance import NessieGovernanceBackend
+
+        backend = NessieGovernanceBackend(
+            rules_path=tmp_path / "missing.properties",
+            live_check=lambda: True,
+        )
         assert backend.probe()
+
+    def test_probe_staged_rules_pending_restart(self, tmp_path) -> None:
+        from datetime import UTC, datetime
+
+        from phlo_nessie.governance import NessieGovernanceBackend
+
+        rules_path = tmp_path / "authz.properties"
+        rules_path.write_text("nessie.server.authorization.rules.phlo_a=op in ('X')\n")
+        backend = NessieGovernanceBackend(
+            rules_path=rules_path,
+            live_check=lambda: True,
+            started_at=lambda: datetime(2000, 1, 1, tzinfo=UTC),
+        )
+        assert not backend.probe()
+        assert backend.probe_reason() == "nessie_rules_pending_restart"
+
+    def test_probe_loaded_rules(self, tmp_path) -> None:
+        from datetime import UTC, datetime
+
+        from phlo_nessie.governance import NessieGovernanceBackend
+
+        rules_path = tmp_path / "authz.properties"
+        rules_path.write_text("nessie.server.authorization.rules.phlo_a=op in ('X')\n")
+        backend = NessieGovernanceBackend(
+            rules_path=rules_path,
+            live_check=lambda: True,
+            started_at=lambda: datetime.now(UTC),
+        )
+        assert backend.probe()
+
+    def test_probe_load_state_unobservable(self, tmp_path) -> None:
+        from phlo_nessie.governance import NessieGovernanceBackend
+
+        rules_path = tmp_path / "authz.properties"
+        rules_path.write_text("nessie.server.authorization.rules.phlo_a=op in ('X')\n")
+        backend = NessieGovernanceBackend(
+            rules_path=rules_path,
+            live_check=lambda: True,
+            started_at=lambda: None,
+        )
+        assert not backend.probe()
+        assert backend.probe_reason() == "nessie_load_state_unobservable"
+
+    def test_list_policies_read_failure_propagates(self, tmp_path) -> None:
+        from phlo_nessie.governance import NessieGovernanceBackend
+
+        backend = NessieGovernanceBackend(
+            rules_path=tmp_path,
+            live_check=lambda: False,
+        )
+        with pytest.raises(OSError):
+            backend.list_policies()
