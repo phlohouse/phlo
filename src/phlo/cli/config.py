@@ -4,7 +4,9 @@ Configuration Management Commands
 Commands for managing phlo.yaml infrastructure configuration.
 """
 
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import click
@@ -239,6 +241,10 @@ def upgrade(force: bool, plan_only: bool):
     for step in steps:
         console.print(f"  {step['step']}: {step['action']}")
 
+    if plan_only:
+        console.print("Plan only; no changes applied.")
+        return
+
     if has_infra and not force:
         logger.warning(
             "config_upgrade_skipped", path=str(config_path), reason="infrastructure_exists"
@@ -247,31 +253,35 @@ def upgrade(force: bool, plan_only: bool):
         error_console.print("Use --force to overwrite")
         sys.exit(1)
 
-    if plan_only:
-        console.print("Plan only; no changes applied.")
-        return
-
     # --- apply ---
     default_infra = InfrastructureConfig()
     project_config["infrastructure"] = default_infra.model_dump(exclude_none=False, mode="python")
 
-    with config_path.open("w") as f:
-        yaml.dump(
-            project_config,
-            f,
-            default_flow_style=False,
-            sort_keys=False,
-            allow_unicode=True,
-        )
-
     # --- validate ---
-    written = _load_phlo_yaml(config_path)
+    # Validate the serialized candidate from a temporary file, then atomically
+    # replace phlo.yaml; a rejected candidate must never become the installed
+    # configuration.
+    fd, candidate_name = tempfile.mkstemp(
+        dir=config_path.parent, prefix=".phlo.yaml.", suffix=".candidate"
+    )
+    candidate_path = Path(candidate_name)
     try:
+        with os.fdopen(fd, "w") as f:
+            yaml.dump(
+                project_config,
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+                allow_unicode=True,
+            )
+        written = _load_phlo_yaml(candidate_path)
         InfrastructureConfig.model_validate(written.get("infrastructure", {}))
     except Exception as exc:
+        candidate_path.unlink(missing_ok=True)
         logger.warning("config_upgrade_validation_failed", path=str(config_path))
-        error_console.print(f"[red]Wrote phlo.yaml but validation failed: {exc}[/red]")
+        error_console.print(f"[red]Upgrade validation failed; phlo.yaml unchanged: {exc}[/red]")
         sys.exit(1)
+    candidate_path.replace(config_path)
 
     console.print(f"[green]✓ Updated {config_path}[/green]")
     console.print("Added infrastructure section\n")

@@ -1,52 +1,9 @@
 """Iceberg table maintenance jobs and schedules for Dagster.
 
-This module provides scheduled and on-demand maintenance operations for
-Apache Iceberg tables through Dagster jobs and ops. It handles retention
-planning, guarded snapshot-expiry execution, and table statistics collection.
-
-Maintenance Operations:
-    - expire_table_snapshots: Plan snapshot expiry and execute it with an explicit confirmation token
-    - cleanup_orphan_files: Discover unreferenced files; v1 destructive execution is refused
-    - collect_table_stats: Gather table metadata for monitoring and policy evaluation
-
-Jobs Provided:
-    - iceberg_maintenance_job: Runs all maintenance operations
-    - expire_snapshots_job: Plan-first snapshot expiry
-    - orphan_cleanup_job: Orphan-file discovery only
-    - table_stats_job: Statistics collection only
-
-Schedule:
-    Default schedule runs full maintenance daily at 2 AM UTC (stopped by default).
-
-Safety Features:
-    - Planning mode by default; snapshot expiry requires a plan token and ref-aware executor
-    - Orphan cleanup remains planning-only
-    - Table allowlist for targeted maintenance
-    - Error collection and reporting without failing entire job
-
-Configuration:
-    Uses MaintenanceConfig with fields:
-    - namespace: Target namespace (or "all")
-    - snapshot_retention_days: Age threshold for snapshots
-    - snapshot_retain_last: Minimum snapshots to keep
-    - orphan_retention_days: Age threshold for orphan files
-    - dry_run: Plan-only mode for both retention operations
-    - catalog, confirmation_token, max_affected_objects, max_affected_bytes: Plan-binding evidence and future-adapter validation
-    - ref: Nessie branch reference
-
-Integration Requirements:
-    Requires a registered ``table_store:iceberg`` provider implementing the
-    neutral maintenance discovery and retention contracts. Dagster does not
-    import a concrete provider package.
-
-Example:
-    Including maintenance in definitions::
-
-        from phlo_dagster.iceberg_maintenance import get_maintenance_definitions
-
-        maintenance_defs = get_maintenance_definitions()
-        defs = dg.Definitions.merge(your_defs, maintenance_defs)
-
+Scheduled maintenance plans snapshot expiry and orphan-file cleanup per
+table, then executes only through the plan token, confirmation token, and
+durable journal. Orphan cleanup stays planning-only; stats collection feeds
+policy evaluation.
 """
 
 import time
@@ -75,6 +32,7 @@ from phlo_dagster.iceberg_maintenance_utils import (
     MaintenanceConfig,
     durable_maintenance_journal,
     finish_maintenance_op,
+    is_outcome_unknown,
     list_tables,
     maintenance_log_extra,
     resolve_namespaces,
@@ -142,6 +100,14 @@ def _run_retention_resource_operation(
     recorded at claim time, a stored result replays idempotently, and an
     UNKNOWN outcome blocks replay until reconciled.
     """
+    # Replay before any provider access: a journaled result must return even
+    # when the catalog or executor is temporarily unavailable.
+    operation_id = f"{operation}:{table_name}:{config.ref}:{run_id}"
+    if journal is not None and run_id is not None:
+        stored = read_or_replay(journal, operation_id)
+        if stored is not None:
+            return dict(stored)
+
     common: dict[str, Any] = {
         "table_name": table_name,
         "override_ref": config.ref,
@@ -179,10 +145,6 @@ def _run_retention_resource_operation(
     if journal is None or run_id is None:
         return execute()
 
-    operation_id = f"{operation}:{table_name}:{config.ref}:{run_id}"
-    stored = read_or_replay(journal, operation_id)
-    if stored is not None:
-        return dict(stored)
     plan_token = str(plan.get("plan_token") or before_revision or "")
     claim_operation(
         journal,
@@ -198,6 +160,11 @@ def _run_retention_resource_operation(
     except Exception:
         mark_unknown(journal, operation_id)
         raise
+    if is_outcome_unknown(result):
+        # The provider may have committed; journaling FAILED would let a
+        # later run re-claim and resubmit the same mutation.
+        mark_unknown(journal, operation_id)
+        return result
     rejected = result.get("accepted") is False or str(result.get("status")) in {
         "blocked",
         "failed",

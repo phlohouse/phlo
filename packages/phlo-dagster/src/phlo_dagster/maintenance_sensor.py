@@ -1,45 +1,9 @@
 """Dagster sensor and ops for policy-driven Iceberg table maintenance.
 
-This module implements automated Iceberg table maintenance through Dagster
-sensors that evaluate table statistics against configured policies and
-trigger maintenance operations when thresholds are exceeded.
-
-Maintenance Operations:
-    - Snapshot expiration: Remove old snapshots beyond retention policy
-    - File optimization: Compact small files via Trino OPTIMIZE
-    - Statistics collection: Gather table metadata for policy evaluation
-
-Policy-Driven Automation:
-    The maintenance_policy_sensor continuously evaluates tables against
-    NamespacePolicy configurations loaded from YAML files. When thresholds
-    are exceeded (e.g., snapshot count > 20), the sensor triggers appropriate
-    maintenance jobs.
-
-Integration Requirements:
-    - phlo-iceberg: For table statistics and maintenance operations
-    - phlo-trino: For OPTIMIZE command execution
-    - maintenance_policy.yaml: Policy configuration file
-
-Configuration File Format:
-    policies:
-      - namespace: raw
-        expire:
-          snapshot_count_gt: 20
-          older_than_days: 7
-          retain_last: 5
-        optimize:
-          avg_file_size_mb_lt: 64.0
-      - namespace: curated
-        ref: main
-
-Example:
-    Including policy maintenance in definitions::
-
-        from phlo_dagster.maintenance_sensor import get_policy_maintenance_definitions
-
-        policy_defs = get_policy_maintenance_definitions()
-        defs = dg.Definitions.merge(your_defs, policy_defs)
-
+The maintenance_policy_sensor evaluates tables against NamespacePolicy
+thresholds loaded from maintenance_policy.yaml and triggers snapshot expiry,
+Trino OPTIMIZE compaction, or statistics collection. Non-dry-run compaction
+runs through the plan/token/journal contract.
 """
 
 import os
@@ -74,6 +38,7 @@ from phlo_dagster.iceberg_maintenance_utils import (
     MaintenanceConfig,
     durable_maintenance_journal as _durable_maintenance_journal,
     finish_maintenance_op,
+    is_outcome_unknown,
     list_tables,
     resolve_maintenance_discovery,
     start_maintenance_op,
@@ -245,6 +210,11 @@ def _compact_table_journaled(
     except Exception:
         mark_unknown(journal, operation_id)
         raise
+    if is_outcome_unknown(result):
+        # The provider may have committed; journaling FAILED would let a
+        # later run re-claim and resubmit the same mutation.
+        mark_unknown(journal, operation_id)
+        return result
     rejected = result.get("accepted") is False or str(result.get("status")) in {
         "blocked",
         "failed",

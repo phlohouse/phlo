@@ -217,3 +217,37 @@ def test_file_journal_allows_new_claim_after_terminal_state(tmp_path) -> None:
         store, operation_id="op:2", action="backup.create", target="/srv/backup", token="s2"
     )
     assert entry.state is OperationJournalState.CLAIMED
+
+
+def test_file_journal_safe_name_does_not_collide_on_sanitized_refs(tmp_path) -> None:
+    """Refs differing only in collapsed separators must map to distinct files."""
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    slash = FileOperationJournalStore._safe_name("expire:t:feature/orders:run-1")
+    underscore = FileOperationJournalStore._safe_name("expire:t:feature_orders:run-1")
+    assert slash != underscore
+
+    # Operation ids already filesystem-safe keep their exact names unchanged.
+    assert FileOperationJournalStore._safe_name("op-clean.name_1") == "op-clean.name_1"
+
+    store = FileOperationJournalStore(tmp_path / "journal")
+    _claim(
+        store,
+        operation_id="expire:t:feature/orders:run-1",
+        action="expire_snapshots",
+        target="t",
+        token="p1",
+    )
+    complete_operation(store, "expire:t:feature/orders:run-1", {"accepted": True})
+    entry = _claim(
+        store,
+        operation_id="expire:t:feature_orders:run-1",
+        action="expire_snapshots",
+        target="t",
+        token="p2",
+    )
+    assert entry.operation_id == "expire:t:feature_orders:run-1"
+    read_back = store.read("expire:t:feature/orders:run-1")
+    assert read_back is not None
+    assert read_back.operation_id == "expire:t:feature/orders:run-1"
+    assert read_back.state is OperationJournalState.SUCCEEDED

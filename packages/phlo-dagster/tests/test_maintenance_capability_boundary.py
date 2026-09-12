@@ -247,3 +247,129 @@ def test_snapshot_expiry_execute_resolves_and_passes_neutral_executor(monkeypatc
     assert entry is not None
     assert entry.state == "succeeded"
     assert entry.plan_token == "fake-plan-token"
+
+
+def _wire_expire_op(
+    monkeypatch, store: object, journal: object, executor: object | None = None
+) -> MagicMock:
+    """Patch capability resolution, table listing, journal, and telemetry."""
+    monkeypatch.setattr(
+        iceberg_maintenance,
+        "resolve_capability",
+        lambda capability_type, name=None: MagicMock(
+            provider=store if capability_type == "table_store" else executor
+        ),
+    )
+    monkeypatch.setattr(iceberg_maintenance, "resolve_namespaces", lambda config: ["raw"])
+    monkeypatch.setattr(iceberg_maintenance, "list_tables", lambda namespace, ref: ["raw.events"])
+    monkeypatch.setattr(iceberg_maintenance, "durable_maintenance_journal", lambda: journal)
+    monkeypatch.setattr(
+        iceberg_maintenance, "start_maintenance_op", MagicMock(return_value=MagicMock())
+    )
+    finish = MagicMock(return_value={"status": "success"})
+    monkeypatch.setattr(iceberg_maintenance, "finish_maintenance_op", finish)
+    return finish
+
+
+def test_snapshot_expiry_journals_outcome_unknown(monkeypatch) -> None:
+    """A submitted-but-unconfirmed provider result records UNKNOWN, not FAILED."""
+    from phlo.operations.journal import InMemoryOperationJournalStore
+
+    plan_result = {
+        "status": "planned",
+        "accepted": True,
+        "executed": False,
+        "before_revision": 41,
+        "plan_token": "fake-plan-token",
+        "planned": {"candidate_snapshots": [{"snapshot_id": 40}]},
+    }
+    unknown_result = {
+        "status": "failed",
+        "accepted": True,
+        "executed": True,
+        "before_revision": 41,
+        "plan_token": "fake-plan-token",
+        "failure": {
+            "code": "outcome_unknown_after_submission",
+            "outcome": "unknown",
+            "retryable": False,
+        },
+        "retry_safe": False,
+    }
+    store = MagicMock()
+    store.expire_snapshots = MagicMock(side_effect=[plan_result, unknown_result])
+    journal = InMemoryOperationJournalStore()
+    _wire_expire_op(monkeypatch, store, journal, executor=FakeSnapshotExpiryExecutor())
+    context = MagicMock(run_id="run-1", job_name="maintenance")
+
+    iceberg_maintenance.expire_table_snapshots.compute_fn.decorated_fn(
+        context,
+        MaintenanceConfig(
+            namespace="raw",
+            ref="main",
+            dry_run=False,
+            catalog="iceberg",
+            confirmation_token="fake-plan-token",
+        ),
+    )
+
+    entry = journal.read("expire_snapshots:raw.events:main:run-1")
+    assert entry is not None
+    # UNKNOWN is an active claim: a later run cannot re-claim or replay it.
+    assert entry.state == "unknown"
+
+
+def test_snapshot_expiry_replays_journaled_result_without_provider_access(monkeypatch) -> None:
+    """A stored result replays even when planning and executor resolution fail."""
+    from phlo.operations.journal import (
+        InMemoryOperationJournalStore,
+        claim_operation,
+        complete_operation,
+        mark_submitted,
+    )
+
+    stored = {
+        "status": "succeeded",
+        "accepted": True,
+        "executed": True,
+        "planned": {"candidate_snapshots": [{"snapshot_id": 40}]},
+        "affected": {"observed_snapshot_count_reduction": 1},
+    }
+    journal = InMemoryOperationJournalStore()
+    operation_id = "expire_snapshots:raw.events:main:run-1"
+    claim_operation(
+        journal,
+        operation_id=operation_id,
+        subject="dagster:maintenance-policy",
+        action="expire_snapshots",
+        target="raw.events",
+        plan_token="fake-plan-token",
+    )
+    mark_submitted(journal, operation_id)
+    complete_operation(journal, operation_id, stored)
+
+    # Any provider access (planning dry-run or executor resolution) must not be
+    # reached: the journaled result replays first.
+    store = MagicMock()
+    store.expire_snapshots = MagicMock(side_effect=RuntimeError("catalog unavailable"))
+    _wire_expire_op(monkeypatch, store, journal, executor=None)
+    monkeypatch.setattr(
+        iceberg_maintenance,
+        "_load_snapshot_expiry_executor",
+        MagicMock(side_effect=AssertionError("executor resolved before replay")),
+    )
+    context = MagicMock(run_id="run-1", job_name="maintenance")
+
+    result = iceberg_maintenance.expire_table_snapshots.compute_fn.decorated_fn(
+        context,
+        MaintenanceConfig(
+            namespace="raw",
+            ref="main",
+            dry_run=False,
+            catalog="iceberg",
+            confirmation_token="fake-plan-token",
+        ),
+    )
+
+    store.expire_snapshots.assert_not_called()
+    assert result["tables_processed"] == 1

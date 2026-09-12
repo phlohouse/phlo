@@ -515,3 +515,46 @@ def test_optimize_table_files_execute_journals_failed_result(monkeypatch) -> Non
     assert entry is not None
     assert entry.state == "failed"
     assert entry.result == rejected_result
+
+
+def test_optimize_table_files_execute_journals_outcome_unknown(monkeypatch) -> None:
+    """A submitted-but-unconfirmed provider result records UNKNOWN, not FAILED."""
+    from phlo.operations.journal import InMemoryOperationJournalStore
+    from phlo_dagster import maintenance_sensor
+
+    context = MagicMock()
+    context.run_id = "run-77"
+    plan_result = {
+        "operation": "compact",
+        "status": "planned",
+        "accepted": True,
+        "before_revision": 42,
+    }
+    unknown_result = {
+        "operation": "compact",
+        "status": "failed",
+        "accepted": True,
+        "executed": True,
+        "failure": {
+            "code": "maintenance_outcome_unknown",
+            "outcome": "unknown",
+            "retryable": False,
+        },
+        "retry_safe": False,
+    }
+    compact = MagicMock(side_effect=[plan_result, unknown_result])
+    table_store = MagicMock()
+    table_store.compact = compact
+    journal = InMemoryOperationJournalStore()
+    _journaled_op_mocks(monkeypatch, table_store, journal)
+
+    compute_fn = cast(Any, maintenance_sensor.optimize_table_files.compute_fn)
+    compute_fn.decorated_fn(
+        context,
+        maintenance_sensor.OptimizeConfig(table_names=["raw.events"], dry_run=False),
+    )
+
+    entry = journal.read("compact:raw.events:main:run-77")
+    assert entry is not None
+    # UNKNOWN is an active claim: a later run cannot re-claim or replay it.
+    assert entry.state == "unknown"

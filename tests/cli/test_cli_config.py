@@ -121,10 +121,27 @@ def test_config_upgrade_plan_only_detects_and_plans_without_applying(tmp_path, m
     assert "infrastructure" not in yaml.safe_load(config_path.read_text())
 
 
+def test_config_upgrade_plan_only_prints_skip_for_existing_infrastructure(
+    tmp_path, monkeypatch
+) -> None:
+    """--plan-only must still emit the plan when a step is a no-op skip."""
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / "phlo.yaml"
+    config_path.write_text("name: demo\ninfrastructure:\n  platform: local\n")
+
+    runner = CliRunner()
+    result = runner.invoke(config_group, ["upgrade", "--plan-only"])
+
+    assert result.exit_code == 0
+    assert "infrastructure: skip" in result.output
+    assert "no changes applied" in result.output
+
+
 def test_config_upgrade_validate_rejects_uncoercible_infrastructure(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     config_path = tmp_path / "phlo.yaml"
-    config_path.write_text("name: demo\ninfrastructure: {}\n")
+    original = "name: demo\ninfrastructure: {}\n"
+    config_path.write_text(original)
     monkeypatch.setattr(
         "phlo.cli.config.InfrastructureConfig",
         type(
@@ -144,6 +161,8 @@ def test_config_upgrade_validate_rejects_uncoercible_infrastructure(tmp_path, mo
 
     assert result.exit_code == 1
     assert "validation failed" in result.output
+    # A rejected candidate must not replace the installed configuration.
+    assert config_path.read_text() == original
 
 
 def test_config_json_validation_reports_defaults_and_failures(tmp_path, monkeypatch):
