@@ -13,6 +13,8 @@ import os
 from phlo.security.backend_readiness import (
     BackendReadinessResult,
     BackendReadinessState,
+    observe_policy_convergence,
+    stamp,
 )
 
 REQUIRED_REFERENCES = ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"]
@@ -34,6 +36,9 @@ class MinioReadinessProvider:
                 + ", ".join(sorted(missing)),
                 evidence_source="declared configuration",
             )
+        observed = observe_policy_convergence("minio")
+        if observed is not None:
+            return stamp(observed)
         return BackendReadinessResult(
             backend="minio",
             state=BackendReadinessState.UNAVAILABLE,

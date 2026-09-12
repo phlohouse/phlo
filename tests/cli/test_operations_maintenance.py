@@ -70,7 +70,7 @@ def test_plan_fails_without_executor(monkeypatch) -> None:
 
 
 def test_apply_succeeds_with_matching_token(provider, tmp_path) -> None:
-    p = Path("plan.json")
+    p = tmp_path / "plan.json"
     p.write_text(_plan_json())
     result = _invoke(
         ["apply", "--plan", str(p), "--confirmation-token", "plan-tok-1"],
@@ -80,7 +80,7 @@ def test_apply_succeeds_with_matching_token(provider, tmp_path) -> None:
 
 
 def test_apply_with_mismatched_token_fails(provider, tmp_path) -> None:
-    p = Path("plan.json")
+    p = tmp_path / "plan.json"
     p.write_text(_plan_json(token="plan-tok-A"))
     result = _invoke(
         ["apply", "--plan", str(p), "--confirmation-token", "plan-tok-B"],
@@ -90,7 +90,7 @@ def test_apply_with_mismatched_token_fails(provider, tmp_path) -> None:
 
 
 def test_apply_fails_closed_without_a_durable_journal(provider, tmp_path) -> None:
-    p = Path("plan.json")
+    p = tmp_path / "plan.json"
     p.write_text(_plan_json())
     result = _invoke(["apply", "--plan", str(p), "--confirmation-token", "plan-tok-1"])
     assert result.exit_code != 0
@@ -98,7 +98,7 @@ def test_apply_fails_closed_without_a_durable_journal(provider, tmp_path) -> Non
 
 
 def test_apply_rejects_orphan_deletion(provider, tmp_path) -> None:
-    p = Path("orphan-plan.json")
+    p = tmp_path / "orphan-plan.json"
     p.write_text(
         json.dumps(
             {"operation": "orphan_delete", "table_name": "t", "ref": "main", "plan_token": "tok"}

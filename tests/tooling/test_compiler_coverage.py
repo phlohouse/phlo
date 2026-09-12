@@ -10,7 +10,18 @@ from __future__ import annotations
 from phlo.rbac.compiler import COMPILER_REGISTRY, TrinoCompiler
 from phlo.rbac.models import CANONICAL_ACTIONS
 
-GOLDEN_COMPILED_ACTIONS = frozenset({"dataset.query", "dataset.read"})
+GOLDEN_COMPILED_ACTIONS = frozenset(
+    {
+        "catalog.manage",
+        "catalog.read",
+        "dataset.publish",
+        "dataset.query",
+        "dataset.read",
+        "dataset.write",
+        "object.read",
+        "object.write",
+    }
+)
 
 
 def _compiled_actions() -> set[str]:
@@ -28,9 +39,12 @@ def test_compiled_actions_match_the_documented_contract():
     assert _compiled_actions() == GOLDEN_COMPILED_ACTIONS
 
 
+GOLDEN_TRINO_ACTIONS = frozenset({"dataset.query", "dataset.read"})
+
+
 def test_trino_declared_mapping_matches_the_documented_contract():
-    """Trino's declared ACTION_MAPPING must cover exactly the golden set."""
-    assert frozenset(TrinoCompiler.ACTION_MAPPING) == GOLDEN_COMPILED_ACTIONS
+    """Trino's declared ACTION_MAPPING must cover exactly its own action set."""
+    assert frozenset(TrinoCompiler.ACTION_MAPPING) == GOLDEN_TRINO_ACTIONS
 
 
 def test_compiler_registry_not_empty():

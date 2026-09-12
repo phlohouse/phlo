@@ -47,6 +47,8 @@ from typing import Any
 from phlo.capabilities import (
     BackendReadinessSpec,
     BackupContributorSpec,
+    CapabilitySupport,
+    GovernanceBackendSpec,
     ObjectStoreSpec,
     ResourceSpec,
 )
@@ -191,6 +193,18 @@ class MinioResourceProvider(ResourceProviderPlugin):
         from phlo_minio.continuity import MinioBackupContributor
 
         return [BackupContributorSpec(name="minio", provider=MinioBackupContributor())]
+
+    def get_governance_backends(self) -> list[GovernanceBackendSpec]:
+        """Expose the minio governance backend for managed policy documents."""
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        return [
+            GovernanceBackendSpec(
+                name="minio",
+                provider=MinioGovernanceBackend(),
+                support=CapabilitySupport(),
+            )
+        ]
 
     """Resource provider plugin exposing MinIO object storage capabilities.
 
