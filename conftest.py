@@ -195,7 +195,10 @@ def minio_service():
         return
 
     try:
-        with MinioContainer("minio/minio:latest") as minio:
+        with MinioContainer(
+            "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
+            "@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+        ) as minio:
             yield minio
     # A container that fails to start degrades to None exactly like the
     # no-Docker path, so integration tests fall back to the local filesystem.
