@@ -172,9 +172,13 @@ class FileOperationJournalStore:
     def _iter_records(self) -> Any:
         for path in sorted(self._directory.glob("*.json")):
             try:
-                yield json.loads(path.read_text(encoding="utf-8"))
+                record = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
+            # Only journal records count toward the active-claim scan; a
+            # stray JSON file in the directory must not break claiming.
+            if isinstance(record, dict) and {"action", "state", "target"} <= record.keys():
+                yield record
 
     def _write_atomic(self, entry: OperationJournalEntry) -> None:
         self._write_json_atomic(self._path(entry.operation_id), entry.to_dict())

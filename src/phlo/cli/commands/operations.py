@@ -21,6 +21,7 @@ instructions after it. No false rollback after an irreversible step.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -416,33 +417,69 @@ def upgrade_apply_cmd(
         raise SystemExit(1)
 
 
+def _maintenance_store() -> Any:
+    """Resolve the provider-neutral maintenance store.
+
+    Table-store providers implement the plan/execute contracts the CLI
+    drives: ``compact`` (``MaintenanceTableStore``) and ``expire_snapshots``
+    (``MaintenanceRetentionStore``). Engine executors are the delegated
+    submit boundary the store resolves internally.
+    """
+    from phlo.capabilities import resolve_capability
+    from phlo.capabilities.discovery import discover_capabilities
+
+    discover_capabilities()
+    resolution = resolve_capability("table_store", "iceberg")
+    if resolution is None:
+        raise click.ClickException(
+            "no maintenance store registered: the table_store:iceberg capability "
+            "is required for maintenance operations"
+        )
+    return resolution.provider
+
+
+def _maintenance_executor() -> Any:
+    """Resolve the optional engine executor the store delegates mutation to."""
+    from phlo.capabilities import resolve_capability
+    from phlo.capabilities.discovery import discover_capabilities
+
+    discover_capabilities()
+    resolution = resolve_capability("maintenance_executor")
+    return resolution.provider if resolution is not None else None
+
+
+_STORE_PLAN_METHOD = {"compact": "compact", "snapshot_expiry": "expire_snapshots"}
+
+# Plan files carry the store's own operation name; translate back to the
+# CLI-facing name before dispatch.
+_STORE_OPERATION_NAME = {"compact": "compact", "expire_snapshots": "snapshot_expiry"}
+
+
 @maintenance_group.command("inventory", cls=PhloCommand)
 @click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
 @click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
 def maintenance_inventory(output_format: str, output_json: bool = False) -> None:
     """List v1 tables with their provider and maintenance state (read-only)."""
-    from phlo.capabilities import list_capabilities, resolve_capability
-    from phlo.capabilities.discovery import discover_capabilities
+    from phlo.capabilities import MaintenanceDiscovery
 
-    discover_capabilities()
-    executors = list_capabilities("maintenance_executor")
-    if not executors:
-        raise click.ClickException("no maintenance executor capability is registered")
+    store = _maintenance_store()
+    if not isinstance(store, MaintenanceDiscovery):
+        raise click.ClickException(
+            "the resolved maintenance store does not implement the discovery contract"
+        )
 
     inventory: list[dict[str, Any]] = []
-    for name in executors:
-        resolution = resolve_capability("maintenance_executor", name)
-        if resolution is None:
-            continue
-        provider = resolution.provider
-        get_inventory = getattr(provider, "get_inventory", None)
-        if callable(get_inventory):
-            inventory.extend(get_inventory())
+    for namespace in store.list_namespaces(ref="main"):
+        for table_name in store.list_tables(namespace=namespace, ref="main"):
+            entry: dict[str, Any] = {"table": table_name}
+            with contextlib.suppress(Exception):
+                entry["stats"] = store.get_table_stats(table_name=table_name, ref="main")
+            inventory.append(entry)
 
     if output_json or output_format == "json":
-        _emit({"executors": executors, "tables": inventory})
+        _emit({"store": "iceberg", "tables": inventory})
     else:
-        click.echo(f"Executors: {', '.join(executors)}")
+        click.echo("Store: iceberg")
         for entry in inventory:
             click.echo(f"  {entry}")
 
@@ -451,29 +488,55 @@ def maintenance_inventory(output_format: str, output_json: bool = False) -> None
 @click.option("--operation", type=click.Choice(["compact", "snapshot_expiry"]), required=True)
 @click.option("--table", required=True, help="Fully qualified table name.")
 @click.option("--ref", default="main", help="Catalog ref/branch.")
+@click.option(
+    "--catalog",
+    default="iceberg",
+    help="Catalog identifier recorded in the plan (snapshot_expiry execute requires it).",
+)
+@click.option(
+    "--max-affected-objects",
+    type=int,
+    default=1_000,
+    help="Safety limit recorded in the plan (snapshot_expiry execute requires it).",
+)
+@click.option(
+    "--max-affected-bytes",
+    type=int,
+    default=1 << 30,
+    help="Safety limit recorded in the plan (snapshot_expiry execute requires it).",
+)
 @click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
 @click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
 def maintenance_plan(
-    operation: str, table: str, ref: str, output_format: str, output_json: bool = False
+    operation: str,
+    table: str,
+    ref: str,
+    catalog: str,
+    max_affected_objects: int,
+    max_affected_bytes: int,
+    output_format: str,
+    output_json: bool = False,
 ) -> None:
     """Create a deterministic maintenance plan (read-only, no mutation)."""
-    from phlo.capabilities import resolve_capability
-    from phlo.capabilities.discovery import discover_capabilities
-
-    discover_capabilities()
-    resolution = resolve_capability("maintenance_executor", operation)
-    if resolution is None:
-        raise click.ClickException(f"no maintenance executor registered for {operation!r}")
-
-    provider = resolution.provider
-    plan_fn = getattr(provider, "plan", None)
+    store = _maintenance_store()
+    method_name = _STORE_PLAN_METHOD[operation]
+    plan_fn = getattr(store, method_name, None)
     if not callable(plan_fn):
-        raise click.ClickException(
-            f"maintenance executor {resolution.name!r} does not support planning"
-        )
+        raise click.ClickException(f"maintenance store does not support planning for {operation!r}")
 
-    result = plan_fn(table_name=table, ref=ref)
+    plan_kwargs: dict[str, Any] = {"table_name": table, "override_ref": ref, "dry_run": True}
+    if operation == "snapshot_expiry":
+        plan_kwargs.update(
+            catalog=catalog,
+            max_affected_objects=max_affected_objects,
+            max_affected_bytes=max_affected_bytes,
+        )
+    result = plan_fn(**plan_kwargs)
     plan = result.to_dict() if hasattr(result, "to_dict") else dict(result)
+    if not plan.get("plan_token") and plan.get("before_revision") is not None:
+        # compact binds by revision precondition rather than a plan hash; the
+        # confirmation token the caller echoes is that revision.
+        plan["plan_token"] = str(plan["before_revision"])
     rejected = plan.get("accepted") is False or plan.get("status") in {"blocked", "failed"}
     valid = not rejected and bool(plan.get("plan_token"))
     if output_json or output_format == "json":
@@ -512,8 +575,6 @@ def maintenance_apply(
     """Apply an exact, still-current maintenance plan (authorized, fail-before-mutation)."""
     from pathlib import Path
 
-    from phlo.capabilities import resolve_capability
-    from phlo.capabilities.discovery import discover_capabilities
     from phlo.operations.journal import (
         OperationJournalError,
         OperationJournalState,
@@ -526,7 +587,9 @@ def maintenance_apply(
         plan_data = json.load(f)
 
     plan_token = plan_data.get("plan_token", "")
-    operation = plan_data.get("operation", "")
+    operation = _STORE_OPERATION_NAME.get(
+        plan_data.get("operation", ""), plan_data.get("operation", "")
+    )
     table = plan_data.get("table_name", "")
     ref = plan_data.get("ref", "main")
 
@@ -536,17 +599,39 @@ def maintenance_apply(
     if operation == "orphan_delete":
         raise click.ClickException("orphan deletion is unsupported in v1")
 
-    discover_capabilities()
-    resolution = resolve_capability("maintenance_executor", operation)
-    if resolution is None:
-        raise click.ClickException(f"no maintenance executor registered for {operation!r}")
+    method_name = _STORE_PLAN_METHOD.get(operation)
+    if method_name is None:
+        raise click.ClickException(f"unknown maintenance operation {operation!r}")
 
-    provider = resolution.provider
-    execute_fn = getattr(provider, "execute", None)
+    store = _maintenance_store()
+    execute_fn = getattr(store, method_name, None)
     if not callable(execute_fn):
         raise click.ClickException(
-            f"maintenance executor {resolution.name!r} does not support execution"
+            f"maintenance store does not support execution for {operation!r}"
         )
+
+    planned = plan_data.get("planned") or {}
+    before_revision = plan_data.get("before_revision") or planned.get("before_snapshot_id")
+    execute_kwargs: dict[str, Any] = {
+        "table_name": table,
+        "override_ref": ref,
+        "dry_run": False,
+        "expected_snapshot_id": before_revision,
+    }
+    if operation == "snapshot_expiry":
+        # The store re-plans and compares plan tokens, so apply must replay
+        # the plan-time parameters exactly or the recomputed token diverges.
+        execute_kwargs.update(
+            confirmation_token=plan_token,
+            retention_hours=int(planned.get("retention_hours") or 168),
+            retain_last=int(planned.get("retain_last") or 5),
+            catalog=planned.get("catalog"),
+            max_affected_objects=planned.get("max_affected_objects"),
+            max_affected_bytes=planned.get("max_affected_bytes"),
+        )
+    executor = _maintenance_executor()
+    if executor is not None:
+        execute_kwargs["executor"] = executor
 
     journal = _durable_journal()
     operation_id = f"{operation}:{table}:{ref}"
@@ -560,7 +645,8 @@ def maintenance_apply(
             plan_token=plan_token,
         )
         mark_submitted(journal, operation_id)
-        result = execute_fn(table_name=table, ref=ref, plan_token=plan_token)
+        execute_kwargs["operation_id"] = operation_id
+        result = execute_fn(**execute_kwargs)
         result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(result)
         rejected = result_dict.get("accepted") is False or result_dict.get("status") in {
             "blocked",

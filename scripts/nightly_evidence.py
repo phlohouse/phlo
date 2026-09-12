@@ -431,62 +431,57 @@ def create_iceberg_table() -> str:
     return EVIDENCE_TABLE
 
 
-def journaled_maintenance(journal_dir: Path) -> dict[str, Any]:
-    """Run one plan/execute cycle through the durable operation journal.
+def journaled_maintenance(project: Path, journal_dir: Path) -> dict[str, Any]:
+    """Run one journaled plan/apply cycle through the operations CLI.
 
-    Uses the same journal primitives as `phlo operations maintenance apply`:
-    claim, mark submitted, bound execute, complete. A fresh table's single
-    protected snapshot yields an accepted no-op execution — the journal
-    lifecycle and precondition chain still run against the real catalog.
+    ``phlo operations maintenance plan`` emits the store's dry-run result
+    (``plan_token`` + ``before_revision`` bound); ``apply`` re-binds the exact
+    plan through the durable journal's claim → submit → execute → complete
+    lifecycle. A fresh table's single protected snapshot yields an accepted
+    no-op execution — the full precondition and journal chain still runs
+    against the real catalog.
     """
-    from phlo_iceberg.resource import IcebergResource
+    env = {"PHLO_OPERATIONS_JOURNAL_DIR": str(journal_dir)}
 
-    from phlo.operations.journal import claim_operation, complete_operation, mark_submitted
-    from phlo.operations.journal_store import FileOperationJournalStore
-
-    os.environ["PHLO_OPERATIONS_JOURNAL_DIR"] = str(journal_dir)
-    journal = FileOperationJournalStore(str(journal_dir))
-    resource = IcebergResource(ref="main")
-
-    plan_result = resource.expire_snapshots(
-        table_name=EVIDENCE_TABLE,
-        catalog="iceberg",
-        dry_run=True,
-        retention_hours=168,
-        retain_last=1,
-        max_affected_objects=1_000,
-        max_affected_bytes=1 << 30,
+    plan_path = journal_dir.parent / "maintenance-plan.json"
+    plan_out = phlo(
+        "operations",
+        "maintenance",
+        "plan",
+        "--operation",
+        "snapshot_expiry",
+        "--table",
+        EVIDENCE_TABLE,
+        "--format",
+        "json",
+        cwd=project,
+        env=env,
     )
-    plan = dict(plan_result.get("planned") or plan_result)
+    plan_path.write_text(plan_out, encoding="utf-8")
+    plan = json.loads(plan_out)
     token = str(plan.get("plan_token") or "")
-    expected = plan.get("before_snapshot_id")
-    if not token or not isinstance(expected, int | str):
-        raise StepError(f"maintenance plan missing token/revision: {json.dumps(plan)[:400]}")
+    if not token or plan.get("before_revision") is None:
+        raise StepError(f"maintenance plan missing token/revision: {plan_out[:400]}")
 
-    operation_id = f"snapshot_expiry:{EVIDENCE_TABLE}:main"
-    claim_operation(
-        journal,
-        operation_id=operation_id,
-        subject="nightly-evidence",
-        action="snapshot_expiry",
-        target=EVIDENCE_TABLE,
-        plan_token=token,
+    apply_out = phlo(
+        "operations",
+        "maintenance",
+        "apply",
+        "--plan",
+        str(plan_path),
+        "--confirmation-token",
+        token,
+        "--format",
+        "json",
+        cwd=project,
+        env=env,
     )
-    mark_submitted(journal, operation_id)
-    result = resource.expire_snapshots(
-        table_name=EVIDENCE_TABLE,
-        catalog="iceberg",
-        dry_run=False,
-        retention_hours=168,
-        retain_last=1,
-        max_affected_objects=1_000,
-        max_affected_bytes=1 << 30,
-        expected_snapshot_id=expected,
-        confirmation_token=token,
-    )
-    complete_operation(journal, operation_id, result)
     records = sorted(p.name for p in journal_dir.glob("*.json"))
-    return {"plan": plan, "execute_result": result, "journal_records": records}
+    return {
+        "plan": plan,
+        "execute_result": json.loads(apply_out),
+        "journal_records": records,
+    }
 
 
 def teardown(project: Path) -> None:
@@ -552,7 +547,7 @@ def main() -> int:
         table = create_iceberg_table()
         report["steps"]["iceberg_table"] = "ok"
 
-        report["maintenance"] = journaled_maintenance(journal_dir)
+        report["maintenance"] = journaled_maintenance(project, journal_dir)
         report["steps"]["journaled_maintenance"] = "ok"
         report["maintenance"]["table"] = table
         return_code = 0
