@@ -666,6 +666,28 @@ class TestMinioCompiler:
         assert not result.in_sync
         assert len(result.mismatched) == 1
 
+    def test_verify_tolerates_minio_reordered_action_list(self) -> None:
+        """MinIO does not preserve Action order; a reordered document is
+        still converged, not drift."""
+        rbac = _rbac([_policy("p1", "dataset.write", "dataset", "lake.orders")])
+        desired = MinioCompiler().compile(rbac, _ctx("minio"))
+        stored = json.loads(desired[0].statement)
+        stored["Statement"][1]["Action"] = list(reversed(stored["Statement"][1]["Action"]))
+        backend = _FakeMinioGovernanceBackend(
+            rows=[
+                {
+                    "policy_name": desired[0].name,
+                    "document": json.dumps(stored, sort_keys=True),
+                    "role": "phlo_analyst",
+                }
+            ]
+        )
+        compiler = MinioCompiler(backend=cast(GovernanceBackend, backend))
+
+        result = compiler.verify(rbac, _ctx("minio"))
+
+        assert result.in_sync
+
     def test_listing_failure_propagates(self) -> None:
         class _FailingBackend(_FakeMinioGovernanceBackend):
             def list_policies(self, *, table_name: str | None = None) -> list[dict[str, Any]]:
@@ -808,6 +830,45 @@ class TestMinioGovernanceBackend:
         assert rows[0]["role"] == "phlo_analyst"
         assert json.loads(rows[0]["document"]) == doc
 
+    def test_list_policies_parses_current_mc_shapes(self) -> None:
+        """Current mc nests the doc under policyInfo.Policy and emits
+        attached group names under policyMappings[].groups — both were
+        missed by the older shapes and produced false drift on a live run."""
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        doc = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow"}]}
+        runner = _FakeMcRunner(
+            outputs={
+                "policy list": json.dumps({"policy": "phlo_phlo_analyst__lake_orders"}),
+                "policy info": json.dumps(
+                    {
+                        "policy": "phlo_phlo_analyst__lake_orders",
+                        "policyInfo": {
+                            "PolicyName": "phlo_phlo_analyst__lake_orders",
+                            "Policy": doc,
+                        },
+                    }
+                ),
+                "policy entities": json.dumps(
+                    {
+                        "result": {
+                            "policyMappings": [
+                                {
+                                    "policy": "phlo_phlo_analyst__lake_orders",
+                                    "users": None,
+                                    "groups": ["phlo_analyst"],
+                                }
+                            ]
+                        }
+                    }
+                ),
+            }
+        )
+        rows = MinioGovernanceBackend(runner=runner).list_policies()
+
+        assert rows[0]["role"] == "phlo_analyst"
+        assert json.loads(rows[0]["document"]) == doc
+
     def test_list_policies_reports_detached_document(self) -> None:
         from phlo_minio.governance import MinioGovernanceBackend
 
@@ -914,7 +975,7 @@ class TestNessieCompiler:
         artifacts = NessieCompiler().compile(rbac, _ctx("nessie"))
         expression = artifacts[0].metadata["expression"]
 
-        assert r"path=~'lake\.orders'" in expression
+        assert r"path.matches('^lake\.orders$')" in expression
 
     def test_dataset_rule_escaped_path_does_not_overmatch(self) -> None:
         from phlo_nessie.governance import _evaluate_rule
@@ -928,6 +989,15 @@ class TestNessieCompiler:
         )
         assert not _evaluate_rule(
             expression, role="phlo_analyst", op="READ_ENTITY_VALUE", ref="main", path="lakeXorders"
+        )
+        # CEL matches() is unanchored; the rendered regex must be anchored so a
+        # path containing the name as a substring is not authorized.
+        assert not _evaluate_rule(
+            expression,
+            role="phlo_analyst",
+            op="READ_ENTITY_VALUE",
+            ref="main",
+            path="private.lake.orders.archive",
         )
 
     def test_unknown_pair_raises_surface_skipped(self) -> None:
@@ -958,7 +1028,7 @@ class TestNessieGovernanceBackend:
             policy=AccessPolicy(
                 policy_id="phlo_phlo_analyst__catalog_read__all",
                 principal="phlo_analyst",
-                table_pattern="op in ('VIEW_REFERENCE') && role=='phlo_analyst'",
+                table_pattern="op in ['VIEW_REFERENCE'] && role=='phlo_analyst'",
                 action="authz_rule",
                 effect="ALLOW",
             )
@@ -967,7 +1037,7 @@ class TestNessieGovernanceBackend:
         content = rules_path.read_text()
         assert (
             "nessie.server.authorization.rules.phlo_phlo_analyst__catalog_read__all="
-            "op in ('VIEW_REFERENCE') && role=='phlo_analyst'" in content
+            "op in ['VIEW_REFERENCE'] && role=='phlo_analyst'" in content
         )
 
     def test_revoke_removes_rule(self, tmp_path) -> None:
@@ -979,7 +1049,7 @@ class TestNessieGovernanceBackend:
             policy=AccessPolicy(
                 policy_id="phlo_x__r",
                 principal="phlo_x",
-                table_pattern="op in ('VIEW_REFERENCE') && role=='phlo_x'",
+                table_pattern="op in ['VIEW_REFERENCE'] && role=='phlo_x'",
                 action="authz_rule",
                 effect="ALLOW",
             )
@@ -993,12 +1063,12 @@ class TestNessieGovernanceBackend:
 
         rules_path = tmp_path / "authz.properties"
         rules_path.write_text(
-            "nessie.server.authorization.rules.phlo_a=op in ('VIEW_REFERENCE') && role=='a'\n"
-            "nessie.server.authorization.rules.unmanaged=op in ('X')\n"
+            "nessie.server.authorization.rules.phlo_a=op in ['VIEW_REFERENCE'] && role=='a'\n"
+            "nessie.server.authorization.rules.unmanaged=op in ['X']\n"
         )
         rows = NessieGovernanceBackend(rules_path=rules_path).list_policies()
 
-        assert rows == [{"policy_id": "phlo_a", "rule": "op in ('VIEW_REFERENCE') && role=='a'"}]
+        assert rows == [{"policy_id": "phlo_a", "rule": "op in ['VIEW_REFERENCE'] && role=='a'"}]
 
     def test_check_access_evaluates_rules(self, tmp_path) -> None:
         from phlo_nessie.governance import NessieGovernanceBackend
@@ -1010,8 +1080,8 @@ class TestNessieGovernanceBackend:
                 policy_id="phlo_analyst__read",
                 principal="phlo_analyst",
                 table_pattern=(
-                    "op in ('VIEW_REFERENCE','READ_ENTITY_VALUE') && "
-                    "role=='phlo_analyst' && path=~'lake.*'"
+                    "op in ['VIEW_REFERENCE','READ_ENTITY_VALUE'] && "
+                    "role=='phlo_analyst' && path.matches('lake.*')"
                 ),
                 action="authz_rule",
                 effect="ALLOW",
@@ -1064,7 +1134,7 @@ class TestNessieGovernanceBackend:
         from phlo_nessie.governance import NessieGovernanceBackend
 
         rules_path = tmp_path / "authz.properties"
-        rules_path.write_text("nessie.server.authorization.rules.phlo_a=op in ('X')\n")
+        rules_path.write_text("nessie.server.authorization.rules.phlo_a=op in ['X']\n")
         backend = NessieGovernanceBackend(
             rules_path=rules_path,
             live_check=lambda: True,
@@ -1079,7 +1149,7 @@ class TestNessieGovernanceBackend:
         from phlo_nessie.governance import NessieGovernanceBackend
 
         rules_path = tmp_path / "authz.properties"
-        rules_path.write_text("nessie.server.authorization.rules.phlo_a=op in ('X')\n")
+        rules_path.write_text("nessie.server.authorization.rules.phlo_a=op in ['X']\n")
         backend = NessieGovernanceBackend(
             rules_path=rules_path,
             live_check=lambda: True,
@@ -1091,7 +1161,7 @@ class TestNessieGovernanceBackend:
         from phlo_nessie.governance import NessieGovernanceBackend
 
         rules_path = tmp_path / "authz.properties"
-        rules_path.write_text("nessie.server.authorization.rules.phlo_a=op in ('X')\n")
+        rules_path.write_text("nessie.server.authorization.rules.phlo_a=op in ['X']\n")
         backend = NessieGovernanceBackend(
             rules_path=rules_path,
             live_check=lambda: True,

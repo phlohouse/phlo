@@ -22,29 +22,46 @@ def _plan_json(
             "table_name": table,
             "ref": "main",
             "plan_token": token,
+            "before_revision": 7,
             "thresholds": {"target_size_mb": 512},
         }
     )
 
 
+def _compact_result(**kwargs: Any) -> dict[str, Any]:
+    """Fake store compaction: dry-run returns a plan, execute returns a result."""
+    if kwargs.get("dry_run"):
+        return {
+            "operation": "compact",
+            "table_name": kwargs["table_name"],
+            "ref": kwargs.get("override_ref") or "main",
+            "accepted": True,
+            "status": "planned",
+            "before_revision": 7,
+            "plan_token": "plan-tok-1",
+            "planned": {"before_snapshot_id": 7},
+            "thresholds": {"target_size_mb": 512},
+        }
+    return {"accepted": True, "status": "succeeded", "operation": "compact"}
+
+
 @pytest.fixture()
 def provider(monkeypatch):
-
-    executor = SimpleNamespace()
-    executor.plan = lambda table_name, ref: {
-        "operation": "compact",
-        "table_name": table_name,
-        "ref": ref,
-        "plan_token": "plan-tok-1",
-        "thresholds": {"target_size_mb": 512},
+    store = SimpleNamespace()
+    store.compact = _compact_result
+    store.expire_snapshots = lambda **kwargs: {
+        "accepted": True,
+        "status": "noop",
+        "operation": "expire_snapshots",
     }
-    execute_result = {"accepted": True, "status": "succeeded", "operation": "compact"}
-    executor.execute = lambda **_kwargs: execute_result
-    monkeypatch.setattr(
-        "phlo.capabilities.resolve_capability",
-        lambda _kind, _name=None: SimpleNamespace(name="iceberg", provider=executor),
-    )
-    return executor
+
+    def _resolve(kind: str, _name: str | None = None):
+        if kind == "table_store":
+            return SimpleNamespace(name="iceberg", provider=store)
+        return None
+
+    monkeypatch.setattr("phlo.capabilities.resolve_capability", _resolve)
+    return store
 
 
 def _invoke(args: list[str], journal_dir: Path | None = None) -> Any:
@@ -62,11 +79,11 @@ def test_plan_returns_json_without_mutation(provider) -> None:
     assert payload["plan_token"] == "plan-tok-1"
 
 
-def test_plan_fails_without_executor(monkeypatch) -> None:
+def test_plan_fails_without_store(monkeypatch) -> None:
     monkeypatch.setattr("phlo.capabilities.resolve_capability", lambda _kind, _name=None: None)
     result = _invoke(["plan", "--operation", "compact", "--table", "x"])
     assert result.exit_code != 0
-    assert "no maintenance executor" in result.output
+    assert "no maintenance store" in result.output
 
 
 def test_apply_succeeds_with_matching_token(provider, tmp_path) -> None:
@@ -139,7 +156,7 @@ def test_apply_rejected_provider_result_is_failure(provider, tmp_path, status, o
         executed=False,
         failure={"reason": "precondition_failed"},
     )
-    provider.execute = lambda **kwargs: evidence
+    provider.compact = lambda **kwargs: evidence
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(_plan_json())
     journal_dir = tmp_path / "journal"
@@ -166,7 +183,7 @@ def test_apply_rejected_provider_result_is_failure(provider, tmp_path, status, o
 def test_blocked_plan_is_not_reported_as_planned(provider):
     from phlo.capabilities.maintenance import MaintenanceOperationResult, MaintenanceOperationState
 
-    provider.plan = lambda **kwargs: MaintenanceOperationResult(
+    provider.compact = lambda **kwargs: MaintenanceOperationResult(
         operation="compact",
         table_name="lake.orders",
         ref="main",
@@ -181,3 +198,44 @@ def test_blocked_plan_is_not_reported_as_planned(provider):
     payload = json.loads(result.stdout)
     assert payload["status"] == "error"
     assert payload["data"]["status"] == "blocked"
+
+
+def test_apply_snapshot_expiry_replays_plan_parameters(provider, tmp_path) -> None:
+    """Apply must replay plan-time parameters so the recomputed token matches."""
+    captured: dict[str, Any] = {}
+    provider.expire_snapshots = lambda **kwargs: (
+        captured.update(kwargs)
+        or {
+            "accepted": True,
+            "status": "noop",
+            "operation": "expire_snapshots",
+        }
+    )
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "operation": "snapshot_expiry",
+                "table_name": "lake.orders",
+                "ref": "main",
+                "plan_token": "tok-expiry",
+                "before_revision": 42,
+                "planned": {
+                    "before_snapshot_id": 42,
+                    "retention_hours": 720,
+                    "retain_last": 3,
+                    "catalog": "iceberg",
+                },
+            }
+        )
+    )
+    result = _invoke(
+        ["apply", "--plan", str(plan_path), "--confirmation-token", "tok-expiry"],
+        journal_dir=tmp_path / "journal",
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["dry_run"] is False
+    assert captured["confirmation_token"] == "tok-expiry"
+    assert captured["expected_snapshot_id"] == 42
+    assert captured["retention_hours"] == 720
+    assert captured["retain_last"] == 3

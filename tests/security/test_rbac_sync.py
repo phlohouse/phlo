@@ -76,6 +76,7 @@ class _FakeCompiler(GovernanceCompiler):
         apply_result: tuple[list[str], list[str]] | None = None,
         apply_error: Exception | None = None,
         verify_result: VerifyResult | None = None,
+        verify_error: Exception | None = None,
         revert_result: tuple[list[str], list[str]] | None = None,
         revert_error: Exception | None = None,
     ) -> None:
@@ -84,6 +85,7 @@ class _FakeCompiler(GovernanceCompiler):
         self._apply_result = apply_result or ([], [])
         self._apply_error = apply_error
         self._verify_result = verify_result
+        self._verify_error = verify_error
         self._revert_result = revert_result or ([], [])
         self._revert_error = revert_error
         self.plan_called = False
@@ -116,6 +118,8 @@ class _FakeCompiler(GovernanceCompiler):
         return self._apply_result
 
     def verify(self, rbac: CanonicalRBAC, context: CompilerContext) -> VerifyResult:
+        if self._verify_error:
+            raise self._verify_error
         if self._verify_result is not None:
             return self._verify_result
         return VerifyResult(backend="fake", in_sync=True)
@@ -213,6 +217,19 @@ def test_verify_returns_results() -> None:
     assert result["fake"] is vr
     assert result["fake"].in_sync is False
     assert len(result["fake"].missing) == 1
+
+
+def test_verify_records_failed_backend_as_out_of_sync() -> None:
+    """A backend whose verification raises is a failed result, not omitted."""
+    rbac = _make_rbac()
+    compiler = _FakeCompiler(verify_error=RuntimeError("inspection timed out"))
+    ctrl = SyncController(loader=_FakeLoader(rbac), compilers={"fake": compiler})
+
+    result = ctrl.verify(backends=["fake"], environment="dev")
+
+    assert "fake" in result
+    assert result["fake"].in_sync is False
+    assert "inspection timed out" in (result["fake"].error or "")
 
 
 def test_revert_calls_compiler_revert() -> None:

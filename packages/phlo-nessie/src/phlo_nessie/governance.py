@@ -27,10 +27,10 @@ _MANAGED_PREFIX = "phlo_"
 _RULE_KEY_PREFIX = "nessie.server.authorization.rules."
 _DEFAULT_REF = "main"
 
-_OP_RE = re.compile(r"op\s+in\s*\(([^)]*)\)")
+_OP_RE = re.compile(r"op\s+in\s*\[([^\]]*)\]")
 _ROLE_RE = re.compile(r"role\s*==\s*'([^']+)'")
-_REF_RE = re.compile(r"ref\s*=~\s*'([^']+)'")
-_PATH_RE = re.compile(r"path\s*=~\s*'([^']+)'")
+_REF_RE = re.compile(r"ref\.matches\('([^']+)'\)")
+_PATH_RE = re.compile(r"path\.matches\('([^']+)'\)")
 
 
 def default_rules_path() -> Path:
@@ -55,9 +55,10 @@ def _parse_rules_file(content: str) -> dict[str, str]:
 def _evaluate_rule(expression: str, *, role: str, op: str, ref: str, path: str) -> bool:
     """Evaluate one managed rule expression against an access tuple.
 
-    Supports the clauses this backend renders: ``op in (...)``,
-    ``role=='x'``, ``ref=~'re'``, and ``path=~'re'``. Unknown clauses fail
-    closed (the rule does not match) rather than silently allowing.
+    Supports the clauses this backend renders: ``op in [...]``,
+    ``role=='x'``, ``ref.matches('re')``, and ``path.matches('re')``.
+    Unknown clauses fail closed (the rule does not match) rather than
+    silently allowing.
     """
     op_match = _OP_RE.search(expression)
     if op_match is None:

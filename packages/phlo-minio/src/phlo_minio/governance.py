@@ -62,17 +62,26 @@ def _parse_json_lines(output: str) -> list[dict[str, Any]]:
 
 
 def _extract_document(row: dict[str, Any]) -> dict[str, Any] | None:
-    """Return the parsed policy document from an mc policy info row."""
-    raw = row.get("policyDocument") or row.get("policy") or ""
-    if isinstance(raw, dict) and raw.get("Statement"):
-        return raw
-    if isinstance(raw, str) and raw.startswith("{"):
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return None
-        if isinstance(parsed, dict) and parsed.get("Statement"):
-            return parsed
+    """Return the parsed policy document from an mc policy info row.
+
+    Current mc emits the document under ``policyInfo.Policy``; older builds
+    used top-level ``policyDocument``/``policy``. All are tried, and a
+    ``policy`` string carrying the policy *name* is ignored.
+    """
+    candidates: list[Any] = [row.get("policyDocument"), row.get("policy")]
+    info = row.get("policyInfo")
+    if isinstance(info, dict):
+        candidates.extend([info.get("Policy"), info.get("policy")])
+    for raw in candidates:
+        if isinstance(raw, dict) and raw.get("Statement"):
+            return raw
+        if isinstance(raw, str) and raw.startswith("{"):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict) and parsed.get("Statement"):
+                return parsed
     return None
 
 
@@ -104,6 +113,10 @@ class MinioGovernanceBackend:
                     group = mapping.get("group")
                     if isinstance(group, str) and group:
                         groups.add(group)
+                    # Current mc emits group names as a list under "groups".
+                    for name in mapping.get("groups") or []:
+                        if isinstance(name, str) and name:
+                            groups.add(name)
         return sorted(groups)
 
     def list_policies(self, *, table_name: str | None = None) -> list[dict[str, Any]]:
