@@ -430,6 +430,31 @@ class PostgresCompiler(GovernanceCompiler):
             self._backend.revoke_policy(policy_id=f"{scope}:{privilege}:{resource}:{role}")
 
 
+def _normalize_policy_value(value: Any) -> Any:
+    """Recursively sort JSON arrays so semantically unordered policy lists
+    (Action, Resource, Statement, condition values) compare equal
+    regardless of the order a server persists or returns them in."""
+    if isinstance(value, dict):
+        return {key: _normalize_policy_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return sorted(
+            (_normalize_policy_value(item) for item in value),
+            key=lambda item: json.dumps(item, sort_keys=True),
+        )
+    return value
+
+
+def _documents_equivalent(desired: str, current: str) -> bool:
+    """Compare two policy-document strings semantically, falling back to a
+    literal compare when either side is not JSON."""
+    try:
+        desired_doc = json.loads(desired)
+        current_doc = json.loads(current)
+    except (json.JSONDecodeError, TypeError):
+        return desired == current
+    return _normalize_policy_value(desired_doc) == _normalize_policy_value(current_doc)
+
+
 class MinioCompiler(GovernanceCompiler):
     """Compiler for MinIO managed IAM policy documents.
 
@@ -606,8 +631,10 @@ class MinioCompiler(GovernanceCompiler):
     ) -> bool:
         """A MinIO document is equivalent only when its content matches
         and it is attached to the group named for the canonical role —
-        a detached or wrong-group document is drift, not state."""
-        return desired.statement == current.statement and str(
+        a detached or wrong-group document is drift, not state. MinIO
+        does not preserve Action list order, so both documents are
+        normalized before comparing."""
+        return _documents_equivalent(desired.statement, current.statement) and str(
             desired.metadata.get("role", "")
         ) == str(current.metadata.get("role", ""))
 
@@ -752,13 +779,13 @@ class NessieCompiler(GovernanceCompiler):
         ops: tuple[str, ...],
         policy: PolicyRule,
     ) -> str:
-        ops_clause = "op in (" + ",".join(f"'{op}'" for op in ops) + ")"
+        ops_clause = "op in [" + ",".join(f"'{op}'" for op in ops) + "]"
         clauses = [ops_clause, f"role=='{role_name}'"]
         if policy.resource_type == "dataset":
             resource = policy.resource_id_pattern
             _validate_sql_resource_pattern(resource, "resource_id")
             path = re.escape(resource).replace(r"\*", ".*")
-            clauses.append(f"path=~'{path}'")
+            clauses.append(f"path.matches('{path}')")
         return " && ".join(clauses)
 
     def read_current_state(

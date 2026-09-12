@@ -135,9 +135,11 @@ class PostgresGovernanceBackend:
 
         usage_rows = self._pg.query(
             """
-            SELECT grantee, object_schema, privilege_type
-            FROM information_schema.usage_privileges
-            WHERE object_type = 'SCHEMA' AND grantee LIKE %s ESCAPE '\\'
+            SELECT grantee.rolname, n.nspname, acl.privilege_type
+            FROM pg_namespace n
+            CROSS JOIN LATERAL aclexplode(n.nspacl) acl
+            JOIN pg_roles grantee ON grantee.oid = acl.grantee
+            WHERE acl.privilege_type = 'USAGE' AND grantee.rolname LIKE %s ESCAPE '\\'
             """,
             (_MANAGED_ROLE_RE,),
         )
