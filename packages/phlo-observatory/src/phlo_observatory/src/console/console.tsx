@@ -1,14 +1,16 @@
 /**
- * The deck — Observatory's single surface. The board is the app: publish
- * decisions and in-flight work up top, the lake beneath for context, and
- * everything else (signals, stream, inspector, palette) a layer over it.
+ * The deck — Observatory's single surface. The waterline is the app: the
+ * last 24h of flow into the lake on one time axis, with the catalog as a
+ * collapsible band beneath and everything else (signals, stream,
+ * inspector, palette) a layer over it.
  *
  *   ┌ top bar: health · stack · palette · refresh ────────────┐
- *   │ signals │  board (decisions · in flight · lake) │ inspector(over)│
+ *   │ signals │  waterline (dataset lanes × 24h) │ inspector(over)│
+ *   │         │  lake (collapsible catalog band)               │
  *   ├ stream drawer (collapsed = ticker, open = timeline) ────┤
  */
-import { RefreshCw } from 'lucide-react'
-import { useMemo } from 'react'
+import { Boxes, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
+import { useMemo, useState } from 'react'
 
 import { AttentionRail } from './attention'
 import { Inspector } from './inspector'
@@ -17,16 +19,15 @@ import { useLakehouseSnapshot } from './snapshot'
 import { StreamDrawer } from './stream'
 import { parseFocus } from './store'
 import type { FocusRef } from './store'
-import { buildBoardModel } from '@/components/board/board-model'
-import { BoardView } from '@/components/board/board-view'
 import { buildLakeModel } from '@/components/lake/lake-model'
+import { LakeView } from '@/components/lake/lake-view'
+import { buildWaterlineModel } from '@/components/waterline/waterline-model'
+import { WaterlineView } from '@/components/waterline/waterline-view'
 import { buildTriageQueue } from '@/components/now/triage-model'
 import { buildPulseStream } from '@/components/pulse/pulse-model'
 import { HealthDot } from '@/components/observatory/status'
 import { formatRelativeTime } from '@/components/observatory/time'
 import { ErrorBlock } from '@/components/observatory/states'
-import { useActionRunner } from '@/components/observatory/actions'
-import { runObservatoryActionDirect } from '@/observatory/api/resources'
 import { Button } from '@/components/ui/button'
 import { ExtensionSlot } from '@/extensions/registry'
 import { cn } from '@/lib/utils'
@@ -46,6 +47,7 @@ export function Console({
 }) {
   const { refresh, snapshot } = useLakehouseSnapshot(demoCount)
   const palette = usePalette()
+  const [lakeOpen, setLakeOpen] = useState(true)
 
   const lake = useMemo(
     () =>
@@ -75,6 +77,8 @@ export function Console({
         pipelines: snapshot.pipelines.data ?? [],
         services: snapshot.services.data ?? [],
         logs: snapshot.logs.data ?? [],
+        publishing: snapshot.publishing.data ?? [],
+        datasets: snapshot.datasets.data ?? [],
       }),
     [
       snapshot.operations.data,
@@ -82,6 +86,8 @@ export function Console({
       snapshot.pipelines.data,
       snapshot.services.data,
       snapshot.logs.data,
+      snapshot.publishing.data,
+      snapshot.datasets.data,
     ],
   )
 
@@ -94,19 +100,14 @@ export function Console({
     [snapshot.operations.data, snapshot.logs.data],
   )
 
-  const board = useMemo(
+  const waterline = useMemo(
     () =>
-      buildBoardModel({
+      buildWaterlineModel({
         datasets: snapshot.datasets.data ?? [],
+        operations: snapshot.operations.data ?? [],
         pipelines: snapshot.pipelines.data ?? [],
-        publishing: snapshot.publishing.data ?? [],
       }),
-    [snapshot.datasets.data, snapshot.pipelines.data, snapshot.publishing.data],
-  )
-
-  const runner = useActionRunner(
-    (actionId) => runObservatoryActionDirect({ actionId }),
-    { onSettled: refresh },
+    [snapshot.datasets.data, snapshot.operations.data, snapshot.pipelines.data],
   )
 
   const focusFromString = (raw: string) => {
@@ -197,12 +198,40 @@ export function Console({
                 <span className="text-xs">Contacting the lakehouse…</span>
               </div>
             ) : (
-              <BoardView
-                board={board}
-                lake={lake}
-                onFocus={focusFromString}
-                onRun={runner.request}
-              />
+              <div className="bg-canvas flex h-full flex-col gap-2 p-2">
+                <div className="min-h-0 flex-1">
+                  <WaterlineView model={waterline} onFocus={focusFromString} />
+                </div>
+
+                <section
+                  className={cn(
+                    'border-rule bg-panel flex flex-none flex-col overflow-hidden rounded-lg border shadow-sm',
+                    lakeOpen ? 'h-52' : 'h-[26px]',
+                  )}
+                >
+                  <button
+                    className="panel-heading w-full text-left"
+                    onClick={() => setLakeOpen(!lakeOpen)}
+                    type="button"
+                  >
+                    {lakeOpen ? (
+                      <ChevronDown className="size-3" />
+                    ) : (
+                      <ChevronRight className="size-3" />
+                    )}
+                    <Boxes className="size-3" />
+                    The lake
+                    <span className="text-ink-faint font-mono normal-case tracking-normal">
+                      {lake.total}
+                    </span>
+                  </button>
+                  {lakeOpen && (
+                    <div className="min-h-0 flex-1">
+                      <LakeView model={lake} onFocus={focusFromString} />
+                    </div>
+                  )}
+                </section>
+              </div>
             )}
 
             {focus && (
@@ -231,8 +260,6 @@ export function Console({
         open={palette.open}
         snapshot={snapshot}
       />
-
-      {runner.dialog}
     </div>
   )
 }
