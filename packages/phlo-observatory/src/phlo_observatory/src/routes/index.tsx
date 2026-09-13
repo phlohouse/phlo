@@ -1,23 +1,55 @@
 /**
- * Index route — the lakehouse map. The loader fetches the overview
- * snapshot before render and passes it to the shared OverviewRoute
- * component as initial data. ?node= holds the selected map node.
+ * The console route — Observatory's only surface. `?focus=<kind>:<id>`
+ * opens the inspector on an object; `?stream=1` opens the stream drawer.
+ * Both are shareable links, not pages.
  */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 
-import {
-  OverviewRoute,
-  loadOverviewSnapshotFromApi,
-} from '@/observatory/routes/OverviewRoute'
+import { Console } from '@/console/console'
+import { parseFocus } from '@/console/store'
+
+interface ConsoleSearch {
+  focus?: string
+  stream?: boolean
+}
 
 export const Route = createFileRoute('/')({
-  loader: loadOverviewSnapshotFromApi,
-  validateSearch: (search: Record<string, unknown>) =>
-    typeof search.node === 'string' ? { node: search.node } : {},
-  component: ObservatoryIndexOverviewRoute,
+  validateSearch: (search: Record<string, unknown>): ConsoleSearch => ({
+    focus:
+      typeof search.focus === 'string' && parseFocus(search.focus)
+        ? search.focus
+        : undefined,
+    stream:
+      search.stream === true ||
+      search.stream === 'true' ||
+      search.stream === '1' ||
+      undefined,
+  }),
+  component: ConsoleRoute,
 })
 
-function ObservatoryIndexOverviewRoute() {
-  const snapshot = Route.useLoaderData()
-  return <OverviewRoute initialSnapshot={snapshot} />
+function ConsoleRoute() {
+  const { focus, stream } = Route.useSearch()
+  const navigate = useNavigate()
+
+  const patch = (next: Partial<ConsoleSearch>) =>
+    navigate({
+      replace: true,
+      search: (previous: Record<string, unknown>) => ({
+        ...previous,
+        ...next,
+      }),
+      to: '/',
+    })
+
+  return (
+    <Console
+      focus={focus ? parseFocus(focus) : null}
+      onFocus={(next) =>
+        patch({ focus: next ? `${next.kind}:${next.id}` : undefined })
+      }
+      onStreamOpen={(open) => patch({ stream: open || undefined })}
+      streamOpen={stream === true}
+    />
+  )
 }

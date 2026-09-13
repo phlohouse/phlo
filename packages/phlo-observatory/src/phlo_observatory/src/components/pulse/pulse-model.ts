@@ -8,7 +8,6 @@ import type {
   ObservatoryOperation,
 } from '@/observatory/api/types'
 import type { StatusState } from '@/components/observatory/status'
-import { isNoisyLog } from '@/observatory/routes/OverviewRoute'
 
 export type PulseKind = 'operation' | 'log'
 
@@ -68,6 +67,35 @@ function logEvent(log: ObservatoryLogEvent): PulseEvent {
   }
 }
 
+const NOISE_NEEDLES = [
+  'failed_to_discover_user_workflows',
+  'hasura_using_generated_default_admin_secret',
+  'no heartbeat received',
+  'optional_capability_degraded',
+  'unknown_plugin_type',
+  'plugin_load_failed',
+  'plugin_registry_fetch_fallback',
+  'observatory_settings_falling_back_to_memory',
+  'observatory_settings_storage_unavailable',
+  'using the generated default hasura admin secret',
+  'workflows directory not found',
+  'syntaxwarning',
+  'py.warnings',
+]
+
+/** Infra chatter that drowns the stream; the full log stays queryable. */
+export function isNoisyLog(log: ObservatoryLogEvent): boolean {
+  const message = log.message.toLowerCase()
+  const source = log.source?.toLowerCase() ?? ''
+  const event = String(log.metadata?.event ?? '').toLowerCase()
+  return NOISE_NEEDLES.some(
+    (needle) =>
+      message.includes(needle) ||
+      source.includes(needle) ||
+      event.includes(needle),
+  )
+}
+
 export function buildPulseStream({
   operations,
   logs,
@@ -77,7 +105,7 @@ export function buildPulseStream({
 }): Array<PulseEvent> {
   return [
     ...operations.map(operationEvent),
-    // The stream is for signal — infra noise stays in the Logs workbench.
+    // The stream is for signal — infra noise stays out of the deck.
     ...logs.filter((log) => !isNoisyLog(log)).map(logEvent),
   ]
     .filter((event) => event.at)

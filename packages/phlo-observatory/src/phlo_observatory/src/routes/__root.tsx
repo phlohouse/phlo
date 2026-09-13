@@ -1,7 +1,7 @@
 /**
- * Root layout. Wires React Query, extension, and settings providers around
- * the Observatory shell, injects the runtime API URL bootstrap script, and
- * renders the app-wide not-found page.
+ * Root layout. Wires React Query, extension, and settings providers,
+ * injects the runtime API URL bootstrap script, and renders the console.
+ * There is no app shell — the deck is the whole app.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -18,7 +18,6 @@ import { ObservatoryExtensionProvider } from '@/extensions/registry'
 import { ObservatorySettingsProvider } from '@/hooks/useObservatorySettings'
 import { buttonVariants } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/toaster'
-import { AppShell } from '@/components/shell/app-shell'
 import { cn } from '@/lib/utils'
 
 if (typeof window !== 'undefined') {
@@ -87,9 +86,7 @@ function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <ObservatorySettingsProvider>
             <ObservatoryExtensionProvider>
-              <AppShell>
-                <Outlet />
-              </AppShell>
+              <Outlet />
             </ObservatoryExtensionProvider>
           </ObservatorySettingsProvider>
         </QueryClientProvider>
@@ -102,17 +99,17 @@ function RootLayout() {
 
 function NotFound() {
   return (
-    <div className="flex h-full items-center justify-center p-6">
+    <div className="bg-canvas flex h-svh items-center justify-center p-6">
       <div className="bg-panel border-rule max-w-sm rounded-xl border p-6 text-center">
         <h1 className="text-ink text-sm font-semibold">Page not found</h1>
         <p className="text-ink-soft mt-1 text-xs">
-          This Observatory surface does not exist.
+          The console lives at the root — everything else is a layer over it.
         </p>
         <Link
           className={cn(buttonVariants({ size: 'sm' }), 'mt-4 inline-flex')}
           to="/"
         >
-          Back to overview
+          Back to the deck
         </Link>
       </div>
     </div>

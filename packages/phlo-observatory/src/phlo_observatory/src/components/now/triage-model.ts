@@ -31,6 +31,8 @@ export interface TriageItem {
   at: string
   /** Pipeline actions available on this item's dataset, if any. */
   datasetId?: string
+  /** ?focus= value that opens the inspector on this item's object. */
+  focus?: string
 }
 
 const SEVERITY_SCORE: Record<string, number> = {
@@ -101,6 +103,7 @@ function operationItem(operation: ObservatoryOperation): TriageItem {
       .join(' · '),
     href: `/operations?operationId=${encodeURIComponent(operation.id)}`,
     at,
+    focus: `op:${operation.id}`,
   }
 }
 
@@ -132,6 +135,7 @@ function checkItem(check: ObservatoryQualityCheck): TriageItem {
     href: `/quality?checkId=${encodeURIComponent(check.id)}`,
     at: '',
     datasetId: dataset ?? undefined,
+    focus: `check:${check.id}`,
   }
 }
 
@@ -162,6 +166,7 @@ function datasetItem(pipeline: ObservatoryDatasetPipeline): TriageItem | null {
     href: `/datasets/${encodeURIComponent(dataset.id)}`,
     at: pipeline.freshness_at ?? '',
     datasetId: dataset.id,
+    focus: `dataset:${dataset.id}`,
   }
 }
 
@@ -189,6 +194,7 @@ function serviceItem(service: ObservatoryService): TriageItem | null {
     meta: service.health.message ?? service.status,
     href: `/services?serviceId=${encodeURIComponent(service.id)}`,
     at: '',
+    focus: `service:${service.id}`,
   }
 }
 
