@@ -12,6 +12,7 @@ import type {
   ObservatoryOperation,
   ObservatoryQualityCheck,
   ObservatoryService,
+  ObservatoryTable,
 } from '@/observatory/api/types'
 
 /** mulberry32 — deterministic PRNG. */
@@ -132,8 +133,15 @@ export function synthesizeSnapshot(count: number): Snapshot {
 
   const datasets: Array<ObservatoryDataset> = []
   const datasetPipelines: Array<ObservatoryDatasetPipeline> = []
+  const tables: Array<ObservatoryTable> = []
+  const lakeOdds: Record<string, number> = {
+    publish: 0.7,
+    staging: 0.3,
+    transform: 0.45,
+  }
   for (const asset of assets) {
-    if (asset.group !== 'publish' || rand() > 0.6) continue
+    const lake = lakeOdds[asset.group ?? '']
+    if (!lake || rand() > lake) continue
     const readiness = rand() < 0.08 ? 'error' : rand() < 0.2 ? 'warning' : 'ok'
     const publication = rand() < 0.75 ? 'published' : 'draft'
     datasets.push({
@@ -156,6 +164,17 @@ export function synthesizeSnapshot(count: number): Snapshot {
       last_run: null,
       stages: [],
     })
+    if (asset.group === 'publish' && rand() < 0.7) {
+      tables.push({
+        id: `tbl_${asset.id}`,
+        name: asset.name,
+        asset_id: asset.id,
+        branch: 'main',
+        metadata: {},
+        namespace: 'lake',
+        schema_name: asset.group,
+      })
+    }
   }
 
   const quality: Array<ObservatoryQualityCheck> = []
@@ -178,10 +197,17 @@ export function synthesizeSnapshot(count: number): Snapshot {
 
   const operations: Array<ObservatoryOperation> = []
   const opCount = Math.min(120, Math.max(20, Math.round(count / 8)))
+  const flight = Math.max(1, Math.round(count / 400))
   for (let i = 0; i < opCount; i += 1) {
     const asset = assets[Math.floor(rand() * assets.length)]
     const status = i < 3 ? 'running' : rand() < 0.1 ? 'failed' : 'succeeded'
     const started = new Date(Date.now() - rand() * 4 * 36e5)
+    const scope =
+      i < flight * 3
+        ? `pipeline-run-${Math.floor(i / 3)}`
+        : status === 'failed'
+          ? `pipeline-run-${i}`
+          : undefined
     operations.push({
       id: `op_${i}`,
       name: status === 'failed' ? 'WAP lifecycle' : 'materialize',
@@ -191,11 +217,10 @@ export function synthesizeSnapshot(count: number): Snapshot {
           : new Date(started.getTime() + rand() * 9e5).toISOString(),
       duration_seconds: Math.round(rand() * 900),
       health: {
-        state:
-          status === 'failed' ? 'error' : status === 'running' ? 'ok' : 'ok',
+        state: status === 'failed' ? 'error' : 'ok',
       },
       kind: 'materialize',
-      metadata: status === 'failed' ? { scope: `pipeline-run-${i}` } : {},
+      metadata: scope ? { scope } : {},
       started_at: started.toISOString(),
       status,
       target: { id: asset.id, kind: 'asset', label: asset.name },
@@ -257,7 +282,7 @@ export function synthesizeSnapshot(count: number): Snapshot {
     pipelines: ok(datasetPipelines),
     quality: ok(quality),
     services: ok(services),
-    tables: ok([]),
+    tables: ok(tables),
     updatedAt: new Date(),
   }
 }
