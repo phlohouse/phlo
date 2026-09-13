@@ -282,21 +282,25 @@ export function LakehouseMap({
         id: edge.id,
         source: edge.source,
         target: edge.target,
-        type: 'smoothstep',
-        animated: edge.active,
+        type: 'default',
+        animated: edge.active && !edge.dimmed,
         style: {
           stroke: edge.active ? 'var(--blue)' : 'var(--rule)',
           strokeWidth: edge.active
             ? Math.min(1.75 + edge.weight * 0.1, 4)
-            : Math.min(1 + edge.weight * 0.12, 3.5),
-          opacity: edge.active ? 0.9 : 0.7,
+            : Math.min(1 + edge.weight * 0.08, 2),
+          opacity: edge.dimmed ? 0.06 : edge.active ? 0.95 : 0.22,
         },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: edge.active ? 'var(--blue)' : 'var(--rule)',
-          width: 14,
-          height: 14,
-        },
+        ...(edge.dimmed
+          ? {}
+          : {
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: edge.active ? 'var(--blue)' : 'var(--rule)',
+                width: 12,
+                height: 12,
+              },
+            }),
       })),
     [model.edges],
   )

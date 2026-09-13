@@ -57,6 +57,8 @@ export interface MapEdgeModel {
   active: boolean
   /** Aggregated member-edge count — 1 for card-to-card edges. */
   weight: number
+  /** Faded when focus exists and an endpoint is outside the neighborhood. */
+  dimmed?: boolean
 }
 
 /** A collapsed unit: a whole group, or one connected component of a group. */
@@ -312,12 +314,9 @@ export function buildLakehouseMap({
   for (const node of nodes) {
     node.row = rowIndexOf.get(node.id) ?? 0
   }
+  // Only live work lights an edge — 'recent' is a node state, not flow.
   const activeIds = new Set(
-    nodes
-      .filter(
-        (node) => node.activity === 'running' || node.activity === 'recent',
-      )
-      .map((node) => node.id),
+    nodes.filter((node) => node.activity === 'running').map((node) => node.id),
   )
   for (const edge of edges) {
     edge.active = activeIds.has(edge.source) || activeIds.has(edge.target)
@@ -361,6 +360,11 @@ export function buildLakehouseMap({
     if (neighborhood) {
       for (const node of nodes) {
         node.dimmed = node.id !== focusId && !neighborhood.has(node.id)
+      }
+      for (const edge of edges) {
+        edge.dimmed =
+          (edge.source !== focusId && !neighborhood.has(edge.source)) ||
+          (edge.target !== focusId && !neighborhood.has(edge.target))
       }
     }
     return {
@@ -690,6 +694,10 @@ function clusterModel({
       if (dimItems.has(cluster.id) && !cluster.containsFocus) {
         cluster.dimmed = true
       }
+    }
+    // An edge stays lit only when both endpoints are in the neighborhood.
+    for (const edge of aggregated.values()) {
+      edge.dimmed = dimItems.has(edge.source) || dimItems.has(edge.target)
     }
   }
 
