@@ -4,7 +4,9 @@
  * cadence while the tab is visible. refresh() force-invalidates and
  * re-pulls everything (used after mutations).
  */
-import { useCallback, useEffect, useReducer } from 'react'
+import { useCallback, useEffect, useMemo, useReducer } from 'react'
+
+import { synthesizeSnapshot } from './demo'
 
 import type {
   ObservatoryAsset,
@@ -73,7 +75,7 @@ const STALE_MS: Record<Field, number> = {
   tables: 60_000,
 }
 
-export function useLakehouseSnapshot() {
+export function useLakehouseSnapshot(demoCount?: number | null) {
   const [snapshot, setSnapshot] = useReducer(
     (current: Snapshot, patch: Partial<Snapshot>): Snapshot => ({
       ...current,
@@ -93,6 +95,11 @@ export function useLakehouseSnapshot() {
     },
   )
 
+  const demo = useMemo(
+    () => (demoCount ? synthesizeSnapshot(demoCount) : null),
+    [demoCount],
+  )
+
   const refresh = useCallback(() => {
     for (const [field, loader] of Object.entries(LOADERS) as Array<
       [Field, (typeof LOADERS)[Field]]
@@ -110,6 +117,7 @@ export function useLakehouseSnapshot() {
   }, [])
 
   useEffect(() => {
+    if (demo) return
     let cancelled = false
     function load() {
       for (const [field, loader] of Object.entries(LOADERS) as Array<
@@ -135,7 +143,7 @@ export function useLakehouseSnapshot() {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [])
+  }, [demo])
 
-  return { refresh, snapshot }
+  return { refresh, snapshot: demo ?? snapshot }
 }
