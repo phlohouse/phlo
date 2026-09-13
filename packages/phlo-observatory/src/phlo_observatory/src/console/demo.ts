@@ -160,7 +160,7 @@ export function synthesizeSnapshot(count: number): Snapshot {
     datasetPipelines.push({
       actions: [],
       dataset: datasets[datasets.length - 1],
-      freshness_at: new Date(Date.now() - rand() * 36e5).toISOString(),
+      freshness_at: new Date(Date.now() - rand() * 20 * 36e5).toISOString(),
       freshness_state: readiness,
       last_run: null,
       stages: [],
@@ -199,10 +199,20 @@ export function synthesizeSnapshot(count: number): Snapshot {
   const operations: Array<ObservatoryOperation> = []
   const opCount = Math.min(120, Math.max(20, Math.round(count / 8)))
   const flight = Math.max(1, Math.round(count / 400))
+  // Ops land on dataset-producing assets more often than not — the
+  // waterline should read as flow into the lake, not platform noise.
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]))
+  const lakeAssetIds = datasets.map((d) => d.source_refs[0]?.id).filter(Boolean)
   for (let i = 0; i < opCount; i += 1) {
-    const asset = assets[Math.floor(rand() * assets.length)]
+    const asset =
+      lakeAssetIds.length > 0 && rand() < 0.7
+        ? (assetById.get(
+            lakeAssetIds[Math.floor(rand() * lakeAssetIds.length)],
+          ) ?? assets[0])
+        : assets[Math.floor(rand() * assets.length)]
     const status = i < 3 ? 'running' : rand() < 0.1 ? 'failed' : 'succeeded'
-    const started = new Date(Date.now() - rand() * 4 * 36e5)
+    const isPublish = status === 'succeeded' && rand() < 0.08
+    const started = new Date(Date.now() - rand() * 22 * 36e5)
     const scope =
       i < flight * 3
         ? `pipeline-run-${Math.floor(i / 3)}`
@@ -211,7 +221,11 @@ export function synthesizeSnapshot(count: number): Snapshot {
           : undefined
     operations.push({
       id: `op_${i}`,
-      name: status === 'failed' ? 'WAP lifecycle' : 'materialize',
+      name: isPublish
+        ? 'publish dataset'
+        : status === 'failed'
+          ? 'WAP lifecycle'
+          : 'materialize',
       completed_at:
         status === 'running'
           ? null
@@ -220,7 +234,7 @@ export function synthesizeSnapshot(count: number): Snapshot {
       health: {
         state: status === 'failed' ? 'error' : 'ok',
       },
-      kind: 'materialize',
+      kind: isPublish ? 'dataset.publish' : 'materialize',
       metadata: scope ? { scope } : {},
       started_at: started.toISOString(),
       status,

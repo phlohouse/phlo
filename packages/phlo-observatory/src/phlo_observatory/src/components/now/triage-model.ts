@@ -6,15 +6,17 @@
  * that owns it.
  */
 import type {
+  ObservatoryDataset,
   ObservatoryDatasetPipeline,
   ObservatoryLogEvent,
   ObservatoryOperation,
+  ObservatoryPublishingReadinessItem,
   ObservatoryQualityCheck,
   ObservatoryService,
 } from '@/observatory/api/types'
 import type { StatusState } from '@/components/observatory/status'
 
-export type TriageKind = 'run' | 'check' | 'dataset' | 'service'
+export type TriageKind = 'run' | 'check' | 'dataset' | 'service' | 'publish'
 
 export interface TriageItem {
   id: string
@@ -170,6 +172,65 @@ function datasetItem(pipeline: ObservatoryDatasetPipeline): TriageItem | null {
   }
 }
 
+/**
+ * Publish-readiness verdicts as rail items: the dataset someone must
+ * publish, fix, or supply evidence for. The transition itself lives in
+ * the inspector; the rail is where it surfaces.
+ */
+function publishItem(
+  item: ObservatoryPublishingReadinessItem,
+  dataset?: ObservatoryDataset,
+): TriageItem | null {
+  const { publishing } = item
+  const publishable = publishing.actions.some(
+    (action) => action.id === 'publish' && action.enabled,
+  )
+  const blocked = publishing.state === 'error' || publishing.blockers.length > 0
+  const warned =
+    publishing.state === 'warning' || publishing.warnings.length > 0
+  const needsEvidence =
+    publishing.missing_evidence.length > 0 || publishing.state === 'unknown'
+  if (!blocked && !publishable && !warned && !needsEvidence) return null
+
+  const name = dataset?.name ?? item.dataset_id
+  const first =
+    publishing.blockers[0] ??
+    publishing.warnings[0] ??
+    publishing.missing_evidence[0] ??
+    `Policy ${publishing.policy_name} passed.`
+  return {
+    id: `publish:${item.dataset_id}`,
+    kind: 'publish',
+    title: name,
+    state: blocked
+      ? 'error'
+      : publishable
+        ? 'info'
+        : warned
+          ? 'warning'
+          : 'unknown',
+    score: blocked ? 55 : publishable ? 35 : warned ? 28 : 15,
+    reason: blocked
+      ? `Blocked — ${first}`
+      : publishable
+        ? 'Ready to publish.'
+        : needsEvidence
+          ? `Needs evidence — ${first}`
+          : first,
+    meta: [
+      dataset?.publication_state,
+      dataset?.owner ? `owner: ${dataset.owner}` : null,
+      `policy: ${publishing.policy_name}`,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+    href: `/datasets/${encodeURIComponent(item.dataset_id)}`,
+    at: '',
+    datasetId: item.dataset_id,
+    focus: `dataset:${item.dataset_id}`,
+  }
+}
+
 function serviceItem(service: ObservatoryService): TriageItem | null {
   const configured =
     typeof service.in_stack === 'boolean'
@@ -204,14 +265,22 @@ export function buildTriageQueue({
   pipelines,
   services,
   logs,
+  publishing = [],
+  datasets = [],
 }: {
   operations: Array<ObservatoryOperation>
   quality: Array<ObservatoryQualityCheck>
   pipelines: Array<ObservatoryDatasetPipeline>
   services: Array<ObservatoryService>
   logs: Array<ObservatoryLogEvent>
+  publishing?: Array<ObservatoryPublishingReadinessItem>
+  datasets?: Array<ObservatoryDataset>
 }): Array<TriageItem> {
+  const datasetById = new Map(datasets.map((dataset) => [dataset.id, dataset]))
   const items: Array<TriageItem> = [
+    ...publishing
+      .map((item) => publishItem(item, datasetById.get(item.dataset_id)))
+      .filter((item): item is TriageItem => item !== null),
     ...operations
       .filter((operation) => operation.status === 'failed')
       .map(operationItem),

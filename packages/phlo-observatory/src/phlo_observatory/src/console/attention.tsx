@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 const KIND_LABEL: Record<TriageItem['kind'], string> = {
   check: 'check',
   dataset: 'data',
+  publish: 'pub',
   run: 'run',
   service: 'svc',
 }
