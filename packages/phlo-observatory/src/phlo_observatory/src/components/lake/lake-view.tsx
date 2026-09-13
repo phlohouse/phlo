@@ -30,7 +30,7 @@ function pubStyle(publication: string): string {
   }
 }
 
-function InboundCard({
+export function InboundCard({
   inbound,
   onFocus,
 }: {
@@ -39,7 +39,7 @@ function InboundCard({
 }) {
   return (
     <button
-      className="border-blue/40 bg-panel hover:bg-hover flex w-56 flex-none flex-col gap-1 rounded-lg border px-3 py-2 text-left shadow-lg transition-colors"
+      className="border-blue/40 bg-panel hover:bg-hover flex w-56 flex-none flex-col gap-1 rounded-lg border px-3 py-2 text-left shadow-sm transition-colors"
       onClick={() => onFocus(inbound.focusTarget)}
       title={inbound.targets.join(', ')}
       type="button"
@@ -128,9 +128,11 @@ function DatasetCell({
 export function LakeView({
   model,
   onFocus,
+  showInbound = true,
 }: {
   model: LakeModel
   onFocus: (target: string) => void
+  showInbound?: boolean
 }) {
   if (model.total === 0) {
     return (
@@ -145,8 +147,8 @@ export function LakeView({
   }
 
   return (
-    <div className="flex h-full min-h-[32rem] flex-col overflow-hidden">
-      {model.inbound.length > 0 && (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {showInbound && model.inbound.length > 0 && (
         <div className="border-rule flex-none border-b">
           <div className="text-ink-faint flex items-center gap-2 px-3 pt-2 text-[9px] font-semibold uppercase tracking-widest">
             <ArrowDownToLine className="size-3" />

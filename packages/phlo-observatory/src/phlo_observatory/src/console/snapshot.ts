@@ -15,6 +15,7 @@ import type {
   ObservatoryLogEvent,
   ObservatoryOperation,
   ObservatoryOverview,
+  ObservatoryPublishingReadinessItem,
   ObservatoryQualityCheck,
   ObservatoryResourceResult,
   ObservatoryService,
@@ -27,6 +28,7 @@ import {
   getObservatoryOperationRecords,
   getObservatoryOverview,
   getObservatoryPipelineRecords,
+  getObservatoryPublishingReadinessDirect,
   getObservatoryQualityRecords,
   getObservatoryServices,
   getObservatoryTableRecords,
@@ -40,6 +42,9 @@ export interface Snapshot {
   operations: ObservatoryResourceResult<Array<ObservatoryOperation>>
   overview: ObservatoryResourceResult<ObservatoryOverview>
   pipelines: ObservatoryResourceResult<Array<ObservatoryDatasetPipeline>>
+  publishing: ObservatoryResourceResult<
+    Array<ObservatoryPublishingReadinessItem>
+  >
   quality: ObservatoryResourceResult<Array<ObservatoryQualityCheck>>
   services: ObservatoryResourceResult<Array<ObservatoryService>>
   tables: ObservatoryResourceResult<Array<ObservatoryTable>>
@@ -58,6 +63,7 @@ const LOADERS: Record<
   operations: getObservatoryOperationRecords,
   overview: getObservatoryOverview,
   pipelines: getObservatoryPipelineRecords,
+  publishing: getObservatoryPublishingReadinessDirect,
   quality: getObservatoryQualityRecords,
   services: getObservatoryServices,
   tables: getObservatoryTableRecords,
@@ -70,6 +76,7 @@ const STALE_MS: Record<Field, number> = {
   operations: 15_000,
   overview: 30_000,
   pipelines: 60_000,
+  publishing: 60_000,
   quality: 60_000,
   services: 60_000,
   tables: 60_000,
@@ -88,6 +95,7 @@ export function useLakehouseSnapshot(demoCount?: number | null) {
       operations: { data: null, error: null },
       overview: { data: null, error: null },
       pipelines: { data: null, error: null },
+      publishing: { data: null, error: null },
       quality: { data: null, error: null },
       services: { data: null, error: null },
       tables: { data: null, error: null },
