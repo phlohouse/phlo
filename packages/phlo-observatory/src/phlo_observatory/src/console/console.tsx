@@ -29,18 +29,26 @@ import { ExtensionSlot } from '@/extensions/registry'
 import { cn } from '@/lib/utils'
 
 export function Console({
+  demoCount,
+  expanded,
   focus,
   streamOpen,
+  onExpand,
   onFocus,
   onStreamOpen,
 }: {
+  demoCount?: number | null
+  expanded: string | null
   focus: FocusRef | null
   streamOpen: boolean
+  onExpand: (clusterId: string | null) => void
   onFocus: (focus: FocusRef | null) => void
   onStreamOpen: (open: boolean) => void
 }) {
-  const { refresh, snapshot } = useLakehouseSnapshot()
+  const { refresh, snapshot } = useLakehouseSnapshot(demoCount)
   const palette = usePalette()
+
+  const focusAssetId = focus?.kind === 'asset' ? focus.id : null
 
   const map = useMemo(
     () =>
@@ -49,12 +57,16 @@ export function Console({
         datasets: snapshot.datasets.data ?? [],
         quality: snapshot.quality.data ?? [],
         operations: snapshot.operations.data ?? [],
+        expanded,
+        focusId: focusAssetId,
       }),
     [
       snapshot.assets.data,
       snapshot.datasets.data,
       snapshot.quality.data,
       snapshot.operations.data,
+      expanded,
+      focusAssetId,
     ],
   )
 
@@ -172,9 +184,12 @@ export function Console({
             </div>
           ) : (
             <LakehouseMap
+              expandedLabel={map.expandedUnit?.label ?? null}
               model={map}
+              onCollapse={() => onExpand(null)}
+              onExpand={onExpand}
               onSelect={(id) => onFocus(id ? { kind: 'asset', id } : null)}
-              selectedId={focus?.kind === 'asset' ? focus.id : null}
+              selectedId={focusAssetId}
             />
           )}
 
