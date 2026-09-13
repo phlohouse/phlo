@@ -10,6 +10,7 @@ import type {
   ObservatoryDatasetPipeline,
   ObservatoryLogEvent,
   ObservatoryOperation,
+  ObservatoryPublishingReadinessItem,
   ObservatoryQualityCheck,
   ObservatoryService,
   ObservatoryTable,
@@ -147,7 +148,7 @@ export function synthesizeSnapshot(count: number): Snapshot {
     datasets.push({
       id: asset.id,
       name: asset.name,
-      candidate: publication === 'draft',
+      candidate: rand() < 0.12,
       classifications: [],
       kinds: asset.kinds,
       metadata: {},
@@ -260,6 +261,72 @@ export function synthesizeSnapshot(count: number): Snapshot {
       timestamp: operation.completed_at,
     }))
 
+  const publishing: Array<ObservatoryPublishingReadinessItem> = datasets
+    .filter((dataset) => !dataset.candidate)
+    .map((dataset) => {
+      const published = dataset.publication_state === 'published'
+      const blockers =
+        dataset.readiness_state === 'error'
+          ? ['freshness gate rejected the last two runs']
+          : []
+      const warnings =
+        dataset.readiness_state === 'warning'
+          ? ['row count drifted 14% over trailing window']
+          : []
+      const missing =
+        !published && blockers.length === 0 && rand() < 0.3
+          ? ['no owner sign-off recorded']
+          : []
+      const state = blockers.length
+        ? 'error'
+        : warnings.length
+          ? 'warning'
+          : missing.length
+            ? 'unknown'
+            : 'ok'
+      const publishable =
+        !published &&
+        (state === 'ok' || state === 'warning') &&
+        missing.length === 0 &&
+        rand() < 0.8
+      return {
+        dataset_id: dataset.id,
+        publishing: {
+          actions: [
+            {
+              consequences: [
+                'Sets the Dataset publication state to published.',
+              ],
+              enabled: publishable,
+              id: 'publish',
+              label: 'Publish internally',
+              reason: publishable
+                ? null
+                : published
+                  ? 'This Dataset is already published.'
+                  : 'Readiness policy has blockers.',
+            },
+            {
+              consequences: ['Sets the Dataset publication state to retired.'],
+              enabled: published,
+              id: 'retire',
+              label: 'Retire',
+              reason: published
+                ? null
+                : 'Only published Datasets can be retired.',
+            },
+          ],
+          blockers,
+          internal_only: true,
+          missing_evidence: missing,
+          policy_name: 'default',
+          state:
+            state as ObservatoryPublishingReadinessItem['publishing']['state'],
+          warnings,
+        },
+      }
+    })
+
   const failed = operations.filter((o) => o.status === 'failed').length
   const failingChecks = quality.filter((c) => c.status === 'failing').length
 
@@ -280,6 +347,7 @@ export function synthesizeSnapshot(count: number): Snapshot {
       recent: [],
     }),
     pipelines: ok(datasetPipelines),
+    publishing: ok(publishing),
     quality: ok(quality),
     services: ok(services),
     tables: ok(tables),

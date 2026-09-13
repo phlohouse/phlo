@@ -4,81 +4,81 @@
 @import '@fontsource-variable/jetbrains-mono';
 
 /*
- * Observatory — dark mission surface.
+ * Observatory — light mission surface, Sheetbase register.
  *
- * Near-black canvas, elevated panels, rounded controls, status dots and
- * tinted row bands. One accent blue; state colors are the only other hue.
- * Sans for labels, mono for data. Structure is the continuous report —
- * bands, rules, a two-level contents index — rendered in product chrome.
+ * Pale gray app ground, white panels, one purple accent, compact framed
+ * shell. State colors carry meaning; everything else is quiet. Sans for
+ * labels, mono for data. Structure is the operations board — decision
+ * rows, in-flight work, and the lake beneath — rendered in product chrome.
  */
 :root {
   /* Surfaces */
-  --canvas: #0d0d11;
-  --panel: #141419;
-  --raised: #1b1b22;
-  --hover: #22222b;
-  --selected: #26262f;
+  --canvas: #ececef;
+  --panel: #ffffff;
+  --raised: #fafafa;
+  --hover: #f4f4f6;
+  --selected: #eee9ff;
 
   /* Text ramp */
-  --ink: #f2f2f5;
-  --ink-soft: #a3a3ad;
-  --ink-faint: #62626c;
+  --ink: #242424;
+  --ink-soft: #737373;
+  --ink-faint: #9a9a9a;
 
   /* Rules */
-  --rule: rgba(255, 255, 255, 0.09);
-  --rule-soft: rgba(255, 255, 255, 0.055);
+  --rule: #e2e2e2;
+  --rule-soft: #eeeeef;
 
   /* Accent + states */
-  --blue: #4f8ef7;
-  --blue-soft: rgba(79, 142, 247, 0.16);
-  --ok: #4ade80;
-  --amber: #f5b83d;
-  --print-red: #f87171;
-  --info: #60a5fa;
-  --violet: #a78bfa;
-  --link: #6ea8fe;
+  --blue: #7652ef;
+  --blue-soft: #f7f5ff;
+  --ok: #07956a;
+  --amber: #c95814;
+  --print-red: #c43d3d;
+  --info: #286dcc;
+  --violet: #9541b7;
+  --link: #4f38c6;
 
   /* Row bands: state carried as a low-alpha tint on the panel. */
-  --band: #17171d;
-  --band-strong: #1f1f28;
-  --band-warn: rgba(245, 184, 61, 0.08);
-  --band-danger: rgba(248, 113, 113, 0.09);
-  --band-info: rgba(96, 165, 250, 0.09);
-  --band-ok: rgba(74, 222, 128, 0.07);
+  --band: #fafafa;
+  --band-strong: #f4f4f6;
+  --band-warn: #fdf3ec;
+  --band-danger: #fdeeee;
+  --band-info: #edf4fc;
+  --band-ok: #e7f7f0;
 
   /* shadcn token map */
   --background: var(--canvas);
   --foreground: var(--ink);
   --card: var(--panel);
   --card-foreground: var(--ink);
-  --popover: var(--raised);
+  --popover: var(--panel);
   --popover-foreground: var(--ink);
   --primary: var(--blue);
   --primary-foreground: #ffffff;
   --secondary: var(--hover);
   --secondary-foreground: var(--ink);
-  --muted: var(--panel);
+  --muted: var(--raised);
   --muted-foreground: var(--ink-soft);
   --accent: var(--selected);
   --accent-foreground: var(--ink);
   --destructive: var(--print-red);
   --destructive-foreground: #ffffff;
   --border: var(--rule);
-  --input: rgba(255, 255, 255, 0.14);
+  --input: #d3d3d3;
   --ring: var(--blue);
-  --radius: 0.625rem;
+  --radius: 0.5625rem;
 
   /* Status ramp */
   --status-ok: var(--ok);
-  --status-ok-foreground: var(--canvas);
+  --status-ok-foreground: #ffffff;
   --status-warning: var(--amber);
-  --status-warning-foreground: var(--canvas);
+  --status-warning-foreground: #ffffff;
   --status-error: var(--print-red);
-  --status-error-foreground: var(--canvas);
+  --status-error-foreground: #ffffff;
   --status-info: var(--info);
-  --status-info-foreground: var(--canvas);
+  --status-info-foreground: #ffffff;
   --status-unknown: var(--ink-faint);
-  --status-unknown-foreground: var(--canvas);
+  --status-unknown-foreground: #ffffff;
 
   --status-band-ok: var(--band-ok);
   --status-band-warning: var(--band-warn);
@@ -90,7 +90,7 @@
   --surface-sunken: var(--canvas);
   --surface-overlay: var(--raised);
 
-  --sidebar: var(--panel);
+  --sidebar: var(--raised);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--blue);
   --sidebar-primary-foreground: #ffffff;
@@ -107,8 +107,8 @@
   --chart-5: var(--violet);
 
   /* Console: near-black raw-output surface, green phosphor ink. */
-  --console: #090b09;
-  --console-ink: #8fce85;
+  --console: #16161a;
+  --console-ink: #9fdd94;
 
   --table-head-height: 1.75rem;
   --table-cell-px: 0.75rem;
@@ -211,6 +211,14 @@
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
+
+  /* Sheetbase shadows — light lift, not depth. */
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 4%);
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 6%);
+  --shadow-md: 0 4px 14px rgb(0 0 0 / 7%);
+  --shadow-lg: 0 12px 35px rgb(0 0 0 / 7%);
+  --shadow-xl: 0 16px 45px rgb(0 0 0 / 9%);
+  --shadow-2xl: 0 20px 60px rgb(0 0 0 / 12%);
 }
 
 @layer base {
@@ -234,7 +242,7 @@
     font-family: var(--font-mono);
   }
   ::selection {
-    background: var(--blue-soft);
+    background: var(--selected);
     color: var(--ink);
   }
 }
@@ -299,10 +307,10 @@
     background: var(--hover);
   }
   .band[data-state='warning'].band-hover:hover {
-    background: rgba(245, 184, 61, 0.13);
+    background: #fceade;
   }
   .band[data-state='error'].band-hover:hover {
-    background: rgba(248, 113, 113, 0.14);
+    background: #fce3e3;
   }
   .bands:focus-within > *:not(:focus-within):not([data-selected='true']) {
     opacity: 0.65;
@@ -316,6 +324,22 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--ink-soft);
+  }
+
+  /* Sheetbase section heading — accent-soft band, uppercase, compact. */
+  .panel-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 1.625rem;
+    padding: 0 0.625rem;
+    background: var(--blue-soft);
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--link);
   }
 
   /* Selected pill (nav). */
@@ -361,7 +385,7 @@
   .dotgrid {
     background-image: radial-gradient(
       circle,
-      rgba(255, 255, 255, 0.07) 1px,
+      rgba(0, 0, 0, 0.08) 1px,
       transparent 1px
     );
     background-size: 22px 22px;
