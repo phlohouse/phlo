@@ -7,9 +7,16 @@
  * failures print red; a freshness tick marks when data last landed. The
  * shape of the last 24h — bursts, stalls, gaps — is the thing a list of
  * objects can never show.
+ *
+ * At scale the lanes aggregate: when more datasets are active than a
+ * screen can hold, each lane becomes a lake layer carrying every member
+ * dataset's ops as an overlaid density strip — you read concentration
+ * and failures, not individuals. Expanding a layer (or focusing a
+ * dataset inside it) fans that lane back out into member lanes.
  */
 
 import type {
+  ObservatoryAsset,
   ObservatoryDataset,
   ObservatoryDatasetPipeline,
   ObservatoryOperation,
@@ -36,8 +43,11 @@ export interface WaterlineBar {
 export interface WaterlineLane {
   id: string
   label: string
-  /** 'dataset' lanes carry the landed tick; 'run' lanes are WAP branches. */
-  kind: 'dataset' | 'run'
+  /**
+   * 'dataset' lanes carry the landed tick; 'run' lanes are WAP branches;
+   * 'group' lanes are lake layers aggregating many datasets at scale.
+   */
+  kind: 'dataset' | 'run' | 'group'
   focusTarget: string
   bars: Array<WaterlineBar>
   state: StatusState
@@ -45,6 +55,15 @@ export interface WaterlineLane {
   lastActivity: number
   /** Fraction of the window where the landed tick sits, when present. */
   landedAtFrac?: number
+  /** Group lanes only: the layer key and how many datasets folded in. */
+  group?: string
+  memberCount?: number
+  /** True when this group lane is expanded — member lanes follow it. */
+  expanded?: boolean
+  /** Members hidden beyond the member cap on an expanded group lane. */
+  hiddenMembers?: number
+  /** True on dataset lanes emitted under an expanded group header. */
+  member?: boolean
 }
 
 export interface WaterlineModel {
@@ -59,6 +78,10 @@ export interface WaterlineModel {
 
 const WINDOW_MS = 24 * 3_600_000
 const LANE_CAP = 28
+/** More active dataset lanes than this fold into layer lanes. */
+const GROUP_AT = 12
+/** Member lanes shown under an expanded group header. */
+const MEMBER_CAP = 24
 const MIN_WIDTH = 0.004
 
 function frac(at: number, start: number, end: number): number {
@@ -116,12 +139,19 @@ function runLabel(raw: string): string {
 }
 
 export function buildWaterlineModel({
+  assets,
   datasets,
+  expanded,
+  focus,
   operations,
   pipelines,
   now = Date.now(),
 }: {
+  assets: Array<ObservatoryAsset>
   datasets: Array<ObservatoryDataset>
+  /** Layer key expanded into member dataset lanes (`grp:<group>`). */
+  expanded?: string | null
+  focus?: { kind: string; id: string } | null
   operations: Array<ObservatoryOperation>
   pipelines: Array<ObservatoryDatasetPipeline>
   now?: number
@@ -136,6 +166,13 @@ export function buildWaterlineModel({
     for (const ref of dataset.source_refs) {
       datasetByAsset.set(ref.id, dataset)
     }
+  }
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]))
+  const groupOfDataset = (dataset: ObservatoryDataset): string => {
+    const source = dataset.source_refs
+      .map((ref) => assetById.get(ref.id))
+      .find(Boolean)
+    return source?.group ?? 'datasets'
   }
   const datasetById = new Map(datasets.map((d) => [d.id, d]))
   const landedByDataset = new Map(
@@ -207,39 +244,125 @@ export function buildWaterlineModel({
     }
   }
 
-  const lanes: Array<WaterlineLane> = [...laneSeeds.entries()]
-    .map(([key, seed]) => {
-      const bars = seed.bars.sort((a, b) => a.left - b.left)
-      const datasetId = seed.kind === 'dataset' ? key.slice(8) : null
-      const landedAt = datasetId ? landedByDataset.get(datasetId) : null
-      const landedMs = landedAt ? new Date(landedAt).getTime() : null
-      return {
-        bars,
-        focusTarget: seed.focusTarget,
-        id: key,
-        kind: seed.kind,
-        label: seed.label,
-        landedAtFrac:
-          landedMs && landedMs >= windowStart
-            ? frac(landedMs, windowStart, windowEnd)
-            : undefined,
-        lastActivity: Math.max(
-          ...bars.map((bar) =>
-            new Date(bar.endedAt ?? bar.startedAt).getTime(),
-          ),
-          landedMs ?? 0,
-        ),
-        state: laneState(bars),
-      }
-    })
-    .sort(
+  // Scale pass: too many dataset lanes fold into one lane per lake
+  // layer. The expanded layer — from `?in=grp:` or from focusing a
+  // dataset — fans back out into member lanes.
+  const datasetSeeds = [...laneSeeds.values()].filter(
+    (seed) => seed.kind === 'dataset',
+  )
+  const expandedGroups = new Set<string>()
+  if (expanded) expandedGroups.add(expanded)
+  const focusedDataset =
+    focus?.kind === 'dataset'
+      ? datasetById.get(focus.id)
+      : focus?.kind === 'asset'
+        ? datasetByAsset.get(focus.id)
+        : undefined
+  if (focusedDataset) expandedGroups.add(groupOfDataset(focusedDataset))
+
+  const toLane = (key: string, seed: LaneSeed): WaterlineLane => {
+    const bars = seed.bars.sort((a, b) => a.left - b.left)
+    const datasetId = seed.kind === 'dataset' ? key.slice(8) : null
+    const landedAt = datasetId ? landedByDataset.get(datasetId) : null
+    const landedMs = landedAt ? new Date(landedAt).getTime() : null
+    return {
+      bars,
+      focusTarget: seed.focusTarget,
+      id: key,
+      kind: seed.kind,
+      label: seed.label,
+      landedAtFrac:
+        landedMs && landedMs >= windowStart
+          ? frac(landedMs, windowStart, windowEnd)
+          : undefined,
+      lastActivity: Math.max(
+        ...bars.map((bar) => new Date(bar.endedAt ?? bar.startedAt).getTime()),
+        landedMs ?? 0,
+      ),
+      state: laneState(bars),
+    }
+  }
+
+  const grouping = datasetSeeds.length > GROUP_AT
+  const grouped = new Map<
+    string,
+    {
+      bars: Array<WaterlineBar>
+      landedMs: number
+      memberLanes: Array<WaterlineLane>
+    }
+  >()
+  const topLanes: Array<WaterlineLane> = []
+  for (const [key, seed] of laneSeeds) {
+    if (seed.kind !== 'dataset' || !grouping) {
+      topLanes.push(toLane(key, seed))
+      continue
+    }
+    const dataset = datasetById.get(key.slice(8))
+    const group = dataset ? groupOfDataset(dataset) : 'datasets'
+    const entry = grouped.get(group) ?? {
+      bars: [],
+      landedMs: 0,
+      memberLanes: [],
+    }
+    entry.bars.push(...seed.bars)
+    const landedAt = landedByDataset.get(key.slice(8))
+    if (landedAt) {
+      entry.landedMs = Math.max(entry.landedMs, new Date(landedAt).getTime())
+    }
+    entry.memberLanes.push({ ...toLane(key, seed), member: true })
+    grouped.set(group, entry)
+  }
+  for (const [group, entry] of grouped) {
+    const bars = entry.bars.sort((a, b) => a.left - b.left)
+    entry.memberLanes.sort(
       (a, b) =>
         b.lastActivity - a.lastActivity || a.label.localeCompare(b.label),
     )
+    const expanded = expandedGroups.has(group)
+    topLanes.push({
+      bars,
+      expanded,
+      focusTarget: `group:${group}`,
+      group,
+      hiddenMembers: expanded
+        ? Math.max(0, entry.memberLanes.length - MEMBER_CAP)
+        : 0,
+      id: `group:${group}`,
+      kind: 'group',
+      label: group.replace(/[-_]+/g, ' '),
+      landedAtFrac:
+        entry.landedMs >= windowStart
+          ? frac(entry.landedMs, windowStart, windowEnd)
+          : undefined,
+      lastActivity: Math.max(
+        ...bars.map((bar) => new Date(bar.endedAt ?? bar.startedAt).getTime()),
+        entry.landedMs,
+      ),
+      memberCount: entry.memberLanes.length,
+      state: laneState(bars),
+    })
+    entry.memberLanes = expanded ? entry.memberLanes.slice(0, MEMBER_CAP) : []
+    grouped.set(group, entry)
+  }
+
+  topLanes.sort(
+    (a, b) => b.lastActivity - a.lastActivity || a.label.localeCompare(b.label),
+  )
+
+  // Expanded groups keep their header lane and drop member lanes in
+  // directly beneath it — the header stays as the collapse affordance.
+  const lanes: Array<WaterlineLane> = []
+  for (const lane of topLanes.slice(0, LANE_CAP)) {
+    lanes.push(lane)
+    if (lane.kind === 'group' && lane.expanded && lane.group) {
+      lanes.push(...(grouped.get(lane.group)?.memberLanes ?? []))
+    }
+  }
 
   return {
-    laneOverflow: Math.max(0, lanes.length - LANE_CAP),
-    lanes: lanes.slice(0, LANE_CAP),
+    laneOverflow: Math.max(0, topLanes.length - LANE_CAP),
+    lanes,
     platformBars,
     windowEnd,
     windowStart,

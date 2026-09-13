@@ -7,17 +7,20 @@
  * lanes with no current work. Read the shape: bursts, stalls, gaps.
  */
 
-import { Waves } from 'lucide-react'
+import { ChevronDown, ChevronRight, Waves } from 'lucide-react'
 
-import type { WaterlineBar, WaterlineModel } from './waterline-model'
-import type { StatusState } from '@/components/observatory/status'
+import type {
+  WaterlineBar,
+  WaterlineLane,
+  WaterlineModel,
+} from './waterline-model'
 import { HealthDot } from '@/components/observatory/status'
 import { formatRelativeTime } from '@/components/observatory/time'
 import { cn } from '@/lib/utils'
 
 const TICKS = ['-24h', '-16h', '-8h', 'now']
 
-function barClass(bar: WaterlineBar): string {
+function barClass(bar: WaterlineBar, quiet: boolean): string {
   if (bar.publish) return 'bg-link w-[3px] rounded-sm'
   switch (bar.status) {
     case 'running':
@@ -27,8 +30,19 @@ function barClass(bar: WaterlineBar): string {
     case 'queued':
       return 'border border-ink-faint bg-transparent rounded-[3px]'
     default:
-      return 'bg-ink-faint/60 rounded-[3px] hover:bg-ink-soft'
+      return cn(
+        'rounded-[3px] hover:bg-ink-soft',
+        quiet ? 'bg-ink-faint/35' : 'bg-ink-faint/60',
+      )
   }
+}
+
+/** Paint order on a group lane: quiet first, failures always on top. */
+function paintRank(bar: WaterlineBar): number {
+  if (bar.status === 'failed') return 3
+  if (bar.status === 'running' || bar.status === 'queued') return 2
+  if (bar.publish) return 1
+  return 0
 }
 
 function barTitle(bar: WaterlineBar): string {
@@ -42,43 +56,71 @@ function barTitle(bar: WaterlineBar): string {
 }
 
 function Lane({
-  bars,
-  focusTarget,
-  label,
-  landedAtFrac,
+  lane,
   onFocus,
-  state,
+  onToggleGroup,
 }: {
-  bars: Array<WaterlineBar>
-  focusTarget: string
-  label: string
-  landedAtFrac?: number
+  lane: WaterlineLane
   onFocus: (target: string) => void
-  state: StatusState
+  onToggleGroup?: (group: string | null) => void
 }) {
+  const isGroup = lane.kind === 'group'
+  const bars = isGroup
+    ? [...lane.bars].sort((a, b) => paintRank(a) - paintRank(b))
+    : lane.bars
   return (
-    <div className="border-rule-soft group flex h-7 items-stretch border-b last:border-b-0">
+    <div
+      className={cn(
+        'border-rule-soft group flex h-7 items-stretch border-b last:border-b-0',
+        lane.expanded && 'bg-accent-soft/40',
+      )}
+    >
       <button
         className="group-hover:bg-hover flex w-44 flex-none items-center gap-1.5 px-2.5 text-left"
-        onClick={() => onFocus(focusTarget)}
+        onClick={() =>
+          isGroup && lane.group
+            ? onToggleGroup?.(lane.expanded ? null : lane.group)
+            : onFocus(lane.focusTarget)
+        }
         type="button"
       >
-        <HealthDot className="status-dot-sm" state={state} />
-        <span className="text-ink min-w-0 flex-1 truncate text-[11px] font-medium">
-          {label}
+        {isGroup ? (
+          lane.expanded ? (
+            <ChevronDown className="text-link size-3 flex-none" />
+          ) : (
+            <ChevronRight className="text-ink-faint size-3 flex-none" />
+          )
+        ) : (
+          <HealthDot className="status-dot-sm" state={lane.state} />
+        )}
+        <span
+          className={cn(
+            'min-w-0 flex-1 truncate text-[11px] font-medium',
+            isGroup && 'uppercase tracking-wide',
+            lane.member && 'pl-3 font-normal',
+            lane.expanded ? 'text-link' : 'text-ink',
+          )}
+        >
+          {lane.label}
         </span>
+        {isGroup && (
+          <span className="text-ink-faint flex-none font-mono text-[9px]">
+            {lane.memberCount}
+            {lane.hiddenMembers ? ` (+${lane.hiddenMembers})` : ''}
+          </span>
+        )}
       </button>
       <div className="group-hover:bg-hover/60 relative min-w-0 flex-1">
-        {landedAtFrac !== undefined && (
+        {lane.landedAtFrac !== undefined && (
           <div
             className="bg-ok absolute top-1.5 bottom-1.5 w-px"
-            style={{ left: `${landedAtFrac * 100}%` }}
+            style={{ left: `${lane.landedAtFrac * 100}%` }}
             title="Last landed"
           />
         )}
         {bars.map((bar) => (
           <button
-            className={cn('absolute top-2 h-3', barClass(bar))}
+            className={cn('absolute top-2 h-3', barClass(bar, isGroup))}
             key={bar.id}
             onClick={() => onFocus(bar.focusTarget)}
             style={{
@@ -97,9 +139,11 @@ function Lane({
 export function WaterlineView({
   model,
   onFocus,
+  onToggleGroup,
 }: {
   model: WaterlineModel
   onFocus: (target: string) => void
+  onToggleGroup?: (group: string | null) => void
 }) {
   const nowFrac =
     (Date.now() - model.windowStart) / (model.windowEnd - model.windowStart)
@@ -160,22 +204,24 @@ export function WaterlineView({
           <>
             {model.lanes.map((lane) => (
               <Lane
-                bars={lane.bars}
-                focusTarget={lane.focusTarget}
                 key={lane.id}
-                label={lane.label}
-                landedAtFrac={lane.landedAtFrac}
+                lane={lane}
                 onFocus={onFocus}
-                state={lane.state}
+                onToggleGroup={onToggleGroup}
               />
             ))}
             {model.platformBars.length > 0 && (
               <Lane
-                bars={model.platformBars}
-                focusTarget=""
-                label="platform"
+                lane={{
+                  bars: model.platformBars,
+                  focusTarget: '',
+                  id: 'platform',
+                  kind: 'run',
+                  label: 'platform',
+                  lastActivity: 0,
+                  state: 'unknown',
+                }}
                 onFocus={onFocus}
-                state="unknown"
               />
             )}
           </>

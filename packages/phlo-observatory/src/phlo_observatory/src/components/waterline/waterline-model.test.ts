@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import { buildWaterlineModel } from './waterline-model'
 import type {
+  ObservatoryAsset,
   ObservatoryDataset,
   ObservatoryDatasetPipeline,
   ObservatoryOperation,
@@ -14,6 +15,33 @@ import type {
 
 const NOW = new Date('2026-09-13T12:00:00Z').getTime()
 const H = 3_600_000
+
+function asset(id: string, group = 'transform'): ObservatoryAsset {
+  return {
+    checks: [],
+    dependencies: [],
+    group,
+    id,
+    kinds: [],
+    metadata: {},
+    name: id,
+    resources: [],
+  }
+}
+
+function landed(
+  dataset: ObservatoryDataset,
+  agoH: number,
+): ObservatoryDatasetPipeline {
+  return {
+    actions: [],
+    dataset,
+    freshness_at: new Date(NOW - agoH * H).toISOString(),
+    freshness_state: 'ok',
+    last_run: null,
+    stages: [],
+  }
+}
 
 function dataset(id: string, assetId = `asset_${id}`): ObservatoryDataset {
   return {
@@ -56,12 +84,16 @@ function op(
 }
 
 function model(input: {
+  assets?: Array<ObservatoryAsset>
   datasets: Array<ObservatoryDataset>
+  expanded?: string | null
+  focus?: { kind: string; id: string } | null
   operations: Array<ObservatoryOperation>
   pipelines?: Array<ObservatoryDatasetPipeline>
 }) {
   return buildWaterlineModel({
     ...input,
+    assets: input.assets ?? [],
     pipelines: input.pipelines ?? [],
     now: NOW,
   })
@@ -156,5 +188,79 @@ describe('buildWaterlineModel', () => {
       ],
     })
     expect(m.lanes[0].state).toBe('error')
+  })
+
+  it('folds dataset lanes into layer lanes beyond the group threshold', () => {
+    const datasets = Array.from({ length: 20 }, (_, i) => dataset(`d${i}`))
+    const assets = datasets.map((d) => asset(d.source_refs[0].id, 'staging'))
+    const m = model({
+      assets,
+      datasets,
+      operations: [op('o1', 'asset_d3', 2)],
+      pipelines: datasets.map((d) => landed(d, 5)),
+    })
+    expect(m.lanes).toHaveLength(1)
+    const lane = m.lanes[0]
+    expect(lane.kind).toBe('group')
+    expect(lane.group).toBe('staging')
+    expect(lane.memberCount).toBe(20)
+    expect(lane.bars).toHaveLength(1)
+  })
+
+  it('expands a layer into member lanes under its header', () => {
+    const datasets = Array.from({ length: 20 }, (_, i) => dataset(`d${i}`))
+    const assets = datasets.map((d) =>
+      asset(d.source_refs[0].id, d.id === 'd0' ? 'publish' : 'staging'),
+    )
+    const m = model({
+      assets,
+      datasets,
+      expanded: 'staging',
+      operations: [op('o1', 'asset_d5', 2)],
+      pipelines: datasets.map((d) => landed(d, 5)),
+    })
+    const header = m.lanes.find((l) => l.id === 'group:staging')
+    expect(header?.expanded).toBe(true)
+    const members = m.lanes.filter((l) => l.member)
+    expect(members).toHaveLength(19)
+    // Members sit directly beneath the expanded header.
+    const headerIndex = m.lanes.indexOf(header!)
+    expect(m.lanes[headerIndex + 1].member).toBe(true)
+    // The other layer stays folded.
+    expect(m.lanes.some((l) => l.id === 'group:publish')).toBe(true)
+  })
+
+  it('expands the layer containing the focused dataset', () => {
+    const datasets = Array.from({ length: 20 }, (_, i) => dataset(`d${i}`))
+    const assets = datasets.map((d) => asset(d.source_refs[0].id, 'marts'))
+    const m = model({
+      assets,
+      datasets,
+      focus: { id: 'd7', kind: 'dataset' },
+      operations: [],
+      pipelines: datasets.map((d) => landed(d, 5)),
+    })
+    const header = m.lanes.find((l) => l.id === 'group:marts')
+    expect(header?.expanded).toBe(true)
+    expect(m.lanes.some((l) => l.member && l.id === 'dataset:d7')).toBe(true)
+  })
+
+  it('keeps run lanes individual while datasets group', () => {
+    const datasets = Array.from({ length: 20 }, (_, i) => dataset(`d${i}`))
+    const assets = datasets.map((d) => asset(d.source_refs[0].id, 'staging'))
+    const m = model({
+      assets,
+      datasets,
+      operations: [
+        {
+          ...op('o_run', 'nope', 1),
+          metadata: { scope: 'pipeline-run-3a9cc318ff' },
+          target: { id: 'pipeline-run-3a9cc318ff', kind: 'branch', label: 'x' },
+        },
+      ],
+      pipelines: datasets.map((d) => landed(d, 5)),
+    })
+    expect(m.lanes.some((l) => l.kind === 'run')).toBe(true)
+    expect(m.lanes.some((l) => l.id === 'group:staging')).toBe(true)
   })
 })
