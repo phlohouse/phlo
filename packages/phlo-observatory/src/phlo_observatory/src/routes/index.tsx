@@ -1,8 +1,9 @@
 /**
  * The console route — Observatory's only surface. `?focus=<kind>:<id>`
  * opens the inspector on an object; `?stream=1` opens the stream drawer;
- * `?demo=N` renders a synthetic N-asset lakehouse for scale testing. All
- * shareable links, not pages.
+ * `?in=<layer>` expands a waterline layer into member lanes; `?demo=N`
+ * renders a synthetic N-asset lakehouse for scale testing. All shareable
+ * links, not pages.
  */
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 
@@ -12,6 +13,7 @@ import { parseFocus } from '@/console/store'
 interface ConsoleSearch {
   demo?: number
   focus?: string
+  in?: string
   stream?: boolean
 }
 
@@ -25,6 +27,7 @@ export const Route = createFileRoute('/')({
       typeof search.focus === 'string' && parseFocus(search.focus)
         ? search.focus
         : undefined,
+    in: typeof search.in === 'string' && search.in ? search.in : undefined,
     stream:
       search.stream === true ||
       search.stream === 'true' ||
@@ -35,7 +38,7 @@ export const Route = createFileRoute('/')({
 })
 
 function ConsoleRoute() {
-  const { demo, focus, stream } = Route.useSearch()
+  const { demo, focus, in: expandedGroup, stream } = Route.useSearch()
   const navigate = useNavigate()
 
   const patch = (next: Partial<ConsoleSearch>) =>
@@ -51,11 +54,13 @@ function ConsoleRoute() {
   return (
     <Console
       demoCount={demo ?? null}
+      expandedGroup={expandedGroup ?? null}
       focus={focus ? parseFocus(focus) : null}
       onFocus={(next) =>
         patch({ focus: next ? `${next.kind}:${next.id}` : undefined })
       }
       onStreamOpen={(open) => patch({ stream: open || undefined })}
+      onToggleGroup={(group) => patch({ in: group ?? undefined })}
       streamOpen={stream === true}
     />
   )

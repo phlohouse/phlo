@@ -34,16 +34,21 @@ import { cn } from '@/lib/utils'
 
 export function Console({
   demoCount,
+  expandedGroup,
   focus,
   streamOpen,
   onFocus,
   onStreamOpen,
+  onToggleGroup,
 }: {
   demoCount?: number | null
+  /** Waterline layer expanded into member lanes (`?in=`). */
+  expandedGroup?: string | null
   focus: FocusRef | null
   streamOpen: boolean
   onFocus: (focus: FocusRef | null) => void
   onStreamOpen: (open: boolean) => void
+  onToggleGroup?: (group: string | null) => void
 }) {
   const { refresh, snapshot } = useLakehouseSnapshot(demoCount)
   const palette = usePalette()
@@ -103,11 +108,21 @@ export function Console({
   const waterline = useMemo(
     () =>
       buildWaterlineModel({
+        assets: snapshot.assets.data ?? [],
         datasets: snapshot.datasets.data ?? [],
+        expanded: expandedGroup,
+        focus,
         operations: snapshot.operations.data ?? [],
         pipelines: snapshot.pipelines.data ?? [],
       }),
-    [snapshot.datasets.data, snapshot.operations.data, snapshot.pipelines.data],
+    [
+      expandedGroup,
+      focus,
+      snapshot.assets.data,
+      snapshot.datasets.data,
+      snapshot.operations.data,
+      snapshot.pipelines.data,
+    ],
   )
 
   const focusFromString = (raw: string) => {
@@ -200,7 +215,11 @@ export function Console({
             ) : (
               <div className="bg-canvas flex h-full flex-col gap-2 p-2">
                 <div className="min-h-0 flex-1">
-                  <WaterlineView model={waterline} onFocus={focusFromString} />
+                  <WaterlineView
+                    model={waterline}
+                    onFocus={focusFromString}
+                    onToggleGroup={onToggleGroup}
+                  />
                 </div>
 
                 <section
