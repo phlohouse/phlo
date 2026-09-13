@@ -1,10 +1,10 @@
 /**
  * The deck — Observatory's single surface. One live view of the lakehouse:
- * the graph is the app, and everything else (signals, stream, inspector,
+ * the lake is the app, and everything else (signals, stream, inspector,
  * palette) is a layer over it, not a page.
  *
  *   ┌ top bar: health · stack · palette · refresh ────────────┐
- *   │ signals │            map              │ inspector (over) │
+ *   │ signals │      lake (inbound + datasets)│ inspector(over)│
  *   ├ stream drawer (collapsed = ticker, open = timeline) ────┤
  */
 import { RefreshCw } from 'lucide-react'
@@ -17,8 +17,8 @@ import { useLakehouseSnapshot } from './snapshot'
 import { StreamDrawer } from './stream'
 import { parseFocus } from './store'
 import type { FocusRef } from './store'
-import { buildLakehouseMap } from '@/components/map/map-model'
-import { LakehouseMap } from '@/components/map/lakehouse-map'
+import { buildLakeModel } from '@/components/lake/lake-model'
+import { LakeView } from '@/components/lake/lake-view'
 import { buildTriageQueue } from '@/components/now/triage-model'
 import { buildPulseStream } from '@/components/pulse/pulse-model'
 import { HealthDot } from '@/components/observatory/status'
@@ -30,43 +30,37 @@ import { cn } from '@/lib/utils'
 
 export function Console({
   demoCount,
-  expanded,
   focus,
   streamOpen,
-  onExpand,
   onFocus,
   onStreamOpen,
 }: {
   demoCount?: number | null
-  expanded: string | null
   focus: FocusRef | null
   streamOpen: boolean
-  onExpand: (clusterId: string | null) => void
   onFocus: (focus: FocusRef | null) => void
   onStreamOpen: (open: boolean) => void
 }) {
   const { refresh, snapshot } = useLakehouseSnapshot(demoCount)
   const palette = usePalette()
 
-  const focusAssetId = focus?.kind === 'asset' ? focus.id : null
-
-  const map = useMemo(
+  const lake = useMemo(
     () =>
-      buildLakehouseMap({
+      buildLakeModel({
         assets: snapshot.assets.data ?? [],
         datasets: snapshot.datasets.data ?? [],
-        quality: snapshot.quality.data ?? [],
+        focus,
         operations: snapshot.operations.data ?? [],
-        expanded,
-        focusId: focusAssetId,
+        pipelines: snapshot.pipelines.data ?? [],
+        quality: snapshot.quality.data ?? [],
       }),
     [
+      focus,
       snapshot.assets.data,
       snapshot.datasets.data,
-      snapshot.quality.data,
       snapshot.operations.data,
-      expanded,
-      focusAssetId,
+      snapshot.pipelines.data,
+      snapshot.quality.data,
     ],
   )
 
@@ -183,14 +177,7 @@ export function Console({
               <span className="text-xs">Contacting the lakehouse…</span>
             </div>
           ) : (
-            <LakehouseMap
-              expandedLabel={map.expandedUnit?.label ?? null}
-              model={map}
-              onCollapse={() => onExpand(null)}
-              onExpand={onExpand}
-              onSelect={(id) => onFocus(id ? { kind: 'asset', id } : null)}
-              selectedId={focusAssetId}
-            />
+            <LakeView model={lake} onFocus={focusFromString} />
           )}
 
           {focus && (
