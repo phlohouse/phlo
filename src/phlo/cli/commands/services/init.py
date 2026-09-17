@@ -241,7 +241,7 @@ def init_cmd(
     config_file = Path.cwd() / PHLO_CONFIG_FILE
 
     marker = phlo_dir / ".gitignore"
-    shared_layout = marker.is_file() and SHARED_LAYOUT_MARKER in marker.read_text()
+    shared_layout = marker.is_file() and SHARED_LAYOUT_MARKER in marker.read_text(encoding="utf-8")
     new_layout = not phlo_dir.exists() or _is_uninitialized_phlo_dir(phlo_dir)
     preserve_shared = shared_layout and not force
     if (
@@ -325,7 +325,7 @@ def init_cmd(
             name=project_name,
             description=f"{project_name} data lakehouse",
         )
-        config_file.write_text(config_content)
+        config_file.write_text(config_content, encoding="utf-8")
         click.echo(f"Created: {PHLO_CONFIG_FILE}")
     else:
         click.echo(f"Using existing: {PHLO_CONFIG_FILE}")
@@ -333,14 +333,14 @@ def init_cmd(
     # Create .phlo directory
     phlo_dir.mkdir(parents=True, exist_ok=True)
     if new_layout:
-        marker.write_text(render_shared_gitignore([]))
+        marker.write_text(render_shared_gitignore([]), encoding="utf-8")
         shared_layout = True
     if shared_layout:
         (phlo_dir / "overrides").mkdir(exist_ok=True)
         (phlo_dir / "secrets").mkdir(exist_ok=True)
         attributes = phlo_dir / ".gitattributes"
         if not attributes.exists():
-            attributes.write_text("* text=auto eol=lf\n")
+            attributes.write_text("* text=auto eol=lf\n", encoding="utf-8")
 
     # Discover services
     discovery = ServiceDiscovery()
@@ -444,7 +444,7 @@ def init_cmd(
         existing_values=existing_env_local,
     )
     env_file.parent.mkdir(parents=True, exist_ok=True)
-    env_file.write_text(env_content)
+    env_file.write_text(env_content, encoding="utf-8")
     click.echo(f"Created: {env_file.relative_to(Path.cwd())}")
     write_sensitive_file(env_local_file, env_local_content, allow_insecure=allow_insecure)
     click.echo(f"Created: {env_local_file.relative_to(Path.cwd())}")
@@ -454,11 +454,13 @@ def init_cmd(
     if shared_layout:
         generated_ignore = composer.generate_gitignore(services_to_install)
         # Preserve explicitly shared custom artifacts from previous migrations.
-        existing_ignore = gitignore_file.read_text() if gitignore_file.exists() else ""
+        existing_ignore = (
+            gitignore_file.read_text(encoding="utf-8") if gitignore_file.exists() else ""
+        )
         generated_ignore = render_shared_gitignore([], generated_ignore + existing_ignore)
-        gitignore_file.write_text(generated_ignore)
+        gitignore_file.write_text(generated_ignore, encoding="utf-8")
     elif not gitignore_file.exists():
-        gitignore_file.write_text(".env\n.env.local\nvolumes/\n")
+        gitignore_file.write_text(".env\n.env.local\nvolumes/\n", encoding="utf-8")
     click.echo(f"Created: {gitignore_file.relative_to(Path.cwd())}")
 
     # Create volumes directory

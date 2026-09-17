@@ -148,7 +148,7 @@ env_vars:
       Space-separated pip requirements for the phlo-observe SDK packages
       (Python >=3.12, not on PyPI): one git requirement each for observe-core,
       observe-query, and phlo-observe, pinned to a V2-capable ref (the
-      published v0.1.0 SDK tag predates V2 entities — see the Dockerfile
+      published v0.1.0 SDK tag predates V2 entities - see the Dockerfile
       comment). When set the image installs them so runs emit canonical
       observe events to the phlo-observer service
   PHLO_DBT_VERSION:
