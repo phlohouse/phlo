@@ -81,7 +81,12 @@ def test_emit_noop() -> None:
     phlo_observe.emit_dbt_run_results({"results": []})
 
 
-def test_ambient_helpers_return_none_without_sdk() -> None:
+def test_ambient_helpers_return_none_without_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Degraded-path assertions must hold whether or not the test env has the
+    SDK installed — simulate absence rather than depending on it."""
+    monkeypatch.setattr(phlo_observe, "_import_optional", lambda *a, **kw: None)
+    phlo_observe.reset_for_tests()
+
     assert phlo_observe.ambient_run_id() is None
     assert phlo_observe.ambient_producer() is None
     assert phlo_observe.run_entity_id() is None

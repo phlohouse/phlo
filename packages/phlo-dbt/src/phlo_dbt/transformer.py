@@ -480,7 +480,8 @@ class DbtTransformer(BaseTransformer):
                 # returncode check so failed builds still report their model
                 # and test outcomes. run_results carries its own invocation_id,
                 # which becomes a separate run://dbt/<invocation_id> row linked
-                # to this Dagster run through the ambient trace context.
+                # to this Dagster run through the ambient correlation bound by
+                # dagster_run_scope (job_id, partition_key, asset_key).
                 if self.build_run_results:
                     phlo_observe.emit_dbt_run_results(self.build_run_results)
 

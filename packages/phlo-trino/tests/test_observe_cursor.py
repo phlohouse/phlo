@@ -102,3 +102,19 @@ def test_passthrough_attributes_delegate(monkeypatch) -> None:
     assert cursor.description is inner.description
     cursor.close()
     inner.close.assert_called_once()
+
+
+def test_cursor_iteration_delegates(monkeypatch) -> None:
+    """The real Trino cursor is iterable; the proxy must keep `for row in
+    cursor` working — implicit dunder lookup never consults __getattr__."""
+    monkeypatch.setattr(phlo_observe, "trino_query", lambda **kw: _RecordingScope([]))
+    monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
+
+    inner = MagicMock()
+    inner.__iter__.return_value = iter([(1,), (2,), (3,)])
+    cursor = _ObservedCursor(inner, catalog=None, schema=None)
+
+    assert list(cursor) == [(1,), (2,), (3,)]
+
+    inner.__next__.return_value = ("a",)
+    assert next(cursor) == ("a",)

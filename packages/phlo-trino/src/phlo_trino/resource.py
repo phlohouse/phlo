@@ -96,6 +96,15 @@ class _ObservedCursor:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._cursor, name)
 
+    def __iter__(self) -> Any:
+        # Implicit special-method lookup bypasses __getattr__, so row
+        # iteration must be delegated explicitly or `for row in cursor`
+        # raises TypeError where the bare cursor worked.
+        return iter(self._cursor)
+
+    def __next__(self) -> Any:
+        return next(self._cursor)
+
     def __enter__(self) -> _ObservedCursor:
         self._cursor.__enter__()
         return self

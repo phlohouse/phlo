@@ -174,8 +174,9 @@ only useful while debugging, it is a log.
   `nessie` for branch WAP, the resolved provider (e.g. `polaris`) for
   snapshot WAP — never a parallel Phlo convention.
 - Inside a `dagster_run_scope`, `bind_context` carries correlation across
-  helper boundaries; subprocesses (dbt) correlate through their own
-  invocation ids plus the shared trace context.
+  helper boundaries; the dbt run-results emission happens inside that scope,
+  so `dbt.invocation`/model/test events inherit the run's job/partition/asset
+  correlation while their own `invocation_id` owns the `run://dbt/<id>` row.
 
 ## Debugging without the observer
 

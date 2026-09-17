@@ -107,13 +107,17 @@ def test_stage_to_parquet_failed_jobs_records_exception(
     sink = _patch_observe(monkeypatch)
     info = _load_info()
     info.load_packages[0].jobs["failed_jobs"] = [MagicMock()]
+    pipeline = _pipeline(info)
     from phlo_dlt.dlt_helpers import stage_to_parquet
 
     with pytest.raises(RuntimeError, match="failed loader jobs"):
-        stage_to_parquet(MagicMock(), _pipeline(info), MagicMock(), tmp_path)
+        stage_to_parquet(MagicMock(), pipeline, MagicMock(), tmp_path)
     # The failed-jobs check sits inside the run scope so the terminal
     # dlt.pipeline.run event records failure against the real load id.
     correlations = [v for kind, v in sink if kind == "set_correlation"]
     assert correlations[-1] == {"run_id": "load-1"}
     exits = [v for kind, v in sink if kind == "exit"]
     assert exits[-1] is RuntimeError
+    # The diagnostic stash must be set even on failure — a failed load's
+    # info is exactly what post-hoc inspection needs.
+    assert getattr(pipeline, "_phlo_last_load_info") is info

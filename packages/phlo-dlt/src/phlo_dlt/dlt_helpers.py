@@ -397,6 +397,13 @@ def stage_to_parquet(
                     pipeline_name=getattr(pipeline, "pipeline_name", ""),
                 )
                 raise RuntimeError("DLT pipeline returned no load info")
+            # Best-effort diagnostic hook: stash the load info on the pipeline
+            # for later inspection, before the outcome checks so failed loads
+            # keep their info. Failure is ignored: it must never break staging.
+            try:
+                setattr(pipeline, "_phlo_last_load_info", load_info)
+            except Exception:
+                pass
             load_id = getattr(load_info, "load_id", None)
             if load_id is None:
                 # DLT exposes `loads_ids` (list of package load ids), not
@@ -427,12 +434,6 @@ def stage_to_parquet(
                         failed_job_count=len(failed_jobs),
                     )
                     raise RuntimeError("DLT pipeline reported failed loader jobs")
-    # Best-effort diagnostic hook: stash the load info on the pipeline for
-    # later inspection. Failure is ignored because it must never break staging.
-    try:
-        setattr(pipeline, "_phlo_last_load_info", load_info)
-    except Exception:
-        pass
 
     parquet_paths: list[Path] = []
     completed_job_count = 0
