@@ -1,0 +1,27 @@
+name: phlo-observer-db-setup
+description: Create the phlo-observer database on the shared PostgreSQL instance
+category: observability
+default: false
+profile: observability
+
+# Same pinned image as the postgres service so no extra pull is needed.
+image: postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+
+depends_on:
+  - postgres
+
+compose:
+  restart: "no"
+  entrypoint: /bin/sh
+  environment:
+    PGPASSWORD: ${POSTGRES_PASSWORD:-phlo}
+  command:
+    - -c
+    - >
+      psql "postgresql://${POSTGRES_USER:-phlo}@postgres:5432/postgres"
+      -v ON_ERROR_STOP=1 -tc
+      "SELECT 1 FROM pg_database WHERE datname = '${PHLO_OBSERVER_DB:-phlo_observer}'"
+      | grep -q 1
+      || psql "postgresql://${POSTGRES_USER:-phlo}@postgres:5432/postgres"
+      -v ON_ERROR_STOP=1
+      -c "CREATE DATABASE \"${PHLO_OBSERVER_DB:-phlo_observer}\""

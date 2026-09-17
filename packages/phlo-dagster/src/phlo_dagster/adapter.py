@@ -50,6 +50,7 @@ from typing import Any, Iterable, Mapping
 
 import dagster as dg
 
+import phlo.telemetry as phlo_observe
 from phlo._correlation import resolve_project_identity
 from phlo.capabilities.runtime import (
     RuntimeContext,
@@ -124,6 +125,15 @@ def _convert_metadata(metadata: dict[str, Any]) -> dict[str, dg.MetadataValue]:
             continue
         converted[key] = _metadata_value(value)
     return converted
+
+
+def _rows_out(metadata: dict[str, Any]) -> int | None:
+    """Best-effort row count from materialization metadata."""
+    for key in ("dagster/row_count", "row_count", "rows", "rows_out"):
+        value = metadata.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return int(value)
+    return None
 
 
 def _severity_from_string(value: str | None) -> dg.AssetCheckSeverity | None:
@@ -392,9 +402,20 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             runtime = DagsterRuntime(
                 context, asset_capability_overrides=dict(spec.capability_overrides)
             )
-            results = spec.run.fn(runtime) if spec.run else []
-            if results is None:
-                return
+            # Bind the physical Dagster run id so nested emissions (ingestion,
+            # quality, catalog writes) join this attempt's observer run.
+            # Retried attempts get fresh run ids, so each attempt keeps its own
+            # run row — the observer's run-status precedence is monotonic and
+            # a failed attempt must not pin a retried run to "failed".
+            # Results are collected inside the scope so the generator never
+            # suspends with ambient correlation bound on the worker thread.
+            with phlo_observe.dagster_run_scope(context, asset_key=spec.key):
+                with phlo_observe.dagster_step(context):
+                    # A run function may return None when it has nothing to
+                    # report; treat that like an empty iterable rather than
+                    # failing the step on list(None).
+                    raw_results = spec.run.fn(runtime) if spec.run else None
+                    results = list(raw_results) if raw_results is not None else []
             for result in results:
                 if isinstance(result, MaterializeResult):
                     metadata = _convert_metadata(result.metadata)
@@ -416,6 +437,15 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
                             description=f"Asset run reported status '{result.status}'",
                             metadata=metadata,
                         )
+                    # asset.materialize records the materialization fact; the
+                    # scope closes before the yield so no ambient context
+                    # survives suspension on the executor thread.
+                    with phlo_observe.emit_materialization(
+                        context,
+                        asset_key=spec.key,
+                        rows=_rows_out(result.metadata),
+                    ):
+                        pass
                     yield dg.MaterializeResult(metadata=metadata)
                 elif isinstance(result, CheckResult):
                     severity = _severity_from_string(result.severity) or dg.AssetCheckSeverity.ERROR
@@ -448,7 +478,12 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
         def _check_fn(context) -> dg.AssetCheckResult:
             """Execute capability check logic and return the Dagster check result."""
             runtime = DagsterRuntime(context)
-            result = spec.fn(runtime) if spec.fn else None
+            # Bind the physical run id so quality.result events emitted by
+            # check providers (e.g. pandera) inside the fn carry this attempt's
+            # observer run correlation via the hook-plugin translation.
+            with phlo_observe.dagster_run_scope(context, asset_key=spec.asset_key):
+                with phlo_observe.dagster_step(context):
+                    result = spec.fn(runtime) if spec.fn else None
             if result is None:
                 return dg.AssetCheckResult(passed=True, check_name=spec.name, asset_key=asset_key)
             metadata = _convert_metadata(result.metadata)

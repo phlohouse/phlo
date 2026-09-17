@@ -44,6 +44,7 @@ members = [
     "phlo-oauth2-proxy",
     "phlo-observatory",
     "phlo-observatory-example",
+    "phlo-observe-plugin",
     "phlo-openmetadata",
     "phlo-otel",
     "phlo-pandera",
@@ -3143,6 +3144,9 @@ defaults = [
     { name = "phlo-postgres" },
     { name = "phlo-trino" },
 ]
+observe = [
+    { name = "phlo-observe-plugin" },
+]
 openmetadata = [
     { name = "phlo-openmetadata" },
 ]
@@ -3191,6 +3195,7 @@ dev = [
     { name = "phlo-oauth2-proxy" },
     { name = "phlo-observatory" },
     { name = "phlo-observatory-example" },
+    { name = "phlo-observe-plugin" },
     { name = "phlo-openmetadata" },
     { name = "phlo-otel" },
     { name = "phlo-pandera" },
@@ -3243,6 +3248,7 @@ requires-dist = [
     { name = "phlo-nessie", marker = "extra == 'core-services'", editable = "packages/phlo-nessie" },
     { name = "phlo-nessie", marker = "extra == 'defaults'", editable = "packages/phlo-nessie" },
     { name = "phlo-observatory", marker = "extra == 'defaults'", editable = "packages/phlo-observatory" },
+    { name = "phlo-observe-plugin", marker = "extra == 'observe'", editable = "packages/phlo-observe-plugin" },
     { name = "phlo-openmetadata", marker = "extra == 'openmetadata'", editable = "packages/phlo-openmetadata" },
     { name = "phlo-pandera", marker = "extra == 'defaults'", editable = "packages/phlo-pandera" },
     { name = "phlo-postgres", marker = "extra == 'core-services'", editable = "packages/phlo-postgres" },
@@ -3256,7 +3262,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0" },
     { name = "structlog", specifier = ">=25.5.0" },
 ]
-provides-extras = ["blueprints", "codemods", "core-services", "defaults", "openmetadata", "runtime"]
+provides-extras = ["blueprints", "codemods", "core-services", "defaults", "observe", "openmetadata", "runtime"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3292,6 +3298,7 @@ dev = [
     { name = "phlo-oauth2-proxy", editable = "packages/phlo-oauth2-proxy" },
     { name = "phlo-observatory", editable = "packages/phlo-observatory" },
     { name = "phlo-observatory-example", editable = "packages/phlo-observatory-example" },
+    { name = "phlo-observe-plugin", editable = "packages/phlo-observe-plugin" },
     { name = "phlo-openmetadata", editable = "packages/phlo-openmetadata" },
     { name = "phlo-otel", editable = "packages/phlo-otel" },
     { name = "phlo-pandera", editable = "packages/phlo-pandera" },
@@ -4006,6 +4013,30 @@ requires-dist = [
     { name = "phlo", editable = "." },
     { name = "phlo-observatory", editable = "packages/phlo-observatory" },
 ]
+
+[[package]]
+name = "phlo-observe-plugin"
+version = "0.1.0"
+source = { editable = "packages/phlo-observe-plugin" }
+dependencies = [
+    { name = "phlo" },
+    { name = "phlo-dagster" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "phlo", editable = "." },
+    { name = "phlo-dagster", editable = "packages/phlo-dagster" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-openmetadata"

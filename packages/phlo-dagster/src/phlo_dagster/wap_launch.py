@@ -10,6 +10,7 @@ Dagster work begins.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 import hashlib
 import json
@@ -25,12 +26,14 @@ from phlo.capabilities.resolver import resolve_capability
 from phlo.config import get_settings
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
+import phlo.telemetry as phlo_observe
 
 WAP_BRANCH_TAG = "phlo/wap_branch"
 WAP_REF_TAG = "phlo/ref"
 WAP_RUN_ID_TAG = "phlo/run_id"
 WAP_PROJECT_ID_TAG = "phlo/project_id"
 WAP_ATTEMPT_TAG = "phlo/attempt"
+WAP_CATALOG_SYSTEM_TAG = "phlo/catalog_system"
 WAP_BRANCH_PREFIX = "pipeline-run-"
 WAP_STRATEGY_BRANCH = "branch"
 WAP_STRATEGY_SNAPSHOT = "snapshot"
@@ -197,17 +200,25 @@ class WapLaunch:
     project_id: str
     attempt: int
     strategy: str = WAP_STRATEGY_BRANCH
+    # The resolved catalog provider's name ("nessie", "polaris", ...) — the
+    # system that owns the staging ref. Carried as a run tag so sensors and
+    # telemetry build branch://<system>/<ref> entities against the right
+    # owner instead of assuming Nessie.
+    catalog_system: str | None = None
 
     @property
     def tags(self) -> dict[str, str]:
         """Return the Dagster tags that bind stages to this WAP staging ref."""
-        return {
+        tags = {
             WAP_RUN_ID_TAG: self.logical_run_id,
             WAP_BRANCH_TAG: self.branch,
             WAP_REF_TAG: self.branch,
             WAP_PROJECT_ID_TAG: self.project_id,
             WAP_ATTEMPT_TAG: str(self.attempt),
         }
+        if self.catalog_system:
+            tags[WAP_CATALOG_SYSTEM_TAG] = str(self.catalog_system)
+        return tags
 
     def cleanup_if_created(self) -> None:
         """Remove only the staging ref created by this launch attempt.
@@ -289,8 +300,26 @@ def _prepare_snapshot_wap_launch(
             ],
         )
 
+    catalog_system = str(getattr(resolution, "name", None) or "catalog")
     namespace = f"{WAP_BRANCH_PREFIX}{logical_run_id}"
     revision = int(catalog.release_revision())
+    phlo_observe.emit(
+        "wap.branch.create",
+        category="wap",
+        outcome="success",
+        attributes={
+            "branch": namespace,
+            "strategy": WAP_STRATEGY_SNAPSHOT,
+            "phlo_run_id": logical_run_id,
+            "project_id": project_id,
+            "source_hash": str(revision),
+        },
+        correlation={"branch": namespace},
+        # The snapshot staging ref is a candidate namespace owned by the
+        # resolved catalog (e.g. polaris), not a Nessie branch — the entity id
+        # must name the system that actually owns it.
+        entities={"branch": phlo_observe.branch_entity_id(namespace, system=catalog_system)},
+    )
     launch = WapLaunch(
         logical_run_id=logical_run_id,
         branch=namespace,
@@ -301,6 +330,7 @@ def _prepare_snapshot_wap_launch(
         project_id=project_id,
         attempt=attempt,
         strategy=WAP_STRATEGY_SNAPSHOT,
+        catalog_system=catalog_system,
     )
     if not launch.record_launch_result(status="branch_created"):
         raise PhloConfigError(
@@ -353,11 +383,25 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
             suggestions=["Retry the command to create a new WAP branch."],
         )
 
+    catalog_system = str(getattr(resolution, "name", "") or "") or None
     target_hash_before = catalog.get_branch_hash("main")
-    if catalog.create_branch(branch, from_ref="main") is None:
-        raise PhloConfigError(
-            message=f"Could not create WAP branch {branch!r} from main.",
-            suggestions=["Confirm the configured catalog can create branches from main."],
+    with phlo_observe.wap_branch_create(branch=branch, base_branch="main") as branch_op:
+        if catalog.create_branch(branch, from_ref="main") is None:
+            raise PhloConfigError(
+                message=f"Could not create WAP branch {branch!r} from main.",
+                suggestions=["Confirm the configured catalog can create branches from main."],
+            )
+        # wap_branch_create pins the branch entity to nessie; restamp it with
+        # the resolved catalog system so a non-Nessie VersionedCatalog owns its
+        # own branch entity (same convention as the snapshot path).
+        branch_entity = phlo_observe.branch_entity_id(branch, system=catalog_system or "nessie")
+        if branch_entity:
+            with contextlib.suppress(Exception):
+                branch_op.set_entity("branch", branch_entity)
+        branch_op.set(
+            phlo_run_id=logical_run_id,
+            project_id=project.project_id,
+            strategy=WAP_STRATEGY_BRANCH,
         )
 
     source_hash = catalog.get_branch_hash(branch)
@@ -370,6 +414,7 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
         target_hash_before=target_hash_before,
         project_id=project.project_id,
         attempt=attempt,
+        catalog_system=catalog_system,
     )
     if not launch.record_launch_result(status="branch_created"):
         raise PhloConfigError(

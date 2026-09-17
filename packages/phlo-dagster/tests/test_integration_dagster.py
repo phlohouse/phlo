@@ -238,3 +238,20 @@ def test_materialize_result_failure_status_fails_step():
     result = materialize([asset_def], raise_on_error=False)
 
     assert not result.success
+
+
+def test_run_fn_returning_none_materializes_successfully():
+    """A run function returning None has nothing to report; the step succeeds."""
+    from phlo.capabilities import AssetSpec, RunSpec
+    from phlo_dagster.adapter import DagsterOrchestratorAdapter
+
+    def _run(_runtime):
+        return None
+
+    adapter = DagsterOrchestratorAdapter()
+    asset_def = adapter._build_asset(
+        AssetSpec(key="quiet_asset", group=None, description=None, run=RunSpec(fn=_run))
+    )
+    result = materialize([asset_def], raise_on_error=False)
+
+    assert result.success

@@ -29,6 +29,7 @@ dev = [
     "phlo-sling>=0.1.0",
     "phlo-nessie>=0.3.2",
     "phlo-observatory>=0.1.0",
+    "phlo-observe-plugin>=0.1.0",
     "phlo-polaris>=0.1.0",
     "phlo-observatory-example>=0.1.0",
     "phlo-openmetadata>=0.1.0",
@@ -120,6 +121,12 @@ defaults = [
     "phlo-observatory>=0.1.0",
     "phlo-trino>=0.1.0",
 ]
+# Preview integration: the phlo-observe SDK is not yet published, so the
+# plugin stays opt-in rather than riding `defaults` (published defaults may
+# only advertise blessed_core/supported packages). Installing this extra makes
+# the hook translator, Dagster sensors, and phlo-observer service definitions
+# discoverable; emission still requires the SDK and OBSERVE_HTTP_ENDPOINT.
+observe = ["phlo-observe-plugin>=0.1.0"]
 openmetadata = ["phlo-openmetadata>=0.1.0"]
 runtime = [
     "asyncpg>=0.30.0",
@@ -219,6 +226,7 @@ extra-paths = [
     "packages/phlo-nessie/src",
     "packages/phlo-observatory-example/src",
     "packages/phlo-observatory/src",
+    "packages/phlo-observe-plugin/src",
     "packages/phlo-oauth2-proxy/src",
     "packages/phlo-openmetadata/src",
     "packages/phlo-pgweb/src",
@@ -323,6 +331,9 @@ workspace = true
 workspace = true
 
 [tool.uv.sources.phlo-observatory-example]
+workspace = true
+
+[tool.uv.sources.phlo-observe-plugin]
 workspace = true
 
 [tool.uv.sources.phlo-openmetadata]

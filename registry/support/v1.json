@@ -119,6 +119,7 @@
         "package:phlo-kafka",
         "package:phlo-loki",
         "package:phlo-mcp",
+        "package:phlo-observe-plugin",
         "package:phlo-openmetadata",
         "package:phlo-polaris",
         "package:phlo-prometheus",
@@ -145,7 +146,9 @@
         "service:openmetadata-mysql",
         "service:openmetadata-elasticsearch",
         "service:superset",
-        "service:clickstack"
+        "service:clickstack",
+        "service:phlo-observer",
+        "service:phlo-observer-db-setup"
       ],
       "reason": "These alternatives are outside the tested v1 support boundary."
     },
@@ -271,7 +274,7 @@
         "packages/phlo-observatory/pyproject.toml",
         "packages/phlo-observatory/tests",
         "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
-        "packages/phlo-observatory/src/phlo_observatory/src/routes/runs.$projectId.$runId.attempts.$attempt.report.tsx"
+        "packages/phlo-observatory/src/phlo_observatory/src/observatory/api/resources.ts"
       ]
     },
     {
@@ -503,6 +506,17 @@
       "evidence": [
         "packages/phlo-mcp/pyproject.toml",
         "packages/phlo-mcp/tests"
+      ]
+    },
+    {
+      "name": "phlo-observe-plugin",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Hook translation, Dagster run sensors, and provider instrumentation are implemented and unit-tested; the phlo-observe SDK is not yet published and the observer service lacks release-gate evidence.",
+      "evidence": [
+        "packages/phlo-observe-plugin/pyproject.toml",
+        "packages/phlo-observe-plugin/tests"
       ]
     },
     {
@@ -1028,6 +1042,30 @@
       "evidence": [
         "packages/phlo-clickstack/src/phlo_clickstack/service.yaml"
       ]
+    },
+    {
+      "name": "phlo-observer",
+      "package": "phlo-observe-plugin",
+      "source": "packages/phlo-observe-plugin/src/phlo_observe_plugin/service.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-observe-plugin/src/phlo_observe_plugin/service.yaml"
+      ]
+    },
+    {
+      "name": "phlo-observer-db-setup",
+      "package": "phlo-observe-plugin",
+      "source": "packages/phlo-observe-plugin/src/phlo_observe_plugin/db-setup.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-observe-plugin/src/phlo_observe_plugin/db-setup.yaml"
+      ]
     }
   ],
   "capabilities": [
@@ -1090,7 +1128,7 @@
       "reason": "The Observatory exposes an authenticated durable per-run report API and UI projection at alpha maturity; release acceptance remains pending until the run_evidence gate passes.",
       "evidence": [
         "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
-        "packages/phlo-observatory/src/phlo_observatory/src/routes/runs.$projectId.$runId.attempts.$attempt.report.tsx",
+        "packages/phlo-observatory/src/phlo_observatory/src/observatory/api/resources.ts",
         "packages/phlo-api/tests/test_observatory_api.py",
         "docs/packages/phlo-observatory.md#durable-run-report-support-boundary"
       ]

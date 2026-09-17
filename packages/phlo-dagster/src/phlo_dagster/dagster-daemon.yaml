@@ -15,6 +15,7 @@ build:
     PHLO_DAGSTER_VERSION: ${PHLO_DAGSTER_VERSION:-}
     PHLO_WHEELHOUSE: ${PHLO_WHEELHOUSE:-}
     PHLO_UV_LOCKED: ${PHLO_UV_LOCKED:-}
+    PHLO_OBSERVE_SDK: ${PHLO_OBSERVE_SDK:-}
 
 depends_on:
   - dagster
@@ -56,6 +57,14 @@ compose:
     SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:-admin}
     PHLO_HOST_PLATFORM: ${PHLO_HOST_PLATFORM:-}
     DISABLE_PANDERA_IMPORT_WARNING: "True"
+  # Opt-in observability wiring: a non-empty OBSERVE_HTTP_ENDPOINT at
+  # generation time enables canonical event emission to the in-cluster
+  # phlo-observer service (WAP sensors and run-boundary events live here).
+  conditional_environment:
+    OBSERVE_HTTP_ENDPOINT:
+      OBSERVE_HTTP_ENDPOINT: "http://phlo-observer:8080/v1/events"
+      OBSERVE_HTTP_TOKEN: "${OBSERVE_HTTP_TOKEN:-}"
+      OBSERVE_HTTP_API_KEY: "${OBSERVE_HTTP_API_KEY:-}"
   command: ["dagster-daemon", "run", "-w", "/opt/dagster/workspace.yaml"]
   volumes:
     - ./dagster:/opt/dagster

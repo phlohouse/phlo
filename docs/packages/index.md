@@ -45,6 +45,7 @@ These versions come from the current package manifests on the checked-in release
 | `phlo-openmetadata` | `0.5.0` | OpenMetadata integration for Phlo |
 | `phlo-polaris` | `0.14.0` | Apache Polaris catalog service plugin for Phlo |
 | `phlo-otel` | `0.3.0` | OpenTelemetry traces and metrics for Phlo |
+| `phlo-observe-plugin` | `0.1.0` | phlo-observe canonical events and phlo-observer service for Phlo |
 | `phlo-pandera` | `0.6.0` | Quality checks and schema utilities for Phlo |
 | `phlo-pgweb` | `0.2.3` | pgweb service plugin for Phlo |
 | `phlo-postgres` | `0.4.0` | Postgres service plugin for Phlo |

@@ -48,8 +48,7 @@ NAMED_CLAIM_BINDINGS: dict[str, dict[str, object]] = {
     "observatory_run_report": {
         "required_evidence": [
             "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
-            "packages/phlo-observatory/src/phlo_observatory/src/routes/"
-            "runs.$projectId.$runId.attempts.$attempt.report.tsx",
+            "packages/phlo-observatory/src/phlo_observatory/src/observatory/api/resources.ts",
             "packages/phlo-api/tests/test_observatory_api.py",
         ],
         "forbidden_evidence": [],

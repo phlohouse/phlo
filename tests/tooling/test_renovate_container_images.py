@@ -154,11 +154,15 @@ def test_phlo_owned_images_are_explicitly_disabled_and_never_automerged() -> Non
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     manager = _manager()
     rules = config["packageRules"]
+    phlo_owned_names = [
+        "ghcr.io/phlohouse/phlo-*",
+        "!ghcr.io/phlohouse/phlo-observe/**",
+    ]
     disabled = [
         rule
         for rule in rules
         if rule.get("matchManagers") == ["custom.regex"]
-        and rule.get("matchPackageNames") == ["ghcr.io/phlohouse/phlo-*"]
+        and rule.get("matchPackageNames") == phlo_owned_names
     ]
     review_required = [
         rule
@@ -169,7 +173,7 @@ def test_phlo_owned_images_are_explicitly_disabled_and_never_automerged() -> Non
         {
             "description": "Do not update Phlo-owned published images as upstream dependencies.",
             "matchManagers": ["custom.regex"],
-            "matchPackageNames": ["ghcr.io/phlohouse/phlo-*"],
+            "matchPackageNames": phlo_owned_names,
             "enabled": False,
         }
     ]
@@ -181,7 +185,23 @@ def test_phlo_owned_images_are_explicitly_disabled_and_never_automerged() -> Non
         for path in internal_files
         if "ghcr.io/phlohouse/phlo-" in path.read_text(encoding="utf-8")
     ]
-    assert len(internal_files) == 4
+    # ghcr.io/phlohouse/phlo-observe/* images are released by the sibling
+    # phlo-observe repository, so they are upstream artifacts here: excluded
+    # from the phlo-owned disable rule and digest-managed by Renovate like any
+    # other vendor image. Everything else under phlohouse/phlo-* must stay
+    # invisible to the custom manager.
+    observer_files = [
+        path for path in internal_files if "phlo-observe/" in path.read_text(encoding="utf-8")
+    ]
+    assert observer_files == [
+        REPO_ROOT / "packages/phlo-observe-plugin/src/phlo_observe_plugin/service.yaml"
+    ]
+    phlo_owned_files = [path for path in internal_files if path not in observer_files]
+    assert len(phlo_owned_files) == 4
     assert all(
-        _image_match(manager, path.read_text(encoding="utf-8")) is None for path in internal_files
+        _image_match(manager, path.read_text(encoding="utf-8")) is None for path in phlo_owned_files
+    )
+    assert all(
+        _image_match(manager, path.read_text(encoding="utf-8")) is not None
+        for path in observer_files
     )

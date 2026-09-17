@@ -114,6 +114,35 @@ RUN if [ "$PHLO_UV_LOCKED" != "true" ]; then \
     fi; \
     fi
 
+# Optional phlo-observe SDK. The SDK requires Python >=3.12 and is not on
+# PyPI, so it is never a declared dependency: pass the space-separated pip
+# requirements for every unpublished workspace package via PHLO_OBSERVE_SDK.
+# The integration requires the V2 SDK (canonical entities/set_entity); the
+# published phlo-observe/v0.1.0 tag is V1-only and predates it, so pin a V2
+# commit until a V2 release tag exists, for example
+# "git+https://github.com/phlohouse/phlo-observe.git@91a32fa29ce19aac0e31ed3750a9090776267bd0#subdirectory=packages/observe-core
+#  git+https://github.com/phlohouse/phlo-observe.git@91a32fa29ce19aac0e31ed3750a9090776267bd0#subdirectory=packages/observe-query
+#  git+https://github.com/phlohouse/phlo-observe.git@91a32fa29ce19aac0e31ed3750a9090776267bd0#subdirectory=packages/phlo-observe-sdk"
+# A single phlo-observe subdirectory install cannot resolve the repo's
+# workspace sources for observe-core/observe-query, so each package needs its
+# own git requirement. phlo-observe-plugin (Dagster sensors + hook-bus
+# translation) is a preview package that stays out of phlo[defaults]; it is
+# installed here, alongside the SDK it drives, resolved from the staged
+# wheelhouse when one is present and from PyPI otherwise. Empty
+# PHLO_OBSERVE_SDK leaves builds unchanged and the phlo.telemetry shim inert.
+ARG PHLO_OBSERVE_SDK=""
+# Deliberately unquoted: the value is a space-separated requirement list.
+# hadolint ignore=SC2086
+RUN if [ -n "$PHLO_OBSERVE_SDK" ]; then \
+        if [ "$PHLO_UV_LOCKED" = "true" ]; then \
+            uv pip install --python /opt/phlo-project-venv/bin/python phlo-observe-plugin $PHLO_OBSERVE_SDK; \
+        elif [ -n "$PHLO_WHEELHOUSE" ]; then \
+            uv pip install --system --find-links /opt/phlo-wheelhouse phlo-observe-plugin $PHLO_OBSERVE_SDK; \
+        else \
+            uv pip install --system phlo-observe-plugin $PHLO_OBSERVE_SDK; \
+        fi; \
+    fi
+
 # Build caches contain package manifests that vulnerability scanners treat as runtime
 # dependencies. They are unnecessary after installation and must not ship in the image.
 RUN rm -rf /root/.cache/uv /root/.cache/puccinialin /root/.cargo/registry

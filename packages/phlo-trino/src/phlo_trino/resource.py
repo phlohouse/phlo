@@ -36,6 +36,7 @@ from typing import Any, Iterable
 import pandas as pd
 from trino.dbapi import connect
 
+import phlo.telemetry as phlo_observe
 from phlo.capabilities import (
     CapabilitySupport,
     MaintenanceExecutionError,
@@ -61,6 +62,50 @@ TRINO_QUERY_ENGINE_SUPPORT = CapabilitySupport(
     supports_refs=True,
     supports_time_travel=True,
 )
+
+
+class _ObservedCursor:
+    """Proxy a Trino cursor so every ``execute`` emits a ``trino.query`` event.
+
+    SQL text is never recorded (the SDK emits a stable sanitized query hash
+    and class); the trino-side query id is attached when the cursor exposes it.
+    Internal catalog DDL issued through ``bootstrap.cursor()`` connections is
+    deliberately not traced — those statements are provisioning bookkeeping,
+    not workload queries.
+    """
+
+    def __init__(self, cursor: Any, *, catalog: str | None, schema: str | None) -> None:
+        self._cursor = cursor
+        self._catalog = catalog
+        self._schema = schema
+
+    def execute(self, sql: str, params: Iterable[object] | None = None) -> Any:
+        """Execute SQL inside a ``trino.query`` observe scope."""
+        with phlo_observe.trino_query(sql=sql, catalog=self._catalog, schema=self._schema) as evt:
+            phlo_observe.bind_run_entity(evt)
+            self._cursor.execute(sql, params)
+            evt.set(
+                query_id=getattr(self._cursor, "query_id", None),
+                row_count=getattr(self._cursor, "rowcount", None),
+            )
+            # DB-API ``execute`` returns the cursor; returning the proxy keeps
+            # chained ``.execute()`` calls observed instead of leaking the
+            # inner cursor past the wrapper.
+            return self
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._cursor, name)
+
+    def __enter__(self) -> _ObservedCursor:
+        self._cursor.__enter__()
+        return self
+
+    def __exit__(self, *exc: Any) -> Any:
+        return self._cursor.__exit__(*exc)
+
+    def close(self) -> Any:
+        """Close the wrapped cursor."""
+        return self._cursor.close()
 
 
 class _ConfigFacade:
@@ -258,7 +303,7 @@ class TrinoResource:
         cursor = None
         try:
             cursor = conn.cursor()
-            yield cursor
+            yield _ObservedCursor(cursor, catalog=self._resolved_catalog(), schema=schema)
         finally:
             try:
                 if cursor is not None:

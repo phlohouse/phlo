@@ -266,3 +266,28 @@ def test_plugins_module_imports_without_psycopg2(monkeypatch: pytest.MonkeyPatch
     assert "get_settings_service" in plugins.__all__
     # The concrete SettingsService (which uses psycopg2) must not be in core.
     assert "SettingsService" not in plugins.__all__
+
+
+def test_observe_decorator_survives_telemetry_import() -> None:
+    """``phlo.observe`` is the (legacy) flow decorator and must stay callable.
+
+    The observability shim lives at ``phlo.telemetry`` precisely so the two
+    never share an attribute name; importing it must not rebind ``phlo.observe``.
+    """
+    import phlo
+
+    telemetry_module = importlib.import_module("phlo.telemetry")
+
+    decorator = phlo.observe
+    assert callable(decorator)
+    assert decorator.__module__ == "phlo.flow"
+    assert telemetry_module.__name__ == "phlo.telemetry"
+
+
+def test_telemetry_is_not_a_lazy_export() -> None:
+    """``phlo.telemetry`` is a real submodule, not a lazy export alias."""
+    import phlo
+    import phlo.telemetry as telemetry
+
+    assert telemetry.__name__ == "phlo.telemetry"
+    assert "telemetry" not in phlo.__all__

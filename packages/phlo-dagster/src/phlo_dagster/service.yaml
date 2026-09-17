@@ -19,6 +19,7 @@ build:
     PHLO_DAGSTER_VERSION: ${PHLO_DAGSTER_VERSION:-}
     PHLO_WHEELHOUSE: ${PHLO_WHEELHOUSE:-}
     PHLO_UV_LOCKED: ${PHLO_UV_LOCKED:-}
+    PHLO_OBSERVE_SDK: ${PHLO_OBSERVE_SDK:-}
 
 depends_on:
   - postgres
@@ -103,6 +104,14 @@ compose:
     PHLO_DAGSTER_GRAPHQL_WS_INIT_TIMEOUT_SECONDS: ${PHLO_DAGSTER_GRAPHQL_WS_INIT_TIMEOUT_SECONDS:-10}
     PHLO_SERVICE_SECRET: ${PHLO_SERVICE_SECRET:-}
     DISABLE_PANDERA_IMPORT_WARNING: "True"
+  # Opt-in observability wiring: when the generator's environment carries a
+  # non-empty OBSERVE_HTTP_ENDPOINT the container gets the in-cluster observer
+  # address (the host value is typically localhost:<port>, unreachable inside).
+  conditional_environment:
+    OBSERVE_HTTP_ENDPOINT:
+      OBSERVE_HTTP_ENDPOINT: "http://phlo-observer:8080/v1/events"
+      OBSERVE_HTTP_TOKEN: "${OBSERVE_HTTP_TOKEN:-}"
+      OBSERVE_HTTP_API_KEY: "${OBSERVE_HTTP_API_KEY:-}"
   command:
     [
       "python",
@@ -133,6 +142,15 @@ env_vars:
     description: >-
       Build the image from the project's staged uv.lock instead of resolving
       dependencies at build time (staged by phlo services init)
+  PHLO_OBSERVE_SDK:
+    default: ""
+    description: >-
+      Space-separated pip requirements for the phlo-observe SDK packages
+      (Python >=3.12, not on PyPI): one git requirement each for observe-core,
+      observe-query, and phlo-observe, pinned to a V2-capable ref (the
+      published v0.1.0 SDK tag predates V2 entities — see the Dockerfile
+      comment). When set the image installs them so runs emit canonical
+      observe events to the phlo-observer service
   PHLO_DBT_VERSION:
     default: ""
     package: phlo-dbt

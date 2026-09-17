@@ -65,6 +65,30 @@ def test_ingestion_emitter_merges_bound_correlation_context() -> None:
     assert event.correlation.span_id == "def456"
 
 
+def test_ingestion_emitter_carries_catalog_system() -> None:
+    """Snapshot-strategy WAP tags the staging ref's owning catalog; the field
+    must survive onto the emitted event so hook translation builds
+    branch://<system>/<ref> against the real owner."""
+    bus = RecordingBus()
+    emitter = IngestionEventEmitter(
+        IngestionEventContext(
+            asset_key="raw.users",
+            table_name="users",
+            group_name="raw",
+            run_id="run-1",
+            branch_name="pipeline-run-1",
+            catalog_system="polaris",
+        ),
+        hook_bus=bus,
+    )
+
+    emitter.emit_end(status="success")
+
+    event = bus.events[0]
+    assert event.branch_name == "pipeline-run-1"
+    assert event.catalog_system == "polaris"
+
+
 def test_emitter_preserves_integer_attempt_after_correlation_merge() -> None:
     bus = RecordingBus()
     emitter = IngestionEventEmitter(

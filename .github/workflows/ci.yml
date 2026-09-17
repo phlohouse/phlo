@@ -423,7 +423,7 @@ jobs:
           - group: data
             packages: phlo-alloy phlo-core-plugins phlo-dlt phlo-lineage phlo-nessie phlo-openmetadata phlo-polaris phlo-postgres phlo-sling phlo-trino
           - group: runtime
-            packages: phlo-airbyte phlo-api phlo-dagster phlo-grafana phlo-kafka phlo-loki phlo-oauth2-proxy phlo-otel phlo-postgrest phlo-superset
+            packages: phlo-airbyte phlo-api phlo-dagster phlo-grafana phlo-kafka phlo-loki phlo-observe-plugin phlo-oauth2-proxy phlo-otel phlo-postgrest phlo-superset
           - group: interfaces
             packages: phlo-clickhouse phlo-dbt phlo-hasura phlo-mcp phlo-observatory phlo-pandera phlo-prometheus phlo-testing
     steps:

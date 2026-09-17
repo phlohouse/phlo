@@ -288,6 +288,7 @@ class DltIngester(BaseIngester):
                 project_id=project_id,
                 run_id=run_id,
                 branch_name=branch_name,
+                catalog_system=parameters.get("catalog_system"),
                 tags={"group": group_name, "source": "dlt"},
                 correlation=HookCorrelation(
                     run_id=run_id,

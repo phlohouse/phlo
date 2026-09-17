@@ -38,6 +38,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+import phlo.telemetry as phlo_observe
 from phlo.logging import log_event
 from phlo.operations.transformation import BaseTransformer, TransformationResult
 from phlo.hooks.emitters import (
@@ -475,6 +476,13 @@ class DbtTransformer(BaseTransformer):
                 self.build_run_results = _read_run_results(
                     self.project_dir / "target" / "run_results.json"
                 )
+                # Emit the dbt invocation + per-node events before the
+                # returncode check so failed builds still report their model
+                # and test outcomes. run_results carries its own invocation_id,
+                # which becomes a separate run://dbt/<invocation_id> row linked
+                # to this Dagster run through the ambient trace context.
+                if self.build_run_results:
+                    phlo_observe.emit_dbt_run_results(self.build_run_results)
 
                 if result.returncode != 0:
                     raise RuntimeError(

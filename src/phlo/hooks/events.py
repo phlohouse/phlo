@@ -204,6 +204,9 @@ class IngestionEvent(HookEvent):
     partition_key: str | None = None
     run_id: str | None = None
     branch_name: str | None = None
+    # The catalog system owning branch_name ("nessie", "polaris", ...).
+    # Defaults to the Nessie convention when unset.
+    catalog_system: str | None = None
     status: str | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
