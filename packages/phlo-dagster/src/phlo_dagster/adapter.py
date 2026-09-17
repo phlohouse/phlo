@@ -175,10 +175,6 @@ class DagsterRuntime(RuntimeContext):
         if isinstance(direct_tags, Mapping):
             return {str(key): str(value) for key, value in direct_tags.items()}
 
-        run_tags = getattr(self.context, "run_tags", None)
-        if isinstance(run_tags, Mapping):
-            return {str(key): str(value) for key, value in run_tags.items()}
-
         run = getattr(self.context, "run", None)
         run_level_tags = getattr(run, "tags", None) if run is not None else None
         if isinstance(run_level_tags, Mapping):

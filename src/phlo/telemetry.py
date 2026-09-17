@@ -408,6 +408,16 @@ class _GuardedContext:
 
     __slots__ = ("_inner",)
 
+    # Deprecated direct accessors the SDK's duck-typed reads still request.
+    # Resolve them through the modern attribute path so the read neither
+    # warns nor reaches Dagster's deprecated shim; contexts lacking the path
+    # fall back to plain getattr (OpExecutionContext.op, unbound runs).
+    _ATTR_TRANSLATIONS: dict[str, tuple[str, ...]] = {
+        "run_id": ("run", "run_id"),
+        "run_tags": ("run", "tags"),
+        "op": ("op_execution_context", "op"),
+    }
+
     def __init__(self, inner: Any) -> None:
         object.__setattr__(self, "_inner", inner)
 
@@ -417,8 +427,18 @@ class _GuardedContext:
         # fallback would never fire.
         if name == "_inner" or name.startswith("__"):
             return object.__getattribute__(self, name)
+        inner = object.__getattribute__(self, "_inner")
         try:
-            return getattr(object.__getattribute__(self, "_inner"), name)
+            path = _GuardedContext._ATTR_TRANSLATIONS.get(name)
+            if path is not None:
+                try:
+                    value = inner
+                    for part in path:
+                        value = getattr(value, part)
+                except Exception:
+                    value = getattr(inner, name)
+                return value
+            return getattr(inner, name)
         except Exception:  # noqa: BLE001 - guarded attributes read as missing
             return None
 

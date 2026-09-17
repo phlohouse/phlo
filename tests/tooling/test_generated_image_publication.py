@@ -37,14 +37,26 @@ def _published_image(raw_image: str) -> str:
     return match.group(1) if match else raw_image
 
 
+def _is_remote_build_context(service: dict[str, Any]) -> bool:
+    """Remote-context builds compile third-party source, not a phlo image."""
+    build = service.get("build")
+    if not isinstance(build, dict):
+        return False
+    return str(build.get("context", "")).startswith(("http://", "https://", "git@", "ssh://"))
+
+
 def test_every_generated_build_uses_a_versioned_ghcr_image() -> None:
     build_definitions: list[tuple[Path, str]] = []
+    remote_builds: list[tuple[Path, dict[str, Any], str]] = []
     for service_file in sorted((REPO_ROOT / "packages").glob("*/src/*/*.yaml")):
         service = yaml.safe_load(service_file.read_text(encoding="utf-8"))
         if not isinstance(service, dict) or not service.get("build"):
             continue
         image = service.get("image")
         assert isinstance(image, str), f"{service_file} has a build but no image"
+        if _is_remote_build_context(service):
+            remote_builds.append((service_file, service, image))
+            continue
         build_definitions.append((service_file, _published_image(image)))
 
     assert build_definitions
@@ -61,6 +73,18 @@ def test_every_generated_build_uses_a_versioned_ghcr_image() -> None:
         assert image.startswith("ghcr.io/phlohouse/phlo-"), service_file
         assert ":" in image.rsplit("/", 1)[-1], service_file
         assert not image.endswith(":latest"), service_file
+
+    # Remote-context builds (e.g. phlo-observer from the phlo-observe repo)
+    # can never be phlo-published images. They must pin an immutable commit
+    # ref in the context URL, name the local-only output so it never
+    # collides with a published phlo image, and never attempt a pull.
+    for service_file, service, image in remote_builds:
+        context = str(service["build"].get("context", ""))
+        ref = context.rpartition("#")[2]
+        assert re.fullmatch(r"[0-9a-f]{40}", ref), service_file
+        assert not image.startswith("ghcr.io/phlohouse/phlo-"), service_file
+        compose = service.get("compose") or {}
+        assert compose.get("pull_policy") == "build", service_file
 
     published_images = {image for _, image in build_definitions}
     waiver_register = yaml.safe_load(
@@ -179,7 +203,11 @@ def test_every_vendor_runtime_default_is_pinned_to_an_immutable_digest() -> None
         if not isinstance(service, dict) or not isinstance(service.get("image"), str):
             continue
         image = _published_image(service["image"])
-        if image.startswith("ghcr.io/phlohouse/phlo-") and service.get("build"):
+        if service.get("build") and (
+            image.startswith("ghcr.io/phlohouse/phlo-") or _is_remote_build_context(service)
+        ):
+            # Locally-built images (phlo-published or remote-context outputs)
+            # are never pulled, so no runtime digest to pin.
             continue
         if "@sha256:" not in image:
             tag_only.append(f"{service_file.relative_to(REPO_ROOT)}: {image}")

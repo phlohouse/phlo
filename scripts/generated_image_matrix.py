@@ -29,12 +29,16 @@ def publication_matrix(
     for service_name, service in services.items():
         if not isinstance(service, dict) or not service.get("build"):
             continue
-        image = service.get("image")
-        if not isinstance(image, str) or not image.startswith("ghcr.io/phlohouse/phlo-"):
-            raise ValueError(f"built service {service_name!r} has no Phlo GHCR image")
         build = service["build"]
         if not isinstance(build, dict):
             raise ValueError(f"built service {service_name!r} has invalid build configuration")
+        if str(build.get("context", "")).startswith(("http://", "https://", "git@", "ssh://")):
+            # Remote-context builds compile third-party source into a
+            # local-only image; they are not publishable phlo images.
+            continue
+        image = service.get("image")
+        if not isinstance(image, str) or not image.startswith("ghcr.io/phlohouse/phlo-"):
+            raise ValueError(f"built service {service_name!r} has no Phlo GHCR image")
         context = Path(str(build.get("context", ""))).resolve()
         dockerfile = Path(str(build.get("dockerfile", "Dockerfile")))
         dockerfile = dockerfile if dockerfile.is_absolute() else context / dockerfile
