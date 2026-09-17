@@ -187,3 +187,8 @@ docs-site
 
 # Amp orb portal metadata
 .amp/portals/*
+
+# JS build outputs and dependencies (observatory web, storybook)
+**/node_modules/
+packages/phlo-observatory/web/dist/
+packages/phlo-observatory-storybook/storybook-static/

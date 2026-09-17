@@ -7,10 +7,10 @@ requires = [
 
 [project]
 dependencies = ["phlo>=0.16.2,<0.17"]
-description = "Phlo Observatory - Data platform UI (bundled with phlo core)"
+description = "Phlo Observatory - React TanStack Start UI matching Paper Sheetbase V2ALT"
 name = "phlo-observatory"
 requires-python = ">=3.11"
-version = "0.16.2"
+version = "0.17.0.dev0"
 
 [[project.authors]]
 email = "team@phlo.dev"
@@ -31,7 +31,7 @@ postgres = ["phlo-postgres>=0.1.0"]
 
 [project.readme]
 content-type = "text/plain"
-text = "Phlo Observatory - Data platform visibility and lineage UI."
+text = "Phlo Observatory - React TanStack Start UI matching Paper Sheetbase V2ALT."
 
 [tool.ruff]
 line-length = 100
@@ -43,18 +43,7 @@ include-package-data = true
 [tool.setuptools.package-data]
 phlo_observatory = [
     "service.yaml",
-    "Dockerfile",
-    "README.md",
-    "components.json",
-    "eslint.config.js",
-    "package.json",
-    "package-lock.json",
-    "prettier.config.js",
-    "tsconfig.json",
-    "vite.config.ts",
-    "context/**",
-    "public/**",
-    "src/**",
+    "web/dist/**",
 ]
 
 [tool.setuptools.package-dir]

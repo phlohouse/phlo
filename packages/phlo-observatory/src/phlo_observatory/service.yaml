@@ -4,10 +4,10 @@ category: orchestration
 default: false
 profile: api
 
-image: ghcr.io/phlohouse/phlo-observatory:0.16.2
+image: ghcr.io/phlohouse/phlo-observatory:0.17.0-dev
 build:
-  context: source
-  dockerfile: Dockerfile
+  context: web
+  dockerfile: web/Dockerfile
 
 depends_on:
   - phlo-api
@@ -20,9 +20,6 @@ compose:
     NODE_ENV: production
     HOST: 0.0.0.0
     PORT: 3000
-    DAGSTER_GRAPHQL_URL: http://dagster:3000/graphql
-    NESSIE_URL: http://nessie:19120/api/v2
-    TRINO_URL: http://trino:8080
     PHLO_API_URL: http://phlo-api:4000
     PHLO_API_BROWSER_URL: ${PHLO_API_BROWSER_URL:-http://127.0.0.1:${PHLO_API_PORT:-4000}}
   ports:
@@ -56,18 +53,13 @@ dev:
     - run
     - dev
     - --
-    - --host
-    - 0.0.0.0
     - --port
     - '${OBSERVATORY_PORT:-3001}'
   environment:
     NODE_ENV: development
     PHLO_API_URL: http://127.0.0.1:${PHLO_API_PORT:-4000}
     PHLO_API_BROWSER_URL: http://127.0.0.1:${PHLO_API_PORT:-4000}
-    DAGSTER_GRAPHQL_URL: http://127.0.0.1:${DAGSTER_PORT:-10006}/graphql
-    NESSIE_URL: http://127.0.0.1:${NESSIE_PORT:-10003}/api/v2
-    TRINO_URL: http://127.0.0.1:${TRINO_PORT:-10005}
   volumes:
-    - '{source_path}:/app'
+    - '{source_path}/web:/app'
     - '/app/node_modules'
-  cwd: '{source_path}'
+  cwd: '{source_path}/web'

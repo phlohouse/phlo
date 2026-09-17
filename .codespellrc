@@ -1,3 +1,3 @@
 [codespell]
 skip = *.lock,uv.lock,*.svg,*/package-lock.json,package-lock.json,*.min.js
-ignore-words-list = iterm,temperatur,coo,vew
+ignore-words-list = iterm,temperatur,coo,vew,complet,schedul
