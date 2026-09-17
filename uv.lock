@@ -44,6 +44,7 @@ members = [
     "phlo-oauth2-proxy",
     "phlo-observatory",
     "phlo-observatory-example",
+    "phlo-observatory-storybook",
     "phlo-openmetadata",
     "phlo-otel",
     "phlo-pandera",
@@ -3968,7 +3969,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-observatory"
-version = "0.16.2"
+version = "0.17.0.dev0"
 source = { editable = "packages/phlo-observatory" }
 dependencies = [
     { name = "phlo" },
@@ -4006,6 +4007,11 @@ requires-dist = [
     { name = "phlo", editable = "." },
     { name = "phlo-observatory", editable = "packages/phlo-observatory" },
 ]
+
+[[package]]
+name = "phlo-observatory-storybook"
+version = "0.17.0.dev0"
+source = { virtual = "packages/phlo-observatory-storybook" }
 
 [[package]]
 name = "phlo-openmetadata"
