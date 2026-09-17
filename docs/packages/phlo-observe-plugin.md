@@ -51,10 +51,14 @@ set (see below); without the SDK the plugin is inert anyway, so the build arg
 gates both.
 
 The `phlo-observe` SDK it drives requires Python >=3.12 and is not yet
-published to PyPI, so it is intentionally not a declared dependency. Install
-each unpublished workspace package from the source repository — a single
-subdirectory install cannot resolve the repo's `observe-core`/`observe-query`
-workspace sources:
+published to PyPI, so it is intentionally not a declared runtime dependency.
+Development environments get it automatically: the `dev` dependency group
+declares all three packages marker-gated to `python_version >= '3.12'` and
+`[tool.uv.sources]` resolves them from the pinned V2 commit — `uv sync` on
+3.12 installs them (and the observability e2e tests run), while 3.11 skips
+both. Outside the dev environment install each unpublished workspace package
+from the source repository — a single subdirectory install cannot resolve
+the repo's `observe-core`/`observe-query` workspace sources:
 
 ```bash
 uv pip install \
@@ -135,6 +139,11 @@ observer holding different credentials. Instead:
 - `phlo_observe_plugin.dagster_ext.ObserveDagsterExtension` — Dagster
   run-status sensors (`observe_run_success`, `observe_run_failure`,
   `observe_run_canceled`), all defaulting to RUNNING
-- `phlo_observe_plugin.service.yaml` — `phlo-observer` service definition
+- `phlo_observe_plugin.service.yaml` — `phlo-observer` service definition.
+  No published image speaks the V2 envelope (`0.1.0`/`latest` accept only
+  `schema_version` 1.x), so the service builds from the phlo-observe monorepo
+  at the pinned V2 commit `91a32fa` via a remote git `build.context`,
+  `services/phlo-observer/Dockerfile`, and `pull_policy: build`. When a V2
+  image ships, pin `image:` to its digest and drop the build block.
 - `phlo_observe_plugin.db-setup.yaml` — one-shot `phlo_observer` database
   provisioning on the shared Postgres service

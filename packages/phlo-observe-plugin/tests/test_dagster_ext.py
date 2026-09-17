@@ -19,7 +19,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
         calls.append({"name": name, **kwargs})
 
     monkeypatch.setattr(phlo_observe, "emit", _capture)
-    monkeypatch.setattr(phlo_observe, "available", lambda: True)
+    monkeypatch.setattr(phlo_observe, "enabled", lambda: True)
     monkeypatch.setattr(phlo_observe, "run_entity_for", lambda p, r: f"run://{p}/{r}")
     monkeypatch.setattr(
         phlo_observe,
@@ -35,9 +35,11 @@ def _context(
     job_name: str = "job-a",
     status: str = "SUCCESS",
     tags: dict[str, str] | None = None,
-    event_ts: float = 1700000060.0,
+    end_ts: float = 1700000060.0,
     start_ts: float = 1700000000.0,
 ) -> Any:
+    """Mirror the real RunStatusSensorContext surface: ``dagster_event`` is a
+    DagsterEvent with no timestamp; run timing comes from get_run_stats."""
     run = SimpleNamespace(
         run_id=run_id,
         job_name=job_name,
@@ -47,10 +49,12 @@ def _context(
         asset_selection=frozenset({"a", "b"}),
     )
     instance = MagicMock()
-    instance.get_run_stats.return_value = SimpleNamespace(start_time=start_ts, launch_time=start_ts)
+    instance.get_run_stats.return_value = SimpleNamespace(
+        start_time=start_ts, launch_time=start_ts, end_time=end_ts
+    )
     return SimpleNamespace(
         dagster_run=run,
-        dagster_event=SimpleNamespace(timestamp=event_ts),
+        dagster_event=SimpleNamespace(),
         instance=instance,
     )
 
@@ -128,8 +132,10 @@ def test_wap_catalog_system_tag_names_branch_owner(captured: list) -> None:
     assert evt["entities"]["branch"] == "branch://polaris/pipeline-run-9"
 
 
-def test_unavailable_sdk_skips_emission(captured: list, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(phlo_observe, "available", lambda: False)
+def test_disabled_sdk_skips_emission(captured: list, monkeypatch: pytest.MonkeyPatch) -> None:
+    """enabled() False (SDK absent or observability off) skips the stats query
+    and the emission entirely."""
+    monkeypatch.setattr(phlo_observe, "enabled", lambda: False)
     from phlo_observe_plugin.dagster_ext import _emit_pipeline_run
 
     _emit_pipeline_run(_context(), "SUCCESS")

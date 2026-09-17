@@ -79,6 +79,14 @@ def test_emit_noop() -> None:
         producer="dagster",
     )
     phlo_observe.emit_dbt_run_results({"results": []})
+    phlo_observe.emit_asset_check(object(), check_name="x", passed=True)
+
+
+def test_enabled_false_without_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """enabled() gates translation work: False when the SDK cannot import."""
+    monkeypatch.setattr(phlo_observe, "_import_optional", lambda *a, **kw: None)
+    phlo_observe.reset_for_tests()
+    assert phlo_observe.enabled() is False
 
 
 def test_ambient_helpers_return_none_without_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,6 +198,7 @@ def test_emit_degrades_entities_and_tags_on_pre_v2_sdk(
     )
     monkeypatch.setattr(phlo_observe, "_observe_core", lambda: object())
     monkeypatch.setattr(phlo_observe, "configure", lambda **kw: True)
+    monkeypatch.setattr(phlo_observe, "enabled", lambda: True)
 
     phlo_observe.emit(
         "ingestion.load",

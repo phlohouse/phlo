@@ -72,6 +72,24 @@ def available() -> bool:
     return _sdk_module() is not None
 
 
+def enabled() -> bool:
+    """Return whether emission is live: SDK present, configured, and enabled.
+
+    Callers translating upstream events (hook plugins, adapters) should gate
+    on this so a disabled or absent SDK costs one cheap check rather than a
+    full translation whose emit() drops at the runtime anyway.
+    """
+    if _observe_core() is None or not configure():
+        return False
+    try:
+        runtime_mod = _import_optional("observe_core.runtime")
+        if runtime_mod is None:
+            return False
+        return bool(runtime_mod.get_runtime().settings.enabled)
+    except Exception:  # noqa: BLE001 - a broken check must read as disabled
+        return False
+
+
 def _env_flag(name: str) -> bool | None:
     """Parse a boolean-ish environment variable; None when unset."""
     raw = os.environ.get(name)
@@ -337,7 +355,7 @@ def emit(
     real execution window rather than the emission instant. Ambient and
     operation context still merge underneath explicit ``correlation`` values.
     """
-    if _observe_core() is None or not configure():
+    if not enabled():
         return
     try:
         builder_mod = _import_optional("observe_core.builder")
@@ -452,6 +470,19 @@ def emit_materialization(context: Any, **kwargs: Any) -> Any:
         return materialize(_guarded(context), **kwargs)
     except Exception:  # noqa: BLE001
         return _null_scope()
+
+
+def emit_asset_check(context: Any, *, check_name: str, passed: bool, **kwargs: Any) -> None:
+    """Emit a ``quality.check`` event for a Dagster asset check result."""
+    if not enabled():
+        return
+    emit_check = _import_optional("phlo_observe.integrations.dagster", "emit_asset_check")
+    if emit_check is None:
+        return
+    try:
+        emit_check(_guarded(context), check_name=check_name, passed=passed, **kwargs)
+    except Exception:  # noqa: BLE001
+        return
 
 
 # -- DLT integration ------------------------------------------------------------

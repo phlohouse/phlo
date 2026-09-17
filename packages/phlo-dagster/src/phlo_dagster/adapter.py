@@ -416,6 +416,21 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
                     # failing the step on list(None).
                     raw_results = spec.run.fn(runtime) if spec.run else None
                     results = list(raw_results) if raw_results is not None else []
+                    # In-band check results emit inside the step scope so the
+                    # quality.check event joins this step's trace; yields happen
+                    # outside so no ambient context survives suspension.
+                    for result in results:
+                        if isinstance(result, CheckResult):
+                            phlo_observe.emit_asset_check(
+                                context,
+                                check_name=result.check_name,
+                                passed=result.passed,
+                                severity=(
+                                    _severity_from_string(result.severity)
+                                    or dg.AssetCheckSeverity.ERROR
+                                ).name.lower(),
+                                asset_key=result.asset_key,
+                            )
             for result in results:
                 if isinstance(result, MaterializeResult):
                     metadata = _convert_metadata(result.metadata)
@@ -484,11 +499,21 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             with phlo_observe.dagster_run_scope(context, asset_key=spec.asset_key):
                 with phlo_observe.dagster_step(context):
                     result = spec.fn(runtime) if spec.fn else None
+                    severity = (
+                        _severity_from_string(result.severity) if result is not None else None
+                    ) or default_severity
+                    # Emit inside the step scope so quality.check joins the
+                    # check step's trace and inherits run/asset correlation.
+                    phlo_observe.emit_asset_check(
+                        context,
+                        check_name=result.check_name if result is not None else spec.name,
+                        passed=result.passed if result is not None else True,
+                        severity=severity.name.lower(),
+                        asset_key=spec.asset_key,
+                    )
             if result is None:
                 return dg.AssetCheckResult(passed=True, check_name=spec.name, asset_key=asset_key)
             metadata = _convert_metadata(result.metadata)
-            result_severity = _severity_from_string(result.severity)
-            severity = result_severity or default_severity
             return dg.AssetCheckResult(
                 passed=result.passed,
                 check_name=result.check_name,

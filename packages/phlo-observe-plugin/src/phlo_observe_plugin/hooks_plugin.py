@@ -14,8 +14,14 @@ Correlation model:
   preserved as ``attributes.phlo_run_id`` so retries share it while each
   attempt keeps its own run row — the observer's run-status precedence is
   monotonic and a failed first attempt must not poison a retried run.
-- ``trace_id`` is forwarded verbatim from the hook correlation (which is also
-  what phlo-otel stamps), so observe events and OTel spans share one trace.
+- ``trace_id``/``span_id`` are forwarded verbatim from the hook correlation
+  *when upstream code populates them* (e.g. a caller that already stamped OTel
+  ids onto the event). Phlo does not currently bridge the OTel trace context
+  into ``HookCorrelation``, so in practice observe events carry the trace ids
+  observe-core generates per operation scope; hook-level ``trace_id`` is None
+  and no field is fabricated. Wiring ``HookCorrelation.trace_id`` to the active
+  OTel context would make observe events join the same trace, but that bridge
+  does not exist yet — do not read the forwarded key as OTel-linked today.
 - Canonical keys map directly: ``job_name -> job_id``, ``partition_key``,
   ``asset_key``, ``branch``, ``request_id``. Everything else lands in
   ``attributes``.
@@ -165,6 +171,11 @@ class ObserveHookPlugin(HookPlugin):
 
     def _handle(self, event: HookEvent) -> None:
         """Translate one hook event into canonical observe events."""
+        # Cheap gate first: when the SDK is absent or observability is
+        # disabled, translation work (and its importlib lookups) is pure
+        # waste — emit() would drop the result at the runtime regardless.
+        if not phlo_observe.enabled():
+            return
         if isinstance(event, IngestionEvent):
             self._handle_ingestion(event)
         elif isinstance(event, TransformEvent):

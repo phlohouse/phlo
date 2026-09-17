@@ -188,13 +188,13 @@ def test_phlo_owned_images_are_explicitly_disabled_and_never_automerged() -> Non
     # ghcr.io/phlohouse/phlo-observe/* images are released by the sibling
     # phlo-observe repository, so they are upstream artifacts here: excluded
     # from the phlo-owned disable rule and digest-managed by Renovate like any
-    # other vendor image. Everything else under phlohouse/phlo-* must stay
-    # invisible to the custom manager.
+    # other vendor image when one is pinned. The observer service currently
+    # builds from a pinned git context (no published image accepts the V2
+    # envelope), so no file references a phlo-observe image today; when the
+    # v0.2.x pin lands the manager must match it. Everything else under
+    # phlohouse/phlo-* must stay invisible to the custom manager.
     observer_files = [
         path for path in internal_files if "phlo-observe/" in path.read_text(encoding="utf-8")
-    ]
-    assert observer_files == [
-        REPO_ROOT / "packages/phlo-observe-plugin/src/phlo_observe_plugin/service.yaml"
     ]
     phlo_owned_files = [path for path in internal_files if path not in observer_files]
     assert len(phlo_owned_files) == 4

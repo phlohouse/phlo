@@ -26,13 +26,18 @@ from phlo.hooks.events import (
 
 @pytest.fixture
 def captured(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    """Capture every phlo_observe.emit call as a kwargs dict."""
+    """Capture every phlo_observe.emit call as a kwargs dict.
+
+    ``enabled`` is patched live too: _handle gates on it before translating,
+    and the real check needs the optional SDK which 3.11 test runs lack.
+    """
     calls: list[dict[str, Any]] = []
 
     def _capture(name: str, **kwargs: Any) -> None:
         calls.append({"name": name, **kwargs})
 
     monkeypatch.setattr(phlo_observe, "emit", _capture)
+    monkeypatch.setattr(phlo_observe, "enabled", lambda: True)
     return calls
 
 

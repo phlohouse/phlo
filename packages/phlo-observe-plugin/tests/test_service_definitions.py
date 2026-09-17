@@ -17,10 +17,15 @@ def test_observer_service_definition_parses() -> None:
     definition = ServiceDefinition.from_yaml(_PKG_SRC / "service.yaml")
     assert definition.name == "phlo-observer"
     assert definition.image is not None
-    # Released by the sibling phlo-observe repository, so it is a vendor image
-    # here: digest-pinned and renovate-managed like trino or postgres.
-    assert "phlo-observe/phlo-observer:0.1.0" in definition.image
-    assert "@sha256:" in definition.image
+    # No published image accepts the V2 envelope (0.1.0/latest reject
+    # schema_version 2.x), so the service builds from the pinned V2 commit
+    # until a phlo-observer v0.2.x release exists. The image key is only the
+    # local tag the build produces — pull_policy keeps compose from pulling it.
+    build = definition.build or {}
+    context = str(build.get("context", ""))
+    assert "phlo-observe.git#" in context
+    assert build.get("dockerfile") == "services/phlo-observer/Dockerfile"
+    assert definition.compose.get("pull_policy") == "build"
 
     compose = definition.compose
     ports = compose.get("ports") or {}

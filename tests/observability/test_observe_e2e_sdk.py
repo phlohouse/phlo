@@ -54,6 +54,14 @@ def captured() -> Any:
     phlo_observe.reset_for_tests()
 
 
+def test_enabled_reflects_runtime_flag(captured: Any) -> None:
+    """The plugin's translation gate follows the real runtime flag."""
+    assert phlo_observe.enabled() is True
+    phlo_observe.reset_for_tests()
+    assert phlo_observe.configure(enabled=False, drains=[], service_name="phlo-test")
+    assert phlo_observe.enabled() is False
+
+
 def test_wap_run_produces_coherent_correlated_history(captured: Any) -> None:
     from phlo_observe_plugin.hooks_plugin import ObserveHookPlugin
 

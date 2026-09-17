@@ -46,7 +46,9 @@ def _ts(epoch: Any) -> datetime | None:
 
 def _emit_pipeline_run(context: Any, dagster_status: Any) -> None:
     """Emit the terminal ``pipeline.run`` event for one Dagster run."""
-    if not phlo_observe.available():
+    # enabled(), not available(): a disabled runtime should skip the run-stats
+    # query entirely, not do the work and drop the event at emit().
+    if not phlo_observe.enabled():
         return
     try:
         run = context.dagster_run
@@ -67,14 +69,17 @@ def _emit_pipeline_run(context: Any, dagster_status: Any) -> None:
                 branch, system=tags.get(_WAP_CATALOG_SYSTEM_TAG) or "nessie"
             )
 
-        ended_at = _ts(getattr(context.dagster_event, "timestamp", None))
         started_at = None
+        ended_at = None
         duration_ms = None
         try:
+            # DagsterEvent carries no timestamp; run stats hold the real
+            # launch/start/end times for the physical attempt.
             stats = context.instance.get_run_stats(run_id)
             started_at = _ts(getattr(stats, "start_time", None)) or _ts(
                 getattr(stats, "launch_time", None)
             )
+            ended_at = _ts(getattr(stats, "end_time", None))
             if started_at and ended_at:
                 duration_ms = (ended_at - started_at).total_seconds() * 1000.0
         except Exception:  # noqa: BLE001 - timing is best-effort

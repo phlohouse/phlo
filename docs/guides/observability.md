@@ -34,6 +34,7 @@ Three layers, three responsibilities:
 | Dagster run boundary   | `pipeline.run` (terminal, per attempt)     | `ObserveDagsterExtension` run-status sensors |
 | Dagster step           | `pipeline.step`                            | `phlo_dagster/adapter.py`                    |
 | Asset materialization  | `asset.materialize`                        | `phlo_dagster/adapter.py`                    |
+| Dagster asset checks   | `quality.check` (in-band `CheckResult` and dedicated `@asset_check`) | `phlo_dagster/adapter.py` |
 | DLT pipeline run       | `dlt.pipeline.run` (terminal, `load_id`)   | `phlo_dlt/dlt_helpers.py`                    |
 | dbt invocation/nodes   | `dbt.invocation`, per-model/test events    | `phlo_dbt/transformer.py`                    |
 | Iceberg table writes   | `iceberg.commit` (append/merge/overwrite)  | `phlo_iceberg/tables.py`                     |
@@ -66,11 +67,38 @@ and dagster-daemon definitions map it to the in-cluster address
 `http://phlo-observer:8080/v1/events`. Exporting it after generation has no
 effect — re-run `phlo services add` to re-render.
 
-The SDK itself is not on PyPI yet and requires Python >=3.12. For generated
-Dagster images pass the workspace git requirements as the `PHLO_OBSERVE_SDK`
-build arg (see `packages/phlo-dagster/src/phlo_dagster/Dockerfile`); the image
-then also installs `phlo-observe-plugin`. Without the SDK the shim stays
-inert and pipelines run exactly as before.
+The SDK itself is not on PyPI yet and requires Python >=3.12. The dev
+environment resolves it automatically: `uv sync` pulls `observe-core`,
+`observe-query`, and `phlo-observe` from the pinned V2 commit in
+`pyproject.toml`'s `[tool.uv.sources]` (marker-gated to `python_version >=
+'3.12'`; on 3.11 the markers exclude them and the observability tests skip).
+For generated Dagster images pass the workspace git requirements as the
+`PHLO_OBSERVE_SDK` build arg (see
+`packages/phlo-dagster/src/phlo_dagster/Dockerfile`); the image then also
+installs `phlo-observe-plugin`. Without the SDK the shim stays inert and
+pipelines run exactly as before.
+
+### The observer image
+
+No published `phlo-observer` image supports V2 yet — `0.1.0` and `latest`
+both reject `schema_version: "2.0"` envelopes. The service definition
+therefore **builds** the observer from the sibling repository at the pinned
+V2 commit (`91a32fa`, the current `main`) instead of pulling an image:
+
+```yaml
+build:
+  context: https://github.com/phlohouse/phlo-observe.git#91a32fa29ce19aac0e31ed3750a9090776267bd0
+  dockerfile: services/phlo-observer/Dockerfile
+```
+
+`docker compose` builds remote git contexts natively, so `phlo services
+start` compiles the image locally (tagged `phlo-observer:v2-91a32fa`) on the
+first run — no registry access or manual checkout required. The commit SHA is
+pinned, so builds are reproducible; `pull_policy: build` prevents compose
+from ever pulling a stale same-named tag. When a V2 observer release is
+published, replace the `build:` block with a digest-pinned `image:` and drop
+`pull_policy` — the renovate rule for `ghcr.io/phlohouse/phlo-observe/**`
+already anticipates that reference.
 
 ## Configuration
 
@@ -178,6 +206,22 @@ only useful while debugging, it is a log.
   so `dbt.invocation`/model/test events inherit the run's job/partition/asset
   correlation while their own `invocation_id` owns the `run://dbt/<id>` row.
 
+## Performance
+
+`tests/observability/test_observe_dagster_e2e.py` measures whole-pipeline
+overhead: the same asset materialization (ingestion hook events, a check
+result, a materialization — the full observe event path) executed through
+`dagster.materialize()` with the SDK enabled versus disabled.
+
+Measured on this path: **~5.7ms added per materialization** (~14% of a
+no-op asset's ~40ms of pure Dagster orchestration; against real DLT/dbt
+workloads measured in seconds this is noise). The test asserts under 500ms
+per materialization — a structural bound against synchronous delivery,
+per-event reconfiguration, or emission inside row loops, not a
+microbenchmark. When disabled, `ObserveHookPlugin._handle` returns before
+any translation and the shim's scopes short-circuit, so the disabled leg
+pays only a cheap flag check per call.
+
 ## Debugging without the observer
 
 The observer is never on a pipeline's critical path. If it is down or
@@ -209,15 +253,19 @@ Documented here rather than worked around speculatively:
 - The observer's run model is per physical attempt (by design); grouping
   attempts under `phlo_run_id` for "latest attempt" views is a consumer-side
   query, not something the events can express.
-- **Release gap:** the integration emits the V2 (2.x) envelope and entity
-  model, but the latest published artifacts — `phlo-observer` image `0.1.0`
-  and the `phlo-observe/v0.1.0` SDK tag — are V1-only. The pinned image
-  rejects V2 envelopes (`schema_version must be 1.x`) and the V1 SDK has no
-  `set_entity`/`set_tag` (Phlo degrades those fields with a warning rather
-  than dropping events). Until a V2 release is cut, install the SDK from the
-  pinned V2 commit shown in `packages/phlo-observe-plugin.md` and run an
-  observer image built from that commit; bump the `phlo-observer` image pin
-  in `service.yaml` when the release lands.
+- **Release gap (worked around, not resolved):** the integration emits the
+  V2 (2.x) envelope and entity model, but no V2 artifacts are published —
+  `phlo-observer` images `0.1.0` and `latest` are V1-only and reject
+  `schema_version: "2.0"` payloads, and the `phlo-observe/v0.1.0` SDK tag
+  lacks `set_entity`/`set_tag`. The deployment therefore builds the observer
+  from pinned commit `91a32fa` (see "The observer image" above) and dev/test
+  environments resolve the SDK from the same commit via `tool.uv.sources`.
+  When a V2 release lands: pin `image:` to its digest in `service.yaml`,
+  drop `build:`/`pull_policy`, and repoint the git sources at the tag.
+- **OTel trace bridging:** observe events generate their own `trace_id` per
+  operation scope; `HookCorrelation.trace_id` is forwarded when populated
+  but nothing in Phlo stamps the active OTel trace context onto hook events
+  today, so observe traces and OTel traces are parallel, not shared.
 
 See `docs/packages/phlo-observe-plugin.md` for the service definitions and
 deployment layout, and the phlo-observe repo's `docs/` for the platform spec.

@@ -4,11 +4,21 @@ category: observability
 default: false
 profile: observability
 
-# NOTE: 0.1.0 is the latest published phlo-observer release and predates the
-# V2 envelope (it rejects schema_version 2.x payloads). A V2-capable observer
-# release is required for ingest; bump this pin when phlo-observer/v0.2.x is
-# published. See docs/guides/observability.md "Known phlo-observe gaps".
-image: ghcr.io/phlohouse/phlo-observe/phlo-observer:0.1.0@sha256:2b0eff9151e18edb3b9d6bac350561c1617fa72bf2c2987142e1700cbf04dc49
+# No V2-capable phlo-observer release exists yet: every published image
+# (0.1.0, latest) predates the V2 envelope and rejects schema_version 2.x
+# payloads. Until phlo-observer/v0.2.x is published the image is built from
+# the phlo-observe monorepo at the same pinned V2 commit the Dagster image
+# installs the SDK from (PHLO_OBSERVE_SDK); the `image:` key names the local
+# tag the build produces. Renovate does not track git-context builds — switch
+# `image:` to the published tag+digest and drop `build:` when a V2 release
+# lands. See docs/guides/observability.md "Known phlo-observe gaps".
+image: phlo-observer:v2-91a32fa
+build:
+  context: https://github.com/phlohouse/phlo-observe.git#91a32fa29ce19aac0e31ed3750a9090776267bd0
+  dockerfile: services/phlo-observer/Dockerfile
+  args:
+    VCS_REF: 91a32fa29ce19aac0e31ed3750a9090776267bd0
+    VERSION: v2-91a32fa
 
 depends_on:
   - postgres
@@ -16,6 +26,8 @@ depends_on:
 
 compose:
   restart: unless-stopped
+  # The tag above exists only as the local build output; never pull.
+  pull_policy: build
   labels:
     phlo.metrics.enabled: "false"
   environment:
