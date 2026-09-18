@@ -183,11 +183,38 @@ collection is empty for this project, so `_load_assets()` attaches no checks and
 pick up dbt-generated tests. `asset_check_executions` is the ground truth and is
 not being read at all.
 
-**The missing seam.** `phlo-api` has no SQL client. The run-evidence DB
-(`PHLO_RUN_EVIDENCE_DB_URL`) is currently consumed only by
-`phlo-dagster/src/phlo_dagster/webserver.py`. Reading checks/owners into Mission
-Control needs either a shared evidence-store reader in `phlo-api`, or a
-`phlo-dagster` endpoint that proxies these rows.
+**Read it over Dagster GraphQL, not SQL.** `phlo-api` already talks to Dagster
+GraphQL at `DAGSTER_GRAPHQL_URL`, so the checks need no new SQL client:
+
+```graphql
+{ assetCheckExecutions(assetKey: {path: ["sales_facts"]},
+                       checkName: "dbt__unique__sales_facts__unique_sales_facts_line_id",
+                       limit: 5) { status timestamp runId } }
+```
+
+returns
+
+```json
+[{"status": "EXECUTION_FAILED", "timestamp": 1789733920.98, "runId": "9056feb2-…"},
+ {"status": "SUCCEEDED",        "timestamp": 1789733910.40, "runId": "d0ebd84c-…"}]
+```
+
+`AssetCheckExecution.status` is the **resolved** status (`SUCCEEDED`,
+`EXECUTION_FAILED`, …). This matters: the SQL `execution_status` column held
+`PLANNED` for the latest run because it failed before evaluation, which would
+have understated the failure. Use GraphQL.
+
+`assetCheckExecutions` takes a single `assetKey` + `checkName`, so fetch the
+check list per asset first (`AssetNode.assetChecksOrError`), then resolve
+executions per check.
+
+**Caveat.** The registry gap above still stands: the check *catalogue* has to
+come from somewhere. For this project the names are in
+`asset_check_executions.check_name` and in the dbt manifest.
+
+**The missing seam.** ~~`phlo-api` has no SQL client.~~ Resolved: read checks
+over Dagster GraphQL (above), which `phlo-api` already uses. No SQL client and
+no new `phlo-dagster` endpoint are needed.
 
 ## Data model gaps that block stage 2
 
