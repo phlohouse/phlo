@@ -93,6 +93,12 @@ _ROUTERS = [
     ("phlo_api.observatory_api.observatory", "/api/observatory"),
     ("phlo_api.observatory_api.package_install", "/api/observatory"),
     ("phlo_api.observatory_api.run_report", "/api/observatory"),
+    ("phlo_api.observatory_api.observatory_mission_overview", "/api/observatory"),
+    ("phlo_api.observatory_api.observatory_mission_evidence", "/api/observatory"),
+    ("phlo_api.observatory_api.observatory_mission_releases", "/api/observatory"),
+    ("phlo_api.observatory_api.observatory_mission_platform", "/api/observatory"),
+    ("phlo_api.observatory_api.observatory_mission_governance", "/api/observatory"),
+    ("phlo_api.observatory_api.observatory_mission_workspace", "/api/observatory"),
 ]
 
 _OBSERVATORY_ROUTERS_NO_PREFIX: list[str] = []

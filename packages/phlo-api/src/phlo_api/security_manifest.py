@@ -206,6 +206,103 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_type="observability",
     ),
     *_specs(
+        # Mission Control operator read models (shell + Overview).
+        (
+            "get_mission_alerts",
+            "get_mission_environments",
+            "get_mission_attention",
+            "get_mission_execution",
+        ),
+        action=CanonicalAction.ADMIN_READ.value,
+        resource_type="admin",
+    ),
+    *_specs(
+        # Per-run evidence.
+        (
+            "get_mission_run_stages",
+            "get_mission_run_quality",
+            "get_mission_run_events",
+            "get_mission_run_traces",
+            "get_mission_run_artifacts",
+            "get_mission_run_consumers",
+            "get_mission_run_configuration",
+        ),
+        action=CanonicalAction.RUN_READ.value,
+        resource_type="run",
+        resource_keys=("run_id",),
+    ),
+    *_specs(
+        ("get_mission_dataset_governance",),
+        action=CanonicalAction.DATASET_READ.value,
+        resource_type="dataset",
+        resource_keys=("dataset_id",),
+    ),
+    *_specs(
+        # Releases: promotion control and history.
+        (
+            "get_mission_release_summary",
+            "get_mission_release_candidates",
+            "get_mission_completed_releases",
+        ),
+        action=CanonicalAction.DATASET_READ.value,
+        resource_type="dataset",
+    ),
+    *_specs(
+        ("get_mission_release_candidate",),
+        action=CanonicalAction.DATASET_READ.value,
+        resource_type="dataset",
+        resource_keys=("candidate_id",),
+    ),
+    *_specs(
+        # Platform readiness and recovery.
+        ("get_mission_platform_summary", "get_mission_platform_services"),
+        action=CanonicalAction.OBSERVABILITY_READ.value,
+        resource_type="observability",
+    ),
+    *_specs(
+        ("get_mission_service_diagnostics",),
+        action=CanonicalAction.OBSERVABILITY_READ.value,
+        resource_type="observability",
+        resource_keys=("service_id",),
+    ),
+    *_specs(
+        ("get_mission_backup_coverage", "get_mission_maintenance"),
+        action=CanonicalAction.MAINTENANCE_READ.value,
+        resource_type="maintenance",
+    ),
+    *_specs(
+        # Governance: publication, access drift, ownership, audit.
+        (
+            "get_mission_publication_reviews",
+            "get_mission_access_drift",
+            "get_mission_ownership_gaps",
+        ),
+        action=CanonicalAction.ADMIN_READ.value,
+        resource_type="admin",
+    ),
+    *_specs(
+        ("get_mission_audit_events",),
+        action=CanonicalAction.AUDIT_READ.value,
+        resource_type="audit",
+    ),
+    *_specs(
+        # Workspace settings.
+        (
+            "get_mission_provider_connections",
+            "get_mission_notification_rules",
+            "get_mission_workspace_members",
+            "get_mission_workspace_defaults",
+        ),
+        action=CanonicalAction.SETTINGS_READ.value,
+        resource_type="settings",
+    ),
+    *_specs(
+        ("get_mission_provider_impact",),
+        action=CanonicalAction.SETTINGS_READ.value,
+        resource_type="settings",
+        resource_keys=("provider_id",),
+    ),
+    *_specs(
         (
             "get_observatory_overview",
             "get_observatory_capabilities",
