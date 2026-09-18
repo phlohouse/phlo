@@ -427,6 +427,7 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
                                 ).name.lower(),
                                 asset_key=result.asset_key,
                             )
+            materialized = False
             for result in results:
                 if isinstance(result, MaterializeResult):
                     metadata = _convert_metadata(result.metadata)
@@ -457,6 +458,7 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
                         rows=_rows_out(result.metadata),
                     ):
                         pass
+                    materialized = True
                     yield dg.MaterializeResult(metadata=metadata)
                 elif isinstance(result, CheckResult):
                     severity = _severity_from_string(result.severity) or dg.AssetCheckSeverity.ERROR
@@ -469,6 +471,13 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
                         metadata=metadata,
                         severity=severity,
                     )
+            if not materialized:
+                # The step's required output needs an event even when the run
+                # function reported nothing; Dagster records a materialization
+                # for a completed asset step, so the canonical stream does too.
+                with phlo_observe.emit_materialization(context, asset_key=spec.key):
+                    pass
+                yield dg.MaterializeResult()
 
         return _asset_fn
 
