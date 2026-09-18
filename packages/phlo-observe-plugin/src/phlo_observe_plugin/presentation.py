@@ -17,14 +17,22 @@ observe-core, which is guaranteed only where the SDK is installed.
 from __future__ import annotations
 
 import contextlib
+import importlib
 import json
 import sys
 from collections.abc import Sequence
 from typing import IO, Any
 
-from observe_core import ContextField, EventPresentation, Field, PrettyRenderer
+# observe_core is an optional runtime dep — this module is imported lazily
+# by design (telemetry attaches PrettyDrain only where the SDK is present),
+# so it resolves via importlib like the rest of the optional SDK surface.
+_observe_core = importlib.import_module("observe_core")
+ContextField = _observe_core.ContextField
+EventPresentation = _observe_core.EventPresentation
+Field = _observe_core.Field
+PrettyRenderer = _observe_core.PrettyRenderer
 
-PHLO_CONTEXT: list[ContextField] = [
+PHLO_CONTEXT: list[Any] = [
     # Run-level values that identify the group an event belongs to. Kept to
     # values uniform within a run: ``correlation.pipeline`` is set only by
     # dlt-scope events and ``branch``/``asset`` are per-event fields — a
@@ -44,7 +52,7 @@ def _anonymous_job_name(value: Any) -> bool:
     return str(value).startswith("__anonymous")
 
 
-PHLO_PRESENTATION: dict[str, EventPresentation] = {
+PHLO_PRESENTATION: dict[str, Any] = {
     # -- Run/step boundaries -------------------------------------------------
     "pipeline.run": EventPresentation(
         label="Run",
@@ -522,7 +530,7 @@ PHLO_PRESENTATION: dict[str, EventPresentation] = {
 }
 
 
-def pretty_renderer(**kwargs: Any) -> PrettyRenderer:
+def pretty_renderer(**kwargs: Any) -> Any:
     """A ``PrettyRenderer`` pre-loaded with Phlo's presentation rules.
 
     ``timestamps`` defaults on: Phlo log readers want each event's
