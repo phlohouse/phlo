@@ -17,6 +17,12 @@ from phlo_api.observatory_api.observatory_mission_control_models import (
     MissionEnvironment,
     MissionExecutionRow,
     MissionOverviewRail,
+    SummaryMetricRow,
+)
+from phlo_api.observatory_api.observatory_mission_control_sources import (
+    derive_overview_attention,
+    derive_overview_execution,
+    derive_overview_metrics,
 )
 from phlo_api.observatory_api.observatory_mission_control_state import (
     find_record,
@@ -40,13 +46,19 @@ def get_mission_environments() -> list[MissionEnvironment]:
 
 @router.get("/mission/overview/attention")
 def get_mission_attention() -> list[MissionAttentionItem]:
-    """Return priority items ranked by consumer impact."""
+    """Return priority items, preferring failures observed in live runs."""
+    derived = derive_overview_attention()
+    if derived:
+        return derived
     return load_records("attention", MissionAttentionItem)
 
 
 @router.get("/mission/overview/execution")
 def get_mission_execution() -> list[MissionExecutionRow]:
-    """Return workflows currently running or queued."""
+    """Return workflows currently running or queued, from live runs when present."""
+    derived = derive_overview_execution()
+    if derived:
+        return derived
     return load_records("execution", MissionExecutionRow)
 
 
@@ -63,3 +75,12 @@ def get_mission_overview_rail() -> MissionOverviewRail:
     if rail is None:
         raise HTTPException(status_code=404, detail="No overview rail configured")
     return rail
+
+
+@router.get("/mission/overview/summary")
+def get_mission_overview_summary() -> list[SummaryMetricRow]:
+    """Return the Overview summary band, derived from live execution state."""
+    derived = derive_overview_metrics()
+    if derived:
+        return derived
+    return load_records("overview_summary", SummaryMetricRow)

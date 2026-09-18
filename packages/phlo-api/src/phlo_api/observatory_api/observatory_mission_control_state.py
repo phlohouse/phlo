@@ -947,6 +947,50 @@ SEED: dict[str, list[dict[str, Any]]] = {
             "tone": "success",
         },
     ],
+    "overview_summary": [
+        {
+            "id": "os-data",
+            "label": "Data",
+            "value": "128 datasets",
+            "hint": "121 fresh · 4 late · 3 unknown",
+            "tone": "muted",
+        },
+        {
+            "id": "os-ingestion",
+            "label": "Ingestion",
+            "value": "18 sources",
+            "hint": "16 current · 1 delayed · 1 idle",
+            "tone": "muted",
+        },
+        {
+            "id": "os-quality",
+            "label": "Quality",
+            "value": "612 checks",
+            "hint": "608 passed · 3 warnings · 1 failed",
+            "tone": "muted",
+        },
+        {
+            "id": "os-execution",
+            "label": "Execution",
+            "value": "156 runs",
+            "hint": "149 succeeded · 4 active · 3 failed",
+            "tone": "muted",
+        },
+        {
+            "id": "os-releases",
+            "label": "Releases",
+            "value": "2 pending",
+            "hint": "1 ready · 1 evidence blocked",
+            "tone": "muted",
+        },
+        {
+            "id": "os-governance",
+            "label": "Governance",
+            "value": "124 owned",
+            "hint": "4 unassigned · 2 reviews due",
+            "tone": "muted",
+        },
+    ],
     "platform_services": [
         {
             "id": "loki",

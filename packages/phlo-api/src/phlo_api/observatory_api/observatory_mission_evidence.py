@@ -24,6 +24,7 @@ from phlo_api.observatory_api.observatory_mission_control_models import (
     RunSpan,
     RunStageView,
 )
+from phlo_api.observatory_api.observatory_mission_control_sources import derive_run
 from phlo_api.observatory_api.observatory_mission_control_state import (
     find_by,
     load_records,
@@ -92,7 +93,14 @@ def get_mission_dataset_governance(dataset_id: str) -> DatasetGovernance:
 
 @router.get("/mission/runs/{run_id}")
 def get_mission_run(run_id: str) -> MissionRunDetail:
-    """Return the run header, metrics and details rail payload."""
+    """Return the run header, metrics and details rail payload.
+
+    Live orchestrator state wins; the seeded read model is the fallback.
+    """
+    derived = derive_run(run_id)
+    if derived is not None:
+        return derived
+
     record = find_by("run_detail", MissionRunDetail, run_id=run_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"Unknown run {run_id}")
