@@ -18,7 +18,7 @@ const COLUMNS: Array<DataColumn<ReleaseCandidate>> = [
     width: "w-65",
     cell: (row) => (
       <span className="font-medium">
-        {row.id} · {row.dataset}
+        {row.dataset === row.id ? row.id : `${row.id} · ${row.dataset}`}
       </span>
     ),
   },
