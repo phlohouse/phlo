@@ -81,12 +81,11 @@ query AssetChecksQuery {
 """
 
 ASSET_CHECK_EXECUTIONS_QUERY = """
-query AssetCheckExecutionsQuery($assetKey: AssetKeyInput!, $limit: Int!) {
-    assetCheckExecutions(assetKey: $assetKey, limit: $limit) {
+query AssetCheckExecutionsQuery($assetKey: AssetKeyInput!, $checkName: String!, $limit: Int!) {
+    assetCheckExecutions(assetKey: $assetKey, checkName: $checkName, limit: $limit) {
         status
         runId
         timestamp
-        checkName
         evaluation {
             severity
             metadataEntries {
@@ -181,7 +180,10 @@ def normalize_status(status: str) -> CheckStatus:
     normalized = status.strip().upper()
     if normalized == "SUCCEEDED":
         return "PASSED"
-    if normalized == "FAILED":
+    # Dagster reports a raised check as EXECUTION_FAILED; both spellings mean
+    # the check did not pass, and falling through to SKIPPED would report a
+    # real failure as a non-event.
+    if normalized in {"FAILED", "EXECUTION_FAILED"}:
         return "FAILED"
     if normalized == "IN_PROGRESS":
         return "IN_PROGRESS"
@@ -301,20 +303,31 @@ async def fetch_quality_snapshot(dagster_url: str, recent_limit: int = 50) -> di
         for asset in assets_with_checks:
             asset_key = asset["asset_key"]
             checks = asset["checks"]
-            # Over-fetch executions so every check has at least a few recent
-            # runs even when execution history is skewed toward some checks.
-            per_asset_limit = max(50, len(checks) * 3)
+            # Executions are addressable per check, so fetch each check's own
+            # history and tag the rows with the check they belong to.
+            per_check_limit = max(50, len(checks) * 3)
 
-            exec_data = await dagster_query(
-                client,
-                dagster_url,
-                ASSET_CHECK_EXECUTIONS_QUERY,
-                {"assetKey": {"path": asset_key}, "limit": per_asset_limit},
-            )
-            if not exec_data:
-                continue
+            executions: list[dict[str, Any]] = []
+            for check_def in checks:
+                check_name = check_def.get("name")
+                if not check_name:
+                    continue
+                exec_data = await dagster_query(
+                    client,
+                    dagster_url,
+                    ASSET_CHECK_EXECUTIONS_QUERY,
+                    {
+                        "assetKey": {"path": asset_key},
+                        "checkName": check_name,
+                        "limit": per_check_limit,
+                    },
+                )
+                if not exec_data:
+                    continue
+                for row in exec_data.get("assetCheckExecutions", []):
+                    row["checkName"] = check_name
+                    executions.append(row)
 
-            executions = exec_data.get("assetCheckExecutions", [])
             total_checks += len(checks)
 
             # Get newest execution per check

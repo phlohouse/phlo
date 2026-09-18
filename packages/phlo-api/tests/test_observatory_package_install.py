@@ -13,7 +13,26 @@ import subprocess
 
 from phlo_api.main import app
 from phlo_api.observatory_api import observatory, package_install, run_report
+from phlo_api.observatory_api import (
+    observatory_mission_evidence,
+    observatory_mission_governance,
+    observatory_mission_overview,
+    observatory_mission_platform,
+    observatory_mission_releases,
+    observatory_mission_workspace,
+)
 from security_test_support import authenticated_client
+
+# Mission Control is mounted as its own set of routers rather than folded into
+# the legacy Observatory router, so the route contract has to account for them.
+_MISSION_ROUTERS = (
+    observatory_mission_overview.router,
+    observatory_mission_evidence.router,
+    observatory_mission_releases.router,
+    observatory_mission_platform.router,
+    observatory_mission_governance.router,
+    observatory_mission_workspace.router,
+)
 
 
 def test_package_install_router_preserves_the_observatory_route_contract() -> None:
@@ -33,6 +52,12 @@ def test_package_install_router_preserves_the_observatory_route_contract() -> No
         for route in run_report.router.routes
         for method in route.methods or ()
     }
+    mission_operations = {
+        (method, route.path.replace(":path}", "}"))
+        for router in _MISSION_ROUTERS
+        for route in router.routes
+        for method in route.methods or ()
+    }
     registered_operations = {
         (method, route.path.removeprefix("/api/observatory").replace(":path}", "}"))
         for route in app.routes
@@ -45,7 +70,10 @@ def test_package_install_router_preserves_the_observatory_route_contract() -> No
     }
     assert ("POST", "/packages/install") not in observatory_operations
     assert (
-        observatory_operations | package_install_operations | run_report_operations
+        observatory_operations
+        | package_install_operations
+        | run_report_operations
+        | mission_operations
         == registered_operations
     )
     openapi_operations = {

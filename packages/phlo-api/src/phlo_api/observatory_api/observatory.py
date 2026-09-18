@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import Counter, deque
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
+import asyncio
 import heapq
 import importlib
 import importlib.util
@@ -116,6 +117,7 @@ from phlo_api.observatory_api.observatory_models import (
     ObservatoryTablePreview,
     ObservatoryTelemetryPrivacyPolicy,
     ObservatoryUpstreamTableRef,
+    QualityStatus,
 )
 from phlo_api.observatory_api.observatory_metadata import safe_metadata as _safe_metadata
 from phlo_api.observatory_api.observatory_operation_journal import (
@@ -1152,7 +1154,60 @@ def _load_quality() -> list[ObservatoryQualityCheck]:
                 metadata=_safe_metadata(check.tags),
             )
         )
-    return sorted(_merge_by_id(checks), key=lambda item: item.id)
+    checks = _merge_by_id(checks)
+    if not checks:
+        # The capability registry does not surface dbt-generated tests, so a
+        # project full of them still reads as "no checks". Fall back to the
+        # checks Dagster actually executed rather than reporting an empty set.
+        checks = _load_quality_from_dagster()
+    return sorted(checks, key=lambda item: item.id)
+
+
+# Dagster's execution status mapped onto the Observatory quality vocabulary.
+_QUALITY_STATUS: dict[str, QualityStatus] = {
+    "PASSED": "passing",
+    "FAILED": "failing",
+    "IN_PROGRESS": "unknown",
+    "SKIPPED": "unknown",
+}
+
+
+def _load_quality_from_dagster() -> list[ObservatoryQualityCheck]:
+    """Read executed asset checks from Dagster GraphQL.
+
+    Returns an empty list when Dagster cannot be reached, so a quality screen
+    degrades to "no checks observed" instead of failing the request.
+    """
+    from phlo_api.observatory_api.quality import (
+        fetch_quality_snapshot,
+        resolve_dagster_url,
+    )
+
+    try:
+        snapshot = asyncio.run(fetch_quality_snapshot(resolve_dagster_url()))
+    except Exception:
+        return []
+    if not snapshot:
+        return []
+
+    checks: list[ObservatoryQualityCheck] = []
+    for check in snapshot.get("latest_checks") or []:
+        asset_id = "/".join(check.asset_key) if check.asset_key else ""
+        checks.append(
+            ObservatoryQualityCheck(
+                id=f"{asset_id}:{check.name}",
+                name=check.name,
+                asset_id=asset_id,
+                status=_QUALITY_STATUS.get(check.status, "unknown"),
+                severity=check.severity,
+                # Only an ERROR severity blocks; a WARN check reports without
+                # failing the run.
+                blocking=check.severity == "ERROR",
+                description=check.description,
+                metadata={},
+            )
+        )
+    return checks
 
 
 def _readiness_state(checks: Sequence[ObservatoryQualityCheck]) -> str:
