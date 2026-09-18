@@ -84,7 +84,9 @@ def get_mission_release_candidates() -> list[ReleaseCandidate]:
     return load_records("release_candidates", ReleaseCandidate)
 
 
-@router.get("/mission/releases/candidates/{candidate_id}")
+# Branch names contain "/" (e.g. wap/retail_sales_daily), so the id must be
+# captured as a path segment rather than a single segment.
+@router.get("/mission/releases/candidates/{candidate_id:path}")
 def get_mission_release_candidate(candidate_id: str) -> ReleaseCandidateDetail:
     """Return the full review payload for one candidate branch."""
     derived = derive_release_candidate(candidate_id)

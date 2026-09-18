@@ -40,14 +40,18 @@ function ReleasesPage() {
   const summary = useQuery(queries.releaseSummary());
   const candidates = useQuery(queries.releaseCandidates());
   const completed = useQuery(queries.completedReleases());
-  const detail = useQuery(queries.releaseCandidate("rel-c204"));
+  const selectedId = candidates.data?.[0]?.id ?? null;
+  const detail = useQuery({
+    ...queries.releaseCandidate(selectedId ?? "__none__"),
+    enabled: selectedId !== null,
+  });
 
   const metrics: Array<Metric> = (summary.data ?? []).map((metric) => ({
     label: metric.label,
     value: metric.value,
     hint: metric.hint,
   }));
-  const selected = candidates.data?.find((candidate) => candidate.action === "Selected")?.id ?? null;
+  const selected = selectedId;
 
   return (
     <Page>
