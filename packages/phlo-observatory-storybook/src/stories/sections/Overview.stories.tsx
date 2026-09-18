@@ -28,6 +28,14 @@ export const NeedsAttention: StoryObj = {
   ),
 };
 
+export const NeedsAttentionNoSelection: StoryObj = {
+  render: () => (
+    <div style={{ maxWidth: 820 }}>
+      <AttentionList items={attentionItems} activeIndex={null} />
+    </div>
+  ),
+};
+
 export const ActiveExecution: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 820 }}>
