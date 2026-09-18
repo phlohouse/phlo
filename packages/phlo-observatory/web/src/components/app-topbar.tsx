@@ -4,10 +4,10 @@
 import { useEffect, useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
 
+import type { Environment } from "@/data/demo";
 import { AlertsInbox, EnvironmentSwitcher, ThemeToggle } from "@/components/app-topbar-actions";
 import { CommandPalette } from "@/components/command-palette";
 import { Button } from "@/components/ui/button";
-import type { Environment } from "@/data/demo";
 
 export interface Crumb {
   label: string;
@@ -20,7 +20,7 @@ export function AppTopbar({
   environment,
   onEnvironmentChange,
 }: {
-  crumbs: Crumb[];
+  crumbs: Array<Crumb>;
   environment: Environment;
   onEnvironmentChange: (environment: Environment) => void;
 }) {

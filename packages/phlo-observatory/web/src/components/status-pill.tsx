@@ -1,8 +1,9 @@
 /**
  * Status Pill component.
  */
+import type {StatusTone} from "@/lib/status";
 import { Badge } from "@/components/ui/badge";
-import { statusTone, toneToBadgeVariant, type StatusTone } from "@/lib/status";
+import {  statusTone, toneToBadgeVariant } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 const DOT: Record<StatusTone, string> = {

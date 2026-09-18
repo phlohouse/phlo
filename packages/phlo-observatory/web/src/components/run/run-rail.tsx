@@ -120,7 +120,7 @@ export function ArtifactList() {
 }
 
 /** Configuration table used by the Configuration tab. */
-export function ConfigurationPanel({ rows }: { rows: { label: string; value: string }[] }) {
+export function ConfigurationPanel({ rows }: { rows: Array<{ label: string; value: string }> }) {
   return (
     <section>
       <SectionHeader title="Configuration" />

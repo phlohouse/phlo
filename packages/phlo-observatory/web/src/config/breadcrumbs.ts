@@ -8,7 +8,7 @@ import type { Crumb } from "@/components/app-topbar";
  * derived from the router so labels can differ from route segments (for
  * example the run id shown in monospace).
  */
-const ROUTES: { prefix: string; crumbs: Crumb[] }[] = [
+const ROUTES: Array<{ prefix: string; crumbs: Array<Crumb> }> = [
   { prefix: "/datasets", crumbs: [{ label: "Data", to: "/datasets/orders" }, { label: "Orders" }] },
   {
     prefix: "/runs",
@@ -18,10 +18,11 @@ const ROUTES: { prefix: string; crumbs: Crumb[] }[] = [
   { prefix: "/platform", crumbs: [{ label: "Platform" }] },
   { prefix: "/governance", crumbs: [{ label: "Governance" }] },
   { prefix: "/docs", crumbs: [{ label: "Documentation" }] },
+  { prefix: "/reference", crumbs: [{ label: "Reference" }] },
   { prefix: "/settings", crumbs: [{ label: "Settings" }] },
 ];
 
-export function crumbsForPath(pathname: string): Crumb[] {
+export function crumbsForPath(pathname: string): Array<Crumb> {
   if (pathname === "/") return [{ label: "Overview" }];
   for (const route of ROUTES) {
     if (pathname === route.prefix || pathname.startsWith(`${route.prefix}/`)) {

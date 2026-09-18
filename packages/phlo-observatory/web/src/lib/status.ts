@@ -7,7 +7,7 @@
  */
 export type StatusTone = "success" | "warning" | "danger" | "accent" | "muted";
 
-const RULES: [RegExp, StatusTone][] = [
+const RULES: Array<[RegExp, StatusTone]> = [
   [/fail|blocked|error|danger|reject|invalid|withheld|missed/, "danger"],
   [/late|delay|degrad|expir|warn|overdue|drift|unknown outcome|no provider mutation/, "warning"],
   [

@@ -5,16 +5,17 @@ import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
+import type {SearchEntry} from "@/data/demo";
 import {
   Dialog,
-  DialogPortal,
-  DialogOverlay,
   DialogContent,
+  DialogOverlay,
+  DialogPortal,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { NAV_ITEMS } from "@/config/navigation";
-import { searchEntries, type SearchEntry } from "@/data/demo";
+import {  searchEntries } from "@/data/demo";
 import { cn } from "@/lib/utils";
 
 interface CommandItem extends Omit<SearchEntry, "kind"> {
@@ -27,8 +28,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const items = useMemo<CommandItem[]>(() => {
-    const pages: CommandItem[] = NAV_ITEMS.map((item) => ({
+  const items = useMemo<Array<CommandItem>>(() => {
+    const pages: Array<CommandItem> = NAV_ITEMS.map((item) => ({
       kind: "Go to",
       title: item.label,
       meta: "Page",

@@ -21,7 +21,7 @@ export interface Alert {
   time: string;
 }
 
-export const alerts: Alert[] = [
+export const alerts: Array<Alert> = [
   {
     severity: "danger",
     title: "Release blocked",
@@ -65,7 +65,7 @@ export interface SearchEntry {
   to: string;
 }
 
-export const searchEntries: SearchEntry[] = [
+export const searchEntries: Array<SearchEntry> = [
   { kind: "Dataset", title: "Orders", meta: "marts.orders · Fresh", to: "/datasets/orders" },
   { kind: "Dataset", title: "Customer profiles", meta: "35m late", to: "/datasets/orders" },
   { kind: "Run", title: "orders_daily r7e42b", meta: "Failed validation", to: "/runs/orders-daily" },
@@ -84,7 +84,7 @@ export interface ServiceHealth {
   state: "Ready" | "Delayed" | "Down";
 }
 
-export const services: ServiceHealth[] = [
+export const services: Array<ServiceHealth> = [
   { name: "Dagster", role: "Orchestration", state: "Ready" },
   { name: "Nessie", role: "Catalog", state: "Ready" },
   { name: "MinIO", role: "Object storage", state: "Ready" },
@@ -105,7 +105,7 @@ export interface SummaryMetric {
   hint: string;
 }
 
-export const summaryMetrics: SummaryMetric[] = [
+export const summaryMetrics: Array<SummaryMetric> = [
   { label: "Data", value: "128 datasets", hint: "121 fresh · 4 late · 3 unknown" },
   { label: "Ingestion", value: "18 sources", hint: "16 current · 1 delayed · 1 idle" },
   { label: "Quality", value: "612 checks", hint: "608 passed · 3 warnings · 1 failed" },
@@ -122,7 +122,7 @@ export interface AttentionItem {
   to: string;
 }
 
-export const attentionItems: AttentionItem[] = [
+export const attentionItems: Array<AttentionItem> = [
   {
     severity: "danger",
     title: "Orders delivery blocked",
@@ -154,7 +154,7 @@ export interface ExecutionRow {
   to: string;
 }
 
-export const activeExecution: ExecutionRow[] = [
+export const activeExecution: Array<ExecutionRow> = [
   { workflow: "orders_incremental", stage: "Ingest", progress: "1.2m rows staged", elapsed: "04:12", to: "/runs/orders-daily" },
   { workflow: "sales_marts", stage: "Transform", progress: "18 / 24 models complete", elapsed: "02:48", to: "/runs/orders-daily" },
   { workflow: "inventory_stream", stage: "Ingest", progress: "558 events · checkpoint open", elapsed: "00:36", to: "/runs/orders-daily" },
@@ -170,7 +170,7 @@ export interface DataProductRow {
   to: string;
 }
 
-export const dataProducts: DataProductRow[] = [
+export const dataProducts: Array<DataProductRow> = [
   { name: "Orders", freshness: "Fresh", quality: "1 failed", released: "08:00", consumers: 3, to: "/datasets/orders" },
   { name: "Customer profiles", freshness: "35m late", quality: "Passed", released: "08:00", consumers: 2, to: "/datasets/orders" },
   { name: "Product inventory", freshness: "Fresh", quality: "Unknown", released: "08:00", consumers: 4, to: "/datasets/orders" },
@@ -184,7 +184,7 @@ export interface QueueItem {
   detail: string;
 }
 
-export const releaseQueue: QueueItem[] = [
+export const releaseQueue: Array<QueueItem> = [
   { name: "inventory_daily", state: "Blocked", detail: "Missing validation · main unchanged" },
   { name: "product_catalog", state: "Ready", detail: "12 checks passed · awaiting promotion" },
 ];
@@ -203,7 +203,7 @@ export interface RunStage {
   flagged?: boolean;
 }
 
-export const runStages: RunStage[] = [
+export const runStages: Array<RunStage> = [
   { name: "Ingest orders", provider: "dlt", outcome: "Succeeded", offset: 0, width: 25, duration: "34s" },
   { name: "Build orders mart", provider: "dbt", outcome: "Succeeded", offset: 25, width: 54, duration: "1m 12s" },
   { name: "Validate candidate", provider: "Pandera", outcome: "Failed", offset: 79, width: 21, duration: "28s", flagged: true },
@@ -218,7 +218,7 @@ export interface DuplicateRow {
   occurrences: number;
 }
 
-export const duplicateRows: DuplicateRow[] = [
+export const duplicateRows: Array<DuplicateRow> = [
   { orderId: "ORD-10482", recordId: "rec_7a8e01", createdAt: "2026-09-13 09:14:08", occurrences: 2 },
   { orderId: "ORD-10482", recordId: "rec_7a8e02", createdAt: "2026-09-13 09:14:09", occurrences: 2 },
   { orderId: "ORD-10517", recordId: "rec_7a8f14", createdAt: "2026-09-13 09:18:42", occurrences: 2 },
@@ -230,7 +230,7 @@ export interface RunEvent {
   message: string;
 }
 
-export const runEvents: RunEvent[] = [
+export const runEvents: Array<RunEvent> = [
   { time: "09:26:46", level: "INFO", message: "Candidate snapshot 938106 created on wap/r7e42b." },
   { time: "09:27:14", level: "ERROR", message: "unique_order_id failed: 42 rows. Release withheld." },
   { time: "09:27:14", level: "INFO", message: "Evidence complete. Released snapshot 938105 unchanged." },
@@ -380,4 +380,221 @@ export const datasetAccess = [
   { label: "REST endpoint", value: "PostgREST · /orders" },
   { label: "Read access", value: "Analytics · Finance" },
   { label: "Service access", value: "Orders API" },
+];
+
+/* -------------------------------------------------------------- releases */
+
+export const releaseMetrics = [
+  { label: "Pending", value: "2 candidates", hint: "Across 2 catalog providers", tone: "text-foreground" },
+  { label: "Ready for review", value: "1 candidate", hint: "All required evidence present", tone: "text-success" },
+  { label: "Blocked", value: "1 candidate", hint: "Quality gate failed", tone: "text-destructive" },
+  { label: "Released · 24h", value: "18 completed", hint: "Provider outcomes confirmed", tone: "text-foreground" },
+  { label: "Unknown outcomes", value: "0 operations", hint: "No reconciliation needed", tone: "text-foreground" },
+];
+
+export const pendingCandidates = [
+  {
+    id: "rel-c204",
+    dataset: "Customers",
+    provider: "Polaris · Snapshots",
+    readiness: "Ready for review",
+    evidence: "Complete · 14/14 passed",
+    created: "09:31",
+    action: "Selected",
+    selected: true,
+  },
+  {
+    id: "rel-o193",
+    dataset: "Orders",
+    provider: "Nessie · Branch merge",
+    readiness: "Blocked by quality",
+    evidence: "Complete · 11/12 passed",
+    created: "09:27",
+    action: "Inspect",
+    selected: false,
+  },
+];
+
+export const candidateDetail = {
+  id: "rel-c204",
+  dataset: "Customers",
+  subtitle: "Polaris snapshot publication · Run r8c291 · Data platform",
+  status: "Ready for review",
+  revision: "Release revision 42 → proposed 43",
+  snapshotChanges: [
+    { table: "crm.customers", released: "720114", candidate: "720128", delta: "+1,204" },
+    { table: "crm.customer_segments", released: "881020", candidate: "881031", delta: "+312" },
+  ],
+  requiredEvidence: [
+    { name: "Quality checks", detail: "14 passed · 0 blocking failures", outcome: "Passed" },
+    { name: "Run evidence", detail: "All required stages and artifacts recorded", outcome: "Complete" },
+    { name: "Snapshot audit", detail: "Both candidate snapshots match audit", outcome: "Matched" },
+    { name: "Release revision", detail: "Expected 42 · Observed 42", outcome: "Current" },
+  ],
+  publicationPlan: [
+    { label: "Operation", value: "Publish audited snapshots" },
+    { label: "Catalog", value: "Polaris · analytics" },
+    { label: "Expected revision", value: "42" },
+    { label: "Intent", value: "Not submitted" },
+  ],
+};
+
+export const latestReleases = [
+  { id: "rel-s188", dataset: "Sessions", provider: "Nessie · Branch merge", ref: "main · 6fb812a", time: "09:12 UTC", outcome: "Merge confirmed" },
+  { id: "rel-o187", dataset: "Orders", provider: "Nessie · Branch merge", ref: "main · 4a70d92 · Snapshot 938105", time: "08:00 UTC", outcome: "Merge confirmed" },
+];
+
+/* -------------------------------------------------------------- platform */
+
+export const platformMetrics = [
+  { label: "Enabled services", value: "12 of 16", hint: "4 discovered, not enabled", tone: "text-foreground" },
+  { label: "Running", value: "12 of 12", hint: "Container state observed", tone: "text-foreground" },
+  { label: "Ready", value: "11 of 12", hint: "1 readiness probe failing", tone: "text-warning" },
+  { label: "Telemetry", value: "Partial", hint: "Loki log queries unavailable", tone: "text-warning" },
+  { label: "Latest backup", value: "03:00 UTC", hint: "4/4 contributors complete", tone: "text-foreground" },
+  { label: "Restore rehearsal", value: "Verified", hint: "11 Sep · Isolated target", tone: "text-success" },
+];
+
+export const platformServices = [
+  { name: "Loki", role: "Log storage", runtime: "Running", readiness: "Not ready", probe: "Timeout · 5s", action: "Selected", attention: true },
+  { name: "Dagster", role: "Orchestration", runtime: "Running", readiness: "Ready", probe: "HTTP 200", action: "Open" },
+  { name: "Postgres", role: "Serving / state", runtime: "Running", readiness: "Ready", probe: "Connection OK", action: "Open" },
+  { name: "MinIO", role: "Object storage", runtime: "Running", readiness: "Ready", probe: "HTTP 200", action: "Open" },
+  { name: "Nessie", role: "Branch catalog", runtime: "Running", readiness: "Ready", probe: "HTTP 200", action: "Open" },
+  { name: "Polaris", role: "REST catalog", runtime: "Running", readiness: "Ready", probe: "HTTP 200", action: "Open" },
+  { name: "Trino", role: "Query engine", runtime: "Running", readiness: "Ready", probe: "HTTP 200", action: "Open" },
+  { name: "Superset", role: "BI", runtime: "Running", readiness: "Ready", probe: "HTTP 200", action: "Open" },
+  { name: "PostgREST", role: "Data API", runtime: "Running", readiness: "Ready", probe: "HTTP 200", action: "Open" },
+  { name: "Traefik", role: "Routing", runtime: "Running", readiness: "Ready", probe: "HTTP 200", action: "Open" },
+  { name: "OAuth2 Proxy", role: "Authentication", runtime: "Running", readiness: "Ready", probe: "HTTP 200", action: "Open" },
+  { name: "Alloy", role: "Telemetry collector", runtime: "Running", readiness: "Ready", probe: "HTTP 200", action: "Open" },
+];
+
+export const backupCoverage = [
+  { name: "Postgres · State & serving", outcome: "Complete" },
+  { name: "MinIO · Object data", outcome: "Complete" },
+  { name: "Nessie · Catalog state", outcome: "Complete" },
+  { name: "Polaris · Catalog state", outcome: "Complete" },
+];
+
+export const maintenanceRows = [
+  { name: "Table compaction", outcome: "6 / 6 completed" },
+  { name: "Snapshot expiration", outcome: "Preview · 02:00 tomorrow" },
+  { name: "Retention safeguard", outcome: "7 days · Pinned refs kept" },
+  { name: "Restore rehearsal", outcome: "11 Sep · Verified" },
+];
+
+export const lokiDetail = [
+  { label: "First failure", value: "09:28 UTC" },
+  { label: "Last successful probe", value: "09:27 UTC" },
+  { label: "Runtime source", value: "Container engine" },
+  { label: "Readiness source", value: "HTTP /ready" },
+];
+
+export const dependencyPath = [
+  { name: "Alloy → Loki", outcome: "Delivery unconfirmed", tone: "text-warning" },
+  { name: "Loki → Log queries", outcome: "Unavailable", tone: "text-destructive" },
+  { name: "Postgres → Run evidence", outcome: "Available", tone: "text-success" },
+];
+
+/* ------------------------------------------------------------ governance */
+
+export const governanceMetrics = [
+  { label: "Ownership", value: "124 / 128", hint: "4 datasets need an owner", tone: "text-foreground" },
+  { label: "Classification", value: "126 / 128", hint: "2 datasets unclassified", tone: "text-foreground" },
+  { label: "Contract coverage", value: "120 / 128", hint: "8 incomplete contracts", tone: "text-foreground" },
+  { label: "Publication reviews", value: "3 pending", hint: "1 ready · 2 blocked", tone: "text-foreground" },
+  { label: "Access verification", value: "1 drift detected", hint: "7 of 8 targets match policy", tone: "text-destructive" },
+];
+
+export const publicationReviews = [
+  { dataset: "Shipments", owner: "Logistics", contract: "v2 · Complete", verdict: "Ready", reason: "All publication requirements met", action: "Selected", selected: true },
+  { dataset: "Customer contacts", owner: "Unassigned", contract: "v1 · Complete", verdict: "Blocked", reason: "Accountable owner missing", action: "Inspect", blocked: true },
+  { dataset: "Revenue forecast", owner: "Finance", contract: "v3 · Incomplete", verdict: "Blocked", reason: "Freshness expectation missing", action: "Inspect", blocked: true },
+];
+
+export const accessDrift = {
+  title: "Access drift · Orders",
+  verdict: "Unexpected UPDATE grant",
+  subtitle: "Postgres · marts.orders · Role finance_reader · Verified at 09:32 UTC",
+  rows: [
+    { evidence: "Declared policy · v12", permissions: "SELECT", result: "Read only", drift: false },
+    { evidence: "Compiled grants · v12", permissions: "SELECT", result: "Matches policy", drift: false },
+    { evidence: "Verified backend grants", permissions: "SELECT, UPDATE", result: "Drift detected", drift: true },
+  ],
+};
+
+export const ownershipGaps = [
+  { dataset: "Pageviews", requirement: "Accountable owner", owner: "Unassigned", action: "Assign owner" },
+  { dataset: "Support tickets", requirement: "Classification", owner: "Support", action: "Review classification" },
+  { dataset: "Inventory balances", requirement: "Freshness expectation", owner: "Operations", action: "Review contract" },
+];
+
+export const publishShipments = [
+  { label: "Dataset", value: "logistics.shipments" },
+  { label: "Owner", value: "Logistics" },
+  { label: "Classification", value: "Internal" },
+  { label: "Contract", value: "v2 · Complete" },
+  { label: "Policy verdict", value: "Requirements satisfied" },
+  { label: "Transition", value: "Draft → Published" },
+  { label: "Expected state version", value: "7" },
+];
+
+export const auditActivity = [
+  { time: "09:32", actor: "Policy verifier", action: "Verify backend grants", target: "Orders · Postgres", outcome: "Drift recorded", tone: "text-warning" },
+  { time: "09:21", actor: "data.steward", action: "Update contract · v1 → v2", target: "Shipments", outcome: "Applied · Version 7", tone: "text-success" },
+  { time: "08:45", actor: "data.steward", action: "Publish Dataset", target: "Orders", outcome: "Published · Version 12", tone: "text-success" },
+];
+
+/* -------------------------------------------------------------- settings */
+
+export const settingsMetrics = [
+  { label: "Provider connections", value: "2 of 3", hint: "Polaris unreachable · evidence stale", tone: "text-foreground" },
+  { label: "Unreachable", value: "1", hint: "Polaris · no response since 09:21", tone: "text-destructive" },
+  { label: "Notification rules", value: "5", hint: "3 channels configured", tone: "text-warning" },
+  { label: "Members", value: "14", hint: "4 operators · 3 reviewers", tone: "text-foreground" },
+  { label: "Pending changes", value: "None", hint: "All settings applied", tone: "text-foreground" },
+  { label: "Environment", value: "Production", hint: "Freshness default · 2h", tone: "text-success" },
+];
+
+export const providerConnections = [
+  {
+    name: "Polaris",
+    role: "REST catalog · owns release evidence",
+    endpoint: "polaris.phlo.internal/api",
+    state: "Unreachable · timing out",
+    detail: "Last confirmed response 09:21 · credential vault://prod/polaris valid",
+    action: "Retry check",
+    degraded: true,
+  },
+  {
+    name: "Nessie",
+    role: "Versioned catalog · owns commit history",
+    endpoint: "nessie.phlo.internal:19120",
+    state: "Connected · 42ms",
+    detail: "Last check 09:35 · credential vault://prod/nessie valid",
+    action: "Test connection",
+    degraded: false,
+  },
+  {
+    name: "Object storage",
+    role: "S3-compatible · holds table files",
+    endpoint: "s3://phlo-lake-prod",
+    state: "Connected · 18ms",
+    detail: "Last check 09:35 · credential instance role valid",
+    action: "Test connection",
+    degraded: false,
+  },
+];
+
+export const degradedList = [
+  "Release evidence and promotion status — shown as last confirmed",
+  "Freshness on Polaris-served datasets — stamped, not live",
+  "New promotions blocked — evidence cannot be re-verified",
+];
+
+export const unaffectedList = [
+  "Released data — consumers keep reading snapshot 938105",
+  "Execution — runs proceed; outcomes queue for reconcile",
+  "Nessie-sourced history — commit trail stays live",
 ];

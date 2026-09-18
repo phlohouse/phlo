@@ -6,12 +6,13 @@ import {
   Database,
   GitBranch,
   LayoutGrid,
+
   Play,
   Rows3,
   Settings,
-  ShieldCheck,
-  type LucideIcon,
+  ShieldCheck
 } from "lucide-react";
+import type {LucideIcon} from "lucide-react";
 
 export interface NavItem {
   label: string;
@@ -25,7 +26,7 @@ export interface NavItem {
  * Primary navigation. `to` values are router paths; the dev API returns live
  * counts once wired, which is why `count` is optional rather than derived.
  */
-export const NAV_ITEMS: NavItem[] = [
+export const NAV_ITEMS: Array<NavItem> = [
   { label: "Overview", to: "/", icon: LayoutGrid },
   { label: "Data", to: "/datasets/orders", icon: Database },
   { label: "Runs", to: "/runs/orders-daily", icon: Play, count: 4 },

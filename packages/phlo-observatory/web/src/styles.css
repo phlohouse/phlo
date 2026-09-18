@@ -50,6 +50,8 @@
   --destructive: #c43d3d;
   --destructive-foreground: #ffffff;
   --destructive-soft: #fff1f1;
+  --destructive-surface: #fdf5f4;
+  --destructive-border: #e8c9c7;
 
   --success: #07956a;
   --success-foreground: #ffffff;
@@ -58,6 +60,7 @@
   --warning: #c95814;
   --warning-foreground: #ffffff;
   --warning-soft: #fdf1e0;
+  --warning-surface: #fffaf5;
 
   --border: #e2e2e2;
   --input: #e2e2e2;
@@ -120,6 +123,7 @@
   --warning: #e08a3c;
   --warning-foreground: #17161d;
   --warning-soft: #34281b;
+  --warning-surface: #2b2118;
 
   --border: #32323c;
   --input: #32323c;
@@ -161,12 +165,15 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive-soft: var(--destructive-soft);
+  --color-destructive-surface: var(--destructive-surface);
+  --color-destructive-border: var(--destructive-border);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning-soft: var(--warning-soft);
+  --color-warning-surface: var(--warning-surface);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

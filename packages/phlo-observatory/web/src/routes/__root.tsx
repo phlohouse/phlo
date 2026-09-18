@@ -4,11 +4,11 @@
  */
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 
+import appCss from "../styles.css?url";
 import { AppShell } from "@/components/app-shell";
 import { EnvironmentProvider } from "@/components/environment-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import appCss from "../styles.css?url";
 
 export const Route = createRootRoute({
   head: () => ({

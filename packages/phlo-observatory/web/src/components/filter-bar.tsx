@@ -18,7 +18,7 @@ export interface FilterSelect {
   /** Placeholder / "all" label, e.g. "Status: all". */
   label: string;
   value: string;
-  options: string[];
+  options: Array<string>;
   onChange?: (value: string) => void;
 }
 
@@ -39,7 +39,7 @@ export function FilterBar({
   search?: string;
   onSearch?: (value: string) => void;
   searchPlaceholder?: string;
-  filters?: FilterSelect[];
+  filters?: Array<FilterSelect>;
   actions?: React.ReactNode;
   className?: string;
 }) {
