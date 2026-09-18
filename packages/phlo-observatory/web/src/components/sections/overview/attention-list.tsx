@@ -8,10 +8,11 @@
  * Presentational — navigation is delegated so the block renders without a
  * router.
  */
-import { AlertCircle, ChevronRight, Clock, GitBranch, type LucideIcon } from "lucide-react";
+import { AlertCircle, ChevronRight, Clock, GitBranch  } from "lucide-react";
+import type {LucideIcon} from "lucide-react";
 
-import { Section } from "@/components/layout/section-header";
 import type { AttentionItem, Severity } from "@/data/demo";
+import { Section } from "@/components/layout/section-header";
 import { cn } from "@/lib/utils";
 
 const ICON: Record<Severity, LucideIcon> = {
