@@ -129,3 +129,22 @@ def test_provider_connections_never_leak_credentials(client: TestClient) -> None
         assert "vault://" not in raw
         assert "password" not in raw.lower()
         assert connection["endpoint"].startswith(("polaris", "nessie", "s3://"))
+
+
+def test_overview_data_products_and_rail(client: TestClient) -> None:
+    products = client.get(f"{BASE}/overview/data-products").json()
+    assert len(products) == 5
+    assert products[0]["name"] == "Orders"
+    assert products[0]["target"].startswith("/datasets/")
+
+    rail = client.get(f"{BASE}/overview/rail").json()
+    assert rail["ready_count"] == 11
+    assert rail["total_services"] == 12
+    assert len(rail["services"]) == 6
+    assert rail["release_queue"][0]["state"] == "Blocked"
+    assert {row["label"] for row in rail["governance"]} == {
+        "Dataset ownership",
+        "Access policies",
+        "Publication reviews",
+    }
+    assert len(rail["recovery"]) == 3

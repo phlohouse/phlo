@@ -3,12 +3,12 @@
  */
 import { ChevronRight } from "lucide-react";
 
-import type { ExecutionRow } from "@/data/demo";
+import type { MissionExecutionRow } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
 import { Section } from "@/components/layout/section-header";
 
-function columns(): Array<DataColumn<ExecutionRow>> {
+function columns(): Array<DataColumn<MissionExecutionRow>> {
   return [
     {
       key: "workflow",
@@ -44,9 +44,9 @@ export function ExecutionTable({
   meta = "4 running · 2 queued",
   onOpen,
 }: {
-  rows: Array<ExecutionRow>;
+  rows: Array<MissionExecutionRow>;
   meta?: string;
-  onOpen?: (row: ExecutionRow) => void;
+  onOpen?: (row: MissionExecutionRow) => void;
 }) {
   return (
     <Section title="Active execution" meta={meta}>

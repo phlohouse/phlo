@@ -1,14 +1,26 @@
 /**
- * Root route: installs theme and environment providers, mounts the app shell,
- * and declares the stylesheet and font links for the document head.
+ * Root route: installs the query client, theme and environment providers,
+ * mounts the app shell, and declares the stylesheet for the document head.
  */
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import appCss from "../styles.css?url";
 import { AppShell } from "@/components/app/app-shell";
 import { EnvironmentProvider } from "@/components/app/environment-provider";
 import { ThemeProvider } from "@/components/app/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Matches the footer's 15s auto-refresh promise.
+      staleTime: 15_000,
+      retry: 1,
+      refetchOnWindowFocus: true,
+    },
+  },
+});
 
 export const Route = createRootRoute({
   head: () => ({
@@ -24,14 +36,16 @@ export const Route = createRootRoute({
 
 function RootComponent() {
   return (
-    <ThemeProvider>
-      <EnvironmentProvider>
-        <TooltipProvider>
-          <HeadContent />
-          <AppShell />
-          <Scripts />
-        </TooltipProvider>
-      </EnvironmentProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <EnvironmentProvider>
+          <TooltipProvider>
+            <HeadContent />
+            <AppShell />
+            <Scripts />
+          </TooltipProvider>
+        </EnvironmentProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }

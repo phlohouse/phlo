@@ -52,6 +52,54 @@ class MissionExecutionRow(BaseModel):
     run_id: str
 
 
+class MissionDataProduct(BaseModel):
+    """A released dataset as shown on the Overview."""
+
+    id: str
+    name: str
+    freshness: str
+    quality: str
+    released: str
+    consumers: int
+    target: str
+
+
+class MissionHealthService(BaseModel):
+    """A service row in the Overview health rail."""
+
+    name: str
+    role: str
+    state: str
+
+
+class MissionQueueItem(BaseModel):
+    """An entry in the Overview release queue."""
+
+    name: str
+    state: str
+    detail: str
+
+
+class MissionRailStat(BaseModel):
+    """A label/value row in the Overview rail."""
+
+    label: str
+    value: str
+    tone: Outcome = "muted"
+
+
+class MissionOverviewRail(BaseModel):
+    """The Overview right-hand rail, served as one read model."""
+
+    id: str
+    ready_count: int
+    total_services: int
+    services: list[MissionHealthService]
+    release_queue: list[MissionQueueItem]
+    governance: list[MissionRailStat]
+    recovery: list[MissionRailStat]
+
+
 class MissionEnvironment(BaseModel):
     """A deployment environment the workspace can be scoped to."""
 
