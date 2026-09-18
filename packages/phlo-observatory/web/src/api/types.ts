@@ -448,3 +448,14 @@ export interface PublicationPlan {
   status: string;
   rows: Array<PublicationPlanRow>;
 }
+
+/** A declared asset from the project's provider registry. */
+export interface ObservatoryAsset {
+  id: string;
+  name: string;
+  group: string | null;
+  description: string | null;
+  kinds: Array<string>;
+  dependencies: Array<string>;
+  checks: Array<string>;
+}

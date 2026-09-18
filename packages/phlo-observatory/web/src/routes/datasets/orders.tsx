@@ -28,7 +28,8 @@ import { LineageChain } from "@/components/sections/dataset/lineage-chain";
 import { SchemaTable } from "@/components/sections/dataset/schema-table";
 import { Button } from "@/components/ui/button";
 
-const DATASET_ID = "marts.orders";
+/** Reference dataset used when the project declares no assets. */
+const FALLBACK_DATASET_ID = "marts.orders";
 
 const TABS = [
   { value: "overview", label: "Overview" },
@@ -67,7 +68,10 @@ const TONE_CLASS: Record<string, string | undefined> = {
 
 function DatasetDetailPage() {
   const navigate = useNavigate();
-  const dataset = useQuery(queries.datasetDetail(DATASET_ID));
+  // Prefer a dataset the project actually declares; fall back to the reference.
+  const assets = useQuery(queries.assets());
+  const datasetId = assets.data?.[0]?.id ?? FALLBACK_DATASET_ID;
+  const dataset = useQuery({ ...queries.datasetDetail(datasetId), enabled: Boolean(datasetId) });
   const openRun = () => navigate({ to: "/runs/orders-daily" });
 
   const data = dataset.data;
