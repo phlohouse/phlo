@@ -598,3 +598,16 @@ export const unaffectedList = [
   "Execution — runs proceed; outcomes queue for reconcile",
   "Nessie-sourced history — commit trail stays live",
 ];
+
+/** Overview rail: governance and recovery summary rows. */
+export const governanceOverview = [
+  { label: "Dataset ownership", value: "124 / 128 assigned", tone: "text-warning" },
+  { label: "Access policies", value: "In sync", tone: "text-success" },
+  { label: "Publication reviews", value: "2 awaiting review", tone: "text-accent-foreground" },
+];
+
+export const recoveryOverview = [
+  { label: "Last backup", value: "06:00 · Verified", tone: "text-success" },
+  { label: "Restore rehearsal", value: "3 days ago · Passed", tone: "text-success" },
+  { label: "Table maintenance", value: "2 optimizations due", tone: "text-warning" },
+];
