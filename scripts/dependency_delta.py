@@ -38,7 +38,9 @@ def parse_lock(path: str, content: bytes) -> set[Package]:
                     raise ValueError(f"Unsupported Python registry in {path}")
                 name = re.sub(r"[-_.]+", "-", package["name"]).lower()
                 packages.add(("PyPI", name, package["version"]))
-            elif not ({"editable", "virtual", "directory"} & source.keys()):
+            elif not ({"editable", "virtual", "directory", "git"} & source.keys()):
+                # Git/workspace sources carry no PyPI name+version OSV can
+                # assess — excluded like workspace links.
                 raise ValueError(f"Unsupported non-registry dependency in {path}")
     else:
         lock = json.loads(content)

@@ -56,6 +56,21 @@ source = { editable = "." }
     assert delta.parse_lock("uv.lock", content) == {("PyPI", "some-package", "1.2")}
 
 
+def test_uv_git_sourced_packages_are_excluded() -> None:
+    """Git-pinned deps have no PyPI version OSV can assess — excluded like
+    workspace links, not a parse error."""
+    content = b"""[[package]]
+name = "observe-core"
+version = "0.3.0"
+source = { git = "https://github.com/phlohouse/phlo-observe.git?tag=observe-core%2Fv0.3.0#b478056dfadd5ff275d7fbaf7171f2319c52d48f" }
+[[package]]
+name = "some_package"
+version = "1.0"
+source = { registry = "https://pypi.org/simple" }
+"""
+    assert delta.parse_lock("uv.lock", content) == {("PyPI", "some-package", "1.0")}
+
+
 def test_npm_nested_scopes_and_aliases_preserve_real_package_identity() -> None:
     content = json.dumps(
         {
