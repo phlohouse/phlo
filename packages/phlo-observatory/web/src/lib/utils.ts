@@ -1,5 +1,5 @@
 /**
- * Class-name merger for conditional Tailwind classes.
+ * Tailwind class merge helper shared by every component.
  */
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";

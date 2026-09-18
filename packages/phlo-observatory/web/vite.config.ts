@@ -21,9 +21,14 @@ const config = defineConfig({
     },
   },
   plugins: [
+    // Route tree is generated; opt it out of the repo module-header rule.
     viteTsConfigPaths({ projects: ["./tsconfig.json"] }),
     tailwindcss(),
-    tanstackStart(),
+    tanstackStart({
+      router: {
+        routeTreeFileHeader: ["// phlo: no-header"],
+      },
+    }),
     viteReact(),
   ],
 });
