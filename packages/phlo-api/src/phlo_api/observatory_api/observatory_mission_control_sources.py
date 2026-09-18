@@ -19,14 +19,22 @@ from collections import Counter
 
 from phlo_api.observatory_api.observatory import (
     _load_assets,
+    _load_branch_detail,
+    _load_branches,
     _load_operations,
     _load_services,
 )
 from phlo_api.observatory_api.observatory_mission_control_models import (
     MissionAttentionItem,
     MissionExecutionRow,
+    CandidateEvidenceRow,
+    CandidateSnapshotChange,
+    CompletedRelease,
     DatasetCheck,
     LineageNode,
+    PublicationPlanRow,
+    ReleaseCandidate,
+    ReleaseCandidateDetail,
     MissionRunDetail,
     RunArtifact,
     RunConfigurationRow,
@@ -36,6 +44,8 @@ from phlo_api.observatory_api.observatory_mission_control_models import (
 )
 from phlo_api.observatory_api.observatory_models import ObservatoryRun
 from phlo_api.observatory_api.observatory_runs import load_runs
+
+RELEASED_BRANCH = "main"
 
 # Provider kinds are free-form; map the common ones to a human role label.
 _ROLE_LABELS = {
@@ -472,3 +482,206 @@ def derive_dataset_checks(dataset_id: str) -> list[DatasetCheck] | None:
         return None
 
     return [DatasetCheck(name=check, outcome="Declared", tone="muted") for check in target.checks]
+
+
+# ----------------------------------------------------------------- releases
+#
+# A WAP branch *is* a release candidate: the run stages its write on an isolated
+# branch and promotion merges it. So Nessie is the release source of truth —
+# candidate branches are pending releases, `main` is what consumers read.
+
+
+def _is_candidate(branch) -> bool:
+    return branch.name != RELEASED_BRANCH and not branch.protected
+
+
+def derive_release_candidates() -> list[ReleaseCandidate] | None:
+    """List pending release candidates from unmerged catalog branches."""
+    try:
+        branches = _load_branches()
+    except Exception:  # noqa: BLE001 - substrate probe is best-effort
+        return None
+
+    if branches is None:
+        return None
+
+    branches = list(branches)
+    if not branches:
+        # No catalog reachable at all: let the caller fall back.
+        return None
+
+    candidates: list[ReleaseCandidate] = []
+    for branch in branches:
+        if not _is_candidate(branch):
+            continue
+        detail = _safe_branch_detail(branch.name)
+        commits = len(detail.commits) if detail else 0
+        compare = detail.compare if detail else {}
+        changed = sum(int(compare.get(key) or 0) for key in ("added", "changed", "removed"))
+        tables = [table.name for table in (detail.contents if detail else [])]
+        candidates.append(
+            ReleaseCandidate(
+                id=branch.name,
+                dataset=tables[0] if tables else branch.name,
+                provider="Nessie",
+                strategy="Branch merge",
+                readiness="Ready for review" if commits else "Awaiting evidence",
+                evidence=f"{commits} commits · {changed} object changes",
+                created_at=_branch_timestamp(detail),
+                action="Inspect",
+            )
+        )
+    return candidates
+
+
+def _safe_branch_detail(branch_name: str):
+    try:
+        return _load_branch_detail(branch_name)
+    except Exception:  # noqa: BLE001 - one unreadable branch must not fail the list
+        return None
+
+
+def _branch_timestamp(detail) -> str:
+    if detail and detail.commits:
+        return detail.commits[0].started_at or "—"
+    return "—"
+
+
+def derive_release_candidate(candidate_id: str) -> ReleaseCandidateDetail | None:
+    """Build the review payload for one candidate branch."""
+    detail = _safe_branch_detail(candidate_id)
+    if detail is None:
+        return None
+
+    compare = detail.compare or {}
+    tables = [table.name for table in detail.contents]
+    changes = [
+        CandidateSnapshotChange(
+            table=table,
+            released_snapshot="—",
+            candidate_snapshot=candidate_id,
+            row_delta=f"+{int(compare.get('added') or 0)}",
+        )
+        for table in tables
+    ] or [
+        CandidateSnapshotChange(
+            table=candidate_id,
+            released_snapshot="—",
+            candidate_snapshot=candidate_id,
+            row_delta=f"+{int(compare.get('added') or 0)}",
+        )
+    ]
+
+    evidence = [
+        CandidateEvidenceRow(
+            name="Catalog commits",
+            detail=f"{len(detail.commits)} commit(s) staged on {candidate_id}",
+            outcome="Recorded" if detail.commits else "Missing",
+            tone="success" if detail.commits else "warning",
+        ),
+        CandidateEvidenceRow(
+            name="Object changes",
+            detail=(
+                f"{int(compare.get('added') or 0)} added · "
+                f"{int(compare.get('changed') or 0)} changed · "
+                f"{int(compare.get('removed') or 0)} removed"
+            ),
+            outcome="Complete",
+            tone="success",
+        ),
+    ]
+
+    return ReleaseCandidateDetail(
+        id=candidate_id,
+        candidate=None,
+        subtitle=f"Nessie branch merge · candidate {candidate_id}",
+        status="Ready for review" if detail.commits else "Awaiting evidence",
+        revision=f"Staged on {candidate_id} · target {RELEASED_BRANCH}",
+        snapshot_changes=changes,
+        required_evidence=evidence,
+        publication_plan=[
+            PublicationPlanRow(label="Operation", value="Merge catalog branch"),
+            PublicationPlanRow(label="Catalog", value="Nessie"),
+            PublicationPlanRow(label="Source branch", value=candidate_id),
+            PublicationPlanRow(label="Target branch", value=RELEASED_BRANCH),
+            PublicationPlanRow(label="Intent", value="Not submitted"),
+        ],
+    )
+
+
+def derive_completed_releases() -> list[CompletedRelease] | None:
+    """List confirmed releases from runs that promoted to the released branch."""
+    try:
+        runs = load_runs()
+    except Exception:  # noqa: BLE001 - substrate probe is best-effort
+        return None
+
+    succeeded = [run for run in runs if str(run.status).strip().lower() in {"success", "succeeded"}]
+    if not succeeded:
+        return []
+
+    succeeded.sort(key=lambda run: run.completed_at or "", reverse=True)
+    return [
+        CompletedRelease(
+            id=f"rel-{run.id[:8]}",
+            dataset=", ".join(ref.id for ref in run.assets) or run.name,
+            provider="Nessie",
+            provider_strategy="Nessie · Branch merge",
+            reference=f"{RELEASED_BRANCH} · {run.id[:7]}",
+            finished_at=run.completed_at or "—",
+            outcome="Merge confirmed",
+        )
+        for run in succeeded[:10]
+    ]
+
+
+def derive_release_summary(
+    candidates: list[ReleaseCandidate] | None,
+    completed: list[CompletedRelease] | None,
+) -> list[SummaryMetricRow] | None:
+    """Build the Releases summary band from the derived rows."""
+    if candidates is None and completed is None:
+        return None
+
+    candidates = candidates or []
+    completed = completed or []
+    ready = [row for row in candidates if row.readiness == "Ready for review"]
+    awaiting = [row for row in candidates if row.readiness != "Ready for review"]
+    providers = {row.provider for row in candidates if row.provider}
+
+    return [
+        SummaryMetricRow(
+            label="Pending",
+            value=f"{len(candidates)} candidate{'s' if len(candidates) != 1 else ''}",
+            hint=(
+                f"Across {len(providers)} catalog provider{'s' if len(providers) != 1 else ''}"
+                if providers
+                else "No catalog branches staged"
+            ),
+            tone="muted",
+        ),
+        SummaryMetricRow(
+            label="Ready for review",
+            value=f"{len(ready)} candidate{'s' if len(ready) != 1 else ''}",
+            hint="Branch has staged commits",
+            tone="success" if ready else "muted",
+        ),
+        SummaryMetricRow(
+            label="Awaiting evidence",
+            value=f"{len(awaiting)} candidate{'s' if len(awaiting) != 1 else ''}",
+            hint="No commits recorded on the branch",
+            tone="warning" if awaiting else "muted",
+        ),
+        SummaryMetricRow(
+            label="Released · 24h",
+            value=f"{len(completed)} completed",
+            hint="Promotions confirmed by the orchestrator",
+            tone="muted",
+        ),
+        SummaryMetricRow(
+            label="Unknown outcomes",
+            value="0 operations",
+            hint="No reconciliation needed",
+            tone="muted",
+        ),
+    ]
