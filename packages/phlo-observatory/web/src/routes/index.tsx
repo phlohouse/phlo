@@ -2,12 +2,12 @@
  * Overview page: KPIs, needs-attention, active execution, data products, health rail.
  */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ChevronRight, Clock, GitBranch, Plus } from "lucide-react";
+import { AlertCircle, ChevronRight, Clock, GitBranch, Plus } from "lucide-react";
 import * as React from "react";
 import { Card, SectionHead, StatusPill } from "../components/mc";
 import { activeExecution, dataProducts, kpis, needsAttention, releaseQueue, services } from "../data/demo";
 
-const ATT_ICON: Record<string, any> = { clock: Clock, branch: GitBranch };
+const ATT_ICON: Record<string, any> = { alert: AlertCircle, clock: Clock, branch: GitBranch };
 
 function Overview() {
   const navigate = useNavigate();
@@ -62,6 +62,7 @@ function Overview() {
               <AlertRow
                 key={a.title}
                 icon={ATT_ICON[a.icon] ?? Clock}
+                tone={a.tone ?? "var(--color-muted)"}
                 title={a.title}
                 sub={a.sub}
                 action={a.action}
@@ -228,7 +229,7 @@ function Overview() {
   );
 }
 
-function AlertRow({ icon: Icon, title, sub, action, to, first }: { icon: any; title: string; sub: string; action: string; to: string; first: boolean }) {
+function AlertRow({ icon: Icon, tone, title, sub, action, to, first }: { icon: any; tone: string; title: string; sub: string; action: string; to: string; first: boolean }) {
   const navigate = useNavigate();
   const [hover, setHover] = React.useState(false);
   return (
@@ -247,7 +248,7 @@ function AlertRow({ icon: Icon, title, sub, action, to, first }: { icon: any; ti
         cursor: "pointer",
       }}
     >
-      <Icon size={18} color="var(--color-muted)" style={{ flexShrink: 0 }} />
+      <Icon size={18} color={tone} style={{ flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 600 }}>{title}</div>
         <div style={{ fontSize: 11, color: "var(--color-muted)", marginTop: 2 }}>{sub}</div>

@@ -35,9 +35,9 @@ export const kpis = [
 ];
 
 export const needsAttention = [
-  { icon: "clock", title: "Orders delivery blocked", sub: "42 duplicate IDs · Revenue dashboard + 2 consumers · 8m", action: "Inspect run", to: "/runs/orders-daily" },
-  { icon: "clock", title: "Customer profiles are 35m late", sub: "09:00 delivery missed · CRM sync · Data platform", action: "View dataset", to: "/datasets/customer-profiles" },
-  { icon: "branch", title: "Inventory release lacks evidence", sub: "Write succeeded · Validation missing · Released data unchanged", action: "Review", to: "/releases" },
+  { icon: "alert", tone: "#C43D3D", title: "Orders delivery blocked", sub: "42 duplicate IDs · Revenue dashboard + 2 consumers · 8m", action: "Inspect run", to: "/runs/orders-daily" },
+  { icon: "clock", tone: "#C95814", title: "Customer profiles are 35m late", sub: "09:00 delivery missed · CRM sync · Data platform", action: "View dataset", to: "/datasets/orders" },
+  { icon: "branch", tone: "#737373", title: "Inventory release lacks evidence", sub: "Write succeeded · Validation missing · Released data unchanged", action: "Review", to: "/releases" },
 ];
 
 export const activeExecution = [
