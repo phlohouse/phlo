@@ -19,6 +19,9 @@ from phlo_api.observatory_api.observatory_mission_control_models import (
     PublicationReview,
     SummaryMetricRow,
 )
+from phlo_api.observatory_api.observatory_mission_control_sources import (
+    derive_ownership_gaps,
+)
 from phlo_api.observatory_api.observatory_mission_control_state import (
     find_by,
     load_records,
@@ -41,7 +44,15 @@ def get_mission_access_drift() -> list[AccessDrift]:
 
 @router.get("/mission/governance/ownership-gaps")
 def get_mission_ownership_gaps() -> list[OwnershipGap]:
-    """Return datasets missing an ownership or contract requirement."""
+    """Return datasets missing an ownership or contract requirement.
+
+    Declared asset metadata answers this directly, so it is preferred over the
+    seeded collection; the seed remains the fallback when no assets are
+    observable.
+    """
+    derived = derive_ownership_gaps()
+    if derived is not None:
+        return derived
     return load_records("ownership_gaps", OwnershipGap)
 
 

@@ -39,6 +39,7 @@ from phlo_api.observatory_api.observatory_mission_control_models import (
     ReleaseCandidate,
     ReleaseCandidateDetail,
     MissionRunDetail,
+    OwnershipGap,
     RunArtifact,
     RunConfigurationRow,
     PlatformService,
@@ -774,15 +775,89 @@ def derive_dataset(dataset_id: str) -> MissionDatasetDetail | None:
         preview=DatasetPreview(columns=[], rows=[]),
         checks=checks,
         lineage=lineage,
-        ownership=DatasetOwnership(
-            owner=None,
-            domain=target.group,
-            freshness_target=None,
-            schedule=None,
-            classification=None,
-            contract_version=None,
-            retention=None,
-        ),
+        ownership=_ownership_from_asset(target),
         access=[],
         runs=[],
     )
+
+
+def _metadata_text(metadata: dict | None, key: str) -> str | None:
+    """Return a non-empty string metadata value, else ``None``."""
+    value = (metadata or {}).get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _freshness_label(metadata: dict | None) -> str | None:
+    """Render a declared SLA freshness window as a short human label."""
+    sla = (metadata or {}).get("sla")
+    if not isinstance(sla, dict):
+        return None
+    hours = sla.get("freshness_hours")
+    if isinstance(hours, bool) or not isinstance(hours, (int, float)) or hours <= 0:
+        return None
+    if hours % 24 == 0:
+        days = int(hours // 24)
+        return f"{days}d" if days > 1 else "24h"
+    return f"{int(hours)}h"
+
+
+def _ownership_from_asset(asset) -> DatasetOwnership:
+    """Read accountable ownership from an asset's declared metadata.
+
+    ``owner``, ``group`` and the ``sla`` freshness window are declared on the
+    dlt asset annotations; dbt models declare none of them, so those fields stay
+    ``None`` rather than being invented.
+    """
+    metadata = getattr(asset, "metadata", None) or {}
+    return DatasetOwnership(
+        owner=_metadata_text(metadata, "owner"),
+        domain=_metadata_text(metadata, "group") or getattr(asset, "group", None),
+        freshness_target=_freshness_label(metadata),
+        schedule=None,
+        classification=None,
+        contract_version=None,
+        retention=None,
+    )
+
+
+def derive_ownership_gaps() -> list[OwnershipGap] | None:
+    """Derive ownership gaps from declared asset metadata.
+
+    An asset that declares no ``owner`` is a gap. The requirement named is the
+    one that is actually missing, so the report stays truthful as more
+    declarations are added rather than hardcoding a fixed list of gaps.
+
+    Returns ``None`` when no assets are observable, so the caller falls back to
+    the seeded read model; a truly unowned catalogue yields rows, not an empty
+    list.
+    """
+    assets = _load_assets()
+    if not assets:
+        return None
+
+    gaps: list[OwnershipGap] = []
+    for asset in assets:
+        owner = _metadata_text(getattr(asset, "metadata", None), "owner")
+        if owner is None:
+            gaps.append(
+                OwnershipGap(
+                    dataset=asset.id,
+                    requirement="Accountable owner",
+                    owner="Unassigned",
+                    action="Assign an owner in the asset declaration",
+                )
+            )
+            continue
+        if _freshness_label(getattr(asset, "metadata", None)) is None:
+            gaps.append(
+                OwnershipGap(
+                    dataset=asset.id,
+                    requirement="Freshness SLA",
+                    owner=owner,
+                    action="Declare an sla freshness window",
+                )
+            )
+
+    return sorted(gaps, key=lambda gap: (gap.owner != "Unassigned", gap.dataset))
