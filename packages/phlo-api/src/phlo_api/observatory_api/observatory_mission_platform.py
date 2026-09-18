@@ -16,6 +16,7 @@ from phlo_api.observatory_api.observatory_mission_control_models import (
     PlatformService,
     PlatformSummaryMetric,
     ServiceDiagnostics,
+    ServiceProbeFact,
 )
 from phlo_api.observatory_api.observatory_mission_control_sources import (
     derive_platform_services,
@@ -95,11 +96,39 @@ def get_mission_platform_services() -> list[PlatformService]:
 
 @router.get("/mission/platform/services/{service_id}")
 def get_mission_service_diagnostics(service_id: str) -> ServiceDiagnostics:
-    """Return probe history, dependency path and capability state for a service."""
+    """Return probe state for a service.
+
+    A curated diagnostics record wins; otherwise the live service row is
+    described directly, so the rail always reflects the environment rather than
+    404-ing for a service the reference fixture never knew about.
+    """
     record = find_record("platform_diagnostics", ServiceDiagnostics, service_id)
-    if record is None:
+    if record is not None:
+        return record
+
+    derived = derive_platform_services() or []
+    row = next((item for item in derived if item.name == service_id), None)
+    if row is None:
         raise HTTPException(status_code=404, detail=f"No diagnostics for service {service_id}")
-    return record
+
+    return ServiceDiagnostics(
+        id=row.name,
+        name=row.name,
+        readiness_state=row.readiness_state,
+        summary=(
+            f"{row.role} · runtime {row.runtime_state} · readiness {row.readiness_state.lower()}."
+        ),
+        facts=[
+            ServiceProbeFact(label="Runtime", value=row.runtime_state),
+            ServiceProbeFact(label="Readiness", value=row.readiness_state),
+            ServiceProbeFact(label="Probe", value=row.probe),
+            ServiceProbeFact(label="Role", value=row.role),
+        ],
+        dependencies=[],
+        dependency_note=("Dependency paths are not reported by this service."),
+        capability_checks="Not reported",
+        capabilities=[],
+    )
 
 
 @router.get("/mission/platform/backup")

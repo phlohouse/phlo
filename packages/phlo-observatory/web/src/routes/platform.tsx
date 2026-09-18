@@ -39,7 +39,12 @@ const TONE_CLASS: Record<string, string | undefined> = {
 function PlatformPage() {
   const summary = useQuery(queries.platformSummary());
   const services = useQuery(queries.platformServices());
-  const diagnostics = useQuery(queries.serviceDiagnostics("loki"));
+  // Follow whichever service actually needs attention rather than a fixed name.
+  const unready = services.data?.find((service) => service.attention)?.name ?? "loki";
+  const diagnostics = useQuery({
+    ...queries.serviceDiagnostics(unready),
+    enabled: Boolean(services.data),
+  });
   const backup = useQuery(queries.backupCoverage());
   const maintenance = useQuery(queries.maintenance());
 
