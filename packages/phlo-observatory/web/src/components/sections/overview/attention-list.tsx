@@ -1,14 +1,17 @@
 /**
  * Overview section: priority items ranked by consumer impact.
  *
- * Presentational — navigation is delegated so the block can render in
- * isolation (Storybook, tests) without a router.
+ * Follows the same surface rules as the tables: white rows separated by
+ * hairlines, a purple tint on hover, and a violet fill on the active row. The
+ * top-priority item is active by default, matching Paper.
+ *
+ * Presentational — navigation is delegated so the block renders without a
+ * router.
  */
-import { AlertCircle, ChevronRight, Clock, GitBranch  } from "lucide-react";
-import type {LucideIcon} from "lucide-react";
+import { AlertCircle, ChevronRight, Clock, GitBranch, type LucideIcon } from "lucide-react";
 
-import type { AttentionItem, Severity } from "@/data/demo";
 import { Section } from "@/components/layout/section-header";
+import type { AttentionItem, Severity } from "@/data/demo";
 import { cn } from "@/lib/utils";
 
 const ICON: Record<Severity, LucideIcon> = {
@@ -27,11 +30,13 @@ const ICON_COLOR: Record<Severity, string> = {
 
 function AttentionRow({
   item,
-  first,
+  active,
+  last,
   onOpen,
 }: {
   item: AttentionItem;
-  first: boolean;
+  active: boolean;
+  last: boolean;
   onOpen?: (item: AttentionItem) => void;
 }) {
   const Icon = ICON[item.severity];
@@ -39,9 +44,11 @@ function AttentionRow({
     <button
       type="button"
       onClick={() => onOpen?.(item)}
+      aria-current={active ? "true" : undefined}
       className={cn(
-        "flex h-14 shrink-0 cursor-pointer items-center gap-2.5 bg-secondary px-3 text-left transition-colors hover:bg-accent/60",
-        !first && "border-t border-border",
+        "flex h-14 shrink-0 cursor-pointer items-center gap-2.5 px-3 text-left transition-colors",
+        !last && "border-b border-border",
+        active ? "bg-secondary" : "hover:bg-primary/5",
       )}
     >
       <Icon className={cn("size-4.5 shrink-0", ICON_COLOR[item.severity])} strokeWidth={1.6} />
@@ -61,9 +68,12 @@ function AttentionRow({
 
 export function AttentionList({
   items,
+  activeIndex = 0,
   onOpen,
 }: {
   items: Array<AttentionItem>;
+  /** Index of the highlighted row; pass null for none. */
+  activeIndex?: number | null;
   onOpen?: (item: AttentionItem) => void;
 }) {
   return (
@@ -73,7 +83,13 @@ export function AttentionList({
     >
       <div className="flex flex-col overflow-clip rounded-[7px] border border-border">
         {items.map((item, index) => (
-          <AttentionRow key={item.title} item={item} first={index === 0} onOpen={onOpen} />
+          <AttentionRow
+            key={item.title}
+            item={item}
+            active={index === activeIndex}
+            last={index === items.length - 1}
+            onOpen={onOpen}
+          />
         ))}
       </div>
     </Section>
