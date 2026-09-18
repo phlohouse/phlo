@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import type {DataColumn} from "@/components/data/data-table";
 import type {Metric} from "@/components/data/metric-strip";
 import { queries } from "@/api/mission-control";
+import type { LineageNode } from "@/api/types";
 import {  DataTable } from "@/components/data/data-table";
 import {  MetricStrip } from "@/components/data/metric-strip";
 import { PropertyList } from "@/components/data/property-list";
@@ -38,6 +39,23 @@ const TABS = [
   { value: "runs", label: "Runs" },
   { value: "contract", label: "Contract & access" },
 ];
+
+/**
+ * Condense the full lineage graph into the 4-node chain the Overview shows:
+ * upstream sources, this dataset, then a single consumer count node.
+ */
+function summariseChain(nodes: Array<LineageNode>): Array<LineageNode> {
+  const currentIndex = nodes.findIndex((node) => node.current);
+  if (currentIndex === -1) return nodes;
+  const upstream = nodes.slice(0, currentIndex + 1);
+  const downstream = nodes.slice(currentIndex + 1);
+  if (downstream.length === 0) return upstream;
+  const roles = Array.from(new Set(downstream.map((node) => node.role.split(" · ")[0])));
+  return [
+    ...upstream,
+    { name: `${downstream.length} consumers`, role: roles.join(" · "), current: false },
+  ];
+}
 
 const TONE_CLASS: Record<string, string | undefined> = {
   success: "text-success",
@@ -105,7 +123,7 @@ function DatasetDetailPage() {
             />
             {data ? (
               <LineageChain
-                nodes={data.lineage}
+                nodes={summariseChain(data.lineage)}
                 caption="Declared dependencies · Consumers read released snapshot 938105"
                 onViewAll={() => navigate({ to: "/datasets/orders" })}
               />
