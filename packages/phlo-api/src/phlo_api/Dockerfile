@@ -17,7 +17,7 @@ ARG PHLO_API_VERSION=
 ARG PHLO_WHEELHOUSE=
 
 RUN apk upgrade --no-cache \
-    && apk add --no-cache ca-certificates=20260611-r0 \
+    && apk add --no-cache ca-certificates=20260909-r0 \
     && apk add --no-cache --virtual .build-deps \
         gcc=15.2.0-r5 \
         musl-dev=1.2.6-r2 \
