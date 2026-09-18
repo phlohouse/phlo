@@ -11,7 +11,6 @@ reading fixtures or the API.
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -43,17 +42,18 @@ def _legacy_path(collection: str) -> Path:
 
 
 def load_records(collection: str, model: type[ModelT]) -> list[ModelT]:
-    """Load a collection as models, seeding it on first read.
+    """Load a collection as models, falling back to the reference seed in memory.
 
-    The seed is written to the legacy JSON path only when that file is absent,
-    so ``load_collection`` imports it into durable state exactly once. A
-    collection that is later emptied stays empty.
+    The seed is never written to disk: a read must not mutate the project's
+    durable state. When the collection is absent the seed is served directly, so
+    a screen renders reference data without anything being persisted.
 
     Invalid records are skipped rather than failing the request: one malformed
     record must not blank a whole screen.
     """
-    _ensure_seeded(collection)
-    raw = load_collection(project_root(), collection, _legacy_path(collection))
+    raw = _read_state(collection)
+    if not raw:
+        raw = list(SEED.get(collection, []))
     records: list[ModelT] = []
     for item in raw:
         if not isinstance(item, Mapping):
@@ -65,19 +65,12 @@ def load_records(collection: str, model: type[ModelT]) -> list[ModelT]:
     return records
 
 
-def _ensure_seeded(collection: str) -> None:
-    """Write the reference seed to the legacy path if it does not exist yet.
-
-    The shape must match what ``observatory_durable_state._legacy_items``
-    accepts: ``{"items": [...]}``.
-    """
-    seed = SEED.get(collection)
-    if seed is None:
-        return
-    path = _legacy_path(collection)
-    if path.exists():
-        return
-    path.write_text(json.dumps({"items": seed}, indent=2), encoding="utf-8")
+def _read_state(collection: str) -> list[dict[str, Any]]:
+    """Read a collection from durable state, tolerating an absent store."""
+    try:
+        return load_collection(project_root(), collection, _legacy_path(collection))
+    except Exception:  # noqa: BLE001 - an unreadable store must not blank a screen
+        return []
 
 
 def replace_records(collection: str, items: Iterable[Mapping[str, Any]]) -> None:
