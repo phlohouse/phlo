@@ -417,14 +417,19 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
                     # outside so no ambient context survives suspension.
                     for result in results:
                         if isinstance(result, CheckResult):
+                            # The spec/result severity describes the failure;
+                            # a passed check is informational unless the result
+                            # carries its own severity (passed-with-warnings).
+                            result_severity = _severity_from_string(result.severity)
                             phlo_observe.emit_asset_check(
                                 context,
                                 check_name=result.check_name,
                                 passed=result.passed,
                                 severity=(
-                                    _severity_from_string(result.severity)
-                                    or dg.AssetCheckSeverity.ERROR
-                                ).name.lower(),
+                                    result_severity.name.lower()
+                                    if result_severity is not None
+                                    else ("info" if result.passed else "error")
+                                ),
                                 asset_key=result.asset_key,
                             )
                     # An in-band failure status must surface as a real step
@@ -515,16 +520,24 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             with phlo_observe.dagster_run_scope(context, asset_key=spec.asset_key):
                 with phlo_observe.dagster_step(context):
                     result = spec.fn(runtime) if spec.fn else None
-                    severity = (
+                    result_severity = (
                         _severity_from_string(result.severity) if result is not None else None
-                    ) or default_severity
+                    )
+                    severity = result_severity or default_severity
+                    check_passed = result.passed if result is not None else True
                     # Emit inside the step scope so quality.check joins the
                     # check step's trace and inherits run/asset correlation.
+                    # The spec/result severity describes the failure; a passed
+                    # check is informational unless it carries its own severity.
                     phlo_observe.emit_asset_check(
                         context,
                         check_name=result.check_name if result is not None else spec.name,
-                        passed=result.passed if result is not None else True,
-                        severity=severity.name.lower(),
+                        passed=check_passed,
+                        severity=(
+                            result_severity.name.lower()
+                            if result_severity is not None
+                            else ("info" if check_passed else severity.name.lower())
+                        ),
                         asset_key=spec.asset_key,
                     )
             if result is None:
