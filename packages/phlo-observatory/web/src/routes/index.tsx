@@ -19,8 +19,8 @@ function Overview() {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 750, margin: 0, letterSpacing: "-0.02em" }}>Overview</h1>
-        <span style={{ fontSize: 12, border: "1px solid var(--color-border)", borderRadius: 6, padding: "2px 9px", color: "var(--color-muted)", background: "var(--color-panel)" }}>
+        <h1 style={{ fontSize: 25, fontWeight: 600, margin: 0, letterSpacing: "-0.03em", fontFamily: "var(--font-display)", color: "#000" }}>Overview</h1>
+        <span style={{ fontSize: 11, border: "1px solid var(--color-border)", borderRadius: 4, padding: "3px 8px", color: "var(--color-muted)", background: "var(--color-panel)" }}>
           Example data
         </span>
         <span style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
@@ -40,45 +40,35 @@ function Overview() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <Card style={{ display: "flex", padding: 0, overflow: "hidden", marginBottom: 18 }}>
             {kpis.map((k, i) => (
-              <div key={k.label} style={{ flex: 1, padding: "13px 16px", borderLeft: i === 0 ? "none" : "1px solid var(--color-border)" }}>
-                <div style={{ fontSize: 12, color: "var(--color-muted)" }}>{k.label}</div>
-                <div style={{ fontSize: 18, fontWeight: 750, margin: "2px 0" }}>{k.value}</div>
-                <div style={{ fontSize: 11, color: "var(--color-muted)" }}>{k.sub}</div>
+              <div key={k.label} style={{ flex: 1, minWidth: 0, padding: 12, borderLeft: i === 0 ? "none" : "1px solid var(--color-border)" }}>
+                <div style={{ fontSize: 11, color: "var(--color-muted)" }}>{k.label}</div>
+                <div style={{ fontSize: 17, fontWeight: 600, margin: "4px 0", whiteSpace: "nowrap", letterSpacing: "-0.02em", fontFamily: "var(--font-display)" }}>{k.value}</div>
+                <div style={{ fontSize: 10, color: "#525252", whiteSpace: "nowrap" }}>{k.sub}</div>
               </div>
             ))}
           </Card>
 
           <SectionHead title="Needs attention" right={<span>3 priority items · ranked by consumer impact</span>} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
-            {needsAttention.map((a) => {
-              const Icon = ATT_ICON[a.icon] ?? Clock;
-              return (
-                <div
-                  key={a.title}
-                  onClick={() => navigate({ to: a.to })}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    background: "color-mix(in srgb, var(--color-accent) 7%, var(--color-panel))",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: 10,
-                    padding: "12px 14px",
-                    cursor: "pointer",
-                  }}
-                >
-                  <Icon size={17} color="var(--color-muted)" style={{ flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 650 }}>{a.title}</div>
-                    <div style={{ fontSize: 12.5, color: "var(--color-muted)", marginTop: 2 }}>{a.sub}</div>
-                  </div>
-                  <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, color: "var(--color-accent-dark)", fontWeight: 600, flexShrink: 0 }}>
-                    {a.action}
-                    <ChevronRight size={15} />
-                  </span>
-                </div>
-              );
-            })}
+          <div
+            style={{
+              border: "1px solid var(--color-border)",
+              borderRadius: 7,
+              overflow: "hidden",
+              background: "#F7F5FF",
+              marginBottom: 18,
+            }}
+          >
+            {needsAttention.map((a, i) => (
+              <AlertRow
+                key={a.title}
+                icon={ATT_ICON[a.icon] ?? Clock}
+                title={a.title}
+                sub={a.sub}
+                action={a.action}
+                to={a.to}
+                first={i === 0}
+              />
+            ))}
           </div>
 
           <SectionHead title="Active execution" right={<span>4 running · 2 queued</span>} />
@@ -96,10 +86,10 @@ function Overview() {
               <tbody>
                 {activeExecution.map((r) => (
                   <tr key={r.wf} className="clickable" onClick={() => navigate({ to: r.to })}>
-                    <td style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, fontWeight: 600 }}>{r.wf}</td>
-                    <td style={{ color: "var(--color-accent-dark)" }}>{r.stage}</td>
-                    <td style={{ color: "var(--color-muted)" }}>{r.progress}</td>
-                    <td style={{ color: "var(--color-muted)", fontFamily: "var(--font-mono)", fontSize: 12.5 }}>{r.elapsed}</td>
+                    <td style={{ fontSize: 12, fontWeight: 500 }}>{r.wf}</td>
+                    <td style={{ color: "var(--color-accent-dark)", fontSize: 11 }}>{r.stage}</td>
+                    <td style={{ color: "#525252", fontSize: 11 }}>{r.progress}</td>
+                    <td style={{ color: "var(--color-muted)", fontSize: 11 }}>{r.elapsed}</td>
                     <td>
                       <ChevronRight size={15} color="var(--color-muted)" />
                     </td>
@@ -234,6 +224,38 @@ function Overview() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AlertRow({ icon: Icon, title, sub, action, to, first }: { icon: any; title: string; sub: string; action: string; to: string; first: boolean }) {
+  const navigate = useNavigate();
+  const [hover, setHover] = React.useState(false);
+  return (
+    <div
+      onClick={() => navigate({ to })}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        height: 56,
+        padding: "10px 12px",
+        borderTop: first ? "none" : "1px solid var(--color-border)",
+        background: hover ? "color-mix(in srgb, var(--color-accent) 12%, #F7F5FF)" : "transparent",
+        cursor: "pointer",
+      }}
+    >
+      <Icon size={18} color="var(--color-muted)" style={{ flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>{title}</div>
+        <div style={{ fontSize: 11, color: "var(--color-muted)", marginTop: 2 }}>{sub}</div>
+      </div>
+      <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "var(--color-accent-dark)", fontWeight: 500, flexShrink: 0 }}>
+        {action}
+        <ChevronRight size={15} />
+      </span>
     </div>
   );
 }

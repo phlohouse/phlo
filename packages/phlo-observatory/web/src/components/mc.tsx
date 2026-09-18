@@ -77,8 +77,8 @@ export function Card({ children, style }: { children: React.ReactNode; style?: R
 export function SectionHead({ title, right }: { title: string; right?: React.ReactNode }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", marginBottom: 10 }}>
-      <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0, letterSpacing: "-0.01em" }}>{title}</h2>
-      <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--color-muted)" }}>{right}</span>
+      <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0, fontFamily: "var(--font-display)" }}>{title}</h2>
+      <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: "var(--color-muted)" }}>{right}</span>
     </div>
   );
 }
