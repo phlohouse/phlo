@@ -1,7 +1,7 @@
 /**
  * Breadcrumb trail lookup for the workspace topbar.
  */
-import type { Crumb } from "@/components/app-topbar";
+import type { Crumb } from "@/components/app/app-topbar";
 
 /**
  * Breadcrumb trail for a pathname. Kept as an explicit table rather than
