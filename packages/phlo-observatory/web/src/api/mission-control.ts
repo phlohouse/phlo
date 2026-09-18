@@ -86,6 +86,7 @@ const keys = {
   environments: ["mission", "environments"] as const,
   attention: ["mission", "attention"] as const,
   execution: ["mission", "execution"] as const,
+  overviewSummary: ["mission", "overview-summary"] as const,
   dataProducts: ["mission", "data-products"] as const,
   overviewRail: ["mission", "overview-rail"] as const,
   runDetail: (runId: string) => ["mission", "runs", runId, "detail"] as const,
@@ -147,6 +148,11 @@ export const queries = {
       queryFn: ({ signal }) => request<Array<MissionExecutionRow>>("/overview/execution", signal),
     }),
 
+  overviewSummary: () =>
+    queryOptions({
+      queryKey: keys.overviewSummary,
+      queryFn: ({ signal }) => request<Array<SummaryMetricRow>>("/overview/summary", signal),
+    }),
   dataProducts: () =>
     queryOptions({
       queryKey: keys.dataProducts,

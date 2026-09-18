@@ -19,21 +19,30 @@ import { DataProductsTable } from "@/components/sections/overview/data-products-
 import { ExecutionTable } from "@/components/sections/overview/execution-table";
 import { HealthRail } from "@/components/sections/overview/health-rail";
 import { Button } from "@/components/ui/button";
-import { summaryMetrics } from "@/data/demo";
 
-const METRICS: Array<Metric> = summaryMetrics.map((metric) => ({
-  label: metric.label,
-  value: metric.value,
-  hint: metric.hint,
-}));
+const TONE_CLASS: Record<string, string | undefined> = {
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-destructive",
+  accent: "text-accent-foreground",
+  muted: undefined,
+};
 
 function OverviewPage() {
   const navigate = useNavigate();
 
+  const summary = useQuery(queries.overviewSummary());
   const attention = useQuery(queries.attention());
   const execution = useQuery(queries.execution());
   const dataProducts = useQuery(queries.dataProducts());
   const rail = useQuery(queries.overviewRail());
+
+  const metrics: Array<Metric> = (summary.data ?? []).map((metric) => ({
+    label: metric.label,
+    value: metric.value,
+    hint: metric.hint,
+    tone: TONE_CLASS[metric.tone],
+  }));
 
   return (
     <Page>
@@ -52,7 +61,7 @@ function OverviewPage() {
       />
 
       <PageBand>
-        <MetricStrip metrics={METRICS} />
+        <MetricStrip metrics={metrics} />
       </PageBand>
 
       <PageContent

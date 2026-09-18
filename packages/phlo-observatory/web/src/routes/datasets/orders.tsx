@@ -10,8 +10,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import type {DataColumn} from "@/components/data/data-table";
 import type {Metric} from "@/components/data/metric-strip";
-import { queries } from "@/api/mission-control";
 import type { LineageNode } from "@/api/types";
+import { queries } from "@/api/mission-control";
 import {  DataTable } from "@/components/data/data-table";
 import {  MetricStrip } from "@/components/data/metric-strip";
 import { PropertyList } from "@/components/data/property-list";
