@@ -16,6 +16,8 @@ generated deployments.
   `wap.reject`, and `wap.cleanup` with critical delivery
 - Emits terminal `pipeline.run` events for Dagster run success, failure, and
   cancellation so each physical attempt owns its run row
+- Ships `presentation`: Phlo's `PrettyRenderer` rules and the `pretty`
+  drain, a human-readable view of the canonical stream
 - Registers the `phlo-observer` service (HTTP ingestion + query API on the
   `observability` profile) and the `phlo-observer-db-setup` companion that
   provisions its PostgreSQL database
@@ -50,11 +52,11 @@ Generated Dagster images install it automatically when `PHLO_OBSERVE_SDK` is
 set (see below); without the SDK the plugin is inert anyway, so the build arg
 gates both.
 
-The `phlo-observe` SDK it drives requires Python >=3.12 and is not yet
+The `phlo-observe` SDK it drives requires Python >=3.12 and is not
 published to PyPI, so it is intentionally not a declared runtime dependency.
 Development environments get it automatically: the `dev` dependency group
 declares all three packages marker-gated to `python_version >= '3.12'` and
-`[tool.uv.sources]` resolves them from the pinned V2 commit — `uv sync` on
+`[tool.uv.sources]` resolves them from the release tags — `uv sync` on
 3.12 installs them (and the observability e2e tests run), while 3.11 skips
 both. Outside the dev environment install each unpublished workspace package
 from the source repository — a single subdirectory install cannot resolve
@@ -62,15 +64,15 @@ the repo's `observe-core`/`observe-query` workspace sources:
 
 ```bash
 uv pip install \
-  "observe-core @ git+https://github.com/phlohouse/phlo-observe.git@91a32fa29ce19aac0e31ed3750a9090776267bd0#subdirectory=packages/observe-core" \
-  "observe-query @ git+https://github.com/phlohouse/phlo-observe.git@91a32fa29ce19aac0e31ed3750a9090776267bd0#subdirectory=packages/observe-query" \
-  "phlo-observe @ git+https://github.com/phlohouse/phlo-observe.git@91a32fa29ce19aac0e31ed3750a9090776267bd0#subdirectory=packages/phlo-observe-sdk"
+  "observe-core @ git+https://github.com/phlohouse/phlo-observe.git@observe-core/v0.3.0#subdirectory=packages/observe-core" \
+  "observe-query @ git+https://github.com/phlohouse/phlo-observe.git@phlo-observe/v0.2.1#subdirectory=packages/observe-query" \
+  "phlo-observe @ git+https://github.com/phlohouse/phlo-observe.git@phlo-observe/v0.2.1#subdirectory=packages/phlo-observe-sdk"
 ```
 
 The integration needs the V2 SDK (canonical `entities`/`set_entity` and the
-2.x envelope). The published `phlo-observe/v0.1.0` tag predates V2, so the
-example pins a V2-capable commit — replace it with a release tag once a V2
-release exists. A pre-V2 SDK degrades rather than breaks: `phlo.telemetry`
+2.x envelope). `observe-core >= 0.3.0` is required for the `pretty` drain:
+earlier releases lack `PrettyRenderer`, `Runtime.add_drain`, and per-field
+`suppress`. A pre-V2 SDK degrades rather than breaks: `phlo.telemetry`
 logs one warning and emits events without entity links (a V1 observer
 accepts them, but the entity graph is lost).
 
@@ -139,6 +141,11 @@ observer holding different credentials. Instead:
 - `phlo_observe_plugin.dagster_ext.ObserveDagsterExtension` — Dagster
   run-status sensors (`observe_run_success`, `observe_run_failure`,
   `observe_run_canceled`), all defaulting to RUNNING
+- `phlo_observe_plugin.presentation` — `PHLO_PRESENTATION` rules and the
+  `pretty` drain: one human-readable line per run milestone by default,
+  full diagnostic detail in verbose. Attach with `OBSERVE_DRAINS=pretty`
+  or `PHLO_OBSERVE_PRETTY=true`; `pretty_renderer()` /
+  `render_events()` / `render_jsonl()` render captured streams directly.
 - `phlo_observe_plugin.service.yaml` — `phlo-observer` service definition.
   No published image speaks the V2 envelope (`0.1.0`/`latest` accept only
   `schema_version` 1.x), so the service builds from the phlo-observe monorepo

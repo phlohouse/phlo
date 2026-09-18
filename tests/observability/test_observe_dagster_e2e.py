@@ -173,6 +173,10 @@ def test_dagster_materialization_produces_correlated_canonical_history(
     hook_check = next(p for p in checks if p["attributes"].get("check_name") == "not_null")
     assert hook_check["attributes"].get("phlo_run_id") == physical_run
 
+    # The CheckResult passed — its severity is informational, never the
+    # spec's configured *failure* severity (AssetCheckSeverity.ERROR).
+    assert schema_check["severity"] == "info"
+
     # Entities land on canonical ids: the asset materialization names the
     # asset and the run; the ingestion load names asset + table + branch.
     materialize = by_name["asset.materialize"]
@@ -229,6 +233,7 @@ def test_dagster_check_failure_records_failure_outcome(captured: Any, bus: Any) 
     check = checks[0]
     assert check["attributes"].get("check_name") == "freshness"
     assert check["outcome"] == "failure"
+    # An explicit result severity wins: "warn", not the spec default "error".
     assert check["severity"] == "warn"
     # The dedicated check ran inside dagster_run_scope, so run correlation
     # comes from the real execution context's run id — the same id the
@@ -268,6 +273,391 @@ def test_failed_materialize_result_records_failed_step(captured: Any, bus: Any) 
     assert not [
         p for p in payloads if p["event"] == "asset.materialize" and p["outcome"] == "success"
     ]
+
+
+# -- golden UX fixture -----------------------------------------------------------
+#
+# A complete WAP-launched run through the real production path: real
+# dagster.materialize(), the production adapter, a real HookBus auto-discovering
+# ObserveHookPlugin, and the same lifecycle emissions the WAP orchestration
+# makes around the materialization. The captured canonical stream is the
+# machine record; render_events() shows what a human sees. These goldens pin
+# the UX contract: canonical JSONL stays exhaustive, the default view stays
+# selective, verbose stays diagnostic, and failures stay readable.
+
+WAP_STAGING_REF = "pipeline-run-e2e-demo"
+WAP_ASSET = "bronze.users"
+WAP_TABLE = "bronze.users"
+
+_TS = __import__("re").compile(r"\d{2}:\d{2}:\d{2}\.\d{3}")
+
+
+def _normalize_timestamps(text: str) -> str:
+    """observed_at values are wall-clock; pin the column shape, not the time."""
+    return _TS.sub("TT:TT:TT.ttt", text)
+
+
+def _wap_lifecycle(bus: Any, physical: str | None, logical: str, *, fail: bool) -> None:
+    """The WAP lifecycle emissions the orchestration makes around a run.
+
+    Branch create -> ingest -> table commit -> quality gate -> promote or
+    reject -> cleanup -> publish, plus the bookkeeping events the canonical
+    stream keeps (evidence receipt, lineage, catalog-level ref operations).
+    """
+    from phlo.hooks.emitters import (
+        IngestionEventContext,
+        IngestionEventEmitter,
+        QualityResultEventContext,
+        QualityResultEventEmitter,
+    )
+    from phlo.hooks.events import (
+        HookCorrelation,
+        LineageEvent,
+        PublishEvent,
+        RunEvidenceObservationEvent,
+    )
+
+    # WAP launch: the staging ref is created on the run's catalog.
+    phlo_observe.emit(
+        "wap.branch.create",
+        category="wap",
+        outcome="success",
+        attributes={
+            "branch": WAP_STAGING_REF,
+            "base_branch": "main",
+            "strategy": "branch",
+            "catalog_system": "nessie",
+            "phlo_run_id": logical,
+            "project_id": "demo",
+        },
+        correlation={"branch": WAP_STAGING_REF},
+        entities={"branch": phlo_observe.branch_entity_id(WAP_STAGING_REF, system="nessie")},
+    )
+    # Catalog-level view of the same creation (what the nessie integration
+    # emits around the real ref create).
+    phlo_observe.emit(
+        "nessie.branch.create",
+        category="storage",
+        outcome="success",
+        producer="nessie",
+        attributes={"branch": WAP_STAGING_REF, "base_branch": "main"},
+        correlation={"branch": WAP_STAGING_REF},
+    )
+
+    # DLT extraction + load onto the staging ref.
+    ingestion = IngestionEventEmitter(
+        IngestionEventContext(
+            asset_key=WAP_ASSET,
+            table_name=WAP_TABLE,
+            group_name="bronze",
+            run_id=logical,
+            branch_name=WAP_STAGING_REF,
+            catalog_system="nessie",
+        ),
+        hook_bus=bus,
+    )
+    ingestion.emit_start()
+    ingestion.emit_end(
+        status="failed" if fail else "success",
+        error="source read blew up" if fail else None,
+        metrics={"rows_processed": 12481},
+    )
+
+    # The load lands as a commit on the staging ref's table (what the
+    # iceberg integration emits around the real table operation).
+    phlo_observe.emit(
+        "iceberg.commit",
+        category="storage",
+        outcome="success",
+        producer="iceberg",
+        attributes={
+            "catalog": "nessie",
+            "namespace": "bronze",
+            "operation": "append",
+            "rows_added": 12481,
+            "files_added": 3,
+            "snapshot_id_after": 8675309123456789,
+            "commit_hash": "9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c",
+        },
+        correlation={
+            "table": WAP_TABLE,
+            "branch": WAP_STAGING_REF,
+            "snapshot_id": 8675309123456789,
+        },
+    )
+    # The source pipeline's own completion record (dlt integration).
+    phlo_observe.emit(
+        "dlt.pipeline.run",
+        category="data",
+        outcome="success",
+        producer="dlt",
+        attributes={
+            "pipeline_name": "users_ingest",
+            "destination": "iceberg",
+            "dataset_name": "bronze",
+            "load_id": "1726657408.123456",
+            "rows_loaded": 12481,
+            "tables": [WAP_TABLE],
+        },
+        correlation={"pipeline": "users_ingest"},
+    )
+
+    # Column-level quality results on the staged data — the one that fails
+    # a rejected run. QualityResultEvent carries no error field: the
+    # failure shows through the glyph, check name, and asset, matching
+    # what a real check translation emits.
+    QualityResultEventEmitter(
+        QualityResultEventContext(asset_key=WAP_ASSET, run_id=logical),
+        hook_bus=bus,
+    ).emit_result(check_name="not_null", passed=not fail)
+
+    # The WAP audit verdict — the quality gate that decides promotion.
+    QualityResultEventEmitter(
+        QualityResultEventContext(asset_key=WAP_ASSET, run_id=logical),
+        hook_bus=bus,
+    ).emit_result(
+        check_name="wap.aggregate",
+        passed=not fail,
+        metadata={
+            "decision": "rejected" if fail else "passed",
+            "dagster_run_id": physical,
+        },
+    )
+
+    # Promotion evidence: staging merges into main — or is rejected.
+    bus.emit(
+        RunEvidenceObservationEvent(
+            event_type="run_evidence.observation",
+            observation_type="publish",
+            status="rejected" if fail else "success",
+            error=("quality gate rejected: check 'not_null' failed" if fail else None),
+            catalog_change={
+                "operation": "promotion",
+                "catalog_ref": "main",
+                "dagster_run_id": physical,
+                "wap_branch": WAP_STAGING_REF,
+                "catalog_system": "nessie",
+                "source_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+                "target_hash": "f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3",
+                "merge_outcome": "rejected_quality" if fail else "promoted",
+            },
+            correlation=HookCorrelation(run_id=logical),
+        )
+    )
+    # The merge commit landing on main (catalog level).
+    phlo_observe.emit(
+        "nessie.commit",
+        category="storage",
+        outcome="success",
+        producer="nessie",
+        attributes={"branch": "main", "merged_branch": WAP_STAGING_REF},
+        correlation={"branch": "main"},
+    )
+    # Post-decision cleanup: the staging ref is dropped.
+    bus.emit(
+        RunEvidenceObservationEvent(
+            event_type="run_evidence.observation",
+            observation_type="cleanup",
+            status="success",
+            catalog_change={
+                "operation": "cleanup",
+                "catalog_ref": WAP_STAGING_REF,
+                "dagster_run_id": physical,
+                "wap_branch": WAP_STAGING_REF,
+                "catalog_system": "nessie",
+            },
+            correlation=HookCorrelation(run_id=logical),
+        )
+    )
+    # Evidence receipt with no catalog mutation (a stage receipt).
+    bus.emit(
+        RunEvidenceObservationEvent(
+            event_type="run_evidence.observation",
+            observation_type="receipt",
+            status="success",
+            stage_id="promote",
+            resources=[{"kind": "catalog", "ref": "main"}],
+            correlation=HookCorrelation(run_id=logical),
+        )
+    )
+    # Lineage edges recorded for the materialized asset.
+    bus.emit(
+        LineageEvent(
+            event_type="lineage",
+            edges=[("raw.users", WAP_ASSET)],
+            asset_keys=[WAP_ASSET],
+            correlation=HookCorrelation(run_id=logical),
+        )
+    )
+    # Downstream publish of the promoted table.
+    bus.emit(
+        PublishEvent(
+            event_type="publish.end",
+            asset_key=WAP_ASSET,
+            target_system="observatory",
+            tables={WAP_ASSET: f"main.{WAP_TABLE}"},
+            status="success",
+            correlation=HookCorrelation(run_id=logical),
+        )
+    )
+
+
+def _build_wap_asset(bus: Any, *, fail: bool = False):
+    """A real Dagster asset whose run fn emits the full WAP lifecycle."""
+    from phlo_dagster.adapter import DagsterOrchestratorAdapter
+
+    from phlo.capabilities import (
+        AssetCheckSpec,
+        AssetSpec,
+        CheckResult,
+        MaterializeResult,
+        RunSpec,
+    )
+
+    def _run(runtime: Any) -> list[Any]:
+        physical = phlo_observe.ambient_run_id()
+        _wap_lifecycle(bus, physical, runtime.routing.run_id, fail=fail)
+        return [
+            MaterializeResult(metadata={"rows": 12481}),
+            CheckResult(check_name="schema_ok", passed=True, asset_key=WAP_ASSET),
+        ]
+
+    adapter = DagsterOrchestratorAdapter()
+    return adapter._build_asset(
+        AssetSpec(
+            key=WAP_ASSET,
+            group=None,
+            description=None,
+            run=RunSpec(fn=_run),
+            checks=[
+                AssetCheckSpec(
+                    name="schema_ok",
+                    asset_key=WAP_ASSET,
+                    fn=None,
+                    blocking=False,
+                )
+            ],
+        )
+    )
+
+
+def _terminal_run_event(result: Any, *, fail: bool) -> None:
+    """What the observe_run_success/failure sensor emits in a deployed stack."""
+    phlo_observe.emit(
+        "pipeline.run",
+        category="pipeline",
+        outcome="failure" if fail else "success",
+        severity="error" if fail else "info",
+        attributes={
+            "job_name": "__anonymous_asset_job__",
+            "dagster_status": "FAILURE" if fail else "SUCCESS",
+            "phlo_run_id": result.run_id,
+        },
+        correlation={
+            "run_id": result.run_id,
+            "job_id": "__anonymous_asset_job__",
+            "branch": WAP_STAGING_REF,
+        },
+        entities={
+            "run": phlo_observe.run_entity_for("dagster", result.run_id),
+            "branch": phlo_observe.branch_entity_id(WAP_STAGING_REF, system="nessie"),
+        },
+        producer="dagster",
+    )
+
+
+def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
+    """The production-path run keeps an exhaustive canonical stream while
+    the default human view stays selective."""
+    from phlo_observe_plugin.presentation import render_events
+
+    result = dagster.materialize([_build_wap_asset(bus)])
+    assert result.success
+    _terminal_run_event(result, fail=False)
+
+    payloads = captured.payloads()
+    names = [p.get("event") for p in payloads]
+    assert names == [
+        "wap.branch.create",
+        "nessie.branch.create",
+        "ingestion.extract",
+        "ingestion.load",
+        "iceberg.commit",
+        "dlt.pipeline.run",
+        "quality.check",
+        "wap.validate",
+        "wap.promote",
+        "nessie.commit",
+        "wap.cleanup",
+        "phlo.observation",
+        "phlo.lineage",
+        "phlo.publish",
+        "quality.check",
+        "pipeline.step",
+        "asset.materialize",
+        "pipeline.run",
+    ]
+
+    # Default: nine events tell the story — WAP lifecycle, the load, the
+    # commit, meaningful checks, the materialization, the run's outcome.
+    default_out = render_events(payloads, color="never", symbols="unicode")
+    assert _normalize_timestamps(default_out) == (
+        f"── Run: {result.run_id[:16]}…\n"
+        f"TT:TT:TT.ttt ✓ WAP branch  Branch: {WAP_STAGING_REF}  Strategy: branch  Catalog: nessie\n"
+        f"TT:TT:TT.ttt ✓ Load  Table: {WAP_TABLE}  Rows: 12,481  Branch: {WAP_STAGING_REF}  Group: bronze\n"
+        f"TT:TT:TT.ttt ✓ Iceberg commit  Table: {WAP_TABLE}  Op: append"
+        f"  Branch: {WAP_STAGING_REF}  Rows +: 12,481  Files +: 3\n"
+        f"TT:TT:TT.ttt ✓ Check  Check: not_null  Asset: {WAP_ASSET}\n"
+        "TT:TT:TT.ttt ✓ WAP validate  Decision: passed  Check: wap.aggregate\n"
+        f"TT:TT:TT.ttt ✓ WAP promote  Branch: {WAP_STAGING_REF}  Target: main  Merge: promoted"
+        "  From: a1b2c3d4e5f6a1b2…  To: f6e5d4c3b2a1f6e5…  Catalog: nessie\n"
+        f"TT:TT:TT.ttt ✓ Check  Check: schema_ok  Asset: {WAP_ASSET}\n"
+        f"TT:TT:TT.ttt ✓ Materialize  Asset: {WAP_ASSET}  Rows: 12,481\n"
+        f"TT:TT:TT.ttt ✓ Run  Status: SUCCESS  Branch: {WAP_STAGING_REF}"
+    )
+
+    # Verbose: the full timeline stays — secondary lifecycle detail plus
+    # diagnostics, still human lines rather than JSON.
+    verbose_out = render_events(payloads, mode="verbose", color="never", symbols="unicode")
+    for fragment in (
+        "✓ Nessie branch",
+        "✓ Extract",
+        "✓ DLT load",
+        "✓ Nessie commit",
+        "✓ WAP cleanup",
+        "✓ Publish  Target: observatory",
+        "✓ Step",
+    ):
+        assert fragment in verbose_out, fragment
+    # Bookkeeping stays hidden even in verbose.
+    assert "Observation" not in verbose_out
+    assert "Lineage" not in verbose_out
+
+
+def test_wap_rejection_golden_ux(captured: Any, bus: Any) -> None:
+    """A quality rejection reads plainly: which check failed, on which
+    asset, the error, and the WAP/run outcome — no JSONL required."""
+    from phlo_observe_plugin.presentation import render_events
+
+    result = dagster.materialize([_build_wap_asset(bus, fail=True)])
+    assert result.success
+    _terminal_run_event(result, fail=True)
+
+    payloads = captured.payloads()
+    out = _normalize_timestamps(render_events(payloads, color="never", symbols="unicode"))
+
+    # The failed check names itself and its asset.
+    assert f"TT:TT:TT.ttt ✕ Check  Check: not_null  Asset: {WAP_ASSET}" in out
+    # The audit verdict and the rejection are primary, in order, and the
+    # reject carries the reason through the error block.
+    assert "✕ WAP validate  Decision: rejected  Check: wap.aggregate" in out
+    assert f"✕ WAP reject  Branch: {WAP_STAGING_REF}" in out
+    assert "    quality gate rejected: check 'not_null' failed" in out
+    # The run's terminal line carries the failed outcome.
+    assert f"✕ Run  Status: FAILURE  Branch: {WAP_STAGING_REF}" in out
+    # The failed load's error also surfaced.
+    assert "✕ Load" in out
+    assert "    source read blew up" in out
 
 
 def test_pipeline_materialization_overhead_enabled_vs_disabled(captured: Any, bus: Any) -> None:

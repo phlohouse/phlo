@@ -271,19 +271,21 @@ exclude = ["**/testing/**"]
 [tool.uv.sources.observe-core]
 git = "https://github.com/phlohouse/phlo-observe.git"
 subdirectory = "packages/observe-core"
-rev = "91a32fa29ce19aac0e31ed3750a9090776267bd0"
+tag = "observe-core/v0.3.0"
 marker = "python_version >= '3.12'"
 
+# observe-query has no release of its own; the tag names the monorepo
+# release commit it was verified at.
 [tool.uv.sources.observe-query]
 git = "https://github.com/phlohouse/phlo-observe.git"
 subdirectory = "packages/observe-query"
-rev = "91a32fa29ce19aac0e31ed3750a9090776267bd0"
+tag = "phlo-observe/v0.2.1"
 marker = "python_version >= '3.12'"
 
 [tool.uv.sources.phlo-observe]
 git = "https://github.com/phlohouse/phlo-observe.git"
 subdirectory = "packages/phlo-observe-sdk"
-rev = "91a32fa29ce19aac0e31ed3750a9090776267bd0"
+tag = "phlo-observe/v0.2.1"
 marker = "python_version >= '3.12'"
 
 [tool.uv.sources.phlo]

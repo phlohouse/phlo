@@ -107,7 +107,8 @@ already anticipates that reference.
 | `OBSERVE_HTTP_ENDPOINT`     | producers    | Ingest URL; its presence enables emission           |
 | `OBSERVE_HTTP_TOKEN`        | producers    | Bearer token; must be in `PHLO_OBSERVER_INGEST_TOKENS` |
 | `OBSERVE_HTTP_API_KEY`      | producers    | API-key alternative to the bearer token             |
-| `OBSERVE_DRAINS`            | producers    | Explicit drain list (`console,http,...`)            |
+| `OBSERVE_DRAINS`            | producers    | Explicit drain list (`console,jsonl,http,pretty,...`) |
+| `PHLO_OBSERVE_PRETTY`       | producers    | `true` attaches the human-readable drain without naming it in `OBSERVE_DRAINS` |
 | `PHLO_OBSERVE_ENABLED`      | producers    | `false` disables everything; `true` forces SDK defaults |
 | `PHLO_OBSERVER_PORT`        | observer     | Host port for the observer (default `10010`)        |
 | `PHLO_OBSERVER_DB`          | observer     | Database on the shared Postgres (default `phlo_observer`) |
@@ -232,7 +233,12 @@ misconfigured:
 - `phlo_observe_configure_failed` / `phlo_observe_emit_failed` debug log
   records surface SDK-side problems in the ordinary log stream.
 - To verify emission without a server, set `OBSERVE_DRAINS=console` (or
-  `PHLO_OBSERVE_ENABLED=true`) in a dev shell and watch events print.
+  `PHLO_OBSERVE_ENABLED=true`) in a dev shell and watch events print. For
+  the human-readable view, `OBSERVE_DRAINS=pretty` or `PHLO_OBSERVE_PRETTY=true`
+  renders one line per milestone (run header, timestamps, status glyphs,
+  failure escalation); `PHLO_OBSERVE_PRETTY` composes with the other drains,
+  so `OBSERVE_DRAINS=jsonl` plus the flag keeps the canonical file while
+  showing the readable view.
 - The hook bus keeps working regardless: `FailurePolicy.LOG` contains
   translation errors, and the run-evidence store remains the source of truth
   for WAP audit state — observe events are a projection, not the record.

@@ -9,7 +9,14 @@ Configuration is environment-driven via ``configure_phlo``:
 
 - ``OBSERVE_HTTP_ENDPOINT`` enables emission and appends an HTTP drain
   (``OBSERVE_HTTP_TOKEN`` / ``OBSERVE_HTTP_API_KEY`` supply credentials).
-- ``OBSERVE_DRAINS`` selects drains explicitly (``console,http,...``).
+- ``OBSERVE_DRAINS`` selects drains explicitly (``console,http,...``). The
+  name ``pretty`` is also accepted: it is Phlo's own human-readable drain
+  (``phlo_observe_plugin.presentation.PrettyDrain``), filtered out of the
+  drain list the SDK parses (passed as an explicit override — the env var
+  itself is never mutated) and registered on the runtime afterwards.
+- ``PHLO_OBSERVE_PRETTY`` (``1``/``true``/``yes``/``on``) attaches the pretty
+  drain without naming it in ``OBSERVE_DRAINS``. With no other drains or
+  endpoint configured it replaces the SDK's console-drain default.
 - ``PHLO_OBSERVE_ENABLED=false`` disables emission outright; ``true`` enables
   the SDK defaults even without an endpoint.
 - With neither endpoint nor drains configured the runtime stays disabled so
@@ -98,6 +105,23 @@ def _env_flag(name: str) -> bool | None:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+@contextmanager
+def _hidden_env(name: str) -> Iterator[None]:
+    """Unset one environment variable for the block, restoring it verbatim.
+
+    Used to keep a Phlo-only drain name (``pretty``) out of the SDK's
+    OBSERVE_DRAINS env parse — pydantic-settings prepares the value before
+    init precedence applies, so hiding the var is the only way an
+    application-named drain can survive ``ObserveSettings`` construction.
+    """
+    saved = os.environ.pop(name, None)
+    try:
+        yield
+    finally:
+        if saved is not None:
+            os.environ[name] = saved
+
+
 def configure(**overrides: Any) -> bool:
     """Configure the observe runtime once per process. Returns success.
 
@@ -114,26 +138,71 @@ def configure(**overrides: Any) -> bool:
         return False
     try:
         enabled_override = _env_flag("PHLO_OBSERVE_ENABLED")
+        # ``pretty`` is Phlo's human-readable drain, not an observe-core drain
+        # name — the SDK's OBSERVE_DRAINS env source rejects unknown names
+        # outright, before init values can take precedence. The name is
+        # therefore split out here: the remaining drains go through an
+        # explicit override, the env var is hidden for the duration of the
+        # SDK's settings parse, and the drain registers on the runtime
+        # afterwards.
+        drains_env = os.environ.get("OBSERVE_DRAINS")
+        drain_names = {n.strip() for n in (drains_env or "").split(",") if n.strip()}
+        want_pretty = "pretty" in drain_names or bool(_env_flag("PHLO_OBSERVE_PRETTY"))
         if enabled_override is False:
             overrides.setdefault("enabled", False)
         elif enabled_override is not True and not (
-            os.environ.get("OBSERVE_HTTP_ENDPOINT") or os.environ.get("OBSERVE_DRAINS")
+            os.environ.get("OBSERVE_HTTP_ENDPOINT") or drain_names or want_pretty
         ):
             # No endpoint and no explicit drains: stay silent rather than
-            # defaulting to console output in every Phlo process.
+            # defaulting to console output in every Phlo process. The pretty
+            # flag counts as a configured drain — a drain appended to a
+            # disabled runtime never receives events.
             overrides.setdefault("enabled", False)
-        if os.environ.get("OBSERVE_HTTP_ENDPOINT") and not os.environ.get("OBSERVE_DRAINS"):
+        if "pretty" in drain_names:
+            # An empty remainder suppresses the SDK's console-drain default:
+            # the pretty drain replaces it.
+            overrides.setdefault("drains", ",".join(sorted(drain_names - {"pretty"})))
+        elif want_pretty and not drain_names:
+            # PHLO_OBSERVE_PRETTY with no explicit drains: pretty replaces the
+            # console-drain default rather than doubling output alongside it.
+            overrides.setdefault("drains", [])
+        elif os.environ.get("OBSERVE_HTTP_ENDPOINT") and not drains_env:
             # Replace the SDK's default console drain with the HTTP drain that
             # configure_phlo appends for the endpoint; duplicate stdout noise is
             # never the right default inside a production process.
             overrides.setdefault("drains", [])
         overrides.setdefault("service_name", "phlo")
-        sdk.configure_phlo(**overrides)
+        with _hidden_env("OBSERVE_DRAINS") if "pretty" in drain_names else contextlib.nullcontext():
+            runtime = sdk.configure_phlo(**overrides)
+        if want_pretty:
+            _attach_pretty_drain(runtime)
     except Exception as exc:  # noqa: BLE001 - telemetry config must never abort startup
         logger.warning("phlo_observe_configure_failed", error=str(exc))
         _configure_failed = True
         return False
     return True
+
+
+def _attach_pretty_drain(runtime: Any) -> None:
+    """Register the Phlo pretty drain on a configured observe runtime.
+
+    The drain lives in ``phlo_observe_plugin.presentation`` — imported
+    lazily like every SDK surface — and registers through observe-core's
+    ``Runtime.add_drain``, which also wires it into the backend's drain
+    list and the runtime's shutdown/flush lifecycle. A missing or
+    too-old SDK logs a warning; emission to the other drains is
+    unaffected.
+    """
+    presentation = _import_optional("phlo_observe_plugin.presentation")
+    drain_cls = getattr(presentation, "PrettyDrain", None) if presentation else None
+    add_drain = getattr(runtime, "add_drain", None)
+    if drain_cls is None or add_drain is None:
+        logger.warning(
+            "phlo_observe_pretty_unavailable",
+            hint="pretty output needs phlo-observe-plugin and a PrettyRenderer-capable observe-core",
+        )
+        return
+    add_drain(drain_cls())
 
 
 def reset_for_tests() -> None:
