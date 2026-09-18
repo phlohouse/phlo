@@ -24,7 +24,11 @@ from phlo_api.observatory_api.observatory_mission_control_models import (
     RunSpan,
     RunStageView,
 )
-from phlo_api.observatory_api.observatory_mission_control_sources import derive_run
+from phlo_api.observatory_api.observatory_mission_control_sources import (
+    derive_dataset_checks,
+    derive_dataset_lineage,
+    derive_run,
+)
 from phlo_api.observatory_api.observatory_mission_control_state import (
     find_by,
     load_records,
@@ -115,8 +119,24 @@ def get_mission_run_logs(run_id: str) -> list[MissionRunLogLine]:
 
 @router.get("/mission/datasets/{dataset_id}")
 def get_mission_dataset(dataset_id: str) -> MissionDatasetDetail:
-    """Return the full Dataset page read model in one payload."""
+    """Return the full Dataset page read model in one payload.
+
+    Lineage and checks are overlaid from the live asset graph when the asset is
+    known; ownership, contract and access stay from the read model because no
+    upstream source models them yet.
+    """
     record = find_by("dataset_detail", MissionDatasetDetail, id=dataset_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"Unknown dataset {dataset_id}")
-    return record
+
+    lineage = derive_dataset_lineage(dataset_id)
+    checks = derive_dataset_checks(dataset_id)
+    if lineage is None and checks is None:
+        return record
+
+    return record.model_copy(
+        update={
+            "lineage": lineage if lineage is not None else record.lineage,
+            "checks": checks if checks is not None else record.checks,
+        }
+    )

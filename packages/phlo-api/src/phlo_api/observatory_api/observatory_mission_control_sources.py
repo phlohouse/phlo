@@ -18,12 +18,15 @@ from __future__ import annotations
 from collections import Counter
 
 from phlo_api.observatory_api.observatory import (
+    _load_assets,
     _load_operations,
     _load_services,
 )
 from phlo_api.observatory_api.observatory_mission_control_models import (
     MissionAttentionItem,
     MissionExecutionRow,
+    DatasetCheck,
+    LineageNode,
     MissionRunDetail,
     RunArtifact,
     RunConfigurationRow,
@@ -384,3 +387,88 @@ def _run_summary(run: ObservatoryRun) -> str:
 # NOTE: run stage breakdown is not on ObservatoryRun; it lives in the run report
 # store (phlo.run_evidence). Deriving stages needs that store wired here, so the
 # seeded stage timeline remains in use until it is.
+
+
+# ------------------------------------------------------------------- dataset
+
+
+def _asset_for(asset_id: str):
+    """Find an asset by id, tolerating an id that is a short name."""
+    assets = _load_assets()
+    for asset in assets:
+        if asset.id == asset_id or asset.name == asset_id:
+            return asset
+    # Fall back to matching on the trailing segment, e.g. "marts.orders".
+    for asset in assets:
+        if asset.id.endswith(asset_id) or asset_id.endswith(asset.id):
+            return asset
+    return None
+
+
+def derive_dataset_lineage(dataset_id: str) -> list[LineageNode] | None:
+    """Build the lineage chain from the asset graph's declared dependencies.
+
+    Returns ``None`` when the asset cannot be found so the caller keeps the
+    seeded chain, and a single-node chain when the asset has no neighbours.
+    """
+    try:
+        assets = _load_assets()
+    except Exception:  # noqa: BLE001 - substrate probe is best-effort
+        return None
+
+    if not assets:
+        return None
+
+    target = _asset_for(dataset_id)
+    if target is None:
+        return None
+
+    by_id = {asset.id: asset for asset in assets}
+    nodes: list[LineageNode] = []
+    for dependency in target.dependencies:
+        node = by_id.get(dependency)
+        nodes.append(
+            LineageNode(
+                name=node.name if node else dependency,
+                role=(node.group or node.kinds[0])
+                if node and (node.group or node.kinds)
+                else "Upstream",
+                current=False,
+            )
+        )
+
+    nodes.append(
+        LineageNode(
+            name=target.name,
+            role="This dataset",
+            current=True,
+        )
+    )
+
+    downstream = [
+        asset for asset in assets if target.id in asset.dependencies and asset.id != target.id
+    ]
+    if downstream:
+        roles = sorted({(asset.group or "Downstream") for asset in downstream})
+        nodes.append(
+            LineageNode(
+                name=f"{len(downstream)} consumers",
+                role=" · ".join(roles),
+                current=False,
+            )
+        )
+
+    return nodes
+
+
+def derive_dataset_checks(dataset_id: str) -> list[DatasetCheck] | None:
+    """Build the quality check list from the asset's declared checks."""
+    try:
+        target = _asset_for(dataset_id)
+    except Exception:  # noqa: BLE001 - substrate probe is best-effort
+        return None
+
+    if target is None:
+        return None
+
+    return [DatasetCheck(name=check, outcome="Declared", tone="muted") for check in target.checks]
