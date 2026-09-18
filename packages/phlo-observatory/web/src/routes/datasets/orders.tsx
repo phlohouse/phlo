@@ -2,10 +2,11 @@
  * Orders component.
  */
 import { ArrowRight, ChevronRight } from "lucide-react";
-import { useNavigate, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
+import type {Metric} from "@/components/metric-strip";
 import { PageHeader } from "@/components/page-header";
-import { MetricStrip, type Metric } from "@/components/metric-strip";
+import {  MetricStrip } from "@/components/metric-strip";
 import { PropertyList } from "@/components/property-list";
 import { InlineLink, SectionHeader } from "@/components/section-header";
 import { StatusPill } from "@/components/status-pill";
@@ -25,7 +26,7 @@ import {
 } from "@/data/demo";
 import { cn } from "@/lib/utils";
 
-const METRICS: Metric[] = datasetMeta.metrics;
+const METRICS: Array<Metric> = datasetMeta.metrics;
 
 const LINEAGE_CHAIN = [
   { name: "postgres.orders", role: "Postgres · Source", current: false },

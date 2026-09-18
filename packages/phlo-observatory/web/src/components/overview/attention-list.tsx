@@ -1,11 +1,13 @@
 /**
  * Overview page section: attention list.
  */
-import { AlertCircle, ChevronRight, Clock, GitBranch, type LucideIcon } from "lucide-react";
+import { AlertCircle, ChevronRight, Clock, GitBranch  } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
+import type {LucideIcon} from "lucide-react";
 
+import type {AttentionItem, Severity} from "@/data/demo";
 import { SectionHeader } from "@/components/section-header";
-import { attentionItems, type AttentionItem, type Severity } from "@/data/demo";
+import {   attentionItems } from "@/data/demo";
 import { cn } from "@/lib/utils";
 
 const ICON: Record<Severity, LucideIcon> = {

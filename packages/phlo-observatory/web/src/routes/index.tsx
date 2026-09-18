@@ -4,16 +4,17 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 
+import type {Metric} from "@/components/metric-strip";
 import { AttentionList } from "@/components/overview/attention-list";
 import { DataProductsTable } from "@/components/overview/data-products-table";
 import { ExecutionTable } from "@/components/overview/execution-table";
 import { HealthRail } from "@/components/overview/health-rail";
-import { MetricStrip, type Metric } from "@/components/metric-strip";
+import {  MetricStrip } from "@/components/metric-strip";
 import { ExampleDataChip, PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { summaryMetrics } from "@/data/demo";
 
-const METRICS: Metric[] = summaryMetrics.map((metric) => ({
+const METRICS: Array<Metric> = summaryMetrics.map((metric) => ({
   label: metric.label,
   value: metric.value,
   hint: metric.hint,

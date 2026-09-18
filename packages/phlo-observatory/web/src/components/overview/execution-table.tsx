@@ -4,6 +4,7 @@
 import { ChevronRight } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
+import type {ExecutionRow} from "@/data/demo";
 import { SectionHeader } from "@/components/section-header";
 import {
   Table,
@@ -13,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { activeExecution, type ExecutionRow } from "@/data/demo";
+import {  activeExecution } from "@/data/demo";
 
 const COLUMNS = ["Workflow", "Stage", "Progress", "Elapsed"] as const;
 

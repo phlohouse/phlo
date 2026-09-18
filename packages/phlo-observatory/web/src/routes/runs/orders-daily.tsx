@@ -4,7 +4,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Play } from "lucide-react";
 
-import { MetricStrip, type Metric } from "@/components/metric-strip";
+import type {Metric} from "@/components/metric-strip";
+import {  MetricStrip } from "@/components/metric-strip";
 import { ExampleDataChip, PageHeader } from "@/components/page-header";
 import {
   ExecutionTimeline,
@@ -22,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { runConfig, runMeta } from "@/data/demo";
 
-const METRICS: Metric[] = runMeta.metrics;
+const METRICS: Array<Metric> = runMeta.metrics;
 
 function RunDetailPage() {
   return (

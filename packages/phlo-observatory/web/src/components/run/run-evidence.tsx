@@ -3,7 +3,7 @@
  */
 import { InlineLink, SectionHeader } from "@/components/section-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { duplicateRows, runEvents, runStages, runSpans } from "@/data/demo";
+import { duplicateRows, runEvents, runSpans, runStages } from "@/data/demo";
 import { cn } from "@/lib/utils";
 
 const OUTCOME_TONE: Record<string, string> = {

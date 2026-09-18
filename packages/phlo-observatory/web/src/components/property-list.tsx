@@ -17,7 +17,7 @@ export function PropertyList({
   className,
   divided = true,
 }: {
-  rows: PropertyRow[];
+  rows: Array<PropertyRow>;
   className?: string;
   divided?: boolean;
 }) {

@@ -12,17 +12,28 @@ export interface Metric {
 }
 
 /**
- * Paper's summary band. Each cell paints a subtle surface with top, bottom and
- * right hairlines; the left edge is intentionally open, so the band reads as a
- * strip rather than a card.
+ * Paper's summary band. Each cell paints a subtle surface with top and bottom
+ * hairlines; `dividers` adds the vertical rule used on dense registry pages.
+ * The left edge is intentionally open, so the band reads as a strip.
  */
-export function MetricStrip({ metrics, className }: { metrics: Metric[]; className?: string }) {
+export function MetricStrip({
+  metrics,
+  className,
+  dividers = true,
+}: {
+  metrics: Array<Metric>;
+  className?: string;
+  dividers?: boolean;
+}) {
   return (
     <div className={cn("flex", className)}>
       {metrics.map((metric) => (
         <div
           key={metric.label}
-          className="flex min-w-0 flex-1 flex-col gap-1.5 border-y border-r border-border bg-subtle p-3"
+          className={cn(
+            "flex min-w-0 flex-1 flex-col gap-1.5 border-y border-border bg-subtle p-3",
+            dividers && "border-r",
+          )}
         >
           <div className="truncate text-[11px] leading-3.5 text-muted-foreground">
             {metric.label}

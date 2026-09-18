@@ -32,7 +32,7 @@ function RailCard({ children }: { children: React.ReactNode }) {
 }
 
 /** Borderless label/value list used by the governance and recovery blocks. */
-function RailList({ rows }: { rows: { label: string; value: string; tone: string }[] }) {
+function RailList({ rows }: { rows: Array<{ label: string; value: string; tone: string }> }) {
   const navigate = useNavigate();
   const target = rows[0]?.label === "Last backup" ? "/platform" : "/governance";
   return (
