@@ -205,3 +205,49 @@ def test_platform_derivation_falls_back_when_nothing_observed(
 
     monkeypatch.setattr(sources, "_load_services", lambda: [])
     assert sources.derive_platform_services() is None
+
+
+def test_dataset_lineage_and_checks_derive_from_assets(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lineage and checks come from the live asset graph; the rest stays seeded."""
+    from phlo_api.observatory_api import observatory_mission_control_sources as sources
+
+    class _Asset:
+        def __init__(self, id, name, group=None, deps=(), checks=(), kinds=()) -> None:
+            self.id = id
+            self.name = name
+            self.group = group
+            self.dependencies = list(deps)
+            self.checks = list(checks)
+            self.kinds = list(kinds)
+
+    assets = [
+        _Asset("raw.orders", "raw.orders", group="Source"),
+        _Asset("stg_orders", "stg_orders", group="Model", deps=("raw.orders",)),
+        _Asset(
+            "marts.orders",
+            "marts.orders",
+            group="Model",
+            deps=("stg_orders",),
+            checks=("order_id must be unique", "currency in ISO 4217"),
+        ),
+        _Asset("dash", "Revenue dashboard", group="Analytics", deps=("marts.orders",)),
+    ]
+    monkeypatch.setattr(sources, "_load_assets", lambda: assets)
+
+    lineage = sources.derive_dataset_lineage("marts.orders")
+    assert lineage is not None
+    assert [node.name for node in lineage] == ["stg_orders", "marts.orders", "1 consumers"]
+    assert [node.current for node in lineage] == [False, True, False]
+
+    checks = sources.derive_dataset_checks("marts.orders")
+    assert checks is not None
+    assert [check.name for check in checks] == [
+        "order_id must be unique",
+        "currency in ISO 4217",
+    ]
+
+    # Unknown assets fall back rather than inventing a chain.
+    monkeypatch.setattr(sources, "_load_assets", lambda: [])
+    assert sources.derive_dataset_lineage("marts.orders") is None
