@@ -17,6 +17,10 @@ from phlo_api.observatory_api.observatory_mission_control_models import (
     PlatformSummaryMetric,
     ServiceDiagnostics,
 )
+from phlo_api.observatory_api.observatory_mission_control_sources import (
+    derive_platform_services,
+    derive_platform_summary,
+)
 from phlo_api.observatory_api.observatory_mission_control_state import (
     find_record,
     load_records,
@@ -27,7 +31,11 @@ router = APIRouter()
 
 @router.get("/mission/platform/summary")
 def get_mission_platform_summary() -> list[PlatformSummaryMetric]:
-    """Return the Platform summary band."""
+    """Return the Platform summary band, preferring live service state."""
+    derived = derive_platform_services()
+    if derived:
+        return derive_platform_summary(derived)
+
     services = load_records("platform_services", PlatformService)
     diagnostics = load_records("platform_diagnostics", ServiceDiagnostics)
     unready = [row for row in services if row.readiness_state != "Ready"]
@@ -74,7 +82,14 @@ def get_mission_platform_summary() -> list[PlatformSummaryMetric]:
 
 @router.get("/mission/platform/services")
 def get_mission_platform_services() -> list[PlatformService]:
-    """Return enabled services with runtime and readiness reported separately."""
+    """Return enabled services with runtime and readiness reported separately.
+
+    Live service status wins; the seeded collection is the fallback so the
+    screen still renders when the project is not running.
+    """
+    derived = derive_platform_services()
+    if derived:
+        return derived
     return load_records("platform_services", PlatformService)
 
 
