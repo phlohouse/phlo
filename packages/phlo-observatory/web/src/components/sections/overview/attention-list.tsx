@@ -11,7 +11,7 @@
 import { AlertCircle, ChevronRight, Clock, GitBranch  } from "lucide-react";
 import type {LucideIcon} from "lucide-react";
 
-import type { AttentionItem, Severity } from "@/data/demo";
+import type { MissionAttentionItem, Severity } from "@/api/types";
 import { Section } from "@/components/layout/section-header";
 import { cn } from "@/lib/utils";
 
@@ -34,9 +34,9 @@ function AttentionRow({
   last,
   onOpen,
 }: {
-  item: AttentionItem;
+  item: MissionAttentionItem;
   last: boolean;
-  onOpen?: (item: AttentionItem) => void;
+  onOpen?: (item: MissionAttentionItem) => void;
 }) {
   const Icon = ICON[item.severity];
   return (
@@ -67,8 +67,8 @@ export function AttentionList({
   items,
   onOpen,
 }: {
-  items: Array<AttentionItem>;
-  onOpen?: (item: AttentionItem) => void;
+  items: Array<MissionAttentionItem>;
+  onOpen?: (item: MissionAttentionItem) => void;
 }) {
   return (
     <Section

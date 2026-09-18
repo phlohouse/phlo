@@ -3,30 +3,13 @@
  *
  * Presentational — the rail receives its rows and delegates navigation.
  */
+import type { MissionOverviewRail, MissionRailStat } from "@/api/types";
 import { StatusPill } from "@/components/data/status-pill";
 import { DetailRail, DetailSection } from "@/components/layout/detail-rail";
 import { InlineLink } from "@/components/layout/section-header";
 import { cn } from "@/lib/utils";
 
-export interface ServiceHealthRow {
-  name: string;
-  role: string;
-  state: string;
-}
-
-export interface QueueRow {
-  name: string;
-  state: string;
-  detail: string;
-}
-
-export interface RailStatRow {
-  label: string;
-  value: string;
-  tone: string;
-}
-
-function RailList({ rows, onOpen }: { rows: Array<RailStatRow>; onOpen?: () => void }) {
+function RailList({ rows, onOpen }: { rows: Array<MissionRailStat>; onOpen?: () => void }) {
   return (
     <div className="flex flex-col gap-2.25">
       {rows.map((row) => (
@@ -45,24 +28,10 @@ function RailList({ rows, onOpen }: { rows: Array<RailStatRow>; onOpen?: () => v
 }
 
 export function HealthRail({
-  services,
-  totalServices,
-  releaseQueue,
-  governance,
-  recovery,
-  readyCount,
-  totalReady,
+  rail,
   onOpen,
 }: {
-  /** The slice of services rendered in the rail. */
-  services: Array<ServiceHealthRow>;
-  /** Total enabled services, used for the "n more" footer. */
-  totalServices: number;
-  releaseQueue: Array<QueueRow>;
-  governance: Array<RailStatRow>;
-  recovery: Array<RailStatRow>;
-  readyCount: number;
-  totalReady: number;
+  rail: MissionOverviewRail;
   onOpen?: {
     services?: () => void;
     releases?: () => void;
@@ -70,10 +39,11 @@ export function HealthRail({
     recovery?: () => void;
   };
 }) {
+  const { services, release_queue: releaseQueue, governance, recovery, ready_count: readyCount, total_services: totalServices } = rail;
   const remaining = Math.max(0, totalServices - services.length);
   return (
     <DetailRail>
-      <DetailSection title="Service health" meta={`${readyCount} / ${totalReady} ready`}>
+      <DetailSection title="Service health" meta={`${readyCount} / ${totalServices} ready`}>
         <div className="overflow-clip rounded-[7px] border border-border">
           {services.map((service) => (
             <div

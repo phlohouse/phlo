@@ -3,7 +3,7 @@
  */
 import { ChevronRight } from "lucide-react";
 
-import type { DataProductRow } from "@/data/demo";
+import type { MissionDataProduct } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
 import { InlineLink, Section } from "@/components/layout/section-header";
@@ -19,7 +19,7 @@ function qualityClass(value: string) {
   return "text-warning";
 }
 
-function columns(): Array<DataColumn<DataProductRow>> {
+function columns(): Array<DataColumn<MissionDataProduct>> {
   return [
     {
       key: "name",
@@ -61,9 +61,9 @@ export function DataProductsTable({
   onOpen,
   onViewAll,
 }: {
-  rows: Array<DataProductRow>;
+  rows: Array<MissionDataProduct>;
   total?: number;
-  onOpen?: (row: DataProductRow) => void;
+  onOpen?: (row: MissionDataProduct) => void;
   onViewAll?: () => void;
 }) {
   return (

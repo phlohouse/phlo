@@ -479,6 +479,90 @@ SEED: dict[str, list[dict[str, Any]]] = {
             "last_confirmed_at": "2026-09-13T09:35:00Z",
         }
     ],
+    "data_products": [
+        {
+            "id": "dp-orders",
+            "name": "Orders",
+            "freshness": "Fresh",
+            "quality": "1 failed",
+            "released": "08:00",
+            "consumers": 3,
+            "target": "/datasets/marts.orders",
+        },
+        {
+            "id": "dp-customers",
+            "name": "Customer profiles",
+            "freshness": "35m late",
+            "quality": "Passed",
+            "released": "08:00",
+            "consumers": 2,
+            "target": "/datasets/marts.orders",
+        },
+        {
+            "id": "dp-inventory",
+            "name": "Product inventory",
+            "freshness": "Fresh",
+            "quality": "Unknown",
+            "released": "08:00",
+            "consumers": 4,
+            "target": "/datasets/marts.orders",
+        },
+        {
+            "id": "dp-payments",
+            "name": "Payments",
+            "freshness": "Fresh",
+            "quality": "Passed",
+            "released": "09:20",
+            "consumers": 2,
+            "target": "/datasets/marts.orders",
+        },
+        {
+            "id": "dp-sessions",
+            "name": "Session events",
+            "freshness": "Fresh",
+            "quality": "3 warnings",
+            "released": "09:15",
+            "consumers": 1,
+            "target": "/datasets/marts.orders",
+        },
+    ],
+    "overview_rail": [
+        {
+            "id": "rail",
+            "ready_count": 11,
+            "total_services": 12,
+            "services": [
+                {"name": "Dagster", "role": "Orchestration", "state": "Ready"},
+                {"name": "Nessie", "role": "Catalog", "state": "Ready"},
+                {"name": "MinIO", "role": "Object storage", "state": "Ready"},
+                {"name": "Trino", "role": "Query engine", "state": "Ready"},
+                {"name": "Postgres", "role": "Serving & state", "state": "Ready"},
+                {"name": "OTel collector", "role": "Telemetry", "state": "Delayed"},
+            ],
+            "release_queue": [
+                {
+                    "name": "inventory_daily",
+                    "state": "Blocked",
+                    "detail": "Missing validation · main unchanged",
+                },
+                {
+                    "name": "product_catalog",
+                    "state": "Ready",
+                    "detail": "12 checks passed · awaiting promotion",
+                },
+            ],
+            "governance": [
+                {"label": "Dataset ownership", "value": "124 / 128 assigned", "tone": "warning"},
+                {"label": "Access policies", "value": "In sync", "tone": "success"},
+                {"label": "Publication reviews", "value": "2 awaiting review", "tone": "accent"},
+            ],
+            "recovery": [
+                {"label": "Last backup", "value": "06:00 · Verified", "tone": "success"},
+                {"label": "Restore rehearsal", "value": "3 days ago · Passed", "tone": "success"},
+                {"label": "Table maintenance", "value": "2 optimizations due", "tone": "warning"},
+            ],
+        }
+    ],
     "platform_services": [
         {
             "id": "loki",

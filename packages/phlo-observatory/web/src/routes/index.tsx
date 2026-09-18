@@ -1,11 +1,16 @@
 /**
- * Overview route: summary band, attention list, execution and data-product
- * tables beside the health rail.
+ * Overview route.
+ *
+ * Reads the Overview read models from the API and passes them to presentational
+ * sections. Reference implementation for wiring the remaining pages: the route
+ * owns data fetching and routing, sections own layout only.
  */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 
 import type {Metric} from "@/components/data/metric-strip";
+import { queries } from "@/api/mission-control";
 import {  MetricStrip } from "@/components/data/metric-strip";
 import { Page, PageBand, PageContent } from "@/components/layout/page";
 import { ExampleDataChip, PageHeader } from "@/components/layout/page-header";
@@ -14,16 +19,7 @@ import { DataProductsTable } from "@/components/sections/overview/data-products-
 import { ExecutionTable } from "@/components/sections/overview/execution-table";
 import { HealthRail } from "@/components/sections/overview/health-rail";
 import { Button } from "@/components/ui/button";
-import {
-  activeExecution,
-  attentionItems,
-  dataProducts,
-  governanceOverview,
-  recoveryOverview,
-  releaseQueue,
-  services,
-  summaryMetrics,
-} from "@/data/demo";
+import { summaryMetrics } from "@/data/demo";
 
 const METRICS: Array<Metric> = summaryMetrics.map((metric) => ({
   label: metric.label,
@@ -33,6 +29,12 @@ const METRICS: Array<Metric> = summaryMetrics.map((metric) => ({
 
 function OverviewPage() {
   const navigate = useNavigate();
+
+  const attention = useQuery(queries.attention());
+  const execution = useQuery(queries.execution());
+  const dataProducts = useQuery(queries.dataProducts());
+  const rail = useQuery(queries.overviewRail());
+
   return (
     <Page>
       <PageHeader
@@ -48,41 +50,45 @@ function OverviewPage() {
           </>
         }
       />
+
       <PageBand>
         <MetricStrip metrics={METRICS} />
       </PageBand>
+
       <PageContent
         rail={
-          <HealthRail
-            services={services.slice(0, 6)}
-            totalServices={services.length}
-            releaseQueue={releaseQueue}
-            governance={governanceOverview}
-            recovery={recoveryOverview}
-            readyCount={services.filter((service) => service.state === "Ready").length}
-            totalReady={services.length}
-            onOpen={{
-              services: () => navigate({ to: "/platform" }),
-              releases: () => navigate({ to: "/releases" }),
-              governance: () => navigate({ to: "/governance" }),
-              recovery: () => navigate({ to: "/platform" }),
-            }}
-          />
+          rail.data ? (
+            <HealthRail
+              rail={rail.data}
+              onOpen={{
+                services: () => navigate({ to: "/platform" }),
+                releases: () => navigate({ to: "/releases" }),
+                governance: () => navigate({ to: "/governance" }),
+                recovery: () => navigate({ to: "/platform" }),
+              }}
+            />
+          ) : null
         }
       >
-        <AttentionList
-          items={attentionItems}
-          onOpen={(item) => navigate({ to: item.to })}
-        />
-        <ExecutionTable
-          rows={activeExecution}
-          onOpen={(row) => navigate({ to: row.to })}
-        />
-        <DataProductsTable
-          rows={dataProducts}
-          onOpen={(row) => navigate({ to: row.to })}
-          onViewAll={() => navigate({ to: "/datasets/orders" })}
-        />
+        {attention.data ? (
+          <AttentionList
+            items={attention.data}
+            onOpen={(item) => navigate({ to: item.target })}
+          />
+        ) : null}
+        {execution.data ? (
+          <ExecutionTable
+            rows={execution.data}
+            onOpen={() => navigate({ to: "/runs/orders-daily" })}
+          />
+        ) : null}
+        {dataProducts.data ? (
+          <DataProductsTable
+            rows={dataProducts.data}
+            onOpen={() => navigate({ to: "/datasets/orders" })}
+            onViewAll={() => navigate({ to: "/datasets/orders" })}
+          />
+        ) : null}
       </PageContent>
     </Page>
   );

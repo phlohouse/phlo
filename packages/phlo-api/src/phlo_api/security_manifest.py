@@ -212,6 +212,8 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
             "get_mission_environments",
             "get_mission_attention",
             "get_mission_execution",
+            "get_mission_data_products",
+            "get_mission_overview_rail",
         ),
         action=CanonicalAction.ADMIN_READ.value,
         resource_type="admin",
