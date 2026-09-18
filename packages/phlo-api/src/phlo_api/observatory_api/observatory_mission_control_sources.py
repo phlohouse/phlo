@@ -31,7 +31,10 @@ from phlo_api.observatory_api.observatory_mission_control_models import (
     CandidateSnapshotChange,
     CompletedRelease,
     DatasetCheck,
+    DatasetOwnership,
     LineageNode,
+    MissionDatasetDetail,
+    DatasetPreview,
     PublicationPlanRow,
     ReleaseCandidate,
     ReleaseCandidateDetail,
@@ -195,10 +198,11 @@ def derive_overview_metrics() -> list[SummaryMetricRow] | None:
     try:
         runs = load_runs()
         operations = _load_operations()
+        assets = _load_assets()
     except Exception:  # noqa: BLE001 - substrate probe is best-effort
         return None
 
-    if not runs and not operations:
+    if not runs and not operations and not assets:
         return None
 
     by_status: dict[str, int] = {}
@@ -211,16 +215,32 @@ def derive_overview_metrics() -> list[SummaryMetricRow] | None:
         count for status, count in by_status.items() if status in {"started", "running", "queued"}
     )
 
-    assets: set[str] = set()
-    for run in runs:
-        for ref in run.assets:
-            assets.add(ref.id)
+    # Prefer the declared asset catalogue; fall back to what observed runs
+    # touched when the registry is empty.
+    asset_count = len(assets)
+    asset_hint = "Declared by the project"
+    if asset_count == 0:
+        touched = {ref.id for run in runs for ref in run.assets}
+        asset_count = len(touched)
+        asset_hint = "Referenced by observed runs"
+
+    release_summary = derive_release_summary(
+        derive_release_candidates(), derive_completed_releases()
+    )
+    releases_value, releases_hint, releases_tone = "—", "No release source configured", "muted"
+    if release_summary:
+        pending = next((row for row in release_summary if row.label == "Pending"), None)
+        released = next((row for row in release_summary if row.label.startswith("Released")), None)
+        if pending and released:
+            releases_value = pending.value
+            releases_hint = f"{pending.hint} · {released.value} released"
+            releases_tone = "warning" if "0 " not in pending.value else "muted"
 
     return [
         SummaryMetricRow(
             label="Data",
-            value=f"{len(assets)} assets",
-            hint="Referenced by observed runs",
+            value=f"{asset_count} asset{'s' if asset_count != 1 else ''}",
+            hint=asset_hint,
             tone="muted",
         ),
         SummaryMetricRow(
@@ -231,8 +251,8 @@ def derive_overview_metrics() -> list[SummaryMetricRow] | None:
         ),
         SummaryMetricRow(
             label="Quality",
-            value="—",
-            hint="No quality source configured",
+            value=f"{sum(len(asset.checks) for asset in assets)} checks" if assets else "—",
+            hint="Declared on project assets" if assets else "No quality source configured",
             tone="muted",
         ),
         SummaryMetricRow(
@@ -243,9 +263,9 @@ def derive_overview_metrics() -> list[SummaryMetricRow] | None:
         ),
         SummaryMetricRow(
             label="Releases",
-            value="—",
-            hint="No release source configured",
-            tone="muted",
+            value=releases_value,
+            hint=releases_hint,
+            tone=releases_tone,
         ),
         SummaryMetricRow(
             label="Governance",
@@ -518,7 +538,7 @@ def derive_release_candidates() -> list[ReleaseCandidate] | None:
         commits = len(detail.commits) if detail else 0
         compare = detail.compare if detail else {}
         changed = sum(int(compare.get(key) or 0) for key in ("added", "changed", "removed"))
-        tables = [table.name for table in (detail.contents if detail else [])]
+        tables = [_content_id(table) for table in (detail.contents if detail else [])]
         candidates.append(
             ReleaseCandidate(
                 id=branch.name,
@@ -532,6 +552,11 @@ def derive_release_candidates() -> list[ReleaseCandidate] | None:
             )
         )
     return candidates
+
+
+def _content_id(content) -> str:
+    """Resource refs expose `id`; tolerate a `name` fallback for other providers."""
+    return getattr(content, "id", None) or getattr(content, "name", None) or "unknown"
 
 
 def _safe_branch_detail(branch_name: str):
@@ -554,7 +579,7 @@ def derive_release_candidate(candidate_id: str) -> ReleaseCandidateDetail | None
         return None
 
     compare = detail.compare or {}
-    tables = [table.name for table in detail.contents]
+    tables = [_content_id(table) for table in detail.contents]
     changes = [
         CandidateSnapshotChange(
             table=table,
@@ -685,3 +710,79 @@ def derive_release_summary(
             tone="muted",
         ),
     ]
+
+
+def derive_dataset(dataset_id: str) -> MissionDatasetDetail | None:
+    """Synthesise a Dataset read model for any asset the project declares.
+
+    The seeded read model only describes the reference dataset; a real project
+    has its own assets. Ownership, contract and access come back unassigned
+    because no upstream source models them, and are shown as such rather than
+    invented.
+    """
+    try:
+        assets = _load_assets()
+    except Exception:  # noqa: BLE001 - substrate probe is best-effort
+        return None
+
+    target = _asset_for(dataset_id)
+    if target is None:
+        return None
+
+    lineage = derive_dataset_lineage(dataset_id) or []
+    checks = derive_dataset_checks(dataset_id) or []
+    kinds = ", ".join(target.kinds) if target.kinds else "asset"
+
+    return MissionDatasetDetail(
+        id=target.id,
+        name=target.name,
+        status="Published",
+        summary=target.description or f"{target.id} · declared by the project as {kinds}.",
+        metrics=[
+            SummaryMetricRow(
+                label="Group",
+                value=target.group or "—",
+                hint="Declared asset group",
+                tone="muted",
+            ),
+            SummaryMetricRow(
+                label="Upstream",
+                value=str(len(target.dependencies)),
+                hint="Declared dependencies",
+                tone="muted",
+            ),
+            SummaryMetricRow(
+                label="Downstream",
+                value=str(sum(1 for asset in assets if target.id in asset.dependencies)),
+                hint="Assets that depend on this one",
+                tone="muted",
+            ),
+            SummaryMetricRow(
+                label="Checks",
+                value=str(len(target.checks)),
+                hint="Declared quality checks",
+                tone="muted",
+            ),
+            SummaryMetricRow(
+                label="Kind",
+                value=kinds,
+                hint="Asset kinds reported by the provider",
+                tone="muted",
+            ),
+        ],
+        schema_fields=[],
+        preview=DatasetPreview(columns=[], rows=[]),
+        checks=checks,
+        lineage=lineage,
+        ownership=DatasetOwnership(
+            owner=None,
+            domain=target.group,
+            freshness_target=None,
+            schedule=None,
+            classification=None,
+            contract_version=None,
+            retention=None,
+        ),
+        access=[],
+        runs=[],
+    )

@@ -25,6 +25,7 @@ import type {
   MissionRunDetail,
   MissionRunLogLine,
   NotificationRule,
+  ObservatoryAsset,
   OwnershipGap,
   PlatformService,
   PlatformSummaryMetric,
@@ -59,8 +60,17 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`/api/observatory/mission${path}`, {
+/** Base for the Mission Control read models. */
+const MISSION_BASE = "/api/observatory/mission";
+/** Base for the platform substrate endpoints (assets, tables, runs). */
+const SUBSTRATE_BASE = "/api/observatory";
+
+async function request<T>(
+  path: string,
+  signal?: AbortSignal,
+  base: string = MISSION_BASE,
+): Promise<T> {
+  const response = await fetch(`${base}${path}`, {
     headers: { accept: "application/json" },
     signal,
   });
@@ -98,6 +108,7 @@ const keys = {
   runArtifacts: (runId: string) => ["mission", "runs", runId, "artifacts"] as const,
   runConsumers: (runId: string) => ["mission", "runs", runId, "consumers"] as const,
   runConfiguration: (runId: string) => ["mission", "runs", runId, "configuration"] as const,
+  assets: ["mission", "assets"] as const,
   datasetDetail: (datasetId: string) => ["mission", "datasets", datasetId] as const,
   datasetGovernance: (datasetId: string) =>
     ["mission", "datasets", datasetId, "governance"] as const,
@@ -212,6 +223,16 @@ export const queries = {
       queryFn: ({ signal }) => request<Array<RunConfigurationRow>>(`/runs/${encodeURIComponent(runId)}/configuration`, signal),
     }),
 
+  assets: () =>
+    queryOptions({
+      queryKey: keys.assets,
+      queryFn: async ({ signal }) => {
+        const payload = await request<
+          { items: Array<ObservatoryAsset> } | Array<ObservatoryAsset>
+        >("/assets", signal, SUBSTRATE_BASE);
+        return Array.isArray(payload) ? payload : payload.items;
+      },
+    }),
   datasetDetail: (datasetId: string) =>
     queryOptions({
       queryKey: keys.datasetDetail(datasetId),
