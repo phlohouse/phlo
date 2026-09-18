@@ -17,10 +17,11 @@ observe-core, which is guaranteed only where the SDK is installed.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import importlib
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import IO, Any
 
 # observe_core is an optional runtime dep — this module is imported lazily
@@ -31,6 +32,8 @@ ContextField = _observe_core.ContextField
 EventPresentation = _observe_core.EventPresentation
 Field = _observe_core.Field
 PrettyRenderer = _observe_core.PrettyRenderer
+Visibility = _observe_core.Visibility
+format_value = _observe_core.format_value
 
 PHLO_CONTEXT: list[Any] = [
     # Run-level values that identify the group an event belongs to. Kept to
@@ -76,9 +79,6 @@ PHLO_PRESENTATION: dict[str, Any] = {
     ),
     "pipeline.step": EventPresentation(
         label="Step",
-        # The step is executor plumbing between the materialization and the
-        # run summary — visible in verbose, where its duration belongs.
-        visibility="secondary",
         fields=[
             Field("correlation.asset_key", label="Asset"),
             Field("attributes.dagster_op", label="Op"),
@@ -112,12 +112,8 @@ PHLO_PRESENTATION: dict[str, Any] = {
     # -- Ingestion / transform -------------------------------------------------
     "ingestion.extract": EventPresentation(
         label="Extract",
-        # Extract is the read half of the extract→load pair; the load tells
-        # the story by default, the extract remains for verbose detail.
-        visibility="secondary",
         fields=[
             Field("attributes.table_name", label="Table"),
-            Field("correlation.branch", label="Branch"),
             Field("attributes.group_name", label="Group"),
             Field("attributes.catalog_system", label="Catalog", visibility="secondary"),
             Field("attributes.status", label="Status", visibility="secondary"),
@@ -139,7 +135,6 @@ PHLO_PRESENTATION: dict[str, Any] = {
         fields=[
             Field("attributes.table_name", label="Table"),
             Field("attributes.rows_processed", label="Rows", format="integer"),
-            Field("correlation.branch", label="Branch"),
             Field("attributes.group_name", label="Group"),
             Field("attributes.catalog_system", label="Catalog", visibility="secondary"),
             Field("attributes.status", label="Status", visibility="secondary"),
@@ -284,9 +279,6 @@ PHLO_PRESENTATION: dict[str, Any] = {
     ),
     "wap.cleanup": EventPresentation(
         label="WAP cleanup",
-        # Successful branch teardown after promote/reject is housekeeping;
-        # failures still escalate to primary.
-        visibility="secondary",
         fields=[
             Field("correlation.branch", label="Branch"),
             Field("attributes.operation", label="Op", visibility="secondary"),
@@ -305,9 +297,6 @@ PHLO_PRESENTATION: dict[str, Any] = {
     # -- Sources: dlt / dbt --------------------------------------------------------
     "dlt.pipeline.run": EventPresentation(
         label="DLT load",
-        # DLT's own run summary duplicates the ingestion.load story for
-        # dlt-backed assets; it stays available for verbose diagnostics.
-        visibility="secondary",
         fields=[
             Field("attributes.pipeline_name", label="Pipeline"),
             Field("attributes.destination", label="Destination"),
@@ -363,7 +352,6 @@ PHLO_PRESENTATION: dict[str, Any] = {
         fields=[
             Field("correlation.table", label="Table"),
             Field("attributes.operation", label="Op"),
-            Field("correlation.branch", label="Branch"),
             Field("attributes.rows_added", label="Rows +", format="integer"),
             Field("attributes.files_added", label="Files +", format="integer"),
             Field(
@@ -474,8 +462,9 @@ PHLO_PRESENTATION: dict[str, Any] = {
     ),
     "phlo.lineage": EventPresentation(
         label="Lineage",
-        # Edge bookkeeping for the graph; not a human-facing run event.
-        visibility="hidden",
+        # Edge bookkeeping for the graph — verbose-only, since the edges
+        # occasionally explain where a table came from.
+        visibility="secondary",
         fields=[
             Field("attributes.asset_keys", label="Assets"),
             Field("attributes.edges", label="Edges"),
@@ -530,16 +519,99 @@ PHLO_PRESENTATION: dict[str, Any] = {
 }
 
 
+# Events whose default field count makes a single line unreadable: the first
+# field becomes the subject on the status line, the rest stack beneath it as
+# aligned ``Label  value`` rows. The layout change happens in
+# ``pretty_renderer`` — ``PHLO_PRESENTATION`` itself stays declarative, so
+# consumers rendering the map directly still get the standard layout.
+_STACKED_EVENTS = frozenset(
+    {
+        "ingestion.load",
+        "iceberg.commit",
+        "dlt.pipeline.run",
+        "wap.promote",
+        "wap.reject",
+    }
+)
+
+
+def _resolve_field(data: Mapping[str, Any], path: str) -> Any:
+    """Walk a dot-delimited path over nested mappings; ``None`` on absence."""
+    node: Any = data
+    for segment in path.split("."):
+        if not isinstance(node, Mapping) or segment not in node:
+            return None
+        node = node[segment]
+    return node
+
+
+def _stacked_formatter(fields: tuple[Any, ...], verbose: bool, ellipsis: str) -> Any:
+    """A mode-aware ``formatter`` that stacks an event's declared fields.
+
+    Custom formatters own the event's content — the renderer keeps the
+    status glyph, indentation, and error block, but does not tier fields
+    for them. The closure therefore applies the rule's own visibility and
+    ``suppress`` predicates against the mode captured at construction, so
+    secondary fields still join the block in verbose and only in verbose.
+    """
+
+    def _format(data: Mapping[str, Any]) -> list[str]:
+        rows: list[tuple[str, str]] = []
+        for fld in fields:
+            if fld.visibility == Visibility.HIDDEN:
+                continue
+            if fld.visibility == Visibility.SECONDARY and not verbose:
+                continue
+            value = _resolve_field(data, fld.path)
+            if value is None:
+                continue
+            if fld.suppress is not None and fld.suppress(value):
+                continue
+            rendered = format_value(value, fld.format, head=fld.head, ellipsis=ellipsis)
+            rows.append((fld.display_label, str(rendered)))
+        if not rows:
+            return []
+        # The first field is the subject — it rides the status line bare;
+        # remaining fields stack as label-aligned rows beneath it.
+        subject, rest = rows[0][1], rows[1:]
+        width = max(len(label) for label, _ in rest) if rest else 0
+        return [subject, *(f"{label:<{width}}  {value}" for label, value in rest)]
+
+    return _format
+
+
+def _stacked_rules(rules: Mapping[str, Any], mode: str, symbols: str) -> dict[str, Any]:
+    """``rules`` with stacked-layout formatters attached to the dense events."""
+    ellipsis = "..." if symbols == "ascii" else "…"
+    verbose = mode == "verbose"
+    stacked = {}
+    for name in _STACKED_EVENTS:
+        rule = rules.get(name)
+        if rule is not None:
+            stacked[name] = dataclasses.replace(
+                rule, formatter=_stacked_formatter(rule.fields, verbose, ellipsis)
+            )
+    return {**rules, **stacked}
+
+
 def pretty_renderer(**kwargs: Any) -> Any:
     """A ``PrettyRenderer`` pre-loaded with Phlo's presentation rules.
 
     ``timestamps`` defaults on: Phlo log readers want each event's
     ``observed_at`` as a leading time column. Callers may pass
-    ``timestamps=False`` to suppress it.
+    ``timestamps=False`` to suppress it. Dense events render their fields
+    as a stacked block; field-heavy single lines are reserved for the
+    canonical stream.
     """
     kwargs.setdefault("rules", PHLO_PRESENTATION)
     kwargs.setdefault("context", PHLO_CONTEXT)
     kwargs.setdefault("timestamps", True)
+    if kwargs["rules"] is PHLO_PRESENTATION:
+        kwargs["rules"] = _stacked_rules(
+            PHLO_PRESENTATION,
+            mode=kwargs.get("mode", "pretty"),
+            symbols=kwargs.get("symbols", "auto"),
+        )
     return PrettyRenderer(**kwargs)
 
 

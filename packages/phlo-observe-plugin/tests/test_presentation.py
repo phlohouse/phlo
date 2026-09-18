@@ -141,35 +141,44 @@ def test_presentation_covers_phlo_event_vocabulary() -> None:
 
 
 def test_wap_run_golden() -> None:
-    """Default output is selective: the extract half of the load pair, and
-    any housekeeping events, stay in verbose."""
+    """Default output carries the operational milestones; field-dense
+    events stack rather than running to a very long line."""
     renderer = pretty_renderer(color="never", symbols="unicode", stream=io.StringIO())
     assert renderer.render_many(_wap_history()) == (
         f"── Run: {RUN[:16]}…\n"
         f"10:03:28.871 ✓ WAP branch  Branch: {BRANCH}  Strategy: branch  Catalog: nessie\n"
-        f"10:03:30.544 ✓ Load  Table: bronze.users  Rows: 12,481  Branch: {BRANCH}  Group: bronze\n"
+        "10:03:30.543 ✓ Extract  Table: bronze.users  Group: bronze\n"
+        "10:03:30.544 ✓ Load  bronze.users\n"
+        "    Rows   12,481\n"
+        "    Group  bronze\n"
         "10:03:31.300 ✓ WAP validate  Decision: passed  Check: wap.aggregate\n"
-        f"10:03:31.367 ✓ WAP promote  Branch: {BRANCH}  Target: main  Merge: promoted"
-        "  From: a1b2c3d4e5f6a1b2…  To: f6e5d4c3b2a1f6e5…  Catalog: nessie\n"
+        f"10:03:31.367 ✓ WAP promote  {BRANCH}\n"
+        "    Target   main\n"
+        "    Merge    promoted\n"
+        "    From     a1b2c3d4e5f6a1b2…\n"
+        "    To       f6e5d4c3b2a1f6e5…\n"
+        "    Catalog  nessie\n"
         f"10:03:31.384 ✓ Run  Job: ingest_job  Status: SUCCESS  Branch: {BRANCH}  8.47s"
     )
 
 
 def test_wap_run_golden_verbose() -> None:
-    """Verbose keeps the secondary detail: the extract, secondary fields."""
+    """Verbose keeps the secondary detail: extra fields join the stacked
+    blocks, secondary events indent."""
     out = pretty_renderer(mode="verbose", color="never", stream=io.StringIO()).render_many(
         _wap_history()
     )
-    # Secondary events render indented.
-    assert f"  10:03:30.543 ✓ Extract  Table: bronze.users  Branch: {BRANCH}  Group: bronze" in out
-    # Secondary fields on primary events appear too.
-    assert "Catalog: nessie" in out
-    assert "Hook: ingestion.end" in out
+    # Extract is a primary operational event, not indented.
+    assert "10:03:30.543 ✓ Extract  Table: bronze.users  Group: bronze" in out
+    # Secondary fields join the stacked blocks only in verbose.
+    assert "    Catalog  nessie" in out
+    assert "    Hook     ingestion.end" in out
 
 
 def test_default_hides_internal_bookkeeping() -> None:
-    """Evidence receipts, lineage edges and observer stages are not run
-    output — they stay in the canonical stream but never render."""
+    """Evidence receipts and observer stages are not run output — they
+    stay in the canonical stream but never render; lineage edges are
+    diagnostic detail kept for verbose."""
     internal = [
         {"event": name, "outcome": "success", "severity": "info", "correlation": {"run_id": RUN}}
         for name in (
@@ -182,10 +191,12 @@ def test_default_hides_internal_bookkeeping() -> None:
         )
     ]
     assert pretty_renderer(color="never", stream=io.StringIO()).render_many(internal) == ""
-    assert (
-        pretty_renderer(mode="verbose", color="never", stream=io.StringIO()).render_many(internal)
-        == ""
+    verbose = pretty_renderer(mode="verbose", color="never", stream=io.StringIO()).render_many(
+        internal
     )
+    assert "Lineage" in verbose
+    for hidden in ("Observation", "Ingest", "Normalize", "Correlate", "Export"):
+        assert hidden not in verbose
 
 
 def test_internal_failure_still_surfaces() -> None:
@@ -202,7 +213,7 @@ def test_internal_failure_still_surfaces() -> None:
 
 
 def test_secondary_events_visible_in_verbose() -> None:
-    """Housekeeping steps show in verbose, indented."""
+    """Plumbing-level events show only in verbose, indented."""
     events = [
         {
             "event": name,
@@ -211,19 +222,55 @@ def test_secondary_events_visible_in_verbose() -> None:
             "correlation": {"run_id": RUN},
         }
         for name in (
-            "ingestion.extract",
-            "pipeline.step",
-            "dlt.pipeline.run",
-            "wap.cleanup",
+            "nessie.branch.create",
+            "nessie.commit",
             "phlo.publish",
             "phlo.service",
+            "phlo.lineage",
+            "trino.query",
         )
     ]
     pretty = pretty_renderer(color="never", stream=io.StringIO())
     assert pretty.render_many(events) == ""
     out = pretty_renderer(mode="verbose", color="never", stream=io.StringIO()).render_many(events)
-    for label in ("Extract", "Step", "DLT load", "WAP cleanup", "Publish", "Service"):
+    for label in ("Nessie branch", "Nessie commit", "Publish", "Service", "Lineage", "Query"):
         assert f"  ✓ {label}" in out, label
+
+
+def test_stacked_layout_replaces_long_lines() -> None:
+    """Field-dense events render the subject on the status line and the
+    remaining fields as aligned rows — in both modes."""
+    event = {
+        "event": "iceberg.commit",
+        "outcome": "success",
+        "severity": "info",
+        "correlation": {"run_id": RUN, "table": "bronze.users"},
+        "attributes": {
+            "operation": "append",
+            "rows_added": 12481,
+            "files_added": 3,
+            "snapshot_id_after": 8675309123456789,
+            "commit_hash": "9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c",
+        },
+    }
+    default = pretty_renderer(color="never", symbols="unicode", stream=io.StringIO()).render(event)
+    assert "✓ Iceberg commit  bronze.users" in default
+    assert "    Op       append" in default
+    assert "    Rows +   12,481" in default
+    # Secondary fields stay out of the default block.
+    assert "Snapshot" not in default
+    verbose = pretty_renderer(
+        mode="verbose", color="never", symbols="unicode", stream=io.StringIO()
+    ).render(event)
+    assert "    Snapshot  8675309123456789" in verbose
+    assert "    Commit    9f8e7d6c5b4a3f2e…" in verbose
+
+
+def test_presentation_map_stays_declarative() -> None:
+    """``PHLO_PRESENTATION`` carries no formatters — the stacked layout is
+    attached by ``pretty_renderer``, so the mapping stays pure data."""
+    for name, rule in PHLO_PRESENTATION.items():
+        assert rule.formatter is None, name
 
 
 def test_anonymous_job_name_suppressed() -> None:

@@ -142,10 +142,12 @@ observer holding different credentials. Instead:
   run-status sensors (`observe_run_success`, `observe_run_failure`,
   `observe_run_canceled`), all defaulting to RUNNING
 - `phlo_observe_plugin.presentation` — `PHLO_PRESENTATION` rules and the
-  `pretty` drain: one human-readable line per run milestone by default,
-  full diagnostic detail in verbose. Attach with `OBSERVE_DRAINS=pretty`
-  or `PHLO_OBSERVE_PRETTY=true`; `pretty_renderer()` /
-  `render_events()` / `render_jsonl()` render captured streams directly.
+  `pretty` drain: one status line per operational milestone by default,
+  with field-dense events (load, commit, promote) stacking their fields
+  beneath it, and full diagnostic detail in verbose. Attach with
+  `OBSERVE_DRAINS=pretty` or `PHLO_OBSERVE_PRETTY=true`;
+  `pretty_renderer()` / `render_events()` / `render_jsonl()` render
+  captured streams directly.
 - `phlo_observe_plugin.service.yaml` — `phlo-observer` service definition.
   No published image speaks the V2 envelope (`0.1.0`/`latest` accept only
   `schema_version` 1.x), so the service builds from the phlo-observe monorepo

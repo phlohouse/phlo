@@ -290,11 +290,13 @@ WAP_ASSET = "bronze.users"
 WAP_TABLE = "bronze.users"
 
 _TS = __import__("re").compile(r"\d{2}:\d{2}:\d{2}\.\d{3}")
+_DUR = __import__("re").compile(r"\d+(?:\.\d+)?(?:ms|s|m \d+s|h \d+m)\b")
 
 
-def _normalize_timestamps(text: str) -> str:
-    """observed_at values are wall-clock; pin the column shape, not the time."""
-    return _TS.sub("TT:TT:TT.ttt", text)
+def _normalize_volatile(text: str) -> str:
+    """Wall-clock timestamps and measured durations vary per run — pin the
+    shape, not the value."""
+    return _DUR.sub("<dur>", _TS.sub("TT:TT:TT.ttt", text))
 
 
 def _wap_lifecycle(bus: Any, physical: str | None, logical: str, *, fail: bool) -> None:
@@ -598,40 +600,56 @@ def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
         "pipeline.run",
     ]
 
-    # Default: nine events tell the story — WAP lifecycle, the load, the
-    # commit, meaningful checks, the materialization, the run's outcome.
+    # Default: thirteen operational events tell the story — the full WAP
+    # lifecycle, the extract→load pair, the DLT run, both commits, checks,
+    # the step, the materialization, the run's outcome. Field-dense events
+    # stack their fields rather than running to a very long line.
     default_out = render_events(payloads, color="never", symbols="unicode")
-    assert _normalize_timestamps(default_out) == (
+    assert _normalize_volatile(default_out) == (
         f"── Run: {result.run_id[:16]}…\n"
         f"TT:TT:TT.ttt ✓ WAP branch  Branch: {WAP_STAGING_REF}  Strategy: branch  Catalog: nessie\n"
-        f"TT:TT:TT.ttt ✓ Load  Table: {WAP_TABLE}  Rows: 12,481  Branch: {WAP_STAGING_REF}  Group: bronze\n"
-        f"TT:TT:TT.ttt ✓ Iceberg commit  Table: {WAP_TABLE}  Op: append"
-        f"  Branch: {WAP_STAGING_REF}  Rows +: 12,481  Files +: 3\n"
+        f"TT:TT:TT.ttt ✓ Extract  Table: {WAP_TABLE}  Group: bronze\n"
+        f"TT:TT:TT.ttt ✓ Load  {WAP_TABLE}\n"
+        "    Rows   12,481\n"
+        "    Group  bronze\n"
+        f"TT:TT:TT.ttt ✓ Iceberg commit  {WAP_TABLE}\n"
+        "    Op       append\n"
+        "    Rows +   12,481\n"
+        "    Files +  3\n"
+        "TT:TT:TT.ttt ✓ DLT load  users_ingest\n"
+        "    Destination  iceberg\n"
+        "    Dataset      bronze\n"
+        "    Rows         12,481\n"
         f"TT:TT:TT.ttt ✓ Check  Check: not_null  Asset: {WAP_ASSET}\n"
         "TT:TT:TT.ttt ✓ WAP validate  Decision: passed  Check: wap.aggregate\n"
-        f"TT:TT:TT.ttt ✓ WAP promote  Branch: {WAP_STAGING_REF}  Target: main  Merge: promoted"
-        "  From: a1b2c3d4e5f6a1b2…  To: f6e5d4c3b2a1f6e5…  Catalog: nessie\n"
+        f"TT:TT:TT.ttt ✓ WAP promote  {WAP_STAGING_REF}\n"
+        "    Target   main\n"
+        "    Merge    promoted\n"
+        "    From     a1b2c3d4e5f6a1b2…\n"
+        "    To       f6e5d4c3b2a1f6e5…\n"
+        "    Catalog  nessie\n"
+        f"TT:TT:TT.ttt ✓ WAP cleanup  Branch: {WAP_STAGING_REF}\n"
         f"TT:TT:TT.ttt ✓ Check  Check: schema_ok  Asset: {WAP_ASSET}\n"
+        f"TT:TT:TT.ttt ✓ Step  Asset: {WAP_ASSET}  Op: bronze__users  <dur>\n"
         f"TT:TT:TT.ttt ✓ Materialize  Asset: {WAP_ASSET}  Rows: 12,481\n"
         f"TT:TT:TT.ttt ✓ Run  Status: SUCCESS  Branch: {WAP_STAGING_REF}"
     )
 
-    # Verbose: the full timeline stays — secondary lifecycle detail plus
-    # diagnostics, still human lines rather than JSON.
+    # Verbose: the plumbing-level events indent alongside, and the stacked
+    # blocks pick up their secondary diagnostic fields.
     verbose_out = render_events(payloads, mode="verbose", color="never", symbols="unicode")
     for fragment in (
         "✓ Nessie branch",
-        "✓ Extract",
-        "✓ DLT load",
         "✓ Nessie commit",
-        "✓ WAP cleanup",
         "✓ Publish  Target: observatory",
-        "✓ Step",
+        "✓ Lineage",
     ):
         assert fragment in verbose_out, fragment
-    # Bookkeeping stays hidden even in verbose.
+    # Verbose-only fields join the stacked blocks.
+    assert "    Snapshot" in verbose_out
+    assert "    Trace" in verbose_out
+    # Telemetry plumbing stays hidden even in verbose.
     assert "Observation" not in verbose_out
-    assert "Lineage" not in verbose_out
 
 
 def test_wap_rejection_golden_ux(captured: Any, bus: Any) -> None:
@@ -644,19 +662,21 @@ def test_wap_rejection_golden_ux(captured: Any, bus: Any) -> None:
     _terminal_run_event(result, fail=True)
 
     payloads = captured.payloads()
-    out = _normalize_timestamps(render_events(payloads, color="never", symbols="unicode"))
+    out = _normalize_volatile(render_events(payloads, color="never", symbols="unicode"))
 
     # The failed check names itself and its asset.
     assert f"TT:TT:TT.ttt ✕ Check  Check: not_null  Asset: {WAP_ASSET}" in out
     # The audit verdict and the rejection are primary, in order, and the
-    # reject carries the reason through the error block.
+    # reject carries the reason through the error block under its
+    # stacked fields.
     assert "✕ WAP validate  Decision: rejected  Check: wap.aggregate" in out
-    assert f"✕ WAP reject  Branch: {WAP_STAGING_REF}" in out
+    assert f"✕ WAP reject  {WAP_STAGING_REF}" in out
+    assert "    Merge  rejected_quality" in out
     assert "    quality gate rejected: check 'not_null' failed" in out
     # The run's terminal line carries the failed outcome.
     assert f"✕ Run  Status: FAILURE  Branch: {WAP_STAGING_REF}" in out
-    # The failed load's error also surfaced.
-    assert "✕ Load" in out
+    # The failed load's error surfaces under the stacked block.
+    assert f"✕ Load  {WAP_TABLE}" in out
     assert "    source read blew up" in out
 
 
