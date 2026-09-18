@@ -8,7 +8,7 @@ import type {Metric} from "@/components/data/metric-strip";
 import {  MetricStrip } from "@/components/data/metric-strip";
 import { PropertyList } from "@/components/data/property-list";
 import { Banner } from "@/components/feedback/banner";
-import { Page, PageBand, PageContent, PageStack } from "@/components/layout/page";
+import { Page, PageBand, PageContent, SplitRow } from "@/components/layout/page";
 import { ExampleDataChip, PageHeader } from "@/components/layout/page-header";
 import { PageTabs, TabsContent } from "@/components/layout/page-tabs";
 import { InlineLink, Section } from "@/components/layout/section-header";
@@ -75,15 +75,14 @@ function PlatformPage() {
 
       <PageTabs tabs={TABS} defaultValue="services">
         <TabsContent value="services">
-          <div className="px-6 pt-4.5 pb-5">
+          <PageContent>
             <Banner
               tone="warning"
               title="Loki is running, but log queries are unavailable"
               detail="Readiness probe timed out at 09:35 UTC · Durable run evidence remains available."
               action={<InlineLink>Inspect dependency path</InlineLink>}
-              className="mb-4.5"
             />
-            <PageContent rail={rail}>
+            <SplitRow rail={rail}>
               <Section title="Enabled services" meta="12 services · Unready first · Last probe 09:35 UTC">
                 <ServiceHealthTable rows={platformServices} />
               </Section>
@@ -108,8 +107,8 @@ function PlatformPage() {
                   <InlineLink>View recovery evidence</InlineLink>
                 </Section>
               </div>
-            </PageContent>
-          </div>
+            </SplitRow>
+          </PageContent>
         </TabsContent>
 
         <TabsContent value="packages">

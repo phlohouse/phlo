@@ -44,7 +44,7 @@ export function DataTable<T>({
   rows: Array<T>;
   rowKey: (row: T, index: number) => string;
   onRowClick?: (row: T) => void;
-  /** Row whose key matches is highlighted, matching Paper's selected state. */
+  /** Row whose key matches is marked `aria-selected` for assistive tech. */
   selectedKey?: string | null;
   empty?: React.ReactNode;
   className?: string;
