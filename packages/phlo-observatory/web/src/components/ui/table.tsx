@@ -49,11 +49,10 @@ function TableRow({
     <tr
       data-slot="table-row"
       data-clickable={clickable ? "true" : undefined}
-      data-selected={selected ? "true" : undefined}
+      aria-selected={selected ? true : undefined}
       className={cn(
         "border-t border-border first:border-t-0",
         clickable && "cursor-pointer hover:bg-primary/5",
-        selected && "bg-primary/[0.09]",
         className,
       )}
       {...props}

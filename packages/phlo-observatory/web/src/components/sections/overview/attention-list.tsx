@@ -1,9 +1,9 @@
 /**
  * Overview section: priority items ranked by consumer impact.
  *
- * Follows the same surface rules as the tables: white rows separated by
- * hairlines, a purple tint on hover, and a violet fill on the active row. The
- * top-priority item is active by default, matching Paper.
+ * Rows follow the table surface rules exactly: white by default, hairline
+ * separators, and a purple tint on hover. There is no persistent selection
+ * fill — Paper's first-row violet is read as a captured hover state.
  *
  * Presentational — navigation is delegated so the block renders without a
  * router.
@@ -31,12 +31,10 @@ const ICON_COLOR: Record<Severity, string> = {
 
 function AttentionRow({
   item,
-  active,
   last,
   onOpen,
 }: {
   item: AttentionItem;
-  active: boolean;
   last: boolean;
   onOpen?: (item: AttentionItem) => void;
 }) {
@@ -45,11 +43,9 @@ function AttentionRow({
     <button
       type="button"
       onClick={() => onOpen?.(item)}
-      aria-current={active ? "true" : undefined}
       className={cn(
-        "flex h-14 shrink-0 cursor-pointer items-center gap-2.5 px-3 text-left transition-colors",
+        "flex h-14 shrink-0 cursor-pointer items-center gap-2.5 px-3 text-left transition-colors hover:bg-primary/5",
         !last && "border-b border-border",
-        active ? "bg-secondary" : "hover:bg-primary/5",
       )}
     >
       <Icon className={cn("size-4.5 shrink-0", ICON_COLOR[item.severity])} strokeWidth={1.6} />
@@ -69,12 +65,9 @@ function AttentionRow({
 
 export function AttentionList({
   items,
-  activeIndex = 0,
   onOpen,
 }: {
   items: Array<AttentionItem>;
-  /** Index of the highlighted row; pass null for none. */
-  activeIndex?: number | null;
   onOpen?: (item: AttentionItem) => void;
 }) {
   return (
@@ -87,7 +80,6 @@ export function AttentionList({
           <AttentionRow
             key={item.title}
             item={item}
-            active={index === activeIndex}
             last={index === items.length - 1}
             onOpen={onOpen}
           />

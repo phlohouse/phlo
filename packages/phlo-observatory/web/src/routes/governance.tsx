@@ -8,7 +8,7 @@ import type {Metric} from "@/components/data/metric-strip";
 import { EvidenceListPlain } from "@/components/data/evidence-list";
 import {  MetricStrip } from "@/components/data/metric-strip";
 import { StatusPill } from "@/components/data/status-pill";
-import { Page, PageBand, PageContent, PageStack } from "@/components/layout/page";
+import { Page, PageBand, PageContent, SplitRow } from "@/components/layout/page";
 import { ExampleDataChip, PageHeader } from "@/components/layout/page-header";
 import { PageTabs, TabsContent } from "@/components/layout/page-tabs";
 import { InlineLink, Section } from "@/components/layout/section-header";
@@ -84,14 +84,14 @@ function GovernancePage() {
 
       <PageTabs tabs={TABS} defaultValue="overview">
         <TabsContent value="overview">
-          <PageStack className="px-6 pt-4.5 pb-5">
+          <PageContent>
             <Section
               title="Publication reviews"
               meta="3 requests · Core policy verdicts · Observed 09:35 UTC"
             >
               <PublicationReviewsTable rows={publicationReviews} />
             </Section>
-            <PageContent rail={rail}>
+            <SplitRow rail={rail}>
               <AccessDriftPanel
                 title={accessDrift.title}
                 verdict={accessDrift.verdict}
@@ -100,14 +100,17 @@ function GovernancePage() {
                 note="Review the grant change before synchronizing policy."
                 action="Preview grant reconciliation"
               />
-              <Section title="Ownership & contract gaps" action={<InlineLink>View all gaps</InlineLink>}>
+              <Section
+                title="Ownership & contract gaps"
+                action={<InlineLink>View all gaps</InlineLink>}
+              >
                 <OwnershipGapsTable rows={ownershipGaps} />
               </Section>
-            </PageContent>
+            </SplitRow>
             <Section title="Recent audit activity" action={<InlineLink>View audit log</InlineLink>}>
               <AuditTable rows={auditActivity} />
             </Section>
-          </PageStack>
+          </PageContent>
         </TabsContent>
 
         <TabsContent value="ownership">
