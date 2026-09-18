@@ -54,26 +54,8 @@ function DatasetDetail() {
   const [tab, setTab] = React.useState<(typeof TABS)[number]>("Overview");
 
   return (
-    <div className="mc-card" style={{ overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", height: 46, padding: "0 24px", borderBottom: "1px solid var(--color-border)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
-          <span style={{ color: "var(--color-muted)" }}>Data</span>
-          <ChevronRight size={14} />
-          <span style={{ color: "var(--color-muted)" }}>Datasets</span>
-          <ChevronRight size={14} />
-          <span style={{ fontWeight: 600 }}>Orders</span>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 18, color: "var(--color-muted)" }}>
-          <Search size={16} />
-          <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12 }}>
-            <span style={{ width: 5, height: 5, borderRadius: 2, background: "#07835D", display: "inline-block" }} />
-            Production
-          </span>
-          <Bell size={16} />
-        </div>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "flex-start", padding: "20px 24px 16px" }}>
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-start", padding: "4px 0 16px" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <h1 style={{ fontSize: 25, fontWeight: 600, margin: 0, letterSpacing: "-0.03em", fontFamily: "var(--font-display)" }}>

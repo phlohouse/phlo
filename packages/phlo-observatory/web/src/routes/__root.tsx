@@ -224,27 +224,27 @@ function Shell() {
   const trail = crumbs(pathname);
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "var(--color-app)" }}>
+    <div style={{ display: "flex", minHeight: "100vh", background: "var(--color-app)", padding: 12, gap: 12 }}>
       <HeadContent />
       <aside
         style={{
           width: "var(--sidebar-width)",
-          background: "var(--color-panel)",
-          borderRight: "1px solid var(--color-border)",
           display: "flex",
           flexDirection: "column",
           flexShrink: 0,
-          height: "100vh",
+          height: "calc(100vh - 24px)",
           position: "sticky",
-          top: 0,
+          top: 12,
+          padding: "12px 4px",
+          gap: 24,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "16px 16px 14px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 8px" }}>
           <span
             style={{
               width: 30,
               height: 30,
-              borderRadius: 9,
+              borderRadius: 8,
               background: "var(--color-accent)",
               color: "#fff",
               display: "inline-flex",
@@ -257,9 +257,9 @@ function Shell() {
           >
             P
           </span>
-          <strong style={{ fontSize: 17, letterSpacing: "-0.02em" }}>phlo</strong>
+          <strong style={{ fontSize: 25, fontWeight: 700, letterSpacing: "-0.04em", fontFamily: "system-ui, sans-serif" }}>phlo</strong>
         </div>
-        <nav style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 10px", flex: 1 }}>
+        <nav style={{ display: "flex", flexDirection: "column", gap: 5, padding: "0 4px", flex: 1 }}>
           {NAV.map((it) => {
             const active = isActive(it.to);
             const Icon = it.icon;
@@ -271,50 +271,66 @@ function Shell() {
                   display: "flex",
                   alignItems: "center",
                   gap: 10,
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  fontSize: 13.5,
+                  height: 39,
+                  padding: "0 12px",
+                  borderRadius: 7,
+                  fontSize: 14,
+                  fontFamily: "system-ui, sans-serif",
                   background: active ? "var(--color-accent-soft)" : "transparent",
-                  color: active ? "var(--color-accent-dark)" : "var(--color-text)",
-                  fontWeight: active ? 650 : 400,
+                  color: active ? "var(--color-accent-dark)" : "#525252",
+                  fontWeight: active ? 600 : 400,
                   textDecoration: "none",
                 }}
               >
-                <Icon size={16} style={{ flexShrink: 0 }} />
-                {it.label}
+                <Icon size={18} style={{ flexShrink: 0 }} />
+                <span style={{ flex: 1 }}>{it.label}</span>
                 {it.badge !== undefined && (
-                  <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--color-muted)" }}>{it.badge}</span>
+                  <span style={{ fontSize: 12, color: "#525252" }}>{it.badge}</span>
                 )}
               </Link>
             );
           })}
         </nav>
-        <div style={{ borderTop: "1px solid var(--color-border)", padding: 14, display: "flex", alignItems: "center", gap: 10 }}>
-          <span
-            style={{
-              width: 30,
-              height: 30,
-              borderRadius: 999,
-              background: "var(--color-accent-soft)",
-              color: "var(--color-accent-dark)",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 11,
-              fontWeight: 800,
-              flexShrink: 0,
-            }}
-          >
-            GP
-          </span>
-          <span>
-            <span style={{ display: "block", fontSize: 13, fontWeight: 650 }}>Gareth Price</span>
-            <span style={{ display: "block", fontSize: 12, color: "var(--color-muted)" }}>Workspace admin</span>
-          </span>
+        <div style={{ padding: "0 12px 4px" }}>
+          <div style={{ height: 1, background: "#D3D3D3", marginBottom: 16 }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 15,
+                background: "#DED9EE",
+                color: "#35277F",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11,
+                fontWeight: 600,
+                flexShrink: 0,
+              }}
+            >
+              GP
+            </span>
+            <span>
+              <span style={{ display: "block", fontSize: 13, fontWeight: 500 }}>Gareth Price</span>
+              <span style={{ display: "block", fontSize: 11, color: "var(--color-muted)" }}>Workspace admin</span>
+            </span>
+          </div>
         </div>
       </aside>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minWidth: 0,
+          background: "var(--color-panel)",
+          border: "1px solid var(--color-border)",
+          borderRadius: 12,
+          overflow: "clip",
+        }}
+      >
         <header
           style={{
             height: "var(--topbar-height)",
