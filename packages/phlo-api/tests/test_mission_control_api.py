@@ -93,7 +93,16 @@ def test_release_summary_agrees_with_its_rows(client: TestClient) -> None:
     assert detail["snapshot_changes"][0]["table"] == "crm.customers"
 
 
-def test_platform_keeps_runtime_and_readiness_separate(client: TestClient) -> None:
+def test_platform_keeps_runtime_and_readiness_separate(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Exercise the seeded fallback: the observed-substrate path is covered by
+    # test_platform_services_prefer_live_substrate. Patch the router's binding,
+    # not the source module, since the name is imported directly.
+    from phlo_api.observatory_api import observatory_mission_platform as platform
+
+    monkeypatch.setattr(platform, "derive_platform_services", lambda: None)
+
     services = client.get(f"{BASE}/platform/services").json()
     loki = next(service for service in services if service["name"] == "Loki")
     assert loki["runtime_state"] == "Running"
@@ -148,3 +157,51 @@ def test_overview_data_products_and_rail(client: TestClient) -> None:
         "Publication reviews",
     }
     assert len(rail["recovery"]) == 3
+
+
+def test_platform_services_prefer_live_substrate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Derived service rows win over the seed, and fall back when nothing is observed."""
+    from phlo_api.observatory_api import observatory_mission_control_sources as sources
+
+    class _Health:
+        def __init__(self, state: str, message: str) -> None:
+            self.state = state
+            self.message = message
+
+    class _Service:
+        def __init__(self, name: str, kind: str, status: str, state: str) -> None:
+            self.name = name
+            self.kind = kind
+            self.status = status
+            self.health = _Health(state, f"{name} probe")
+
+    monkeypatch.setattr(
+        sources,
+        "_load_services",
+        lambda: [
+            _Service("phlo-api", "api", "running", "ok"),
+            _Service("observatory", "orchestration", "stopped", "warning"),
+            _Service("airbyte", "ingestion", "unknown", "unknown"),
+        ],
+    )
+
+    rows = sources.derive_platform_services()
+    assert rows is not None
+    # Unknown-state catalog entries are dropped rather than reported as unready.
+    assert [row.name for row in rows] == ["phlo-api", "observatory"]
+    assert rows[0].runtime_state == "Running"
+    assert rows[0].readiness_state == "Ready"
+    assert rows[1].attention is True
+
+    summary = {metric.label: metric for metric in sources.derive_platform_summary(rows)}
+    assert summary["Running"].value == "1 of 2"
+    assert summary["Ready"].tone == "warning"
+
+
+def test_platform_derivation_falls_back_when_nothing_observed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from phlo_api.observatory_api import observatory_mission_control_sources as sources
+
+    monkeypatch.setattr(sources, "_load_services", lambda: [])
+    assert sources.derive_platform_services() is None
