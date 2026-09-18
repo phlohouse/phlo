@@ -4,9 +4,16 @@
  */
 import * as React from "react";
 
+import type { MissionRunDetail } from "@/api/types";
 import { PageContent } from "@/components/layout/page";
 import { RunDetailsRail } from "@/components/sections/run/run-rail";
 
-export function RunContent({ children }: { children: React.ReactNode }) {
-  return <PageContent rail={<RunDetailsRail />}>{children}</PageContent>;
+export function RunContent({
+  run,
+  children,
+}: {
+  run?: MissionRunDetail;
+  children: React.ReactNode;
+}) {
+  return <PageContent rail={run ? <RunDetailsRail run={run} /> : null}>{children}</PageContent>;
 }

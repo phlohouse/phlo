@@ -4,14 +4,9 @@
  */
 import { ArrowRight } from "lucide-react";
 
+import type { LineageNode } from "@/api/types";
 import { InlineLink, SectionHeader } from "@/components/layout/section-header";
 import { cn } from "@/lib/utils";
-
-export interface LineageNode {
-  name: string;
-  role: string;
-  current?: boolean;
-}
 
 export function LineageChain({
   nodes,

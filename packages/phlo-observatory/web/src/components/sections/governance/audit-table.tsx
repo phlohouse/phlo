@@ -1,24 +1,16 @@
 /**
  * Immutable record of governance-relevant actions.
  */
+import type { AuditEvent } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
-
-export interface AuditEvent {
-  time: string;
-  actor: string;
-  action: string;
-  target: string;
-  outcome: string;
-  tone: string;
-}
 
 const COLUMNS: Array<DataColumn<AuditEvent>> = [
   {
     key: "time",
     header: "Time (UTC)",
     width: "w-30",
-    cell: (row) => <span className="text-muted-foreground">{row.time}</span>,
+    cell: (row) => <span className="text-muted-foreground">{row.at}</span>,
   },
   { key: "actor", header: "Actor", width: "w-47.5", cell: (row) => row.actor },
   { key: "action", header: "Action", cell: (row) => row.action },
@@ -37,7 +29,7 @@ export function AuditTable({ rows, className }: { rows: Array<AuditEvent>; class
     <DataTable
       columns={COLUMNS}
       rows={rows}
-      rowKey={(row) => `${row.time}-${row.action}`}
+      rowKey={(row) => `${row.at}-${row.action}`}
       className={className}
     />
   );

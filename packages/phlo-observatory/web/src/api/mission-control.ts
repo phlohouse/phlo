@@ -18,15 +18,19 @@ import type {
   MissionAlert,
   MissionAttentionItem,
   MissionDataProduct,
+  MissionDatasetDetail,
   MissionEnvironment,
   MissionExecutionRow,
   MissionOverviewRail,
+  MissionRunDetail,
+  MissionRunLogLine,
   NotificationRule,
   OwnershipGap,
   PlatformService,
   PlatformSummaryMetric,
   ProviderConnection,
   ProviderImpact,
+  PublicationPlan,
   PublicationReview,
   ReleaseCandidate,
   ReleaseCandidateDetail,
@@ -39,6 +43,7 @@ import type {
   RunSpan,
   RunStageView,
   ServiceDiagnostics,
+  SummaryMetricRow,
   WorkspaceDefault,
   WorkspaceMember,
 } from "./types";
@@ -83,6 +88,8 @@ const keys = {
   execution: ["mission", "execution"] as const,
   dataProducts: ["mission", "data-products"] as const,
   overviewRail: ["mission", "overview-rail"] as const,
+  runDetail: (runId: string) => ["mission", "runs", runId, "detail"] as const,
+  runLogs: (runId: string) => ["mission", "runs", runId, "logs"] as const,
   runStages: (runId: string) => ["mission", "runs", runId, "stages"] as const,
   runQuality: (runId: string) => ["mission", "runs", runId, "quality"] as const,
   runEvents: (runId: string) => ["mission", "runs", runId, "events"] as const,
@@ -90,6 +97,7 @@ const keys = {
   runArtifacts: (runId: string) => ["mission", "runs", runId, "artifacts"] as const,
   runConsumers: (runId: string) => ["mission", "runs", runId, "consumers"] as const,
   runConfiguration: (runId: string) => ["mission", "runs", runId, "configuration"] as const,
+  datasetDetail: (datasetId: string) => ["mission", "datasets", datasetId] as const,
   datasetGovernance: (datasetId: string) =>
     ["mission", "datasets", datasetId, "governance"] as const,
   releaseSummary: ["mission", "releases", "summary"] as const,
@@ -102,10 +110,13 @@ const keys = {
   serviceDiagnostics: (serviceId: string) => ["mission", "platform", "services", serviceId] as const,
   backupCoverage: ["mission", "platform", "backup"] as const,
   maintenance: ["mission", "platform", "maintenance"] as const,
+  governanceSummary: ["mission", "governance", "summary"] as const,
+  publicationPlan: (datasetId: string) => ["mission", "governance", "plan", datasetId] as const,
   publicationReviews: ["mission", "governance", "publication-reviews"] as const,
   accessDrift: ["mission", "governance", "access-drift"] as const,
   ownershipGaps: ["mission", "governance", "ownership-gaps"] as const,
   auditEvents: ["mission", "governance", "audit"] as const,
+  settingsSummary: ["mission", "settings", "summary"] as const,
   providerConnections: ["mission", "settings", "providers"] as const,
   providerImpact: (providerId: string) => ["mission", "settings", "providers", providerId] as const,
   notificationRules: ["mission", "settings", "notifications"] as const,
@@ -147,6 +158,18 @@ export const queries = {
       queryFn: ({ signal }) => request<MissionOverviewRail>("/overview/rail", signal),
     }),
 
+  runDetail: (runId: string) =>
+    queryOptions({
+      queryKey: keys.runDetail(runId),
+      queryFn: ({ signal }) => request<MissionRunDetail>(`/runs/${encodeURIComponent(runId)}`, signal),
+    }),
+  runLogs: (runId: string) =>
+    queryOptions({
+      queryKey: keys.runLogs(runId),
+      queryFn: ({ signal }) =>
+        request<Array<MissionRunLogLine>>(`/runs/${encodeURIComponent(runId)}/logs`, signal),
+    }),
+
   runStages: (runId: string) =>
     queryOptions({
       queryKey: keys.runStages(runId),
@@ -181,6 +204,13 @@ export const queries = {
     queryOptions({
       queryKey: keys.runConfiguration(runId),
       queryFn: ({ signal }) => request<Array<RunConfigurationRow>>(`/runs/${encodeURIComponent(runId)}/configuration`, signal),
+    }),
+
+  datasetDetail: (datasetId: string) =>
+    queryOptions({
+      queryKey: keys.datasetDetail(datasetId),
+      queryFn: ({ signal }) =>
+        request<MissionDatasetDetail>(`/datasets/${encodeURIComponent(datasetId)}`, signal),
     }),
 
   datasetGovernance: (datasetId: string) =>
@@ -239,6 +269,18 @@ export const queries = {
       queryFn: ({ signal }) => request<Array<CoverageRow>>("/platform/maintenance", signal),
     }),
 
+  governanceSummary: () =>
+    queryOptions({
+      queryKey: keys.governanceSummary,
+      queryFn: ({ signal }) => request<Array<SummaryMetricRow>>("/governance/summary", signal),
+    }),
+  publicationPlan: (datasetId: string) =>
+    queryOptions({
+      queryKey: keys.publicationPlan(datasetId),
+      queryFn: ({ signal }) =>
+        request<PublicationPlan>(`/governance/publication-plan/${encodeURIComponent(datasetId)}`, signal),
+    }),
+
   publicationReviews: () =>
     queryOptions({
       queryKey: keys.publicationReviews,
@@ -260,6 +302,11 @@ export const queries = {
       queryFn: ({ signal }) => request<Array<AuditEvent>>("/governance/audit", signal),
     }),
 
+  settingsSummary: () =>
+    queryOptions({
+      queryKey: keys.settingsSummary,
+      queryFn: ({ signal }) => request<Array<SummaryMetricRow>>("/settings/summary", signal),
+    }),
   providerConnections: () =>
     queryOptions({
       queryKey: keys.providerConnections,

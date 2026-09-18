@@ -1,26 +1,19 @@
 /**
  * Recent dataset runs, linking through to the run detail view.
  */
+import type { DatasetRunRef } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
 import { statusTone } from "@/lib/status";
 
-export interface DatasetRunRow {
-  run: string;
-  finished: string;
-  outcome: string;
-  release: string;
-  duration: string;
-}
-
-const COLUMNS: Array<DataColumn<DatasetRunRow>> = [
+const COLUMNS: Array<DataColumn<DatasetRunRef>> = [
   {
     key: "run",
     header: "Run",
     width: "w-37.5",
-    cell: (row) => <span className="text-accent-foreground">{row.run}</span>,
+    cell: (row) => <span className="text-accent-foreground">{row.run_id}</span>,
   },
-  { key: "finished", header: "Finished (UTC)", width: "w-37.5", cell: (row) => row.finished },
+  { key: "finished", header: "Finished (UTC)", width: "w-37.5", cell: (row) => row.finished_at },
   {
     key: "outcome",
     header: "Outcome",
@@ -54,15 +47,15 @@ export function DatasetRunsTable({
   onOpenRun,
   className,
 }: {
-  rows: Array<DatasetRunRow>;
-  onOpenRun?: (row: DatasetRunRow) => void;
+  rows: Array<DatasetRunRef>;
+  onOpenRun?: (row: DatasetRunRef) => void;
   className?: string;
 }) {
   return (
     <DataTable
       columns={COLUMNS}
       rows={rows}
-      rowKey={(row) => row.run}
+      rowKey={(row) => row.run_id}
       onRowClick={onOpenRun}
       className={className}
     />

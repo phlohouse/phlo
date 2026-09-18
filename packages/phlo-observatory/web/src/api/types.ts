@@ -373,3 +373,78 @@ export interface WorkspaceDefault {
   name: string;
   value: string;
 }
+
+/* --------------------------------------------------- run / dataset detail */
+
+export interface MissionRunLogLine {
+  run_id: string;
+  at: string;
+  level: "INFO" | "ERROR";
+  message: string;
+}
+
+export interface SummaryMetricRow {
+  label: string;
+  value: string;
+  hint: string;
+  tone: Outcome;
+}
+
+export interface MissionRunDetail {
+  id: string;
+  workflow: string;
+  run_id: string;
+  status: string;
+  summary: string;
+  metrics: Array<SummaryMetricRow>;
+  details: Array<RunConfigurationRow>;
+  consumers: Array<RunConsumer>;
+  artifacts: Array<RunArtifact>;
+}
+
+export interface DatasetSchemaField {
+  field: string;
+  type: string;
+  nullable: string;
+  role: string;
+}
+
+export interface LineageNode {
+  name: string;
+  role: string;
+  current: boolean;
+}
+
+export interface DatasetCheck {
+  name: string;
+  outcome: string;
+  tone: Outcome;
+}
+
+export interface DatasetPreview {
+  columns: Array<string>;
+  rows: Array<Array<string>>;
+}
+
+export interface MissionDatasetDetail {
+  id: string;
+  name: string;
+  status: string;
+  summary: string;
+  metrics: Array<SummaryMetricRow>;
+  schema_fields: Array<DatasetSchemaField>;
+  preview: DatasetPreview;
+  checks: Array<DatasetCheck>;
+  lineage: Array<LineageNode>;
+  ownership: DatasetOwnership;
+  access: Array<DatasetAccessGrant>;
+  runs: Array<DatasetRunRef>;
+}
+
+export interface PublicationPlan {
+  id: string;
+  dataset_id: string;
+  subtitle: string;
+  status: string;
+  rows: Array<PublicationPlanRow>;
+}

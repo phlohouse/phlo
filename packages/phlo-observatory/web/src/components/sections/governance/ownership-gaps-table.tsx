@@ -1,15 +1,9 @@
 /**
  * Datasets missing an ownership or contract requirement.
  */
+import type { OwnershipGap } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
-
-export interface OwnershipGap {
-  dataset: string;
-  requirement: string;
-  owner: string;
-  action: string;
-}
 
 const COLUMNS: Array<DataColumn<OwnershipGap>> = [
   {

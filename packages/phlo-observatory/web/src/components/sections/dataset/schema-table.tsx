@@ -1,17 +1,11 @@
 /**
  * Dataset schema table with the field/type/nullable/role lanes.
  */
+import type { DatasetSchemaField } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
 
-export interface SchemaField {
-  field: string;
-  type: string;
-  nullable: string;
-  role: string;
-}
-
-const COLUMNS: Array<DataColumn<SchemaField>> = [
+const COLUMNS: Array<DataColumn<DatasetSchemaField>> = [
   {
     key: "field",
     header: "Field",
@@ -32,7 +26,7 @@ export function SchemaTable({
   rows,
   className,
 }: {
-  rows: Array<SchemaField>;
+  rows: Array<DatasetSchemaField>;
   className?: string;
 }) {
   return (

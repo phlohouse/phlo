@@ -3,8 +3,11 @@
  * Section implementations live under `components/sections/platform`.
  */
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 
 import type {Metric} from "@/components/data/metric-strip";
+import { queries } from "@/api/mission-control";
+
 import {  MetricStrip } from "@/components/data/metric-strip";
 import { PropertyList } from "@/components/data/property-list";
 import { Banner } from "@/components/feedback/banner";
@@ -16,16 +19,6 @@ import { ServiceDiagnosticRail } from "@/components/sections/platform/service-di
 import { ServiceHealthTable } from "@/components/sections/platform/service-health-table";
 import { EvidenceListPlain } from "@/components/data/evidence-list";
 import { Button } from "@/components/ui/button";
-import {
-  backupCoverage,
-  dependencyPath,
-  lokiDetail,
-  maintenanceRows,
-  platformMetrics,
-  platformServices,
-} from "@/data/demo";
-
-const METRICS: Array<Metric> = platformMetrics;
 
 const TABS = [
   { value: "services", label: "Services · 12" },
@@ -35,25 +28,42 @@ const TABS = [
   { value: "readiness", label: "Readiness" },
 ];
 
-const CAPABILITIES = [
-  { label: "Support channel", value: "Alpha", tone: "text-warning" },
-  { label: "Production readiness", value: "Not certified", tone: "text-warning" },
-];
+const TONE_CLASS: Record<string, string | undefined> = {
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-destructive",
+  accent: "text-accent-foreground",
+  muted: undefined,
+};
 
 function PlatformPage() {
-  const rail = (
+  const summary = useQuery(queries.platformSummary());
+  const services = useQuery(queries.platformServices());
+  const diagnostics = useQuery(queries.serviceDiagnostics("loki"));
+  const backup = useQuery(queries.backupCoverage());
+  const maintenance = useQuery(queries.maintenance());
+
+  const metrics: Array<Metric> = (summary.data ?? []).map((metric) => ({
+    label: metric.label,
+    value: metric.value,
+    hint: metric.hint,
+    tone: TONE_CLASS[metric.tone],
+  }));
+
+  const diag = diagnostics.data;
+  const rail = diag ? (
     <ServiceDiagnosticRail
-      serviceName="Loki"
-      state="Not ready"
+      serviceName={diag.name}
+      state={diag.readiness_state}
       stateTone="text-warning"
-      summary="Container is running. /ready timed out after 5 seconds; log queries also failed."
-      facts={lokiDetail}
-      dependencies={dependencyPath}
-      dependencyNote="Collector readiness does not confirm log delivery. Check exporter retries and backend ingestion."
-      capabilityChecks="Compatibility checks: 16 / 16 passed"
-      capabilities={CAPABILITIES}
+      summary={diag.summary}
+      facts={diag.facts}
+      dependencies={diag.dependencies}
+      dependencyNote={diag.dependency_note}
+      capabilityChecks={diag.capability_checks}
+      capabilities={diag.capabilities}
     />
-  );
+  ) : null;
 
   return (
     <Page>
@@ -70,7 +80,7 @@ function PlatformPage() {
       />
 
       <PageBand>
-        <MetricStrip metrics={METRICS} dividers={false} />
+        <MetricStrip metrics={metrics} dividers={false} />
       </PageBand>
 
       <PageTabs tabs={TABS} defaultValue="services">
@@ -84,24 +94,25 @@ function PlatformPage() {
             />
             <SplitRow rail={rail}>
               <Section title="Enabled services" meta="12 services · Unready first · Last probe 09:35 UTC">
-                <ServiceHealthTable rows={platformServices} />
+                {services.data ? <ServiceHealthTable rows={services.data} /> : null}
               </Section>
               <div className="flex gap-5.5">
                 <Section title="Backup coverage" meta="03:00 UTC" className="flex-1">
                   <EvidenceListPlain
-                    rows={backupCoverage.map((row) => ({
+                    rows={(backup.data ?? []).map((row) => ({
                       label: row.name,
                       value: row.outcome,
-                      tone: "text-success",
+                      tone: TONE_CLASS[row.tone],
                     }))}
                   />
                   <InlineLink>Inspect backup manifest</InlineLink>
                 </Section>
                 <Section title="Maintenance & recovery" className="flex-1">
                   <EvidenceListPlain
-                    rows={maintenanceRows.map((row) => ({
+                    rows={(maintenance.data ?? []).map((row) => ({
                       label: row.name,
                       value: row.outcome,
+                      tone: TONE_CLASS[row.tone],
                     }))}
                   />
                   <InlineLink>View recovery evidence</InlineLink>
@@ -115,9 +126,9 @@ function PlatformPage() {
           <PageContent rail={rail}>
             <Section title="Packages" meta="16 installed · 4 not enabled">
               <PropertyList
-                rows={platformServices.map((service) => ({
+                rows={(services.data ?? []).map((service) => ({
                   label: service.name,
-                  value: `${service.role} · ${service.readiness}`,
+                  value: `${service.role} · ${service.readiness_state}`,
                 }))}
               />
             </Section>
@@ -128,7 +139,10 @@ function PlatformPage() {
           <PageContent rail={rail}>
             <Section title="Maintenance & recovery" meta="Last run 03:00 UTC">
               <PropertyList
-                rows={maintenanceRows.map((row) => ({ label: row.name, value: row.outcome }))}
+                rows={(maintenance.data ?? []).map((row) => ({
+                  label: row.name,
+                  value: row.outcome,
+                }))}
               />
             </Section>
           </PageContent>
@@ -138,7 +152,7 @@ function PlatformPage() {
           <PageContent rail={rail}>
             <Section title="Backup coverage" meta="03:00 UTC · 4/4 contributors">
               <PropertyList
-                rows={backupCoverage.map((row) => ({ label: row.name, value: row.outcome }))}
+                rows={(backup.data ?? []).map((row) => ({ label: row.name, value: row.outcome }))}
               />
             </Section>
           </PageContent>
@@ -148,9 +162,9 @@ function PlatformPage() {
           <PageContent rail={rail}>
             <Section title="Readiness" meta="11 of 12 ready">
               <PropertyList
-                rows={platformServices.map((service) => ({
+                rows={(services.data ?? []).map((service) => ({
                   label: service.name,
-                  value: `${service.readiness} · ${service.probe}`,
+                  value: `${service.readiness_state} · ${service.probe}`,
                 }))}
               />
             </Section>

@@ -1,19 +1,10 @@
 /**
  * Publication reviews awaiting a policy verdict.
  */
+import type { PublicationReview } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
 import { statusTone } from "@/lib/status";
-
-export interface PublicationReview {
-  dataset: string;
-  owner: string;
-  contract: string;
-  verdict: string;
-  reason: string;
-  action: string;
-  selected?: boolean;
-}
 
 function verdictClass(verdict: string) {
   const tone = statusTone(verdict);

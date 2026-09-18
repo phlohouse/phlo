@@ -1,17 +1,9 @@
 /**
  * Recently confirmed releases, newest first.
  */
+import type { CompletedRelease } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
-
-export interface CompletedRelease {
-  id: string;
-  dataset: string;
-  provider: string;
-  ref: string;
-  time: string;
-  outcome: string;
-}
 
 const COLUMNS: Array<DataColumn<CompletedRelease>> = [
   {
@@ -28,14 +20,14 @@ const COLUMNS: Array<DataColumn<CompletedRelease>> = [
     key: "provider",
     header: "Provider · strategy",
     width: "w-60",
-    cell: (row) => <span className="text-muted-foreground">{row.provider}</span>,
+    cell: (row) => <span className="text-muted-foreground">{row.provider_strategy}</span>,
   },
-  { key: "ref", header: "Reference", cell: (row) => row.ref },
+  { key: "ref", header: "Reference", cell: (row) => row.reference },
   {
     key: "time",
     header: "Finished",
     width: "w-32.5",
-    cell: (row) => <span className="text-muted-foreground">{row.time}</span>,
+    cell: (row) => <span className="text-muted-foreground">{row.finished_at}</span>,
   },
   {
     key: "outcome",

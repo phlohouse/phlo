@@ -1,18 +1,9 @@
 /**
  * Provider connection health: reachability, endpoint and last confirmed state.
  */
+import type { ProviderConnection } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-export interface ProviderConnection {
-  name: string;
-  role: string;
-  endpoint: string;
-  state: string;
-  detail: string;
-  action: string;
-  degraded?: boolean;
-}
 
 export function ProviderConnections({
   connections,

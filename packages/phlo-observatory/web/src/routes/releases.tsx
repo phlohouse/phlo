@@ -3,8 +3,11 @@
  * Section implementations live under `components/sections/releases`.
  */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 
 import type {Metric} from "@/components/data/metric-strip";
+import { queries } from "@/api/mission-control";
+
 import {  MetricStrip } from "@/components/data/metric-strip";
 import { PropertyList } from "@/components/data/property-list";
 import { Page, PageBand, PageContent } from "@/components/layout/page";
@@ -15,14 +18,6 @@ import { CandidateDetailPanel } from "@/components/sections/releases/candidate-d
 import { CompletedReleasesTable } from "@/components/sections/releases/completed-releases-table";
 import { PendingCandidatesTable } from "@/components/sections/releases/pending-candidates-table";
 import { Button } from "@/components/ui/button";
-import {
-  candidateDetail,
-  latestReleases,
-  pendingCandidates,
-  releaseMetrics,
-} from "@/data/demo";
-
-const METRICS: Array<Metric> = releaseMetrics;
 
 const TABS = [
   { value: "pending", label: "Pending · 2" },
@@ -41,7 +36,18 @@ const PROVIDER_ROWS = [
 function ReleasesPage() {
   const navigate = useNavigate();
   const openDataset = () => navigate({ to: "/datasets/orders" });
-  const selected = pendingCandidates.find((candidate) => candidate.selected)?.id ?? null;
+
+  const summary = useQuery(queries.releaseSummary());
+  const candidates = useQuery(queries.releaseCandidates());
+  const completed = useQuery(queries.completedReleases());
+  const detail = useQuery(queries.releaseCandidate("rel-c204"));
+
+  const metrics: Array<Metric> = (summary.data ?? []).map((metric) => ({
+    label: metric.label,
+    value: metric.value,
+    hint: metric.hint,
+  }));
+  const selected = candidates.data?.find((candidate) => candidate.action === "Selected")?.id ?? null;
 
   return (
     <Page>
@@ -58,18 +64,22 @@ function ReleasesPage() {
       />
 
       <PageBand>
-        <MetricStrip metrics={METRICS} dividers={false} />
+        <MetricStrip metrics={metrics} dividers={false} />
       </PageBand>
 
       <PageTabs tabs={TABS} defaultValue="pending">
         <TabsContent value="pending">
           <PageContent>
             <Section title="Pending candidates" meta="All providers · Sorted by newest">
-              <PendingCandidatesTable rows={pendingCandidates} selectedId={selected} />
+              {candidates.data ? (
+                <PendingCandidatesTable rows={candidates.data} selectedId={selected} />
+              ) : null}
             </Section>
-            <CandidateDetailPanel candidate={candidateDetail} onOpenDataset={openDataset} />
+            {detail.data ? (
+              <CandidateDetailPanel candidate={detail.data} onOpenDataset={openDataset} />
+            ) : null}
             <Section title="Latest completed releases" meta="2 of 18 in the last 24 hours">
-              <CompletedReleasesTable rows={latestReleases} />
+              {completed.data ? <CompletedReleasesTable rows={completed.data} /> : null}
             </Section>
           </PageContent>
         </TabsContent>
@@ -77,7 +87,7 @@ function ReleasesPage() {
         <TabsContent value="history">
           <PageContent>
             <Section title="History" meta="18 in the last 24 hours">
-              <CompletedReleasesTable rows={latestReleases} />
+              {completed.data ? <CompletedReleasesTable rows={completed.data} /> : null}
             </Section>
           </PageContent>
         </TabsContent>
@@ -85,7 +95,7 @@ function ReleasesPage() {
         <TabsContent value="operations">
           <PageContent>
             <Section title="Operations" meta="18 in the last 24 hours">
-              <CompletedReleasesTable rows={latestReleases} />
+              {completed.data ? <CompletedReleasesTable rows={completed.data} /> : null}
             </Section>
           </PageContent>
         </TabsContent>

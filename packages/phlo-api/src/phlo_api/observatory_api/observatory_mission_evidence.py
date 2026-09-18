@@ -13,6 +13,9 @@ from fastapi import APIRouter, HTTPException
 
 from phlo_api.observatory_api.observatory_mission_control_models import (
     DatasetGovernance,
+    MissionDatasetDetail,
+    MissionRunDetail,
+    MissionRunLogLine,
     RunArtifact,
     RunConfigurationRow,
     RunConsumer,
@@ -84,4 +87,28 @@ def get_mission_dataset_governance(dataset_id: str) -> DatasetGovernance:
     record = find_by("dataset_governance", DatasetGovernance, dataset_id=dataset_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"No governance record for {dataset_id}")
+    return record
+
+
+@router.get("/mission/runs/{run_id}")
+def get_mission_run(run_id: str) -> MissionRunDetail:
+    """Return the run header, metrics and details rail payload."""
+    record = find_by("run_detail", MissionRunDetail, run_id=run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Unknown run {run_id}")
+    return record
+
+
+@router.get("/mission/runs/{run_id}/logs")
+def get_mission_run_logs(run_id: str) -> list[MissionRunLogLine]:
+    """Return raw log lines for a run."""
+    return _by_run("run_logs", MissionRunLogLine, run_id)
+
+
+@router.get("/mission/datasets/{dataset_id}")
+def get_mission_dataset(dataset_id: str) -> MissionDatasetDetail:
+    """Return the full Dataset page read model in one payload."""
+    record = find_by("dataset_detail", MissionDatasetDetail, id=dataset_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Unknown dataset {dataset_id}")
     return record
