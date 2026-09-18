@@ -162,11 +162,40 @@ Nothing exists; the whole surface is new.
 No API. Documentation content is static in `web/src/content/documentation.ts`.
 Reference reads the CSS token layer at runtime.
 
+## Substrate sources discovered by probing the live project
+
+Probed against `materialize-check/lakehouse`. Three domains I had written off as
+"unmodelled" are in fact already declared or recorded — they need a **read
+path**, not a producer.
+
+| Domain | Source | Live content |
+| --- | --- | --- |
+| Ownership | `owner` key in asset `metadata` (declared on dlt annotations in `workflows/ingestion/retail/files.py`) | 5 of 12 assets owned (`retail-finance`, `retail-master-data` ×2, `retail-marketing`, `retail-operations`); all 7 dbt models unowned → a **real ownership-gap report**, and it correlates exactly with dbt-vs-dlt |
+| Quality | `asset_check_executions` in the run-evidence DB | **34 checks across all 12 assets** — `not_null` / `unique` / `relationships` (dbt) and `pandera_contract` (dlt); 6 `SUCCEEDED`, 28 `PLANNED`, 0 `FAILED` |
+| Quality provider | `quality_provider` key in asset metadata | `pandera` on the same 5 dlt assets — corroborates the `pandera_contract` checks |
+
+`asset_check_executions` columns: `asset_key`, `check_name`, `execution_status`,
+`run_id`, `evaluation_event`, `evaluation_event_timestamp`.
+
+**Why the API reports 0 checks today.** The capability registry's `check`
+collection is empty for this project, so `_load_assets()` attaches no checks and
+`derive_dataset_checks()` renders "Declared" for nothing. The registry does not
+pick up dbt-generated tests. `asset_check_executions` is the ground truth and is
+not being read at all.
+
+**The missing seam.** `phlo-api` has no SQL client. The run-evidence DB
+(`PHLO_RUN_EVIDENCE_DB_URL`) is currently consumed only by
+`phlo-dagster/src/phlo_dagster/webserver.py`. Reading checks/owners into Mission
+Control needs either a shared evidence-store reader in `phlo-api`, or a
+`phlo-dagster` endpoint that proxies these rows.
+
 ## Data model gaps that block stage 2
 
-1. **Ownership and contracts are not modelled.** No owner, domain,
-   classification, freshness target, retention or contract version exists in the
-   API. Dataset, Governance and the Overview rail all depend on it.
+1. **Ownership is declared but not surfaced, and has no contract metadata.**
+   `owner` is present on dlt asset metadata (see above) and is enough to build
+   the ownership-gap report. Still genuinely absent: domain, classification,
+   freshness target, retention, contract version — these have no declaration
+   site in `phlo.yaml` or the asset annotations.
 2. **Publication is not a transition.** `publication_state` exists on datasets,
    but there is no review record, no policy verdict, no state-version CAS and no
    audit entry for a publication.
