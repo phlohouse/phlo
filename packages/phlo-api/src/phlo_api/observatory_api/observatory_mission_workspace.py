@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 
 from phlo_api.observatory_api.observatory_mission_control_models import (
     NotificationRule,
+    SummaryMetricRow,
     ProviderConnection,
     ProviderImpact,
     WorkspaceDefault,
@@ -56,3 +57,9 @@ def get_mission_workspace_members() -> list[WorkspaceMember]:
 def get_mission_workspace_defaults() -> list[WorkspaceDefault]:
     """Return workspace-wide default settings."""
     return load_records("workspace_defaults", WorkspaceDefault)
+
+
+@router.get("/mission/settings/summary")
+def get_mission_settings_summary() -> list[SummaryMetricRow]:
+    """Return the Settings summary band."""
+    return load_records("settings_summary", SummaryMetricRow)

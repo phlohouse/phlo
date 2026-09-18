@@ -228,13 +228,20 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
             "get_mission_run_artifacts",
             "get_mission_run_consumers",
             "get_mission_run_configuration",
+            "get_mission_run_logs",
         ),
         action=CanonicalAction.RUN_READ.value,
         resource_type="run",
         resource_keys=("run_id",),
     ),
     *_specs(
-        ("get_mission_dataset_governance",),
+        ("get_mission_run",),
+        action=CanonicalAction.RUN_READ.value,
+        resource_type="run",
+        resource_keys=("run_id",),
+    ),
+    *_specs(
+        ("get_mission_dataset_governance", "get_mission_dataset"),
         action=CanonicalAction.DATASET_READ.value,
         resource_type="dataset",
         resource_keys=("dataset_id",),
@@ -278,9 +285,16 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
             "get_mission_publication_reviews",
             "get_mission_access_drift",
             "get_mission_ownership_gaps",
+            "get_mission_governance_summary",
         ),
         action=CanonicalAction.ADMIN_READ.value,
         resource_type="admin",
+    ),
+    *_specs(
+        ("get_mission_publication_plan",),
+        action=CanonicalAction.ADMIN_READ.value,
+        resource_type="admin",
+        resource_keys=("dataset_id",),
     ),
     *_specs(
         ("get_mission_audit_events",),
@@ -290,6 +304,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
     *_specs(
         # Workspace settings.
         (
+            "get_mission_settings_summary",
             "get_mission_provider_connections",
             "get_mission_notification_rules",
             "get_mission_workspace_members",

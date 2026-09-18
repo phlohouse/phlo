@@ -2,6 +2,7 @@
  * Selected release candidate: snapshot changes, required evidence and the
  * guarded publication plan.
  */
+import type { CandidateSnapshotChange, ReleaseCandidateDetail } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
 import { EvidenceList, EvidenceListPlain } from "@/components/data/evidence-list";
@@ -10,49 +11,25 @@ import { DetailRail, DetailSection } from "@/components/layout/detail-rail";
 import { InlineLink, Section } from "@/components/layout/section-header";
 import { Button } from "@/components/ui/button";
 
-export interface SnapshotChange {
-  table: string;
-  released: string;
-  candidate: string;
-  delta: string;
-}
-
-export interface RequiredEvidence {
-  name: string;
-  detail: string;
-  outcome: string;
-}
-
-export interface CandidateDetailData {
-  id: string;
-  dataset: string;
-  subtitle: string;
-  status: string;
-  revision: string;
-  snapshotChanges: Array<SnapshotChange>;
-  requiredEvidence: Array<RequiredEvidence>;
-  publicationPlan: Array<{ label: string; value: React.ReactNode }>;
-}
-
-const CHANGE_COLUMNS: Array<DataColumn<SnapshotChange>> = [
+const CHANGE_COLUMNS: Array<DataColumn<CandidateSnapshotChange>> = [
   {
     key: "table",
     header: "Table",
     cell: (row) => <span className="font-medium">{row.table}</span>,
   },
-  { key: "released", header: "Released snapshot", width: "w-42.5", cell: (row) => row.released },
+  { key: "released", header: "Released snapshot", width: "w-42.5", cell: (row) => row.released_snapshot },
   {
     key: "candidate",
     header: "Audited candidate",
     width: "w-42.5",
-    cell: (row) => row.candidate,
+    cell: (row) => row.candidate_snapshot,
   },
   {
     key: "delta",
     header: "Row change",
     width: "w-22.5",
     align: "right",
-    cell: (row) => row.delta,
+    cell: (row) => row.row_delta,
   },
 ];
 
@@ -60,7 +37,7 @@ export function CandidateDetailPanel({
   candidate,
   onOpenDataset,
 }: {
-  candidate: CandidateDetailData;
+  candidate: ReleaseCandidateDetail;
   onOpenDataset?: () => void;
 }) {
   return (
@@ -69,7 +46,7 @@ export function CandidateDetailPanel({
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1.25">
             <h2 className="font-display text-[17px] leading-5.5 font-semibold">
-              {candidate.dataset} · {candidate.id}
+              {candidate.id}
             </h2>
             <span className="text-[11px] leading-3.5 text-muted-foreground">
               {candidate.subtitle}
@@ -81,14 +58,14 @@ export function CandidateDetailPanel({
         <Section title="Snapshot changes" meta={candidate.revision}>
           <DataTable
             columns={CHANGE_COLUMNS}
-            rows={candidate.snapshotChanges}
+            rows={candidate.snapshot_changes}
             rowKey={(row) => row.table}
           />
         </Section>
 
         <Section title="Required evidence" meta="Evaluated at 09:33 UTC">
           <EvidenceList
-            rows={candidate.requiredEvidence.map((row) => ({
+            rows={candidate.required_evidence.map((row) => ({
               name: row.name,
               detail: row.detail,
               outcome: row.outcome,
@@ -107,7 +84,7 @@ export function CandidateDetailPanel({
 
       <DetailRail>
         <DetailSection title="Publication plan">
-          <EvidenceListPlain rows={candidate.publicationPlan} />
+          <EvidenceListPlain rows={candidate.publication_plan} />
           <p className="text-[11px] leading-4 text-muted-foreground">
             Preview resolves current permissions and rechecks revision 42 before any publication.
           </p>

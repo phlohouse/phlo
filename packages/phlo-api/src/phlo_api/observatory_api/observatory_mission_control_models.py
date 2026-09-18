@@ -481,3 +481,98 @@ class WorkspaceDefault(BaseModel):
 
     name: str
     value: str
+
+
+class MissionRunLogLine(BaseModel):
+    """A raw log line for a run (distinct from curated run events)."""
+
+    run_id: str
+    at: str
+    level: Literal["INFO", "ERROR"]
+    message: str
+
+
+class SummaryMetricRow(BaseModel):
+    """Generic summary-band cell, reused where a page only needs label/value."""
+
+    label: str
+    value: str
+    hint: str
+    tone: Outcome = "muted"
+
+
+class MissionRunDetail(BaseModel):
+    """Everything the run header and details rail need beyond the evidence tabs."""
+
+    id: str
+    workflow: str
+    run_id: str
+    status: str
+    summary: str
+    metrics: list[SummaryMetricRow]
+    details: list[RunConfigurationRow]
+    consumers: list[RunConsumer]
+    artifacts: list[RunArtifact]
+
+
+class DatasetSchemaField(BaseModel):
+    """A column in a dataset schema."""
+
+    field: str
+    type: str
+    nullable: str
+    role: str
+
+
+class LineageNode(BaseModel):
+    """A node in a dataset lineage chain."""
+
+    name: str
+    role: str
+    current: bool = False
+
+
+class DatasetCheck(BaseModel):
+    """A quality check bound to a dataset."""
+
+    name: str
+    outcome: str
+    tone: Outcome
+
+
+class DatasetPreview(BaseModel):
+    """A bounded preview of released data."""
+
+    columns: list[str]
+    rows: list[list[str]]
+
+
+class MissionDatasetDetail(BaseModel):
+    """Full read model for the Dataset page, served as one payload.
+
+    The page is tabbed with small payloads per tab; one request avoids a
+    waterfall on first paint without moving significant data.
+    """
+
+    id: str
+    name: str
+    status: str
+    summary: str
+    metrics: list[SummaryMetricRow]
+    schema_fields: list[DatasetSchemaField]
+    preview: DatasetPreview
+    checks: list[DatasetCheck]
+    lineage: list[LineageNode]
+    ownership: DatasetOwnership
+    access: list[DatasetAccessGrant]
+    runs: list[DatasetRunRef]
+
+
+class PublicationPlan(BaseModel):
+    """The resolved publication plan for a dataset."""
+
+    id: str
+    dataset_id: str
+    subtitle: str
+    status: str
+    rows: list[PublicationPlanRow]

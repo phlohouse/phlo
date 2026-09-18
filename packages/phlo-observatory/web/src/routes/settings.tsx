@@ -2,8 +2,11 @@
  * Settings route: provider connections, notifications, members and defaults.
  */
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 
 import type {Metric} from "@/components/data/metric-strip";
+import { queries } from "@/api/mission-control";
+
 import {  MetricStrip } from "@/components/data/metric-strip";
 import { Banner } from "@/components/feedback/banner";
 import { Page, PageBand, PageContent, PageStack } from "@/components/layout/page";
@@ -13,43 +16,12 @@ import { InlineLink, Section } from "@/components/layout/section-header";
 import { ProviderConnections } from "@/components/sections/settings/provider-connections";
 import { SettingsTable } from "@/components/sections/settings/settings-table";
 import { Button } from "@/components/ui/button";
-import {
-  degradedList,
-  providerConnections,
-  settingsMetrics,
-  unaffectedList,
-} from "@/data/demo";
-
-const METRICS: Array<Metric> = settingsMetrics;
 
 const TABS = [
   { value: "providers", label: "Provider connections" },
   { value: "notifications", label: "Notifications" },
   { value: "members", label: "Members & roles" },
   { value: "defaults", label: "Defaults" },
-];
-
-const NOTIFICATION_ROWS = [
-  { name: "Release blocked", value: "#phlo-ops", meta: "Immediate" },
-  { name: "Evidence degraded", value: "#phlo-ops", meta: "Immediate" },
-  { name: "Run failed", value: "#phlo-data", meta: "Immediate" },
-  { name: "Nightly digest", value: "Email", meta: "Daily 08:00" },
-  { name: "Maintenance window", value: "Email", meta: "Advance notice" },
-];
-
-const MEMBER_ROWS = [
-  { name: "Gareth Price", value: "Workspace admin", meta: "Active", tone: "text-success" },
-  { name: "data.steward", value: "Operator", meta: "Active", tone: "text-success" },
-  { name: "Policy verifier", value: "Reviewer", meta: "Active", tone: "text-success" },
-  { name: "Finance", value: "Viewer", meta: "Invited", tone: "text-warning" },
-];
-
-const DEFAULT_ROWS = [
-  { name: "Freshness target", value: "2 hours" },
-  { name: "Classification default", value: "Internal" },
-  { name: "Retention", value: "7 years · cold after 1" },
-  { name: "Evidence retention", value: "30 days" },
-  { name: "Timezone", value: "UTC" },
 ];
 
 /** Impact summary of a degraded provider. */
@@ -66,7 +38,42 @@ function ImpactCard({ title, items }: { title: string; items: Array<string> }) {
   );
 }
 
+const TONE_CLASS: Record<string, string | undefined> = {
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-destructive",
+  accent: "text-accent-foreground",
+  muted: undefined,
+};
+
 function SettingsPage() {
+  const summary = useQuery(queries.settingsSummary());
+  const providers = useQuery(queries.providerConnections());
+  const impact = useQuery(queries.providerImpact("polaris"));
+  const notifications = useQuery(queries.notificationRules());
+  const members = useQuery(queries.workspaceMembers());
+  const defaults = useQuery(queries.workspaceDefaults());
+
+  const metrics: Array<Metric> = (summary.data ?? []).map((metric) => ({
+    label: metric.label,
+    value: metric.value,
+    hint: metric.hint,
+    tone: TONE_CLASS[metric.tone],
+  }));
+
+  const notificationRows = (notifications.data ?? []).map((rule) => ({
+    name: rule.name,
+    value: rule.channel,
+    meta: rule.urgency,
+  }));
+  const memberRows = (members.data ?? []).map((member) => ({
+    name: member.name,
+    value: member.role,
+    meta: member.status === "active" ? "Active" : "Invited",
+    tone: member.status === "active" ? "text-success" : "text-warning",
+  }));
+  const defaultRows = (defaults.data ?? []).map((row) => ({ name: row.name, value: row.value }));
+
   return (
     <Page>
       <PageHeader
@@ -82,7 +89,7 @@ function SettingsPage() {
       />
 
       <PageBand>
-        <MetricStrip metrics={METRICS} dividers={false} />
+        <MetricStrip metrics={metrics} dividers={false} />
       </PageBand>
 
       <PageTabs tabs={TABS} defaultValue="providers">
@@ -94,15 +101,22 @@ function SettingsPage() {
                 title="Polaris is unreachable — no response since 09:21 (14m)"
                 detail="Evidence sourced from Polaris is stale and stamped “last confirmed”. Released data is unaffected: snapshot 938105 remains what consumers read. Nothing is assumed."
               />
-              <ProviderConnections
-                connections={providerConnections}
-                title="Connections · 3"
-                meta="Checks run every 60s · outcomes recorded in Audit"
-              />
-              <div className="flex gap-4">
-                <ImpactCard title="Degraded while Polaris is down" items={degradedList} />
-                <ImpactCard title="Unaffected" items={unaffectedList} />
-              </div>
+              {providers.data ? (
+                <ProviderConnections
+                  connections={providers.data}
+                  title={`Connections · ${providers.data.length}`}
+                  meta="Checks run every 60s · outcomes recorded in Audit"
+                />
+              ) : null}
+              {impact.data ? (
+                <div className="flex gap-4">
+                  <ImpactCard
+                    title={`Degraded while ${impact.data.provider} is down`}
+                    items={impact.data.degraded}
+                  />
+                  <ImpactCard title="Unaffected" items={impact.data.unaffected} />
+                </div>
+              ) : null}
             </PageStack>
           </PageContent>
         </TabsContent>
@@ -110,7 +124,7 @@ function SettingsPage() {
         <TabsContent value="notifications">
           <PageContent>
             <Section title="Notification rules" meta="5 rules · 3 channels">
-              <SettingsTable rows={NOTIFICATION_ROWS} />
+              <SettingsTable rows={notificationRows} />
             </Section>
           </PageContent>
         </TabsContent>
@@ -122,7 +136,7 @@ function SettingsPage() {
               meta="14 members · 4 operators · 3 reviewers"
               action={<InlineLink>Invite member</InlineLink>}
             >
-              <SettingsTable rows={MEMBER_ROWS} />
+              <SettingsTable rows={memberRows} />
             </Section>
           </PageContent>
         </TabsContent>
@@ -130,7 +144,7 @@ function SettingsPage() {
         <TabsContent value="defaults">
           <PageContent>
             <Section title="Defaults" meta="Applied across the workspace">
-              <SettingsTable rows={DEFAULT_ROWS} />
+              <SettingsTable rows={defaultRows} />
             </Section>
           </PageContent>
         </TabsContent>

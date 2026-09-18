@@ -2,17 +2,12 @@
  * Platform diagnostic rail for a degraded service: probe history, dependency
  * path and installed capabilities.
  */
+import type { CandidateEvidenceRow, ServiceDependencyEdge, ServiceProbeFact } from "@/api/types";
 import { DetailRail, DetailSection } from "@/components/layout/detail-rail";
 import { EvidenceListPlain } from "@/components/data/evidence-list";
 import { PropertyList } from "@/components/data/property-list";
 import { InlineLink } from "@/components/layout/section-header";
 import { Button } from "@/components/ui/button";
-
-export interface DependencyEdge {
-  name: string;
-  outcome: string;
-  tone: string;
-}
 
 export function ServiceDiagnosticRail({
   serviceName,
@@ -31,11 +26,11 @@ export function ServiceDiagnosticRail({
   state: string;
   stateTone: string;
   summary: string;
-  facts: Array<{ label: string; value: React.ReactNode }>;
-  dependencies: Array<DependencyEdge>;
+  facts: Array<ServiceProbeFact>;
+  dependencies: Array<ServiceDependencyEdge>;
   dependencyNote: string;
   capabilityChecks: string;
-  capabilities: Array<{ label: React.ReactNode; value: React.ReactNode; tone?: string }>;
+  capabilities: Array<CandidateEvidenceRow>;
   onInspectLogs?: () => void;
   onProbeDetails?: () => void;
 }) {
@@ -60,9 +55,9 @@ export function ServiceDiagnosticRail({
       <DetailSection title="Dependency path" divided>
         <EvidenceListPlain
           rows={dependencies.map((edge) => ({
-            label: edge.name,
+            label: `${edge.source} → ${edge.target}`,
             value: edge.outcome,
-            tone: edge.tone,
+            tone: edge.tone === "muted" ? undefined : `text-${edge.tone === "danger" ? "destructive" : edge.tone}`,
           }))}
         />
         <p className="text-[11px] leading-4 text-muted-foreground">{dependencyNote}</p>
@@ -73,7 +68,13 @@ export function ServiceDiagnosticRail({
         <p className="text-[11px] leading-4 text-muted-foreground">
           Installed compatibility is separate from declared support and deployment readiness.
         </p>
-        <EvidenceListPlain rows={capabilities} />
+        <EvidenceListPlain
+          rows={capabilities.map((row) => ({
+            label: row.name,
+            value: row.outcome,
+            tone: row.tone === "muted" ? undefined : `text-${row.tone === "danger" ? "destructive" : row.tone}`,
+          }))}
+        />
         <InlineLink>View readiness findings</InlineLink>
       </DetailSection>
     </DetailRail>

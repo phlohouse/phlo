@@ -9,15 +9,20 @@ rather than a free-text verdict alone.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from phlo_api.observatory_api.observatory_mission_control_models import (
     AccessDrift,
     AuditEvent,
     OwnershipGap,
+    PublicationPlan,
     PublicationReview,
+    SummaryMetricRow,
 )
-from phlo_api.observatory_api.observatory_mission_control_state import load_records
+from phlo_api.observatory_api.observatory_mission_control_state import (
+    find_by,
+    load_records,
+)
 
 router = APIRouter()
 
@@ -44,3 +49,18 @@ def get_mission_ownership_gaps() -> list[OwnershipGap]:
 def get_mission_audit_events() -> list[AuditEvent]:
     """Return the immutable governance action log, newest first."""
     return load_records("audit_events", AuditEvent)
+
+
+@router.get("/mission/governance/summary")
+def get_mission_governance_summary() -> list[SummaryMetricRow]:
+    """Return the Governance summary band."""
+    return load_records("governance_summary", SummaryMetricRow)
+
+
+@router.get("/mission/governance/publication-plan/{dataset_id}")
+def get_mission_publication_plan(dataset_id: str) -> PublicationPlan:
+    """Return the resolved publication plan for a dataset."""
+    record = find_by("publication_plan", PublicationPlan, dataset_id=dataset_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"No publication plan for {dataset_id}")
+    return record

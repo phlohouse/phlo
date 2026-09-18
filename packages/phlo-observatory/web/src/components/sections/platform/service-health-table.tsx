@@ -1,27 +1,17 @@
 /**
  * Enabled services table: runtime, readiness and probe outcome per service.
  */
+import type { PlatformService } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
 import { statusTone } from "@/lib/status";
-
-export interface PlatformServiceRow {
-  name: string;
-  role: string;
-  runtime: string;
-  readiness: string;
-  probe: string;
-  action: string;
-  /** Rows needing attention are tinted on the warning surface. */
-  attention?: boolean;
-}
 
 function readinessClass(readiness: string) {
   const tone = statusTone(readiness);
   return tone === "success" ? "text-success" : "text-warning";
 }
 
-const COLUMNS: Array<DataColumn<PlatformServiceRow>> = [
+const COLUMNS: Array<DataColumn<PlatformService>> = [
   {
     key: "name",
     header: "Service",
@@ -33,12 +23,12 @@ const COLUMNS: Array<DataColumn<PlatformServiceRow>> = [
     header: "Role",
     cell: (row) => <span className="text-muted-foreground">{row.role}</span>,
   },
-  { key: "runtime", header: "Runtime", width: "w-25", cell: (row) => row.runtime },
+  { key: "runtime", header: "Runtime", width: "w-25", cell: (row) => row.runtime_state },
   {
     key: "readiness",
     header: "Readiness",
     width: "w-25",
-    cell: (row) => <span className={readinessClass(row.readiness)}>{row.readiness}</span>,
+    cell: (row) => <span className={readinessClass(row.readiness_state)}>{row.readiness_state}</span>,
   },
   {
     key: "probe",
@@ -59,7 +49,7 @@ export function ServiceHealthTable({
   rows,
   className,
 }: {
-  rows: Array<PlatformServiceRow>;
+  rows: Array<PlatformService>;
   className?: string;
 }) {
   return (
