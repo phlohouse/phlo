@@ -251,3 +251,53 @@ def test_dataset_lineage_and_checks_derive_from_assets(
     # Unknown assets fall back rather than inventing a chain.
     monkeypatch.setattr(sources, "_load_assets", lambda: [])
     assert sources.derive_dataset_lineage("marts.orders") is None
+
+
+def test_ownership_gaps_derive_from_declared_metadata(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ownership gaps name the requirement that is actually missing."""
+    from phlo_api.observatory_api import observatory_mission_control_sources as sources
+
+    class _Asset:
+        def __init__(self, id, group=None, metadata=None) -> None:
+            self.id = id
+            self.name = id
+            self.group = group
+            self.metadata = metadata or {}
+
+    assets = [
+        _Asset(
+            "dlt_sales",
+            group="retail",
+            metadata={"owner": "retail-finance", "sla": {"freshness_hours": 30}},
+        ),
+        # Owned, but no declared freshness window.
+        _Asset("dlt_stores", group="retail", metadata={"owner": "retail-master-data"}),
+        # A dbt model: no owner at all.
+        _Asset("sales_facts", group="transform"),
+    ]
+    monkeypatch.setattr(sources, "_load_assets", lambda: assets)
+
+    gaps = sources.derive_ownership_gaps()
+    assert gaps is not None
+    # Unowned assets are the more severe gap, so they sort first.
+    assert [(gap.dataset, gap.requirement) for gap in gaps] == [
+        ("sales_facts", "Accountable owner"),
+        ("dlt_stores", "Freshness SLA"),
+    ]
+    # A gap always records who is accountable and what to do about it.
+    assert gaps[0].owner == "Unassigned"
+    assert gaps[1].owner == "retail-master-data"
+    assert all(gap.action for gap in gaps)
+
+    # Ownership is read back onto the dataset itself, not invented.
+    owned = sources._ownership_from_asset(assets[0])
+    assert owned.owner == "retail-finance"
+    assert owned.domain == "retail"
+    assert owned.freshness_target == "30h"
+    assert sources._ownership_from_asset(assets[2]).owner is None
+
+    # Nothing observable falls back to the seeded collection.
+    monkeypatch.setattr(sources, "_load_assets", lambda: [])
+    assert sources.derive_ownership_gaps() is None
