@@ -22,6 +22,7 @@
     "phlo-loki",
     "phlo-alloy",
     "phlo-otel",
+    "phlo-observe-plugin",
     "phlo-clickstack",
     "phlo-alerting",
     "phlo-api",
