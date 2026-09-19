@@ -55,8 +55,10 @@ Run it before reviewing changes to release configuration.
 
 Run dependency refreshes only as an explicit release-maintenance task. They are
 not part of normal pull-request CI. GitHub Actions audits the locked Python and
-Observatory dependencies every day; Renovate opens dependency remediation PRs
-for available vulnerability fixes. A remediation PR runs the normal CI suite
+Observatory dependencies every day. The Phlo Agent's focused daily security
+pass follows the Python audit, reuses any existing bot- or human-authored
+remediation, and—with autonomous writes enabled—can open one verified draft PR
+for an otherwise unowned routine fix. A remediation PR runs the normal CI suite
 and the full nightly workflow before merge review. Do not merge a remediation
 PR until those checks have passed. The nightly workflow deliberately runs only
 for trusted in-repository PRs because it needs service credentials; forked PRs
