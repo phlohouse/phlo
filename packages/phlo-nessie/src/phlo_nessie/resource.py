@@ -46,6 +46,23 @@ class BranchInfo:
     created_at: datetime | None
 
 
+@dataclass(frozen=True)
+class CommitLogEntry:
+    """One commit on a ref's history, newest first.
+
+    ``parent_hashes`` preserves Nessie's ordering — index 0 is the first
+    parent. Merge receipts carry two or more parents (previous head plus the
+    merged-in head); a direct write on the first-parent chain carries one.
+    ``operations`` lists the content keys the commit touched.
+    """
+
+    hash: str
+    parent_hashes: tuple[str, ...]
+    message: str
+    committed_at: str | None
+    operations: tuple[str, ...]
+
+
 class NessieResource:
     """Lightweight Nessie REST client.
 
@@ -197,6 +214,66 @@ class NessieResource:
         )
         return branches
 
+    def get_commit_log(self, ref: str = "main", *, max_records: int = 200) -> list[CommitLogEntry]:
+        """Fetch a ref's commit history, newest first.
+
+        Entries carry parent hashes and changed content keys so callers can
+        walk the first-parent chain and tell merge receipts from direct
+        writes. Pages through Nessie's v2 history API up to ``max_records``.
+        """
+        entries: list[CommitLogEntry] = []
+        seen: set[str] = set()
+        page_token: str | None = None
+        remaining = max_records
+        while remaining > 0:
+            params: dict[str, object] = {"max-records": min(remaining, 100), "fetch": "ALL"}
+            if page_token:
+                params["page-token"] = page_token
+            response = self._request(
+                "GET", self._url(f"/api/v2/trees/{ref}/history"), params=params, timeout=10
+            )
+            status_code = self._status_code(response)
+            if status_code >= 400:
+                logger.warning(
+                    "nessie_resource_commit_log_failed",
+                    ref=ref,
+                    status_code=status_code,
+                    body=response.text[:200],
+                )
+                return entries
+            payload = response.json() or {}
+            log_entries = payload.get("logEntries") or []
+            if not log_entries:
+                break
+            for entry in log_entries:
+                meta = entry.get("commitMeta") or {}
+                commit_hash = meta.get("hash")
+                if not commit_hash or commit_hash in seen:
+                    continue
+                seen.add(str(commit_hash))
+                operations: list[str] = []
+                for operation in entry.get("operations") or []:
+                    key = operation.get("key") or {}
+                    elements = key.get("elements") or []
+                    if elements:
+                        operations.append(".".join(str(element) for element in elements))
+                entries.append(
+                    CommitLogEntry(
+                        hash=str(commit_hash),
+                        parent_hashes=tuple(
+                            str(parent) for parent in (meta.get("parentCommitHashes") or [])
+                        ),
+                        message=str(meta.get("message") or ""),
+                        committed_at=meta.get("commitTime") or meta.get("authorTime"),
+                        operations=tuple(operations),
+                    )
+                )
+            remaining -= len(log_entries)
+            page_token = payload.get("token")
+            if not page_token:
+                break
+        return entries
+
     def get_branch_hash(self, name: str) -> str | None:
         """Fetch the current hash for a branch, or None when it is missing.
 
@@ -324,6 +401,35 @@ class NessieResource:
             True
 
         """
+        merged, _detail = self.merge_branch_detail(source, target=target)
+        return merged
+
+    @staticmethod
+    def _merge_failure_detail(response: requests.Response, status_code: int) -> str:
+        """Extract Nessie's rejection reason from an error response body."""
+        message: str | None = None
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            for key in ("message", "error", "errorCode"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    message = value.strip()
+                    break
+        if message is None:
+            text = response.text.strip()
+            message = text[:200] if text else "empty response body"
+        return f"HTTP {status_code}: {message}"
+
+    def merge_branch_detail(self, source: str, target: str = "main") -> tuple[bool, str | None]:
+        """Merge source branch into target branch, returning (merged, failure detail).
+
+        ``detail`` is ``None`` on success; on refusal it carries Nessie's own
+        error message (or which ref could not be resolved) so callers can
+        surface an operator-readable reason instead of a bare ``False``.
+        """
         logger.info(
             "nessie_resource_merge_branch_requested",
             source=source,
@@ -339,7 +445,12 @@ class NessieResource:
                 source_hash_found=source_hash is not None,
                 target_hash_found=target_hash is not None,
             )
-            return False
+            missing = [
+                ref
+                for ref, resolved in ((source, source_hash), (target, target_hash))
+                if not resolved
+            ]
+            return False, f"unresolvable ref(s): {', '.join(missing)}"
         response = self._request(
             "POST",
             self._url(f"/api/v2/trees/{target}@{target_hash}/history/merge"),
@@ -369,6 +480,7 @@ class NessieResource:
                     )
                     status_code = self._status_code(response)
         merged = status_code < 300
+        detail = None if merged else self._merge_failure_detail(response, status_code)
         logger.info(
             "nessie_resource_merge_branch_completed",
             source=source,
@@ -377,7 +489,7 @@ class NessieResource:
             body=response.text[:200] if status_code >= 400 else None,
             merged=merged,
         )
-        return merged
+        return merged, detail
 
 
 class BranchManagerResource:

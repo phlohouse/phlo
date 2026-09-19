@@ -20,6 +20,14 @@ run_launcher:
   module: dagster.core.launcher
   class: DefaultRunLauncher
 
+# Required for run cancellation: the daemon only terminates runs marked
+# CANCELING when monitoring is enabled. A short poll/cancel timeout keeps
+# operator-driven cancellation responsive in disposable environments.
+run_monitoring:
+  enabled: true
+  poll_interval_seconds: 5
+  cancel_timeout_seconds: 30
+
 sensors:
   use_threads: true
   num_workers: 4

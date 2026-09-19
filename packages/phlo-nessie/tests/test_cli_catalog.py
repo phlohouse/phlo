@@ -29,7 +29,7 @@ def test_pyiceberg_catalog_config_resolves_unreachable_minio_endpoint(
 
     config = catalog_backend._pyiceberg_catalog_config("main")
 
-    assert config["s3.endpoint"] == "http://localhost:19001"
+    assert config["s3.endpoint"] == "http://127.0.0.1:19001"
 
 
 def test_pyiceberg_catalog_config_uses_nessie_warehouse_identifier(monkeypatch) -> None:

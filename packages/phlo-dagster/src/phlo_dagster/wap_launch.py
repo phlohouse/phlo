@@ -5,17 +5,15 @@ content-addressed launch manifests and lifecycle reports under .phlo/wap-reports
 so promotion binds to the exact audited launch.
 
 Part of phlo-dagster's WAP tooling alongside wap_sensors: runs on the launch path before
-Dagster work begins.
+Dagster work begins. The durable report/manifest store itself lives in
+``phlo.wap_reports`` so operator tooling shares the same claim/receipt contract;
+the wrappers here preserve this module's historical import surface.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
-import json
 import os
-import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +23,15 @@ from phlo.capabilities.resolver import resolve_capability
 from phlo.config import get_settings
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
+from phlo.wap_reports import (
+    read_wap_launch_manifest as _core_read_wap_launch_manifest,
+    read_wap_report as _core_read_wap_report,
+    wap_launch_manifest_path,
+    wap_report_path,
+    wap_report_snapshot_path,
+    write_wap_launch_manifest,
+    write_wap_report as _core_write_wap_report,
+)
 
 WAP_BRANCH_TAG = "phlo/wap_branch"
 WAP_REF_TAG = "phlo/ref"
@@ -34,25 +41,23 @@ WAP_ATTEMPT_TAG = "phlo/attempt"
 WAP_BRANCH_PREFIX = "pipeline-run-"
 WAP_STRATEGY_BRANCH = "branch"
 WAP_STRATEGY_SNAPSHOT = "snapshot"
-_PROMOTED_OUTCOME_FIELDS = frozenset({"failure_reason"})
 logger = get_logger(__name__)
 
 
+def _project_root() -> Path:
+    return Path(os.getenv("PHLO_PROJECT_PATH", "."))
+
+
 def _report_path(logical_run_id: str) -> Path:
-    root = Path(os.getenv("PHLO_PROJECT_PATH", "."))
-    return root / ".phlo" / "wap-reports" / f"{logical_run_id}.json"
+    return wap_report_path(_project_root(), logical_run_id)
 
 
 def _report_snapshot_path(logical_run_id: str, checksum: str) -> Path:
-    root = Path(os.getenv("PHLO_PROJECT_PATH", ".")) / ".phlo" / "wap-reports" / "evidence"
-    run_key = hashlib.sha256(logical_run_id.encode("utf-8")).hexdigest()[:24]
-    return root / f"{run_key}.{checksum}.json"
+    return wap_report_snapshot_path(_project_root(), logical_run_id, checksum)
 
 
 def _launch_manifest_path(logical_run_id: str, checksum: str) -> Path:
-    root = Path(os.getenv("PHLO_PROJECT_PATH", ".")) / ".phlo" / "wap-reports" / "launches"
-    run_key = hashlib.sha256(logical_run_id.encode("utf-8")).hexdigest()[:24]
-    return root / f"{run_key}.{checksum}.json"
+    return wap_launch_manifest_path(_project_root(), logical_run_id, checksum)
 
 
 def _write_launch_manifest(
@@ -65,47 +70,20 @@ def _write_launch_manifest(
     target_hash_before: str | None,
 ) -> str | None:
     """Write the immutable, content-addressed binding used for promotion."""
-    payload = {
-        "schema_version": "phlo.wap_launch_manifest.v1",
-        "logical_run_id": logical_run_id,
-        "dagster_run_id": dagster_run_id,
-        "branch": branch,
-        "tags": tags,
-        "source_hash": source_hash,
-        "target_branch": "main",
-        "target_hash_before": target_hash_before,
-    }
-    serialized = json.dumps(payload, indent=2, sort_keys=True)
-    checksum = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-    path = _launch_manifest_path(logical_run_id, checksum)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if not path.exists():
-            path.write_text(serialized, encoding="utf-8")
-            # Read-only so a later launch cannot silently rewrite a binding
-            # that promotion verifies by digest.
-            path.chmod(0o444)
-    except OSError:
-        logger.warning(
-            "wap_launch_manifest_write_failed",
-            logical_run_id=logical_run_id,
-            path=str(path),
-            exc_info=True,
-        )
-        return None
-    return checksum
+    return write_wap_launch_manifest(
+        _project_root(),
+        logical_run_id=logical_run_id,
+        dagster_run_id=dagster_run_id,
+        branch=branch,
+        tags=tags,
+        source_hash=source_hash,
+        target_hash_before=target_hash_before,
+    )
 
 
 def read_wap_launch_manifest(logical_run_id: str, checksum: str) -> dict[str, Any] | None:
     """Read a launch binding only when its content matches the recorded digest."""
-    try:
-        raw = _launch_manifest_path(logical_run_id, checksum).read_bytes()
-        if hashlib.sha256(raw).hexdigest() != checksum:
-            return None
-        payload = json.loads(raw.decode("utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
+    return _core_read_wap_launch_manifest(_project_root(), logical_run_id, checksum)
 
 
 def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
@@ -114,69 +92,12 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
     The logical ID is created before GraphQL submission, so this record exists
     even when Dagster rejects a run or a response is lost in transit.
     """
-    path = _report_path(logical_run_id)
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        payload = {}
-    if updates.get("status") == "promoted":
-        # Terminal success replaces failure-only outcome fields from prior
-        # attempts. Identity and evidence binding fields remain append/update
-        # compatible, including the immutable launch-manifest checksum.
-        for field in _PROMOTED_OUTCOME_FIELDS:
-            payload.pop(field, None)
-            updates.pop(field, None)
-
-    now = datetime.now(timezone.utc).isoformat()
-    payload.update(updates)
-    payload.update(
-        {
-            "created_at": payload.get("created_at", now),
-            "schema_version": "phlo.wap_report.v2",
-            "run_id": logical_run_id,
-            "updated_at": now,
-        }
-    )
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        serialized = json.dumps(payload, indent=2, sort_keys=True)
-        raw = serialized.encode("utf-8")
-        # A promotion report is also the local retry record.  Replacing it
-        # atomically prevents a crash from turning a valid prior record into
-        # a partially-written JSON document that the next sensor cannot use.
-        with tempfile.NamedTemporaryFile(
-            mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False
-        ) as temporary:
-            temporary.write(raw)
-            temporary.flush()
-            os.fsync(temporary.fileno())
-            temporary_path = Path(temporary.name)
-        os.replace(temporary_path, path)
-        snapshot_path = _report_snapshot_path(logical_run_id, hashlib.sha256(raw).hexdigest())
-        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-        if not snapshot_path.exists():
-            snapshot_path.write_bytes(raw)
-    except OSError:
-        logger.warning(
-            "wap_report_write_failed", path=str(path), logical_run_id=logical_run_id, exc_info=True
-        )
-        return False
-    return True
+    return _core_write_wap_report(_project_root(), logical_run_id, **updates)
 
 
 def read_wap_report(logical_run_id: str) -> dict[str, Any] | None:
     """Read the latest durable WAP lifecycle record for a logical run."""
-    try:
-        payload = json.loads(_report_path(logical_run_id).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    # Older writers may have serialized an explicit null; callers should see
-    # it exactly like an absent failure reason.
-    if payload.get("failure_reason") is None:
-        payload.pop("failure_reason", None)
-    return payload
+    return _core_read_wap_report(_project_root(), logical_run_id)
 
 
 @dataclass(frozen=True)
@@ -197,6 +118,7 @@ class WapLaunch:
     project_id: str
     attempt: int
     strategy: str = WAP_STRATEGY_BRANCH
+    review_hold: bool = False
 
     @property
     def tags(self) -> dict[str, str]:
@@ -244,6 +166,9 @@ class WapLaunch:
             "source_hash": self.source_hash,
             "target_branch": "main",
             "target_hash_before": self.target_hash_before,
+            # Durable launch policy: when set, the promotion sensor audits the
+            # run but holds the merge for an operator-confirmed release.
+            "review_hold": self.review_hold,
         }
         if dagster_run_id is not None:
             updates["dagster_run_id"] = dagster_run_id
@@ -265,7 +190,7 @@ class WapLaunch:
 
 
 def _prepare_snapshot_wap_launch(
-    *, logical_run_id: str, project_id: str, attempt: int
+    *, logical_run_id: str, project_id: str, attempt: int, review_hold: bool = False
 ) -> WapLaunch:
     """Open a run-scoped candidate namespace on a snapshot-promotion catalog."""
     resolution = resolve_capability("catalog")
@@ -301,6 +226,7 @@ def _prepare_snapshot_wap_launch(
         project_id=project_id,
         attempt=attempt,
         strategy=WAP_STRATEGY_SNAPSHOT,
+        review_hold=review_hold,
     )
     if not launch.record_launch_result(status="branch_created"):
         raise PhloConfigError(
@@ -313,8 +239,13 @@ def _prepare_snapshot_wap_launch(
     return launch
 
 
-def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
-    """Create a WAP staging ref and tags before asking Dagster to start work."""
+def prepare_wap_launch(*, logical_run_id: str, review_hold: bool = False) -> WapLaunch:
+    """Create a WAP staging ref and tags before asking Dagster to start work.
+
+    ``review_hold`` records a durable launch policy: the promotion sensor still
+    audits the run but stops before the merge, leaving an operator-confirmable
+    release candidate instead of auto-publishing.
+    """
     from phlo.infrastructure import load_wap_config
 
     project = resolve_project_identity(configured_project=get_settings().phlo_project)
@@ -327,7 +258,10 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
     strategy = load_wap_config().strategy
     if strategy == WAP_STRATEGY_SNAPSHOT:
         return _prepare_snapshot_wap_launch(
-            logical_run_id=logical_run_id, project_id=project.project_id, attempt=attempt
+            logical_run_id=logical_run_id,
+            project_id=project.project_id,
+            attempt=attempt,
+            review_hold=review_hold,
         )
 
     resolution = resolve_capability("catalog")
@@ -370,6 +304,7 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
         target_hash_before=target_hash_before,
         project_id=project.project_id,
         attempt=attempt,
+        review_hold=review_hold,
     )
     if not launch.record_launch_result(status="branch_created"):
         raise PhloConfigError(
