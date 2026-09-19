@@ -7,6 +7,7 @@ The initial setup includes:
 
 - DeepSeek V4 Flash for text and Qwen 3.7 Flash for turns containing images
 - Vercel AI Gateway routing with caching and usage tags
+- Jev confidence-gated routing for compact dependency-security findings
 - a GitHub channel and GitHub tools scoped to `phlohouse/phlo`
 - grounded classification and enrichment for newly opened GitHub issues
 - Agent Browser and the `before-and-after` CLI for visual verification
@@ -31,6 +32,13 @@ is not a fixed package list. Renovate continues to own routine version and
 image-digest bumps. The agent focuses on release-note analysis, API or default
 changes, migrations, security notices, test gaps, and other compatibility work
 that a version bot cannot infer.
+
+Python vulnerability discovery remains deterministic: the maintenance pass
+runs `uv audit --locked --output-format json`. Fixable findings can be sent in
+one compact request to Jev, which returns only a typed review lane. Jev never
+chooses a version, edits a manifest, waives a vulnerability, or authorizes a
+merge or release. Findings without a listed fix and classifications below the
+confidence floor are routed to human review.
 
 Each run searches existing issues and pull requests first. A mechanical,
 low-risk fix may become a verified **draft** pull request. A finding that needs
@@ -123,6 +131,12 @@ Gateway credit when you send the first prompt.
 
 `PHLO_AGENT_MODEL` and `PHLO_AGENT_VISION_MODEL` can override the defaults
 without changing source.
+
+Agent sessions compact at 70% of the context window, use medium reasoning, and
+stop before another model call after accumulating 2 million input tokens or
+50,000 output tokens. Sessions expire after six hours. Task-mode maintenance
+runs fail closed when they reach a token limit; they cannot request a larger
+window interactively.
 
 ## Connect GitHub and deploy
 
