@@ -46,6 +46,7 @@ def test_execute_emits_trino_query_with_run_entity(monkeypatch) -> None:
     monkeypatch.setattr(phlo_observe, "bind_run_entity", bound.append)
 
     inner = MagicMock()
+    inner.description = [("value",)]
     inner.query_id = "20240101_000000_00042_x"
     inner.rowcount = 17
     cursor = _ObservedCursor(inner, catalog="lake", schema="silver")
@@ -57,10 +58,15 @@ def test_execute_emits_trino_query_with_run_entity(monkeypatch) -> None:
     ]
     assert len(bound) == 1
     assert isinstance(bound[0], _RecordingScope)
-    assert ("set", {"query_id": "20240101_000000_00042_x", "row_count": 17}) in sink
-    exits = [v for kind, v in sink if kind == "exit"]
-    assert exits == [None]
     inner.execute.assert_called_once_with("select * from t where secret = %s", ("p@ss",))
+    # execute() returning is not completion — the scope stays open while
+    # the result set is consumed so fetch errors and duration are observed.
+    assert [v for kind, v in sink if kind == "exit"] == []
+
+    cursor.fetchall()
+
+    assert ("set", {"query_id": "20240101_000000_00042_x", "row_count": 17}) in sink
+    assert [v for kind, v in sink if kind == "exit"] == [None]
 
 
 def test_execute_returns_proxy_so_chained_calls_stay_observed(monkeypatch) -> None:
@@ -111,10 +117,124 @@ def test_cursor_iteration_delegates(monkeypatch) -> None:
     monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
 
     inner = MagicMock()
-    inner.__iter__.return_value = iter([(1,), (2,), (3,)])
+    inner.__next__.side_effect = [(1,), (2,), (3,), StopIteration]
     cursor = _ObservedCursor(inner, catalog=None, schema=None)
 
     assert list(cursor) == [(1,), (2,), (3,)]
 
+    inner.__next__.side_effect = None
     inner.__next__.return_value = ("a",)
     assert next(cursor) == ("a",)
+
+
+def test_fetchall_ends_the_query_scope(monkeypatch) -> None:
+    """The scope ends when the result set is consumed, not when execute
+    returns — fetch-time errors and full duration belong to the event."""
+    sink: list[tuple[str, Any]] = []
+    monkeypatch.setattr(phlo_observe, "trino_query", lambda **kw: _RecordingScope(sink))
+    monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
+
+    inner = MagicMock()
+    inner.description = [("value",)]
+    inner.fetchall.return_value = [(1,), (2,)]
+    cursor = _ObservedCursor(inner, catalog=None, schema=None)
+
+    cursor.execute("select * from t")
+    assert [v for kind, v in sink if kind == "exit"] == []
+
+    assert cursor.fetchall() == [(1,), (2,)]
+    assert [v for kind, v in sink if kind == "exit"] == [None]
+
+
+def test_fetch_error_fails_the_query_event(monkeypatch) -> None:
+    """Errors raised while fetching escape ``execute`` but not the scope."""
+    sink: list[tuple[str, Any]] = []
+    monkeypatch.setattr(phlo_observe, "trino_query", lambda **kw: _RecordingScope(sink))
+    monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
+
+    inner = MagicMock()
+    inner.description = [("value",)]
+    inner.fetchall.side_effect = RuntimeError("result page exploded")
+    cursor = _ObservedCursor(inner, catalog=None, schema=None)
+
+    cursor.execute("select * from t")
+    with pytest.raises(RuntimeError, match="result page exploded"):
+        cursor.fetchall()
+    assert [v for kind, v in sink if kind == "exit"] == [RuntimeError]
+
+
+def test_iteration_exhaustion_ends_the_query_scope(monkeypatch) -> None:
+    sink: list[tuple[str, Any]] = []
+    monkeypatch.setattr(phlo_observe, "trino_query", lambda **kw: _RecordingScope(sink))
+    monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
+
+    inner = MagicMock()
+    inner.description = [("value",)]
+    inner.__next__.side_effect = [(1,), StopIteration]
+    cursor = _ObservedCursor(inner, catalog=None, schema=None)
+
+    cursor.execute("select * from t")
+    assert list(cursor) == [(1,)]
+    assert [v for kind, v in sink if kind == "exit"] == [None]
+
+
+def test_iteration_error_fails_the_query_event(monkeypatch) -> None:
+    sink: list[tuple[str, Any]] = []
+    monkeypatch.setattr(phlo_observe, "trino_query", lambda **kw: _RecordingScope(sink))
+    monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
+
+    inner = MagicMock()
+    inner.description = [("value",)]
+    inner.__next__.side_effect = RuntimeError("stream exploded")
+    cursor = _ObservedCursor(inner, catalog=None, schema=None)
+
+    cursor.execute("select * from t")
+    with pytest.raises(RuntimeError, match="stream exploded"):
+        list(cursor)
+    assert [v for kind, v in sink if kind == "exit"] == [RuntimeError]
+
+
+def test_close_ends_an_unconsumed_query_scope(monkeypatch) -> None:
+    """Abandoning a result set still emits the event when the cursor closes."""
+    sink: list[tuple[str, Any]] = []
+    monkeypatch.setattr(phlo_observe, "trino_query", lambda **kw: _RecordingScope(sink))
+    monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
+
+    inner = MagicMock()
+    inner.description = [("value",)]
+    cursor = _ObservedCursor(inner, catalog=None, schema=None)
+
+    cursor.execute("select * from t")
+    cursor.close()
+    assert [v for kind, v in sink if kind == "exit"] == [None]
+    inner.close.assert_called_once()
+
+
+def test_statement_without_result_set_closes_at_execute(monkeypatch) -> None:
+    """DDL/DML with ``description is None`` has nothing to consume."""
+    sink: list[tuple[str, Any]] = []
+    monkeypatch.setattr(phlo_observe, "trino_query", lambda **kw: _RecordingScope(sink))
+    monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
+
+    inner = MagicMock()
+    inner.description = None
+    cursor = _ObservedCursor(inner, catalog=None, schema=None)
+
+    cursor.execute("alter table t execute optimize")
+    assert [v for kind, v in sink if kind == "exit"] == [None]
+
+
+def test_re_execute_closes_the_previous_query_scope(monkeypatch) -> None:
+    """A new execute abandons the previous result set: its scope closes."""
+    sink: list[tuple[str, Any]] = []
+    monkeypatch.setattr(phlo_observe, "trino_query", lambda **kw: _RecordingScope(sink))
+    monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
+
+    inner = MagicMock()
+    inner.description = [("value",)]
+    cursor = _ObservedCursor(inner, catalog=None, schema=None)
+
+    cursor.execute("select 1")
+    cursor.execute("select 2")
+    exits = [v for kind, v in sink if kind == "exit"]
+    assert exits == [None]  # first scope closed; second still open
