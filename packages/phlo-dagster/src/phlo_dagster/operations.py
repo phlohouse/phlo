@@ -146,13 +146,17 @@ async def launch_materialize(
     tags: dict[str, str] | None = None,
     access_token: str | None = None,
     env: Mapping[str, str] | None = None,
+    sdk_available: bool | None = None,
 ) -> DagsterOperationResult:
     """Launch a Dagster materialization run for one asset, reusing a prior run
     tagged with the same idempotency key so client retries never double-materialize.
 
-    ``env`` feeds the pretty/framework-console decision — pass the merged
-    project environment when the caller and the Dagster service share env
-    files; defaults to the process environment.
+    ``env`` feeds the pretty/framework-console decision — it must describe
+    the *worker's* environment, since a GraphQL launch carries no env vars:
+    pass the file-sourced project environment
+    (``load_project_env(include_os=False)``), not the caller's shell.
+    ``sdk_available`` is whether the worker image ships the phlo-observe
+    SDK (built with ``PHLO_OBSERVE_SDK``); ``None`` probes this process.
 
     Raises RuntimeError when Dagster rejects the launch or returns a malformed
     existing-run payload.
@@ -219,7 +223,9 @@ async def launch_materialize(
                 "selector": selector,
                 # Phlo-owned framework console level rides the run config so
                 # every launch surface gets the same terminal verbosity.
-                "runConfigData": phlo_observe.dagster_run_config(run_config, env=env),
+                "runConfigData": phlo_observe.dagster_run_config(
+                    run_config, env=env, sdk_available=sdk_available
+                ),
                 "mode": "default",
                 "executionMetadata": {"tags": _tags_for_execution(execution_tags)},
             }

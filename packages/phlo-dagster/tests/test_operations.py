@@ -397,3 +397,67 @@ def test_wait_for_dagster_http_times_out_with_actionable_error(monkeypatch) -> N
                 poll_interval_seconds=0,
             )
         )
+
+
+def test_launch_materialize_console_level_follows_worker_env(monkeypatch) -> None:
+    """The injected console level must reflect the *worker's* environment:
+    a GraphQL launch carries no env vars, so a pretty flag set only in the
+    caller's shell must not quiet a console that has no drain replacing it.
+    """
+    captured: list[dict[str, object]] = []
+
+    async def fake_post(self, url, json=None, headers=None):  # noqa: ANN001, ANN202, ARG001
+        captured.append(json)
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "data": {
+                    "launchPipelineExecution": {
+                        "__typename": "LaunchRunSuccess",
+                        "run": {"runId": "run-1", "status": "STARTED"},
+                    }
+                }
+            },
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    # Pretty opted in via the host shell only — the worker env the caller
+    # describes does not have it.
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+
+    def _run_config() -> dict[str, object]:
+        return captured[-1]["variables"]["executionParams"]["runConfigData"]  # type: ignore[index]
+
+    asyncio.run(
+        launch_materialize(
+            dagster_url="http://dagster.test/graphql",
+            asset_key_path="silver/orders",
+            job_name="orders_job",
+            env={},
+            sdk_available=True,
+        )
+    )
+    assert "loggers" not in _run_config()
+
+    asyncio.run(
+        launch_materialize(
+            dagster_url="http://dagster.test/graphql",
+            asset_key_path="silver/orders",
+            job_name="orders_job",
+            env={"PHLO_OBSERVE_PRETTY": "1"},
+            sdk_available=True,
+        )
+    )
+    assert _run_config()["loggers"] == {"console": {"config": {"log_level": "WARNING"}}}
+
+    asyncio.run(
+        launch_materialize(
+            dagster_url="http://dagster.test/graphql",
+            asset_key_path="silver/orders",
+            job_name="orders_job",
+            env={"PHLO_OBSERVE_PRETTY": "1"},
+            sdk_available=False,
+        )
+    )
+    assert "loggers" not in _run_config()

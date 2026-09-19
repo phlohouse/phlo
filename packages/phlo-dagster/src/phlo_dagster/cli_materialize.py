@@ -162,6 +162,11 @@ def materialize(
     # The run executes against the Dagster deployment — the merged project
     # environment predicts the pretty/console decision the worker will make.
     project_env = load_project_env()
+    # A GraphQL launch carries no env vars, so the worker sees only the
+    # file-sourced project environment; PHLO_OBSERVE_SDK records whether
+    # the image was built with the SDK the pretty drain needs.
+    deployment_env = load_project_env(include_os=False)
+    worker_sdk = bool(deployment_env.get("PHLO_OBSERVE_SDK"))
     if wap_config.enabled:
         if not asset_name or select:
             raise click.UsageError(
@@ -213,7 +218,8 @@ def materialize(
                     partition_key=partition,
                     idempotency_key=logical_run_id,
                     tags=wap_launch.tags,
-                    env=project_env,
+                    env=deployment_env,
+                    sdk_available=worker_sdk,
                 )
             )
         except Exception as exc:
@@ -333,7 +339,9 @@ def materialize(
         if partition:
             cmd.extend(["--partition", partition])
 
-        loggers_config = phlo_observe.dagster_loggers_config(env=project_env)
+        loggers_config = phlo_observe.dagster_loggers_config(
+            env=project_env, sdk_available=worker_sdk
+        )
         if loggers_config:
             # Pretty owns the terminal: quiet the framework console in the
             # run itself; the event log keeps the full stream regardless.

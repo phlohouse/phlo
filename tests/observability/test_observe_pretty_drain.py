@@ -10,7 +10,6 @@ and the drain registers through ``Runtime.add_drain``.
 from __future__ import annotations
 
 import os
-from typing import Any
 
 import pytest
 
@@ -103,23 +102,48 @@ def test_pretty_implies_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
 # -- pretty as the primary terminal surface -------------------------------------
 
 
-def _pretty_drain() -> Any:
-    runtime = observe_core.runtime.get_runtime()
-    return next(drain for drain in runtime.drains if getattr(drain, "name", None) == "pretty")
+def _emit_lineage() -> None:
+    """Emit a secondary-visibility event: verbose renders it, pretty hides it."""
+    phlo_observe.emit(
+        "phlo.lineage",
+        outcome="success",
+        attributes={
+            "edges": [["raw.users", "bronze.users"]],
+            "asset_keys": ["bronze.users"],
+        },
+    )
 
 
-def test_pretty_verbose_env_attaches_verbose_drain(monkeypatch: pytest.MonkeyPatch) -> None:
-    """PHLO_OBSERVE_PRETTY_VERBOSE renders the drain in verbose mode."""
+def test_pretty_verbose_env_renders_secondary_events(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PHLO_OBSERVE_PRETTY_VERBOSE renders the drain in verbose mode:
+    secondary events appear in the output stream."""
     monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
     monkeypatch.setenv("PHLO_OBSERVE_PRETTY_VERBOSE", "1")
     assert phlo_observe.configure() is True
-    assert _pretty_drain()._renderer._mode == "verbose"
+    _emit_lineage()
+    observe_core.runtime.get_runtime().flush()
+    assert "Lineage" in capsys.readouterr().err
 
 
-def test_pretty_drain_defaults_to_pretty_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pretty_drain_defaults_to_pretty_mode(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Default pretty mode hides secondary events while primary ones render."""
     monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
     assert phlo_observe.configure() is True
-    assert _pretty_drain()._renderer._mode == "pretty"
+    _emit_lineage()
+    phlo_observe.emit(
+        "asset.materialize",
+        outcome="success",
+        correlation={"asset_key": "bronze.users"},
+        attributes={"rows_out": 5},
+    )
+    observe_core.runtime.get_runtime().flush()
+    err = capsys.readouterr().err
+    assert "Materialize" in err
+    assert "Lineage" not in err
 
 
 def test_framework_console_quiets_when_pretty_is_primary(
@@ -223,3 +247,25 @@ def test_dagster_loggers_config_reads_supplied_env() -> None:
         is None
     )
     assert phlo_observe.dagster_loggers_config(env={}) is None
+
+
+def test_framework_console_preserved_when_drain_cannot_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pretty requested but the drain cannot attach (no SDK in the run
+    environment): quieting the console would leave no run narrative."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    monkeypatch.setattr(phlo_observe, "_sdk_module", lambda: None)
+    assert phlo_observe._pretty_drain_available() is False
+    assert phlo_observe.dagster_console_log_level() == "DEBUG"
+    assert phlo_observe.dagster_loggers_config() is None
+
+
+def test_dagster_loggers_config_explicit_sdk_available() -> None:
+    """Container launch sites pass the worker's SDK availability explicitly —
+    the image ships phlo-observe only when built with PHLO_OBSERVE_SDK."""
+    env = {"PHLO_OBSERVE_PRETTY": "1"}
+    assert phlo_observe.dagster_loggers_config(env=env, sdk_available=False) is None
+    assert phlo_observe.dagster_loggers_config(env=env, sdk_available=True) == {
+        "console": {"config": {"log_level": "WARNING"}}
+    }

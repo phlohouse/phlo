@@ -359,6 +359,11 @@ def _run_wap_backfill(
             "[yellow]WAP backfills serialize partitions through promotion; "
             "--parallel is limited to 1 for this target.[/yellow]"
         )
+    # A GraphQL launch carries no env vars — the worker sees only the
+    # file-sourced project environment, and PHLO_OBSERVE_SDK records
+    # whether the image was built with the SDK the pretty drain needs.
+    deployment_env = load_project_env(include_os=False)
+    worker_sdk = bool(deployment_env.get("PHLO_OBSERVE_SDK"))
     for partition_date in remaining:
         try:
             lifecycle = in_flight_wap.get(partition_date)
@@ -383,7 +388,8 @@ def _run_wap_backfill(
                             partition_key=partition_date,
                             idempotency_key=logical_run_id,
                             tags=launch.tags,
-                            env=load_project_env(),
+                            env=deployment_env,
+                            sdk_available=worker_sdk,
                         )
                     )
                 except Exception as exc:
@@ -620,7 +626,11 @@ def _build_materialize_command(
         partition_date,
     ]
     project_env = load_project_env()
-    loggers_config = phlo_observe.dagster_loggers_config(env=project_env)
+    # The container was built with the phlo-observe SDK only when
+    # PHLO_OBSERVE_SDK was set — without it the pretty drain cannot run and
+    # the framework console must stay at its default level.
+    worker_sdk = bool(load_project_env(include_os=False).get("PHLO_OBSERVE_SDK"))
+    loggers_config = phlo_observe.dagster_loggers_config(env=project_env, sdk_available=worker_sdk)
     if loggers_config:
         command.extend(["--config-json", json.dumps({"loggers": loggers_config})])
 

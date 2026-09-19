@@ -162,6 +162,21 @@ def _framework_debug_requested(env: Mapping[str, str] | None = None) -> bool:
     return env.get("PHLO_LOG_LEVEL", "").strip().upper() == "DEBUG"
 
 
+def _pretty_drain_available() -> bool:
+    """Whether this process can actually attach the pretty drain.
+
+    Quieting the framework console is only safe when the replacement
+    surface can run: the SDK, observe-core's drain registry, and the
+    plugin's ``PrettyDrain`` must all be importable.
+    """
+    if _observe_core() is None:
+        return False
+    if _import_optional("phlo_observe_plugin.presentation", "PrettyDrain") is None:
+        return False
+    runtime_mod = _import_optional("observe_core.runtime")
+    return hasattr(getattr(runtime_mod, "Runtime", None), "add_drain")
+
+
 def configure(**overrides: Any) -> bool:
     """Configure the observe runtime once per process. Returns success.
 
@@ -562,7 +577,12 @@ def _guarded(context: Any) -> Any:
 # -- Dagster integration ------------------------------------------------------
 
 
-def dagster_console_log_level(default: str = "DEBUG", env: Mapping[str, str] | None = None) -> str:
+def dagster_console_log_level(
+    default: str = "DEBUG",
+    env: Mapping[str, str] | None = None,
+    *,
+    sdk_available: bool | None = None,
+) -> str:
     """Console log level for Dagster's per-run framework logger.
 
     With pretty observability on, the pretty drain is the primary terminal
@@ -577,31 +597,48 @@ def dagster_console_log_level(default: str = "DEBUG", env: Mapping[str, str] | N
     ``env`` defaults to ``os.environ``; launch sites may pass the merged
     project environment (``phlo.config.env.load_project_env``) when the run
     executes against a container whose env files the host shares.
+
+    ``sdk_available`` is whether the run environment can attach the pretty
+    drain — ``None`` probes this process, which is correct for in-process
+    runs and sensors (same env as the worker). Launch sites deciding for a
+    container must pass the worker's availability explicitly: the phlo
+    image ships the SDK only when built with ``PHLO_OBSERVE_SDK``. When the
+    drain cannot run, the console keeps its default level — quieting it
+    would leave the terminal with no run narrative.
     """
     if _env_flag("PHLO_OBSERVE_ENABLED", env) is False:
         # Pretty is configured out — quieting the framework console would
         # leave the terminal with no run narrative at all.
+        return default
+    if sdk_available is None:
+        sdk_available = _pretty_drain_available()
+    if not sdk_available:
         return default
     if _want_pretty(env=env) and not _framework_debug_requested(env):
         return "WARNING"
     return default
 
 
-def dagster_loggers_config(env: Mapping[str, str] | None = None) -> dict[str, Any] | None:
+def dagster_loggers_config(
+    env: Mapping[str, str] | None = None, *, sdk_available: bool | None = None
+) -> dict[str, Any] | None:
     """The ``loggers`` section for a Dagster run config, or ``None``.
 
     ``None`` means Dagster's own defaults apply — either pretty output is not
     the primary surface or verbose/debug configuration asked for the full
     framework stream.
     """
-    level = dagster_console_log_level(env=env)
+    level = dagster_console_log_level(env=env, sdk_available=sdk_available)
     if level == "DEBUG":
         return None
     return {"console": {"config": {"log_level": level}}}
 
 
 def dagster_run_config(
-    run_config: dict[str, Any] | None = None, env: Mapping[str, str] | None = None
+    run_config: dict[str, Any] | None = None,
+    env: Mapping[str, str] | None = None,
+    *,
+    sdk_available: bool | None = None,
 ) -> dict[str, Any]:
     """Merge Phlo's Dagster console-log level into a run config.
 
@@ -611,7 +648,7 @@ def dagster_run_config(
     an explicitly configured ``console`` ``log_level`` always wins.
     """
     merged: dict[str, Any] = dict(run_config or {})
-    loggers_config = dagster_loggers_config(env)
+    loggers_config = dagster_loggers_config(env, sdk_available=sdk_available)
     if loggers_config is None:
         return merged
     loggers = dict(merged.get("loggers") or {})
