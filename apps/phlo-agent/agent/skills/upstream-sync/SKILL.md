@@ -36,22 +36,26 @@ bypass Dependency Dashboard approval. Read `renovate.json`,
 `make dependency-refresh` before proposing dependency work. This skill owns
 semantic compatibility analysis and adaptations that automation cannot infer.
 
-Run `uv audit --locked --output-format json` as the authoritative Python
-vulnerability inventory. If it reports findings, compact its machine-readable
-records and relevant authoritative advisory or release-note evidence, then call
-`maintenance__route_findings` once with all findings. Keep version availability,
-manifest discovery, and test selection deterministic. Treat the returned route
-as prioritization only:
+Audit every tracked `uv.lock` with `uv audit --locked --project <lockfile-dir>
+--output-format json`, matching `.github/workflows/security.yml`, as the
+authoritative Python vulnerability inventory. If any audit reports findings,
+compact its machine-readable records and relevant authoritative advisory or
+release-note evidence, then call `maintenance__route_findings` once with all
+findings. Keep version availability, manifest discovery, and test selection
+deterministic. Treat the returned route as prioritization only:
 
-- `routine_update` leaves the version bump with Renovate and normal CI.
+- `routine_update` first reuses an existing Renovate pull request. If none
+  exists, a scheduled run may create one verified draft pull request using the
+  audit's listed fixed versions and normal uv constraint/lock tooling.
 - `compatibility_review` requires mapping the change to every affected Phlo
   surface and running its compatibility checks.
 - `security_review`, `human_review`, and `no_fix_available` may produce a
   focused issue, but never a waiver or speculative patch.
 
-Never pass repository source, lockfiles, or complete logs to the classifier;
-send only the bounded evidence fields accepted by the tool. Never reinterpret a
-low-confidence result as permission to act.
+Jev never chooses a version: uv's machine-readable fix data and resolver remain
+authoritative. Never pass repository source, lockfiles, or complete logs to the
+classifier; send only the bounded evidence fields accepted by the tool. Never
+reinterpret a low-confidence result as permission to act.
 
 Search existing issues and pull requests first. Ignore version churn with no
 demonstrable effect on Phlo.
