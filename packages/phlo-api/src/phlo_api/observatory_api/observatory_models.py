@@ -172,13 +172,25 @@ class ObservatoryActionRequest(BaseModel):
     saw when it explained the transition; a moved state conflicts instead of
     applying. Ignored by non-Dataset actions.
     """
+    idempotency_key: str | None = None
+    """Replay-safe mutation identity.
+
+    When present, the request claims the key durably before dispatch and the
+    result replays byte-identically for the same key+payload; a changed
+    payload under a reused key conflicts instead of re-executing.
+    """
 
 
 class ObservatoryActionResult(BaseModel):
-    """Provider-neutral result of a guarded Observatory action."""
+    """Provider-neutral result of a guarded Observatory action.
+
+    Non-terminal statuses (``accepted``/``running``/``unknown``) name work the
+    provider acknowledged but has not settled: they are not failures and must
+    not be rendered as completed either.
+    """
 
     action: ObservatoryAction
-    status: Literal["succeeded", "failed", "skipped"]
+    status: Literal["succeeded", "failed", "skipped", "accepted", "running", "unknown"]
     message: str
     operation: "ObservatoryOperation | None" = None
 
@@ -840,6 +852,7 @@ class ObservatoryOperationList(BaseModel):
     """List envelope for v2 operations."""
 
     items: list[ObservatoryOperation]
+    next_cursor: str | None = None
 
 
 class ObservatoryRunList(BaseModel):

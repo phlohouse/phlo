@@ -319,8 +319,15 @@ def docker_runtime_metadata(container: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(health_log, list)
         else []
     )
+    host_config_raw = inspected.get("HostConfig")
+    restart_policy_raw = (
+        host_config_raw.get("RestartPolicy") if isinstance(host_config_raw, Mapping) else None
+    )
     metadata = {
         "restart_count": inspected.get("RestartCount"),
+        "restart_policy": (
+            restart_policy_raw.get("Name") if isinstance(restart_policy_raw, Mapping) else None
+        ),
         "started_at": state.get("StartedAt") if isinstance(state, Mapping) else None,
         "finished_at": state.get("FinishedAt") if isinstance(state, Mapping) else None,
         "exit_code": state.get("ExitCode") if isinstance(state, Mapping) else None,
@@ -523,6 +530,21 @@ def load_docker_containers() -> list[dict[str, Any]]:
                 if isinstance(container, Mapping)
             ]
     return []
+
+
+def docker_reachable() -> bool:
+    """Return True when any container-runtime access path answers.
+
+    ``load_docker_containers`` returns ``[]`` both for "no containers" and for
+    "runtime unreachable"; this distinguishes the two for read models that
+    must not report an unreachable runtime as an empty service list.
+    """
+    if docker_ps_containers() is not None:
+        return True
+    for socket_path in docker_socket_candidates():
+        if isinstance(docker_socket_json("/containers/json?all=1", socket_path=socket_path), list):
+            return True
+    return False
 
 
 def load_project_docker_containers(project_root: Path | None) -> list[dict[str, Any]]:
@@ -1025,6 +1047,7 @@ def load_services(
                         "profile": service.profile,
                         "core": bool(getattr(service, "core", False)),
                         "description": getattr(service, "description", None),
+                        "restart_policy": (getattr(service, "compose", None) or {}).get("restart"),
                         **_registry_metadata(service.name, registry_entries),
                         **runtime_metadata_by_service.get(service.name, {}),
                     }

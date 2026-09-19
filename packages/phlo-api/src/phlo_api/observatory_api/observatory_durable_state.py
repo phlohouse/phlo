@@ -33,13 +33,57 @@ def state_namespace(project_root: Path, collection: str) -> str:
 
 
 def load_collection(project_root: Path, collection: str, legacy_path: Path) -> list[dict[str, Any]]:
-    """Load a collection, importing its legacy JSON file exactly once when needed."""
+    """Load a collection, importing its legacy JSON file exactly once when needed.
+
+    The miss path performs a durable write (the one-time legacy import), so
+    read-only request handlers must call :func:`read_collection` instead.
+    """
     record = get_settings_service().get(
         SettingsScope.GLOBAL, state_namespace(project_root, collection)
     )
     if record is not None:
         return _items_from_state(record.settings, collection)
     return _mutate_collection(project_root, collection, legacy_path, lambda items: items)
+
+
+def read_collection(project_root: Path, collection: str) -> list[dict[str, Any]] | None:
+    """Read a collection without importing, initializing or mutating anything.
+
+    Returns ``None`` when no durable record exists so callers can distinguish
+    an absent collection from a collection that was explicitly recorded empty.
+    Corrupt or unreadable state raises instead of degrading to empty data.
+    """
+    record = get_settings_service().get(
+        SettingsScope.GLOBAL, state_namespace(project_root, collection)
+    )
+    if record is None:
+        return None
+    return _items_from_state(record.settings, collection)
+
+
+def initialize_collections(
+    project_root: Path,
+    collections: Mapping[str, Path],
+) -> list[str]:
+    """Import legacy files for collections that have no durable record yet.
+
+    Runs the existing exactly-once import for each ``collection -> legacy_path``
+    pair. Explicit and idempotent: this is the setup/startup counterpart to
+    pure reads, so a GET never has to initialize or migrate state itself.
+    Returns the collections that were initialized.
+    """
+    initialized: list[str] = []
+    for collection, legacy_path in collections.items():
+        record = get_settings_service().get(
+            SettingsScope.GLOBAL, state_namespace(project_root, collection)
+        )
+        if record is not None:
+            continue
+        if not legacy_path.exists():
+            continue
+        _mutate_collection(project_root, collection, legacy_path, lambda items: items)
+        initialized.append(collection)
+    return initialized
 
 
 def mutate_collection(

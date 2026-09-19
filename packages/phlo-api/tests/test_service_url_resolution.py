@@ -59,10 +59,10 @@ def test_observatory_api_urls_use_project_port_overrides(tmp_path, monkeypatch) 
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr("phlo.config.network.socket.gethostbyname", _raise_unresolvable)
 
-    assert dagster.resolve_dagster_url() == "http://localhost:3300/graphql"
-    assert quality.resolve_dagster_url() == "http://localhost:3300/graphql"
-    assert nessie.resolve_nessie_url() == "http://localhost:29120/api/v2"
-    assert loki.resolve_loki_url() == "http://localhost:13100"
+    assert dagster.resolve_dagster_url() == "http://127.0.0.1:3300/graphql"
+    assert quality.resolve_dagster_url() == "http://127.0.0.1:3300/graphql"
+    assert nessie.resolve_nessie_url() == "http://127.0.0.1:29120/api/v2"
+    assert loki.resolve_loki_url() == "http://127.0.0.1:13100"
 
 
 def test_resolve_trino_url_uses_project_port_for_capability_metadata(tmp_path, monkeypatch) -> None:
@@ -79,7 +79,7 @@ def test_resolve_trino_url_uses_project_port_for_capability_metadata(tmp_path, m
             return_value=Mock(metadata={"host": "trino", "port": 8080}),
         ),
     ):
-        assert trino.resolve_trino_url() == "http://localhost:18080"
+        assert trino.resolve_trino_url() == "http://127.0.0.1:18080"
 
 
 def test_service_links_resolve_project_env_port_overrides(tmp_path, monkeypatch) -> None:

@@ -23,6 +23,20 @@ from typing import Any
 from pydantic import BaseModel
 
 
+@dataclass(frozen=True, slots=True)
+class CacheRead:
+    """A resolved read-model value with provenance for evidence reporting.
+
+    ``stale`` is true when the live loader failed and a previously persisted
+    value was served instead; ``confirmed_at`` is that value's wall-clock
+    fetch time (Unix seconds). Fresh reads leave both unset.
+    """
+
+    value: Any
+    stale: bool = False
+    confirmed_at: float | None = None
+
+
 @dataclass(slots=True)
 class ReadModelCache:
     """Small TTL cache scoped by project and read model name."""
@@ -36,7 +50,23 @@ class ReadModelCache:
 
     def cached(self, name: str, ttl_seconds: float, loader: Callable[[], Any]) -> Any:
         """Return the cached value for ``name`` when within ``ttl_seconds``,
-        otherwise run ``loader`` single-flight and repopulate the entry."""
+        otherwise run ``loader`` single-flight and repopulate the entry.
+        Loader failures propagate: plain callers get the fresh-only contract."""
+        return self.cached_outcome(name, ttl_seconds, loader, stale_fallback=False).value
+
+    def cached_outcome(
+        self,
+        name: str,
+        ttl_seconds: float,
+        loader: Callable[[], Any],
+        *,
+        stale_fallback: bool = True,
+    ) -> CacheRead:
+        """Like ``cached`` but reports provenance. When ``stale_fallback`` is
+        set and the loader fails while a persisted value exists — even past
+        expiry — that value is served flagged ``stale`` with its original
+        fetch time. Callers that can carry evidence (Mission Control
+        envelopes) use this; ``cached`` callers keep the fresh-only contract."""
         project = self.project_key()
         key = (project, name)
         epoch_now = time.time()
@@ -48,7 +78,7 @@ class ReadModelCache:
             with self._lock:
                 cached = self._values.get(key)
                 if cached is not None and cached[0] > time.monotonic():
-                    return cached[1]
+                    return CacheRead(cached[1])
                 in_flight = self._in_flight.get(key)
                 if in_flight is None:
                     in_flight = threading.Event()
@@ -58,11 +88,24 @@ class ReadModelCache:
             in_flight.wait()
 
         try:
-            stored = self._load_stored(project, name, epoch_now)
-            if stored is not None:
+            # Expired rows are kept (not deleted) when stale fallback is on:
+            # they are the fallback payload. With it off, expired rows are
+            # reaped as before and loader failures propagate.
+            stored = self._load_stored(project, name, epoch_now, allow_expired=stale_fallback)
+            fresh_stored = stored is not None and stored[0] > epoch_now
+            if stored is not None and stored[0] > epoch_now:
                 expires_at, value = stored
             else:
-                value = loader()
+                try:
+                    value = loader()
+                except Exception:
+                    # The source failed. A persisted copy is servable as stale
+                    # evidence rather than collapsing to an error or an empty
+                    # list. Rows only reach the table via _store, so presence
+                    # implies a previously confirmed fetch.
+                    if stored is None:
+                        raise
+                    return CacheRead(stored[1], stale=True, confirmed_at=stored[0] - ttl_seconds)
                 expires_at = time.time() + ttl_seconds
             with self._lock:
                 # clear() bumps _generation under the lock. If invalidation ran
@@ -77,9 +120,9 @@ class ReadModelCache:
                         time.monotonic() + max(0, expires_at - time.time()),
                         value,
                     )
-                    if stored is None:
+                    if not fresh_stored:
                         self._store(project, name, expires_at, value)
-            return value
+            return CacheRead(value)
         finally:
             with self._lock:
                 self._in_flight.pop(key, None)
@@ -121,7 +164,9 @@ class ReadModelCache:
         )
         return connection
 
-    def _load_stored(self, project: str, name: str, now: float) -> tuple[float, Any] | None:
+    def _load_stored(
+        self, project: str, name: str, now: float, *, allow_expired: bool = False
+    ) -> tuple[float, Any] | None:
         connection = self._connect()
         if connection is None:
             return None
@@ -133,7 +178,7 @@ class ReadModelCache:
             if row is None:
                 return None
             expires_at = float(row[0])
-            if expires_at <= now:
+            if expires_at <= now and not allow_expired:
                 connection.execute(
                     "delete from read_models where project_key = ? and name = ?",
                     (project, name),
@@ -173,20 +218,45 @@ class ReadModelCache:
             )
 
 
+_MODEL_MARKER = "__pydantic_model__"
+
+
 def _serialize_value(value: Any) -> str:
+    return json.dumps(_encode_value(value), allow_nan=False, separators=(",", ":"))
+
+
+def _encode_value(value: Any) -> Any:
+    """JSON-safe encoding that tags embedded models in place, so lists and
+    dicts of models serialize instead of being silently dropped."""
     if isinstance(value, BaseModel):
-        value = {
-            "__pydantic_model__": value.__class__.__name__,
+        return {
+            _MODEL_MARKER: value.__class__.__name__,
             "data": value.model_dump(mode="json"),
         }
-    return json.dumps(value, allow_nan=False, separators=(",", ":"))
+    if isinstance(value, (list, tuple)):
+        return [_encode_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _encode_value(item) for key, item in value.items()}
+    return value
 
 
 def _deserialize_value(payload: str | bytes) -> Any:
-    value = json.loads(payload)
-    if not isinstance(value, dict) or set(value) != {"__pydantic_model__", "data"}:
-        return value
-    model_name = value["__pydantic_model__"]
+    return _decode_value(json.loads(payload))
+
+
+def _decode_value(value: Any) -> Any:
+    """Inverse of ``_encode_value``; plain JSON values pass through untouched."""
+    if isinstance(value, list):
+        return [_decode_value(item) for item in value]
+    if isinstance(value, dict):
+        if set(value) == {_MODEL_MARKER, "data"}:
+            return _decode_model(value)
+        return {key: _decode_value(item) for key, item in value.items()}
+    return value
+
+
+def _decode_model(value: dict) -> BaseModel:
+    model_name = value[_MODEL_MARKER]
     if not isinstance(model_name, str):
         raise ValueError("Invalid cached Pydantic model name")
     from phlo_api.observatory_api import observatory_models

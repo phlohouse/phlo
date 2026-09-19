@@ -32,7 +32,7 @@ Example:
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -170,6 +170,7 @@ query AssetDetailsQuery($assetKey: AssetKeyInput!) {
                 groupName
                 hasMaterializePermission
                 opNames
+                jobNames
                 metadataEntries {
                     label
                     description
@@ -298,6 +299,24 @@ query PartitionKeys($assetKey: AssetKeyInput!) {
 }
 """
 
+RUN_EVENTS_QUERY = """
+query RunEvents($runId: ID!, $limit: Int!) {
+    logsForRun(runId: $runId, limit: $limit) {
+        __typename
+        ... on EventConnection {
+            events {
+                __typename
+                ... on MessageEvent { eventType message timestamp level }
+                ... on StepEvent { stepKey }
+                ... on ErrorEvent { error { message causes { message } } }
+            }
+        }
+        ... on RunNotFoundError { message }
+        ... on PythonError { message }
+    }
+}
+"""
+
 TERMINATE_RUN_MUTATION = """
 mutation TerminateRun($runId: String!) {
     terminateRun(runId: $runId) {
@@ -388,6 +407,7 @@ class AssetDetails(Asset):
     """Extended asset payload used on detail pages."""
 
     op_names: list[str] = []
+    job_names: list[str] = []
     metadata: list[dict[str, str]] = []
     columns: list[ColumnSchema] | None = None
     column_lineage: dict[str, list[ColumnLineageDep]] | None = None
@@ -415,6 +435,7 @@ class MaterializeAssetRequest(BaseModel):
     repository_name: str | None = None
     run_config: dict[str, Any] | None = None
     idempotency_key: str | None = None
+    review_hold: bool = False
     tags: dict[str, str] = Field(default_factory=dict)
 
 
@@ -1007,13 +1028,29 @@ async def materialize_asset(
 
     details = await get_asset_details(asset_key_path, dagster_url=dagster_url)
     if isinstance(details, dict) and details.get("error"):
-        return details
+        error_text = str(details["error"])
+        provider_down = any(
+            marker in error_text.lower()
+            for marker in ("connection", "unreachable", "timed out", "refused", "resolve")
+        )
+        return DagsterOperationResponse(
+            operation="materialize_asset",
+            dry_run=payload.dry_run,
+            accepted=False,
+            asset_key_path=asset_key_path,
+            partition_key=payload.partition_key,
+            status="PROVIDER_UNAVAILABLE" if provider_down else "ASSET_UNAVAILABLE",
+            message=error_text,
+            details={"provider_error": error_text},
+        )
     if isinstance(details, dict):
         has_permission = bool(details.get("has_materialize_permission"))
         op_names = details.get("op_names") or []
     else:
         has_permission = details.has_materialize_permission
         op_names = details.op_names
+    if not isinstance(op_names, list):
+        op_names = [op_names]
 
     if not payload.dry_run:
         if not has_permission:
@@ -1027,15 +1064,33 @@ async def materialize_asset(
                 message="Dagster reports this asset is not materializable by the current principal.",
                 details={"op_names": op_names},
             )
-        if not payload.job_name:
+
+        from phlo.infrastructure import load_wap_config
+
+        wap_config = load_wap_config()
+        if wap_config.enabled:
+            return await _launch_wap_materialize(
+                asset_key_path,
+                payload,
+                wap_config=wap_config,
+                op_names=op_names,
+            )
+
+        job_name = payload.job_name or _resolve_launch_job_name(
+            details.job_names if not isinstance(details, dict) else []
+        )
+        if not job_name:
             return DagsterOperationResponse(
                 operation="materialize_asset",
                 dry_run=False,
                 accepted=False,
                 asset_key_path=asset_key_path,
                 partition_key=payload.partition_key,
-                status="MISSING_JOB_NAME",
-                message="Dagster job_name is required to launch live asset materialization.",
+                status="AMBIGUOUS_JOB",
+                message=(
+                    "Dagster reports multiple executable jobs for this asset; "
+                    "name one explicitly via job_name."
+                ),
                 details={"op_names": op_names},
             )
 
@@ -1044,7 +1099,7 @@ async def materialize_asset(
         result = await launch_materialize(
             dagster_url=resolve_dagster_url(dagster_url),
             asset_key_path=asset_key_path,
-            job_name=payload.job_name,
+            job_name=job_name,
             repository_location_name=payload.repository_location_name,
             repository_name=payload.repository_name,
             partition_key=payload.partition_key,
@@ -1068,6 +1123,79 @@ async def materialize_asset(
         ),
         details={"op_names": op_names},
     )
+
+
+def _resolve_launch_job_name(job_names: list[str]) -> str | None:
+    """Pick the asset's launch job when the request did not name one.
+
+    A single real job wins; the implicit ``__ASSET_JOB`` is the fallback when
+    no named job targets the asset. Multiple named jobs are ambiguous and
+    must be resolved by the caller — guessing would launch the wrong work.
+    """
+    named = [name for name in job_names if name and name != "__ASSET_JOB"]
+    if len(named) == 1:
+        return named[0]
+    if not named:
+        return "__ASSET_JOB"
+    return None
+
+
+async def _launch_wap_materialize(
+    asset_key_path: str,
+    payload: MaterializeAssetRequest,
+    *,
+    wap_config: Any,
+    op_names: list[str],
+) -> DagsterOperationResponse:
+    """Launch one asset through the WAP pipeline, mirroring ``phlo materialize``.
+
+    Creates the staging ref and durable launch manifest before Dagster sees
+    the run, binds the run to that identity via WAP tags, and records the
+    launch outcome honestly — including ``launch_ambiguous`` when the
+    provider response is lost.
+    """
+    import uuid
+
+    from phlo_dagster.operations import launch_materialize
+    from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
+    from phlo_dagster.wap_launch import prepare_wap_launch
+
+    logical_run_id = uuid.uuid4().hex
+    partition_key = payload.partition_key or datetime.now(UTC).strftime("%Y-%m-%d")
+
+    wap_launch = prepare_wap_launch(logical_run_id=logical_run_id, review_hold=payload.review_hold)
+    try:
+        result = await launch_materialize(
+            dagster_url=resolve_wap_dagster_url(wap_config),
+            asset_key_path=asset_key_path,
+            job_name=wap_config.job_name,
+            repository_location_name=wap_config.repository_location_name,
+            repository_name=wap_config.repository_name,
+            partition_key=partition_key,
+            run_config=payload.run_config,
+            idempotency_key=logical_run_id,
+            tags={**wap_launch.tags, **(payload.tags or {})},
+        )
+    except Exception as exc:
+        wap_launch.record_launch_result(status="launch_ambiguous", error=str(exc))
+        raise
+    if not result.accepted:
+        wap_launch.record_launch_result(status="launch_rejected", error=result.message)
+    elif not result.run_id:
+        wap_launch.record_launch_result(
+            status="launch_ambiguous", error="Dagster returned no run ID"
+        )
+    else:
+        wap_launch.record_launch_result(status="launched", dagster_run_id=result.run_id)
+
+    response = DagsterOperationResponse(**result.to_dict())
+    response.details = {
+        **response.details,
+        "logical_run_id": logical_run_id,
+        "branch": wap_launch.branch,
+        "review_hold": wap_launch.review_hold,
+    }
+    return response
 
 
 @router.get(
@@ -1163,6 +1291,7 @@ async def get_asset_details(
             group_name=definition.get("groupName"),
             has_materialize_permission=definition.get("hasMaterializePermission", False),
             op_names=definition.get("opNames", []),
+            job_names=definition.get("jobNames", []),
             metadata=[
                 {"key": e["label"], "value": e.get("text") or e.get("description") or ""}
                 for e in definition.get("metadataEntries", [])
@@ -1241,6 +1370,35 @@ async def get_runs(
     except Exception:
         logger.exception("Failed to get runs")
         return []
+
+
+async def fetch_run_events(
+    run_id: str,
+    *,
+    limit: int = 400,
+    dagster_url: str | None = None,
+) -> list[dict[str, Any]] | dict[str, str]:
+    """Fetch the orchestrator's retained event stream for one run.
+
+    Returns the structured event list, or ``{"error": ...}`` when Dagster
+    cannot answer — the caller decides whether that degrades a section.
+    """
+    url = resolve_dagster_url(dagster_url)
+
+    try:
+        result = await graphql_request(url, RUN_EVENTS_QUERY, {"runId": run_id, "limit": limit})
+        if result.get("errors"):
+            return {"error": result["errors"][0].get("message", "GraphQL error")}
+
+        connection = (result.get("data") or {}).get("logsForRun") or {}
+        if connection.get("__typename") != "EventConnection":
+            message = connection.get("message") or connection.get("__typename") or "no events"
+            return {"error": str(message)}
+        events = connection.get("events")
+        return events if isinstance(events, list) else []
+    except Exception as e:
+        logger.exception("Failed to fetch run events")
+        return {"error": str(e)}
 
 
 def _normalize_run_payload(run: dict[str, Any]) -> dict[str, Any]:

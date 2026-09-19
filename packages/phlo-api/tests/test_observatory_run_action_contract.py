@@ -53,10 +53,22 @@ def _retry_provider_result(run_id: str | None, *, accepted: bool = True) -> dict
 
 
 class _FakeProvider:
-    """Minimal async provider seam for retry/cancel handlers."""
+    """Minimal async provider seam for retry/cancel handlers.
 
-    def __init__(self, **handlers: Any) -> None:
+    ``run_status`` feeds the commit-time target-state recheck: FAILURE permits
+    a retry, STARTED permits a cancel.
+    """
+
+    def __init__(self, run_status: str = "FAILURE", **handlers: Any) -> None:
+        self._run_status = run_status
         self._handlers = handlers
+
+    async def get_run_status(self, run_id: str) -> Any:
+        handler = self._handlers.get("get_run_status")
+        if handler is not None:
+            result = handler(run_id)
+            return await result if inspect.isawaitable(result) else result
+        return {"run_id": run_id, "status": self._run_status}
 
     async def retry_run(self, run_id: str, request: dict[str, Any]) -> Any:
         result = self._handlers["retry_run"](run_id, SimpleNamespace(**request))
@@ -386,7 +398,7 @@ def test_cancel_accepted_names_target_run_and_replays_identically(
             "details": {},
         }
 
-    provider = _fake_provider(cancel_run=cancel_run)
+    provider = _fake_provider(run_status="STARTED", cancel_run=cancel_run)
     monkeypatch.setattr(observatory, "resolve_orchestrator_operations", lambda: provider)
     client = _client(monkeypatch, tmp_path)
 
@@ -537,3 +549,222 @@ def test_normalization_is_provider_model_agnostic() -> None:
     )
     assert isinstance(from_dict, RunActionResult)
     assert from_model.model_dump() == from_dict.model_dump()
+
+
+def test_changed_payload_same_key_conflicts_without_invocation(monkeypatch, tmp_path: Path) -> None:
+    """A reused key carrying a different payload conflicts; the provider runs once."""
+    calls: list[str] = []
+
+    def retry_run(run_id: str, payload: Any) -> dict[str, Any]:
+        calls.append(run_id)
+        return _retry_provider_result("run-new-456")
+
+    provider = _fake_provider(retry_run=retry_run)
+    monkeypatch.setattr(observatory, "resolve_orchestrator_operations", lambda: provider)
+    client = _client(monkeypatch, tmp_path)
+
+    first = client.post(
+        RETRY_URL,
+        json={"dry_run": False, "idempotency_key": "bound-key"},
+        headers=OPERATE_HEADERS,
+    )
+    changed = client.post(
+        RETRY_URL,
+        json={"dry_run": True, "idempotency_key": "bound-key"},
+        headers=OPERATE_HEADERS,
+    )
+    identical = client.post(
+        RETRY_URL,
+        json={"dry_run": False, "idempotency_key": "bound-key"},
+        headers=OPERATE_HEADERS,
+    )
+
+    assert first.status_code == 200
+    assert changed.status_code == 409
+    assert changed.json()["detail"]["error"] == "idempotency_payload_conflict"
+    # An unchanged payload under the same key replays the original response.
+    assert identical.status_code == 200
+    assert identical.json() == first.json()
+    assert calls == ["run-123"]
+
+
+def test_target_state_recheck_rejects_moved_run_without_invocation(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A run that recovered before commit is rejected; the mutation never dispatches."""
+    calls: list[str] = []
+
+    def retry_run(run_id: str, payload: Any) -> dict[str, Any]:
+        calls.append(run_id)
+        return _retry_provider_result("run-new-456")
+
+    # The commit-time recheck sees the run already succeeded.
+    provider = _fake_provider(run_status="SUCCEEDED", retry_run=retry_run)
+    monkeypatch.setattr(observatory, "resolve_orchestrator_operations", lambda: provider)
+    client = _client(monkeypatch, tmp_path)
+
+    response = client.post(
+        RETRY_URL,
+        json={"dry_run": False, "idempotency_key": "stale-key"},
+        headers=OPERATE_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "rejected"
+    assert calls == []
+
+
+def test_unverifiable_target_state_aborts_dispatch_and_reclaims_key(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """An unreadable target state aborts dispatch; the key stays reclaimable."""
+    calls: list[str] = []
+
+    def retry_run(run_id: str, payload: Any) -> dict[str, Any]:
+        calls.append(run_id)
+        return _retry_provider_result("run-new-456")
+
+    async def broken_status(run_id: str) -> dict[str, Any]:
+        return {"error": "dagster unreachable"}
+
+    provider = _fake_provider(get_run_status=broken_status, retry_run=retry_run)
+    monkeypatch.setattr(observatory, "resolve_orchestrator_operations", lambda: provider)
+    client = _client(monkeypatch, tmp_path)
+    body = {"dry_run": False, "idempotency_key": "reclaim-key"}
+
+    aborted = client.post(RETRY_URL, json=body, headers=OPERATE_HEADERS)
+    assert aborted.status_code == 503
+
+    # The claim was released as safe_to_retry: the same key+payload can proceed.
+    healthy = _fake_provider(retry_run=retry_run)
+    monkeypatch.setattr(observatory, "resolve_orchestrator_operations", lambda: healthy)
+    retried = client.post(RETRY_URL, json=body, headers=OPERATE_HEADERS)
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "accepted"
+    assert calls == ["run-123"]
+
+
+def test_intent_audit_failure_blocks_dispatch(monkeypatch, tmp_path: Path) -> None:
+    """A storage failure writing the pre-dispatch intent blocks the provider call."""
+    calls: list[str] = []
+
+    def retry_run(run_id: str, payload: Any) -> dict[str, Any]:
+        calls.append(run_id)
+        return _retry_provider_result("run-new-456")
+
+    provider = _fake_provider(retry_run=retry_run)
+    monkeypatch.setattr(observatory, "resolve_orchestrator_operations", lambda: provider)
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+
+    real_audit = observatory.audit_operation
+
+    def failing_audit(**kwargs: Any) -> None:
+        if kwargs.get("payload", {}).get("phase") == "intent":
+            raise OSError("audit volume full")
+        real_audit(**kwargs)
+
+    monkeypatch.setattr(observatory, "audit_operation", failing_audit)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        RETRY_URL,
+        json={"dry_run": False, "idempotency_key": "blocked-key"},
+        headers=OPERATE_HEADERS,
+    )
+
+    assert response.status_code == 500
+    assert calls == []
+
+
+def test_pending_claim_survives_restart_and_stays_blocked(monkeypatch, tmp_path: Path) -> None:
+    """A pending claim left by a crash keeps blocking replay after a restart."""
+    calls: list[str] = []
+
+    def retry_run(run_id: str, payload: Any) -> dict[str, Any]:
+        calls.append(run_id)
+        raise RuntimeError("process lost after provider call")
+
+    provider = _fake_provider(retry_run=retry_run)
+    monkeypatch.setattr(observatory, "resolve_orchestrator_operations", lambda: provider)
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    body = {"dry_run": False, "idempotency_key": "restart-key"}
+
+    first_client = TestClient(app, raise_server_exceptions=False)
+    crashed = first_client.post(RETRY_URL, json=body, headers=OPERATE_HEADERS)
+    assert crashed.status_code == 500
+
+    # "Restart": a fresh client against the same project state sees the
+    # durable unknown claim and refuses to re-invoke.
+    restarted_client = TestClient(app, raise_server_exceptions=False)
+    replay = restarted_client.post(RETRY_URL, json=body, headers=OPERATE_HEADERS)
+    assert replay.status_code == 409
+    assert replay.json()["detail"] == {"error": "idempotency_outcome_unknown"}
+    assert calls == ["run-123"]
+
+
+def test_unresolved_claim_is_visible_in_operations_list(monkeypatch, tmp_path: Path) -> None:
+    """An unresolved claim appears in operation history, marked non-replayable."""
+    calls: list[str] = []
+
+    def retry_run(run_id: str, payload: Any) -> dict[str, Any]:
+        calls.append(run_id)
+        raise RuntimeError("provider exploded after acceptance")
+
+    provider = _fake_provider(retry_run=retry_run)
+    monkeypatch.setattr(observatory, "resolve_orchestrator_operations", lambda: provider)
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    client = TestClient(app, raise_server_exceptions=False)
+
+    crashed = client.post(
+        RETRY_URL,
+        json={"dry_run": False, "idempotency_key": "visible-key"},
+        headers=OPERATE_HEADERS,
+    )
+    assert crashed.status_code == 500
+
+    listing = client.get("/api/observatory/operations", headers=OPERATE_HEADERS)
+    assert listing.status_code == 200
+    claims = [
+        item
+        for item in listing.json()["items"]
+        if item.get("metadata", {}).get("source") == "idempotency_claim"
+    ]
+    assert len(claims) == 1
+    assert claims[0]["metadata"]["claim_state"] == "unknown"
+    assert claims[0]["metadata"]["replay_blocked"] is True
+
+
+def test_cancel_claim_reconciles_from_provider_evidence(monkeypatch, tmp_path: Path) -> None:
+    """A lost cancel reply reconciles when the provider reports the run terminal."""
+    from phlo_api.observatory_api.run_action_contract import (
+        reconcile_unresolved_claims,
+    )
+
+    calls: list[str] = []
+
+    def cancel_run(run_id: str, payload: Any) -> dict[str, Any]:
+        calls.append(run_id)
+        raise RuntimeError("reply lost after provider committed")
+
+    provider = _fake_provider(run_status="STARTED", cancel_run=cancel_run)
+    monkeypatch.setattr(observatory, "resolve_orchestrator_operations", lambda: provider)
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    client = TestClient(app, raise_server_exceptions=False)
+    body = {"reason": "stuck", "idempotency_key": "lost-cancel"}
+
+    crashed = client.post(CANCEL_URL, json=body, headers=OPERATE_HEADERS)
+    assert crashed.status_code == 500
+
+    # Reconciliation: the provider now reports the run terminal, proving the
+    # cancellation landed — the claim resolves succeeded without re-invoking.
+    async def terminal_status(run_id: str) -> dict[str, Any]:
+        return {"run_id": run_id, "status": "CANCELED"}
+
+    reconciler = _fake_provider(get_run_status=terminal_status)
+    resolved = asyncio.run(reconcile_unresolved_claims(reconciler))
+    assert resolved == 1
+
+    replay = client.post(CANCEL_URL, json=body, headers=OPERATE_HEADERS)
+    assert replay.status_code == 200
+    assert replay.json()["status"] in {"accepted", "reconciled"}
+    assert calls == ["run-123"]

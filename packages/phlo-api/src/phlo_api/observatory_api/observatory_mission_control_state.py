@@ -1,76 +1,113 @@
 """Durable state and seed data for the Mission Control read models.
 
-Each collection follows the platform's durable-state pattern
-(``observatory_durable_state``): project-scoped, transactional, and seeded with
-the reference fixture on first read. That keeps the HTTP contract real from day
-one — producers can start writing these collections without any route changing.
+Reads are pure: they never create ``.phlo`` directories, import legacy files or
+write records. Legacy import happens once during explicit startup
+initialization (``initialize_collections``). In ``live`` data mode an absent
+collection is reported absent — seeds are only served in ``demo`` mode.
 
 Seeds mirror ``web/src/data/demo.ts`` so the UI renders identically whether it is
-reading fixtures or the API.
+reading fixtures or the API in demo mode.
 """
 
 from __future__ import annotations
 
-import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Generic, TypeVar
 
+from fastapi import HTTPException
 from pydantic import BaseModel
 
+from phlo.logging import get_logger
 from phlo_api.observatory_api.observatory_durable_state import (
-    load_collection,
     mutate_collection,
+    read_collection,
 )
+from phlo_api.observatory_api.observatory_mission_control_models import (
+    ReadEnvelope,
+    ReasonCode,
+)
+from phlo_api.observatory_api.observatory_mission_control_mode import (
+    SourceOutcome,
+    data_mode,
+    demo_envelope,
+    envelope,
+    evidence,
+    live_envelope,
+    outcome_data,
+    project_root,
+)
+
+logger = get_logger(__name__)
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
-def project_root() -> Path:
-    """Resolve the project root the same way the rest of Observatory does."""
-    return Path(os.environ.get("PHLO_PROJECT_PATH", Path.cwd())).resolve()
-
-
-def _state_dir() -> Path:
-    state_dir = project_root() / ".phlo" / "observatory"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir
-
-
 def _legacy_path(collection: str) -> Path:
-    return _state_dir() / f"mission_control_{collection}.json"
+    return project_root() / ".phlo" / "observatory" / f"mission_control_{collection}.json"
 
 
-def load_records(collection: str, model: type[ModelT]) -> list[ModelT]:
-    """Load a collection as models, falling back to the reference seed in memory.
+def legacy_paths() -> dict[str, Path]:
+    """Map every legacy-backed collection to its file for startup init.
 
-    The seed is never written to disk: a read must not mutate the project's
-    durable state. When the collection is absent the seed is served directly, so
-    a screen renders reference data without anything being persisted.
+    Seed collections import from ``mission_control_<name>.json``; the
+    operation journal and saved queries keep their historic filenames.
+    """
+    paths = {collection: _legacy_path(collection) for collection in SEED}
+    state_dir = project_root() / ".phlo" / "observatory"
+    paths["operation_journal"] = state_dir / "operation_journal.json"
+    paths["saved_queries"] = state_dir / "saved_queries.json"
+    return paths
 
-    Invalid records are skipped rather than failing the request: one malformed
-    record must not blank a whole screen.
+
+@dataclass(slots=True)
+class CollectionResult(Generic[ModelT]):
+    """Validated records plus the provenance a route needs for read evidence."""
+
+    records: list[ModelT]
+    dropped: int
+    present: bool
+    source: str
+
+
+def load_records(collection: str, model: type[ModelT]) -> CollectionResult[ModelT]:
+    """Load a collection as validated models.
+
+    Live mode reads only the durable store: an absent collection comes back
+    ``present=False`` so the route can report it, and corrupt state propagates
+    as ``StorageCorruptionError``/``StorageUnavailableError`` instead of being
+    silently emptied. Demo mode serves the reference seed when no durable
+    record exists. Malformed stored records are skipped and counted so the
+    response can be marked partial.
     """
     raw = _read_state(collection)
-    if not raw:
-        raw = list(SEED.get(collection, []))
+    if raw is None:
+        if data_mode() == "demo":
+            return _validate(list(SEED.get(collection, [])), model, present=True, source="seed")
+        return CollectionResult(records=[], dropped=0, present=False, source="durable-state")
+    return _validate(raw, model, present=True, source="durable-state")
+
+
+def _validate(
+    raw: list[Any], model: type[ModelT], *, present: bool, source: str
+) -> CollectionResult[ModelT]:
     records: list[ModelT] = []
+    dropped = 0
     for item in raw:
         if not isinstance(item, Mapping):
+            dropped += 1
             continue
         try:
             records.append(model.model_validate(dict(item)))
         except Exception:
-            continue
-    return records
+            dropped += 1
+    return CollectionResult(records=records, dropped=dropped, present=present, source=source)
 
 
-def _read_state(collection: str) -> list[dict[str, Any]]:
-    """Read a collection from durable state, tolerating an absent store."""
-    try:
-        return load_collection(project_root(), collection, _legacy_path(collection))
-    except Exception:  # noqa: BLE001 - an unreadable store must not blank a screen
-        return []
+def _read_state(collection: str) -> list[dict[str, Any]] | None:
+    """Read a collection from durable state. Absent returns None; failures raise."""
+    return read_collection(project_root(), collection)
 
 
 def replace_records(collection: str, items: Iterable[Mapping[str, Any]]) -> None:
@@ -90,17 +127,151 @@ def find_record(collection: str, model: type[ModelT], key: str) -> ModelT | None
 
 def find_by(collection: str, model: type[ModelT], **equals: Any) -> ModelT | None:
     """Return the first record whose fields equal every given value."""
-    for record in load_records(collection, model):
+    for record in load_records(collection, model).records:
         if all(getattr(record, field, None) == value for field, value in equals.items()):
             return record
     return None
 
 
+# ------------------------------------------------------------- route helpers
+#
+# Each mission endpoint resolves through one of these so the mode split and
+# error mapping live in exactly one place: demo mode serves the stored/seed
+# fixture labelled demo; live mode serves the typed outcome or the durable
+# collection with its provenance — and never fabricates.
+
+
+def _load_for_route(collection: str, model: type[ModelT]) -> CollectionResult[ModelT]:
+    """Load a collection, mapping storage failure to a sanitized 503."""
+    try:
+        return load_records(collection, model)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503, detail="Observatory durable state is unavailable"
+        ) from exc
+
+
+def _collection_envelope(
+    collection: str, result: CollectionResult[ModelT]
+) -> ReadEnvelope[list[ModelT]]:
+    """Wrap a loaded collection with its provenance evidence.
+
+    Demo mode labels the payload demo regardless of where it was stored. Live
+    mode reports the durable source: an absent collection answers ``[]`` with
+    ``reason_code=absent`` so "nothing recorded" stays distinct from "recorded
+    empty", and dropped malformed records mark the payload partial.
+    """
+    if data_mode() == "demo":
+        return demo_envelope(result.records, source=result.source)
+    if result.dropped:
+        logger.warning(
+            "mission_collection_partial",
+            collection=collection,
+            dropped=result.dropped,
+        )
+    reason_code: ReasonCode | None
+    if result.dropped:
+        reason_code = "partial"
+    elif not result.present:
+        reason_code = "absent"
+    else:
+        reason_code = None
+    return envelope(
+        result.records,
+        evidence(
+            "live",
+            source=result.source,
+            reason_code=reason_code,
+            detail=None if result.present else "No records recorded for this project",
+            dropped_records=result.dropped,
+        ),
+    )
+
+
+def serve_collection(collection: str, model: type[ModelT]) -> ReadEnvelope[list[ModelT]]:
+    """Return a collection's records with read evidence for the current mode.
+
+    Live mode returns the durable store's contents; an absent collection is a
+    truthful empty list, never seeded. Demo mode serves the reference seed when
+    nothing is stored. Malformed stored records are dropped and marked partial
+    so a partially corrupt collection still answers with what validated.
+    Storage failures surface as HTTP 503 rather than an empty list.
+    """
+    return _collection_envelope(collection, _load_for_route(collection, model))
+
+
+def serve_record(
+    collection: str, model: type[ModelT], detail: str, **equals: Any
+) -> ReadEnvelope[ModelT]:
+    """Return the first matching record; 404 when absent, 503 on storage failure."""
+    result = _load_for_route(collection, model)
+    record = next(
+        (
+            record
+            for record in result.records
+            if all(getattr(record, field, None) == value for field, value in equals.items())
+        ),
+        None,
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail=detail)
+    if data_mode() == "demo":
+        return demo_envelope(record, source=result.source)
+    return envelope(
+        record,
+        evidence(
+            "live",
+            source=result.source,
+            reason_code="partial" if result.dropped else None,
+            dropped_records=result.dropped,
+        ),
+    )
+
+
+def serve_sourced(
+    derive: Callable[[], SourceOutcome[list[ModelT]]],
+    collection: str,
+    model: type[ModelT],
+) -> ReadEnvelope[list[ModelT]]:
+    """Demo mode serves the stored/seed fixture; live mode serves the outcome."""
+    if data_mode() == "demo":
+        return serve_collection(collection, model)
+    outcome = derive()
+    data = outcome_data(outcome)
+    return live_envelope(
+        data,
+        source=outcome.source or "provider",
+        stale=outcome.stale,
+        last_confirmed_at=outcome.last_confirmed_at,
+    )
+
+
+def serve_sourced_record(
+    derive: Callable[[], SourceOutcome[ModelT]],
+    collection: str,
+    model: type[ModelT],
+    detail: str,
+    **equals: Any,
+) -> ReadEnvelope[ModelT]:
+    """Demo mode serves a stored/seed record; live mode serves the outcome."""
+    if data_mode() == "demo":
+        return serve_record(collection, model, detail, **equals)
+    outcome = derive()
+    data = outcome_data(outcome)
+    return live_envelope(
+        data,
+        source=outcome.source or "provider",
+        stale=outcome.stale,
+        last_confirmed_at=outcome.last_confirmed_at,
+    )
+
+
 # ------------------------------------------------------------------ seeds
 #
-# Keys are collection names. Values are the raw records written into durable
-# state on first read. Kept as plain mappings so they are trivially diffable
-# against web/src/data/demo.ts.
+# Keys are collection names. Values are the demo fixture records served only
+# when PHLO_OBSERVATORY_DATA_MODE=demo and durable state holds nothing for the
+# collection; they are never written into durable state by a read. Live mode
+# never sees them.
 
 SEED: dict[str, list[dict[str, Any]]] = {
     "environments": [
@@ -1216,7 +1387,7 @@ SEED: dict[str, list[dict[str, Any]]] = {
             "dataset": "Orders",
             "provider": "Nessie",
             "strategy": "Branch merge",
-            "readiness": "Blocked by quality",
+            "readiness": "Blocked",
             "evidence": "Complete \u00b7 11/12 passed",
             "created_at": "09:27",
             "action": "Inspect",

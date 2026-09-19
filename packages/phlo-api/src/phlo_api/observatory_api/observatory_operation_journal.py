@@ -17,8 +17,8 @@ from uuid import uuid4
 
 from phlo_api.observatory_api.observatory_metadata import safe_metadata
 from phlo_api.observatory_api.observatory_durable_state import (
-    load_collection,
     mutate_collection,
+    read_collection,
 )
 from phlo_api.observatory_api.observatory_models import (
     HealthState,
@@ -34,22 +34,39 @@ OPERATION_OBSERVABILITY_SCHEMA_VERSION = "phlo.operation_observability.v1"
 
 
 def operation_journal_path(project_root: Path) -> Path:
-    """Return the journal file path, creating the Observatory state directory."""
-    state_dir = project_root / ".phlo" / "observatory"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir / "operation_journal.json"
+    """Return the legacy journal file path. Pure: the durable store writes
+    through the settings service, so this path is only ever read — never
+    create the state directory here.
+    """
+    return project_root / ".phlo" / "observatory" / "operation_journal.json"
 
 
 def load_operation_journal(project_root: Path) -> list[ObservatoryOperation]:
-    """Load and validate the persisted operations, newest first; raises on corrupt state."""
-    return _validate_operations(
-        load_collection(project_root, "operation_journal", operation_journal_path(project_root))
-    )
+    """Load and validate the persisted operations, newest first; raises on
+    corrupt state. An absent journal reads as empty — legacy import happens
+    only through explicit ``initialize_collections`` at startup.
+    """
+    return _validate_operations(read_collection(project_root, "operation_journal") or [])
+
+
+def _cap_operations(operations: list[ObservatoryOperation]) -> list[ObservatoryOperation]:
+    """Cap journal history without dropping unresolved operation identities.
+
+    Non-terminal records (queued/running/unknown) are never evicted by the
+    cap: an unresolved operation that fell out of history would be invisible
+    and could neither be reconciled nor blocked from blind replay. Terminal
+    records fill the remaining budget, newest first.
+    """
+    ordered = sort_operations(operations)
+    unresolved = [op for op in ordered if op.status in {"queued", "running", "unknown"}]
+    terminal = [op for op in ordered if op.status not in {"queued", "running", "unknown"}]
+    kept = terminal[: max(0, MAX_OPERATION_RECORDS - len(unresolved))]
+    return sort_operations([*unresolved, *kept])
 
 
 def write_operation_journal(project_root: Path, operations: Iterable[ObservatoryOperation]) -> None:
     """Replace the journal with the given operations, sorted and capped at MAX_OPERATION_RECORDS."""
-    records = sort_operations(list(operations))[:MAX_OPERATION_RECORDS]
+    records = _cap_operations(list(operations))
     mutate_collection(
         project_root,
         "operation_journal",
@@ -101,9 +118,7 @@ def append_operation(
         operation_journal_path(project_root),
         lambda items: [
             item.model_dump(mode="json")
-            for item in sort_operations([recorded, *_validate_operations(items)])[
-                :MAX_OPERATION_RECORDS
-            ]
+            for item in _cap_operations([recorded, *_validate_operations(items)])
         ],
     )
     return recorded
@@ -182,7 +197,7 @@ def operation_from_action_result(
         id=action.id,
         name=action.label,
         kind=action.kind,
-        status=result.status,
+        status=_coerce_operation_status(result.status),
         health=ObservatoryHealth(
             state=_health_state_for_action_status(result.status),
             message=result.message[:200],
@@ -311,4 +326,7 @@ def _health_state_for_action_status(status: str) -> HealthState:
 def _coerce_operation_status(status: str) -> OperationStatus:
     if status in {"queued", "running", "succeeded", "failed", "skipped", "unknown"}:
         return cast(OperationStatus, status)
+    # A provider-acknowledged but unsettled action records as running.
+    if status == "accepted":
+        return "running"
     return "unknown"
