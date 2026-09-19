@@ -7,28 +7,23 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.16.2,<0.17",
+    "phlo>=0.17.0,<0.18",
     "phlo-dagster>=0.3.2",
-    # The phlo-observe SDK (observe-core + phlo-observe) is intentionally NOT
-    # declared: it requires Python >=3.12, is not yet published to PyPI, and
-    # published packages may not carry git dependencies. Install it into the
-    # runtime environment separately (e.g. the Dagster image); without it
-    # every integration point degrades to a no-op via phlo.telemetry.
 ]
 description = "phlo-observe SDK integration and phlo-observer service for Phlo"
 name = "phlo-observe-plugin"
 requires-python = ">=3.11"
-version = "0.1.0"
+version = "0.2.0"
 
 [[project.authors]]
 email = "team@phlo.dev"
 name = "Phlo Team"
 
-[project.entry-points."phlo.plugins.hooks"]
-observe = "phlo_observe_plugin.hooks_plugin:ObserveHookPlugin"
-
 [project.entry-points."phlo.plugins.dagster"]
 observe = "phlo_observe_plugin.dagster_ext:ObserveDagsterExtension"
+
+[project.entry-points."phlo.plugins.hooks"]
+observe = "phlo_observe_plugin.hooks_plugin:ObserveHookPlugin"
 
 [project.entry-points."phlo.plugins.services"]
 phlo-observer = "phlo_observe_plugin.plugin:PhloObserverServicePlugin"
@@ -51,11 +46,14 @@ text = "Canonical event emission and observer service wiring for Phlo."
 line-length = 100
 target-version = "py311"
 
+[tool.setuptools.package-data]
+phlo_observe_plugin = [
+    "service.yaml",
+    "db-setup.yaml",
+]
+
 [tool.setuptools.package-dir]
 "" = "src"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-phlo_observe_plugin = ["service.yaml", "db-setup.yaml"]
