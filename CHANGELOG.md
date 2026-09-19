@@ -1,5 +1,47 @@
 ## 0.15.1 (2026-09-06)
 
+## [phlo 0.17.0 + 38 packages] - 2026-09-19
+
+### Added
+- phlo: converge canonical RBAC onto postgres, minio, and nessie (#938)
+- phlo: add candidate qualification status report, share golden-path harness (#939)
+- phlo: share plan-token-journal contract with scheduled ops (#940)
+- phlo: live security + journaled-maintenance evidence lane (#943)
+- phlo: human-readable pretty drain over canonical events (#948)
+- phlo-api: converge canonical RBAC onto postgres, minio, and nessie (#938)
+- phlo-dagster: share plan-token-journal contract with scheduled ops (#940)
+- phlo-dagster: human-readable pretty drain over canonical events (#948)
+- phlo-minio: converge canonical RBAC onto postgres, minio, and nessie (#938)
+- phlo-minio: live security + journaled-maintenance evidence lane (#943)
+- phlo-nessie: converge canonical RBAC onto postgres, minio, and nessie (#938)
+- phlo-nessie: live security + journaled-maintenance evidence lane (#943)
+- phlo-observe-plugin: human-readable pretty drain over canonical events (#948)
+- phlo-postgres: converge canonical RBAC onto postgres, minio, and nessie (#938)
+- phlo-postgres: live security + journaled-maintenance evidence lane (#943)
+- phlo-trino: converge canonical RBAC onto postgres, minio, and nessie (#938)
+
+### Changed
+- phlo: canonical events, observer service, opt-in plugin + review fixes (#947)
+- phlo-api: canonical events, observer service, opt-in plugin + review fixes (#947)
+- phlo-dagster: canonical events, observer service, opt-in plugin + review fixes (#947)
+- phlo-dbt: canonical events, observer service, opt-in plugin + review fixes (#947)
+- phlo-dlt: canonical events, observer service, opt-in plugin + review fixes (#947)
+- phlo-iceberg: canonical events, observer service, opt-in plugin + review fixes (#947)
+- phlo-observe-plugin: canonical events, observer service, opt-in plugin + review fixes (#947)
+- phlo-trino: canonical events, observer service, opt-in plugin + review fixes (#947)
+
+### Fixed
+- phlo: pull minio images from quay.io after docker hub removal (#941)
+- phlo: pre-create the nessie bind-mount source before start (#944)
+- phlo: clear Python security audit (#951)
+- phlo-api: clear Python security audit (#951)
+- phlo-dagster: pull minio images from quay.io after docker hub removal (#941)
+- phlo-delta: pull minio images from quay.io after docker hub removal (#941)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (30 commits)
+
 ## [phlo 0.16.2 + 37 packages] - 2026-09-09
 
 ### Fixed
