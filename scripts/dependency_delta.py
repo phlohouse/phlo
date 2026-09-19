@@ -22,7 +22,7 @@ from pathlib import Path
 Package = tuple[str, str, str]
 LOCKFILES = (
     "uv.lock",
-    "packages/phlo-observatory/src/phlo_observatory/package-lock.json",
+    "packages/phlo-observatory/web/package-lock.json",
     "apps/phlo-agent/package-lock.json",
 )
 

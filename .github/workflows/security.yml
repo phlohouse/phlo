@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [packages/phlo-observatory/src/phlo_observatory, apps/phlo-agent]
+        project: [packages/phlo-observatory/web, apps/phlo-agent]
     runs-on: ubuntu-latest
     defaults:
       run:

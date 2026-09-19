@@ -36,19 +36,22 @@ aliases.
 
 | Surface | Browser route | API family | Status |
 | --- | --- | --- | --- |
-| Overview | `/` | `/api/observatory/overview`, `/api/observatory/capability-inventory` | canonical |
-| Operations | `/operations` | `/api/observatory/operations`, `/api/observatory/actions` | canonical |
-| Datasets | `/datasets`, `/datasets/{dataset_id}` | `/api/observatory/datasets`, `/api/observatory/datasets/{dataset_id}` | canonical |
-| Tables | `/tables`, `/tables/{table_id}` | `/api/observatory/tables`, `/api/observatory/table-preview/{table_id}`, `/api/observatory/query` | canonical |
-| Lineage | `/lineage`, `/lineage/{asset_id}` | `/api/observatory/assets`, `/api/observatory/assets/{asset_id}`, `/api/observatory/asset-graph` | canonical |
-| Workflow Builder | `/workflows/new` | `/api/observatory/workflow-wizard` | canonical |
-| Quality | `/quality` | `/api/observatory/quality` | canonical |
-| Change Review | `/branches`, `/branches/{branch_name}` | `/api/observatory/branches`, `/api/observatory/branches/actions` | canonical |
-| Logs | `/logs` | `/api/observatory/logs`, `/api/observatory/logs/facets` | canonical |
-| Services | `/services` | `/api/observatory/services` | canonical |
-| Settings | `/settings` | `/api/observatory/settings`, `/api/observatory/preferences` | canonical |
-| Capability surfaces | `/storage`, `/observability`, `/governance`, `/publishing`, `/apis`, `/bi` | matching `/api/observatory/{surface}` families | canonical |
-| Extensions | `/extensions`, `/extensions/{extension_id}` | `/api/observatory/extensions`, `/api/observatory/extension-manifests` | canonical |
+| Overview | `/` | `/api/observatory/overview`, `/api/observatory/capability-inventory`, `/api/observatory/mission/context`, `/api/observatory/mission/overview/*` | canonical |
+| Datasets | `/datasets`, `/datasets/{dataset_id}` | `/api/observatory/datasets`, `/api/observatory/datasets/{dataset_id}`, `/api/observatory/mission/datasets/{dataset_id}` | canonical |
+| Runs | `/runs`, `/runs/{run_id}` | `/api/observatory/mission/runs`, `/api/observatory/mission/runs/{run_id}` + `/events`, `/logs`, `/quality`, `/stages`, `/artifacts`, `/configuration`, `/consumers`, `/traces` | canonical |
+| Releases | `/releases` | `/api/observatory/mission/releases/summary`, `/api/observatory/mission/releases/candidates`, `/api/observatory/mission/releases/candidates/{id}`, `…/preview`, `…/promotion`, `/api/observatory/mission/releases/completed` | canonical |
+| Platform | `/platform` | `/api/observatory/mission/platform/summary`, `…/services`, `…/services/{service_id}`, `…/maintenance`, `…/backup`, `/api/observatory/services`, `/api/observatory/services/{service_id}/probe` | canonical |
+| Operations | `/operations` | `/api/observatory/operations`, `/api/observatory/operations/{operation_id}`, `…/agent-context`, `/api/observatory/actions` | canonical |
+| Settings | `/settings` | `/api/observatory/mission/settings/summary`, `…/providers`, `…/defaults`, `…/members`, `…/notifications` | canonical |
+| Governance | `/governance` | `/api/observatory/mission/governance/summary`, `…/audit`, `…/access-drift`, `…/ownership-gaps`, `…/publication-plan/{dataset_id}`, `…/publication-reviews` | canonical |
+| Docs / Reference | `/docs`, `/reference` | `/api/observatory/search` | canonical |
+| Tables | none (dataset-scoped) | `/api/observatory/tables`, `/api/observatory/table-preview/{table_id}`, `/api/observatory/query` | canonical |
+| Lineage | dataset-scoped | `/api/observatory/assets`, `/api/observatory/assets/{asset_id}`, `/api/observatory/asset-graph` | canonical |
+| Quality | run/dataset-scoped | `/api/observatory/quality` | canonical |
+| Change Review | dataset-scoped | `/api/observatory/branches`, `/api/observatory/branches/actions` | canonical |
+| Logs | run-scoped | `/api/observatory/logs`, `/api/observatory/logs/facets` | canonical |
+| Capability surfaces | `/governance` | matching `/api/observatory/{surface}` families | canonical |
+| Extensions | none | `/api/observatory/extensions`, `/api/observatory/extension-manifests` | canonical |
 | MCP run log streaming | none | `/api/loki` | intentional exception until MCP has an Observatory streaming contract |
 
 Removed legacy browser surfaces and API families are hard 404s. Observatory
@@ -57,12 +60,15 @@ extension, table, graph, hub, or pre-Dataset naming surfaces.
 
 | Family | Endpoints | Contract intent |
 | --- | --- | --- |
-| Runtime overview | `overview`, `capabilities`, `capability-inventory` | Tell the browser what the active project can show and do. |
-| Services and operations | `services`, `services/{service_id}`, `operations`, `operations/{operation_id}`, `runs` | Expose runtime health, service details, operator workflows, and run state. |
-| Datasets | `datasets`, `datasets/{dataset_id}`, `dataset-workflow/config`, `publishing`, `governance`, `pipelines` | Expose governed/publishable datasets, readiness, ownership, publication, and pipeline read models. |
+| Runtime overview | `overview`, `capabilities`, `capability-inventory`, `mission/context`, `mission/overview/*` | Tell the browser what the active project can show and do, including the resolved environment identity. |
+| Services and operations | `services`, `services/{service_id}`, `services/{service_id}/probe`, `operations`, `operations/{operation_id}`, `runs`, `runs/{run_id}/retry`, `runs/{run_id}/cancel`, `mission/platform/*` | Expose runtime health, service details/probes, operator workflows, and run state. |
+| Datasets | `datasets`, `datasets/{dataset_id}`, `mission/datasets/{dataset_id}`, `dataset-workflow/config`, `publishing`, `governance`, `pipelines` | Expose governed/publishable datasets, readiness, ownership, publication, and pipeline read models. |
+| Run evidence | `mission/runs`, `mission/runs/{run_id}`, `mission/runs/{run_id}/{events,logs,quality,stages,artifacts,configuration,consumers,traces}` | Join run identity across logical/provider/attempt/report evidence; attempt-scoped, cursor-paginated. |
+| Releases | `mission/releases/summary`, `mission/releases/candidates`, `mission/releases/candidates/{id}`, `…/preview`, `…/promotion`, `mission/releases/completed` | Derive release candidates from governed WAP reports; digest-bound preview; guarded, idempotent promotion. |
 | Tables and lineage | `assets`, `assets/{asset_id}`, `asset-graph`, `tables`, `table-preview/{table_id}`, `query`, `saved-queries`, `stage-diff`, `row-journey/{table_id}/{row_id}` | Expose provider-neutral asset, table, query, diff, lineage, and row provenance read models. |
 | Quality and logs | `quality`, `quality/{check_id}`, `logs`, `logs/facets` | Support quality triage and evidence inspection. |
 | Change review | `branches`, `branches/{branch_name}`, `branches/actions` | Describe branch state and execute guarded branch operations. |
+| Governance and settings | `mission/governance/*`, `mission/settings/*` | Expose governance evidence and settings state for the active environment. |
 | Capability surfaces | `storage`, `observability`, `apis`, `bi` | Allow packages to contribute specialized operator surfaces without hardcoding provider APIs in the UI. |
 | Extensions and settings | `extensions`, `extensions/{extension_id}`, `settings`, `search`, `actions` | Expose extension inventory, global search, settings state, and generic guarded actions. |
 
