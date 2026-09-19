@@ -30,9 +30,8 @@ support-window changes to the exact Phlo adapters, services, tests, docs, and
 version constraints they affect. When one upstream is shared by multiple Phlo
 packages, identify every affected consumer before proposing work.
 
-Do not assume Renovate or another dependency bot is active. Search for existing
-bot- and human-authored dependency work and do not duplicate it. Read
-`renovate.json`, `docs/operations/release-management.md`, and the output of
+Search all open pull requests for existing dependency work and do not duplicate
+it. Read `docs/operations/release-management.md` and the output of
 `make dependency-refresh` before proposing dependency work. When no existing
 work owns a vulnerability, this skill owns producing the bounded remediation.
 

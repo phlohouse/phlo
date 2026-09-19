@@ -58,13 +58,11 @@ not part of normal pull-request CI. GitHub Actions audits the locked Python and
 Observatory dependencies every day. The Phlo Agent's focused daily security
 pass follows the Python audit, reuses any existing bot- or human-authored
 remediation, and—with autonomous writes enabled—can open one verified draft PR
-for an otherwise unowned routine fix. Renovate may also propose updates when
-its external service is active, but vulnerability remediation does not depend
-on it. A remediation PR runs the normal CI suite and the full nightly workflow
-before merge review. Do not merge a remediation PR until those checks have
-passed. The nightly workflow deliberately runs only for trusted in-repository
-PRs because it needs service credentials; forked PRs retain normal CI without
-those secrets.
+for an otherwise unowned routine fix. A remediation PR runs the normal CI suite
+and the full nightly workflow before merge review. Do not merge a remediation
+PR until those checks have passed. The nightly workflow deliberately runs only
+for trusted in-repository PRs because it needs service credentials; forked PRs
+retain normal CI without those secrets.
 
 ```bash
 gh workflow run "Dependency Refresh" --ref main -f lane=all
