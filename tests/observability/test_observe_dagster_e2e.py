@@ -240,6 +240,36 @@ def test_dagster_check_failure_records_failure_outcome(captured: Any, bus: Any) 
     assert check["correlation"].get("asset_key") == "bronze.users"
 
 
+def test_failed_materialize_result_records_failed_step(captured: Any, bus: Any) -> None:
+    """A run fn reporting ``status="failed"`` must emit a failed
+    ``pipeline.step`` — the Dagster failure is raised inside the step scope,
+    so the step event records the failure instead of closing as a success
+    before the error surfaces."""
+    from phlo_dagster.adapter import DagsterOrchestratorAdapter
+
+    from phlo.capabilities import AssetSpec, MaterializeResult, RunSpec
+
+    def _run(_runtime: Any) -> list[Any]:
+        return [MaterializeResult(status="failed", metadata={"reason": "boom"})]
+
+    adapter = DagsterOrchestratorAdapter()
+    asset_def = adapter._build_asset(
+        AssetSpec(key="bronze.failing", group=None, description=None, run=RunSpec(fn=_run))
+    )
+    result = dagster.materialize([asset_def], raise_on_error=False)
+    assert not result.success
+
+    payloads = captured.payloads()
+    steps = [p for p in payloads if p["event"] == "pipeline.step"]
+    assert len(steps) == 1
+    assert steps[0]["outcome"] == "failure"
+    # A failed step records no materialization event — the canonical stream
+    # must not claim the asset materialized.
+    assert not [
+        p for p in payloads if p["event"] == "asset.materialize" and p["outcome"] == "success"
+    ]
+
+
 def test_pipeline_materialization_overhead_enabled_vs_disabled(captured: Any, bus: Any) -> None:
     """Whole-pipeline overhead: real materialize() runs with and without
     observability. Unlike the per-emit microbenchmarks, this exercises the

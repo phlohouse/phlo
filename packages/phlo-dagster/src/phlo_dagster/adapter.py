@@ -427,17 +427,22 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
                                 ).name.lower(),
                                 asset_key=result.asset_key,
                             )
-            materialized = False
-            for result in results:
-                if isinstance(result, MaterializeResult):
-                    metadata = _convert_metadata(result.metadata)
-                    if result.status:
-                        metadata.setdefault("status", dg.MetadataValue.text(result.status))
                     # An in-band failure status must surface as a real step
                     # failure, not a successful materialization with bad
                     # metadata, so retry policies and failure alerts apply.
-                    status = str(result.status or "").lower()
-                    if status in {"failure", "failed", "error"}:
+                    # Raising inside the step scope lets the emitted
+                    # pipeline.step record the failure; validating out here
+                    # would report a successful step followed by an
+                    # unexplained Dagster error.
+                    for result in results:
+                        if not isinstance(result, MaterializeResult):
+                            continue
+                        status = str(result.status or "").lower()
+                        if status not in {"failure", "failed", "error"}:
+                            continue
+                        metadata = _convert_metadata(result.metadata)
+                        if result.status:
+                            metadata.setdefault("status", dg.MetadataValue.text(result.status))
                         logger.warning(
                             "dagster_adapter_asset_materialization_failed_status",
                             asset_key=spec.key,
@@ -449,6 +454,12 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
                             description=f"Asset run reported status '{result.status}'",
                             metadata=metadata,
                         )
+            materialized = False
+            for result in results:
+                if isinstance(result, MaterializeResult):
+                    metadata = _convert_metadata(result.metadata)
+                    if result.status:
+                        metadata.setdefault("status", dg.MetadataValue.text(result.status))
                     # asset.materialize records the materialization fact; the
                     # scope closes before the yield so no ambient context
                     # survives suspension on the executor thread.
