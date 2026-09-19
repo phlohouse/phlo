@@ -25,7 +25,7 @@ def test_delta_settings_use_standard_aws_aliases(monkeypatch, tmp_path) -> None:
     # Only credentials and region come from the shared AWS aliases; the
     # endpoint deliberately stays host-reachable even though AWS_S3_ENDPOINT
     # names the in-network service address.
-    assert settings.delta_s3_endpoint == "http://localhost:9000"
+    assert settings.delta_s3_endpoint == "http://127.0.0.1:9000"
     assert settings.delta_s3_access_key == "example-key"
     assert settings.delta_s3_secret_key == "example-secret"
     assert settings.delta_s3_region == "eu-west-2"

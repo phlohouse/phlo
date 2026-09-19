@@ -23,8 +23,8 @@ def test_get_pyiceberg_catalog_config_resolves_host_service_urls(monkeypatch) ->
 
     config = settings.get_pyiceberg_catalog_config(ref="main")
 
-    assert config["uri"] == "http://localhost:19120/iceberg/main"
-    assert config["s3.endpoint"] == "http://localhost:9000"
+    assert config["uri"] == "http://127.0.0.1:19120/iceberg/main"
+    assert config["s3.endpoint"] == "http://127.0.0.1:9000"
 
 
 def test_get_pyiceberg_catalog_config_preserves_resolvable_urls(monkeypatch) -> None:

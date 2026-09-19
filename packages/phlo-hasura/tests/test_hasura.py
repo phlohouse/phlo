@@ -274,7 +274,7 @@ class TestHasuraTableTracker:
 
         tracker = HasuraTableTracker(hasura_client=HasuraClient(admin_secret="test-secret"))
 
-        assert (tracker.db_host, tracker.db_port) == ("localhost", 15432)
+        assert (tracker.db_host, tracker.db_port) == ("127.0.0.1", 15432)
 
     @patch("phlo_hasura.track.psycopg2.connect")
     def test_get_tables_in_schema(self, mock_connect):

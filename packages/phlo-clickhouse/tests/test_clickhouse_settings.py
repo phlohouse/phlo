@@ -82,7 +82,7 @@ def test_clickhouse_settings_resolves_unreachable_host(tmp_path, monkeypatch):
 
     settings = ClickHouseSettings()
 
-    assert settings.clickhouse_http_endpoint() == "localhost:18123"
+    assert settings.clickhouse_http_endpoint() == "127.0.0.1:18123"
 
 
 def test_get_settings_returns_cached():
