@@ -134,7 +134,6 @@ export async function routeMaintenanceFindings(
     maxRetries: 2,
     providerOptions: {
       gateway: {
-        zeroDataRetention: true,
         tags: ['phlo-agent:purpose:maintenance-routing'],
       },
     },
