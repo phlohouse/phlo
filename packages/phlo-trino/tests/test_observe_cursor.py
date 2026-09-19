@@ -33,6 +33,56 @@ class _RecordingScope:
         self.sink.append(("set", attrs))
 
 
+class _TrinoLikeCursor:
+    """Protocol-faithful stand-in for ``trino.dbapi.Cursor``.
+
+    The real cursor is iterable via ``__iter__`` alone — it defines no
+    ``__next__``, so ``next(cursor)`` raises TypeError — and rows arrive
+    through the fetch* methods. A MagicMock supplies ``__next__`` on demand,
+    which let the proxy call ``next(self._cursor)`` while the real cursor
+    cannot do that; this fake keeps that bug reproducible.
+    """
+
+    def __init__(self, plan: list[Any] = ()) -> None:
+        self._plan = list(plan)
+        self.description: Any = [("value",)]
+        self.query_id = "20240101_000000_00042_x"
+        self.rowcount = len(self._plan)
+        self.execute_calls: list[tuple[Any, Any]] = []
+        self.closed = False
+
+    def execute(self, sql: Any, params: Any = None) -> _TrinoLikeCursor:
+        self.execute_calls.append((sql, params))
+        return self
+
+    def __iter__(self) -> Any:
+        return iter(self._plan)
+
+    def fetchone(self) -> Any:
+        if not self._plan:
+            return None
+        item = self._plan.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    def fetchall(self) -> Any:
+        rows = []
+        while self._plan:
+            rows.append(self.fetchone())
+        return rows
+
+    def fetchmany(self, size: int | None = None) -> Any:
+        size = size or 1
+        rows = []
+        while self._plan and len(rows) < size:
+            rows.append(self.fetchone())
+        return rows
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def test_execute_emits_trino_query_with_run_entity(monkeypatch) -> None:
     sink: list[tuple[str, Any]] = []
     scope_kwargs: list[dict[str, Any]] = []
@@ -111,20 +161,19 @@ def test_passthrough_attributes_delegate(monkeypatch) -> None:
 
 
 def test_cursor_iteration_delegates(monkeypatch) -> None:
-    """The real Trino cursor is iterable; the proxy must keep `for row in
-    cursor` working — implicit dunder lookup never consults __getattr__."""
+    """The real Trino cursor is iterable but has no ``__next__`` — ``next``
+    on it raises TypeError — so the proxy must reach rows through the
+    fetch* API, and implicit dunder lookup never consults ``__getattr__``."""
     monkeypatch.setattr(phlo_observe, "trino_query", lambda **kw: _RecordingScope([]))
     monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
 
-    inner = MagicMock()
-    inner.__next__.side_effect = [(1,), (2,), (3,), StopIteration]
+    inner = _TrinoLikeCursor([(1,), (2,), (3,)])
+    with pytest.raises(TypeError):
+        next(inner)  # protocol fidelity check: no __next__ on the real cursor
+
     cursor = _ObservedCursor(inner, catalog=None, schema=None)
-
+    cursor.execute("select * from t")
     assert list(cursor) == [(1,), (2,), (3,)]
-
-    inner.__next__.side_effect = None
-    inner.__next__.return_value = ("a",)
-    assert next(cursor) == ("a",)
 
 
 def test_fetchall_ends_the_query_scope(monkeypatch) -> None:
@@ -168,9 +217,7 @@ def test_iteration_exhaustion_ends_the_query_scope(monkeypatch) -> None:
     monkeypatch.setattr(phlo_observe, "trino_query", lambda **kw: _RecordingScope(sink))
     monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
 
-    inner = MagicMock()
-    inner.description = [("value",)]
-    inner.__next__.side_effect = [(1,), StopIteration]
+    inner = _TrinoLikeCursor([(1,)])
     cursor = _ObservedCursor(inner, catalog=None, schema=None)
 
     cursor.execute("select * from t")
@@ -183,9 +230,7 @@ def test_iteration_error_fails_the_query_event(monkeypatch) -> None:
     monkeypatch.setattr(phlo_observe, "trino_query", lambda **kw: _RecordingScope(sink))
     monkeypatch.setattr(phlo_observe, "bind_run_entity", lambda _e: None)
 
-    inner = MagicMock()
-    inner.description = [("value",)]
-    inner.__next__.side_effect = RuntimeError("stream exploded")
+    inner = _TrinoLikeCursor([(1,), RuntimeError("stream exploded")])
     cursor = _ObservedCursor(inner, catalog=None, schema=None)
 
     cursor.execute("select * from t")

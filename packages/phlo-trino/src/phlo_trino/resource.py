@@ -169,14 +169,14 @@ class _ObservedCursor:
         return self
 
     def __next__(self) -> Any:
-        try:
-            return next(self._cursor)
-        except StopIteration:
-            self._finish_query(None)
-            raise
-        except BaseException as exc:
-            self._finish_query((type(exc), exc, exc.__traceback__))
-            raise
+        # The real trino.dbapi.Cursor is iterable via __iter__ alone — it has
+        # no __next__ (``next(cursor)`` raises TypeError), so rows arrive
+        # through fetchone(), which already ends the observation on
+        # exhaustion or error.
+        row = self.fetchone()
+        if row is None:
+            raise StopIteration
+        return row
 
     def __enter__(self) -> _ObservedCursor:
         self._cursor.__enter__()
