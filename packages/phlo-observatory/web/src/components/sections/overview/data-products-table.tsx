@@ -57,7 +57,7 @@ function columns(): Array<DataColumn<MissionDataProduct>> {
 
 export function DataProductsTable({
   rows,
-  total = 128,
+  total,
   onOpen,
   onViewAll,
 }: {
@@ -71,7 +71,7 @@ export function DataProductsTable({
       title="Data products"
       action={
         <span className="flex items-center gap-1.5 text-[11px] leading-3.5 text-muted-foreground">
-          Showing {rows.length} of {total} ·
+          {total !== undefined ? `Showing ${rows.length} of ${total} · ` : null}
           <InlineLink onClick={onViewAll}>View all datasets</InlineLink>
         </span>
       }

@@ -1,262 +1,206 @@
-# Mission Control — API and data requirements
+# Mission Control — per-panel API and data inventory
 
-Stage 1 renders every screen from `web/src/data/demo.ts`. This document maps each
-export to the endpoint that must replace it in stage 2.
+Rewritten 2026-09-18 under `docs/roadmaps/observatory-real-lakehouse.md` MC-00.
+This is the **current** inventory: every rendered browser panel/control mapped
+to the API route it calls (or the demo module it still reads), the real
+provider/store behind that route, its resource identity, its truth status, and
+the mutation path (if any). It replaces the stage-1 demo-export map, whose
+"exists/extend/new" claims are stale — the mission read models now exist.
 
-The "exists" column was verified by reading the route decorators under
-`packages/phlo-api/src/phlo_api/observatory_api/`, not from memory.
+Legend — **Source status**:
 
-Legend: **exists** = route is present today; **extend** = exists but needs more
-fields or filtering; **new** = must be added.
+- `live` — derived from the real provider/store on every read.
+- `seeded` — served from `SEED` in `observatory_mission_control_state.py`
+  whenever the durable collection is absent; in live mode this is fabricated
+  data and is an MC-01 defect.
+- `partial` — some sections live, some seeded/derived.
+- `demo` — read from `web/src/data/demo.ts` in the browser; no API call.
+- `dead` — rendered control with no handler (button does nothing).
+- `static` — hardcoded copy in the route file.
 
-## Cross-cutting contracts
+## Cross-cutting
 
-| Concern | Contract |
+| Concern | Current reality | Required by roadmap |
+|---|---|---|
+| Base paths | `/api/observatory/mission` (read models), `/api/observatory` (substrate) | unchanged |
+| Environment scoping | **None.** `?environment=` is not sent; the topbar switcher is local UI state over `demo.ts` `environments` | `GET /mission/context` server identity (MC-02) |
+| Data mode | None — `load_records()` silently falls back to `SEED` on absent/empty/error | `PHLO_OBSERVATORY_DATA_MODE=live\|demo`, default live (MC-01) |
+| Read evidence | None — responses have no `evidence.status`/`observedAt`/`lastConfirmedAt` | shared evidence envelope per section (MC-01) |
+| Errors | `ApiError` carries status + problem `detail` | 404/401/403/422/409/503 typed outcomes (MC-01) |
+| Mutations | `POST /api/observatory/actions` uses `{action_id, params, expected_state, dry_run?, idempotency_key}` — **not** the `{family,target,dryRun}` shape previously documented here | shared preview/commit contract, `action_id`/`dry_run`/`idempotency_key` naming kept (MC-05) |
+| Live updates | TanStack `staleTime: 15_000` + `refetchOnWindowFocus`; no polling loop, no SSE in the client | 15s active-page polling, pause hidden, back off (MC-03) |
+| Read-side writes | `_state_dir()` creates `.phlo/observatory` on every `load_records` call | GETs must not create dirs or import state (MC-01) |
+
+## Shell (`__root.tsx`, `app-shell`, topbar)
+
+| Control | Renders from | API route | Provider/store | Status | Mutation |
+|---|---|---|---|---|---|
+| Alert inbox | `alerts` from `demo.ts` | `GET /mission/overview/alerts` exists but **is not called** — `queries.alerts()` is dead code | `alerts` collection → `SEED` | demo | none |
+| Command palette / search | `searchEntries` from `demo.ts` | none (substrate `GET /api/observatory/search` exists, unused) | — | demo | none |
+| Environment switcher | `environments` = `["Production","Staging","Development"]` | `GET /mission/overview/environments` exists but **is not called** — `queries.environments()` is dead code | `environments` collection → `SEED` | demo | none |
+| Footer env/project label | `{env}` + `Retail analytics` + `Example data` chip | none | hardcoded | static | — |
+| Footer freshness line | `Updated 09:35:12 UTC · Auto-refresh 15s` | none | hardcoded string | static | — |
+| Nav badges/counts | `NAV_ITEMS` in `app-sidebar` | none | hardcoded counts | static | — |
+| Breadcrumbs | route meta | — | — | static | — |
+| Theme toggle | `ThemeProvider` local state | — | — | n/a | — |
+
+## Overview — `/` (`index.tsx`)
+
+| Panel | Client query | API route | Provider/store | Status |
+|---|---|---|---|---|
+| Summary metrics | `queries.overviewSummary()` | `GET /mission/overview/summary` | `derive_overview_summary` → live runs/services | live |
+| Attention list | `queries.attention()` | `GET /mission/overview/attention` | `attention` collection → `SEED` | seeded |
+| Active execution | `queries.execution()` | `GET /mission/overview/execution` | live Dagster run list | live |
+| Data products | `queries.dataProducts()` | `GET /mission/overview/data-products` | live asset graph + run state | live |
+| Rail — services | `queries.overviewRail()` | `GET /mission/overview/rail` | `derive_platform_services` (containers/readiness) | live |
+| Rail — release queue | same | same | `overview_rail` collection → `SEED` | seeded |
+| Rail — governance | same | same | `overview_rail` collection → `SEED` | seeded |
+| Rail — recovery | same | same | `overview_rail` collection → `SEED` | seeded |
+
+The rail is one endpoint serving a composite: live services joined onto a
+seeded record. MC-01 must split evidence per section so a healthy services
+section cannot certify seeded queue/governance/recovery rows.
+
+## Runs — `/runs/orders-daily` (`runs/orders-daily.tsx`)
+
+Route is hardcoded to `RUN_ID = "r7e42b"`. All queries fire against that id.
+
+| Panel | Client query | API route | Provider/store | Status |
+|---|---|---|---|---|
+| Header/meta | `queries.runDetail(RUN_ID)` | `GET /mission/runs/{run_id}` | live Dagster run + evidence DB join | live |
+| Details tab | `detail.details` | same | live + declared config | partial |
+| Stages tab | `queries.runStages(RUN_ID)` | `GET /mission/runs/{run_id}/stages` | `run_stages` collection → `SEED` | seeded |
+| Quality tab | `queries.runQuality(RUN_ID)` | `GET /mission/runs/{run_id}/quality` | `run_quality` collection → `SEED` (incl. fabricated failing-row sample) | seeded |
+| Events tab | `queries.runEvents(RUN_ID)` | `GET /mission/runs/{run_id}/events` | `run_events` → `SEED` | seeded |
+| Traces tab | `queries.runTraces(RUN_ID)` | `GET /mission/runs/{run_id}/traces` | `run_spans` → `SEED` (invented spans) | seeded |
+| Artifacts tab | `queries.runArtifacts(RUN_ID)` | `GET /mission/runs/{run_id}/artifacts` | `run_artifacts` → `SEED` | seeded |
+| Consumers tab | `queries.runConsumers` defined, **not called** | `GET /mission/runs/{run_id}/consumers` exists | `run_consumers` → `SEED` | dead+seeded |
+| Configuration tab | `detail.details` (not `runConfiguration`) | `GET /mission/runs/{run_id}/configuration` exists, **not called** | `run_config` → `SEED` | dead+seeded |
+| Logs tab | `queries.runLogs(RUN_ID)` | `GET /mission/runs/{run_id}/logs` | `run_logs` → `SEED` | seeded |
+| "Compare with last success" | — | — | — | dead |
+| "Preview retry" | — | `POST /api/observatory/runs/{id}/retry` exists (substrate) | run action contract `run.retry`, `lakehouse:operate` | dead |
+
+## Dataset — `/datasets/orders` (`datasets/orders.tsx`)
+
+Route ignores its own path: selects `assets[0]` and falls back to
+`"marts.orders"`. No list/search entry point.
+
+| Panel | Client query | API route | Provider/store | Status |
+|---|---|---|---|---|
+| Meta/metrics | `queries.datasetDetail(id)` | `GET /mission/datasets/{dataset_id}` | `derive_dataset` → live asset graph + declared metadata | live |
+| Schema | `detail.schema` | same | live (catalog/capability schema) | live |
+| Preview | `detail.preview` | same | live bounded read where capability exists | live |
+| Checks | `detail.checks` | same | `derive_dataset_checks` → Dagster GraphQL check defs + executions | live |
+| Lineage | `detail.lineage` | same | `derive_dataset_lineage` → live asset graph edges (asset-level only) | live |
+| Recent runs | `detail.runs` | same | live run list filtered to asset | live |
+| Ownership | `detail.ownership` | same | `owner`/`sla` asset metadata | live |
+| Access | `detail.access` | same | `dataset_governance` collection → `SEED` | seeded |
+| Governance detail | `queries.datasetGovernance` defined, **not called** | `GET /mission/datasets/{id}/governance` exists | `dataset_governance` → `SEED` | dead+seeded |
+| "Preview materialization" | — | `POST /api/observatory/assets/{id}/materialize` exists (substrate) | asset materialize path | dead |
+| "Explore data" | — | — | — | dead |
+| Banner | hardcoded | — | — | static |
+| Tab labels | hardcoded counts, e.g. `Schema · 8` | — | — | static |
+
+## Releases — `/releases` (`releases.tsx`)
+
+| Panel | Client query | API route | Provider/store | Status |
+|---|---|---|---|---|
+| Summary | `queries.releaseSummary()` | `GET /mission/releases/summary` | `derive_release_candidates` → live Nessie WAP branches | live |
+| Pending candidates | `queries.releaseCandidates()` | `GET /mission/releases/candidates` | live WAP branch scan | live |
+| Candidate detail | `queries.releaseCandidate(id)` | `GET /mission/releases/candidates/{id}` | `derive_release_candidate` → live branch + report | live |
+| Completed releases | `queries.completedReleases()` | `GET /mission/releases/completed` | `derive_completed_releases` → live catalog history | live |
+| Providers tab | `PROVIDER_ROWS` | — | hardcoded in route file | static |
+| "Preview publication" button | — | `POST /api/observatory/actions` families `candidate:claim/review/promote/reject` exist | WAP authority + journal | dead |
+| "Open dataset" link | `onOpenDataset` | navigates to hardcoded `/datasets/orders` | — | partial |
+
+## Platform — `/platform` (`platform.tsx`)
+
+| Panel | Client query | API route | Provider/store | Status |
+|---|---|---|---|---|
+| Summary | `queries.platformSummary()` | `GET /mission/platform/summary` | `derive_platform_summary` → live runtime/readiness | live |
+| Services | `queries.platformServices()` | `GET /mission/platform/services` | `derive_platform_services` → live containers | live |
+| Service diagnostics rail | `queries.serviceDiagnostics(unready)` | `GET /mission/platform/services/{service_id}` | live environment probe | live |
+| Backup | `queries.backupCoverage()` | `GET /mission/platform/backup` | `backup`/`maintenance` collections → `SEED` | seeded |
+| Maintenance | `queries.maintenance()` | `GET /mission/platform/maintenance` | `maintenance` → `SEED` | seeded |
+| Banner | `Loki is running…` | — | hardcoded | static |
+| "View configuration", "Run diagnostics" | — | — | — | dead |
+| Probe/restart | — | `POST /api/observatory/actions` families `service:start/stop/restart/add` exist | service control machinery | dead |
+
+## Governance — `/governance` (`governance.tsx`)
+
+| Panel | Client query | API route | Provider/store | Status |
+|---|---|---|---|---|
+| Summary | `queries.governanceSummary()` | `GET /mission/governance/summary` | derived counters (ownership gaps live; rest seeded) | partial |
+| Publication reviews | `queries.publicationReviews()` | `GET /mission/governance/publication-reviews` | `publication_reviews` → `SEED` — **no producer exists** | seeded |
+| Access drift | `queries.accessDrift()` | `GET /mission/governance/access-drift` | `access_drift` → `SEED` — no declared→compiled→verified triad | seeded |
+| Ownership gaps | `queries.ownershipGaps()` | `GET /mission/governance/ownership-gaps` | `derive_ownership_gaps` → live `owner` metadata | live |
+| Audit | `queries.auditEvents()` | `GET /mission/governance/audit` | `audit` → `SEED` — real audit exists via callbacks, not surfaced here | seeded |
+| Publication plan rail | `queries.publicationPlan("logistics.shipments")` — hardcoded id | `GET /mission/governance/publication-plan/{dataset_id}` | `publication_plan` → `SEED` | seeded |
+| "Preview Dataset publication", "Preview grant reconciliation", "Export audit log", "Invite member", "Review access drift", "View audit log" | — | `dataset:publish`/`candidate:*` families exist; others none | — | dead |
+
+## Settings — `/settings` (`settings.tsx`)
+
+| Panel | Client query | API route | Provider/store | Status |
+|---|---|---|---|---|
+| Summary | `queries.settingsSummary()` | `GET /mission/settings/summary` | derived counters | partial |
+| Provider connections | `queries.providerConnections()` | `GET /mission/settings/providers` | `provider_connections` → `SEED` | seeded |
+| Provider impact | `queries.providerImpact("polaris")` — hardcoded id | `GET /mission/settings/providers/{provider_id}/impact` | `provider_impact` → `SEED` | seeded |
+| Notification rules | `queries.notificationRules()` | `GET /mission/settings/notifications` | `notification_rules` → `SEED` — no delivery producer | seeded |
+| Members | `queries.workspaceMembers()` | `GET /mission/settings/members` | `members` → `SEED` | seeded |
+| Defaults | `queries.workspaceDefaults()` | `GET /mission/settings/defaults` | `defaults` → `SEED` | seeded |
+| Banner | `Polaris is unreachable` | — | hardcoded | static |
+| "View configuration", "Run diagnostics", "Invite member" | — | — | — | dead |
+
+## Docs / Reference — `/docs`, `/reference`
+
+No API. `/docs` renders static `documentationGroups` with an `ExampleDataChip`
+and two dead buttons. `/reference` renders the CSS token layer.
+
+## Unused-but-defined client queries
+
+`alerts`, `environments`, `runConsumers`, `runConfiguration`,
+`datasetGovernance`. The shell still reads `demo.ts` directly, so the alert and
+environment mission endpoints exist with no consumer.
+
+## Mutation surface actually available (substrate, not mission)
+
+Declared in `security_manifest.py`; all require `lakehouse:operate` unless
+noted. None is currently wired to a UI control.
+
+| Route | Contract |
 |---|---|
-| Base path | `/api/observatory` (the Vite dev server already proxies it) |
-| Environment scoping | Every read takes `?environment=production\|staging\|development`; the topbar switcher drives it |
-| Mutations | `POST /actions` with `{ family, target, params, dryRun, idempotencyKey }`. This route **exists**; the UI's "Preview …" controls need `dryRun` |
-| Live updates | `GET /runs/{run_id}/stream` exists for run logs. Overview and Platform need an equivalent `GET /events` (SSE), with polling as fallback — the footer promises a 15s refresh |
-| Degraded reads | Responses carry `{ stale, lastConfirmedAt }` so evidence can be labelled "last confirmed". No existing convention; must be introduced |
-| Errors | RFC 9457 problem+json with a human `detail`, surfaced verbatim in banners |
+| `POST /api/observatory/actions` | generic `ObservatoryActionRequest{action_id,params,expected_state}`; families `dataset:*`, `candidate:*`, `service:*`, `quality:rerun`, `alert:*`, `branch:*`, `storage:*`, `metadata:*`, `api:*` |
+| `POST /api/observatory/assets/{id}/materialize`, `POST .../backfill` | asset execution |
+| `POST /api/observatory/runs/{id}/retry`, `POST .../cancel` | `run.retry`/`run.cancel` run-action contracts, journaled |
+| `POST /api/observatory/branches`, `POST /merge`, `POST /branches/actions`, `DELETE /branches/{name}` | catalog branch ops |
+| `PUT /api/observatory/dataset-workflow/config`, `PUT /settings`, `PUT /preferences` | settings writes |
+| `POST /api/observatory/query`, `POST /query-with-filters`, `POST /page` | bounded query reads |
 
-## Verified existing surface
+Guarded machinery already in place: scope check, rate limit, idempotency key,
+operation journal, audit callback, replay reconciliation. ADR 0047 invariant: a
+privileged mutation without durable audit persistence does not execute.
 
-These paths are present today and are the substrate stage 2 builds on:
+## Producer gaps (must stay unsupported until built)
 
-```
-overview        /overview
-capabilities    /capabilities  /capability-inventory  /surface-capabilities  /compatibility
-search          /search
-services        /services  /services/{id}  /health  /connection
-operations      /operations  /operations/{id}  /operations/{id}/agent-context
-runs            /runs  /runs/{id}  /runs/{id}/status  /runs/{id}/stream
-                POST /runs/{id}/retry  POST /runs/{id}/cancel
-datasets        /datasets/facets  /datasets/publishing-readiness  /datasets/{id}
-assets          /assets  /assets/{id}  /assets/{id}/materializations  /assets/{id}/partitions
-                /assets/{key}/checks  POST /assets/{id}/materialize  POST /assets/{id}/backfill
-asset graph     /asset-graph  /asset-graph/neighbors  /asset-graph/impact  /graph*
-tables          /tables  /tables/{t}/schema  /tables/{t}/metadata  /tables/{t}/row-count
-                /preview/{t}  /table-preview/{id}  POST /query  POST /query-with-filters  POST /page
-rows            /row-journey/{table}/{row}  /rows/{row}  /rows/{row}/ancestors  /rows/{row}/descendants
-saved queries   /saved-queries  POST /saved-queries
-quality         /quality  /quality/{id}  /failing
-logs            /logs  /logs/facets
-branches        /branches  /branches/{name}  /branches/{name}/entries  /branches/{name}/history
-                POST /branches  POST /merge  POST /branches/actions  DELETE /branches/{name}
-governance      /governance
-extensions      /extensions  /extensions/{id}  /extension-manifests
-                GET/PUT /extensions/{name}/settings  /extensions/{name}/assets/{path}
-settings        /settings  GET/PUT /preferences  /dataset-workflow/config
-surfaces        /pipelines  /storage  /observability  /apis  /bi
-actions         POST /actions  POST /workflow-wizard/proposals  POST /workflow-wizard/actions
-                POST /packages/install  POST /schemas/diff  /diff/{from}/{to}  /stage-diff
-```
+These have **no upstream producer** — they must render explicit
+unsupported/absent states in live mode, never seeds:
 
-What is absent is a **read-model layer shaped for these nine screens**, plus the
-governance resources (ownership, contracts, publication, access policy) that are
-not modelled at all.
+- publication review records (policy verdict + CAS + audit)
+- access-policy declared → compiled → verified triad
+- notification rule storage/delivery
+- workspace member/default administration records
+- release queue ordering beyond WAP branch presence
+- recovery/backup evidence
+- declared contract metadata beyond `owner`/`sla`/`consumers`/`quality_provider`
+  (domain, classification, retention, contract version)
+- row-level lineage (only asset-level graph edges exist)
+- per-run traces/consumers (no producer; expose as unrecorded, never invented)
 
-## Shell
+## Acceptance coverage required
 
-| Export | Endpoint | Status |
-|---|---|---|
-| `alerts` | `GET /alerts` | new |
-| `searchEntries` | `GET /search` | extend (add `kind`, `to` for deep links) |
-| `environments` | `GET /environments` | new |
-
-## Overview — `/`
-
-| Export | Endpoint | Status |
-|---|---|---|
-| `summaryMetrics` | `GET /overview` | extend (counters exist; add `hint` breakdowns) |
-| `attentionItems` | `GET /overview/attention` | new |
-| `activeExecution` | `GET /overview/execution` | new (or derive from `/runs?state=active`) |
-| `dataProducts` | `GET /datasets?limit=5&order=released` | extend (`/datasets` exists, add ordering) |
-| `services` | `GET /services` | extend (add `state` readiness) |
-| `releaseQueue` | `GET /releases/queue` | new |
-| `governanceOverview` | `GET /governance` | extend (add ownership/policy/review counters) |
-| `recoveryOverview` | `GET /platform/recovery` | new |
-
-## Runs — `/runs/$runId`
-
-| Export | Endpoint | Status |
-|---|---|---|
-| `runMeta` | `GET /runs/{runId}` | extend (split execution / evidence / release state) |
-| `runDetails` | `GET /runs/{runId}` | extend (add asset, orchestrator, snapshots, branch) |
-| `runStages` | `GET /runs/{runId}/stages` | new |
-| `duplicateRows` | `GET /runs/{runId}/quality` | new (relates to `/quality`, but needs the failing sample) |
-| `runEvents` | `GET /runs/{runId}/events` | new |
-| `runLogLines` | `GET /logs?runId=` | extend (`/logs` exists, add run filter) |
-| `runSpans` | `GET /runs/{runId}/traces` | new |
-| `runArtifacts` | `GET /runs/{runId}/artifacts` | new |
-| `runConsumers` | `GET /runs/{runId}/consumers` | new |
-| `runConfig` | `GET /runs/{runId}/configuration` | new |
-| — | `POST /runs/{runId}/retry` | exists (add `dry_run` for "Preview retry") |
-
-## Dataset — `/datasets/$datasetId`
-
-| Export | Endpoint | Status |
-|---|---|---|
-| `datasetMeta` | `GET /datasets/{id}` | extend (freshness, snapshots, quality rollup) |
-| `datasetSchema` | `GET /tables/{t}/schema` | exists |
-| `datasetPreview` | `GET /table-preview/{id}` | exists |
-| `datasetChecks` | `GET /assets/{key}/checks` | exists |
-| `datasetLineage` | `GET /asset-graph` | extend (record-level edges, not just asset-level) |
-| `datasetRuns` | `GET /datasets/{id}/runs` | new |
-| `datasetOwnership` | `GET /datasets/{id}/ownership` | new |
-| `datasetContract` | `GET /datasets/{id}/contract` | new (only `publishing-readiness` exists today) |
-| `datasetAccess` | `GET /datasets/{id}/access` | new |
-
-## Releases — `/releases`
-
-Nothing exists; the whole surface is new.
-
-| Export | Endpoint | Status |
-|---|---|---|
-| `releaseMetrics` | `GET /releases/summary` | new |
-| `pendingCandidates` | `GET /releases/candidates` | new |
-| `candidateDetail` | `GET /releases/candidates/{id}` | new |
-| `latestReleases` | `GET /releases/completed` | new |
-| — | `POST /actions` `release:preview` / `release:promote` | new |
-
-## Platform — `/platform`
-
-| Export | Endpoint | Status |
-|---|---|---|
-| `platformMetrics` | `GET /platform/summary` | new |
-| `platformServices` | `GET /services` | extend (readiness probe, runtime source) |
-| `lokiDetail` | `GET /services/{id}` | extend (probe history, failure timestamps) |
-| `dependencyPath` | `GET /services/{id}/dependencies` | new |
-| `backupCoverage` | `GET /platform/backup` | new |
-| `maintenanceRows` | `GET /platform/maintenance` | new |
-| — | `POST /services/{id}/probe` | new |
-
-## Governance — `/governance`
-
-| Export | Endpoint | Status |
-|---|---|---|
-| `governanceMetrics` | `GET /governance` | extend (counters for ownership, classification, contracts, drift) |
-| `publicationReviews` | `GET /governance/publication-reviews` | new |
-| `accessDrift` | `GET /governance/access-drift` | new |
-| `ownershipGaps` | `GET /governance/ownership-gaps` | new |
-| `publishShipments` | `GET /governance/publication-plan/{datasetId}` | new |
-| `auditActivity` | `GET /governance/audit` | new |
-| — | `POST /actions` `dataset:publish` | new (preview-first, CAS on state version) |
-
-## Settings — `/settings`
-
-| Export | Endpoint | Status |
-|---|---|---|
-| `settingsMetrics` | `GET /settings` | extend (add provider/notification/member counters) |
-| `providerConnections` | `GET /settings/providers` | new |
-| `degradedList` | `GET /settings/providers/{name}/impact` | new |
-| `unaffectedList` | `GET /settings/providers/{name}/impact` | new |
-| notification rules | `GET /settings/notifications` | new (`/preferences` covers personal, not workspace rules) |
-| members | `GET /settings/members` | new |
-| defaults | `GET /settings/defaults` | new |
-| — | `POST /settings/providers/{name}/test` | new |
-
-## Documentation / Reference — `/docs`, `/reference`
-
-No API. Documentation content is static in `web/src/content/documentation.ts`.
-Reference reads the CSS token layer at runtime.
-
-## Substrate sources discovered by probing the live project
-
-Probed against `materialize-check/lakehouse`. Three domains I had written off as
-"unmodelled" are in fact already declared or recorded — they need a **read
-path**, not a producer.
-
-| Domain | Source | Live content |
-| --- | --- | --- |
-| Ownership | `owner` key in asset `metadata` (declared on dlt annotations in `workflows/ingestion/retail/files.py`) | 5 of 12 assets owned (`retail-finance`, `retail-master-data` ×2, `retail-marketing`, `retail-operations`); all 7 dbt models unowned → a **real ownership-gap report**, and it correlates exactly with dbt-vs-dlt |
-| Quality | `asset_check_executions` in the run-evidence DB | **34 checks across all 12 assets** — `not_null` / `unique` / `relationships` (dbt) and `pandera_contract` (dlt); 6 `SUCCEEDED`, 28 `PLANNED`, 0 `FAILED` |
-| Quality provider | `quality_provider` key in asset metadata | `pandera` on the same 5 dlt assets — corroborates the `pandera_contract` checks |
-
-`asset_check_executions` columns: `asset_key`, `check_name`, `execution_status`,
-`run_id`, `evaluation_event`, `evaluation_event_timestamp`.
-
-**Why the API reports 0 checks today.** The capability registry's `check`
-collection is empty for this project, so `_load_assets()` attaches no checks and
-`derive_dataset_checks()` renders "Declared" for nothing. The registry does not
-pick up dbt-generated tests. `asset_check_executions` is the ground truth and is
-not being read at all.
-
-**Read it over Dagster GraphQL, not SQL.** `phlo-api` already talks to Dagster
-GraphQL at `DAGSTER_GRAPHQL_URL`, so the checks need no new SQL client:
-
-```graphql
-{ assetCheckExecutions(assetKey: {path: ["sales_facts"]},
-                       checkName: "dbt__unique__sales_facts__unique_sales_facts_line_id",
-                       limit: 5) { status timestamp runId } }
-```
-
-returns
-
-```json
-[{"status": "EXECUTION_FAILED", "timestamp": 1789733920.98, "runId": "9056feb2-…"},
- {"status": "SUCCEEDED",        "timestamp": 1789733910.40, "runId": "d0ebd84c-…"}]
-```
-
-`AssetCheckExecution.status` is the **resolved** status (`SUCCEEDED`,
-`EXECUTION_FAILED`, …). This matters: the SQL `execution_status` column held
-`PLANNED` for the latest run because it failed before evaluation, which would
-have understated the failure. Use GraphQL.
-
-`assetCheckExecutions` takes a single `assetKey` + `checkName`, so fetch the
-check list per asset first (`AssetNode.assetChecksOrError`), then resolve
-executions per check.
-
-**Caveat.** The registry gap above still stands: the check *catalogue* has to
-come from somewhere. For this project the names are in
-`asset_check_executions.check_name` and in the dbt manifest.
-
-**The missing seam.** ~~`phlo-api` has no SQL client.~~ Resolved: read checks
-over Dagster GraphQL (above), which `phlo-api` already uses. No SQL client and
-no new `phlo-dagster` endpoint are needed.
-
-## Data model gaps that block stage 2
-
-1. **Ownership is declared but not surfaced, and has no contract metadata.**
-   `owner` is present on dlt asset metadata (see above) and is enough to build
-   the ownership-gap report. Still genuinely absent: domain, classification,
-   freshness target, retention, contract version — these have no declaration
-   site in `phlo.yaml` or the asset annotations.
-2. **Publication is not a transition.** `publication_state` exists on datasets,
-   but there is no review record, no policy verdict, no state-version CAS and no
-   audit entry for a publication.
-3. **Access policy has no declared → compiled → verified triad.** Drift detection
-   needs all three queryable per dataset and role.
-4. **Evidence is not retrievable per run.** Stages, traces, artifacts and the
-   failing-row sample must be addressable by `runId`. Only `/runs/{id}/status`
-   and `/runs/{id}/stream` exist today.
-5. **Provider reachability is fused with service health.** "Running but not
-   ready" and per-provider dependency paths need the probe layer to be separate
-   from the container list.
-6. **Snapshot lineage is opaque.** Candidate versus released snapshots, and the
-   release record binding them, must be explicit — three screens render the
-   distinction.
-7. **No degraded-read convention.** Stale evidence is a first-class UI state
-   ("last confirmed 09:21") with no server-side representation.
-
-## Coverage check
-
-Every export in `demo.ts` appears above. Verified by enumerating the module:
-
-```
-shell       environments · alerts · searchEntries
-overview    summaryMetrics · attentionItems · activeExecution · dataProducts ·
-            services · releaseQueue · governanceOverview · recoveryOverview
-runs        runMeta · runDetails · runStages · duplicateRows · runEvents ·
-            runLogLines · runSpans · runArtifacts · runConsumers · runConfig
-dataset     datasetMeta · datasetSchema · datasetPreview · datasetChecks ·
-            datasetLineage · datasetRuns · datasetOwnership · datasetContract ·
-            datasetAccess
-releases    releaseMetrics · pendingCandidates · candidateDetail · latestReleases
-platform    platformMetrics · platformServices · lokiDetail · dependencyPath ·
-            backupCoverage · maintenanceRows
-governance  governanceMetrics · publicationReviews · accessDrift · ownershipGaps ·
-            publishShipments · auditActivity
-settings    settingsMetrics · providerConnections · degradedList · unaffectedList
-```
+Each panel needs a truthful-outcome test per MC-01/acceptance conventions:
+healthy-nonempty, healthy-empty, unknown-id 404, unavailable-dependency,
+stale-cache, corrupt/partial store, and (for controls) preview→confirm→reconcile
+with provider evidence. The fixture for these is
+`examples/lakehouses/wap-failure-lab` booted via `BundledStackHarness` — see
+`docs/observatory/acceptance-runbook.md`.

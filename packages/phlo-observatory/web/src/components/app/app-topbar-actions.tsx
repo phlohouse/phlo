@@ -1,20 +1,14 @@
 /**
  * App Topbar Actions component.
  */
-import { AlertTriangle, Check, ChevronDown, Moon, Sun } from "lucide-react";
+import { AlertTriangle, Moon, Sun } from "lucide-react";
 
+import { useQuery } from "@tanstack/react-query";
+import type { MissionContext, ReadEnvelope } from "@/api/types";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { alerts, environments } from "@/data/demo";
+import { queries } from "@/api/mission-control";
 import { useTheme } from "@/components/app/theme-provider";
 import { cn } from "@/lib/utils";
 
@@ -25,42 +19,107 @@ const SEVERITY_DOT = {
   muted: "bg-muted-foreground",
 } as const;
 
-export function EnvironmentSwitcher({
-  value,
-  onChange,
+const DEPENDENCY_DOT = {
+  ready: "bg-success",
+  unavailable: "bg-destructive",
+  unconfigured: "bg-muted-foreground",
+  unsupported: "bg-warning",
+} as const;
+
+/**
+ * The deployment's one configured environment, plus a readiness popover. One
+ * Observatory serves one project/environment — this is a server fact, so the
+ * badge is display-only; the popover surfaces the context diagnostic.
+ */
+export function EnvironmentBadge({
+  context,
 }: {
-  value: string;
-  onChange: (value: string) => void;
+  context: ReadEnvelope<MissionContext> | undefined;
 }) {
-  const dot =
-    value === "Production" ? "bg-success" : value === "Staging" ? "bg-warning" : "bg-muted-foreground";
+  const data = context?.data ?? null;
+  const environment = data?.environment_id ?? "—";
+  const dot = !data
+    ? "bg-muted-foreground"
+    : data.control_ready
+      ? "bg-success"
+      : data.read_ready
+        ? "bg-warning"
+        : "bg-destructive";
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger className="flex cursor-pointer items-center gap-1.5 text-xs font-medium outline-none">
+    <Popover>
+      <PopoverTrigger className="flex cursor-pointer items-center gap-1.5 text-xs font-medium outline-none">
         <span className={cn("size-1.5 rounded-[3px]", dot)} />
-        {value}
-        <ChevronDown className="size-3.5 text-muted-foreground" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
-        <DropdownMenuLabel>Environment</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {environments.map((environment) => (
-          <DropdownMenuItem
-            key={environment}
-            onClick={() => onChange(environment)}
-            className="justify-between text-xs"
-          >
-            {environment}
-            {environment === value ? <Check className="size-3.5" /> : null}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+        {environment}
+        {data?.data_mode === "demo" ? (
+          <span className="text-muted-foreground">demo</span>
+        ) : null}
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0">
+        <div className="border-b border-border px-4 py-3">
+          <div className="text-sm font-semibold">{data?.project_id ?? "No project"}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {environment} · {data?.data_mode ?? "unknown"} mode
+          </div>
+        </div>
+        <div className="flex items-center gap-4 border-b border-border px-4 py-2.5 text-xs">
+          <span className="flex items-center gap-1.5">
+            <span
+              className={cn(
+                "size-1.5 rounded-[3px]",
+                data?.read_ready ? "bg-success" : "bg-destructive",
+              )}
+            />
+            Read {data?.read_ready ? "ready" : "blocked"}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span
+              className={cn(
+                "size-1.5 rounded-[3px]",
+                data?.control_ready ? "bg-success" : "bg-destructive",
+              )}
+            />
+            Control {data?.control_ready ? "ready" : "blocked"}
+          </span>
+        </div>
+        {data?.blockers.length ? (
+          <div className="border-b border-border px-4 py-2.5">
+            {data.blockers.map((blocker) => (
+              <div key={blocker} className="text-xs text-muted-foreground">
+                {blocker}
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <ScrollArea className="max-h-64">
+          <div className="px-4 py-2.5">
+            {data?.dependencies.map((dep) => (
+              <div
+                key={dep.name}
+                className="flex items-center gap-2 py-0.5 text-xs"
+              >
+                <span
+                  className={cn("size-1.5 shrink-0 rounded-[3px]", DEPENDENCY_DOT[dep.status])}
+                />
+                <span className="font-medium">{dep.name}</span>
+                <span className="ml-auto truncate pl-3 text-muted-foreground">
+                  {dep.detail ?? dep.status}
+                </span>
+              </div>
+            ))}
+            {!data ? (
+              <div className="text-xs text-muted-foreground">Context unavailable</div>
+            ) : null}
+          </div>
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
   );
 }
 
 export function AlertsInbox() {
-  const unread = alerts.filter((alert) => alert.severity !== "muted").length;
+  const alerts = useQuery(queries.alerts());
+  const rows = alerts.data?.data ?? [];
+  const unread = rows.filter((alert) => alert.severity !== "muted").length;
   return (
     <Popover>
       <PopoverTrigger
@@ -81,8 +140,8 @@ export function AlertsInbox() {
           </button>
         </div>
         <ScrollArea className="max-h-80">
-          {alerts.map((alert) => (
-            <div key={alert.title} className="flex gap-2.5 border-b border-border px-4 py-2.5 last:border-b-0">
+          {rows.map((alert) => (
+            <div key={alert.id} className="flex gap-2.5 border-b border-border px-4 py-2.5 last:border-b-0">
               <span
                 className={cn(
                   "mt-1 size-2 shrink-0 rounded-full",
@@ -92,7 +151,7 @@ export function AlertsInbox() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="text-[13px] font-semibold">{alert.title}</span>
-                  <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{alert.time}</span>
+                  <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{alert.raised_at}</span>
                 </div>
                 <div className="mt-0.5 text-xs text-muted-foreground">{alert.detail}</div>
                 {alert.action ? (
@@ -106,6 +165,18 @@ export function AlertsInbox() {
               </div>
             </div>
           ))}
+          {alerts.data && rows.length === 0 ? (
+            <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+              {alerts.data.evidence.status === "demo"
+                ? "No alerts in the demo fixture"
+                : "No alerts recorded"}
+            </div>
+          ) : null}
+          {alerts.isError ? (
+            <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+              Alerts unavailable
+            </div>
+          ) : null}
         </ScrollArea>
         <div className="flex items-center justify-between px-4 py-2.5 text-xs text-muted-foreground">
           <span>Alerts report events — they are not evidence</span>

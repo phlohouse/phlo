@@ -12,8 +12,11 @@ import { Route as PlatformRouteImport } from './routes/platform'
 import { Route as ReferenceRouteImport } from './routes/reference'
 import { Route as ReleasesRouteImport } from './routes/releases'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as DatasetsOrdersRouteImport } from './routes/datasets/orders'
-import { Route as RunsOrdersDailyRouteImport } from './routes/runs/orders-daily'
+import { Route as DatasetsIndexRouteImport } from './routes/datasets/index'
+import { Route as DatasetsSplatRouteImport } from './routes/datasets/$'
+import { Route as RunsIndexRouteImport } from './routes/runs/index'
+import { Route as RunsRunIdRouteImport } from './routes/runs/$runId'
+import { Route as ApiObservatorySplatRouteImport } from './routes/api/observatory/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -50,14 +53,29 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DatasetsOrdersRoute = DatasetsOrdersRouteImport.update({
-  id: '/datasets/orders',
-  path: '/datasets/orders',
+const DatasetsIndexRoute = DatasetsIndexRouteImport.update({
+  id: '/datasets/',
+  path: '/datasets/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RunsOrdersDailyRoute = RunsOrdersDailyRouteImport.update({
-  id: '/runs/orders-daily',
-  path: '/runs/orders-daily',
+const DatasetsSplatRoute = DatasetsSplatRouteImport.update({
+  id: '/datasets/$',
+  path: '/datasets/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RunsIndexRoute = RunsIndexRouteImport.update({
+  id: '/runs/',
+  path: '/runs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RunsRunIdRoute = RunsRunIdRouteImport.update({
+  id: '/runs/$runId',
+  path: '/runs/$runId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiObservatorySplatRoute = ApiObservatorySplatRouteImport.update({
+  id: '/api/observatory/$',
+  path: '/api/observatory/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -69,8 +87,11 @@ export interface FileRoutesByFullPath {
   '/reference': typeof ReferenceRoute
   '/releases': typeof ReleasesRoute
   '/settings': typeof SettingsRoute
-  '/datasets/orders': typeof DatasetsOrdersRoute
-  '/runs/orders-daily': typeof RunsOrdersDailyRoute
+  '/datasets/$': typeof DatasetsSplatRoute
+  '/runs/$runId': typeof RunsRunIdRoute
+  '/datasets/': typeof DatasetsIndexRoute
+  '/runs/': typeof RunsIndexRoute
+  '/api/observatory/$': typeof ApiObservatorySplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -80,8 +101,11 @@ export interface FileRoutesByTo {
   '/reference': typeof ReferenceRoute
   '/releases': typeof ReleasesRoute
   '/settings': typeof SettingsRoute
-  '/datasets/orders': typeof DatasetsOrdersRoute
-  '/runs/orders-daily': typeof RunsOrdersDailyRoute
+  '/datasets/$': typeof DatasetsSplatRoute
+  '/runs/$runId': typeof RunsRunIdRoute
+  '/datasets': typeof DatasetsIndexRoute
+  '/runs': typeof RunsIndexRoute
+  '/api/observatory/$': typeof ApiObservatorySplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -92,8 +116,11 @@ export interface FileRoutesById {
   '/reference': typeof ReferenceRoute
   '/releases': typeof ReleasesRoute
   '/settings': typeof SettingsRoute
-  '/datasets/orders': typeof DatasetsOrdersRoute
-  '/runs/orders-daily': typeof RunsOrdersDailyRoute
+  '/datasets/$': typeof DatasetsSplatRoute
+  '/runs/$runId': typeof RunsRunIdRoute
+  '/datasets/': typeof DatasetsIndexRoute
+  '/runs/': typeof RunsIndexRoute
+  '/api/observatory/$': typeof ApiObservatorySplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -105,8 +132,11 @@ export interface FileRouteTypes {
     | '/reference'
     | '/releases'
     | '/settings'
-    | '/datasets/orders'
-    | '/runs/orders-daily'
+    | '/datasets/$'
+    | '/runs/$runId'
+    | '/datasets/'
+    | '/runs/'
+    | '/api/observatory/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -116,8 +146,11 @@ export interface FileRouteTypes {
     | '/reference'
     | '/releases'
     | '/settings'
-    | '/datasets/orders'
-    | '/runs/orders-daily'
+    | '/datasets/$'
+    | '/runs/$runId'
+    | '/datasets'
+    | '/runs'
+    | '/api/observatory/$'
   id:
     | '__root__'
     | '/'
@@ -127,8 +160,11 @@ export interface FileRouteTypes {
     | '/reference'
     | '/releases'
     | '/settings'
-    | '/datasets/orders'
-    | '/runs/orders-daily'
+    | '/datasets/$'
+    | '/runs/$runId'
+    | '/datasets/'
+    | '/runs/'
+    | '/api/observatory/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -139,8 +175,11 @@ export interface RootRouteChildren {
   ReferenceRoute: typeof ReferenceRoute
   ReleasesRoute: typeof ReleasesRoute
   SettingsRoute: typeof SettingsRoute
-  DatasetsOrdersRoute: typeof DatasetsOrdersRoute
-  RunsOrdersDailyRoute: typeof RunsOrdersDailyRoute
+  DatasetsSplatRoute: typeof DatasetsSplatRoute
+  RunsRunIdRoute: typeof RunsRunIdRoute
+  DatasetsIndexRoute: typeof DatasetsIndexRoute
+  RunsIndexRoute: typeof RunsIndexRoute
+  ApiObservatorySplatRoute: typeof ApiObservatorySplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -194,18 +233,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/datasets/orders': {
-      id: '/datasets/orders'
-      path: '/datasets/orders'
-      fullPath: '/datasets/orders'
-      preLoaderRoute: typeof DatasetsOrdersRouteImport
+    '/datasets/': {
+      id: '/datasets/'
+      path: '/datasets'
+      fullPath: '/datasets/'
+      preLoaderRoute: typeof DatasetsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/runs/orders-daily': {
-      id: '/runs/orders-daily'
-      path: '/runs/orders-daily'
-      fullPath: '/runs/orders-daily'
-      preLoaderRoute: typeof RunsOrdersDailyRouteImport
+    '/datasets/$': {
+      id: '/datasets/$'
+      path: '/datasets/$'
+      fullPath: '/datasets/$'
+      preLoaderRoute: typeof DatasetsSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/runs/': {
+      id: '/runs/'
+      path: '/runs'
+      fullPath: '/runs/'
+      preLoaderRoute: typeof RunsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/runs/$runId': {
+      id: '/runs/$runId'
+      path: '/runs/$runId'
+      fullPath: '/runs/$runId'
+      preLoaderRoute: typeof RunsRunIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/observatory/$': {
+      id: '/api/observatory/$'
+      path: '/api/observatory/$'
+      fullPath: '/api/observatory/$'
+      preLoaderRoute: typeof ApiObservatorySplatRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -219,8 +279,11 @@ const rootRouteChildren: RootRouteChildren = {
   ReferenceRoute: ReferenceRoute,
   ReleasesRoute: ReleasesRoute,
   SettingsRoute: SettingsRoute,
-  DatasetsOrdersRoute: DatasetsOrdersRoute,
-  RunsOrdersDailyRoute: RunsOrdersDailyRoute,
+  DatasetsSplatRoute: DatasetsSplatRoute,
+  RunsRunIdRoute: RunsRunIdRoute,
+  DatasetsIndexRoute: DatasetsIndexRoute,
+  RunsIndexRoute: RunsIndexRoute,
+  ApiObservatorySplatRoute: ApiObservatorySplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

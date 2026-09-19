@@ -9,10 +9,10 @@ import type { Crumb } from "@/components/app/app-topbar";
  * example the run id shown in monospace).
  */
 const ROUTES: Array<{ prefix: string; crumbs: Array<Crumb> }> = [
-  { prefix: "/datasets", crumbs: [{ label: "Data", to: "/datasets/orders" }, { label: "Orders" }] },
+  { prefix: "/datasets", crumbs: [{ label: "Data", to: "/datasets" }] },
   {
     prefix: "/runs",
-    crumbs: [{ label: "Runs", to: "/runs/orders-daily" }, { label: "orders_daily" }],
+    crumbs: [{ label: "Runs", to: "/runs" }],
   },
   { prefix: "/releases", crumbs: [{ label: "Releases" }] },
   { prefix: "/platform", crumbs: [{ label: "Platform" }] },
@@ -25,8 +25,11 @@ const ROUTES: Array<{ prefix: string; crumbs: Array<Crumb> }> = [
 export function crumbsForPath(pathname: string): Array<Crumb> {
   if (pathname === "/") return [{ label: "Overview" }];
   for (const route of ROUTES) {
-    if (pathname === route.prefix || pathname.startsWith(`${route.prefix}/`)) {
-      return route.crumbs;
+    if (pathname === route.prefix) return route.crumbs;
+    if (pathname.startsWith(`${route.prefix}/`)) {
+      // Resource pages append the selected id — decoded once, verbatim.
+      const tail = pathname.slice(route.prefix.length + 1);
+      return tail ? [...route.crumbs, { label: decodeURIComponent(tail) }] : route.crumbs;
     }
   }
   return [{ label: pathname.slice(1) }];

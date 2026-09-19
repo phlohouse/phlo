@@ -4,6 +4,7 @@
 import type { PlatformService } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
+import { ServiceControls } from "@/components/sections/platform/service-controls";
 import { statusTone } from "@/lib/status";
 
 function readinessClass(readiness: string) {
@@ -39,20 +40,31 @@ const COLUMNS: Array<DataColumn<PlatformService>> = [
   {
     key: "action",
     header: "",
-    width: "w-13.75",
+    width: "w-24",
     align: "right",
-    cell: (row) => <span className="text-accent-foreground">{row.action}</span>,
+    cell: (row) => <ServiceControls serviceId={row.name} serviceName={row.name} />,
   },
 ];
 
 export function ServiceHealthTable({
   rows,
   className,
+  selectedKey,
+  onRowClick,
 }: {
   rows: Array<PlatformService>;
   className?: string;
+  selectedKey?: string | null;
+  onRowClick?: (row: PlatformService) => void;
 }) {
   return (
-    <DataTable columns={COLUMNS} rows={rows} rowKey={(row) => row.name} className={className} />
+    <DataTable
+      columns={COLUMNS}
+      rows={rows}
+      rowKey={(row) => row.name}
+      className={className}
+      selectedKey={selectedKey}
+      onRowClick={onRowClick}
+    />
   );
 }

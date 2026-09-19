@@ -3,8 +3,10 @@
  */
 import { Bot } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { queries } from "@/api/mission-control";
 import { NAV_ITEMS } from "@/config/navigation";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +16,17 @@ import { cn } from "@/lib/utils";
  */
 export function AppSidebar({ pathname }: { pathname: string }) {
   const navigate = useNavigate();
+  const execution = useQuery(queries.execution());
+  const candidates = useQuery(queries.releaseCandidates());
+
+  // The execution endpoint only reports in-flight runs — its length is the
+  // active count, no client-side status filtering needed.
+  const activeRuns = execution.data?.data?.length ?? 0;
+  const pendingReleases = (candidates.data?.data ?? []).length;
+  const counts: Record<string, number> = {
+    runs: activeRuns,
+    releases: pendingReleases,
+  };
 
   const isActive = (to: string) =>
     to === "/" ? pathname === "/" : pathname === to || pathname.startsWith(`${to}/`);
@@ -51,8 +64,10 @@ export function AppSidebar({ pathname }: { pathname: string }) {
             >
               <Icon className="size-4.5 shrink-0" strokeWidth={1.6} />
               <span className="flex-1 text-left">{item.label}</span>
-              {item.count !== undefined ? (
-                <span className="text-xs text-sidebar-foreground">{item.count}</span>
+              {item.countSource !== undefined ? (
+                <span className="text-xs text-sidebar-foreground">
+                  {counts[item.countSource]}
+                </span>
               ) : null}
             </button>
           );

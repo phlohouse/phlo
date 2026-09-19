@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 
 import { ProviderConnections } from "@/components/sections/settings/provider-connections";
 import { SettingsTable } from "@/components/sections/settings/settings-table";
-import { providerConnections } from "@/data/demo";
+import { providerConnectionRows } from "../../fixtures/demo";
 
 const meta: Meta = { title: "Sections/Settings" };
 export default meta;
@@ -14,7 +14,7 @@ export const Connections: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 940 }}>
       <ProviderConnections
-        connections={providerConnections}
+        connections={providerConnectionRows}
         title="Connections · 3"
         meta="Checks run every 60s · outcomes recorded in Audit"
       />

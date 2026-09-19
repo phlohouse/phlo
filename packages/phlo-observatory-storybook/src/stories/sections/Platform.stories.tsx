@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 
 import { ServiceDiagnosticRail } from "@/components/sections/platform/service-diagnostic-rail";
 import { ServiceHealthTable } from "@/components/sections/platform/service-health-table";
-import { dependencyPath, lokiDetail, platformServices } from "@/data/demo";
+import { dependencyPath, lokiDetail, platformServiceRows } from "../../fixtures/demo";
 
 const meta: Meta = { title: "Sections/Platform" };
 export default meta;
@@ -13,7 +13,7 @@ export default meta;
 export const ServiceHealth: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 900 }}>
-      <ServiceHealthTable rows={platformServices} />
+      <ServiceHealthTable rows={platformServiceRows} />
     </div>
   ),
 };

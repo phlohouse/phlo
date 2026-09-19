@@ -16,8 +16,16 @@ import { SectionHeader } from "@/components/layout/section-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-/** Right-hand rail for a run: configuration, blast radius and artifacts. */
-export function RunDetailsRail({ run }: { run: MissionRunDetail }) {
+/** Right-hand rail for a run: configuration, recorded consumers and artifacts. */
+export function RunDetailsRail({
+  run,
+  consumers,
+  artifacts,
+}: {
+  run: MissionRunDetail;
+  consumers: Array<RunConsumer>;
+  artifacts: Array<RunArtifact>;
+}) {
   return (
     <aside className="flex w-75 shrink-0 flex-col gap-4.5 border-l border-border pl-4.5">
       <section className="flex flex-col gap-2.75">
@@ -26,10 +34,12 @@ export function RunDetailsRail({ run }: { run: MissionRunDetail }) {
       </section>
       <section className="flex flex-col gap-2.5 border-t border-border pt-4">
         <h2 className="font-display text-[15px] leading-4.5 font-semibold">Affected consumers</h2>
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          All three still read the last successful delivery at 08:00.
-        </p>
-        {run.consumers.map((consumer) => (
+        {consumers.length === 0 ? (
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            No downstream consumers recorded for this run.
+          </p>
+        ) : null}
+        {consumers.map((consumer) => (
           <div key={consumer.name} className="flex items-center gap-2">
             <span className="flex flex-1 flex-col gap-0.75">
               <span className="text-xs font-medium">{consumer.name}</span>
@@ -40,34 +50,63 @@ export function RunDetailsRail({ run }: { run: MissionRunDetail }) {
         ))}
       </section>
       <section className="flex flex-col gap-2.5 border-t border-border pt-4">
-        <SectionHeader title="Evidence artifacts" meta={`${run.artifacts.length} files`} />
-        {run.artifacts.map((artifact) => (
+        <SectionHeader title="Evidence artifacts" meta={`${artifacts.length} recorded`} />
+        {artifacts.map((artifact) => (
           <span key={artifact.name} className="text-[11px] leading-3.5 text-accent-foreground">
             {artifact.name}
           </span>
         ))}
-        <span className="text-[10px] leading-4 text-muted-foreground">
-          Checksums recorded · Retained for 30 days
-        </span>
+        {artifacts.length === 0 ? (
+          <span className="text-[10px] leading-4 text-muted-foreground">
+            No artifacts recorded for this run.
+          </span>
+        ) : null}
       </section>
     </aside>
   );
 }
 
-/** Terminal log block used by the Logs tab. */
-export function LogViewer({ lines }: { lines: Array<MissionRunLogLine> }) {
+/** Terminal log block used by the Logs tab — cursor-paginated, so a
+ * reconnecting client continues from the last retained line. */
+export function LogViewer({
+  lines,
+  total,
+  hasMore,
+  onLoadMore,
+}: {
+  lines: Array<MissionRunLogLine>;
+  total?: number | null;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+}) {
   return (
     <section>
-      <SectionHeader title="Logs" meta={`${lines.length} lines`} />
+      <SectionHeader
+        title="Logs"
+        meta={
+          total !== null && total !== undefined
+            ? `${lines.length} of ${total} lines`
+            : `${lines.length} lines`
+        }
+      />
       <div className="overflow-clip rounded-[7px] border border-border bg-[#14121a] p-3 font-mono text-[11px] leading-[1.7] text-[#c9c4d6]">
-        {lines.map((line) => (
-          <div key={`${line.at}-${line.message}`}>
+        {lines.map((line, index) => (
+          <div key={`${index}-${line.at}-${line.message}`}>
             <span className="text-[#6b6580]">{line.at}</span>{" "}
             <span className={line.level === "ERROR" ? "text-[#ff8080]" : ""}>{line.level}</span>{" "}
             {line.message}
           </div>
         ))}
       </div>
+      {hasMore ? (
+        <button
+          type="button"
+          onClick={onLoadMore}
+          className="mt-2 text-[11px] text-accent-foreground hover:underline"
+        >
+          Load more retained lines
+        </button>
+      ) : null}
     </section>
   );
 }
@@ -92,7 +131,16 @@ export function TraceTable({ spans }: { spans: Array<RunSpan> }) {
                 <TableCell className="font-mono text-[11px]">{span.name}</TableCell>
                 <TableCell>
                   <span
-                    className={cn("block h-2 rounded-sm opacity-75", span.tone)}
+                    className={cn(
+                      "block h-2 rounded-sm opacity-75",
+                      span.tone === "danger"
+                        ? "bg-destructive"
+                        : span.tone === "success"
+                          ? "bg-success"
+                          : span.tone === "warning"
+                            ? "bg-warning"
+                            : "bg-accent",
+                    )}
                     style={{ width: `${span.width_percent}%` }}
                   />
                 </TableCell>
@@ -112,7 +160,10 @@ export function TraceTable({ spans }: { spans: Array<RunSpan> }) {
 export function ArtifactList({ artifacts }: { artifacts: Array<RunArtifact> }) {
   return (
     <section>
-      <SectionHeader title="Evidence artifacts" meta="6 files" />
+      <SectionHeader
+        title="Evidence artifacts"
+        meta={`${artifacts.length} recorded`}
+      />
       {artifacts.map((artifact) => (
         <div
           key={artifact.name}
@@ -124,9 +175,11 @@ export function ArtifactList({ artifacts }: { artifacts: Array<RunArtifact> }) {
           </span>
         </div>
       ))}
-      <p className="pt-2 text-[10px] text-muted-foreground">
-        Checksums recorded · Retained for 30 days
-      </p>
+      {artifacts.length === 0 ? (
+        <p className="pt-2 text-[10px] text-muted-foreground">
+          No artifacts recorded for this run.
+        </p>
+      ) : null}
     </section>
   );
 }

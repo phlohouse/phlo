@@ -4,30 +4,37 @@
 import type { CompletedRelease } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
+import { Identifier } from "@/components/data/identifier";
+import { formatTimestamp } from "@/lib/utils";
 
 const COLUMNS: Array<DataColumn<CompletedRelease>> = [
   {
     key: "release",
     header: "Release",
-    width: "w-65",
+    width: "w-55",
     cell: (row) => (
-      <span className="font-medium">
-        {row.id} · {row.dataset}
+      <span className="flex items-center gap-1.5 font-medium">
+        <Identifier value={row.id} head={8} />
+        <span className="truncate text-muted-foreground">· {row.dataset}</span>
       </span>
     ),
   },
   {
     key: "provider",
     header: "Provider · strategy",
-    width: "w-60",
+    width: "w-40",
     cell: (row) => <span className="text-muted-foreground">{row.provider_strategy}</span>,
   },
-  { key: "ref", header: "Reference", cell: (row) => row.reference },
+  {
+    key: "ref",
+    header: "Reference",
+    cell: (row) => <Identifier value={row.reference} head={14} className="text-muted-foreground" />,
+  },
   {
     key: "time",
     header: "Finished",
-    width: "w-32.5",
-    cell: (row) => <span className="text-muted-foreground">{row.finished_at}</span>,
+    width: "w-28",
+    cell: (row) => <span className="text-muted-foreground">{formatTimestamp(row.finished_at)}</span>,
   },
   {
     key: "outcome",
@@ -45,5 +52,13 @@ export function CompletedReleasesTable({
   rows: Array<CompletedRelease>;
   className?: string;
 }) {
-  return <DataTable columns={COLUMNS} rows={rows} rowKey={(row) => row.id} className={className} />;
+  return (
+    <DataTable
+      columns={COLUMNS}
+      rows={rows}
+      rowKey={(row) => row.id}
+      empty="No completed releases recorded"
+      className={className}
+    />
+  );
 }

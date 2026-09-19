@@ -4,8 +4,8 @@
 import { useEffect, useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
 
-import type { Environment } from "@/data/demo";
-import { AlertsInbox, EnvironmentSwitcher, ThemeToggle } from "@/components/app/app-topbar-actions";
+import type { MissionContext, ReadEnvelope } from "@/api/types";
+import { AlertsInbox, EnvironmentBadge, ThemeToggle } from "@/components/app/app-topbar-actions";
 import { CommandPalette } from "@/components/app/command-palette";
 import { Button } from "@/components/ui/button";
 
@@ -17,12 +17,10 @@ export interface Crumb {
 /** Workspace bar: breadcrumb, search trigger, environment, alerts, theme. */
 export function AppTopbar({
   crumbs,
-  environment,
-  onEnvironmentChange,
+  context,
 }: {
   crumbs: Array<Crumb>;
-  environment: Environment;
-  onEnvironmentChange: (environment: Environment) => void;
+  context: ReadEnvelope<MissionContext> | undefined;
 }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
 
@@ -68,10 +66,7 @@ export function AppTopbar({
             <span className="flex-1 text-left">Search Phlo</span>
             <kbd className="text-[11px] text-muted-foreground">⌘ K</kbd>
           </Button>
-          <EnvironmentSwitcher
-            value={environment}
-            onChange={(value) => onEnvironmentChange(value as Environment)}
-          />
+          <EnvironmentBadge context={context} />
           <AlertsInbox />
           <ThemeToggle />
         </div>

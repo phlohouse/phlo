@@ -8,14 +8,11 @@ import { DataProductsTable } from "@/components/sections/overview/data-products-
 import { ExecutionTable } from "@/components/sections/overview/execution-table";
 import { HealthRail } from "@/components/sections/overview/health-rail";
 import {
-  activeExecution,
-  attentionItems,
-  dataProducts,
-  governanceOverview,
-  recoveryOverview,
-  releaseQueue,
-  services,
-} from "@/data/demo";
+  attentionItemRows,
+  dataProductRows,
+  executionRows,
+  overviewRail,
+} from "../../fixtures/demo";
 
 const meta: Meta = { title: "Sections/Overview" };
 export default meta;
@@ -23,7 +20,7 @@ export default meta;
 export const NeedsAttention: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 820 }}>
-      <AttentionList items={attentionItems} />
+      <AttentionList items={attentionItemRows} />
     </div>
   ),
 };
@@ -31,7 +28,7 @@ export const NeedsAttention: StoryObj = {
 export const ActiveExecution: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 820 }}>
-      <ExecutionTable rows={activeExecution} />
+      <ExecutionTable rows={executionRows} />
     </div>
   ),
 };
@@ -39,21 +36,13 @@ export const ActiveExecution: StoryObj = {
 export const DataProducts: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 820 }}>
-      <DataProductsTable rows={dataProducts} />
+      <DataProductsTable rows={dataProductRows} />
     </div>
   ),
 };
 
 export const Rail: StoryObj = {
   render: () => (
-    <HealthRail
-      services={services.slice(0, 6)}
-      totalServices={services.length}
-      releaseQueue={releaseQueue}
-      governance={governanceOverview}
-      recovery={recoveryOverview}
-      readyCount={services.filter((service) => service.state === "Ready").length}
-      totalReady={services.length}
-    />
+    <HealthRail rail={overviewRail} />
   ),
 };

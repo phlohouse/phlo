@@ -3,7 +3,7 @@
  */
 import type { Meta, StoryObj } from "@storybook/react";
 
-import { ExampleDataChip, PageHeader } from "@/components/layout/page-header";
+import { PageHeader, ReadStateChip } from "@/components/layout/page-header";
 import { Section, SectionHeader, InlineLink } from "@/components/layout/section-header";
 import { SectionCard } from "@/components/layout/section-card";
 import { StatusPill } from "@/components/data/status-pill";
@@ -12,12 +12,24 @@ import { Button } from "@/components/ui/button";
 const meta: Meta = { title: "Layout/PageHeader" };
 export default meta;
 
+const demoEvidence = {
+  status: "demo" as const,
+  project_id: "storybook",
+  environment_id: "storybook",
+  source: "fixture",
+  observed_at: new Date().toISOString(),
+  last_confirmed_at: null,
+  reason_code: null,
+  detail: null,
+  dropped_records: 0,
+};
+
 export const Overview: StoryObj = {
   render: () => (
     <div style={{ width: 1000 }}>
       <PageHeader
         title="Overview"
-        titleAccessory={<ExampleDataChip />}
+        titleAccessory={<ReadStateChip evidence={demoEvidence} />}
         actions={
           <>
             <Button variant="outline">Last 24 hours</Button>
@@ -39,7 +51,7 @@ export const WithStatusAndDescription: StoryObj = {
             <StatusPill tone="danger" dot={false}>
               Failed validation
             </StatusPill>
-            <ExampleDataChip />
+            <ReadStateChip evidence={demoEvidence} />
           </>
         }
         description="Run r7e42b · 13 Sep 2026, 09:25 UTC · Scheduled · Partition 2026-09-13"

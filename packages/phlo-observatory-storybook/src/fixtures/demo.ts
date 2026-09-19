@@ -611,3 +611,280 @@ export const recoveryOverview = [
   { label: "Restore rehearsal", value: "3 days ago · Passed", tone: "text-success" },
   { label: "Table maintenance", value: "2 optimizations due", tone: "text-warning" },
 ];
+
+/* ------------------------------------------- run evidence (MC-04 shapes) */
+
+const RUN_ID = "r7e42b";
+
+export const runStageViews = [
+  { run_id: RUN_ID, name: "Ingest orders", provider: "dlt", outcome: "Succeeded", offset_percent: 0, width_percent: 25, duration: "34s", note: null, flagged: false },
+  { run_id: RUN_ID, name: "Build orders mart", provider: "dbt", outcome: "Succeeded", offset_percent: 25, width_percent: 54, duration: "1m 12s", note: null, flagged: false },
+  { run_id: RUN_ID, name: "Validate candidate", provider: "Pandera", outcome: "Failed", offset_percent: 79, width_percent: 21, duration: "28s", note: null, flagged: true },
+  { run_id: RUN_ID, name: "Promote branch", provider: "Nessie", outcome: "Blocked", offset_percent: 0, width_percent: 0, duration: "—", note: "No provider mutation", flagged: false },
+  { run_id: RUN_ID, name: "Deliver to target", provider: "Postgres", outcome: "Not started", offset_percent: 0, width_percent: 0, duration: "—", note: "No provider mutation", flagged: false },
+];
+
+export const missionRunEvents = [
+  { run_id: RUN_ID, at: "09:26:46", level: "INFO" as const, message: "Candidate snapshot 938106 created on wap/r7e42b.", attempt: 1 },
+  { run_id: RUN_ID, at: "09:27:14", level: "ERROR" as const, message: "unique_order_id failed: 42 rows. Release withheld.", attempt: 1 },
+  { run_id: RUN_ID, at: "09:27:14", level: "INFO" as const, message: "Evidence complete. Released snapshot 938105 unchanged.", attempt: 1 },
+];
+
+export const runQualityReport = {
+  run_id: RUN_ID,
+  attempt: 1,
+  results: [
+    { run_id: RUN_ID, check: "unique_order_id", asset: "marts.orders", stage: "validate", attempt: 1, outcome: "failed", severity: "ERROR", blocking: true, evaluated: 1204000, failed: 42, tone: "danger" as const },
+    { run_id: RUN_ID, check: "not_null_order_ts", asset: "marts.orders", stage: "validate", attempt: 1, outcome: "passed", severity: "WARN", blocking: false, evaluated: 1204000, failed: 0, tone: "success" as const },
+    { run_id: RUN_ID, check: "freshness_2h", asset: "marts.orders", stage: "validate", attempt: 1, outcome: "never_evaluated", severity: null, blocking: false, evaluated: null, failed: null, tone: "muted" as const },
+  ],
+  blocking_failure: {
+    run_id: RUN_ID,
+    check: "unique_order_id",
+    verdict: "failed",
+    detail: "42 rows violate uniqueness on order_id",
+    sample: [
+      { key: "order_id", record_id: "ORD-10482", observed_at: "2026-09-13 09:14:08", occurrences: 2 },
+      { key: "order_id", record_id: "ORD-10517", observed_at: "2026-09-13 09:18:42", occurrences: 2 },
+    ],
+    sample_total: 42,
+  },
+};
+
+export const runSpanViews = [
+  { run_id: RUN_ID, name: "run.orders_daily", duration: "134,000ms", width_percent: 100, tone: "danger" as const },
+  { run_id: RUN_ID, name: "stage.ingest_orders", duration: "34,000ms", width_percent: 25, tone: "success" as const },
+  { run_id: RUN_ID, name: "stage.build_mart", duration: "72,000ms", width_percent: 54, tone: "success" as const },
+  { run_id: RUN_ID, name: "stage.validate", duration: "28,000ms", width_percent: 21, tone: "danger" as const },
+];
+
+export const missionRunLogLines = [
+  { run_id: RUN_ID, at: "09:25:00", level: "INFO" as const, message: "dlt pipeline orders_incremental start · partition 2026-09-13", attempt: 1 },
+  { run_id: RUN_ID, at: "09:25:34", level: "INFO" as const, message: "ingest complete · 1,204,000 rows staged in 34s", attempt: 1 },
+  { run_id: RUN_ID, at: "09:26:46", level: "INFO" as const, message: "candidate snapshot 938106 created on wap/r7e42b", attempt: 1 },
+  { run_id: RUN_ID, at: "09:27:14", level: "ERROR" as const, message: "unique_order_id failed: 42 rows. Release withheld.", attempt: 1 },
+  { run_id: RUN_ID, at: "09:27:14", level: "INFO" as const, message: "evidence complete · released snapshot 938105 unchanged", attempt: 1 },
+];
+
+export const runArtifactRows = [
+  { run_id: RUN_ID, name: "quality-results.json", size: "18 KB", checksum: "sha256:9c41…" },
+  { run_id: RUN_ID, name: "failed-rows.parquet", size: "4.2 KB", checksum: "sha256:71be…" },
+  { run_id: RUN_ID, name: "dbt-run-results.json", size: "96 KB", checksum: "sha256:a903…" },
+];
+
+export const runConsumerRows = [
+  { run_id: RUN_ID, name: "Revenue dashboard", role: "Superset · Analytics", current_snapshot: "938105" },
+  { run_id: RUN_ID, name: "Orders API", role: "PostgREST · Commerce", current_snapshot: "938105" },
+  { run_id: RUN_ID, name: "Finance reconciliation", role: "dbt · Finance", current_snapshot: "938105" },
+];
+
+export const runConfigRows = runConfig.map((row) => ({ run_id: RUN_ID, ...row }));
+export const runDetailRows = runDetails.map((row) => ({ run_id: RUN_ID, ...row }));
+
+export const missionRunDetail = {
+  id: RUN_ID,
+  workflow: "orders_daily",
+  run_id: RUN_ID,
+  status: "Failed validation",
+  summary: "Run r7e42b · 13 Sep 2026, 09:25 UTC · Scheduled · Partition 2026-09-13",
+  metrics: runMeta.metrics.map((m) => ({
+    label: m.label,
+    value: m.value,
+    hint: m.hint,
+    tone: m.tone.includes("destructive")
+      ? ("danger" as const)
+      : m.tone.includes("success")
+        ? ("success" as const)
+        : m.tone.includes("warning")
+          ? ("warning" as const)
+          : ("muted" as const),
+  })),
+  details: runDetailRows,
+  consumers: runConsumerRows,
+  artifacts: runArtifactRows,
+  identity: {
+    run_id: RUN_ID,
+    durable_run_id: "durable:r7e42b",
+    provider_run_id: "dagster:7e42b9c1",
+    attempt: 1,
+    report: "wap-report-r7e42b",
+    pipeline: "orders_daily",
+    operation_id: "op-3f8a2c",
+    launch_digest: "sha256:wap-launch-d41c",
+    asset_ids: ["marts.orders"],
+  },
+};
+
+/* ---------------------------------------- releases (MC-07/08 shapes) */
+
+export const pendingCandidateRows = [
+  {
+    id: "r8c291",
+    dataset: "Customers",
+    provider: "Polaris",
+    strategy: "snapshot",
+    readiness: "Ready for review",
+    evidence: "Complete · 14/14 passed",
+    created_at: "09:31",
+    action: "Review",
+    run_id: "r8c291",
+    orchestrator_run_id: "dagster:8c291f",
+    staging_ref: "wap/r8c291",
+    source_revision: "candidate-720128",
+    target_revision: "42",
+    blockers: [],
+  },
+  {
+    id: "r7e42b",
+    dataset: "Orders",
+    provider: "Nessie",
+    strategy: "branch_merge",
+    readiness: "Blocked by quality",
+    evidence: "Complete · 11/12 passed",
+    created_at: "09:27",
+    action: "Inspect",
+    run_id: "r7e42b",
+    orchestrator_run_id: "dagster:7e42b9c1",
+    staging_ref: "wap/r7e42b",
+    source_revision: "candidate-938106",
+    target_revision: "938105",
+    blockers: ["unique_order_id failed: 42 rows"],
+  },
+];
+
+export const candidateDetailView = {
+  id: "r8c291",
+  subtitle: "Polaris snapshot publication · Run r8c291 · Data platform",
+  status: "Ready for review",
+  revision: "Release revision 42 → proposed 43",
+  snapshot_changes: [
+    { table: "crm.customers", released_snapshot: "720114", candidate_snapshot: "720128", row_delta: "—" },
+    { table: "crm.customer_segments", released_snapshot: "881020", candidate_snapshot: "881031", row_delta: "—" },
+  ],
+  required_evidence: [
+    { name: "Quality checks", detail: "14 passed · 0 blocking failures", outcome: "Passed", tone: "success" as const },
+    { name: "Run evidence", detail: "All required stages and artifacts recorded", outcome: "Complete", tone: "success" as const },
+    { name: "Snapshot audit", detail: "Both candidate snapshots match audit", outcome: "Matched", tone: "success" as const },
+    { name: "Release revision", detail: "Expected 42 · Observed 42", outcome: "Current", tone: "success" as const },
+  ],
+  publication_plan: [
+    { label: "Operation", value: "Publish audited snapshots" },
+    { label: "Catalog", value: "Polaris · analytics" },
+    { label: "Expected revision", value: "42" },
+    { label: "Intent", value: "Not submitted" },
+  ],
+  candidate: null,
+  run_id: "r8c291",
+  orchestrator_run_id: "dagster:8c291f",
+  staging_ref: "wap/r8c291",
+  strategy: "snapshot",
+  source_revision: "candidate-720128",
+  target_revision: "42",
+  blockers: [],
+};
+
+export const completedReleaseRows = [
+  { id: "r6f812", dataset: "Sessions", provider: "Nessie", provider_strategy: "branch_merge", reference: "main · 6fb812a", finished_at: "09:12 UTC", outcome: "Merge confirmed" },
+  { id: "r4a70d", dataset: "Orders", provider: "Nessie", provider_strategy: "branch_merge", reference: "main · 4a70d92 · Snapshot 938105", finished_at: "08:00 UTC", outcome: "Merge confirmed" },
+];
+
+/* ------------------------------------ current API-model-shaped fixtures */
+
+export const attentionItemRows = [
+  { id: "a1", severity: "danger" as const, title: "Orders release withheld", detail: "unique_order_id failed on 42 rows — consumers still read snapshot 938105.", action: "Review run", target: "/runs/r7e42b" },
+  { id: "a2", severity: "warning" as const, title: "Polaris unreachable", detail: "Release evidence and promotion status shown as last confirmed.", action: "Inspect provider", target: "/settings" },
+  { id: "a3", severity: "accent" as const, title: "2 publication reviews pending", detail: "Shipments is ready; Customer contacts lacks an accountable owner.", action: "Open reviews", target: "/governance" },
+];
+
+export const executionRows = [
+  { id: "e1", workflow: "orders_daily", stage: "Validate candidate", progress: "3 / 5 stages", elapsed: "1m 46s", run_id: "r7e42b" },
+  { id: "e2", workflow: "sessions_hourly", stage: "Ingest", progress: "1 / 4 stages", elapsed: "38s", run_id: "r8c301" },
+];
+
+export const dataProductRows = [
+  { id: "dp1", name: "marts.orders", freshness: "95m · target 2h", quality: "1 blocking failure", released: "938105", consumers: 3, target: "/datasets/marts.orders" },
+  { id: "dp2", name: "crm.customers", freshness: "22m · target 1h", quality: "14 / 14 passed", released: "720114", consumers: 5, target: "/datasets/crm.customers" },
+];
+
+export const overviewRail = {
+  id: "rail",
+  ready_count: 11,
+  total_services: 12,
+  services: [
+    { name: "Loki", role: "Log storage", state: "Not ready" },
+    { name: "Dagster", role: "Orchestration", state: "Ready" },
+    { name: "Postgres", role: "Serving / state", state: "Ready" },
+    { name: "Nessie", role: "Branch catalog", state: "Ready" },
+    { name: "Polaris", role: "REST catalog", state: "Ready" },
+    { name: "Trino", role: "Query engine", state: "Ready" },
+  ],
+  release_queue: [
+    { name: "Customers · r8c291", state: "Ready for review", detail: "Snapshot strategy · 14/14 checks" },
+    { name: "Orders · r7e42b", state: "Blocked", detail: "Quality gate failed" },
+  ],
+  governance: [
+    { label: "Dataset ownership", value: "124 / 128 assigned", tone: "warning" as const },
+    { label: "Access policies", value: "In sync", tone: "success" as const },
+    { label: "Publication reviews", value: "2 awaiting review", tone: "accent" as const },
+  ],
+  recovery: [
+    { label: "Last backup", value: "06:00 · Verified", tone: "success" as const },
+    { label: "Restore rehearsal", value: "3 days ago · Passed", tone: "success" as const },
+    { label: "Table maintenance", value: "2 optimizations due", tone: "warning" as const },
+  ],
+};
+
+export const datasetRunRows = [
+  { run_id: "r7e42b", finished_at: "09:27", outcome: "Failed validation", release: "Not promoted", duration: "2m 14s" },
+  { run_id: "r6b190", finished_at: "08:00", outcome: "Succeeded", release: "938105", duration: "1m 58s" },
+  { run_id: "r5d871", finished_at: "07:00", outcome: "Succeeded", release: "938104", duration: "2m 03s" },
+];
+
+export const datasetOwnershipView = {
+  owner: "Data platform",
+  domain: "Commerce",
+  freshness_target: "2 hours",
+  schedule: "Hourly",
+  classification: "Internal",
+  contract_version: "v3 · Approved",
+  retention: "7 years · cold after 1",
+};
+
+export const datasetAccessRows = [
+  { principal: "Analytics", kind: "read" as const, scope: "Postgres · marts.orders" },
+  { principal: "Finance", kind: "read" as const, scope: "PostgREST · /orders" },
+  { principal: "Orders API", kind: "service" as const, scope: "PostgREST · /orders" },
+];
+
+export const platformServiceRows = [
+  { name: "Loki", role: "Log storage", runtime_state: "Running", readiness_state: "Not ready", probe: "Timeout · 5s", action: "Selected", attention: true },
+  { name: "Dagster", role: "Orchestration", runtime_state: "Running", readiness_state: "Ready", probe: "HTTP 200", action: "Open", attention: false },
+  { name: "Postgres", role: "Serving / state", runtime_state: "Running", readiness_state: "Ready", probe: "Connection OK", action: "Open", attention: false },
+  { name: "Nessie", role: "Branch catalog", runtime_state: "Running", readiness_state: "Ready", probe: "HTTP 200", action: "Open", attention: false },
+  { name: "Polaris", role: "REST catalog", runtime_state: "Unreachable", readiness_state: "Unknown", probe: "Timeout", action: "Inspect", attention: true },
+  { name: "Trino", role: "Query engine", runtime_state: "Running", readiness_state: "Ready", probe: "HTTP 200", action: "Open", attention: false },
+];
+
+export const accessDriftRows = [
+  { evidence: "Declared policy · v12", permissions: "SELECT", result: "Read only", drifted: false },
+  { evidence: "Compiled grants · v12", permissions: "SELECT", result: "Matches policy", drifted: false },
+  { evidence: "Verified backend grants", permissions: "SELECT, UPDATE", result: "Drift detected", drifted: true },
+];
+
+export const auditActivityRows = [
+  { at: "09:32", actor: "Policy verifier", action: "Verify backend grants", target: "Orders · Postgres", outcome: "Drift recorded", tone: "warning" as const },
+  { at: "09:21", actor: "data.steward", action: "Update contract · v1 → v2", target: "Shipments", outcome: "Applied · Version 7", tone: "success" as const },
+  { at: "08:45", actor: "data.steward", action: "Publish Dataset", target: "Orders", outcome: "Published · Version 12", tone: "success" as const },
+];
+
+export const publicationReviewRows = [
+  { dataset: "Shipments", owner: "Logistics", contract: "v2 · Complete", verdict: "Ready", reason: "All publication requirements met", action: "Review", selected: true },
+  { dataset: "Customer contacts", owner: "Unassigned", contract: "v1 · Complete", verdict: "Blocked", reason: "Accountable owner missing", action: "Inspect", selected: false },
+  { dataset: "Revenue forecast", owner: "Finance", contract: "v3 · Incomplete", verdict: "Blocked", reason: "Freshness expectation missing", action: "Inspect", selected: false },
+];
+
+export const providerConnectionRows = [
+  { name: "Polaris", role: "REST catalog · owns release evidence", endpoint: "polaris.phlo.internal/api", state: "Unreachable · timing out", detail: "Last confirmed response 09:21 · credential configured", action: "Retry check", degraded: true, credential_configured: true },
+  { name: "Nessie", role: "Versioned catalog · owns commit history", endpoint: "nessie.phlo.internal:19120", state: "Connected · 42ms", detail: "Last check 09:35 · credential configured", action: "Test connection", degraded: false, credential_configured: true },
+  { name: "Object storage", role: "S3-compatible · holds table files", endpoint: "s3://phlo-lake-prod", state: "Connected · 18ms", detail: "Last check 09:35 · instance role", action: "Test connection", degraded: false, credential_configured: false },
+];
