@@ -70,6 +70,11 @@ def _encode_run_cursor(activity: str, project_id: str, run_id: str) -> str:
     return urlsafe_b64encode(payload).decode("ascii")
 
 
+def encode_run_cursor(activity: str, project_id: str, run_id: str) -> str:
+    """Public wrapper for callers that re-anchor a page at a displayed row."""
+    return _encode_run_cursor(activity, project_id, run_id)
+
+
 def _decode_run_cursor(cursor: str | None) -> tuple[str, str, str] | None:
     if not cursor:
         return None

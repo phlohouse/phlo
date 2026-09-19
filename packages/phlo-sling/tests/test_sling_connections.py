@@ -173,7 +173,7 @@ def test_clickhouse_connection_uses_native_settings(monkeypatch) -> None:
     conn = _resolve_clickhouse_connection()
     assert conn["PHLO_CLICKHOUSE"] == {
         "type": "clickhouse",
-        "host": "localhost",
+        "host": "127.0.0.1",
         "port": 19000,
         "database": "analytics",
         "user": "svc",

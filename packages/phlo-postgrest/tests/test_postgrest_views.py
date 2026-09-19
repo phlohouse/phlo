@@ -256,7 +256,7 @@ class TestPostgreSQLViewManager:
 
         manager = PostgreSTViewManager(password="test-password")
 
-        assert (manager.host, manager.port) == ("localhost", 15433)
+        assert (manager.host, manager.port) == ("127.0.0.1", 15433)
 
     @patch("phlo_postgrest.views.psycopg2.connect")
     def test_execute_sql(self, mock_connect):

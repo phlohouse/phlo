@@ -6,13 +6,13 @@ from phlo_polaris.settings import PolarisSettings
 
 
 def test_uri_builders_resolve_host_outside_compose(monkeypatch) -> None:
-    # Outside the compose network the service hostname resolves to localhost.
+    # Outside the compose network the service hostname resolves to the loopback IP.
     monkeypatch.setenv("POLARIS_HOST", "polaris")
     monkeypatch.setenv("POLARIS_PORT", "10018")
     settings = PolarisSettings()
-    assert settings.polaris_api_uri() == "http://localhost:10018"
-    assert settings.polaris_rest_catalog_uri() == "http://localhost:10018/api/catalog"
-    assert settings.oauth_token_uri() == "http://localhost:10018/api/catalog/v1/oauth/tokens"
+    assert settings.polaris_api_uri() == "http://127.0.0.1:10018"
+    assert settings.polaris_rest_catalog_uri() == "http://127.0.0.1:10018/api/catalog"
+    assert settings.oauth_token_uri() == "http://127.0.0.1:10018/api/catalog/v1/oauth/tokens"
 
 
 def test_credentials_delegate_to_principals(monkeypatch) -> None:
