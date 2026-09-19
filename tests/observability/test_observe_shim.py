@@ -25,19 +25,19 @@ def _reset_shim(monkeypatch: pytest.MonkeyPatch) -> None:
     phlo_observe.reset_for_tests()
 
 
-def test_sdk_unavailable_on_py311() -> None:
-    """The marker-gated SDK is absent on Python 3.11 — shim reports so."""
-    import sys
+def test_sdk_unavailable_reports_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulated absence, not version-conditional: the shim reports so."""
+    monkeypatch.setattr(phlo_observe, "_import_optional", lambda *a, **kw: None)
+    phlo_observe.reset_for_tests()
+    assert phlo_observe.available() is False
 
-    if sys.version_info < (3, 12):
-        assert phlo_observe.available() is False
 
-
-def test_configure_returns_false_without_sdk() -> None:
-    if not phlo_observe.available():
-        assert phlo_observe.configure() is False
-        # Idempotent: a second failure does not re-attempt or raise.
-        assert phlo_observe.configure() is False
+def test_configure_returns_false_without_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(phlo_observe, "_import_optional", lambda *a, **kw: None)
+    phlo_observe.reset_for_tests()
+    assert phlo_observe.configure() is False
+    # Idempotent: a second failure does not re-attempt or raise.
+    assert phlo_observe.configure() is False
 
 
 def test_null_scopes_are_context_managers() -> None:
@@ -222,40 +222,28 @@ def test_env_flag_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
     assert phlo_observe._env_flag("PHLO_OBSERVE_ENABLED") is False
 
 
-def test_configure_forwards_overrides() -> None:
-    """configure() passes overrides to configure_phlo when the SDK exists."""
-    captured: dict = {}
+def test_configure_defaults_disabled_without_destination() -> None:
+    """No endpoint and no drains: the runtime configures but stays disabled
+    — a Phlo process must not default to console output."""
+    observe_core = pytest.importorskip("observe_core", reason="SDK not installed")
 
-    class _FakeSdk:
-        @staticmethod
-        def configure_phlo(**kwargs: object) -> None:
-            captured.update(kwargs)
-
-    phlo_observe._sdk = _FakeSdk()
-    phlo_observe._sdk_checked = True
     assert phlo_observe.configure(service_name="test") is True
-    # No endpoint/drains configured -> stays disabled by default.
-    assert captured["enabled"] is False
-    assert captured["service_name"] == "test"
+    assert phlo_observe.enabled() is False
+    assert observe_core.runtime.get_runtime().settings.service_name == "test"
 
 
-def test_configure_endpoint_enables_and_replaces_console() -> None:
-    captured: dict = {}
+def test_configure_endpoint_enables_and_replaces_console(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An HTTP endpoint flips the runtime on, and the SDK's default console
+    drain is replaced by the endpoint's HTTP drain — no duplicate stdout."""
+    observe_core = pytest.importorskip("observe_core", reason="SDK not installed")
+    monkeypatch.setenv("OBSERVE_HTTP_ENDPOINT", "http://localhost:10010")
 
-    class _FakeSdk:
-        @staticmethod
-        def configure_phlo(**kwargs: object) -> None:
-            captured.update(kwargs)
-
-    phlo_observe._sdk = _FakeSdk()
-    phlo_observe._sdk_checked = True
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("OBSERVE_HTTP_ENDPOINT", "http://localhost:10010")
-        assert phlo_observe.configure() is True
-    assert "enabled" not in captured
-    assert captured["drains"] == []
-    assert captured["service_name"] == "phlo"
+    assert phlo_observe.configure() is True
+    assert phlo_observe.enabled() is True
+    runtime = observe_core.runtime.get_runtime()
+    assert [getattr(drain, "name", "?") for drain in runtime.drains] == ["http"]
 
 
 def test_configure_failure_contained() -> None:
