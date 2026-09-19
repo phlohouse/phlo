@@ -75,13 +75,15 @@ test('routes uncertain findings to a human while preserving the suggestion', asy
   })
 })
 
-test('batches fixable findings into one zero-data-retention request', async () => {
+test('batches fixable findings into one tagged compact request', async () => {
   let calls = 0
   const model = new MockEvaluationModel({
     doEvaluate: async (options) => {
       calls += 1
       assert.deepEqual(Object.keys(options.questions), ['route_0', 'route_2'])
-      assert.equal(options.providerOptions?.gateway?.zeroDataRetention, true)
+      assert.deepEqual(options.providerOptions?.gateway?.tags, [
+        'phlo-agent:purpose:maintenance-routing',
+      ])
       assert.deepEqual(Object.keys((options.state as { findings: object }).findings), [
         'route_0',
         'route_2',
