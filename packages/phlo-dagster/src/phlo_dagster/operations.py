@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+import phlo.telemetry as phlo_observe
 from phlo.security.mode import requires_http_authorization
 from phlo.security.service_identity import (
     build_scoped_service_headers,
@@ -143,9 +145,14 @@ async def launch_materialize(
     idempotency_key: str | None = None,
     tags: dict[str, str] | None = None,
     access_token: str | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> DagsterOperationResult:
     """Launch a Dagster materialization run for one asset, reusing a prior run
     tagged with the same idempotency key so client retries never double-materialize.
+
+    ``env`` feeds the pretty/framework-console decision — pass the merged
+    project environment when the caller and the Dagster service share env
+    files; defaults to the process environment.
 
     Raises RuntimeError when Dagster rejects the launch or returns a malformed
     existing-run payload.
@@ -210,7 +217,9 @@ async def launch_materialize(
         {
             "executionParams": {
                 "selector": selector,
-                "runConfigData": run_config or {},
+                # Phlo-owned framework console level rides the run config so
+                # every launch surface gets the same terminal verbosity.
+                "runConfigData": phlo_observe.dagster_run_config(run_config, env=env),
                 "mode": "default",
                 "executionMetadata": {"tags": _tags_for_execution(execution_tags)},
             }

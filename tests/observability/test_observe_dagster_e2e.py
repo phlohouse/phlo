@@ -680,6 +680,75 @@ def test_wap_rejection_golden_ux(captured: Any, bus: Any) -> None:
     assert "    source read blew up" in out
 
 
+def test_pretty_mode_quiets_framework_console(
+    captured: Any, bus: Any, capsys: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pretty-primary runs drop redundant framework chatter from the terminal.
+
+    Launch sites merge ``dagster_run_config`` into the run: with pretty on,
+    the run's console logger falls to WARNING while the Dagster event log
+    keeps every record — canonical telemetry is untouched.
+    """
+    # conftest sets PHLO_LOG_LEVEL=DEBUG for the suite — a debug config that
+    # rightly preserves framework logs — so the quiet path clears it here.
+    monkeypatch.delenv("PHLO_LOG_LEVEL", raising=False)
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    result = dagster.materialize(
+        [_build_wap_asset(bus)],
+        run_config=phlo_observe.dagster_run_config(),
+    )
+    assert result.success
+
+    err = capsys.readouterr().err
+    assert "- dagster - DEBUG -" not in err
+    assert "- dagster - INFO -" not in err
+
+
+def test_pretty_verbose_preserves_framework_console(
+    captured: Any, bus: Any, capsys: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verbose configuration keeps the full framework stream alongside
+    the verbose pretty drain."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY_VERBOSE", "1")
+    run_config = phlo_observe.dagster_run_config()
+    assert "loggers" not in run_config  # nothing injected under verbose config
+
+    result = dagster.materialize([_build_wap_asset(bus)], run_config=run_config)
+    assert result.success
+
+    err = capsys.readouterr().err
+    assert "- dagster - DEBUG -" in err
+    assert "RUN_START" in err
+    assert "STEP_SUCCESS" in err
+
+
+def test_framework_console_default_without_pretty(
+    captured: Any, bus: Any, capsys: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without pretty, merged run config is a no-op and Dagster logs as usual."""
+    run_config = phlo_observe.dagster_run_config()
+    assert "loggers" not in run_config
+
+    result = dagster.materialize([_build_wap_asset(bus)], run_config=run_config)
+    assert result.success
+    assert "- dagster - DEBUG -" in capsys.readouterr().err
+
+
+def test_debug_log_level_preserves_framework_console(
+    captured: Any, bus: Any, capsys: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PHLO_LOG_LEVEL=DEBUG is a debug configuration: full logs survive."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    monkeypatch.setenv("PHLO_LOG_LEVEL", "DEBUG")
+    result = dagster.materialize(
+        [_build_wap_asset(bus)],
+        run_config=phlo_observe.dagster_run_config(),
+    )
+    assert result.success
+    assert "- dagster - DEBUG -" in capsys.readouterr().err
+
+
 def test_pipeline_materialization_overhead_enabled_vs_disabled(captured: Any, bus: Any) -> None:
     """Whole-pipeline overhead: real materialize() runs with and without
     observability. Unlike the per-emit microbenchmarks, this exercises the

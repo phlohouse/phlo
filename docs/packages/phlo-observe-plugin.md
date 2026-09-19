@@ -145,7 +145,12 @@ observer holding different credentials. Instead:
   `pretty` drain: one status line per operational milestone by default,
   with field-dense events (load, commit, promote) stacking their fields
   beneath it, and full diagnostic detail in verbose. Attach with
-  `OBSERVE_DRAINS=pretty` or `PHLO_OBSERVE_PRETTY=true`;
+  `OBSERVE_DRAINS=pretty` or `PHLO_OBSERVE_PRETTY=true`; verbose mode via
+  `PHLO_OBSERVE_PRETTY_VERBOSE=true`. When pretty is enabled, Phlo-launched
+  Dagster runs merge `loggers.console` into the run config so framework
+  chatter drops to `WARNING` and the pretty stream leads the terminal —
+  `PHLO_OBSERVE_PRETTY_VERBOSE` or `PHLO_LOG_LEVEL=DEBUG` preserves the
+  full framework logs;
   `pretty_renderer()` / `render_events()` / `render_jsonl()` render
   captured streams directly.
 - `phlo_observe_plugin.service.yaml` — `phlo-observer` service definition.

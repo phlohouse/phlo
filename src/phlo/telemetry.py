@@ -17,10 +17,21 @@ Configuration is environment-driven via ``configure_phlo``:
 - ``PHLO_OBSERVE_PRETTY`` (``1``/``true``/``yes``/``on``) attaches the pretty
   drain without naming it in ``OBSERVE_DRAINS``. With no other drains or
   endpoint configured it replaces the SDK's console-drain default.
+- ``PHLO_OBSERVE_PRETTY_VERBOSE`` renders the pretty drain in ``verbose``
+  mode — secondary events and diagnostic fields join the output — and
+  preserves the orchestrator's full framework log stream (see below).
 - ``PHLO_OBSERVE_ENABLED=false`` disables emission outright; ``true`` enables
   the SDK defaults even without an endpoint.
 - With neither endpoint nor drains configured the runtime stays disabled so
   plain installs emit nothing.
+
+When the pretty drain is enabled it is the primary human-facing surface, so
+launch sites merge ``dagster_run_config`` into their Dagster run configs:
+the run's framework console logger drops to ``WARNING`` and the pretty event
+stream leads the terminal. ``PHLO_OBSERVE_PRETTY_VERBOSE`` or
+``PHLO_LOG_LEVEL=DEBUG`` keeps the framework console at ``DEBUG``. This only
+reshapes what the console *renders* — the Dagster event log and captured
+``context.log`` records keep every event.
 
 Optional dependencies are resolved through ``importlib`` so static analysis
 never sees the imports: on Python versions the SDK does not support, or in
@@ -32,7 +43,7 @@ from __future__ import annotations
 import contextlib
 import importlib
 import os
-from collections.abc import Iterator
+from collections.abc import Container, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any
 
@@ -97,9 +108,9 @@ def enabled() -> bool:
         return False
 
 
-def _env_flag(name: str) -> bool | None:
+def _env_flag(name: str, env: Mapping[str, str] | None = None) -> bool | None:
     """Parse a boolean-ish environment variable; None when unset."""
-    raw = os.environ.get(name)
+    raw = (os.environ if env is None else env).get(name)
     if raw is None:
         return None
     return raw.strip().lower() in {"1", "true", "yes", "on"}
@@ -120,6 +131,35 @@ def _hidden_env(name: str) -> Iterator[None]:
     finally:
         if saved is not None:
             os.environ[name] = saved
+
+
+def _want_pretty(
+    drain_names: Container[str] | None = None, env: Mapping[str, str] | None = None
+) -> bool:
+    """Whether the pretty drain was requested via drains or the env flag."""
+    env = os.environ if env is None else env
+    if drain_names is None:
+        drains_env = env.get("OBSERVE_DRAINS")
+        drain_names = {n.strip() for n in (drains_env or "").split(",") if n.strip()}
+    return "pretty" in drain_names or bool(_env_flag("PHLO_OBSERVE_PRETTY", env))
+
+
+def _pretty_verbose(env: Mapping[str, str] | None = None) -> bool:
+    """Whether verbose pretty output was requested."""
+    return bool(_env_flag("PHLO_OBSERVE_PRETTY_VERBOSE", env))
+
+
+def _framework_debug_requested(env: Mapping[str, str] | None = None) -> bool:
+    """Whether verbose/debug configuration asks for the full framework log.
+
+    ``PHLO_OBSERVE_PRETTY_VERBOSE`` requests the verbose pretty surface and
+    ``PHLO_LOG_LEVEL=DEBUG`` is Phlo's general debug switch — either means the
+    user opted into maximum terminal detail.
+    """
+    if _pretty_verbose(env):
+        return True
+    env = os.environ if env is None else env
+    return env.get("PHLO_LOG_LEVEL", "").strip().upper() == "DEBUG"
 
 
 def configure(**overrides: Any) -> bool:
@@ -147,7 +187,7 @@ def configure(**overrides: Any) -> bool:
         # afterwards.
         drains_env = os.environ.get("OBSERVE_DRAINS")
         drain_names = {n.strip() for n in (drains_env or "").split(",") if n.strip()}
-        want_pretty = "pretty" in drain_names or bool(_env_flag("PHLO_OBSERVE_PRETTY"))
+        want_pretty = _want_pretty(drain_names)
         if enabled_override is False:
             overrides.setdefault("enabled", False)
         elif enabled_override is not True and not (
@@ -202,7 +242,7 @@ def _attach_pretty_drain(runtime: Any) -> None:
             hint="pretty output needs phlo-observe-plugin and a PrettyRenderer-capable observe-core",
         )
         return
-    add_drain(drain_cls())
+    add_drain(drain_cls(mode="verbose" if _pretty_verbose() else "pretty"))
 
 
 def reset_for_tests() -> None:
@@ -520,6 +560,68 @@ def _guarded(context: Any) -> Any:
 
 
 # -- Dagster integration ------------------------------------------------------
+
+
+def dagster_console_log_level(default: str = "DEBUG", env: Mapping[str, str] | None = None) -> str:
+    """Console log level for Dagster's per-run framework logger.
+
+    With pretty observability on, the pretty drain is the primary terminal
+    surface and Dagster's lifecycle chatter (RUN_START, STEP_OUTPUT, …) is
+    redundant — the level drops to ``WARNING`` so the pretty stream leads.
+    Verbose/debug configuration preserves the full stream.
+
+    A render-level decision only: the Dagster event log and captured
+    ``context.log`` records keep every event — nothing is dropped from the
+    canonical stores.
+
+    ``env`` defaults to ``os.environ``; launch sites may pass the merged
+    project environment (``phlo.config.env.load_project_env``) when the run
+    executes against a container whose env files the host shares.
+    """
+    if _env_flag("PHLO_OBSERVE_ENABLED", env) is False:
+        # Pretty is configured out — quieting the framework console would
+        # leave the terminal with no run narrative at all.
+        return default
+    if _want_pretty(env=env) and not _framework_debug_requested(env):
+        return "WARNING"
+    return default
+
+
+def dagster_loggers_config(env: Mapping[str, str] | None = None) -> dict[str, Any] | None:
+    """The ``loggers`` section for a Dagster run config, or ``None``.
+
+    ``None`` means Dagster's own defaults apply — either pretty output is not
+    the primary surface or verbose/debug configuration asked for the full
+    framework stream.
+    """
+    level = dagster_console_log_level(env=env)
+    if level == "DEBUG":
+        return None
+    return {"console": {"config": {"log_level": level}}}
+
+
+def dagster_run_config(
+    run_config: dict[str, Any] | None = None, env: Mapping[str, str] | None = None
+) -> dict[str, Any]:
+    """Merge Phlo's Dagster console-log level into a run config.
+
+    Launch sites (``phlo materialize``, sensors, in-process ``materialize``)
+    pass their run config through here so every Phlo-launched run renders the
+    same console verbosity. A no-op when framework logging stays at default;
+    an explicitly configured ``console`` ``log_level`` always wins.
+    """
+    merged: dict[str, Any] = dict(run_config or {})
+    loggers_config = dagster_loggers_config(env)
+    if loggers_config is None:
+        return merged
+    loggers = dict(merged.get("loggers") or {})
+    console = dict(loggers.get("console") or {})
+    config = dict(console.get("config") or {})
+    config.setdefault("log_level", loggers_config["console"]["config"]["log_level"])
+    console["config"] = config
+    loggers["console"] = console
+    merged["loggers"] = loggers
+    return merged
 
 
 def dagster_run_scope(context: Any, *, asset_key: str | None = None) -> Any:

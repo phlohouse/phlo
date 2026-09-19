@@ -60,8 +60,10 @@ from phlo.cli.infrastructure.utils import get_project_name
 from phlo.cli.output import service_unavailable_error, json_envelope
 from phlo.cli.contract import PhloCommand
 from phlo.capabilities.discovery import discover_capabilities
+from phlo.config.env import load_project_env
 from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
+import phlo.telemetry as phlo_observe
 from phlo_dagster.cli_materialize import wait_for_dagster_runtime
 from phlo_dagster.containers import find_dagster_container
 from phlo_dagster.operations import get_run_status, launch_materialize, wait_for_dagster_http
@@ -381,6 +383,7 @@ def _run_wap_backfill(
                             partition_key=partition_date,
                             idempotency_key=logical_run_id,
                             tags=launch.tags,
+                            env=load_project_env(),
                         )
                     )
                 except Exception as exc:
@@ -605,25 +608,40 @@ def _build_materialize_command(
     host_platform = platform.system()
     selected_backend = backend or select_project_container_backend()
 
+    command = [
+        "dagster",
+        "asset",
+        "materialize",
+        "-m",
+        "phlo_dagster.framework.definitions",
+        "--select",
+        asset_name,
+        "--partition",
+        partition_date,
+    ]
+    project_env = load_project_env()
+    loggers_config = phlo_observe.dagster_loggers_config(env=project_env)
+    if loggers_config:
+        command.extend(["--config-json", json.dumps({"loggers": loggers_config})])
+
+    exec_env = {
+        "PHLO_HOST_PLATFORM": host_platform,
+        "PHLO_PROJECT_PATH": "/app",
+    }
+    for pretty_var in (
+        "PHLO_OBSERVE_PRETTY",
+        "PHLO_OBSERVE_PRETTY_VERBOSE",
+        "OBSERVE_DRAINS",
+    ):
+        if project_env.get(pretty_var):
+            exec_env[pretty_var] = project_env[pretty_var]
+
     return selected_backend.container_exec_cmd(
         container_name=container_name,
         user=f"{os.getuid()}:{os.getgid()}" if host_platform == "Linux" else None,
-        env={
-            "PHLO_HOST_PLATFORM": host_platform,
-            "PHLO_PROJECT_PATH": "/app",
-        },
+        env=exec_env,
         workdir="/app",
-        command=[
-            "dagster",
-            "asset",
-            "materialize",
-            "-m",
-            "phlo_dagster.framework.definitions",
-            "--select",
-            asset_name,
-            "--partition",
-            partition_date,
-        ],
+        command=command,
     )
 
 

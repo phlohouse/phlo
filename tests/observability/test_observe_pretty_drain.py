@@ -10,6 +10,7 @@ and the drain registers through ``Runtime.add_drain``.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import pytest
 
@@ -27,6 +28,8 @@ def _reset(monkeypatch: pytest.MonkeyPatch) -> None:
         "OBSERVE_JSONL_PATH",
         "PHLO_OBSERVE_ENABLED",
         "PHLO_OBSERVE_PRETTY",
+        "PHLO_OBSERVE_PRETTY_VERBOSE",
+        "PHLO_LOG_LEVEL",
         "OBSERVE_HTTP_TOKEN",
         "OBSERVE_HTTP_API_KEY",
     ):
@@ -95,3 +98,128 @@ def test_pretty_implies_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OBSERVE_DRAINS", "pretty")
     phlo_observe.configure()
     assert phlo_observe.enabled() is True
+
+
+# -- pretty as the primary terminal surface -------------------------------------
+
+
+def _pretty_drain() -> Any:
+    runtime = observe_core.runtime.get_runtime()
+    return next(drain for drain in runtime.drains if getattr(drain, "name", None) == "pretty")
+
+
+def test_pretty_verbose_env_attaches_verbose_drain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PHLO_OBSERVE_PRETTY_VERBOSE renders the drain in verbose mode."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY_VERBOSE", "1")
+    assert phlo_observe.configure() is True
+    assert _pretty_drain()._renderer._mode == "verbose"
+
+
+def test_pretty_drain_defaults_to_pretty_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    assert phlo_observe.configure() is True
+    assert _pretty_drain()._renderer._mode == "pretty"
+
+
+def test_framework_console_quiets_when_pretty_is_primary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pretty enabled: framework lifecycle chatter drops to WARNING."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    assert phlo_observe.dagster_console_log_level() == "WARNING"
+    assert phlo_observe.dagster_loggers_config() == {
+        "console": {"config": {"log_level": "WARNING"}}
+    }
+
+
+def test_framework_console_quiets_for_drains_pretty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OBSERVE_DRAINS=pretty counts the same as the env flag."""
+    monkeypatch.setenv("OBSERVE_DRAINS", "pretty")
+    assert phlo_observe.dagster_console_log_level() == "WARNING"
+
+
+def test_framework_console_preserved_under_pretty_verbose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verbose pretty is a verbose configuration: full framework logs stay."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY_VERBOSE", "1")
+    assert phlo_observe.dagster_console_log_level() == "DEBUG"
+    assert phlo_observe.dagster_loggers_config() is None
+
+
+def test_framework_console_preserved_under_debug_log_level(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PHLO_LOG_LEVEL=DEBUG is a debug configuration: full logs stay."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    monkeypatch.setenv("PHLO_LOG_LEVEL", "DEBUG")
+    assert phlo_observe.dagster_console_log_level() == "DEBUG"
+
+
+def test_framework_console_default_without_pretty() -> None:
+    """No pretty drain: Dagster's own defaults apply, nothing injected."""
+    assert phlo_observe.dagster_console_log_level() == "DEBUG"
+    assert phlo_observe.dagster_loggers_config() is None
+
+
+def test_framework_console_default_when_observe_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pretty configured but disabled: never quiet the only remaining stream."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    monkeypatch.setenv("PHLO_OBSERVE_ENABLED", "false")
+    assert phlo_observe.dagster_console_log_level() == "DEBUG"
+    assert phlo_observe.dagster_loggers_config() is None
+
+
+def test_dagster_run_config_merges_console_level(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The merge drops into an arbitrary run config alongside existing keys."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    merged = phlo_observe.dagster_run_config(
+        {"ops": {"asset": {"config": {"x": 1}}}, "loggers": {"json": {"config": {}}}}
+    )
+    assert merged == {
+        "ops": {"asset": {"config": {"x": 1}}},
+        "loggers": {
+            "json": {"config": {}},
+            "console": {"config": {"log_level": "WARNING"}},
+        },
+    }
+    # The caller's dict is not mutated.
+    base = {"ops": {"asset": {"config": {"x": 1}}}}
+    phlo_observe.dagster_run_config(base)
+    assert "loggers" not in base
+
+
+def test_dagster_run_config_respects_explicit_log_level(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller's explicit console log_level is itself verbose configuration."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    merged = phlo_observe.dagster_run_config(
+        {"loggers": {"console": {"config": {"log_level": "ERROR"}}}}
+    )
+    assert merged["loggers"]["console"]["config"]["log_level"] == "ERROR"
+
+
+def test_dagster_run_config_passthrough_without_pretty() -> None:
+    """No pretty: the run config round-trips unchanged, no loggers added."""
+    assert phlo_observe.dagster_run_config({"ops": {"a": 1}}) == {"ops": {"a": 1}}
+    assert phlo_observe.dagster_run_config() == {}
+
+
+def test_dagster_loggers_config_reads_supplied_env() -> None:
+    """Launch sites pass a merged project env to predict the run's env —
+    the mapping replaces ``os.environ`` rather than augmenting it."""
+    assert phlo_observe.dagster_loggers_config(env={"PHLO_OBSERVE_PRETTY": "1"}) == {
+        "console": {"config": {"log_level": "WARNING"}}
+    }
+    assert (
+        phlo_observe.dagster_loggers_config(
+            env={"PHLO_OBSERVE_PRETTY": "1", "PHLO_OBSERVE_PRETTY_VERBOSE": "1"}
+        )
+        is None
+    )
+    assert phlo_observe.dagster_loggers_config(env={}) is None

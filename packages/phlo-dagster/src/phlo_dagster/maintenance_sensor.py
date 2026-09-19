@@ -24,6 +24,7 @@ from phlo.capabilities import (
     resolve_capability,
 )
 from phlo.logging import get_logger
+import phlo.telemetry as phlo_observe
 from phlo.operations.journal import (
     OperationJournalState,
     OperationJournalStore,
@@ -412,7 +413,8 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
                                 "table_allowlist": expire_tables,
                             }
                         }
-                    }
+                    },
+                    loggers=phlo_observe.dagster_loggers_config(),
                 ),
             )
 
@@ -433,7 +435,8 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
                                 "ref": policy.ref,
                             }
                         }
-                    }
+                    },
+                    loggers=phlo_observe.dagster_loggers_config(),
                 ),
             )
 

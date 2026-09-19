@@ -109,6 +109,7 @@ already anticipates that reference.
 | `OBSERVE_HTTP_API_KEY`      | producers    | API-key alternative to the bearer token             |
 | `OBSERVE_DRAINS`            | producers    | Explicit drain list (`console,jsonl,http,pretty,...`) |
 | `PHLO_OBSERVE_PRETTY`       | producers    | `true` attaches the human-readable drain without naming it in `OBSERVE_DRAINS` |
+| `PHLO_OBSERVE_PRETTY_VERBOSE` | producers  | `true` renders the pretty drain in verbose mode and preserves the orchestrator's full framework logs |
 | `PHLO_OBSERVE_ENABLED`      | producers    | `false` disables everything; `true` forces SDK defaults |
 | `PHLO_OBSERVER_PORT`        | observer     | Host port for the observer (default `10010`)        |
 | `PHLO_OBSERVER_DB`          | observer     | Database on the shared Postgres (default `phlo_observer`) |
@@ -239,6 +240,17 @@ misconfigured:
   failure escalation); `PHLO_OBSERVE_PRETTY` composes with the other drains,
   so `OBSERVE_DRAINS=jsonl` plus the flag keeps the canonical file while
   showing the readable view.
+- With pretty enabled, Phlo's launch surfaces (`phlo materialize`, sensor
+  `RunRequest`s, GraphQL launches) merge `loggers.console` into the run
+  config so the run's Dagster console drops to `WARNING` — the pretty event
+  stream is the primary terminal narrative. This only changes what the
+  console *renders*: the Dagster event log and captured `context.log`
+  records keep every event. `PHLO_OBSERVE_PRETTY_VERBOSE=true` or
+  `PHLO_LOG_LEVEL=DEBUG` restores the full framework stream, and an explicit
+  `loggers.console.config.log_level` in a caller's own run config always
+  wins. Runs launched outside Phlo's surfaces (the Dagster UI's materialize
+  button, a bare `dagster.materialize` call) keep Dagster's default logging
+  unless their run config is merged through `phlo_observe.dagster_run_config`.
 - The hook bus keeps working regardless: `FailurePolicy.LOG` contains
   translation errors, and the run-evidence store remains the source of truth
   for WAP audit state — observe events are a projection, not the record.
