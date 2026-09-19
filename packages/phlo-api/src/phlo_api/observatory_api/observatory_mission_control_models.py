@@ -11,12 +11,97 @@ No provider URL, credential or raw backend payload may appear in these models.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
 Severity = Literal["danger", "warning", "accent", "muted"]
 Outcome = Literal["success", "warning", "danger", "accent", "muted"]
+
+
+# ------------------------------------------------------------- read evidence
+#
+# Every Mission Control response carries typed data plus read evidence so a
+# screen can distinguish live data, a preserved last-confirmed answer, an
+# unavailable dependency, an unsupported panel and demo content.
+
+EvidenceStatus = Literal["live", "stale", "unavailable", "unsupported", "demo"]
+
+ReasonCode = Literal[
+    "no_producer",
+    "provider_unavailable",
+    "corrupt",
+    "partial",
+    "absent",
+    "stale",
+    "demo",
+]
+
+
+class ReadEvidence(BaseModel):
+    """How the accompanying data was produced."""
+
+    status: EvidenceStatus
+    project_id: str | None = None
+    environment_id: str | None = None
+    source: str
+    observed_at: str
+    last_confirmed_at: str | None = None
+    reason_code: ReasonCode | None = None
+    detail: str | None = None
+    dropped_records: int = 0
+
+
+DataT = TypeVar("DataT")
+
+
+class ReadEnvelope(BaseModel, Generic[DataT]):
+    """Typed data plus the evidence describing how it was produced."""
+
+    data: DataT | None
+    evidence: ReadEvidence
+
+
+# ---------------------------------------------------------- mission context
+#
+# The deployment context binds the app to its one configured project and
+# environment. It reports configuration truth — which dependencies are
+# configured, reachable or unavailable — so the UI and operators can tell a
+# healthy control plane apart from a degraded one without guessing.
+
+
+class MissionDependencyStatus(BaseModel):
+    """Sanitized status of one dependency the deployment relies on."""
+
+    name: str
+    kind: Literal["storage", "capability", "provider", "runtime", "security"]
+    status: Literal["ready", "unavailable", "unconfigured", "unsupported"]
+    detail: str | None = None
+
+
+class MissionActionAvailability(BaseModel):
+    """Whether one mutation family can be dispatched right now."""
+
+    action: str
+    available: bool
+    reason: str | None = None
+
+
+class MissionContext(BaseModel):
+    """The deployment's configured project, environment and control readiness."""
+
+    project_id: str | None
+    project_root: str | None
+    project_valid: bool
+    project_detail: str | None = None
+    environment_id: str
+    data_mode: Literal["live", "demo"]
+    read_ready: bool
+    control_ready: bool
+    blockers: list[str] = Field(default_factory=list)
+    dependencies: list[MissionDependencyStatus] = Field(default_factory=list)
+    actions: list[MissionActionAvailability] = Field(default_factory=list)
+    observed_at: str
 
 
 class MissionAlert(BaseModel):
@@ -88,6 +173,31 @@ class MissionRailStat(BaseModel):
     tone: Outcome = "muted"
 
 
+class MissionServiceVisibility(BaseModel):
+    """Operator-curated service-health visibility for the Overview rail.
+
+    ``shown`` names the catalog services the rail may display; ``None`` means
+    no configuration has been recorded, so the rail applies its default view:
+    every long-running service, excluding one-shot tasks such as setup jobs.
+    """
+
+    shown: list[str] | None
+    configured: bool
+
+
+class MissionServiceOption(BaseModel):
+    """A catalog service the operator may include in the rail.
+
+    ``lifecycle`` is ``task`` for declared one-shot jobs (compose restart
+    policy ``no``) and ``service`` for long-running processes.
+    """
+
+    name: str
+    role: str
+    state: str
+    lifecycle: str = "service"
+
+
 class MissionOverviewRail(BaseModel):
     """The Overview right-hand rail, served as one read model."""
 
@@ -98,6 +208,10 @@ class MissionOverviewRail(BaseModel):
     release_queue: list[MissionQueueItem]
     governance: list[MissionRailStat]
     recovery: list[MissionRailStat]
+    service_options: list[MissionServiceOption] = []
+    service_visibility: MissionServiceVisibility = MissionServiceVisibility(
+        shown=None, configured=False
+    )
 
 
 class MissionEnvironment(BaseModel):
@@ -144,6 +258,35 @@ class RunQualityFailure(BaseModel):
     sample_total: int
 
 
+class RunCheckOutcome(BaseModel):
+    """One quality result pinned to this run's attempt by the store row itself.
+
+    `outcome` separates execution status from evaluation result — a check
+    that ran and failed is not the same as a check whose execution failed.
+    """
+
+    run_id: str
+    check: str
+    asset: str | None = None
+    stage: str | None = None
+    attempt: int = 1
+    outcome: str
+    severity: str | None = None
+    blocking: bool = False
+    evaluated: int | None = None
+    failed: int | None = None
+    tone: Outcome = "muted"
+
+
+class RunQualityReport(BaseModel):
+    """All quality outcomes recorded against one run attempt."""
+
+    run_id: str
+    attempt: int | None = None
+    results: list[RunCheckOutcome]
+    blocking_failure: RunQualityFailure | None = None
+
+
 class RunEvent(BaseModel):
     """A key execution event surfaced without needing the full log."""
 
@@ -151,6 +294,7 @@ class RunEvent(BaseModel):
     at: str
     level: Literal["INFO", "ERROR"]
     message: str
+    attempt: int | None = None
 
 
 class RunSpan(BaseModel):
@@ -247,7 +391,11 @@ class ReleaseSummaryMetric(BaseModel):
 
 
 class ReleaseCandidate(BaseModel):
-    """A candidate snapshot awaiting promotion."""
+    """A WAP-launched candidate awaiting promotion.
+
+    ``id`` is the canonical candidate identity — the logical run id the WAP
+    launch manifest and lifecycle report are keyed on, not the staging ref.
+    """
 
     id: str
     dataset: str
@@ -257,6 +405,12 @@ class ReleaseCandidate(BaseModel):
     evidence: str
     created_at: str
     action: str
+    run_id: str | None = None
+    orchestrator_run_id: str | None = None
+    staging_ref: str | None = None
+    source_revision: str | None = None
+    target_revision: str | None = None
+    blockers: list[str] = Field(default_factory=list)
 
 
 class CandidateSnapshotChange(BaseModel):
@@ -295,10 +449,77 @@ class ReleaseCandidateDetail(BaseModel):
     snapshot_changes: list[CandidateSnapshotChange]
     required_evidence: list[CandidateEvidenceRow]
     publication_plan: list[PublicationPlanRow]
+    run_id: str | None = None
+    orchestrator_run_id: str | None = None
+    staging_ref: str | None = None
+    strategy: str | None = None
+    source_revision: str | None = None
+    target_revision: str | None = None
+    blockers: list[str] = Field(default_factory=list)
+    failure_detail: str | None = None
+
+
+class PromotionPreviewCheck(BaseModel):
+    """One read-only promotion-gate verdict."""
+
+    name: str
+    outcome: str
+    detail: str
+    passed: bool | None
+
+
+class PromotionPreview(BaseModel):
+    """Read-only evaluation of the current WAP promotion gates.
+
+    ``digest`` binds every evaluated input — launch facts, current revisions,
+    audit decision — so a stale preview cannot be replayed as confirmation.
+    """
+
+    candidate_id: str
+    eligible: bool
+    checks: list[PromotionPreviewCheck]
+    digest: str
+    strategy: str
+
+
+class PromotionRequest(BaseModel):
+    """Guarded promotion command payload.
+
+    ``preview_digest`` binds the confirmation to the exact gate/revision
+    evidence the operator reviewed; a mismatch means the candidate moved and
+    the preview must be re-issued.
+    """
+
+    preview_digest: str | None = None
+    idempotency_key: str | None = None
+    project_id: str | None = None
+
+
+class PromotionResult(BaseModel):
+    """The truthful outcome of one promotion command.
+
+    ``outcome`` distinguishes a fresh promotion from reconciliations
+    (``already_promoted``, ``resumed``) and resumable/refused states — the
+    caller must never present a non-terminal outcome as success.
+    """
+
+    outcome: str
+    candidate_id: str
+    blockers: list[str] = []
+    preview_digest: str | None = None
+    source_revision: str | None = None
+    target_revision_before: str | None = None
+    target_revision_after: str | None = None
+    staging_ref: str | None = None
+    source_deleted: bool = False
+    resumed: bool = False
+    failure_reason: str | None = None
+    failure_detail: str | None = None
+    release_revision: str | None = None
 
 
 class CompletedRelease(BaseModel):
-    """A release whose provider outcome is confirmed."""
+    """A release whose provider outcome is confirmed by a governed receipt."""
 
     id: str
     dataset: str
@@ -307,6 +528,9 @@ class CompletedRelease(BaseModel):
     reference: str
     finished_at: str
     outcome: str
+    run_id: str | None = None
+    orchestrator_run_id: str | None = None
+    release_revision: str | None = None
 
 
 # ----------------------------------------------------------------- platform
@@ -325,7 +549,9 @@ class PlatformService(BaseModel):
     """An enabled service with its runtime and readiness state.
 
     ``runtime_state`` and ``readiness_state`` are deliberately separate: a
-    process can be running while its readiness probe fails.
+    process can be running while its readiness probe fails. ``lifecycle`` is
+    ``task`` for declared one-shot jobs (compose restart policy ``no``, e.g.
+    setup containers) and ``service`` for long-running processes.
     """
 
     name: str
@@ -335,6 +561,7 @@ class PlatformService(BaseModel):
     probe: str
     action: str
     attention: bool = False
+    lifecycle: str = "service"
 
 
 class ServiceProbeFact(BaseModel):
@@ -490,6 +717,41 @@ class MissionRunLogLine(BaseModel):
     at: str
     level: Literal["INFO", "ERROR"]
     message: str
+    attempt: int | None = None
+
+
+class RunEventPage(BaseModel):
+    """One bounded page of a run's recorded events."""
+
+    items: list[RunEvent]
+    next_cursor: str | None = None
+    total: int | None = None
+
+
+class RunLogPage(BaseModel):
+    """One bounded page of a run's retained log lines."""
+
+    items: list[MissionRunLogLine]
+    next_cursor: str | None = None
+    total: int | None = None
+
+
+class RunIdentity(BaseModel):
+    """Explicit identity join for a run — logical, provider, attempt, report.
+
+    Every field names the record it came from; ids are never merged by
+    display name and never inferred from a different run's payload.
+    """
+
+    run_id: str
+    durable_run_id: str | None = None
+    provider_run_id: str | None = None
+    attempt: int | None = None
+    report: str | None = None
+    pipeline: str | None = None
+    operation_id: str | None = None
+    launch_digest: str | None = None
+    asset_ids: list[str] = Field(default_factory=list)
 
 
 class SummaryMetricRow(BaseModel):
@@ -499,6 +761,29 @@ class SummaryMetricRow(BaseModel):
     value: str
     hint: str
     tone: Outcome = "muted"
+
+
+class MissionRunRow(BaseModel):
+    """One row of the run list — the drilldown counterpart of the counters."""
+
+    id: str
+    name: str
+    status: str
+    started_at: str | None = None
+    completed_at: str | None = None
+    duration_seconds: float | None = None
+    asset_ids: list[str] = Field(default_factory=list)
+
+
+class MissionRunList(BaseModel):
+    """Bounded, cursor-paginated run list from the orchestrator population.
+
+    This is the same population the overview execution counters are computed
+    from, so the drilldown can never disagree with its summary.
+    """
+
+    items: list[MissionRunRow]
+    next_cursor: str | None = None
 
 
 class MissionRunDetail(BaseModel):
@@ -513,6 +798,8 @@ class MissionRunDetail(BaseModel):
     details: list[RunConfigurationRow]
     consumers: list[RunConsumer]
     artifacts: list[RunArtifact]
+    identity: RunIdentity | None = None
+    failure: str | None = None
 
 
 class DatasetSchemaField(BaseModel):
@@ -545,6 +832,13 @@ class DatasetPreview(BaseModel):
 
     columns: list[str]
     rows: list[list[str]]
+    ref: str | None = None
+    pinned: bool = False
+    state: str = "ready"
+    detail: str | None = None
+    has_more: bool = False
+    limit: int = 50
+    offset: int = 0
 
 
 class MissionDatasetDetail(BaseModel):
@@ -566,6 +860,7 @@ class MissionDatasetDetail(BaseModel):
     ownership: DatasetOwnership
     access: list[DatasetAccessGrant]
     runs: list[DatasetRunRef]
+    runs_state: str = "ready"
 
 
 class PublicationPlan(BaseModel):

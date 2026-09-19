@@ -9,6 +9,7 @@ and the saved-query, branch, and WAP-report contracts.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import threading
 from pathlib import Path
@@ -620,7 +621,11 @@ def test_observatory_datasets_endpoint_uses_project_read_model_cache(
     assert second.status_code == 200
     assert [item["id"] for item in second.json()["items"]] == ["gold.orders"]
     assert calls == ["assets"]
-    assert (tmp_path / ".phlo" / "observatory" / "read_models.sqlite").exists()
+    # The read-model cache persists outside project business state so GETs
+    # never create or mutate anything under .phlo/observatory.
+    assert not (tmp_path / ".phlo" / "observatory").exists()
+    assert observatory._READ_MODEL_CACHE._db_path() is not None
+    assert observatory._READ_MODEL_CACHE._db_path().exists()
 
 
 def test_observatory_datasets_endpoint_returns_table_candidates(
@@ -736,7 +741,10 @@ def test_observatory_candidate_actions_persist_workflow_state(
     try:
         claim = client.post(
             "/api/observatory/actions",
-            json={"action_id": "candidate:raw_orders:claim"},
+            json={
+                "action_id": "candidate:raw_orders:claim",
+                "idempotency_key": "test-candidate-claim",
+            },
         )
         assert claim.status_code == 200
         assert claim.json()["status"] == "succeeded"
@@ -744,13 +752,19 @@ def test_observatory_candidate_actions_persist_workflow_state(
         assert candidate["dataset"]["owner"] == "data-team"
         review = client.post(
             "/api/observatory/actions",
-            json={"action_id": "candidate:raw_orders:review"},
+            json={
+                "action_id": "candidate:raw_orders:review",
+                "idempotency_key": "test-candidate-review",
+            },
         )
         assert review.status_code == 200
         assert review.json()["status"] == "succeeded"
         promote = client.post(
             "/api/observatory/actions",
-            json={"action_id": "candidate:raw_orders:promote"},
+            json={
+                "action_id": "candidate:raw_orders:promote",
+                "idempotency_key": "test-candidate-promote",
+            },
         )
         assert promote.status_code == 200
         assert promote.json()["status"] == "succeeded"
@@ -842,7 +856,10 @@ def test_observatory_publication_action_persists_dataset_state(
     try:
         result = client.post(
             "/api/observatory/actions",
-            json={"action_id": "dataset:gold.orders:publish"},
+            json={
+                "action_id": "dataset:gold.orders:publish",
+                "idempotency_key": "test-dataset-publish",
+            },
         )
 
         assert result.status_code == 200
@@ -1615,7 +1632,7 @@ def test_observatory_actions_endpoint_routes_add_service_action(
 
     response = authenticated_client("admin").post(
         "/api/observatory/actions",
-        json={"action_id": "pgweb:add"},
+        json={"action_id": "pgweb:add", "idempotency_key": "test-pgweb-add"},
     )
 
     assert response.status_code == 200
@@ -1736,10 +1753,13 @@ def test_observatory_run_operational_routes_use_observatory_paths(
         '{"operate-token":{"subject":"agent","scopes":["lakehouse:operate"]}}',
     )
     calls: list[tuple[str, str, object]] = []
+    # The commit-time recheck reads run state before dispatch: FAILURE permits
+    # the retry, then STARTED permits the cancel.
+    status_responses = iter(["FAILURE", "FAILURE", "STARTED"])
 
     async def fake_status(run_id: str, dagster_url: str | None = None):
         calls.append(("status", run_id, None))
-        return {"run_id": run_id, "status": "FAILURE"}
+        return {"run_id": run_id, "status": next(status_responses)}
 
     async def fake_retry(run_id: str, payload, dagster_url: str | None = None):
         calls.append(("retry", run_id, payload.dry_run))
@@ -1806,7 +1826,9 @@ def test_observatory_run_operational_routes_use_observatory_paths(
     assert cancel_body["provider"]["status"] == "CANCELING"
     assert calls == [
         ("status", "run-123", None),
+        ("status", "run-123", None),
         ("retry", "run-123", False),
+        ("status", "run-123", None),
         ("cancel", "run-123", "stuck", "cancel-key"),
     ]
 
@@ -2306,7 +2328,7 @@ def test_observatory_generic_skipped_action_records_operation(
 
     response = authenticated_client("admin").post(
         "/api/observatory/actions",
-        json={"action_id": "quality:raw.orders:rerun"},
+        json={"action_id": "quality:raw.orders:rerun", "idempotency_key": "test-quality-rerun"},
     )
 
     assert response.status_code == 200
@@ -2350,7 +2372,7 @@ def test_observatory_service_action_records_subprocess_result(
 
     response = authenticated_client("admin").post(
         "/api/observatory/actions",
-        json={"action_id": "phlo-api:start"},
+        json={"action_id": "phlo-api:start", "idempotency_key": "test-phlo-api-start"},
     )
 
     assert response.status_code == 200
@@ -4193,3 +4215,971 @@ def test_preview_with_missing_relation_does_not_discover_catalog() -> None:
     table = ObservatoryTable(id="orders", name="orders", metadata={})
 
     assert observatory._query_relation_for_table(table) is None
+
+
+# ------------------------------------------------------------------ MC-06 --
+# Execution and service-operation loops: provider-backed probe, guarded
+# service restart, idempotent generic actions, and preview/commit split.
+
+
+def test_service_probe_returns_live_detail_for_declared_service(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A probe answers the declared service's live runtime plus its declared
+    dependency/dependent graph — never a shell target or container id."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    postgres = ObservatoryService(
+        id="postgres",
+        name="postgres",
+        kind="database",
+        status="running",
+        health=ObservatoryHealth(state="ok", message="accepting connections"),
+        runtime_state="running",
+        in_stack=True,
+    )
+    dagster = ObservatoryService(
+        id="dagster",
+        name="dagster",
+        kind="orchestrator",
+        status="running",
+        health=ObservatoryHealth(state="ok", message="ready"),
+        runtime_state="running",
+        in_stack=True,
+        depends_on=["postgres"],
+    )
+    observatory_loaders(services=[postgres, dagster], logs=[])
+    observatory._clear_read_model_cache()
+
+    response = authenticated_client("admin").get("/api/observatory/services/dagster/probe")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["service"]["id"] == "dagster"
+    assert payload["service"]["runtime_state"] == "running"
+    assert [item["id"] for item in payload["dependencies"]] == ["postgres"]
+    actions = {action["kind"]: action["enabled"] for action in payload["actions"]}
+    assert actions == {
+        "service.start": False,
+        "service.stop": True,
+        "service.restart": True,
+    }
+
+
+def test_service_probe_rejects_undeclared_service(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """Undeclared ids — including arbitrary container ids — are never probed."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    observatory_loaders(services=[], logs=[])
+    observatory._clear_read_model_cache()
+
+    response = authenticated_client("admin").get("/api/observatory/services/9f3acontainerid/probe")
+
+    assert response.status_code == 404
+
+
+def test_observatory_action_requires_idempotency_key(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A keyless guarded action is rejected before any dispatch — a duplicate
+    confirmation must always be able to bind a durable claim."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    observatory_loaders(services=[], capability_registry=None)
+    observatory._clear_read_model_cache()
+
+    response = authenticated_client("admin").post(
+        "/api/observatory/actions",
+        json={"action_id": "quality:raw.orders:rerun"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_observatory_action_replay_does_not_redispatch(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """Reposting the same key+payload replays the stored result; the provider
+    command runs exactly once."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    service = ObservatoryService(
+        id="phlo-api",
+        name="phlo-api",
+        kind="api",
+        status="running",
+        health=ObservatoryHealth(state="ok", message="healthy"),
+        runtime_state="running",
+        in_stack=True,
+    )
+    commands: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, returncode=0, stdout="restarted")
+
+    observatory_loaders(services=[service], capability_registry=None)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    observatory._clear_read_model_cache()
+
+    body = {"action_id": "phlo-api:restart", "idempotency_key": "svc-restart-1"}
+    first = authenticated_client("admin").post("/api/observatory/actions", json=body)
+    replay = authenticated_client("admin").post("/api/observatory/actions", json=body)
+
+    assert first.status_code == 200
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+    assert commands == [["phlo", "services", "restart", "--service", "phlo-api"]]
+
+
+def test_observatory_action_rejects_unmanaged_service_target(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A service action on an undeclared id is a failed result, not a
+    dispatched command — arbitrary containers are never controlled."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    commands: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, returncode=0, stdout="")
+
+    observatory_loaders(services=[], capability_registry=None)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    observatory._clear_read_model_cache()
+
+    response = authenticated_client("admin").post(
+        "/api/observatory/actions",
+        json={"action_id": "ghost-container:restart", "idempotency_key": "svc-ghost-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert commands == []
+
+
+def test_observatory_action_rejects_disabled_service_action(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """Restart on a stopped service is not an enabled capability — the guard
+    refuses before any subprocess call."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    service = ObservatoryService(
+        id="phlo-api",
+        name="phlo-api",
+        kind="api",
+        status="stopped",
+        health=ObservatoryHealth(state="warning", message="stopped"),
+        runtime_state="stopped",
+        in_stack=True,
+    )
+    commands: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, returncode=0, stdout="")
+
+    observatory_loaders(services=[service], capability_registry=None)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    observatory._clear_read_model_cache()
+
+    response = authenticated_client("admin").post(
+        "/api/observatory/actions",
+        json={"action_id": "phlo-api:restart", "idempotency_key": "svc-restart-stopped"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "skipped"
+    assert commands == []
+
+
+def test_materialize_preview_validates_without_launching(monkeypatch, tmp_path: Path) -> None:
+    """Preview (dry_run=True) reaches the provider's validation path only; the
+    commit is a separate call that the provider launches and answers with the
+    actual run id."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv(
+        "PHLO_API_TOKENS",
+        '{"operate-token":{"subject":"agent","scopes":["lakehouse:operate"]}}',
+    )
+    calls: list[tuple[str, bool]] = []
+
+    async def fake_materialize(asset_id: str, payload, dagster_url: str | None = None):
+        calls.append((asset_id, payload.dry_run))
+        if payload.dry_run:
+            return {
+                "operation": "materialize_asset",
+                "dry_run": True,
+                "accepted": True,
+                "asset_key_path": asset_id,
+                "status": "VALIDATED",
+                "message": "Materialization request is valid.",
+            }
+        return {
+            "operation": "materialize_asset",
+            "dry_run": False,
+            "accepted": True,
+            "asset_key_path": asset_id,
+            "run_id": "run-mat-1",
+            "status": "LAUNCHED",
+            "message": "Materialization launched.",
+        }
+
+    provider = _FakeOrchestratorOperations(materialize_asset=fake_materialize)
+    monkeypatch.setattr(observatory, "resolve_orchestrator_operations", lambda: provider)
+
+    client = authenticated_client("admin")
+    headers = {"Authorization": "Bearer operate-token"}
+    preview = client.post(
+        "/api/observatory/assets/silver/orders/materialize",
+        json={"dry_run": True},
+        headers=headers,
+    )
+    commit = client.post(
+        "/api/observatory/assets/silver/orders/materialize",
+        json={"dry_run": False, "idempotency_key": "mat-commit-1"},
+        headers=headers,
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["status"] == "VALIDATED"
+    assert "run_id" not in preview.json() or preview.json()["run_id"] is None
+    assert commit.status_code == 200
+    assert commit.json()["run_id"] == "run-mat-1"
+    assert calls == [("silver/orders", True), ("silver/orders", False)]
+
+
+# ------------------------------------------------------------------ MC-07 --
+# Release review from real candidate evidence: WAP launch reports are the
+# candidate authority; branch presence alone never makes a release candidate.
+
+
+def _write_wap_fixture(
+    root: Path,
+    run_id: str,
+    *,
+    status: str = "success",
+    strategy: str = "branch",
+    with_manifest: bool = True,
+    tamper_manifest: bool = False,
+    dagster_run_id: str | None = "dagster-run-1",
+    source_hash: str = "src-hash-1",
+    target_before: str = "main-hash-0",
+    failure_reason: str | None = None,
+    candidates: list[dict[str, Any]] | None = None,
+    quality_decision: str | None = "passed",
+) -> dict[str, Any]:
+    """Write a WAP lifecycle report plus its content-addressed launch manifest."""
+    reports = root / ".phlo" / "wap-reports"
+    reports.mkdir(parents=True, exist_ok=True)
+    launch_tags = {
+        "phlo/run_id": run_id,
+        "phlo/wap_branch": f"pipeline-run-{run_id}",
+        "phlo/ref": f"pipeline-run-{run_id}",
+        "phlo/project_id": "test-project",
+        "phlo/attempt": "1",
+    }
+    report: dict[str, Any] = {
+        "schema_version": "phlo.wap_report.v2",
+        "run_id": run_id,
+        "status": status,
+        "strategy": strategy,
+        "branch": f"pipeline-run-{run_id}",
+        "dagster_run_id": dagster_run_id,
+        "launch_tags": launch_tags,
+        "launch_source_hash": source_hash,
+        "launch_target_hash_before": target_before,
+        "source_hash": source_hash,
+        "target_branch": "main",
+        "target_hash_before": target_before,
+        "created_at": "2026-09-18T09:00:00+00:00",
+        "updated_at": "2026-09-18T09:05:00+00:00",
+    }
+    if candidates is not None:
+        report["candidates"] = candidates
+    if failure_reason is not None:
+        report["failure_reason"] = failure_reason
+    if quality_decision is not None:
+        report["quality_evidence"] = {
+            "decision": quality_decision,
+            "status": "observed",
+        }
+    if with_manifest:
+        manifest = {
+            "schema_version": "phlo.wap_launch_manifest.v1",
+            "logical_run_id": run_id,
+            "dagster_run_id": dagster_run_id,
+            "branch": f"pipeline-run-{run_id}",
+            "tags": launch_tags,
+            "source_hash": source_hash,
+            "target_branch": "main",
+            "target_hash_before": target_before,
+        }
+        if tamper_manifest:
+            manifest["source_hash"] = "tampered-hash"
+        serialized = json.dumps(manifest, indent=2, sort_keys=True)
+        checksum = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+        run_key = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:24]
+        launches = reports / "launches"
+        launches.mkdir(parents=True, exist_ok=True)
+        (launches / f"{run_key}.{checksum}.json").write_text(serialized)
+        report["launch_manifest_checksum"] = checksum
+    (reports / f"{run_id}.json").write_text(json.dumps(report, indent=2, sort_keys=True))
+    return report
+
+
+class _FakeVersionedCatalog:
+    def __init__(self, branches: dict[str, str]) -> None:
+        self.branches = dict(branches)
+
+    def list_branches(self) -> list[str]:
+        return list(self.branches)
+
+    def get_branch_hash(self, name: str) -> str | None:
+        return self.branches.get(name)
+
+
+def _catalog_registry(provider: object) -> CapabilityRegistry:
+    registry = CapabilityRegistry()
+    registry.register("catalog", CatalogSpec(name="catalog", provider=provider))
+    return registry
+
+
+def test_release_candidates_come_from_wap_reports_not_branch_names(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A WAP lifecycle report makes a candidate; a bare staging branch does not."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "logical-run-1")
+    observatory_loaders(capability_registry=None)
+    observatory._clear_read_model_cache()
+
+    payload = (
+        authenticated_client("admin").get("/api/observatory/mission/releases/candidates").json()
+    )
+
+    assert payload["evidence"]["status"] == "live"
+    assert [row["id"] for row in payload["data"]] == ["logical-run-1"]
+    row = payload["data"][0]
+    assert row["run_id"] == "logical-run-1"
+    assert row["orchestrator_run_id"] == "dagster-run-1"
+    assert row["staging_ref"] == "pipeline-run-logical-run-1"
+    assert row["readiness"] == "Ready for review"
+    assert row["blockers"] == []
+
+
+def test_release_candidate_rejects_unowned_branch_without_report(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """An unrelated branch name has no governed launch evidence — no candidate."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    observatory_loaders(capability_registry=None)
+    observatory._clear_read_model_cache()
+
+    detail = authenticated_client("admin").get(
+        "/api/observatory/mission/releases/candidates/pipeline-run-ghost"
+    )
+    listing = (
+        authenticated_client("admin").get("/api/observatory/mission/releases/candidates").json()
+    )
+
+    assert detail.status_code == 404
+    assert listing["data"] == []
+
+
+def test_release_candidate_detail_blocks_on_manifest_mismatch(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A tampered launch manifest is a specific blocker, not a detail omission."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-tampered", tamper_manifest=True)
+    observatory_loaders(capability_registry=None)
+    observatory._clear_read_model_cache()
+
+    payload = (
+        authenticated_client("admin")
+        .get("/api/observatory/mission/releases/candidates/run-tampered")
+        .json()
+    )
+
+    detail = payload["data"]
+    assert detail["status"] == "Blocked"
+    assert any("manifest" in blocker.lower() for blocker in detail["blockers"])
+    launch_row = next(row for row in detail["required_evidence"] if row["name"] == "Launch binding")
+    assert launch_row["outcome"] == "Invalid"
+
+
+def test_completed_releases_require_governed_receipt_not_run_success(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """Only promoted lifecycle reports with a merge receipt count as releases;
+    a succeeded run without that receipt is not a release."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(
+        tmp_path,
+        "run-promoted",
+        status="promoted",
+        candidates=[{"table": "gold.orders", "snapshot_id": "snap-42"}],
+    )
+    # A plain successful run's report (no promotion receipt) is not a release.
+    _write_wap_fixture(tmp_path, "run-succeeded", status="success")
+    observatory_loaders(capability_registry=None)
+    observatory._clear_read_model_cache()
+
+    payload = (
+        authenticated_client("admin").get("/api/observatory/mission/releases/completed").json()
+    )
+
+    ids = [row["run_id"] for row in payload["data"]]
+    assert ids == ["run-promoted"]
+    assert payload["data"][0]["dataset"] == "gold.orders"
+
+
+def test_promotion_preview_binds_gates_and_digest(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """The preview evaluates every WAP gate against live revisions and binds
+    the inputs into a stable digest."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-preview")
+    catalog = _FakeVersionedCatalog(
+        {"pipeline-run-run-preview": "src-hash-1", "main": "main-hash-0"}
+    )
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    client = authenticated_client("admin")
+    preview = client.get("/api/observatory/mission/releases/candidates/run-preview/preview")
+    again = client.get("/api/observatory/mission/releases/candidates/run-preview/preview")
+
+    assert preview.status_code == 200
+    body = preview.json()["data"]
+    assert body["eligible"] is True
+    assert {check["name"] for check in body["checks"]} == {
+        "Owned staging ref",
+        "Prepared launch",
+        "Strategy",
+        "Audit decision",
+        "Target revision",
+        "Source revision",
+    }
+    assert all(check["outcome"] == "passed" for check in body["checks"])
+    assert body["digest"] == again.json()["data"]["digest"]
+
+
+def test_promotion_preview_fails_on_moved_target_revision(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A target revision that moved since launch is a failed gate — the digest
+    changes, so a stale preview cannot be replayed."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-stale")
+    catalog = _FakeVersionedCatalog(
+        {"pipeline-run-run-stale": "src-hash-1", "main": "main-hash-MOVED"}
+    )
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    preview = authenticated_client("admin").get(
+        "/api/observatory/mission/releases/candidates/run-stale/preview"
+    )
+
+    body = preview.json()["data"]
+    assert body["eligible"] is False
+    target = next(check for check in body["checks"] if check["name"] == "Target revision")
+    assert target["outcome"] == "failed"
+    assert "moved" in target["detail"].lower() or "main-hash-MOVED" in target["detail"]
+
+
+def test_promotion_preview_refuses_blocked_candidate(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A promotion_blocked report cannot preview — it is not promotable."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(
+        tmp_path,
+        "run-blocked",
+        status="promotion_blocked",
+        failure_reason="asset_checks_failed",
+    )
+    observatory_loaders(capability_registry=None)
+    observatory._clear_read_model_cache()
+
+    response = authenticated_client("admin").get(
+        "/api/observatory/mission/releases/candidates/run-blocked/preview"
+    )
+
+    assert response.status_code == 404
+
+
+# --------------------------------------------------------------------- MC-08
+# Promotion through the shared WAP authority: guarded command, preview-digest
+# binding, in-lock revision recheck, sensor-race and interruption reconcile.
+
+
+class _FakeMergeCatalog:
+    """Versioned catalog that records merge invocations and applies them."""
+
+    def __init__(self, branches: dict[str, str]) -> None:
+        self.branches = dict(branches)
+        self.merge_calls: list[tuple[str, str]] = []
+        self.delete_calls: list[str] = []
+
+    def list_branches(self) -> list[str]:
+        return list(self.branches)
+
+    def get_branch_hash(self, name: str) -> str | None:
+        return self.branches.get(name)
+
+    def merge_branch(self, source: str, target: str = "main") -> bool:
+        self.merge_calls.append((source, target))
+        if source not in self.branches:
+            return False
+        self.branches[target] = self.branches[source]
+        return True
+
+    def delete_branch(self, name: str) -> bool:
+        self.delete_calls.append(name)
+        return self.branches.pop(name, None) is not None
+
+
+def _promote(client: Any, candidate_id: str, **payload: Any):
+    return client.post(
+        f"/api/observatory/mission/releases/candidates/{candidate_id}/promotion",
+        json=payload,
+    )
+
+
+def _report_on_disk(root: Path, run_id: str) -> dict[str, Any]:
+    return json.loads((root / ".phlo" / "wap-reports" / f"{run_id}.json").read_text())
+
+
+def test_promotion_promotes_eligible_candidate_and_records_receipt(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """Preview → confirm publishes through the shared WAP authority: merge once,
+    clean the staging ref, and persist the promoted receipt."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-promote")
+    catalog = _FakeMergeCatalog({"pipeline-run-run-promote": "src-hash-1", "main": "main-hash-0"})
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    client = authenticated_client("admin")
+    preview = client.get("/api/observatory/mission/releases/candidates/run-promote/preview")
+    digest = preview.json()["data"]["digest"]
+
+    response = _promote(client, "run-promote", preview_digest=digest, idempotency_key="pm-1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["outcome"] == "promoted"
+    assert body["release_revision"] == "src-hash-1"
+    assert body["source_deleted"] is True
+    assert catalog.merge_calls == [("pipeline-run-run-promote", "main")]
+    assert "pipeline-run-run-promote" not in catalog.branches
+
+    report = _report_on_disk(tmp_path, "run-promote")
+    assert report["status"] == "promoted"
+    assert report["merge_state"] == "merged"
+    assert report["target_hash_after"] == "src-hash-1"
+
+    completed = client.get("/api/observatory/mission/releases/completed").json()
+    assert [row["run_id"] for row in completed["data"]] == ["run-promote"]
+
+
+def test_promotion_rejects_stale_preview_digest(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A digest that does not match current evidence refuses before mutation."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-stale")
+    catalog = _FakeMergeCatalog({"pipeline-run-run-stale": "src-hash-1", "main": "main-hash-0"})
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    response = _promote(
+        authenticated_client("admin"),
+        "run-stale",
+        preview_digest="tampered-or-stale",
+        idempotency_key="pm-2",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["outcome"] == "stale_preview"
+    assert catalog.merge_calls == []
+    assert _report_on_disk(tmp_path, "run-stale")["status"] == "success"
+
+
+def test_promotion_blocks_candidate_with_failed_gates(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """An ineligible candidate (tampered manifest) is refused with blockers —
+    the merge is never invoked."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-tampered", tamper_manifest=True)
+    catalog = _FakeMergeCatalog({"pipeline-run-run-tampered": "src-hash-1", "main": "main-hash-0"})
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    preview = authenticated_client("admin").get(
+        "/api/observatory/mission/releases/candidates/run-tampered/preview"
+    )
+    response = _promote(
+        authenticated_client("admin"),
+        "run-tampered",
+        preview_digest=preview.json()["data"]["digest"],
+        idempotency_key="pm-3",
+    )
+
+    body = response.json()
+    assert body["outcome"] == "blocked"
+    assert body["blockers"]
+    assert catalog.merge_calls == []
+
+
+def test_promotion_sensor_win_reconciles_as_already_promoted(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A competing promotion that finalized first reconciles — the provider
+    merge is never invoked twice."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-won", status="promoted")
+    report_path = tmp_path / ".phlo" / "wap-reports" / "run-won.json"
+    payload = json.loads(report_path.read_text())
+    payload.update({"merge_state": "merged", "target_hash_after": "main-hash-1"})
+    report_path.write_text(json.dumps(payload))
+    catalog = _FakeMergeCatalog({"main": "main-hash-1"})
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    response = _promote(authenticated_client("admin"), "run-won", idempotency_key="pm-4")
+
+    body = response.json()
+    assert body["outcome"] == "already_promoted"
+    assert body["resumed"] is True
+    assert catalog.merge_calls == []
+
+
+def test_promotion_resumes_interrupted_cleanup_without_second_merge(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """Crash after provider commit but before the receipt finalized: the
+    durable merge_state resumes cleanup + evidence instead of re-merging."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-resume", status="promotion_pending")
+    report_path = tmp_path / ".phlo" / "wap-reports" / "run-resume.json"
+    payload = json.loads(report_path.read_text())
+    payload.update(
+        {
+            "merge_state": "merged",
+            "source_hash": "src-hash-1",
+            "target_hash_before": "main-hash-0",
+            "target_hash_after": "src-hash-1",
+            "source_deleted": False,
+        }
+    )
+    report_path.write_text(json.dumps(payload))
+    # The merge already landed (main moved) but the staging ref was retained.
+    catalog = _FakeMergeCatalog({"pipeline-run-run-resume": "src-hash-1", "main": "src-hash-1"})
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    response = _promote(authenticated_client("admin"), "run-resume", idempotency_key="pm-5")
+
+    body = response.json()
+    assert body["outcome"] == "promoted"
+    assert body["resumed"] is True
+    assert catalog.merge_calls == []
+    assert catalog.delete_calls == ["pipeline-run-run-resume"]
+    assert _report_on_disk(tmp_path, "run-resume")["status"] == "promoted"
+
+
+def test_promotion_replay_same_key_never_merges_twice(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """Replayed confirmation replays the recorded result; a fresh confirmation
+    after success reconciles as already promoted. merge runs exactly once."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-once")
+    catalog = _FakeMergeCatalog({"pipeline-run-run-once": "src-hash-1", "main": "main-hash-0"})
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    client = authenticated_client("admin")
+    digest = client.get("/api/observatory/mission/releases/candidates/run-once/preview").json()[
+        "data"
+    ]["digest"]
+
+    first = _promote(client, "run-once", preview_digest=digest, idempotency_key="pm-6")
+    replay = _promote(client, "run-once", preview_digest=digest, idempotency_key="pm-6")
+    second = _promote(client, "run-once", preview_digest=digest, idempotency_key="pm-7")
+
+    assert first.json()["outcome"] == "promoted"
+    assert replay.json()["outcome"] == "promoted"
+    assert second.json()["outcome"] == "already_promoted"
+    assert catalog.merge_calls == [("pipeline-run-run-once", "main")]
+
+
+def test_promotion_unknown_candidate_is_not_promotable(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A branch-shaped id with no governed report cannot be promoted."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    catalog = _FakeMergeCatalog({"pipeline-run-ghost": "h", "main": "m"})
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    response = _promote(authenticated_client("admin"), "ghost", idempotency_key="pm-8")
+
+    assert response.json()["outcome"] == "unknown_candidate"
+    assert catalog.merge_calls == []
+
+
+def test_promotion_requires_idempotency_key(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-key")
+    observatory_loaders(
+        capability_registry=_catalog_registry(
+            _FakeMergeCatalog({"pipeline-run-run-key": "s", "main": "m"})
+        )
+    )
+    observatory._clear_read_model_cache()
+
+    response = authenticated_client("admin").post(
+        "/api/observatory/mission/releases/candidates/run-key/promotion", json={}
+    )
+
+    assert response.status_code == 422
+
+
+def test_promotion_merge_started_reports_recovery_required(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A merge_started report whose merge outcome cannot be proven is refused
+    truthfully — never guessed as committed or lost."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-ambiguous", status="promotion_pending")
+    report_path = tmp_path / ".phlo" / "wap-reports" / "run-ambiguous.json"
+    payload = json.loads(report_path.read_text())
+    payload.update({"merge_state": "merge_started", "target_hash_before": "main-hash-0"})
+    report_path.write_text(json.dumps(payload))
+    catalog = _FakeMergeCatalog({"pipeline-run-run-ambiguous": "src-hash-1", "main": "main-hash-0"})
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    response = _promote(authenticated_client("admin"), "run-ambiguous", idempotency_key="pm-9")
+
+    body = response.json()
+    assert body["outcome"] == "recovery_required"
+    assert body["failure_reason"] == "merge_outcome_unknown"
+    assert catalog.merge_calls == []
+
+
+def test_promotion_concurrent_confirmations_publish_once(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """Two simultaneous confirmations serialize on the promotion lock: one
+    promotes, the loser reconciles — the catalog merge runs exactly once."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-race")
+    catalog = _FakeMergeCatalog({"pipeline-run-run-race": "src-hash-1", "main": "main-hash-0"})
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    digest = (
+        authenticated_client("admin")
+        .get("/api/observatory/mission/releases/candidates/run-race/preview")
+        .json()["data"]["digest"]
+    )
+
+    from phlo_api.observatory_api.observatory_promotion import execute_manual_promotion
+
+    results: list[Any] = []
+    threads = [
+        threading.Thread(
+            target=lambda: results.append(
+                execute_manual_promotion("run-race", expected_preview_digest=digest)
+            )
+        )
+        for _ in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    outcomes = sorted(result.outcome for result in results)
+    assert outcomes == ["already_promoted", "promoted"]
+    assert catalog.merge_calls == [("pipeline-run-run-race", "main")]
+
+
+def test_promotion_cleanup_failure_stays_pending_until_resumed(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """Provider committed but staging cleanup failed: the report stays
+    promotion_pending with the merge receipt — truthful, resumable, and the
+    next confirmation does not merge again."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    _write_wap_fixture(tmp_path, "run-cleanup")
+    catalog = _FakeMergeCatalog({"pipeline-run-run-cleanup": "src-hash-1", "main": "main-hash-0"})
+    catalog.delete_branch = lambda name: False  # cleanup interrupted
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    client = authenticated_client("admin")
+    digest = client.get("/api/observatory/mission/releases/candidates/run-cleanup/preview").json()[
+        "data"
+    ]["digest"]
+
+    response = _promote(client, "run-cleanup", preview_digest=digest, idempotency_key="pm-10")
+
+    body = response.json()
+    assert body["outcome"] == "cleanup_pending"
+    report = _report_on_disk(tmp_path, "run-cleanup")
+    # The merge receipt is durable: main moved, evidence retained, no hide.
+    assert report["merge_state"] == "merged"
+    assert report["target_hash_after"] == "src-hash-1"
+    assert report["status"] == "promotion_pending"
+
+    # Cleanup recovers — resume without a second merge.
+    catalog.delete_branch = _FakeMergeCatalog.delete_branch.__get__(catalog)
+    retry = _promote(client, "run-cleanup", idempotency_key="pm-11")
+    assert retry.json()["outcome"] == "promoted"
+    assert catalog.merge_calls == [("pipeline-run-run-cleanup", "main")]
+    assert _report_on_disk(tmp_path, "run-cleanup")["status"] == "promoted"
+
+
+class _FakeSnapshotCatalog:
+    """Snapshot-promotion catalog: CAS release pointer over candidates."""
+
+    def __init__(
+        self,
+        namespace: str,
+        snapshots: dict[str, str],
+        revision: int,
+    ) -> None:
+        self.namespace = namespace
+        self.candidates = dict(snapshots)
+        self.revision = revision
+        self.release_id: str | None = None
+        self.promote_calls: list[dict[str, Any]] = []
+        self.abort_calls: list[str] = []
+
+    def list_candidates(self, *, namespace: str) -> list[Any]:
+        from phlo.capabilities.interfaces import CandidateSnapshot
+
+        if namespace != self.namespace:
+            return []
+        return [
+            CandidateSnapshot(
+                table_name=table,
+                snapshot_id=snapshot_id,
+                run_id="run-snap",
+                namespace=namespace,
+            )
+            for table, snapshot_id in self.candidates.items()
+        ]
+
+    def release_revision(self) -> int:
+        return self.revision
+
+    def promote_candidates(
+        self,
+        *,
+        namespace: str,
+        release_id: str,
+        expected_revision: int | None = None,
+        tables: list[str] | None = None,
+    ) -> list[Any]:
+        from phlo.capabilities.interfaces import ReleaseRecord
+
+        self.promote_calls.append(
+            {"namespace": namespace, "release_id": release_id, "expected": expected_revision}
+        )
+        if expected_revision is not None and expected_revision != self.revision:
+            return []
+        self.revision += 1
+        self.release_id = release_id
+        # Release records survive candidate cleanup — consumers resolve tables
+        # through the release pointer, not the candidate namespace.
+        self.released = dict(self.candidates)
+        return [
+            ReleaseRecord(
+                table_name=table,
+                snapshot_id=snapshot_id,
+                release_id=release_id,
+                revision=self.revision,
+            )
+            for table, snapshot_id in self.released.items()
+        ]
+
+    def resolve_release(self, *, table_name: str) -> Any | None:
+        from phlo.capabilities.interfaces import ReleaseRecord
+
+        if self.release_id is None or table_name not in getattr(self, "released", {}):
+            return None
+        return ReleaseRecord(
+            table_name=table_name,
+            snapshot_id=self.released[table_name],
+            release_id=self.release_id,
+            revision=self.revision,
+        )
+
+    def create_candidate(self, *, table_name: str, run_id: str) -> Any:
+        raise NotImplementedError
+
+    def abort_candidates(self, *, namespace: str) -> bool:
+        self.abort_calls.append(namespace)
+        self.candidates = {}
+        return True
+
+    def prune_candidates(self, *, older_than: Any) -> list[str]:
+        return []
+
+
+def test_promotion_snapshot_strategy_promotes_via_release_pointer(
+    monkeypatch, tmp_path: Path, observatory_loaders
+) -> None:
+    """A snapshot-strategy candidate promotes through the catalog's CAS
+    release pointer — never a fabricated branch merge — and its candidate
+    namespace is aborted after the release resolves."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    (tmp_path / "phlo.yaml").write_text("wap:\n  strategy: snapshot\n")
+    _write_wap_fixture(
+        tmp_path,
+        "run-snap",
+        strategy="snapshot",
+        source_hash="snap-a,snap-b",
+        target_before="7",
+        candidates=[
+            {"table": "marts.orders", "snapshot_id": "snap-a"},
+            {"table": "marts.customers", "snapshot_id": "snap-b"},
+        ],
+    )
+    catalog = _FakeSnapshotCatalog(
+        "pipeline-run-run-snap",
+        {"marts.orders": "snap-a", "marts.customers": "snap-b"},
+        revision=7,
+    )
+    observatory_loaders(capability_registry=_catalog_registry(catalog))
+    observatory._clear_read_model_cache()
+
+    client = authenticated_client("admin")
+    preview = client.get("/api/observatory/mission/releases/candidates/run-snap/preview")
+    digest = preview.json()["data"]["digest"]
+
+    response = _promote(client, "run-snap", preview_digest=digest, idempotency_key="pm-12")
+
+    body = response.json()
+    assert body["outcome"] == "promoted"
+    assert catalog.promote_calls == [
+        {
+            "namespace": "pipeline-run-run-snap",
+            "release_id": "run-snap",
+            "expected": 7,
+        }
+    ]
+    assert catalog.abort_calls == ["pipeline-run-run-snap"]
+    report = _report_on_disk(tmp_path, "run-snap")
+    assert report["status"] == "promoted"

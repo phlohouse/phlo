@@ -802,3 +802,136 @@ def test_production_unset_mode_does_not_fail_startup(monkeypatch) -> None:
     monkeypatch.setenv("PHLO_ENVIRONMENT", "production")
     monkeypatch.delenv("PHLO_AUTHORIZATION_MODE", raising=False)
     security_manifest._reject_explicit_optional_in_production()
+
+
+# ---------------------------------------------------------------- CSRF guard
+#
+# Cookie-backed sessions are ambient credentials: unsafe requests presenting
+# cookies but no Authorization header must carry the application's custom CSRF
+# header and must not declare a cross-site origin. These tests run under the
+# module's regulated boundary, so a request that passes the guard reaches
+# authentication and anonymous requests end at 401.
+
+_ACTIONS_PATH = "/api/observatory/actions"
+_CSRF = {"x-phlo-request": "observatory"}
+
+
+def _cookie_client() -> TestClient:
+    client = TestClient(app)
+    client.cookies.set("phlo_session", "test-session")
+    return client
+
+
+def _csrf_reason(response) -> str | None:  # noqa: ANN001, ANN202
+    body = response.json()
+    return body.get("reason") if isinstance(body, dict) else None
+
+
+def test_cookie_mutation_without_csrf_header_is_403() -> None:
+    response = _cookie_client().post(_ACTIONS_PATH, json={"action_id": "x"})
+    assert response.status_code == 403
+    assert _csrf_reason(response) == "csrf_header_missing"
+
+
+def test_cookie_mutation_with_csrf_header_passes_guard() -> None:
+    # The guard passes; anonymous regulated auth then answers 401.
+    response = _cookie_client().post(_ACTIONS_PATH, json={"action_id": "x"}, headers=_CSRF)
+    assert response.status_code == 401
+    assert _csrf_reason(response) != "csrf_header_missing"
+
+
+def test_cookie_mutation_cross_site_origin_is_403() -> None:
+    response = _cookie_client().post(
+        _ACTIONS_PATH,
+        json={"action_id": "x"},
+        headers={**_CSRF, "Origin": "https://unrelated.example.com"},
+    )
+    assert response.status_code == 403
+    assert _csrf_reason(response) == "csrf_origin_rejected"
+
+
+def test_cookie_mutation_same_origin_header_passes_guard() -> None:
+    response = _cookie_client().post(
+        _ACTIONS_PATH,
+        json={"action_id": "x"},
+        headers={**_CSRF, "Origin": "http://testserver"},
+    )
+    assert response.status_code == 401
+
+
+def test_cookie_mutation_dev_origin_passes_guard() -> None:
+    # The local Observatory dev origin is an allowed credentialed origin.
+    response = _cookie_client().post(
+        _ACTIONS_PATH,
+        json={"action_id": "x"},
+        headers={**_CSRF, "Origin": "http://localhost:3001"},
+    )
+    assert response.status_code == 401
+
+
+def test_cookie_mutation_cross_site_fetch_metadata_is_403() -> None:
+    response = _cookie_client().post(
+        _ACTIONS_PATH,
+        json={"action_id": "x"},
+        headers={**_CSRF, "Sec-Fetch-Site": "cross-site"},
+    )
+    assert response.status_code == 403
+    assert _csrf_reason(response) == "csrf_cross_site"
+
+
+def test_bearer_mutation_is_not_csrf_blocked() -> None:
+    # Authorization credentials are attached deliberately, not ambiently —
+    # the cookie guard does not apply even when a cookie rides along.
+    response = _cookie_client().post(
+        _ACTIONS_PATH,
+        json={"action_id": "x"},
+        headers={"Authorization": "Bearer token"},
+    )
+    assert _csrf_reason(response) != "csrf_header_missing"
+    assert response.status_code == 401
+
+
+def test_cookieless_mutation_is_not_csrf_blocked() -> None:
+    response = TestClient(app).post(_ACTIONS_PATH, json={"action_id": "x"})
+    assert response.status_code == 401
+
+
+def test_safe_method_with_cookies_is_not_csrf_blocked() -> None:
+    response = _cookie_client().get("/api/observatory/mission/context")
+    assert response.status_code == 401
+
+
+def test_denied_cookie_mutation_reports_access_denied_not_csrf(monkeypatch, tmp_path) -> None:
+    """An authenticated cookie session that fails authorization gets a real
+    403 access_denied — the CSRF guard passed, so the reason names policy."""
+    auth, canonical = _principal("viewer")
+    backend = _Backend(allowed=False)
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    (tmp_path / "phlo.yaml").write_text("name: allowed\n")
+    monkeypatch.setattr("phlo_api.security_manifest.get_request_principal", lambda _r: auth)
+    monkeypatch.setattr(
+        "phlo_api.security_manifest.resolve_request_principal",
+        lambda _r, require_auth=True: canonical,
+    )
+    monkeypatch.setattr("phlo_api.security_manifest.get_authorization_backend", lambda: backend)
+
+    response = _cookie_client().post(
+        _ACTIONS_PATH,
+        json={"action_id": "dataset:marts.orders:publish"},
+        headers=_CSRF,
+    )
+    assert response.status_code == 403
+    assert response.json() == {"error": "forbidden", "reason": "access_denied"}
+
+
+def test_client_supplied_privilege_headers_are_not_authority() -> None:
+    """Made-up role/project headers cannot self-authorize a request."""
+    response = TestClient(app).get(
+        "/api/observatory/mission/context",
+        headers={
+            "X-Phlo-Role": "admin",
+            "X-Phlo-Principal": "root",
+            "X-Phlo-Project": "other-project",
+        },
+    )
+    assert response.status_code == 401

@@ -27,6 +27,7 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -105,7 +106,7 @@ query AssetCheckExecutionsQuery($assetKey: AssetKeyInput!, $checkName: String!, 
 
 # --- Pydantic Models ---
 
-CheckStatus = Literal["PASSED", "FAILED", "IN_PROGRESS", "SKIPPED"]
+CheckStatus = Literal["PASSED", "FAILED", "IN_PROGRESS", "SKIPPED", "NEVER_EVALUATED"]
 Severity = Literal["WARN", "ERROR"]
 
 
@@ -117,12 +118,16 @@ class CheckResult(BaseModel):
 
 
 class QualityCheck(BaseModel):
-    """Represents current status and metadata for one asset quality check."""
+    """Represents current status and metadata for one asset quality check.
+
+    ``severity`` is None for checks that have never been evaluated — the
+    provider has not reported a severity for them and none is fabricated.
+    """
 
     name: str
     asset_key: list[str]
     description: str | None = None
-    severity: Severity
+    severity: Severity | None = None
     status: CheckStatus
     last_execution_time: str | None = None
     last_result: CheckResult | None = None
@@ -291,7 +296,52 @@ async def fetch_quality_snapshot(dagster_url: str, recent_limit: int = 50) -> di
                 }
             )
 
-        # Step 2: Fetch executions for each asset
+        # Step 2: Fetch executions for each asset, bounded-concurrency —
+        # definitions first, then per-check histories through a semaphore so a
+        # large asset graph cannot fan out unbounded requests.
+        semaphore = asyncio.Semaphore(8)
+
+        async def _fetch_check_executions(
+            asset_key: list[str], check_name: str, limit: int
+        ) -> list[dict[str, Any]]:
+            async with semaphore:
+                exec_data = await dagster_query(
+                    client,
+                    dagster_url,
+                    ASSET_CHECK_EXECUTIONS_QUERY,
+                    {
+                        "assetKey": {"path": asset_key},
+                        "checkName": check_name,
+                        "limit": limit,
+                    },
+                )
+            if not exec_data:
+                return []
+            rows = exec_data.get("assetCheckExecutions", [])
+            for row in rows:
+                row["checkName"] = check_name
+            return rows
+
+        fetch_tasks = [
+            (
+                tuple(asset["asset_key"]),
+                check_def.get("name"),
+                asyncio.create_task(
+                    _fetch_check_executions(
+                        asset["asset_key"],
+                        check_def.get("name"),
+                        max(50, len(asset["checks"]) * 3),
+                    )
+                ),
+            )
+            for asset in assets_with_checks
+            for check_def in asset["checks"]
+            if check_def.get("name")
+        ]
+        executions_by_asset: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+        for asset_key_tuple, _, task in fetch_tasks:
+            executions_by_asset.setdefault(asset_key_tuple, []).extend(await task)
+
         total_checks = 0
         passing_checks = 0
         failing_checks = 0
@@ -305,28 +355,7 @@ async def fetch_quality_snapshot(dagster_url: str, recent_limit: int = 50) -> di
             checks = asset["checks"]
             # Executions are addressable per check, so fetch each check's own
             # history and tag the rows with the check they belong to.
-            per_check_limit = max(50, len(checks) * 3)
-
-            executions: list[dict[str, Any]] = []
-            for check_def in checks:
-                check_name = check_def.get("name")
-                if not check_name:
-                    continue
-                exec_data = await dagster_query(
-                    client,
-                    dagster_url,
-                    ASSET_CHECK_EXECUTIONS_QUERY,
-                    {
-                        "assetKey": {"path": asset_key},
-                        "checkName": check_name,
-                        "limit": per_check_limit,
-                    },
-                )
-                if not exec_data:
-                    continue
-                for row in exec_data.get("assetCheckExecutions", []):
-                    row["checkName"] = check_name
-                    executions.append(row)
+            executions = executions_by_asset.get(tuple(asset_key), [])
 
             total_checks += len(checks)
 
@@ -342,11 +371,22 @@ async def fetch_quality_snapshot(dagster_url: str, recent_limit: int = 50) -> di
                 ):
                     newest_by_check[check_name] = exec
 
-            # Build check records
+            # Build check records — a defined check with no executions is
+            # NEVER_EVALUATED, which is not interchangeable with skipped or
+            # passed.
             for check_def in checks:
                 check_name = check_def.get("name")
                 latest = newest_by_check.get(check_name)
                 if not latest:
+                    latest_checks.append(
+                        QualityCheck(
+                            name=check_name,
+                            asset_key=asset_key,
+                            description=check_def.get("description"),
+                            severity=None,
+                            status="NEVER_EVALUATED",
+                        )
+                    )
                     continue
 
                 status = normalize_status(latest.get("status", ""))

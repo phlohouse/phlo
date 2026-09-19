@@ -86,7 +86,7 @@ dev:
             "--host",
             "0.0.0.0",
             "--port",
-            "4000",
+            "${PHLO_API_PORT:-4000}",
         ]
     environment:
         PYTHONUNBUFFERED: "1"
@@ -99,5 +99,5 @@ dev:
         CLICKSTACK_QUERY_URL: ${CLICKSTACK_QUERY_URL:-}
         CLICKSTACK_QUERY_USER: ${CLICKSTACK_QUERY_USER:-}
         CLICKSTACK_QUERY_PASSWORD: ${CLICKSTACK_QUERY_PASSWORD:-}
-    health_check: "http://127.0.0.1:4000/health"
+    health_check: "http://127.0.0.1:${PHLO_API_PORT:-4000}/health"
     cwd: "{project_root}"

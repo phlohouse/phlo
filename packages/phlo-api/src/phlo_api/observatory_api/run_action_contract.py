@@ -232,6 +232,85 @@ def normalize_run_action_result(
     )
 
 
+_TERMINAL_RUN_STATES = {"SUCCEEDED", "SUCCESS", "FAILED", "FAILURE", "CANCELED", "CANCELLED"}
+
+# Operations resolvable from target-run provider status: cancellation settles
+# the targeted run. A retry launches a new run whose identity the claim cannot
+# correlate, so retries stay unresolved until explicit evidence exists.
+_CLAIM_TERMINAL_STATES: dict[str, set[str]] = {
+    "cancel_run": _TERMINAL_RUN_STATES,
+}
+
+_ACTION_KIND_FOR_OPERATION: dict[str, RunActionKind] = {
+    "retry_failed_run": "run.retry",
+    "cancel_run": "run.cancel",
+}
+
+
+async def reconcile_unresolved_claims(provider: Any, *, limit: int = 25) -> int:
+    """Resolve pending/unknown run-action claims from provider evidence.
+
+    For each unresolved claim whose operation has a provider-evidence rule,
+    the target's current status decides: e.g. a ``cancel_run`` claim on a run
+    the provider now reports terminal is recorded ``succeeded`` with the
+    observed status as evidence and a replayable reconciled result. Claims
+    without usable provider evidence stay unresolved — they remain visible
+    and never blind-replay.
+    """
+    import asyncio
+
+    from phlo_api.api.operation_controls import (
+        list_unresolved_claims,
+        resolve_idempotency_claim,
+    )
+
+    claims = list_unresolved_claims(limit=max(1, min(limit, 100)))
+    resolved = 0
+    for claim in claims:
+        terminal_states = _CLAIM_TERMINAL_STATES.get(claim.operation)
+        action_kind = _ACTION_KIND_FOR_OPERATION.get(claim.operation)
+        if terminal_states is None or action_kind is None:
+            continue
+        try:
+            status_payload = await provider.get_run_status(claim.target)
+        except Exception:
+            continue
+        raw_status = (
+            status_payload.get("status") if isinstance(status_payload, dict) else None
+        ) or getattr(status_payload, "status", None)
+        status = str(raw_status or "").upper()
+        if status not in terminal_states:
+            continue
+        resolved_result = RunActionResult(
+            action_kind=action_kind,
+            status="reconciled",
+            verification_handle=f"vh-resolved-{claim.key_hash[:24]}",
+            target=RunActionIdentity(run_id=claim.target),
+            resulting_run=RunActionIdentity(run_id=claim.target),
+            provider={"resolution": "provider_run_status", "observed_status": status},
+            message=(f"Resolved by provider evidence: run {claim.target} is {status}."),
+        )
+        try:
+            await asyncio.to_thread(
+                resolve_idempotency_claim,
+                idempotency_key_hash=claim.key_hash,
+                operation=claim.operation,
+                target=claim.target,
+                resolution="succeeded",
+                resolved_by="phlo-api:reconciliation",
+                evidence={
+                    "source": "provider_run_status",
+                    "run_id": claim.target,
+                    "observed_status": status,
+                },
+                response=resolved_result.model_dump(mode="json"),
+            )
+            resolved += 1
+        except ValueError:
+            continue
+    return resolved
+
+
 def resolve_run_action_reconciliation(
     result: RunActionResult, store: Any, *, project_id: str | None = None
 ) -> RunActionResult:

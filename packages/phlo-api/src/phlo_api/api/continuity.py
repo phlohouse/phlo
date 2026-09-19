@@ -489,6 +489,7 @@ def post_continuity_apply(request: ContinuityApplyRequest, http_request: Request
             operation=operation,
             target=target,
             execute=execute,
+            payload=request.model_dump(mode="json"),
             audit=lambda result: audit_operation(
                 operation=operation,
                 target=target,

@@ -20,6 +20,7 @@ import re
 import secrets
 import stat
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -131,6 +132,9 @@ class _StoredWorkflowProposal(BaseModel):
     proposal: dict[str, Any]
     digest: str
     signature: str
+    # Absent on proposals issued before preview expiry existed; such records
+    # verify their signature but are treated as expired at apply time.
+    issued_at: str | None = None
 
 
 class ObservatoryWorkflowActionResult(BaseModel):
@@ -358,9 +362,18 @@ def _workflow_integrity_key(project_root: Path) -> bytes:
 
 
 def _proposal_signature(
-    project_root: Path, proposal_id: str, issuer_subject: str, digest: str
+    project_root: Path,
+    proposal_id: str,
+    issuer_subject: str,
+    digest: str,
+    issued_at: str | None = None,
 ) -> str:
-    message = f"{proposal_id}:{issuer_subject}:{digest}".encode("utf-8")
+    # Records predating preview expiry carry no issued_at and keep the
+    # original three-field signature so they still verify (as expired).
+    if issued_at is None:
+        message = f"{proposal_id}:{issuer_subject}:{digest}".encode("utf-8")
+    else:
+        message = f"{proposal_id}:{issuer_subject}:{digest}:{issued_at}".encode("utf-8")
     return hmac.new(_workflow_integrity_key(project_root), message, hashlib.sha256).hexdigest()
 
 
@@ -425,13 +438,15 @@ def _issue_workflow_proposal(
     proposal_id = secrets.token_urlsafe(24)
     proposal_payload = proposal.to_browser_dict()
     digest = _proposal_digest(proposal_payload)
-    signature = _proposal_signature(project_root, proposal_id, issuer_subject, digest)
+    issued_at = datetime.now(UTC).isoformat()
+    signature = _proposal_signature(project_root, proposal_id, issuer_subject, digest, issued_at)
     record = _StoredWorkflowProposal(
         proposal_id=proposal_id,
         issuer_subject=issuer_subject,
         proposal=proposal_payload,
         digest=digest,
         signature=signature,
+        issued_at=issued_at,
     )
     _write_state_json(
         project_root,
@@ -620,7 +635,11 @@ def _load_verified_workflow_proposal(
             status_code=409, detail="Workflow proposal integrity verification failed."
         )
     expected_signature = _proposal_signature(
-        project_root, record.proposal_id, record.issuer_subject, record.digest
+        project_root,
+        record.proposal_id,
+        record.issuer_subject,
+        record.digest,
+        record.issued_at,
     )
     if not hmac.compare_digest(record.signature, expected_signature):
         raise HTTPException(
@@ -632,7 +651,26 @@ def _load_verified_workflow_proposal(
         raise HTTPException(
             status_code=409, detail="Workflow proposal integrity verification failed."
         )
+    if _proposal_expired(record):
+        raise HTTPException(
+            status_code=410,
+            detail="Workflow proposal preview has expired; issue a new preview.",
+        )
     return _proposal_from_payload(record.proposal), record.digest
+
+
+def _proposal_expired(record: _StoredWorkflowProposal) -> bool:
+    """A preview without a signed timestamp, or older than the TTL, is expired."""
+    if record.issued_at is None:
+        return True
+    try:
+        issued = datetime.fromisoformat(record.issued_at)
+    except ValueError:
+        return True
+    if issued.tzinfo is None:
+        issued = issued.replace(tzinfo=UTC)
+    ttl_seconds = int(os.environ.get("PHLO_WORKFLOW_PROPOSAL_TTL_SECONDS", "3600"))
+    return datetime.now(UTC) - issued > timedelta(seconds=max(ttl_seconds, 0))
 
 
 def _load_applied_record(project_root: Path, proposal_id: str) -> dict[str, Any] | None:

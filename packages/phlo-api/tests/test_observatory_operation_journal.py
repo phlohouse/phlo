@@ -32,7 +32,10 @@ from phlo_api.observatory_api.observatory_saved_queries import (
     save_query,
     saved_queries_path,
 )
-from phlo_api.observatory_api.observatory_durable_state import state_namespace
+from phlo_api.observatory_api.observatory_durable_state import (
+    initialize_collections,
+    state_namespace,
+)
 from phlo.plugins.observatory_settings import (
     SettingsScope,
     StorageCorruptionError,
@@ -96,30 +99,39 @@ def test_forced_concurrent_writes_preserve_saved_queries_and_journal_records(
 
 def test_migrates_valid_legacy_json_once_without_cross_project_state(tmp_path: Path) -> None:
     legacy_path = saved_queries_path(tmp_path)
+    legacy_path.parent.mkdir(parents=True, exist_ok=True)
     legacy_bytes = b'{\n  "items": [{"id":"legacy","name":"Legacy","sql":"select * from raw.orders limit 1","branch":null,"created_at":"2026-01-01T00:00:00+00:00","updated_at":"2026-01-01T00:00:00+00:00","metadata":{}}]\n}\n'
     legacy_path.write_bytes(legacy_bytes)
 
+    # Reads are pure: the legacy file is only imported by explicit init.
+    assert load_saved_queries(tmp_path) == []
+    initialized = initialize_collections(tmp_path, {"saved_queries": legacy_path})
     migrated = load_saved_queries(tmp_path)
     other_project = tmp_path / "other"
 
+    assert initialized == ["saved_queries"]
     assert [query.id for query in migrated] == ["legacy"]
     assert legacy_path.read_bytes() == legacy_bytes
     assert load_saved_queries(other_project) == []
     service = get_settings_service()
     assert service.get(SettingsScope.GLOBAL, state_namespace(tmp_path, "saved_queries")) is not None
+    # A read on an uninitialized project creates no durable record.
     assert (
-        service.get(SettingsScope.GLOBAL, state_namespace(other_project, "saved_queries"))
-        is not None
+        service.get(SettingsScope.GLOBAL, state_namespace(other_project, "saved_queries")) is None
     )
 
 
 def test_malformed_legacy_json_is_preserved_and_never_replaced(tmp_path: Path) -> None:
     path = saved_queries_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     original = b"{ definitely not json"
     path.write_bytes(original)
 
+    # The unread legacy file does not corrupt reads; only the explicit
+    # init and mutation paths consult it, and both must fail loudly.
+    assert load_saved_queries(tmp_path) == []
     with pytest.raises(StorageCorruptionError, match="durable state is unavailable"):
-        load_saved_queries(tmp_path)
+        initialize_collections(tmp_path, {"saved_queries": path})
     with pytest.raises(StorageCorruptionError, match="durable state is unavailable"):
         save_query(
             tmp_path,
@@ -295,3 +307,38 @@ def test_build_operation_observability_context_is_agent_readable() -> None:
     assert context["incident"]["status"] == "open"
     assert context["incident"]["severity"] == "error"
     assert context["retention"]["history_limit"] == 200
+
+
+def _capped_operation(op_id: str, status: str, recorded_at: str) -> ObservatoryOperation:
+    return ObservatoryOperation(
+        id=op_id,
+        name=op_id,
+        kind="run.retry",
+        status=status,  # type: ignore[arg-type]
+        health=ObservatoryHealth(state="ok", message=None),
+        completed_at=recorded_at,
+    )
+
+
+def test_journal_cap_never_evicts_unresolved_operations(tmp_path: Path) -> None:
+    """Queued/running/unknown records survive the history cap; oldest terminal ones go."""
+    from phlo_api.observatory_api.observatory_operation_journal import (
+        MAX_OPERATION_RECORDS,
+        write_operation_journal,
+    )
+
+    operations = [
+        _capped_operation(
+            f"done-{index:03d}", "succeeded", f"2026-01-{index % 28 + 1:02d}T00:00:00Z"
+        )
+        for index in range(MAX_OPERATION_RECORDS)
+    ]
+    # The oldest record is an unresolved claim outcome — it must not be evicted.
+    operations.append(_capped_operation("unresolved-oldest", "unknown", "2020-01-01T00:00:00Z"))
+
+    write_operation_journal(tmp_path, operations)
+    loaded = load_operation_journal(tmp_path)
+
+    assert len(loaded) == MAX_OPERATION_RECORDS
+    assert any(operation.id == "unresolved-oldest" for operation in loaded)
+    assert not any(operation.id == "done-000" for operation in loaded)

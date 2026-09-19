@@ -17,8 +17,8 @@ from fastapi import HTTPException
 
 from phlo_api.observatory_api.observatory_metadata import safe_metadata
 from phlo_api.observatory_api.observatory_durable_state import (
-    load_collection,
     mutate_collection,
+    read_collection,
 )
 from phlo_api.observatory_api.observatory_models import (
     ObservatorySavedQuery,
@@ -32,17 +32,19 @@ READ_QUERY_RE = re.compile(
 
 
 def saved_queries_path(project_root: Path) -> Path:
-    """Return the saved-queries file path, creating the state directory if needed."""
-    state_dir = project_root / ".phlo" / "observatory"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir / "saved_queries.json"
+    """Return the legacy saved-queries file path. Pure: the durable store
+    writes through the settings service, so this path is only ever read —
+    never create the state directory here.
+    """
+    return project_root / ".phlo" / "observatory" / "saved_queries.json"
 
 
 def load_saved_queries(project_root: Path) -> list[ObservatorySavedQuery]:
-    """Load and validate saved queries from durable state."""
-    return _validate_queries(
-        load_collection(project_root, "saved_queries", saved_queries_path(project_root))
-    )
+    """Load and validate saved queries from durable state. An absent
+    collection reads as empty — legacy import happens only through explicit
+    ``initialize_collections`` at startup.
+    """
+    return _validate_queries(read_collection(project_root, "saved_queries") or [])
 
 
 def dedupe_saved_queries(queries: list[ObservatorySavedQuery]) -> list[ObservatorySavedQuery]:

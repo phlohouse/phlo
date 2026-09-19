@@ -154,7 +154,10 @@ def test_blocked_publish_returns_identical_ordered_reasons_on_every_surface(
     # The /actions dispatch surfaces the same ordered reasons verbatim.
     action = authenticated_client("admin").post(
         "/api/observatory/actions",
-        json={"action_id": "dataset:gold.orders:publish"},
+        json={
+            "action_id": "dataset:gold.orders:publish",
+            "idempotency_key": "cutover-parity-blocked",
+        },
     )
     assert action.status_code == 200
     assert action.json()["status"] == "skipped"
@@ -219,13 +222,21 @@ def test_authorized_publish_is_idempotent_audited_and_durable(
     assert seed.status.value == "committed"
     client = authenticated_client("admin")
 
+    # Distinct idempotency keys: each request claims and dispatches, and the
+    # durable authority -- not the claim layer -- deduplicates the transition.
     first = client.post(
         "/api/observatory/actions",
-        json={"action_id": "dataset:gold.orders:publish"},
+        json={
+            "action_id": "dataset:gold.orders:publish",
+            "idempotency_key": "cutover-parity-first",
+        },
     )
     replay = client.post(
         "/api/observatory/actions",
-        json={"action_id": "dataset:gold.orders:publish"},
+        json={
+            "action_id": "dataset:gold.orders:publish",
+            "idempotency_key": "cutover-parity-replay",
+        },
     )
 
     assert first.status_code == 200
@@ -304,6 +315,7 @@ def test_publish_against_exact_version_conflicts_on_mismatch_and_replays_on_matc
         json={
             "action_id": "dataset:gold.orders:publish",
             "expected_state": "published",
+            "idempotency_key": "cutover-parity-stale",
         },
     )
     assert stale.status_code == 200
@@ -317,6 +329,7 @@ def test_publish_against_exact_version_conflicts_on_mismatch_and_replays_on_matc
         json={
             "action_id": "dataset:gold.orders:publish",
             "expected_state": "draft",
+            "idempotency_key": "cutover-parity-exact",
         },
     )
     assert exact.status_code == 200
@@ -331,6 +344,7 @@ def test_publish_against_exact_version_conflicts_on_mismatch_and_replays_on_matc
         json={
             "action_id": "dataset:gold.orders:publish",
             "expected_state": "published",
+            "idempotency_key": "cutover-parity-reobserved",
         },
     )
     assert reobserved.status_code == 200

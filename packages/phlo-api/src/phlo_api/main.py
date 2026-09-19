@@ -37,6 +37,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from phlo.logging import bind_context, clear_context, get_logger
 from phlo.capabilities.discovery import discover_capabilities
 from phlo_api.regulated_surface_adapter import get_adapter
+from phlo_api.request_origin import DEV_ORIGIN_PATTERN, allow_credentials, allowed_origins
 from phlo_api.security_manifest import install_manifest_enforcement
 from phlo.security.validation import require_regulated_validation
 
@@ -51,11 +52,59 @@ async def _lifespan(application: FastAPI):
     store = default_run_evidence_store()
     store.initialize()
     application.state.run_evidence_store = store
+    _initialize_observatory_collections()
+    await _reconcile_unresolved_mutations()
     try:
         yield
     finally:
         store.close()
         del application.state.run_evidence_store
+
+
+async def _reconcile_unresolved_mutations() -> None:
+    """Best-effort startup reconciliation of pending/unknown mutation claims.
+
+    A claim left pending or unknown by a crash or lost reply is settled here
+    from provider evidence where a resolver exists; claims without usable
+    evidence stay unresolved and remain visible (and blocked from replay) in
+    the operations read model.
+    """
+    try:
+        from phlo_api.observatory_api.orchestrator_operations import (
+            resolve_orchestrator_operations,
+        )
+        from phlo_api.observatory_api.run_action_contract import (
+            reconcile_unresolved_claims,
+        )
+
+        provider = resolve_orchestrator_operations()
+        resolved = await reconcile_unresolved_claims(provider, limit=25)
+        if resolved:
+            logger.info("mutation_claims_reconciled", resolved=resolved)
+    except Exception:
+        logger.warning("mutation_claims_reconciliation_failed", exc_info=True)
+
+
+def _initialize_observatory_collections() -> None:
+    """Import legacy Mission Control state once, at startup.
+
+    Explicit initialization is the only place legacy ``.phlo`` files are
+    migrated: request handlers never create directories, import files or seed
+    records. A failure here is logged, not fatal — the affected endpoints
+    report their own typed storage failure instead of the process refusing to
+    start.
+    """
+    from phlo_api.observatory_api.observatory_durable_state import initialize_collections
+    from phlo_api.observatory_api.observatory_mission_control_mode import project_root
+    from phlo_api.observatory_api.observatory_mission_control_state import legacy_paths
+
+    try:
+        initialized = initialize_collections(project_root(), legacy_paths())
+    except Exception:
+        logger.warning("observatory_collections_init_failed", exc_info=True)
+        return
+    if initialized:
+        logger.info("observatory_collections_initialized", collections=initialized)
 
 
 app = FastAPI(
@@ -66,19 +115,11 @@ app = FastAPI(
 )
 
 # Allow CORS for Observatory
-_cors_origins_raw = os.environ.get(
-    "PHLO_API_CORS_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000,"
-    "http://localhost:3001,http://127.0.0.1:3001,"
-    "http://localhost:3005,http://127.0.0.1:3005,"
-    "http://localhost:4000,http://127.0.0.1:4000",
-)
-_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1):\d+$",
-    allow_credentials=_cors_origins != ["*"],  # Browsers reject credentials with a "*" origin.
+    allow_origins=allowed_origins(),
+    allow_origin_regex=DEV_ORIGIN_PATTERN.pattern,
+    allow_credentials=allow_credentials(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -93,6 +134,7 @@ _ROUTERS = [
     ("phlo_api.observatory_api.observatory", "/api/observatory"),
     ("phlo_api.observatory_api.package_install", "/api/observatory"),
     ("phlo_api.observatory_api.run_report", "/api/observatory"),
+    ("phlo_api.observatory_api.observatory_mission_context", "/api/observatory"),
     ("phlo_api.observatory_api.observatory_mission_overview", "/api/observatory"),
     ("phlo_api.observatory_api.observatory_mission_evidence", "/api/observatory"),
     ("phlo_api.observatory_api.observatory_mission_releases", "/api/observatory"),

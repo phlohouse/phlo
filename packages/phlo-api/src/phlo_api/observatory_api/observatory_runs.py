@@ -56,24 +56,46 @@ def load_runs() -> list[ObservatoryRun]:
     return [_normalize_legacy_dagster_run(run) for run in legacy_runs]
 
 
+def load_runs_strict() -> list[ObservatoryRun]:
+    """Load orchestrator runs, propagating backend failures.
+
+    Read models that must distinguish "no runs" from "orchestrator
+    unreachable" use this variant; ``load_runs`` deliberately masks the
+    difference for callers that only need a rendered list.
+    """
+    legacy_runs = asyncio.run(_load_legacy_dagster_runs())
+    return [_normalize_legacy_dagster_run(run) for run in legacy_runs]
+
+
 def load_durable_runs(
     store: Any, *, limit: int, cursor: str | None
-) -> tuple[list[ObservatoryRun], str | None]:
+) -> tuple[list[ObservatoryRun], str | None, dict[str, tuple[str, str, str]]]:
     """Load runs from complete canonical durable run evidence.
 
     Only rows sourced from the durable run-evidence store carry a
     ``report_identity``. Legacy Dagster rows, manifest rows, and recovered
     operation rows never receive one.
+
+    ``positions`` maps each returned run id to its raw store ordering tuple
+    (``activity``, ``project_id``, ``run_id``) so a merged page can re-anchor
+    the durable cursor at the last row it actually displayed.
     """
     rows, next_cursor = store.list_runs_page(limit=limit, cursor=cursor)
 
     runs: list[ObservatoryRun] = []
+    positions: dict[str, tuple[str, str, str]] = {}
     for row in rows:
         identity = _durable_report_identity(row)
         if identity is None:
             continue
-        runs.append(_durable_run_from_row(row, identity))
-    return runs, next_cursor
+        run = _durable_run_from_row(row, identity)
+        runs.append(run)
+        positions[run.id] = (
+            str(row.get("_activity", "")),
+            identity.project_id,
+            identity.run_id,
+        )
+    return runs, next_cursor, positions
 
 
 def _durable_report_identity(row: Mapping[str, Any]) -> ObservatoryRunReportIdentity | None:

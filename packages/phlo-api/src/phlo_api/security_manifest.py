@@ -209,6 +209,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         # Mission Control operator read models (shell + Overview).
         (
             "get_mission_alerts",
+            "get_mission_context",
             "get_mission_environments",
             "get_mission_attention",
             "get_mission_overview_summary",
@@ -218,6 +219,16 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         ),
         action=CanonicalAction.ADMIN_READ.value,
         resource_type="admin",
+    ),
+    *_specs(
+        ("get_mission_service_visibility",),
+        action=CanonicalAction.SETTINGS_READ.value,
+        resource_type="settings",
+    ),
+    *_specs(
+        ("put_mission_service_visibility",),
+        action=CanonicalAction.SETTINGS_MANAGE.value,
+        resource_type="settings",
     ),
     *_specs(
         # Per-run evidence.
@@ -242,6 +253,11 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_keys=("run_id",),
     ),
     *_specs(
+        ("list_mission_runs",),
+        action=CanonicalAction.RUN_READ.value,
+        resource_type="run",
+    ),
+    *_specs(
         ("get_mission_dataset_governance", "get_mission_dataset"),
         action=CanonicalAction.DATASET_READ.value,
         resource_type="dataset",
@@ -258,8 +274,14 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_type="dataset",
     ),
     *_specs(
-        ("get_mission_release_candidate",),
+        ("get_mission_release_candidate", "get_mission_release_candidate_preview"),
         action=CanonicalAction.DATASET_READ.value,
+        resource_type="dataset",
+        resource_keys=("candidate_id",),
+    ),
+    *_specs(
+        ("post_mission_release_promotion",),
+        action=CanonicalAction.DATASET_PUBLISH.value,
         resource_type="dataset",
         resource_keys=("candidate_id",),
     ),
@@ -342,7 +364,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_type="admin",
     ),
     *_specs(
-        ("get_observatory_service_detail",),
+        ("get_observatory_service_detail", "probe_observatory_service"),
         action=CanonicalAction.ADMIN_READ.value,
         resource_type="admin",
         resource_keys=("service_id",),
@@ -854,6 +876,68 @@ def _requires_durable_audit(action: str) -> bool:
     return not action.endswith(_READ_ONLY_ACTION_SUFFIXES)
 
 
+# ---------------------------------------------------------------- CSRF guard
+#
+# Cookie-backed sessions are ambient credentials: a cross-site page can cause
+# a browser to attach them to a forged mutation. Bearer tokens are not ambient
+# (the caller must attach them), so the guard applies only when a request
+# presents cookies and no Authorization header. Two independent checks then
+# gate the mutation: the application's custom header, which cross-site form
+# posts cannot set, and the browser's own Origin/Sec-Fetch-Site signals when
+# present. This applies in every mode — CSRF is a property of the credential
+# type, not of the authorization mode.
+
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+# Custom header the Observatory frontend attaches to mutations. Any value
+# other than the constant is treated as absent.
+CSRF_HEADER = "x-phlo-request"
+CSRF_HEADER_VALUE = "observatory"
+
+
+def _request_origin_allowed(request: Request, origin: str) -> bool:
+    """Same-origin or explicitly allowed by the CORS origin policy."""
+    from phlo_api.request_origin import is_origin_allowed, is_same_origin
+
+    if is_same_origin(origin, request.headers.get("host", "")):
+        return True
+    return is_origin_allowed(origin)
+
+
+def _enforce_cookie_request_origin(request: Request) -> None:
+    """Reject cross-site cookie-authenticated mutations before dispatch.
+
+    Runs for every classified unsafe request regardless of authorization
+    mode: when the request presents cookies without an Authorization header,
+    the cookies could be ambient session credentials the caller did not
+    deliberately attach, so the request must carry the application's CSRF
+    header and must not declare a cross-site browser origin.
+    """
+    if request.method.upper() not in _UNSAFE_METHODS:
+        return
+    if request.headers.get("authorization"):
+        return
+    if not request.cookies:
+        return
+
+    origin = request.headers.get("origin")
+    if origin is not None and not _request_origin_allowed(request, origin):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "forbidden", "reason": "csrf_origin_rejected"},
+        )
+    if request.headers.get("sec-fetch-site", "").strip().lower() == "cross-site":
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "forbidden", "reason": "csrf_cross_site"},
+        )
+    if request.headers.get(CSRF_HEADER) != CSRF_HEADER_VALUE:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "forbidden", "reason": "csrf_header_missing"},
+        )
+
+
 async def enforce_http_operation(
     request: Request,
     spec: OperationSpec,
@@ -862,6 +946,8 @@ async def enforce_http_operation(
     """Authenticate and authorize a classified HTTP operation."""
     if spec.public:
         return
+
+    _enforce_cookie_request_origin(request)
 
     # Access control runs when regulated mode is active OR production HTTP
     # authorization is required (ADR 0047). Otherwise unregulated development

@@ -27,7 +27,7 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 
-from phlo.security import is_regulated
+from phlo.security.mode import requires_http_authorization
 from phlo_api.api.authentication import get_request_principal
 
 _TOKEN_CONFIG_ENV = "PHLO_API_TOKENS"
@@ -68,6 +68,15 @@ class IdempotencyConflict(HTTPException):
         super().__init__(status_code=409, detail=detail, headers=headers or None)
 
 
+class MutationNotDispatched(HTTPException):
+    """The request aborted before any provider mutation was invoked.
+
+    Unlike a provider failure (outcome unknown), a not-dispatched claim is
+    safe to reclaim: the provider never saw the request. As an HTTPException
+    it surfaces the abort reason to the client unchanged.
+    """
+
+
 def project_root() -> Path:
     """Resolve the Phlo project root from PHLO_PROJECT_PATH, defaulting to the cwd."""
     return Path(os.environ.get("PHLO_PROJECT_PATH", ".")).resolve()
@@ -75,9 +84,10 @@ def project_root() -> Path:
 
 def require_scope(request: Request, required_scope: str) -> dict[str, Any]:
     """Require a bearer token with the requested scope or admin."""
-    # Outside regulated mode there is no token infrastructure; development
-    # callers act with full admin scopes.
-    if not is_regulated():
+    # Only in development mode is there no identity to check; whenever HTTP
+    # authorization is required (staging/prod/regulated) the authenticated
+    # principal must carry the scope so audit records name the real subject.
+    if not requires_http_authorization():
         return {"subject": "development:anonymous", "scopes": ["admin"]}
 
     principal = get_request_principal(request)
@@ -191,6 +201,33 @@ def _rotate_audit_log(path: Path) -> None:
         os.close(directory_descriptor)
 
 
+def _payload_digest(payload: dict[str, Any] | None) -> str:
+    """Canonical request digest bound to an idempotency claim.
+
+    Two requests sharing a key and identity but carrying different payloads
+    are different intents — the claim must conflict rather than replay. A
+    caller that passes no payload carries no binding (``""``), matching the
+    digest stored by claims written before payload binding existed.
+    """
+    if payload is None:
+        return ""
+    canonical = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _audit_intent_or_raise(
+    audit_intent: Callable[[], None] | None, *, operation: str, target: str
+) -> None:
+    """Persist the validated intent before provider invocation.
+
+    A failed intent write blocks dispatch: a post-call journal write must
+    never be the only record of what was asked for.
+    """
+    if audit_intent is None:
+        return
+    audit_intent()
+
+
 def replay_or_execute(
     *,
     idempotency_key: str | None,
@@ -198,6 +235,8 @@ def replay_or_execute(
     target: str,
     execute: Callable[[], dict[str, Any]],
     audit: Callable[[dict[str, Any]], None] | None = None,
+    audit_intent: Callable[[], None] | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return a previous idempotent response or execute and persist the new response.
 
@@ -205,8 +244,12 @@ def replay_or_execute(
     concurrent callers with the same identity never execute the provider more
     than once. A contender either replays a completed response or receives a
     stable ``409`` (in-progress / unknown-outcome) without invoking the provider.
+    A completed claim replays only when the request payload digest matches —
+    a changed payload under a reused key conflicts.
     """
+    digest = _payload_digest(payload)
     if not idempotency_key:
+        _audit_intent_or_raise(audit_intent, operation=operation, target=target)
         response = execute()
         if audit is not None:
             try:
@@ -217,7 +260,9 @@ def replay_or_execute(
         return response
 
     key_hash = _idempotency_hash(idempotency_key)
-    claim = _claim_idempotency_key(key_hash=key_hash, operation=operation, target=target)
+    claim = _claim_idempotency_key(
+        key_hash=key_hash, operation=operation, target=target, payload_digest=digest
+    )
     if claim.claimed:
         pass
     elif claim.state == _STATE_COMPLETED:
@@ -232,7 +277,15 @@ def replay_or_execute(
         raise IdempotencyConflict({"error": "idempotency_outcome_failed"})
 
     try:
+        _audit_intent_or_raise(audit_intent, operation=operation, target=target)
+    except BaseException:
+        _mark_idempotency_safe_to_retry(key_hash=key_hash, operation=operation, target=target)
+        raise
+    try:
         response = execute()
+    except MutationNotDispatched:
+        _mark_idempotency_safe_to_retry(key_hash=key_hash, operation=operation, target=target)
+        raise
     except BaseException:
         _mark_idempotency_unknown(key_hash=key_hash, operation=operation, target=target)
         raise
@@ -256,14 +309,19 @@ async def replay_or_execute_async(
     target: str,
     execute: Callable[[], Awaitable[dict[str, Any]]],
     audit: Callable[[dict[str, Any]], None] | None = None,
+    audit_intent: Callable[[], None] | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Async variant of replay_or_execute.
 
     The atomic claim and completion run in a worker thread so the SQLite write
     transaction is held outside the event loop; only the provider await runs on
-    the loop.
+    the loop. The validated intent (payload digest on the claim, optional
+    audit-intent record) is durable before the provider is invoked.
     """
+    digest = _payload_digest(payload)
     if not idempotency_key:
+        _audit_intent_or_raise(audit_intent, operation=operation, target=target)
         response = await execute()
         if audit is not None:
             try:
@@ -275,7 +333,11 @@ async def replay_or_execute_async(
 
     key_hash = _idempotency_hash(idempotency_key)
     claim = await asyncio.to_thread(
-        _claim_idempotency_key, key_hash=key_hash, operation=operation, target=target
+        _claim_idempotency_key,
+        key_hash=key_hash,
+        operation=operation,
+        target=target,
+        payload_digest=digest,
     )
     if claim.claimed:
         pass
@@ -291,7 +353,27 @@ async def replay_or_execute_async(
         raise IdempotencyConflict({"error": "idempotency_outcome_failed"})
 
     try:
+        _audit_intent_or_raise(audit_intent, operation=operation, target=target)
+    except BaseException:
+        await asyncio.to_thread(
+            _mark_idempotency_safe_to_retry,
+            key_hash=key_hash,
+            operation=operation,
+            target=target,
+        )
+        raise
+    try:
         response = await execute()
+    except MutationNotDispatched:
+        # The request aborted before the provider mutation ran: the claim is
+        # reclaimable rather than unknown.
+        await asyncio.to_thread(
+            _mark_idempotency_safe_to_retry,
+            key_hash=key_hash,
+            operation=operation,
+            target=target,
+        )
+        raise
     except BaseException:
         # Provider raised after the claim: record an unknown outcome so later
         # callers receive a stable 409 and never re-invoke the provider.
@@ -337,9 +419,60 @@ class _IdempotencyClaim:
     response_json: str
 
 
+@dataclass(slots=True)
+class UnresolvedClaim:
+    """A durable claim whose provider outcome is not yet settled."""
+
+    key_hash: str
+    operation: str
+    target: str
+    state: str
+    payload_digest: str
+    created_at: str
+
+
+def list_unresolved_claims(*, limit: int = 100) -> list[UnresolvedClaim]:
+    """List pending/unknown idempotency claims for this project, newest first.
+
+    Pending and unknown rows never expire — they stay visible until
+    reconciliation records the provider outcome.
+    """
+    conn = _idempotency_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT key_hash, operation, target, state, payload_digest, created_at
+            FROM operations
+            WHERE project = ? AND state IN (?, ?)
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (
+                str(project_root()),
+                _STATE_PENDING,
+                _STATE_UNKNOWN,
+                max(1, min(limit, 500)),
+            ),
+        ).fetchall()
+        return [
+            UnresolvedClaim(
+                key_hash=str(row[0]),
+                operation=str(row[1]),
+                target=str(row[2]),
+                state=str(row[3]),
+                payload_digest=str(row[4] or ""),
+                created_at=str(row[5]),
+            )
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
 def resolve_idempotency_claim(
     *,
-    idempotency_key: str,
+    idempotency_key: str | None = None,
+    idempotency_key_hash: str | None = None,
     operation: str,
     target: str,
     resolution: str,
@@ -353,14 +486,22 @@ def resolve_idempotency_claim(
     choose whether it proves success, failure, or that another invocation is
     safe. Every resolution is retained in the local audit table with its actor
     and evidence; only ``safe_to_retry`` permits another provider invocation.
+    The claim is addressed either by its raw key (``idempotency_key``) or by
+    the stored hash (``idempotency_key_hash``), which is all a reconciler has.
     """
     if resolution not in {"succeeded", _STATE_FAILED, _STATE_SAFE_TO_RETRY}:
         raise ValueError("resolution must be succeeded, failed, or safe_to_retry")
     if resolution == "succeeded" and response is None:
         raise ValueError("a succeeded resolution requires a response")
+    if idempotency_key is None and idempotency_key_hash is None:
+        raise ValueError("a resolution requires the idempotency key or its hash")
     state = _STATE_COMPLETED if resolution == "succeeded" else resolution
 
-    key_hash = _idempotency_hash(idempotency_key)
+    key_hash = (
+        _idempotency_hash(idempotency_key)
+        if idempotency_key is not None
+        else str(idempotency_key_hash)
+    )
     conn = _idempotency_connection()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -442,12 +583,17 @@ def resolve_idempotency_claim(
         conn.close()
 
 
-def _claim_idempotency_key(*, key_hash: str, operation: str, target: str) -> _IdempotencyClaim:
+def _claim_idempotency_key(
+    *, key_hash: str, operation: str, target: str, payload_digest: str
+) -> _IdempotencyClaim:
     """Atomically claim an idempotency identity or report an existing claim's state.
 
-    A ``pending`` row is inserted before provider execution. If the identity
-    already exists, the existing row's state (and completed response) is
-    returned so the caller can replay or surface a stable conflict.
+    A ``pending`` row is inserted before provider execution, binding the
+    request's payload digest to the claim. If the identity already exists
+    with a *different* digest the request is a different intent under a
+    reused key — it conflicts rather than replays or re-executes. Otherwise
+    the existing row's state (and completed response) is returned so the
+    caller can replay or surface a stable conflict.
     """
     conn = _idempotency_connection()
     try:
@@ -461,8 +607,8 @@ def _claim_idempotency_key(*, key_hash: str, operation: str, target: str) -> _Id
         try:
             conn.execute(
                 """
-                INSERT INTO operations(project, key_hash, operation, target, state, response_json, created_at, expires_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO operations(project, key_hash, operation, target, state, response_json, created_at, expires_at, payload_digest)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(project_root()),
@@ -473,6 +619,7 @@ def _claim_idempotency_key(*, key_hash: str, operation: str, target: str) -> _Id
                     "",
                     now.isoformat(),
                     expires_at.isoformat(),
+                    payload_digest,
                 ),
             )
             conn.commit()
@@ -480,6 +627,24 @@ def _claim_idempotency_key(*, key_hash: str, operation: str, target: str) -> _Id
         except sqlite3.IntegrityError:
             conn.rollback()
             conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                """
+                SELECT state, response_json, payload_digest FROM operations
+                WHERE project = ? AND key_hash = ? AND operation = ? AND target = ?
+                """,
+                (str(project_root()), key_hash, operation, target),
+            ).fetchone()
+            if existing is not None and str(existing[2] or "") != payload_digest:
+                conn.commit()
+                raise IdempotencyConflict(
+                    {
+                        "error": "idempotency_payload_conflict",
+                        "message": (
+                            "Idempotency key was already used with a different "
+                            "request payload. Use a new key for a changed request."
+                        ),
+                    }
+                )
             claimed = conn.execute(
                 """
                 UPDATE operations
@@ -501,21 +666,25 @@ def _claim_idempotency_key(*, key_hash: str, operation: str, target: str) -> _Id
             if claimed:
                 conn.commit()
                 return _IdempotencyClaim(claimed=True, state=_STATE_PENDING, response_json="")
-            row = conn.execute(
-                """
-                SELECT state, response_json FROM operations
-                WHERE project = ? AND key_hash = ? AND operation = ? AND target = ?
-                """,
-                (str(project_root()), key_hash, operation, target),
-            ).fetchone()
+            row = (
+                existing
+                if existing is not None
+                else conn.execute(
+                    """
+                    SELECT state, response_json, payload_digest FROM operations
+                    WHERE project = ? AND key_hash = ? AND operation = ? AND target = ?
+                    """,
+                    (str(project_root()), key_hash, operation, target),
+                ).fetchone()
+            )
             conn.commit()
             if row is None:
                 # Expired and deleted between the INSERT and the read; retry once.
                 conn.execute("BEGIN IMMEDIATE")
                 conn.execute(
                     """
-                    INSERT INTO operations(project, key_hash, operation, target, state, response_json, created_at, expires_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO operations(project, key_hash, operation, target, state, response_json, created_at, expires_at, payload_digest)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         str(project_root()),
@@ -526,6 +695,7 @@ def _claim_idempotency_key(*, key_hash: str, operation: str, target: str) -> _Id
                         "",
                         now.isoformat(),
                         expires_at.isoformat(),
+                        payload_digest,
                     ),
                 )
                 conn.commit()
@@ -550,6 +720,33 @@ def _complete_idempotency_claim(
             (
                 _STATE_COMPLETED,
                 json.dumps(response, sort_keys=True),
+                str(project_root()),
+                key_hash,
+                operation,
+                target,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _mark_idempotency_safe_to_retry(*, key_hash: str, operation: str, target: str) -> None:
+    """Release a claimed identity whose request never reached the provider.
+
+    ``safe_to_retry`` rows are reclaimable by the same key+payload digest, so
+    an aborted dispatch does not strand the key on a phantom in-flight state.
+    """
+    conn = _idempotency_connection()
+    try:
+        conn.execute(
+            """
+            UPDATE operations
+            SET state = ?
+            WHERE project = ? AND key_hash = ? AND operation = ? AND target = ?
+            """,
+            (
+                _STATE_SAFE_TO_RETRY,
                 str(project_root()),
                 key_hash,
                 operation,
@@ -668,6 +865,7 @@ def _idempotency_connection() -> sqlite3.Connection:
             response_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             expires_at TEXT NOT NULL,
+            payload_digest TEXT NOT NULL DEFAULT '',
             PRIMARY KEY(project, key_hash, operation, target)
         )
         """
@@ -691,11 +889,13 @@ def _idempotency_connection() -> sqlite3.Connection:
 
 
 def _migrate_operations_schema(conn: sqlite3.Connection) -> None:
-    """Add the ``state`` column, defaulting existing completed rows to ``completed``.
+    """Add late-arriving columns, defaulting existing rows to compatible values.
 
     The migration is backward-compatible: pre-existing rows (which only ever
-    held successful, replayable responses) are treated as ``completed`` so they
-    remain replayable after the schema change.
+    held successful, replayable responses) are treated as ``completed`` so
+    they remain replayable after the schema change. Rows predating
+    ``payload_digest`` carry an empty digest; a digest mismatch on such a row
+    conflicts rather than silently replaying an unverified response.
     """
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -703,6 +903,10 @@ def _migrate_operations_schema(conn: sqlite3.Connection) -> None:
         if "state" not in columns:
             conn.execute(
                 "ALTER TABLE operations ADD COLUMN state TEXT NOT NULL DEFAULT 'completed'"
+            )
+        if "payload_digest" not in columns:
+            conn.execute(
+                "ALTER TABLE operations ADD COLUMN payload_digest TEXT NOT NULL DEFAULT ''"
             )
         conn.commit()
     except BaseException:

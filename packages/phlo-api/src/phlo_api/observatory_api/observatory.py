@@ -17,11 +17,14 @@ import heapq
 import importlib
 import importlib.util
 import json
+import logging
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
+import time
 from typing import Any, cast
 from urllib.parse import quote
 from uuid import uuid4
@@ -32,8 +35,9 @@ from fastapi.responses import JSONResponse
 from pydantic import AliasChoices, BaseModel, Field, ValidationError
 
 from phlo_api.observatory_api.observatory_actions import execute_observatory_action
-from phlo_api.observatory_api.observatory_cache import ReadModelCache
+from phlo_api.observatory_api.observatory_cache import CacheRead, ReadModelCache
 from phlo_api.observatory_api.observatory_capabilities import build_capability_inventory
+from phlo_api.observatory_api.observatory_mission_control_mode import reject_demo_mutations
 from phlo_api.observatory_api.observatory_models import (
     ControlStatus,
     HealthState,
@@ -136,6 +140,7 @@ from phlo_api.observatory_api.run_action_contract import (
     RunActionResult,
     normalize_run_action_result,
     observatory_action,
+    reconcile_unresolved_claims,
     require_idempotency_key,
     resolve_run_action_reconciliation,
 )
@@ -167,8 +172,11 @@ from phlo_api.observatory_api.observatory_workflow_wizard import (
     build_workflow_wizard_payload,
 )
 from phlo_api.api.operation_controls import (
+    MutationNotDispatched,
     audit_operation,
     enforce_rate_limit,
+    list_unresolved_claims,
+    replay_or_execute,
     replay_or_execute_async,
     require_scope,
 )
@@ -198,6 +206,8 @@ except ImportError:  # pragma: no cover - POSIX is used in production
 else:
     fcntl = _fcntl
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["observatory"])
 
 
@@ -209,6 +219,64 @@ def _jsonable_result(result: Any) -> dict[str, Any]:
     if hasattr(result, "model_dump"):
         return result.model_dump(mode="json")
     return {"result": result}
+
+
+# Commit-time target states: a retry only dispatches while the provider still
+# reports the run failed/cancelled, and a cancel only while it reports the run
+# in flight. A run that already moved on yields a rejected result instead of a
+# second provider invocation.
+_RETRYABLE_RUN_STATES = {"FAILURE", "FAILED", "CANCELED", "CANCELLED"}
+_CANCELLABLE_RUN_STATES = {
+    "QUEUED",
+    "NOT_STARTED",
+    "STARTING",
+    "STARTED",
+    "MANAGED",
+    "CANCELING",
+}
+
+
+async def _recheck_run_target_state(provider: Any, run_id: str) -> str:
+    """Re-read the target run's provider state at commit time.
+
+    Authorization, capability and dependency readiness are already enforced by
+    the guard chain; this rechecks *target state* inside the claim window so a
+    run that changed state between request validation and dispatch is rejected
+    rather than mutated. An unreadable or missing status aborts the dispatch
+    (``MutationNotDispatched``): the claim is reclaimable and the provider was
+    never invoked.
+    """
+    try:
+        status_payload = await provider.get_run_status(run_id)
+    except Exception as exc:
+        raise MutationNotDispatched(
+            status_code=503,
+            detail={
+                "error": "target_state_unavailable",
+                "message": f"Could not verify the current state of run {run_id}.",
+            },
+        ) from exc
+    if isinstance(status_payload, dict) and status_payload.get("error"):
+        raise MutationNotDispatched(
+            status_code=503,
+            detail={
+                "error": "target_state_unavailable",
+                "message": str(status_payload.get("error")),
+            },
+        )
+    raw_status = getattr(status_payload, "status", None)
+    if raw_status is None and isinstance(status_payload, dict):
+        raw_status = status_payload.get("status")
+    status = str(raw_status or "").upper()
+    if not status:
+        raise MutationNotDispatched(
+            status_code=503,
+            detail={
+                "error": "target_state_unavailable",
+                "message": f"Provider returned no status for run {run_id}.",
+            },
+        )
+    return status
 
 
 class ObservatoryMaterializeAssetRequest(BaseModel):
@@ -225,6 +293,7 @@ class ObservatoryMaterializeAssetRequest(BaseModel):
     repository_name: str | None = None
     run_config: dict[str, Any] | None = None
     idempotency_key: str | None = None
+    review_hold: bool = False
     tags: dict[str, str] = Field(default_factory=dict)
 
 
@@ -292,12 +361,18 @@ _FAST_READ_MODEL_TTL_SECONDS = 30
 _EXPENSIVE_READ_MODEL_TTL_SECONDS = 120
 _READ_MODEL_CACHE = ReadModelCache(
     project_key=lambda: str(_project_root()),
-    db_path=lambda: _observatory_state_dir() / "read_models.sqlite",
+    db_path=lambda: _read_model_cache_db_path(),
 )
 
 
 def _cached_read_model(name: str, ttl_seconds: float, loader: Any) -> Any:
     return _READ_MODEL_CACHE.cached(name, ttl_seconds, loader)
+
+
+def _cached_read_model_outcome(name: str, ttl_seconds: float, loader: Any) -> CacheRead:
+    """Read-model access for surfaces that carry evidence. On loader failure a
+    persisted value is served flagged ``stale`` instead of raising."""
+    return _READ_MODEL_CACHE.cached_outcome(name, ttl_seconds, loader)
 
 
 def _clear_read_model_cache() -> None:
@@ -334,9 +409,20 @@ def _project_root() -> Path:
 
 
 def _observatory_state_dir() -> Path:
-    state_dir = _project_root() / ".phlo" / "observatory"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir
+    """Project-scoped Observatory state directory. Pure: never creates it —
+    read paths must not write project state; writers mkdir before writing."""
+    return _project_root() / ".phlo" / "observatory"
+
+
+def _read_model_cache_db_path() -> Path:
+    """Read-model cache db lives outside project business state so GET
+    traversal never creates ``.phlo``. ``PHLO_OBSERVATORY_CACHE_DIR``
+    overrides the default per-host cache directory.
+    """
+    cache_dir = os.environ.get("PHLO_OBSERVATORY_CACHE_DIR")
+    if cache_dir:
+        return Path(cache_dir).resolve() / "read_models.sqlite"
+    return Path(tempfile.gettempdir()) / "phlo-observatory" / "read_models.sqlite"
 
 
 def _saved_queries_path() -> Path:
@@ -2183,11 +2269,56 @@ def _load_wap_report_operations() -> list[ObservatoryOperation]:
     return operations
 
 
+def _unresolved_claim_operations() -> list[ObservatoryOperation]:
+    """Render unresolved idempotency claims as visible, non-replayable operations.
+
+    A pending or unknown claim means a mutation may have reached the provider
+    without a settled outcome. These rows stay visible in operation history —
+    marked unresolved and blocked from blind replay — until reconciliation or
+    an explicit resolution records the provider outcome.
+    """
+    operations: list[ObservatoryOperation] = []
+    try:
+        claims = list_unresolved_claims(limit=200)
+    except Exception:
+        return []
+    for claim in claims:
+        operations.append(
+            ObservatoryOperation(
+                id=f"claim:{claim.key_hash[:16]}",
+                name=f"Unresolved mutation ({claim.operation})",
+                kind=claim.operation,
+                status="unknown",
+                health=ObservatoryHealth(
+                    state="warning",
+                    message=(
+                        f"Claim state is {claim.state}; provider outcome is not "
+                        "settled. Replays are blocked until resolution."
+                    ),
+                ),
+                target=ObservatoryResourceRef(
+                    kind="operation_target", id=claim.target, label=claim.target
+                ),
+                started_at=claim.created_at,
+                metadata=_safe_metadata(
+                    {
+                        "claim_state": claim.state,
+                        "operation": claim.operation,
+                        "replay_blocked": True,
+                        "source": "idempotency_claim",
+                    }
+                ),
+            )
+        )
+    return operations
+
+
 def _load_operations() -> list[ObservatoryOperation]:
     operations = [
         *list(load_operation_journal(_project_root())),
         *_load_wap_report_operations(),
         *_manifest_records("operations", ObservatoryOperation),
+        *_unresolved_claim_operations(),
     ]
     registry = _load_capability_registry()
     if registry is None:
@@ -2233,22 +2364,80 @@ def _filter_operations(
     return filtered
 
 
+def _encode_runs_page_cursor(store_cursor: str | None) -> str:
+    """Wrap a durable-store cursor as a merged-page cursor.
+
+    ``None`` inside the wrapper means "resume the durable spine from its
+    head", which is distinct from an absent cursor ("first page, include the
+    provider/manifest window").
+    """
+    from base64 import urlsafe_b64encode
+
+    payload = json.dumps({"spine": store_cursor}, separators=(",", ":")).encode("utf-8")
+    return urlsafe_b64encode(payload).decode("ascii")
+
+
+def _decode_runs_page_cursor(cursor: str | None) -> tuple[bool, str | None]:
+    """Split a merged-page cursor into (is_first_page, durable store cursor)."""
+    from base64 import urlsafe_b64decode
+
+    if not cursor:
+        return True, None
+    try:
+        payload = json.loads(urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError):
+        # A malformed cursor resumes the durable spine from its head rather
+        # than replaying the first page's rows a second time.
+        return False, None
+    if isinstance(payload, dict) and "spine" in payload:
+        inner = payload["spine"]
+        return False, inner if isinstance(inner, str) else None
+    # Pre-wrap cursors were raw durable-store cursors; keep honoring them.
+    return False, cursor
+
+
 def _load_runs(
     store: RunEvidenceStore, *, limit: int, cursor: str | None
 ) -> tuple[list[ObservatoryRun], str | None]:
-    """Load bounded source pages before merging the run read model."""
+    """Load bounded source pages before merging the run read model.
+
+    The durable run-evidence store is the paginated spine: it alone drives
+    the cursor. Provider and manifest rows merge into the first page only —
+    they are a live window over not-yet-evidenced runs, and re-fetching them
+    on every page would repeat them and displace durable rows the cursor has
+    already passed.
+    """
+    from phlo.run_evidence.store import encode_run_cursor
+
     source_limit = max(1, min(limit, 500))
-    manifest_runs = list(_manifest_records("runs", ObservatoryRun))[:source_limit]
-    provider_runs = load_runs()[:source_limit]
-    durable_runs, next_cursor = load_durable_runs(store, limit=source_limit, cursor=cursor)
-    return (
-        sorted(
+    first_page, store_cursor = _decode_runs_page_cursor(cursor)
+    # Fetch one row beyond the page budget as the has-more probe; the probe
+    # row never counts as displayed when the cursor re-anchors.
+    durable_runs, durable_next, positions = load_durable_runs(
+        store, limit=source_limit + 1, cursor=store_cursor
+    )
+    if first_page:
+        manifest_runs = list(_manifest_records("runs", ObservatoryRun))[:source_limit]
+        provider_runs = load_runs()[:source_limit]
+        merged = sorted(
             _merge_by_id([*manifest_runs, *provider_runs, *durable_runs]),
             key=lambda item: item.completed_at or item.started_at or item.id,
             reverse=True,
-        )[:source_limit],
-        next_cursor,
-    )
+        )[:source_limit]
+    else:
+        merged = durable_runs[:source_limit]
+
+    # Re-anchor the continuation at the last durable row this page actually
+    # returns. Provider/manifest rows may displace durable rows inside the
+    # merged window; anchoring at the fetched page's end would skip them.
+    merged_ids = {item.id for item in merged}
+    displayed_durable = [run for run in durable_runs if run.id in merged_ids]
+    if displayed_durable:
+        inner = encode_run_cursor(*positions[displayed_durable[-1].id])
+    else:
+        inner = None  # resume the durable spine from its head
+    more = len(durable_runs) > len(displayed_durable) or durable_next is not None
+    return merged, (_encode_runs_page_cursor(inner) if more else None)
 
 
 def _load_logs() -> list[ObservatoryLogEvent]:
@@ -2461,6 +2650,10 @@ def _service_actions(service: ObservatoryService) -> list[ObservatoryAction]:
             )
         ]
 
+    readiness_note = (
+        f"{service.id} reports readiness again once its health check passes — "
+        "a restart is complete only when the probe confirms it, not when the command exits."
+    )
     return [
         ObservatoryAction(
             id=f"{service.id}:start",
@@ -2470,6 +2663,11 @@ def _service_actions(service: ObservatoryService) -> list[ObservatoryAction]:
             reason=None
             if service.status == "stopped"
             else "Service is already running, starting, or its runtime state is unknown.",
+            equivalent_cli_command=f"phlo services start --service {service.id}",
+            expected_evidence=[
+                f"{service.id} runtime state is running",
+                readiness_note,
+            ],
         ),
         ObservatoryAction(
             id=f"{service.id}:stop",
@@ -2479,6 +2677,11 @@ def _service_actions(service: ObservatoryService) -> list[ObservatoryAction]:
             reason=None
             if service.status in {"running", "unhealthy", "starting"}
             else "Service is not running.",
+            equivalent_cli_command=f"phlo services stop --service {service.id}",
+            expected_evidence=[
+                f"{service.id} runtime state is stopped",
+                f"Dependent workflows may fail until {service.id} is running again.",
+            ],
         ),
         ObservatoryAction(
             id=f"{service.id}:restart",
@@ -2488,6 +2691,11 @@ def _service_actions(service: ObservatoryService) -> list[ObservatoryAction]:
             reason=None
             if service.status in {"running", "unhealthy", "starting"}
             else "Service must be running or starting before restart.",
+            equivalent_cli_command=f"phlo services restart --service {service.id}",
+            expected_evidence=[
+                f"{service.id} runtime state returns to running",
+                readiness_note,
+            ],
         ),
     ]
 
@@ -2782,14 +2990,23 @@ def _provider_branch_metadata(branch: Any) -> dict[str, Any]:
 
 
 def _load_provider_branches() -> list[ObservatoryBranch]:
+    try:
+        return _load_provider_branches_strict()
+    except Exception:
+        return []
+
+
+def _load_provider_branches_strict() -> list[ObservatoryBranch]:
+    """List catalog provider branches, propagating provider failures.
+
+    Raises ``LookupError`` when no branch-capable catalog provider is
+    configured, so callers can tell "no provider" apart from "provider down".
+    """
     provider = _catalog_branch_provider()
     list_branches = getattr(provider, "list_branches", None)
     if not callable(list_branches):
-        return []
-    try:
-        raw_branches = list_branches()
-    except Exception:
-        return []
+        raise LookupError("No catalog provider with branch support is configured")
+    raw_branches = list_branches()
 
     branches: list[ObservatoryBranch] = []
     for raw_branch in raw_branches or []:
@@ -2839,7 +3056,9 @@ def _load_branches() -> list[ObservatoryBranch]:
 
 def _write_branches(branches: list[ObservatoryBranch]) -> None:
     stored = [branch for branch in branches if branch.id != "main"]
-    _branches_path().write_text(
+    path = _branches_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
         json.dumps({"items": [branch.model_dump() for branch in stored]}, indent=2),
         encoding="utf-8",
     )
@@ -3981,6 +4200,15 @@ def _execute_action(request: ObservatoryActionRequest) -> ObservatoryActionResul
         command = ["phlo", "services", "add", service.id]
     else:
         command = ["phlo", "services", action_name, "--service", service.id]
+    # The CLI resolves deployment posture from the project plus its own
+    # environment; the API's process env is runtime config for this daemon —
+    # its PHLO_ENVIRONMENT describes the HTTP authorization posture, not the
+    # deployment's, and would mislabel a dev compose project as production.
+    action_env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"PHLO_ENVIRONMENT", "PHLO_REGULATED", "PHLO_REGULATED_MODE"}
+    }
     try:
         result = subprocess.run(
             command,
@@ -3988,6 +4216,7 @@ def _execute_action(request: ObservatoryActionRequest) -> ObservatoryActionResul
             text=True,
             check=False,
             timeout=120,
+            env=action_env,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         message = str(exc)
@@ -4122,12 +4351,17 @@ def _execute_branch_action(request: ObservatoryActionRequest) -> ObservatoryActi
         if existing is None:
             raise _not_found("branch", branch_name)
         merge_branch = getattr(provider, "merge_branch", None)
-        if not callable(merge_branch):
+        merge_detail = getattr(provider, "merge_branch_detail", None)
+        if not callable(merge_branch) and not callable(merge_detail):
             status = "skipped"
             message = "Catalog provider does not support branch promotion."
         else:
             try:
-                promoted = bool(merge_branch(branch_name, target="main"))
+                if callable(merge_detail):
+                    promoted, detail = merge_detail(branch_name, target="main")
+                else:
+                    promoted = bool(merge_branch(branch_name, target="main"))
+                    detail = None
             except Exception as exc:
                 status = "failed"
                 message = f"Branch {branch_name} promotion failed: {exc}"
@@ -4136,7 +4370,7 @@ def _execute_branch_action(request: ObservatoryActionRequest) -> ObservatoryActi
                 message = (
                     f"Branch {branch_name} promoted to main."
                     if promoted
-                    else f"Catalog provider did not promote branch {branch_name}."
+                    else f"Catalog provider refused to promote {branch_name}: {detail or 'no detail returned'}."
                 )
     else:
         raise HTTPException(status_code=400, detail="Unsupported branch action.")
@@ -4450,20 +4684,66 @@ def get_observatory_services() -> ObservatoryServiceList:
     return ObservatoryServiceList(items=_load_services())
 
 
+@router.get("/services/{service_id:path}/probe", response_model=ObservatoryServiceDetail)
+def probe_observatory_service(service_id: str) -> ObservatoryServiceDetail:
+    """Probe a declared managed service against the live container runtime.
+
+    The service inventory is read fresh from the runtime on every call, so a
+    probe answers current runtime/readiness state plus declared dependencies
+    and dependents — never a cached row. Undeclared service ids 404; arbitrary
+    container ids are never probed.
+    """
+    _clear_read_model_cache()
+    return _load_service_detail(service_id)
+
+
 @router.get("/services/{service_id:path}", response_model=ObservatoryServiceDetail)
 def get_observatory_service_detail(service_id: str) -> ObservatoryServiceDetail:
     """Get provider-neutral Observatory service detail."""
     return _load_service_detail(service_id)
 
 
-@router.get("/operations", response_model=ObservatoryOperationList)
-def get_observatory_operations(
+_CLAIM_RECONCILE_INTERVAL_SECONDS = 30.0
+_last_claim_reconcile_at = 0.0
+
+
+async def _maybe_reconcile_claims() -> None:
+    """Reconcile unresolved idempotency claims, throttled per process.
+
+    Status refresh is the operator-facing moment to settle pending/unknown
+    claims from provider evidence; the throttle keeps it bounded to one
+    provider sweep per interval, and failures leave claims unresolved and
+    visible rather than fabricating outcomes.
+    """
+    global _last_claim_reconcile_at
+    now = time.monotonic()
+    if now - _last_claim_reconcile_at < _CLAIM_RECONCILE_INTERVAL_SECONDS:
+        return
+    _last_claim_reconcile_at = now
+    try:
+        provider = resolve_orchestrator_operations()
+    except HTTPException:
+        return
+    try:
+        await reconcile_unresolved_claims(provider, limit=25)
+    except Exception:
+        logger.debug("observatory_claim_reconciliation_failed", exc_info=True)
+
+
+@router.get(
+    "/operations",
+    response_model=ObservatoryOperationList,
+    response_model_exclude_none=True,
+)
+async def get_observatory_operations(
     status: str | None = None,
     kind: str | None = None,
     q: str | None = None,
     limit: int | None = Query(default=None, ge=1, le=200),
+    cursor: str | None = None,
 ) -> ObservatoryOperationList:
     """List provider-neutral Observatory operations."""
+    await _maybe_reconcile_claims()
     try:
         result = _cached_read_model(
             "operations",
@@ -4474,15 +4754,16 @@ def get_observatory_operations(
         raise HTTPException(
             status_code=503, detail="Observatory durable state is unavailable"
         ) from exc
-    return ObservatoryOperationList(
-        items=_filter_operations(
-            result.items,
-            status=status,
-            kind=kind,
-            q=q,
-            limit=limit,
-        )
+    filtered = _filter_operations(
+        result.items,
+        status=status,
+        kind=kind,
+        q=q,
     )
+    if limit is None:
+        return ObservatoryOperationList(items=filtered)
+    page, next_cursor = paginate_items(filtered, limit=limit, cursor=cursor)
+    return ObservatoryOperationList(items=page, next_cursor=next_cursor)
 
 
 @router.get("/operations/{operation_id:path}/agent-context")
@@ -4511,10 +4792,10 @@ def get_observatory_runs(
 ) -> ObservatoryRunList:
     """List provider-neutral orchestrator runs."""
     safe_limit = max(1, min(limit, 500))
-    items, next_cursor = _load_runs(store, limit=safe_limit + 1, cursor=cursor)
+    items, next_cursor = _load_runs(store, limit=safe_limit, cursor=cursor)
     if q:
         items = [item for item in items if q.lower() in item.model_dump_json().lower()]
-    return ObservatoryRunList(items=items[:safe_limit], next_cursor=next_cursor)
+    return ObservatoryRunList(items=items, next_cursor=next_cursor)
 
 
 @router.get("/runs/{run_id:path}/status")
@@ -4540,7 +4821,10 @@ async def post_observatory_run_retry(
     The guarded endpoint enforces scope, rate limit, and a mandatory
     idempotency key before any provider invocation, then normalizes the
     provider reply into the neutral run-action result so replays are identical.
+    The claim binds the request payload digest, the validated intent is
+    audited before dispatch, and the target's run state is rechecked at commit.
     """
+    reject_demo_mutations()
     auth = require_scope(http_request, RETRY_RUN_ACTION.required_permission)
     enforce_rate_limit(auth["subject"], "retry_failed_run")
     require_idempotency_key(request.idempotency_key)
@@ -4548,6 +4832,21 @@ async def post_observatory_run_retry(
 
     async def execute() -> dict[str, Any]:
         """Run the guarded retry call and normalize its result contractually."""
+        target_state = await _recheck_run_target_state(provider, run_id)
+        if target_state not in _RETRYABLE_RUN_STATES:
+            normalized = normalize_run_action_result(
+                action_kind=RETRY_RUN_ACTION.kind,
+                target_run_id=run_id,
+                provider_result={
+                    "accepted": False,
+                    "message": (
+                        f"Retry is available only for failed runs; "
+                        f"run {run_id} is {target_state or 'unknown'}."
+                    ),
+                },
+                idempotency_key=request.idempotency_key or "",
+            )
+            return _jsonable_result(normalized)
         result = await provider.retry_run(run_id, request.model_dump())
         normalized = normalize_run_action_result(
             action_kind=RETRY_RUN_ACTION.kind,
@@ -4560,6 +4859,7 @@ async def post_observatory_run_retry(
         )
         return _jsonable_result(normalized)
 
+    request_payload = request.model_dump(mode="json")
     payload = await replay_or_execute_async(
         idempotency_key=request.idempotency_key,
         operation="retry_failed_run",
@@ -4570,9 +4870,17 @@ async def post_observatory_run_retry(
             target=run_id,
             dry_run=request.dry_run,
             auth=auth,
-            payload=request.model_dump(mode="json"),
+            payload=request_payload,
             result=result,
         ),
+        audit_intent=lambda: audit_operation(
+            operation="retry_failed_run",
+            target=run_id,
+            dry_run=request.dry_run,
+            auth=auth,
+            payload={**request_payload, "phase": "intent"},
+        ),
+        payload=request_payload,
     )
     return RunActionResult.model_validate(payload)
 
@@ -4594,6 +4902,7 @@ async def post_observatory_run_cancel(
     mandatory idempotency key are checked before invocation, and the provider
     reply is normalized into the same neutral run-action result.
     """
+    reject_demo_mutations()
     auth = require_scope(http_request, CANCEL_RUN_ACTION.required_permission)
     enforce_rate_limit(auth["subject"], "cancel_run")
     require_idempotency_key(request.idempotency_key)
@@ -4601,6 +4910,21 @@ async def post_observatory_run_cancel(
 
     async def execute() -> dict[str, Any]:
         """Run the guarded cancel call and normalize its result contractually."""
+        target_state = await _recheck_run_target_state(provider, run_id)
+        if target_state not in _CANCELLABLE_RUN_STATES:
+            normalized = normalize_run_action_result(
+                action_kind=CANCEL_RUN_ACTION.kind,
+                target_run_id=run_id,
+                provider_result={
+                    "accepted": False,
+                    "message": (
+                        f"Cancel is available only for running runs; "
+                        f"run {run_id} is {target_state or 'unknown'}."
+                    ),
+                },
+                idempotency_key=request.idempotency_key or "",
+            )
+            return _jsonable_result(normalized)
         result = await provider.cancel_run(run_id, request.model_dump())
         normalized = normalize_run_action_result(
             action_kind=CANCEL_RUN_ACTION.kind,
@@ -4613,6 +4937,7 @@ async def post_observatory_run_cancel(
         )
         return _jsonable_result(normalized)
 
+    request_payload = request.model_dump(mode="json")
     payload = await replay_or_execute_async(
         idempotency_key=request.idempotency_key,
         operation="cancel_run",
@@ -4623,9 +4948,17 @@ async def post_observatory_run_cancel(
             target=run_id,
             dry_run=False,
             auth=auth,
-            payload=request.model_dump(mode="json"),
+            payload=request_payload,
             result=result,
         ),
+        audit_intent=lambda: audit_operation(
+            operation="cancel_run",
+            target=run_id,
+            dry_run=False,
+            auth=auth,
+            payload={**request_payload, "phase": "intent"},
+        ),
+        payload=request_payload,
     )
     return RunActionResult.model_validate(payload)
 
@@ -4850,6 +5183,7 @@ async def post_observatory_asset_materialize(
     asset_id: str, request: ObservatoryMaterializeAssetRequest, http_request: Request
 ) -> Any:
     """Validate or request asset materialization through the active orchestrator provider."""
+    reject_demo_mutations()
     auth = require_scope(http_request, "lakehouse:operate")
     enforce_rate_limit(auth["subject"], "materialize_asset")
     provider = resolve_orchestrator_operations()
@@ -4859,6 +5193,7 @@ async def post_observatory_asset_materialize(
         result = await provider.materialize_asset(asset_id, request.model_dump())
         return _jsonable_result(result)
 
+    request_payload = request.model_dump(mode="json")
     payload = await replay_or_execute_async(
         idempotency_key=request.idempotency_key,
         operation="materialize_asset",
@@ -4869,9 +5204,17 @@ async def post_observatory_asset_materialize(
             target=asset_id,
             dry_run=request.dry_run,
             auth=auth,
-            payload=request.model_dump(mode="json"),
+            payload=request_payload,
             result=result,
         ),
+        audit_intent=lambda: audit_operation(
+            operation="materialize_asset",
+            target=asset_id,
+            dry_run=request.dry_run,
+            auth=auth,
+            payload={**request_payload, "phase": "intent"},
+        ),
+        payload=request_payload,
     )
     return payload
 
@@ -4881,6 +5224,7 @@ async def post_observatory_asset_backfill(
     asset_id: str, request: ObservatoryBackfillAssetRequest, http_request: Request
 ) -> Any:
     """Validate or request asset partition backfill through the active orchestrator provider."""
+    reject_demo_mutations()
     auth = require_scope(http_request, "lakehouse:operate")
     enforce_rate_limit(auth["subject"], "backfill_asset")
     provider = resolve_orchestrator_operations()
@@ -4890,6 +5234,7 @@ async def post_observatory_asset_backfill(
         result = await provider.backfill_asset(asset_id, request.model_dump())
         return _jsonable_result(result)
 
+    request_payload = request.model_dump(mode="json")
     payload = await replay_or_execute_async(
         idempotency_key=request.idempotency_key,
         operation="backfill_asset",
@@ -4900,9 +5245,17 @@ async def post_observatory_asset_backfill(
             target=asset_id,
             dry_run=request.dry_run,
             auth=auth,
-            payload=request.model_dump(mode="json"),
+            payload=request_payload,
             result=result,
         ),
+        audit_intent=lambda: audit_operation(
+            operation="backfill_asset",
+            target=asset_id,
+            dry_run=request.dry_run,
+            auth=auth,
+            payload={**request_payload, "phase": "intent"},
+        ),
+        payload=request_payload,
     )
     return payload
 
@@ -5069,6 +5422,7 @@ def get_observatory_branches() -> ObservatoryBranchList:
 @router.post("/branches/actions", response_model=ObservatoryActionResult)
 def post_observatory_branch_action(request: ObservatoryActionRequest) -> ObservatoryActionResult:
     """Execute a guarded branch workflow action."""
+    reject_demo_mutations()
     result = _execute_branch_action(request)
     recorded = record_action_result(_project_root(), result)
     _clear_read_model_cache()
@@ -5192,6 +5546,7 @@ def post_observatory_workflow_wizard_action(
 ) -> ObservatoryWorkflowActionResult:
     """Run a guarded workflow wizard apply action."""
 
+    reject_demo_mutations()
     auth = require_scope(http_request, "project:write")
     enforce_rate_limit(auth["subject"], "workflow_wizard_apply")
 
@@ -5252,7 +5607,16 @@ def get_observatory_search(
 def post_observatory_action(
     request: ObservatoryActionRequest, http_request: Request
 ) -> ObservatoryActionResult:
-    """Execute a guarded Observatory action."""
+    """Execute a guarded Observatory action.
+
+    Every action mutation enforces the operate scope and rate limit before
+    dispatch; a caller-supplied idempotency key is claimed durably first so a
+    duplicate request replays rather than re-executes.
+    """
+    reject_demo_mutations()
+    auth = require_scope(http_request, "lakehouse:operate")
+    enforce_rate_limit(auth["subject"], "observatory_action")
+    require_idempotency_key(request.idempotency_key)
     dispatch_request = request
     if request.action_id.startswith("service:"):
         dispatch_request = request.model_copy(
@@ -5265,14 +5629,41 @@ def post_observatory_action(
         and action_name in {"add", "start", "stop", "restart"}
         and any(service.id == resource_id for service in services)
     )
-    workflow_result = _execute_dataset_workflow_action(dispatch_request, http_request)
-    result = (
-        _execute_action(dispatch_request)
-        if is_service_control_action
-        else workflow_result
-        if workflow_result is not None
-        else execute_observatory_action(dispatch_request, registry=_load_capability_registry())
+
+    def execute() -> dict[str, Any]:
+        workflow_result = _execute_dataset_workflow_action(dispatch_request, http_request)
+        result = (
+            _execute_action(dispatch_request)
+            if is_service_control_action
+            else workflow_result
+            if workflow_result is not None
+            else execute_observatory_action(dispatch_request, registry=_load_capability_registry())
+        )
+        recorded = record_action_result(_project_root(), result)
+        return recorded.model_dump(mode="json")
+
+    request_payload = request.model_dump(mode="json")
+    payload = replay_or_execute(
+        idempotency_key=request.idempotency_key,
+        operation="observatory_action",
+        target=dispatch_request.action_id,
+        execute=execute,
+        payload=request_payload,
+        audit=lambda result: audit_operation(
+            operation="observatory_action",
+            target=dispatch_request.action_id,
+            dry_run=False,
+            auth=auth,
+            payload=request_payload,
+            result=result,
+        ),
+        audit_intent=lambda: audit_operation(
+            operation="observatory_action",
+            target=dispatch_request.action_id,
+            dry_run=False,
+            auth=auth,
+            payload={**request_payload, "phase": "intent"},
+        ),
     )
-    recorded = record_action_result(_project_root(), result)
     _clear_read_model_cache()
-    return recorded
+    return ObservatoryActionResult.model_validate(payload)

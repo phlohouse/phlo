@@ -14,6 +14,7 @@ import subprocess
 from phlo_api.main import app
 from phlo_api.observatory_api import observatory, package_install, run_report
 from phlo_api.observatory_api import (
+    observatory_mission_context,
     observatory_mission_evidence,
     observatory_mission_governance,
     observatory_mission_overview,
@@ -26,6 +27,7 @@ from security_test_support import authenticated_client
 # Mission Control is mounted as its own set of routers rather than folded into
 # the legacy Observatory router, so the route contract has to account for them.
 _MISSION_ROUTERS = (
+    observatory_mission_context.router,
     observatory_mission_overview.router,
     observatory_mission_evidence.router,
     observatory_mission_releases.router,
