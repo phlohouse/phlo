@@ -20,7 +20,7 @@
       {"name": "phlo-iceberg", "version": "0.15.4"},
       {"name": "phlo-minio", "version": "0.15.4"},
       {"name": "phlo-nessie", "version": "0.15.4"},
-      {"name": "phlo-observatory", "version": "0.16.2"},
+      {"name": "phlo-observatory", "version": "0.17.0.dev0"},
       {"name": "phlo-pandera", "version": "0.15.4"},
       {"name": "phlo-postgres", "version": "0.15.4"},
       {"name": "phlo-trino", "version": "0.15.4"}
@@ -35,7 +35,7 @@
       {"name": "nessie", "image_reference": "ghcr.io/projectnessie/nessie:0.108.3@sha256:219709df809fcfac7abe0491b2070c8d56178ed29828fb30968a4365b62bcc8a"},
       {"name": "trino", "image_reference": "trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534"},
       {"name": "phlo-api", "image_reference": "ghcr.io/phlohouse/phlo-api:0.16.2"},
-      {"name": "observatory", "image_reference": "ghcr.io/phlohouse/phlo-observatory:0.16.2"}
+      {"name": "observatory", "image_reference": "ghcr.io/phlohouse/phlo-observatory:0.17.0.dev0"}
     ],
     "schemas": {
       "configuration": {
@@ -153,6 +153,7 @@
       "status": "local_or_test_use",
       "components": [
         "package:phlo-observatory-example",
+        "package:phlo-observatory-storybook",
         "package:phlo-pgweb",
         "package:phlo-testing",
         "service:pgweb"
@@ -271,7 +272,7 @@
         "packages/phlo-observatory/pyproject.toml",
         "packages/phlo-observatory/tests",
         "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
-        "packages/phlo-observatory/src/phlo_observatory/src/routes/runs.$projectId.$runId.attempts.$attempt.report.tsx"
+        "packages/phlo-observatory/web/src/routes/runs/$runId.tsx"
       ]
     },
     {
@@ -558,6 +559,17 @@
       "evidence": [
         "packages/phlo-observatory-example/README.md",
         "packages/phlo-observatory-example/tests"
+      ]
+    },
+    {
+      "name": "phlo-observatory-storybook",
+      "scope": "outside_v1",
+      "target_status": "development_only",
+      "current_maturity": "development_only",
+      "reason": "Storybook gallery for the Observatory web UI; a development surface, not a deployed v1 runtime guarantee.",
+      "evidence": [
+        "packages/phlo-observatory-storybook/pyproject.toml",
+        "packages/phlo-observatory-storybook/package.json"
       ]
     },
     {
@@ -1090,7 +1102,7 @@
       "reason": "The Observatory exposes an authenticated durable per-run report API and UI projection at alpha maturity; release acceptance remains pending until the run_evidence gate passes.",
       "evidence": [
         "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
-        "packages/phlo-observatory/src/phlo_observatory/src/routes/runs.$projectId.$runId.attempts.$attempt.report.tsx",
+        "packages/phlo-observatory/web/src/routes/runs/$runId.tsx",
         "packages/phlo-api/tests/test_observatory_api.py",
         "docs/packages/phlo-observatory.md#durable-run-report-support-boundary"
       ]

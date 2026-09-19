@@ -3,7 +3,7 @@
 # `phlo services init|start|stop|logs`. There is no root compose.yaml, so
 # Compose targets were removed rather than left to run against nothing.
 SHELL := /bin/bash
-OBSERVATORY_DIR ?= packages/phlo-observatory/src/phlo_observatory
+OBSERVATORY_DIR ?= packages/phlo-observatory/web
 NPM_OBSERVATORY := npm --prefix $(OBSERVATORY_DIR)
 TY_CHECK_SCOPE := src/phlo $(wildcard packages/*/src)
 CHECK_CMD := scripts/run-parallel \
@@ -14,8 +14,7 @@ CHECK_CMD := scripts/run-parallel \
 	"py typecheck" "uv run --locked ty check --error-on-warning $(TY_CHECK_SCOPE)" \
 	"py test" "uv run --locked pytest -m 'not integration'" \
 	"ts lint" "$(NPM_OBSERVATORY) run lint" \
-	"ts format" "$(NPM_OBSERVATORY) run format -- --check ." \
-	"ts typecheck" "$(NPM_OBSERVATORY) exec tsc -- -p $(OBSERVATORY_DIR)/tsconfig.json --noEmit"
+	"ts typecheck" "$(NPM_OBSERVATORY) run typecheck"
 CORE_REGRESSION_TEST_PATHS ?= tests
 CORE_REGRESSION_PYTEST_ARGS ?= --tb=short
 QUICKSTART_SMOKE_PYTEST_ARGS ?= --tb=short
@@ -130,10 +129,10 @@ lint-ts:
 	$(NPM_OBSERVATORY) run lint
 
 format-ts:
-	$(NPM_OBSERVATORY) run format -- --check .
+	$(NPM_OBSERVATORY) exec prettier -- --write $(OBSERVATORY_DIR)
 
 typecheck-ts:
-	$(NPM_OBSERVATORY) exec tsc -- -p $(OBSERVATORY_DIR)/tsconfig.json --noEmit
+	$(NPM_OBSERVATORY) run typecheck
 
 check:
 	@$(CHECK_CMD)

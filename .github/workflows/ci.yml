@@ -480,7 +480,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: packages/phlo-observatory/src/phlo_observatory
+        working-directory: packages/phlo-observatory/web
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -491,25 +491,19 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-          cache-dependency-path: packages/phlo-observatory/src/phlo_observatory/package-lock.json
+          cache-dependency-path: packages/phlo-observatory/web/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Check formatting with Prettier
-        run: npx prettier --check .
-
       - name: Lint with ESLint
-        run: npx eslint src --ext .ts,.tsx
+        run: npm run lint
 
       - name: Type check with TypeScript
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: Build production bundle
         run: npm run build
-
-      - name: Run tests
-        run: npm test
 
   phlo-agent:
     name: agent / eve

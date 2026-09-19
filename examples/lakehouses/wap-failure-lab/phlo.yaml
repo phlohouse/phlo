@@ -3,6 +3,10 @@ description: Write-Audit-Publish scenario lab covering branch lifecycle, blockin
 
 env:
   PHLO_PROJECT: wap-failure-lab
+  # Namespace dbt-derived asset keys with the dbt project name so the lab emits
+  # a multi-segment key (wap_failure_lab.batch_summary) for identity/encoding
+  # acceptance coverage.
+  DBT_NAMESPACED_ASSET_KEYS: "true"
 
 capabilities:
   defaults:
