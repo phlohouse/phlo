@@ -21,7 +21,7 @@ def parse_env_file(path: Path, *, strip_quotes: bool = False) -> dict[str, str]:
         return {}
     values: dict[str, str] = {}
     try:
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             trimmed = line.strip()
             if not trimmed or trimmed.startswith("#") or "=" not in trimmed:
                 continue

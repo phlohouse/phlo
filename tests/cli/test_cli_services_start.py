@@ -416,6 +416,8 @@ def test_get_profile_service_names_returns_profile_services(
         "clickstack",
         "grafana",
         "loki",
+        "phlo-observer",
+        "phlo-observer-db-setup",
         "postgres-exporter",
         "prometheus",
     ]
@@ -432,6 +434,8 @@ def test_get_profile_service_names_returns_profile_services(
         "loki",
         "observatory",
         "phlo-api",
+        "phlo-observer",
+        "phlo-observer-db-setup",
         "postgres-exporter",
         "postgrest",
         "prometheus",

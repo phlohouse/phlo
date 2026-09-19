@@ -45,6 +45,7 @@ import dlt
 import pandas as pd
 import ulid
 from dlt.common.pipeline import LoadInfo
+import phlo.telemetry as phlo_observe
 from phlo.capabilities import CapabilitySupport, resolve_runtime_ref
 from phlo.capabilities.interfaces import TableStore
 from phlo.exceptions import PhloConfigError
@@ -55,6 +56,7 @@ from phlo_dlt.registry import TableConfig
 logger = get_logger(__name__)
 DLT_TABLE_STORE_SUPPORT = CapabilitySupport(supports_refs=True)
 WAP_TAG_KEY = "phlo/wap_branch"
+CATALOG_SYSTEM_TAG_KEY = "phlo/catalog_system"
 
 
 def generate_row_id() -> str:
@@ -129,6 +131,32 @@ def get_write_branch_from_context(context: Any, *, strict_validation: bool) -> s
             if isinstance(wap_branch, str) and (normalized := wap_branch.strip()):
                 return normalized
     return get_branch_from_context(context)
+
+
+def get_catalog_system_from_context(context: Any) -> str | None:
+    """Return the catalog system owning the run's staging ref, if tagged.
+
+    WAP launches stamp ``phlo/catalog_system`` on the run so ingestion events
+    name the catalog that actually owns the staging ref (``nessie`` for the
+    branch strategy, the snapshot catalog for the snapshot strategy) instead
+    of assuming Nessie.
+
+    Example:
+        ```python
+        from phlo_dlt.dlt_helpers import get_catalog_system_from_context
+
+        system = get_catalog_system_from_context(runtime_context)
+        # "nessie", "polaris", or None when the run is not WAP-launched
+        ```
+
+    """
+    tags = getattr(context, "tags", {}) or {}
+    if not isinstance(tags, Mapping):
+        return None
+    value = tags.get(CATALOG_SYSTEM_TAG_KEY)
+    if isinstance(value, str) and (normalized := value.strip()):
+        return normalized
+    return None
 
 
 def inject_metadata_columns(
@@ -348,38 +376,68 @@ def stage_to_parquet(
         pipeline_name=getattr(pipeline, "pipeline_name", ""),
     )
 
-    load_info: LoadInfo = pipeline.run(dlt_source, loader_file_format="parquet")
-    # Best-effort diagnostic hook: stash the load info on the pipeline for
-    # later inspection. Failure is ignored because it must never break staging.
-    try:
-        setattr(pipeline, "_phlo_last_load_info", load_info)
-    except Exception:
-        pass
-    if load_info is None:
-        logger.error(
-            "dlt_stage_to_parquet_missing_load_info",
-            pipeline_name=getattr(pipeline, "pipeline_name", ""),
-        )
-        raise RuntimeError("DLT pipeline returned no load info")
+    # dlt.pipeline.run is a run-boundary (terminal) event in phlo-observe.
+    # It must own its own run row (run://dlt/<load_id>) rather than fold into
+    # the ambient Dagster run: explicit correlation beats ambient, so the
+    # load_id is rebound once known. Trace/job/partition context still merges
+    # in from the enclosing Dagster scope.
+    with phlo_observe.dlt_pipeline_scope(pipeline):
+        with phlo_observe.dlt_pipeline_run(pipeline) as dlt_run:
+            # Bind a provisional run id up front: dlt.pipeline.run is terminal,
+            # and a failure inside a retried Dagster step must never poison the
+            # enclosing run's status (observer precedence is monotonic). The
+            # real load_id replaces it once pipeline.run returns.
+            dlt_run.set_correlation(
+                run_id=f"{getattr(pipeline, 'pipeline_name', 'dlt')}-{ulid.ULID()}"
+            )
+            load_info: LoadInfo = pipeline.run(dlt_source, loader_file_format="parquet")
+            if load_info is None:
+                logger.error(
+                    "dlt_stage_to_parquet_missing_load_info",
+                    pipeline_name=getattr(pipeline, "pipeline_name", ""),
+                )
+                raise RuntimeError("DLT pipeline returned no load info")
+            # Best-effort diagnostic hook: stash the load info on the pipeline
+            # for later inspection, before the outcome checks so failed loads
+            # keep their info. Failure is ignored: it must never break staging.
+            try:
+                setattr(pipeline, "_phlo_last_load_info", load_info)
+            except Exception:
+                pass
+            load_id = getattr(load_info, "load_id", None)
+            if load_id is None:
+                # DLT exposes `loads_ids` (list of package load ids), not
+                # `load_id`; take the first package id as the run identity.
+                for attr in ("loads_ids", "load_ids"):
+                    load_ids = getattr(load_info, attr, None) or []
+                    if load_ids:
+                        load_id = load_ids[0]
+                        break
+            if load_id is not None:
+                dlt_run.set_correlation(run_id=str(load_id))
+            dlt_run.set(**phlo_observe.dlt_load_info_attributes(load_info))
 
-    if not load_info.load_packages:
-        logger.error(
-            "dlt_stage_to_parquet_missing_load_packages",
-            pipeline_name=getattr(pipeline, "pipeline_name", ""),
-        )
-        raise RuntimeError("DLT pipeline completed without load packages")
+            # Load-outcome validation lives inside the scope so the terminal
+            # dlt.pipeline.run event records the failure it causes.
+            if not load_info.load_packages:
+                logger.error(
+                    "dlt_stage_to_parquet_missing_load_packages",
+                    pipeline_name=getattr(pipeline, "pipeline_name", ""),
+                )
+                raise RuntimeError("DLT pipeline completed without load packages")
+            for load_package in load_info.load_packages:
+                failed_jobs = load_package.jobs.get("failed_jobs", [])
+                if failed_jobs:
+                    logger.error(
+                        "dlt_stage_to_parquet_failed_jobs",
+                        pipeline_name=getattr(pipeline, "pipeline_name", ""),
+                        failed_job_count=len(failed_jobs),
+                    )
+                    raise RuntimeError("DLT pipeline reported failed loader jobs")
 
     parquet_paths: list[Path] = []
     completed_job_count = 0
     for load_package in load_info.load_packages:
-        failed_jobs = load_package.jobs.get("failed_jobs", [])
-        if failed_jobs:
-            logger.error(
-                "dlt_stage_to_parquet_failed_jobs",
-                pipeline_name=getattr(pipeline, "pipeline_name", ""),
-                failed_job_count=len(failed_jobs),
-            )
-            raise RuntimeError("DLT pipeline reported failed loader jobs")
         completed_jobs = load_package.jobs["completed_jobs"]
         completed_job_count += len(completed_jobs)
         for job in completed_jobs:

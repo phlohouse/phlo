@@ -769,7 +769,7 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
         existing_values=existing_env_local,
     )
     env_file.parent.mkdir(parents=True, exist_ok=True)
-    env_file.write_text(env_content)
+    env_file.write_text(env_content, encoding="utf-8")
     click.echo(f"Updated: {env_file}")
     write_sensitive_file(env_local_file, env_local_content)
     click.echo(f"Updated: {env_local_file}")

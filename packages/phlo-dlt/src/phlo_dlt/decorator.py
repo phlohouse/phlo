@@ -71,7 +71,11 @@ from phlo.exceptions import PhloConfigError
 from phlo.logging import log_event
 
 from phlo_dlt.contract_coverage import detect_dropped_source_columns
-from phlo_dlt.dlt_helpers import get_branch_from_context, get_write_branch_from_context
+from phlo_dlt.dlt_helpers import (
+    get_branch_from_context,
+    get_catalog_system_from_context,
+    get_write_branch_from_context,
+)
 from phlo_dlt.executor import DomainQualityValidationError
 from phlo_dlt.pandera_checks import (
     PANDERA_CONTRACT_CHECK_NAME,
@@ -646,6 +650,7 @@ def phlo_ingestion(
                     parameters={
                         "branch_name": write_branch_name,
                         "target_branch_name": branch_name,
+                        "catalog_system": get_catalog_system_from_context(runtime),
                         "run_id": run_id,
                         "project_id": project_id,
                         "attempt": attempt,

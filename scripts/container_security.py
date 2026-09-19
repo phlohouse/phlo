@@ -245,6 +245,11 @@ def published_fleet(root: Path) -> list[dict[str, Any]]:
         service = yaml.safe_load(service_file.read_text(encoding="utf-8"))
         if not isinstance(service, dict) or not isinstance(service.get("build"), dict):
             continue
+        build = service["build"]
+        if str(build.get("context", "")).startswith(("http://", "https://", "git@", "ssh://")):
+            # Remote-context builds produce local-only third-party images;
+            # they are never members of the published fleet.
+            continue
         service_name = service.get("name")
         image = service.get("image")
         if not isinstance(service_name, str) or not isinstance(image, str):

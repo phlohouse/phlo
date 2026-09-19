@@ -29,6 +29,7 @@ dev = [
     "phlo-sling>=0.1.0",
     "phlo-nessie>=0.3.2",
     "phlo-observatory>=0.1.0",
+    "phlo-observe-plugin>=0.1.0",
     "phlo-polaris>=0.1.0",
     "phlo-observatory-example>=0.1.0",
     "phlo-openmetadata>=0.1.0",
@@ -44,6 +45,13 @@ dev = [
     "phlo-testing>=0.1.0",
     "phlo-traefik>=0.1.0",
     "phlo-trino>=0.1.0",
+    # phlo-observe SDK: unpublished and Python >=3.12 only, so it is a
+    # marker-gated dev dependency resolved from the pinned V2 commit (the same
+    # commit the Dagster image installs via PHLO_OBSERVE_SDK). Without it the
+    # observability e2e tests skip and the phlo.telemetry shim stays inert.
+    "observe-core>=0.1.0; python_version >= '3.12'",
+    "observe-query>=0.1.0; python_version >= '3.12'",
+    "phlo-observe>=0.1.0; python_version >= '3.12'",
     "asyncpg>=0.30.0",
     "dagster>=1.13,<1.14",
     "dagster-webserver>=1.13,<1.14",
@@ -120,6 +128,12 @@ defaults = [
     "phlo-observatory>=0.1.0",
     "phlo-trino>=0.1.0",
 ]
+# Preview integration: the phlo-observe SDK is not yet published, so the
+# plugin stays opt-in rather than riding `defaults` (published defaults may
+# only advertise blessed_core/supported packages). Installing this extra makes
+# the hook translator, Dagster sensors, and phlo-observer service definitions
+# discoverable; emission still requires the SDK and OBSERVE_HTTP_ENDPOINT.
+observe = ["phlo-observe-plugin>=0.1.0"]
 openmetadata = ["phlo-openmetadata>=0.1.0"]
 runtime = [
     "asyncpg>=0.30.0",
@@ -219,6 +233,7 @@ extra-paths = [
     "packages/phlo-nessie/src",
     "packages/phlo-observatory-example/src",
     "packages/phlo-observatory/src",
+    "packages/phlo-observe-plugin/src",
     "packages/phlo-oauth2-proxy/src",
     "packages/phlo-openmetadata/src",
     "packages/phlo-pgweb/src",
@@ -252,6 +267,24 @@ unsupported-operator = "error"
 
 [tool.ty.src]
 exclude = ["**/testing/**"]
+
+[tool.uv.sources.observe-core]
+git = "https://github.com/phlohouse/phlo-observe.git"
+subdirectory = "packages/observe-core"
+rev = "91a32fa29ce19aac0e31ed3750a9090776267bd0"
+marker = "python_version >= '3.12'"
+
+[tool.uv.sources.observe-query]
+git = "https://github.com/phlohouse/phlo-observe.git"
+subdirectory = "packages/observe-query"
+rev = "91a32fa29ce19aac0e31ed3750a9090776267bd0"
+marker = "python_version >= '3.12'"
+
+[tool.uv.sources.phlo-observe]
+git = "https://github.com/phlohouse/phlo-observe.git"
+subdirectory = "packages/phlo-observe-sdk"
+rev = "91a32fa29ce19aac0e31ed3750a9090776267bd0"
+marker = "python_version >= '3.12'"
 
 [tool.uv.sources.phlo]
 workspace = true
@@ -323,6 +356,9 @@ workspace = true
 workspace = true
 
 [tool.uv.sources.phlo-observatory-example]
+workspace = true
+
+[tool.uv.sources.phlo-observe-plugin]
 workspace = true
 
 [tool.uv.sources.phlo-openmetadata]

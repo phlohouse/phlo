@@ -1,0 +1,113 @@
+name: phlo-observer
+description: Phlo observability ingestion and query service (phlo-observe V2)
+category: observability
+default: false
+profile: observability
+
+# No V2-capable phlo-observer release exists yet: every published image
+# (0.1.0, latest) predates the V2 envelope and rejects schema_version 2.x
+# payloads. Until phlo-observer/v0.2.x is published the image is built from
+# the phlo-observe monorepo at the same pinned V2 commit the Dagster image
+# installs the SDK from (PHLO_OBSERVE_SDK); the `image:` key names the local
+# tag the build produces. Renovate does not track git-context builds — switch
+# `image:` to the published tag+digest and drop `build:` when a V2 release
+# lands. See docs/guides/observability.md "Known phlo-observe gaps".
+image: phlo-observer:v2-91a32fa
+build:
+  context: https://github.com/phlohouse/phlo-observe.git#91a32fa29ce19aac0e31ed3750a9090776267bd0
+  dockerfile: services/phlo-observer/Dockerfile
+  args:
+    VCS_REF: 91a32fa29ce19aac0e31ed3750a9090776267bd0
+    VERSION: v2-91a32fa
+
+depends_on:
+  - postgres
+  - phlo-observer-db-setup
+
+compose:
+  restart: unless-stopped
+  # The tag above exists only as the local build output; never pull.
+  pull_policy: build
+  labels:
+    phlo.metrics.enabled: "false"
+  environment:
+    PHLO_OBSERVER_HOST: "0.0.0.0"
+    PHLO_OBSERVER_PORT: "8080"
+    PHLO_OBSERVER_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:-phlo}@postgres:5432/${PHLO_OBSERVER_DB:-phlo_observer}
+    PHLO_OBSERVER_INGEST_TOKENS: ${PHLO_OBSERVER_INGEST_TOKENS:-}
+    PHLO_OBSERVER_READ_TOKENS: ${PHLO_OBSERVER_READ_TOKENS:-}
+    PHLO_OBSERVER_ADMIN_TOKENS: ${PHLO_OBSERVER_ADMIN_TOKENS:-}
+    PHLO_OBSERVER_AUTH_OPTIONAL_DEV: ${PHLO_OBSERVER_AUTH_OPTIONAL_DEV:-true}
+    PHLO_OBSERVER_RUN_MIGRATIONS: "true"
+    PHLO_OBSERVER_LOG_LEVEL: ${PHLO_OBSERVER_LOG_LEVEL:-INFO}
+  ports:
+    - "${PHLO_OBSERVER_PORT:-10010}:8080"
+  healthcheck:
+    test:
+      [
+        "CMD",
+        "python",
+        "-c",
+        "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health/live').status==200 else 1)",
+      ]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+    start_period: 10s
+
+env_vars:
+  PHLO_OBSERVER_PORT:
+    default: 10010
+    description: phlo-observer HTTP port exposed on the host
+  OBSERVE_HTTP_ENDPOINT:
+    default: ""
+    description: >-
+      Full ingest URL (e.g. http://localhost:10010/v1/events) enabling
+      canonical phlo-observe event emission; dagster and dagster-daemon are
+      wired to the in-cluster observer address when this is set
+  # Token values are deliberately NOT marked secret: render_env would generate
+  # an independent random value for each. The observer fails closed on every
+  # surface as soon as ANY token set is non-empty, so a generated read/admin
+  # token with empty ingest tokens would reject all ingest POSTs. Auth is
+  # therefore all-or-nothing: leave every token empty for unauthenticated
+  # local dev, or set matching values in .phlo/.env.local for a hardened
+  # deployment (OBSERVE_HTTP_TOKEN must equal a PHLO_OBSERVER_INGEST_TOKENS
+  # entry).
+  OBSERVE_HTTP_TOKEN:
+    default: ""
+    description: >-
+      Bearer token for phlo-observer ingest; must equal an entry in
+      PHLO_OBSERVER_INGEST_TOKENS (set both in .phlo/.env.local)
+  OBSERVE_HTTP_API_KEY:
+    default: ""
+    description: >-
+      API key for phlo-observer ingest (alternative to OBSERVE_HTTP_TOKEN;
+      must equal an entry in PHLO_OBSERVER_INGEST_TOKENS)
+  PHLO_OBSERVER_DB:
+    default: phlo_observer
+    description: PostgreSQL database name used by phlo-observer
+  PHLO_OBSERVER_INGEST_TOKENS:
+    default: ""
+    description: >-
+      Comma-separated ingest tokens; empty permits unauthenticated ingest
+      (local dev default). Must contain OBSERVE_HTTP_TOKEN when set.
+  PHLO_OBSERVER_READ_TOKENS:
+    default: ""
+    description: >-
+      Comma-separated read/query tokens; empty permits unauthenticated reads
+      (dev). Setting any token surface enables auth on all of them, so also
+      configure PHLO_OBSERVER_INGEST_TOKENS + OBSERVE_HTTP_TOKEN.
+  PHLO_OBSERVER_ADMIN_TOKENS:
+    default: ""
+    description: >-
+      Comma-separated admin tokens; empty disables admin surfaces (dev).
+      Setting any token surface enables auth on all of them, so also
+      configure PHLO_OBSERVER_INGEST_TOKENS + OBSERVE_HTTP_TOKEN.
+  PHLO_OBSERVER_AUTH_OPTIONAL_DEV:
+    default: "true"
+    description: >-
+      When "false", phlo-observer refuses to start unless ingest, read, and
+      admin tokens are all configured (production hardening)
+  PHLO_OBSERVER_LOG_LEVEL:
+    default: INFO
+    description: phlo-observer log level
