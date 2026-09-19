@@ -398,6 +398,8 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             runtime = DagsterRuntime(
                 context, asset_capability_overrides=dict(spec.capability_overrides)
             )
+            results: list[Any] = []
+            deferred_failure: dg.Failure | None = None
             # Bind the physical Dagster run id so nested emissions (ingestion,
             # quality, catalog writes) join this attempt's observer run.
             # Retried attempts get fresh run ids, so each attempt keeps its own
@@ -406,57 +408,66 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             # Results are collected inside the scope so the generator never
             # suspends with ambient correlation bound on the worker thread.
             with phlo_observe.dagster_run_scope(context, asset_key=spec.key):
-                with phlo_observe.dagster_step(context):
-                    # A run function may return None when it has nothing to
-                    # report; treat that like an empty iterable rather than
-                    # failing the step on list(None).
-                    raw_results = spec.run.fn(runtime) if spec.run else None
-                    results = list(raw_results) if raw_results is not None else []
-                    # In-band check results emit inside the step scope so the
-                    # quality.check event joins this step's trace; yields happen
-                    # outside so no ambient context survives suspension.
-                    for result in results:
-                        if isinstance(result, CheckResult):
-                            phlo_observe.emit_asset_check(
-                                context,
-                                check_name=result.check_name,
-                                passed=result.passed,
-                                severity=(
-                                    _severity_from_string(result.severity)
-                                    or dg.AssetCheckSeverity.ERROR
-                                ).name.lower(),
-                                asset_key=result.asset_key,
+                try:
+                    with phlo_observe.dagster_step(context):
+                        # A run function may return None when it has nothing to
+                        # report; treat that like an empty iterable rather than
+                        # failing the step on list(None).
+                        raw_results = spec.run.fn(runtime) if spec.run else None
+                        results = list(raw_results) if raw_results is not None else []
+                        # In-band check results emit inside the step scope so the
+                        # quality.check event joins this step's trace; yields happen
+                        # outside so no ambient context survives suspension.
+                        for result in results:
+                            if isinstance(result, CheckResult):
+                                # The spec/result severity describes the failure;
+                                # a passed check is informational unless the result
+                                # carries its own severity (passed-with-warnings).
+                                result_severity = _severity_from_string(result.severity)
+                                phlo_observe.emit_asset_check(
+                                    context,
+                                    check_name=result.check_name,
+                                    passed=result.passed,
+                                    severity=(
+                                        result_severity.name.lower()
+                                        if result_severity is not None
+                                        else ("info" if result.passed else "error")
+                                    ),
+                                    asset_key=result.asset_key,
+                                )
+                        # An in-band failure status must surface as a real step
+                        # failure, not a successful materialization with bad
+                        # metadata, so retry policies and failure alerts apply.
+                        # Raise inside this scope so pipeline.step records the
+                        # failure, then defer propagation until Dagster has
+                        # consumed the check results outside the scope.
+                        for result in results:
+                            if not isinstance(result, MaterializeResult):
+                                continue
+                            status = str(result.status or "").lower()
+                            if status not in {"failure", "failed", "error"}:
+                                continue
+                            metadata = _convert_metadata(result.metadata)
+                            if result.status:
+                                metadata.setdefault("status", dg.MetadataValue.text(result.status))
+                            logger.warning(
+                                "dagster_adapter_asset_materialization_failed_status",
+                                asset_key=spec.key,
+                                status=result.status,
+                                run_id=runtime.run_id,
+                                partition_key=runtime.partition_key,
                             )
-                    # An in-band failure status must surface as a real step
-                    # failure, not a successful materialization with bad
-                    # metadata, so retry policies and failure alerts apply.
-                    # Raising inside the step scope lets the emitted
-                    # pipeline.step record the failure; validating out here
-                    # would report a successful step followed by an
-                    # unexplained Dagster error.
-                    for result in results:
-                        if not isinstance(result, MaterializeResult):
-                            continue
-                        status = str(result.status or "").lower()
-                        if status not in {"failure", "failed", "error"}:
-                            continue
-                        metadata = _convert_metadata(result.metadata)
-                        if result.status:
-                            metadata.setdefault("status", dg.MetadataValue.text(result.status))
-                        logger.warning(
-                            "dagster_adapter_asset_materialization_failed_status",
-                            asset_key=spec.key,
-                            status=result.status,
-                            run_id=runtime.run_id,
-                            partition_key=runtime.partition_key,
-                        )
-                        raise dg.Failure(
-                            description=f"Asset run reported status '{result.status}'",
-                            metadata=metadata,
-                        )
+                            raise dg.Failure(
+                                description=f"Asset run reported status '{result.status}'",
+                                metadata=metadata,
+                            )
+                except dg.Failure as exc:
+                    deferred_failure = exc
             materialized = False
             for result in results:
                 if isinstance(result, MaterializeResult):
+                    if deferred_failure is not None:
+                        continue
                     metadata = _convert_metadata(result.metadata)
                     if result.status:
                         metadata.setdefault("status", dg.MetadataValue.text(result.status))
@@ -482,6 +493,8 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
                         metadata=metadata,
                         severity=severity,
                     )
+            if deferred_failure is not None:
+                raise deferred_failure
             if not materialized:
                 # The step's required output needs an event even when the run
                 # function reported nothing; Dagster records a materialization
@@ -515,16 +528,24 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             with phlo_observe.dagster_run_scope(context, asset_key=spec.asset_key):
                 with phlo_observe.dagster_step(context):
                     result = spec.fn(runtime) if spec.fn else None
-                    severity = (
+                    result_severity = (
                         _severity_from_string(result.severity) if result is not None else None
-                    ) or default_severity
+                    )
+                    severity = result_severity or default_severity
+                    check_passed = result.passed if result is not None else True
                     # Emit inside the step scope so quality.check joins the
                     # check step's trace and inherits run/asset correlation.
+                    # The spec/result severity describes the failure; a passed
+                    # check is informational unless it carries its own severity.
                     phlo_observe.emit_asset_check(
                         context,
                         check_name=result.check_name if result is not None else spec.name,
-                        passed=result.passed if result is not None else True,
-                        severity=severity.name.lower(),
+                        passed=check_passed,
+                        severity=(
+                            result_severity.name.lower()
+                            if result_severity is not None
+                            else ("info" if check_passed else severity.name.lower())
+                        ),
                         asset_key=spec.asset_key,
                     )
             if result is None:

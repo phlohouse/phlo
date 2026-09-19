@@ -62,6 +62,7 @@ from phlo.cli.infrastructure.container_backend import (
 from phlo.cli.infrastructure.utils import get_project_name
 from phlo.cli.output import command_failed_error, service_unavailable_error, json_envelope
 from phlo.cli.contract import PhloCommand
+from phlo.config.env import load_project_env
 from phlo.infrastructure import load_wap_config
 from phlo_dagster.containers import find_dagster_container
 from phlo_dagster.operations import launch_materialize, wait_for_dagster_http
@@ -290,15 +291,28 @@ def materialize(
         if not dry_run:
             wait_for_dagster_runtime(container_name, backend=backend)
 
+        exec_env = {
+            "PHLO_HOST_PLATFORM": host_platform,
+            "PHLO_PROJECT_PATH": "/app",
+            "PHLO_AUTO_REFRESH_CONTRACTS": "0" if no_contract_refresh else "1",
+            "PHLO_CONTRACT_REFRESH_SELECTION": effective_selection,
+        }
+        # Pretty opt-in from the shell or project env must reach the run
+        # process — the drain attaches and the console quieting decides
+        # inside the container, where SDK capability is knowable.
+        project_env = load_project_env()
+        for pretty_var in (
+            "PHLO_OBSERVE_PRETTY",
+            "PHLO_OBSERVE_PRETTY_VERBOSE",
+            "OBSERVE_DRAINS",
+        ):
+            if project_env.get(pretty_var):
+                exec_env[pretty_var] = project_env[pretty_var]
+
         cmd = backend.container_exec_cmd(
             container_name=container_name,
             user=f"{os.getuid()}:{os.getgid()}" if host_platform == "Linux" else None,
-            env={
-                "PHLO_HOST_PLATFORM": host_platform,
-                "PHLO_PROJECT_PATH": "/app",
-                "PHLO_AUTO_REFRESH_CONTRACTS": "0" if no_contract_refresh else "1",
-                "PHLO_CONTRACT_REFRESH_SELECTION": effective_selection,
-            },
+            env=exec_env,
             workdir="/app",
             command=[
                 "dagster",

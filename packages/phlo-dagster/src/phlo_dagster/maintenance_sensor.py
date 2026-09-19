@@ -412,7 +412,7 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
                                 "table_allowlist": expire_tables,
                             }
                         }
-                    }
+                    },
                 ),
             )
 
@@ -433,7 +433,7 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
                                 "ref": policy.ref,
                             }
                         }
-                    }
+                    },
                 ),
             )
 
