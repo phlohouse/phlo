@@ -12,10 +12,11 @@ from phlo_nessie.resource import NessieResource
 class CatalogServer:
     """Model conditional reference updates at the HTTP boundary."""
 
-    def __init__(self, target="empty", concurrent_target=None, config=None):
+    def __init__(self, target="empty", concurrent_target=None, config=None, post_response=None):
         self.refs = {"main": target, "staging": "validated-batch"}
         self.concurrent_target = concurrent_target
         self.config = {"noAncestorHash": "empty"} if config is None else config
+        self.post_response = post_response
         self.assignments = 0
 
     @staticmethod
@@ -30,11 +31,16 @@ class CatalogServer:
         if path == "/api/v2/config":
             return self.response(200, self.config)
         name = path.rsplit("/", 1)[-1]
+        if name not in self.refs:
+            return self.response(404, {"errorCode": "REFERENCE_NOT_FOUND"})
         return self.response(200, {"hash": self.refs[name]})
 
     def post(self, url, **kwargs):
         if self.concurrent_target:
             self.refs["main"] = self.concurrent_target
+        if self.post_response:
+            status, payload = self.post_response
+            return self.response(status, payload)
         return self.response(404, {"errorCode": "REFERENCE_NOT_FOUND"})
 
     def put(self, url, *, params, json, **kwargs):
@@ -72,3 +78,38 @@ def test_unknown_or_nonempty_target_is_never_assigned(monkeypatch, target, confi
     assert not NessieResource("http://nessie").merge_branch("staging")
     assert server.refs["main"] == target
     assert server.assignments == 0
+
+
+def test_merge_detail_surfaces_nessie_rejection(monkeypatch):
+    server = CatalogServer(concurrent_target="other-batch")
+    server.install(monkeypatch)
+    merged, detail = NessieResource("http://nessie").merge_branch_detail("staging")
+    assert not merged
+    assert detail == "HTTP 409: REFERENCE_CONFLICT"
+
+
+def test_merge_detail_surfaces_nessie_conflict_message(monkeypatch):
+    server = CatalogServer(
+        post_response=(409, {"message": "Merge conflict on keys: [raw.inventory]"})
+    )
+    server.install(monkeypatch)
+    merged, detail = NessieResource("http://nessie").merge_branch_detail("staging")
+    assert not merged
+    assert detail == "HTTP 409: Merge conflict on keys: [raw.inventory]"
+
+
+def test_merge_detail_reports_unresolvable_ref(monkeypatch):
+    server = CatalogServer()
+    server.refs.pop("staging")
+    server.install(monkeypatch)
+    merged, detail = NessieResource("http://nessie").merge_branch_detail("staging")
+    assert not merged
+    assert detail == "unresolvable ref(s): staging"
+
+
+def test_merge_detail_is_none_on_success(monkeypatch):
+    server = CatalogServer()
+    server.install(monkeypatch)
+    merged, detail = NessieResource("http://nessie").merge_branch_detail("staging")
+    assert merged
+    assert detail is None

@@ -282,8 +282,42 @@ async def terminate(
     idempotency_key: str | None = None,
 ) -> DagsterOperationResult:
     """Terminate a Dagster run, reporting acceptance or the failure reason in
-    the returned result rather than raising."""
-    result = await _graphql(dagster_url, TERMINATE_RUN_MUTATION, {"runId": run_id})
+    the returned result rather than raising.
+
+    In the split webserver/daemon deployment, run workers live in the daemon
+    container on unix sockets the webserver cannot reach, so a terminate
+    against a genuinely in-flight run can surface as a provider HTTP 500
+    *after* the run record is already marked CANCELING — the daemon's run
+    monitor then completes the reap. When the mutation fails but the
+    persisted status moved to CANCELING/CANCELED, the provider did accept the
+    cancellation; report that state instead of masking it as an error.
+    """
+    try:
+        result = await _graphql(dagster_url, TERMINATE_RUN_MUTATION, {"runId": run_id})
+    except Exception:
+        status = await get_run_status(dagster_url=dagster_url, run_id=run_id)
+        if status not in {"CANCELING", "CANCELED"}:
+            raise
+        return DagsterOperationResult(
+            operation="cancel_run",
+            dry_run=False,
+            accepted=True,
+            run_id=run_id,
+            status=status,
+            message=(
+                "Dagster marked the run for cancellation; the run monitor "
+                "completes termination asynchronously."
+            ),
+            details={
+                key: value
+                for key, value in {
+                    "typename": "TerminateRunDispatched",
+                    "reason": reason,
+                    "idempotency_key": idempotency_key,
+                }.items()
+                if value
+            },
+        )
     payload = result.get("data", {}).get("terminateRun", {})
     typename = str(payload.get("__typename") or "TerminateRunResult")
     raw_run = payload.get("run")
@@ -417,15 +451,17 @@ async def _graphql(
     if access_token:
         headers["Authorization"] = f"Bearer {access_token}"
     elif requires_http_authorization():
-        # Production orchestration→API calls must carry the declared workload
-        # identity; missing credentials fail before any HTTP request is made.
+        # Every call through this helper targets the Dagster webserver, so the
+        # workload token must be minted for the phlo-api → phlo-dagster ring the
+        # receiver validates (audience phlo-dagster, scp dagster:control).
+        # Missing credentials fail before any HTTP request is made.
         headers.update(
             build_scoped_service_headers(
-                "phlo-orchestration",
-                audience="phlo-api",
-                scp=("api:orchestrate",),
+                "phlo-api",
+                audience="phlo-dagster",
+                scp=("dagster:control",),
                 credentials=load_service_identity_credentials(),
-                initiator="orchestration",
+                initiator="observatory",
                 correlation_id=None,
             )
         )
