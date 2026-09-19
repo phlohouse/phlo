@@ -1,22 +1,15 @@
 {
   "title": "Reference",
   "pages": [
-    "index",
-    "architecture",
-    "platform-topology",
-    "api-surfaces",
-    "auth-and-access",
-    "canonical-rbac",
-    "glossary",
-    "faq",
-    "phlo-api",
-    "observatory-contracts",
-    "cli-reference",
-    "configuration-reference",
+    "cli",
+    "configuration",
+    "project-layout",
+    "python-api",
     "plugin-api",
-    "helper-api",
-    "quality-checks-catalog",
-    "duckdb-queries",
-    "common-errors"
+    "quality-checks",
+    "packages",
+    "auth-and-access",
+    "errors",
+    "glossary"
   ]
 }

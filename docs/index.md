@@ -1,127 +1,63 @@
-# Phlo Documentation
+# Phlo documentation
 
-Phlo is a modular lakehouse platform for ingestion, quality, transformation, orchestration, and data access.
+Phlo is a Python framework for building a lakehouse. You write ingestion, quality, and transformation assets as decorated Python functions in one project. The `phlo` CLI generates the local stack, runs the assets through an orchestrator, lands tables in versioned storage, and shows you what happened in Observatory.
 
-## Platform Map
+The core stays small. Everything else, from Dagster and dlt to Iceberg, Nessie, Trino, and MinIO, arrives as an installable `phlo-*` package that plugs into the CLI and the runtime.
 
-```mermaid
-flowchart TD
-    project["Phlo project"]
+## Start here
 
-    subgraph core["Core runtime"]
-        cli["CLI and config"]
-        hooks["Hooks and plugin discovery"]
-        workflows["Ingestion, quality, transforms"]
-    end
+If you have never run Phlo, follow these two pages in order:
 
-    subgraph data["Lakehouse data plane"]
-        storage["Object storage + table format"]
-        catalog["Catalog + metadata store"]
-        query["Query engine"]
-        orch["Orchestrator"]
-    end
+1. [Install Phlo](getting-started/install.md) sets up Python, Docker, and the `phlo` command.
+2. [Build your first pipeline](getting-started/first-pipeline.md) creates a project, starts the stack, and materializes a table in about ten minutes.
 
-    subgraph optional["Optional operator-facing surfaces"]
-        hasura["Hasura"]
-        postgrest["PostgREST"]
-        openmetadata["OpenMetadata"]
-        observability["Observability backends"]
-    end
+## Understand how Phlo works
 
-    project --> core
-    core --> data
-    data --> optional
-```
+Read these when you want the reasoning behind the design, not steps:
 
-## Documentation Map
+- [How Phlo works](concepts/how-phlo-works.md) explains what your project owns, what the runtime generates, and how an asset becomes a table.
+- [Write-audit-publish](concepts/write-audit-publish.md) explains how Phlo isolates each run on a catalog branch and promotes only runs that pass their checks.
+- [Plugins and capabilities](concepts/plugins-and-capabilities.md) explains how packages extend the CLI, the stack, and Observatory.
 
-- [Getting Started](getting-started/installation.md): install, run, first pipeline.
-- [Guides](guides/developer-guide.md): workflows, patterns, and cross-package how-to material.
-- [Architecture](architecture/index.md): public system shape, topology, and platform boundaries.
-- [Packages](packages/index.md): what each installable package contributes to the platform.
-- [Setup](setup/index.md): operator runbooks for optional external surfaces that need extra configuration after install.
-- [Reference](reference/index.md): canonical contracts, commands, configuration, and API surfaces.
-- Python Reference: generated symbol-level API and docstring reference for the core runtime in the pymdx site.
-- [Operations](operations/operations-guide.md): production operation, troubleshooting, and maintenance.
+## Get something done
 
-## Recommended Paths
+Each guide solves one problem and assumes you have finished the first pipeline:
 
-### Data engineer
+| Goal | Guide |
+| --- | --- |
+| Load data from an API, a file, or a database | [Ingest data](guides/ingest-data.md) |
+| Stop bad rows before they reach a published table | [Add quality checks](guides/add-quality-checks.md) |
+| Model bronze, silver, and gold layers | [Transform with dbt](guides/transform-with-dbt.md) |
+| Change a table's columns without breaking consumers | [Evolve a schema](guides/evolve-a-schema.md) |
+| Swap storage, catalog, query engine, or ingestion tool | [Choose your stack](guides/choose-your-stack.md) |
+| Serve tables to apps, analysts, and BI tools | [Expose data](guides/expose-data.md) |
+| Add authentication, per-service credentials, and audit logs | [Secure the stack](guides/secure-the-stack.md) |
+| Read logs, trace lineage, and fix a failing run | [Monitor and debug](guides/monitor-and-debug.md) |
+| Test assets locally and in CI | [Test a project](guides/test-a-project.md) |
+| Add a command, service, or UI panel to Phlo | [Write a plugin](guides/write-a-plugin.md) |
+| Run Phlo for real users | [Run in production](guides/run-in-production.md) |
 
-1. [Getting Started](getting-started/index.md)
-2. [Developer Workflow](guides/developer-workflow.md)
-3. [Data Lifecycle](guides/data-lifecycle.md)
-4. [Workflow Development](guides/workflow-development.md)
-5. [Testing Strategy](guides/testing-strategy.md)
+## Look something up
 
-### Platform engineer
+Reference pages describe what exists. They do not teach:
 
-1. [Platform Topology](reference/platform-topology.md)
-2. [Public System Design](architecture/public-system-design.md)
-3. [Choosing Components](guides/choosing-components.md)
-4. [Deployment Profiles](guides/deployment-profiles.md)
-5. [Setup](setup/index.md)
-6. [Production Readiness](operations/production-readiness.md)
+- [CLI](reference/cli.md): every `phlo` command and option.
+- [Configuration](reference/configuration.md): `phlo.yaml`, `.phlo/.env`, and every environment variable.
+- [Project layout](reference/project-layout.md): the files in a project and what generates them.
+- [Python API](reference/python-api.md): the decorators and helpers under `import phlo`.
+- [Plugin API](reference/plugin-api.md): entry points, hooks, `service.yaml`, and extension manifests.
+- [Quality checks](reference/quality-checks.md): every built-in check and its parameters.
+- [Packages](reference/packages.md): what each `phlo-*` package adds and its support tier.
+- [Auth and access](reference/auth-and-access.md): principals, roles, and route guards.
+- [Errors](reference/errors.md): every `PHLO-` error code, its cause, and its fix.
+- [Glossary](reference/glossary.md): the terms these docs use.
 
-### Plugin or package author
+The Python reference, generated from docstrings in `src/phlo`, is in the **Python Reference** section of the published site.
 
-1. [Extension Model](guides/extension-model.md)
-2. [Plugin Development](guides/plugin-development.md)
-3. [Plugin API](reference/plugin-api.md)
-4. [Packages](packages/index.md)
-5. Python Reference in the pymdx site
+## Architecture records
 
-## Setup Surfaces
+[Architecture](architecture/index.md) holds the decision log and the regulated surface inventory. Read them when you need to know why something is the way it is.
 
-Phlo can expose optional surfaces around the core data plane and runtime stack.
+## Project status
 
-- [Hasura](setup/hasura.md) and [PostgREST](setup/postgrest.md) for external API exposure
-- [OpenMetadata](setup/openmetadata.md) for catalog and metadata workflows
-- [Observability](setup/observability.md) for logs, traces, and metrics routing
-- [Security](setup/security.md) for authentication, secrets, and hardening
-- [Service Credentials](setup/service-credentials.md) for regulated per-service backend identity
-
-Use [Packages](packages/index.md) for component detail and [Reference](reference/index.md) for commands, config, and contracts.
-
-## Start Here
-
-- New project: [Installation Guide](getting-started/installation.md), then [Quickstart Guide](getting-started/quickstart.md)
-- Building workflows: [Developer Guide](guides/developer-guide.md)
-- Understanding the platform model: [Core Concepts](getting-started/core-concepts.md)
-- Running the stack: [Operations Guide](operations/operations-guide.md)
-- Looking for a specific package: [Packages](packages/index.md)
-- Looking for commands and settings: [Reference](reference/index.md)
-
-## Common Paths
-
-### First Pipeline
-
-1. [Installation Guide](getting-started/installation.md)
-2. [Core Concepts](getting-started/core-concepts.md)
-3. [Quickstart Guide](getting-started/quickstart.md)
-4. [Developer Guide](guides/developer-guide.md)
-
-### Platform Setup
-
-1. [Installation Guide](getting-started/installation.md)
-2. [Service Packages](guides/service-packages.md)
-3. [Packages](packages/index.md)
-4. [Setup](setup/index.md)
-5. [Operations Guide](operations/operations-guide.md)
-
-### Command and Contract Lookup
-
-1. [CLI Reference](reference/cli-reference.md)
-2. [Configuration Reference](reference/configuration-reference.md)
-3. [Plugin API](reference/plugin-api.md)
-4. [Common Errors](reference/common-errors.md)
-
-## Key Reference Pages
-
-- [Architecture](reference/architecture.md)
-- [CLI Reference](reference/cli-reference.md)
-- [Configuration Reference](reference/configuration-reference.md)
-- [Plugin API](reference/plugin-api.md)
-- [phlo-api](reference/phlo-api.md)
-- Python Reference in the pymdx site
-- [Error Codes](errors/README.md)
+Phlo is alpha. The local workflow is exercised in CI. Public APIs, package contracts, and the project layout can change before 1.0. The machine-readable support boundary in `registry/support/v1.json` states which packages are blessed, preview, or development-only. Pin exact versions in production.

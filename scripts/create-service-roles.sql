@@ -7,7 +7,7 @@
 -- Run the PostgreSQL section against the phlo metadata database as superuser.
 --
 -- After creating roles, set the corresponding env vars in .phlo/.env.local.
--- See docs/setup/service-credentials.md for the full guide.
+-- See docs/guides/secure-the-stack.md for the full guide.
 
 -- ============================================================================
 -- Trino roles

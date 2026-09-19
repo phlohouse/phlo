@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/windows-compose-portability.yml"
-      - "docs/getting-started/installation.md"
+      - "docs/getting-started/install.md"
       - "packages/**"
       - "pyproject.toml"
       - "scripts/**"

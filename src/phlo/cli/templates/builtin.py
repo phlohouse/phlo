@@ -180,7 +180,7 @@ Phlo data workflows for {project_name}.
 ## Documentation
 
 - [Phlo Documentation](https://github.com/iamgp/phlo)
-- [Workflow Development Guide](https://github.com/iamgp/phlo/blob/main/docs/guides/workflow-development.md)
+- [Ingest data guide](https://github.com/iamgp/phlo/blob/main/docs/guides/ingest-data.md)
 """,
     )
 

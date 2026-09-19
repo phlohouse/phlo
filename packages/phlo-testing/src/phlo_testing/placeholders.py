@@ -22,7 +22,7 @@ Status:
     - Fixture management: Fully implemented
     - test_asset_execution: Fully implemented
 
-For comprehensive testing guide, see: docs/TESTING_GUIDE.md
+For comprehensive testing guide, see: docs/guides/test-a-project.md
 
 """
 

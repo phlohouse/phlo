@@ -23,4 +23,4 @@ behind SSO authentication.
    phlo services start --profile proxy
    ```
 
-See `docs/setup/security.md` for the full operator walkthrough.
+See `docs/guides/secure-the-stack.md` for the full operator walkthrough.

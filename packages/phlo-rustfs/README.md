@@ -55,7 +55,6 @@ AWS_ACCESS_KEY_ID=rustfsadmin
 AWS_SECRET_ACCESS_KEY=rustfsadmin
 ```
 
-For data migration, see the [spec documentation](../../docs/architecture/specs/0015-phlo-rustfs.md).
 
 ## Entry Points
 

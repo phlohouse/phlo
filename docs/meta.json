@@ -4,14 +4,9 @@
   "pages": [
     "index",
     "getting-started",
+    "concepts",
     "guides",
-    "architecture",
-    "setup",
-    "operations",
-    "packages",
-    "observatory",
     "reference",
-    "python-reference",
-    "errors"
+    "architecture"
   ]
 }

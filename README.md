@@ -39,7 +39,7 @@ import phlo
 from workflows.schemas.csv import EventsSchema
 
 
-@phlo.ingestion(
+@phlo.ingest.dlt(
     table_name="events",
     unique_key="event_id",
     validation_schema=EventsSchema,
@@ -91,6 +91,9 @@ phlo materialize dlt_events --partition 2025-01-15
 # Verify the table landed in the catalog
 phlo catalog tables
 
+# Open the Trino shell on the Iceberg catalog
+phlo trino --catalog iceberg
+
 # Stop the local stack when finished
 phlo services stop
 ```
@@ -120,14 +123,14 @@ Phlo's core stays small. Installed provider packages contribute capabilities thr
 
 ## Documentation
 
-- [Installation Guide](docs/getting-started/installation.md)
-- [Quickstart Guide](docs/getting-started/quickstart.md)
-- [Core Concepts](docs/getting-started/core-concepts.md)
-- [Choosing Components](docs/guides/choosing-components.md)
-- [Workflow Development](docs/guides/workflow-development.md)
-- [Plugin Development](docs/guides/plugin-development.md)
-- [Operations Guide](docs/operations/operations-guide.md)
-- [CLI Reference](docs/reference/cli-reference.md)
+- [Installation guide](docs/getting-started/install.md)
+- [First pipeline](docs/getting-started/first-pipeline.md)
+- [Concepts](docs/concepts/how-phlo-works.md)
+- [Choose your stack](docs/guides/choose-your-stack.md)
+- [Ingest data](docs/guides/ingest-data.md)
+- [Write a plugin](docs/guides/write-a-plugin.md)
+- [Run in production](docs/guides/run-in-production.md)
+- [CLI reference](docs/reference/cli.md)
 
 ## Project status
 

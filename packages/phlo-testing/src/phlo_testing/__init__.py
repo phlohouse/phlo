@@ -144,7 +144,7 @@ data = recorder.record_dlt_source(
 ## Testing Guide
 
 For comprehensive testing patterns and best practices, see:
-`docs/TESTING_GUIDE.md`
+`docs/guides/test-a-project.md`
 """
 
 from importlib.metadata import version
