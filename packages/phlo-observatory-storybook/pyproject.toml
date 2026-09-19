@@ -2,6 +2,7 @@
 name = "phlo-observatory-storybook"
 version = "0.17.0-dev"
 description = "Storybook gallery for the Phlo Observatory web UI (JS only; no Python modules)."
+dependencies = ["phlo>=0.16.2,<0.17"]
 requires-python = ">=3.11"
 
 [tool.uv.sources]

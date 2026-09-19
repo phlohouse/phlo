@@ -7,16 +7,10 @@ import { DatasetOwnershipRail } from "@/components/sections/dataset/dataset-owne
 import { DatasetRunsTable } from "@/components/sections/dataset/dataset-runs-table";
 import { LineageChain } from "@/components/sections/dataset/lineage-chain";
 import { SchemaTable } from "@/components/sections/dataset/schema-table";
-import { datasetAccess, datasetOwnership, datasetRuns, datasetSchema } from "@/data/demo";
+import { datasetAccessRows, datasetOwnershipView, datasetRunRows, datasetSchema } from "../../fixtures/demo";
 
 const meta: Meta = { title: "Sections/Dataset" };
 export default meta;
-
-const CONSUMERS = [
-  { name: "Revenue dashboard", role: "Superset · Analytics" },
-  { name: "Orders API", role: "PostgREST · Commerce" },
-  { name: "Finance reconciliation", role: "dbt · Finance" },
-];
 
 export const Lineage: StoryObj = {
   render: () => (
@@ -45,7 +39,7 @@ export const Schema: StoryObj = {
 export const Runs: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 820 }}>
-      <DatasetRunsTable rows={datasetRuns} />
+      <DatasetRunsTable rows={datasetRunRows} />
     </div>
   ),
 };
@@ -53,9 +47,8 @@ export const Runs: StoryObj = {
 export const OwnershipRail: StoryObj = {
   render: () => (
     <DatasetOwnershipRail
-      ownership={datasetOwnership}
-      consumers={CONSUMERS}
-      access={datasetAccess}
+      ownership={datasetOwnershipView}
+      access={datasetAccessRows}
     />
   ),
 };

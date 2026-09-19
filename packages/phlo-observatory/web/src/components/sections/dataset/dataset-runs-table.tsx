@@ -4,16 +4,23 @@
 import type { DatasetRunRef } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
+import { Identifier } from "@/components/data/identifier";
 import { statusTone } from "@/lib/status";
+import { formatTimestamp } from "@/lib/utils";
 
 const COLUMNS: Array<DataColumn<DatasetRunRef>> = [
   {
     key: "run",
     header: "Run",
-    width: "w-37.5",
-    cell: (row) => <span className="text-accent-foreground">{row.run_id}</span>,
+    width: "w-30",
+    cell: (row) => <Identifier value={row.run_id} head={10} className="text-accent-foreground" />,
   },
-  { key: "finished", header: "Finished (UTC)", width: "w-37.5", cell: (row) => row.finished_at },
+  {
+    key: "finished",
+    header: "Finished (UTC)",
+    width: "w-37.5",
+    cell: (row) => <span className="text-muted-foreground">{formatTimestamp(row.finished_at)}</span>,
+  },
   {
     key: "outcome",
     header: "Outcome",

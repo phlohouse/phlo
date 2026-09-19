@@ -1,6 +1,7 @@
 /**
  * Page Header component.
  */
+import type { ReadEvidence } from "@/api/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -41,8 +42,45 @@ export function PageHeader({
   );
 }
 
-/** Small bordered "Example data" marker used beside page titles. */
-export function ExampleDataChip({ className }: { className?: string }) {
+/** Evidence-driven read-state marker rendered beside page titles.
+ *
+ * Only states a reader must not miss are labelled: demo fixtures, stale
+ * last-confirmed answers, unsupported/unavailable surfaces, partial data and
+ * a recorded-nothing collection. Healthy live data renders no chip at all.
+ */
+export function ReadStateChip({
+  evidence,
+  className,
+}: {
+  evidence?: ReadEvidence;
+  className?: string;
+}) {
+  let label: string | null = null;
+  if (!evidence) {
+    return null;
+  }
+  if (evidence.status === "demo") {
+    label = "Demo data";
+  } else if (evidence.status === "stale") {
+    const confirmed = evidence.last_confirmed_at
+      ? new Date(evidence.last_confirmed_at)
+      : null;
+    label =
+      confirmed && !Number.isNaN(confirmed.getTime())
+        ? `Stale · last confirmed ${confirmed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        : "Stale data";
+  } else if (evidence.status === "unsupported") {
+    label = "Not supported";
+  } else if (evidence.status === "unavailable") {
+    label = "Unavailable";
+  } else if (evidence.reason_code === "partial" || evidence.dropped_records > 0) {
+    label = "Partial data";
+  } else if (evidence.reason_code === "absent") {
+    label = "No records yet";
+  }
+  if (!label) {
+    return null;
+  }
   return (
     <span
       className={cn(
@@ -50,7 +88,7 @@ export function ExampleDataChip({ className }: { className?: string }) {
         className,
       )}
     >
-      Example data
+      {label}
     </span>
   );
 }

@@ -1,10 +1,14 @@
 /**
- * Run detail sections: timeline, quality failure, events, traces, logs and the
- * evidence rail.
+ * Run detail sections: timeline, quality report, events, traces, logs and the
+ * evidence rail — all fed by MC-04-shaped run evidence fixtures.
  */
 import type { Meta, StoryObj } from "@storybook/react";
 
-import { ExecutionTimeline, KeyEvents, QualityFailure } from "@/components/sections/run/run-evidence";
+import {
+  ExecutionTimeline,
+  KeyEvents,
+  QualityReport,
+} from "@/components/sections/run/run-evidence";
 import {
   ArtifactList,
   ConfigurationPanel,
@@ -12,7 +16,16 @@ import {
   RunDetailsRail,
   TraceTable,
 } from "@/components/sections/run/run-rail";
-import { runConfig } from "@/data/demo";
+import {
+  missionRunDetail,
+  missionRunEvents,
+  missionRunLogLines,
+  runArtifactRows,
+  runConfigRows,
+  runQualityReport,
+  runSpanViews,
+  runStageViews,
+} from "../../fixtures/demo";
 
 const meta: Meta = { title: "Sections/Run" };
 export default meta;
@@ -20,15 +33,15 @@ export default meta;
 export const Timeline: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 820 }}>
-      <ExecutionTimeline />
+      <ExecutionTimeline stages={runStageViews} />
     </div>
   ),
 };
 
-export const QualityFailureDetail: StoryObj = {
+export const QualityReportDetail: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 820 }}>
-      <QualityFailure />
+      <QualityReport report={runQualityReport} />
     </div>
   ),
 };
@@ -36,7 +49,7 @@ export const QualityFailureDetail: StoryObj = {
 export const Events: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 620 }}>
-      <KeyEvents />
+      <KeyEvents events={missionRunEvents} />
     </div>
   ),
 };
@@ -44,7 +57,7 @@ export const Events: StoryObj = {
 export const Traces: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 820 }}>
-      <TraceTable />
+      <TraceTable spans={runSpanViews} />
     </div>
   ),
 };
@@ -52,7 +65,7 @@ export const Traces: StoryObj = {
 export const Logs: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 820 }}>
-      <LogViewer />
+      <LogViewer lines={missionRunLogLines} total={missionRunLogLines.length} />
     </div>
   ),
 };
@@ -60,7 +73,7 @@ export const Logs: StoryObj = {
 export const Artifacts: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 620 }}>
-      <ArtifactList />
+      <ArtifactList artifacts={runArtifactRows} />
     </div>
   ),
 };
@@ -68,11 +81,17 @@ export const Artifacts: StoryObj = {
 export const Configuration: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 620 }}>
-      <ConfigurationPanel rows={runConfig} />
+      <ConfigurationPanel rows={runConfigRows} />
     </div>
   ),
 };
 
 export const DetailsRail: StoryObj = {
-  render: () => <RunDetailsRail />,
+  render: () => (
+    <RunDetailsRail
+      run={missionRunDetail}
+      consumers={missionRunDetail.consumers}
+      artifacts={missionRunDetail.artifacts}
+    />
+  ),
 };

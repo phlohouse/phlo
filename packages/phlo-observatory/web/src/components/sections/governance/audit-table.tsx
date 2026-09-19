@@ -4,13 +4,14 @@
 import type { AuditEvent } from "@/api/types";
 import type {DataColumn} from "@/components/data/data-table";
 import {  DataTable } from "@/components/data/data-table";
+import { formatTimestamp } from "@/lib/utils";
 
 const COLUMNS: Array<DataColumn<AuditEvent>> = [
   {
     key: "time",
     header: "Time (UTC)",
     width: "w-30",
-    cell: (row) => <span className="text-muted-foreground">{row.at}</span>,
+    cell: (row) => <span className="text-muted-foreground">{formatTimestamp(row.at)}</span>,
   },
   { key: "actor", header: "Actor", width: "w-47.5", cell: (row) => row.actor },
   { key: "action", header: "Action", cell: (row) => row.action },

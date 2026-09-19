@@ -4,8 +4,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
-import type {SearchEntry} from "@/data/demo";
 import {
   Dialog,
   DialogContent,
@@ -14,19 +14,29 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { queries } from "@/api/mission-control";
 import { NAV_ITEMS } from "@/config/navigation";
-import {  searchEntries } from "@/data/demo";
 import { cn } from "@/lib/utils";
 
-interface CommandItem extends Omit<SearchEntry, "kind"> {
+interface CommandItem {
   kind: string;
+  title: string;
+  meta: string;
+  to: string;
 }
 
-/** ⌘K palette over navigation targets and the workspace search index. */
+/** ⌘K palette over navigation targets and the workspace's actual datasets,
+ * release candidates and services — never a fixture index. */
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+
+  const dataProducts = useQuery(queries.dataProducts());
+  const datasets = useInfiniteQuery(queries.datasetsList());
+  const runs = useInfiniteQuery(queries.runsList());
+  const candidates = useQuery(queries.releaseCandidates());
+  const services = useQuery(queries.platformServices());
 
   const items = useMemo<Array<CommandItem>>(() => {
     const pages: Array<CommandItem> = NAV_ITEMS.map((item) => ({
@@ -35,13 +45,47 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       meta: "Page",
       to: item.to,
     }));
-    const all = [...pages, ...searchEntries];
+    const listedDatasets = datasets.data?.pages.flatMap((page) => page.items) ?? [];
+    const listedRuns = runs.data?.pages.flatMap((page) => page.items) ?? [];
+    const entries: Array<CommandItem> = [
+      ...listedDatasets.map((dataset) => ({
+        kind: "Dataset",
+        title: dataset.name,
+        meta: `${dataset.id} · ${dataset.publication_state}`,
+        to: `/datasets/${dataset.id}`,
+      })),
+      ...(dataProducts.data?.data ?? []).map((product) => ({
+        kind: "Data product",
+        title: product.name,
+        meta: `${product.id} · ${product.freshness}`,
+        to: product.target,
+      })),
+      ...listedRuns.map((run) => ({
+        kind: "Run",
+        title: run.name,
+        meta: `${run.id} · ${run.status}`,
+        to: `/runs/${run.id}`,
+      })),
+      ...(candidates.data?.data ?? []).map((candidate) => ({
+        kind: "Release",
+        title: candidate.dataset,
+        meta: candidate.readiness,
+        to: "/releases",
+      })),
+      ...(services.data?.data ?? []).map((service) => ({
+        kind: "Service",
+        title: service.name,
+        meta: `${service.role} · ${service.readiness_state}`,
+        to: "/platform",
+      })),
+    ];
+    const all = [...pages, ...entries];
     const needle = query.trim().toLowerCase();
     if (!needle) return all.slice(0, 9);
     return all
       .filter((item) => `${item.kind} ${item.title} ${item.meta}`.toLowerCase().includes(needle))
       .slice(0, 9);
-  }, [query]);
+  }, [query, dataProducts.data, datasets.data, runs.data, candidates.data, services.data]);
 
   useEffect(() => {
     if (open) {

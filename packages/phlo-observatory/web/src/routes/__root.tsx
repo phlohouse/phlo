@@ -4,8 +4,10 @@
  */
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 
 import appCss from "../styles.css?url";
+import { missionPoll } from "@/api/mission-control";
 import { AppShell } from "@/components/app/app-shell";
 import { EnvironmentProvider } from "@/components/app/environment-provider";
 import { ThemeProvider } from "@/components/app/theme-provider";
@@ -18,6 +20,11 @@ const queryClient = new QueryClient({
       staleTime: 15_000,
       retry: 1,
       refetchOnWindowFocus: true,
+      // Active-page polling: every mounted query refetches on a 15s cadence,
+      // TanStack pauses it for hidden tabs, and missionPoll backs off on
+      // consecutive failures. Queries without observers don't poll.
+      refetchInterval: missionPoll,
+      refetchIntervalInBackground: false,
     },
   },
 });
@@ -40,8 +47,10 @@ function RootComponent() {
       <ThemeProvider>
         <EnvironmentProvider>
           <TooltipProvider>
-            <HeadContent />
-            <AppShell />
+            <NuqsAdapter>
+              <HeadContent />
+              <AppShell />
+            </NuqsAdapter>
             <Scripts />
           </TooltipProvider>
         </EnvironmentProvider>

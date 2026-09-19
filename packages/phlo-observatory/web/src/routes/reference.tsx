@@ -7,7 +7,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { StatusPill } from "@/components/data/status-pill";
 import { TypeScaleTable } from "@/components/foundation/type-scale";
 import { Page, PageStack } from "@/components/layout/page";
-import { ExampleDataChip, PageHeader } from "@/components/layout/page-header";
+import { PageHeader } from "@/components/layout/page-header";
 import { Section } from "@/components/layout/section-header";
 import {
   ColorTokenGrid,
@@ -66,9 +66,9 @@ const STATUS_SAMPLES = [
 ];
 
 const CORE_COMPONENTS = [
-  { name: "Primary button", hint: "One per view — the highest-intent action", preview: <Button>Create workflow</Button> },
-  { name: "Outline button", hint: "Secondary controls and scope pickers", preview: <Button variant="outline">Last 24 hours</Button> },
-  { name: "Ghost button", hint: "Toolbar and icon affordances", preview: <Button variant="ghost">Cancel</Button> },
+  { name: "Primary button", hint: "One per view — the highest-intent action", preview: <span className="pointer-events-none"><Button>Create workflow</Button></span> },
+  { name: "Outline button", hint: "Secondary controls and scope pickers", preview: <span className="pointer-events-none"><Button variant="outline">Last 24 hours</Button></span> },
+  { name: "Ghost button", hint: "Toolbar and icon affordances", preview: <span className="pointer-events-none"><Button variant="ghost">Cancel</Button></span> },
   { name: "Status pill", hint: "Derives tone from backend status text", preview: <StatusPill status="Ready" /> },
   { name: "Blocked pill", hint: "Failure vocabulary maps to destructive", preview: <StatusPill status="Blocked by quality" /> },
   { name: "Neutral badge", hint: "Counts, classification, non-status metadata", preview: <Badge variant="muted">Internal</Badge> },
@@ -86,7 +86,6 @@ function ReferencePage() {
     <Page>
       <PageHeader
         title="Reference"
-        titleAccessory={<ExampleDataChip />}
         description="Shared building blocks as used across Mission Control — tokens, type, status vocabulary and core components."
       />
       <PageStack className="w-290 max-w-full gap-5 px-6 pt-4.5 pb-5">

@@ -1,5 +1,6 @@
 /**
- * Dataset detail route.
+ * Dataset detail route: `/datasets/$` resolves the provider's canonical id —
+ * including multi-segment asset keys — straight from the URL splat.
  *
  * Reads the full Dataset read model in one request (the page is tabbed with
  * small per-tab payloads, so a single call avoids a first-paint waterfall) and
@@ -19,21 +20,18 @@ import { StatusPill } from "@/components/data/status-pill";
 import { Banner } from "@/components/feedback/banner";
 import { DetailSection } from "@/components/layout/detail-rail";
 import { Page, PageBand, PageContent, PageStack, SplitRow } from "@/components/layout/page";
-import { ExampleDataChip, PageHeader } from "@/components/layout/page-header";
+import { PageHeader, ReadStateChip } from "@/components/layout/page-header";
 import { PageTabs, TabsContent } from "@/components/layout/page-tabs";
 import { InlineLink, Section } from "@/components/layout/section-header";
 import { DatasetOwnershipRail } from "@/components/sections/dataset/dataset-ownership-rail";
 import { DatasetRunsTable } from "@/components/sections/dataset/dataset-runs-table";
 import { LineageChain } from "@/components/sections/dataset/lineage-chain";
+import { MaterializeAction } from "@/components/sections/dataset/materialize-action";
 import { SchemaTable } from "@/components/sections/dataset/schema-table";
-import { Button } from "@/components/ui/button";
-
-/** Reference dataset used when the project declares no assets. */
-const FALLBACK_DATASET_ID = "marts.orders";
 
 const TABS = [
   { value: "overview", label: "Overview" },
-  { value: "schema", label: "Schema · 8" },
+  { value: "schema", label: "Schema" },
   { value: "preview", label: "Preview" },
   { value: "quality", label: "Quality" },
   { value: "lineage", label: "Lineage" },
@@ -42,7 +40,7 @@ const TABS = [
 ];
 
 /**
- * Condense the full lineage graph into the 4-node chain the Overview shows:
+ * Condense the full lineage graph into the short chain the Overview shows:
  * upstream sources, this dataset, then a single consumer count node.
  */
 function summariseChain(nodes: Array<LineageNode>): Array<LineageNode> {
@@ -66,15 +64,33 @@ const TONE_CLASS: Record<string, string | undefined> = {
   muted: undefined,
 };
 
+/** Honest preview caption: live select = current state, never "snapshot". */
+function previewCaption(preview: {
+  state: string;
+  detail: string | null;
+  ref: string | null;
+  pinned: boolean;
+  rows: Array<Array<string>>;
+}): string {
+  if (preview.state !== "ready") {
+    return preview.detail ?? "Preview unavailable";
+  }
+  const basis = preview.pinned
+    ? "Snapshot-pinned preview"
+    : `Current contents${preview.ref ? ` · ${preview.ref}` : ""} · not snapshot-pinned`;
+  return `${basis} · ${preview.rows.length} rows`;
+}
+
 function DatasetDetailPage() {
   const navigate = useNavigate();
-  // Prefer a dataset the project actually declares; fall back to the reference.
-  const assets = useQuery(queries.assets());
-  const datasetId = assets.data?.[0]?.id ?? FALLBACK_DATASET_ID;
-  const dataset = useQuery({ ...queries.datasetDetail(datasetId), enabled: Boolean(datasetId) });
-  const openRun = () => navigate({ to: "/runs/orders-daily" });
+  // `_splat` carries the full canonical id — multi-segment keys included.
+  const { _splat } = Route.useParams();
+  const datasetId = _splat ?? "";
+  const dataset = useQuery({ ...queries.datasetDetail(datasetId), enabled: datasetId !== "" });
+  const openRun = (runId: string) =>
+    navigate({ to: "/runs/$runId", params: { runId } });
 
-  const data = dataset.data;
+  const data = dataset.data?.data ?? undefined;
   const metrics: Array<Metric> = (data?.metrics ?? []).map((metric) => ({
     label: metric.label,
     value: metric.value,
@@ -94,21 +110,51 @@ function DatasetDetailPage() {
     <DatasetOwnershipRail
       ownership={data.ownership}
       access={data.access}
-      onViewContract={() => navigate({ to: "/datasets/orders" })}
+      onViewContract={() =>
+        navigate({ to: "/datasets/$", params: { _splat: data.id } })
+      }
     />
+  ) : null;
+
+  const runsSection = data ? (
+    <Section
+      title="Recent runs"
+      meta={data.runs_state === "ready" ? `${data.runs.length} recent` : "Unavailable"}
+      action={<InlineLink onClick={() => navigate({ to: "/runs" })}>View all runs →</InlineLink>}
+    >
+      {data.runs_state !== "ready" ? (
+        <p className="text-[11px] text-muted-foreground">
+          The orchestrator could not return runs for this dataset.
+        </p>
+      ) : (
+        <DatasetRunsTable
+          rows={data.runs}
+          onOpenRun={(row) => openRun(row.run_id)}
+        />
+      )}
+    </Section>
   ) : null;
 
   return (
     <Page>
       <PageHeader
         title={data?.name ?? "Dataset"}
-        titleAccessory={data ? <StatusPill status={data.status} dot={false} /> : null}
+        titleAccessory={data ? <><StatusPill status={data.status} dot={false} /><ReadStateChip evidence={dataset.data?.evidence} /></> : <ReadStateChip evidence={dataset.data?.evidence} />}
         description={data?.summary}
         actions={
-          <>
-            <Button variant="outline">Preview materialization</Button>
-            <Button>Explore data</Button>
-          </>
+          data ? (
+            <>
+              <MaterializeAction
+                assetId={data.id}
+                disabledReason={
+                  dataset.data?.evidence.status === "live" ||
+                  dataset.data?.evidence.status === "stale"
+                    ? null
+                    : "Dataset evidence is unavailable — the materialization target cannot be confirmed."
+                }
+              />
+            </>
+          ) : undefined
         }
       />
 
@@ -119,40 +165,42 @@ function DatasetDetailPage() {
       <PageTabs tabs={TABS} defaultValue="overview">
         <TabsContent value="overview">
           <PageContent rail={rail}>
-            <Banner
-              tone="danger"
-              title="Next delivery blocked by a quality check"
-              detail="Run r7e42b · 42 duplicate order IDs · Released data is unchanged."
-              action={<InlineLink onClick={openRun}>Inspect run</InlineLink>}
-            />
-            {data ? (
-              <LineageChain
-                nodes={summariseChain(data.lineage)}
-                caption="Declared dependencies · Consumers read released snapshot 938105"
-                onViewAll={() => navigate({ to: "/datasets/orders" })}
+            {data?.checks.some((check) => check.tone === "danger") ? (
+              <Banner
+                tone="danger"
+                title="A quality check failed"
+                detail={
+                  data.checks.find((check) => check.tone === "danger")?.outcome ?? "Check failed"
+                }
+                action={
+                  data.runs[0] ? (
+                    <InlineLink onClick={() => openRun(data.runs[0]!.run_id)}>Inspect run</InlineLink>
+                  ) : undefined
+                }
               />
             ) : null}
             {data ? (
-              <Section title="Schema" action={<InlineLink>8 columns · View schema →</InlineLink>}>
+              <LineageChain
+                nodes={summariseChain(data.lineage)}
+                caption="Declared dependencies"
+              />
+            ) : null}
+            {data ? (
+              <Section title="Schema" meta={`${data.schema_fields.length} columns`}>
                 <SchemaTable rows={data.schema_fields.slice(0, 6)} />
                 <p className="text-[11px] leading-3.5 text-muted-foreground">
-                  Showing 6 of {data.schema_fields.length} columns · Schema version 3 · No pending
-                  changes
+                  Showing {Math.min(6, data.schema_fields.length)} of {data.schema_fields.length} columns
                 </p>
               </Section>
             ) : null}
-            {data ? (
-              <Section title="Recent runs" action={<InlineLink>View all runs →</InlineLink>}>
-                <DatasetRunsTable rows={data.runs} onOpenRun={openRun} />
-              </Section>
-            ) : null}
+            {runsSection}
           </PageContent>
         </TabsContent>
 
         <TabsContent value="schema">
           <PageContent rail={rail}>
             {data ? (
-              <Section title="Schema" meta={`${data.schema_fields.length} columns · version 3`}>
+              <Section title="Schema" meta={`${data.schema_fields.length} columns`}>
                 <SchemaTable rows={data.schema_fields} />
               </Section>
             ) : null}
@@ -162,14 +210,16 @@ function DatasetDetailPage() {
         <TabsContent value="preview">
           <PageContent rail={rail}>
             {data ? (
-              <Section title="Preview" meta="released snapshot 938105">
-                <DataTable
-                  columns={previewColumns}
-                  rows={data.preview.rows}
-                  rowKey={(row) => row[0] ?? ""}
-                />
+              <Section title="Preview" >
+                {data.preview.state === "ready" ? (
+                  <DataTable
+                    columns={previewColumns}
+                    rows={data.preview.rows}
+                    rowKey={(row) => row[0] ?? ""}
+                  />
+                ) : null}
                 <p className="text-[11px] text-muted-foreground">
-                  Sample · {data.preview.rows.length} of 1,187,320 rows · snapshot 938105
+                  {previewCaption(data.preview)}
                 </p>
               </Section>
             ) : null}
@@ -179,7 +229,7 @@ function DatasetDetailPage() {
         <TabsContent value="quality">
           <PageContent rail={rail}>
             {data ? (
-              <Section title="Quality" meta="11 passed · 1 failed">
+              <Section title="Quality" meta={`${data.checks.filter((check) => check.tone === "success").length} passed · ${data.checks.filter((check) => check.tone === "danger").length} failed`}>
                 <div className="flex flex-col">
                   {data.checks.map((check, index) => (
                     <div
@@ -199,7 +249,7 @@ function DatasetDetailPage() {
         <TabsContent value="lineage">
           <PageContent rail={rail}>
             {data ? (
-              <Section title="Lineage" meta="depth 2">
+              <Section title="Lineage" meta={`${data.lineage.length} nodes`}>
                 <div className="flex flex-col">
                   {data.lineage.map((node, index) => (
                     <div
@@ -221,11 +271,7 @@ function DatasetDetailPage() {
 
         <TabsContent value="runs">
           <PageContent rail={rail}>
-            {data ? (
-              <Section title="Runs" meta={`${data.runs.length} recent`}>
-                <DatasetRunsTable rows={data.runs} onOpenRun={openRun} />
-              </Section>
-            ) : null}
+            {runsSection}
           </PageContent>
         </TabsContent>
 
@@ -252,12 +298,18 @@ function DatasetDetailPage() {
               </SplitRow>
               <DetailSection title="Access" divided>
                 {data ? (
-                  <PropertyList
-                    rows={data.access.map((grant) => ({
-                      label: grant.principal,
-                      value: grant.scope,
-                    }))}
-                  />
+                  data.access.length ? (
+                    <PropertyList
+                      rows={data.access.map((grant) => ({
+                        label: grant.principal,
+                        value: grant.scope,
+                      }))}
+                    />
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      No access grants are reported for this dataset.
+                    </p>
+                  )
                 ) : null}
               </DetailSection>
             </PageStack>
@@ -268,6 +320,6 @@ function DatasetDetailPage() {
   );
 }
 
-export const Route = createFileRoute("/datasets/orders")({
+export const Route = createFileRoute("/datasets/$")({
   component: DatasetDetailPage,
 });

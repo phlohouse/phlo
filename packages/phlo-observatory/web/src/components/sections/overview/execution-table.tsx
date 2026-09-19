@@ -1,5 +1,5 @@
 /**
- * Overview section: running and queued workflow rows.
+ * Overview section: in-flight workflow rows first, then the most recent runs.
  */
 import { ChevronRight } from "lucide-react";
 
@@ -41,7 +41,7 @@ function columns(): Array<DataColumn<MissionExecutionRow>> {
 
 export function ExecutionTable({
   rows,
-  meta = "4 running · 2 queued",
+  meta,
   onOpen,
 }: {
   rows: Array<MissionExecutionRow>;
@@ -49,8 +49,8 @@ export function ExecutionTable({
   onOpen?: (row: MissionExecutionRow) => void;
 }) {
   return (
-    <Section title="Active execution" meta={meta}>
-      <DataTable columns={columns()} rows={rows} rowKey={(row) => row.workflow} onRowClick={onOpen} />
+    <Section title="Execution" meta={meta}>
+      <DataTable columns={columns()} rows={rows} rowKey={(row) => row.id} onRowClick={onOpen} />
     </Section>
   );
 }

@@ -4,10 +4,33 @@ category: orchestration
 default: false
 profile: api
 
-image: ghcr.io/phlohouse/phlo-observatory:0.17.0-dev
+image: ghcr.io/phlohouse/phlo-observatory:0.17.0.dev0
+# The web application lives in packages/phlo-observatory/web, outside this
+# package directory, so the build inputs are staged into the compose output
+# directory first; `context: web` then resolves there.
 build:
   context: web
-  dockerfile: web/Dockerfile
+  dockerfile: Dockerfile
+
+files:
+  - source: ../../web/Dockerfile
+    dest: web/Dockerfile
+  - source: ../../web/.dockerignore
+    dest: web/.dockerignore
+  - source: ../../web/package.json
+    dest: web/package.json
+  - source: ../../web/package-lock.json
+    dest: web/package-lock.json
+  - source: ../../web/serve.mjs
+    dest: web/serve.mjs
+  - source: ../../web/tsconfig.json
+    dest: web/tsconfig.json
+  - source: ../../web/vite.config.ts
+    dest: web/vite.config.ts
+  - source: ../../web/components.json
+    dest: web/components.json
+  - source: ../../web/src
+    dest: web/src
 
 depends_on:
   - phlo-api
@@ -25,14 +48,13 @@ compose:
   ports:
     - '${OBSERVATORY_PORT:-3001}:3000'
   healthcheck:
+    # node:22-slim ships no wget/curl; probe the listener with node itself.
     test:
       [
         'CMD',
-        'wget',
-        '--no-verbose',
-        '--tries=1',
-        '--spider',
-        'http://127.0.0.1:3000/',
+        'node',
+        '-e',
+        'fetch("http://127.0.0.1:3000/").then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))',
       ]
     interval: 30s
     timeout: 10s
@@ -60,6 +82,6 @@ dev:
     PHLO_API_URL: http://127.0.0.1:${PHLO_API_PORT:-4000}
     PHLO_API_BROWSER_URL: http://127.0.0.1:${PHLO_API_PORT:-4000}
   volumes:
-    - '{source_path}/web:/app'
+    - '{source_path}/../../web:/app'
     - '/app/node_modules'
-  cwd: '{source_path}/web'
+  cwd: '{source_path}/../../web'

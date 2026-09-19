@@ -4,6 +4,8 @@ React TanStack Start UI matching Paper Sheetbase V2ALT.
 UI-only scaffold reading typed demo data; phlo-api wiring comes later.
 """
 
-__version__ = "0.17.0-dev"
+from importlib.metadata import version
+
+__version__ = version("phlo-observatory")
 
 __all__ = ["__version__"]
