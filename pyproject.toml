@@ -60,6 +60,7 @@ dev = [
     "s3fs>=2025.9.0",
     "pymdx>=0.1.1",
     "minio>=7.2.20",
+    "playwright>=1.63.0",
 ]
 
 [project]
