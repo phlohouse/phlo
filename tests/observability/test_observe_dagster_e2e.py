@@ -749,6 +749,26 @@ def test_debug_log_level_preserves_framework_console(
     assert "- dagster - DEBUG -" in capsys.readouterr().err
 
 
+def test_caller_explicit_console_level_survives_scope(
+    captured: Any, bus: Any, capsys: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller's explicit ``loggers.console.config.log_level`` is their own
+    configuration — worker-side alignment must not stomp it, even with the
+    pretty drain live: debug messages must keep appearing after scope entry."""
+    monkeypatch.delenv("PHLO_LOG_LEVEL", raising=False)
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    result = dagster.materialize(
+        [_build_wap_asset(bus)],
+        run_config={"loggers": {"console": {"config": {"log_level": "DEBUG"}}}},
+    )
+    assert result.success
+    err = capsys.readouterr().err
+    # Post-scope events prove the explicit level survived scope entry —
+    # STEP_SUCCESS/RUN_SUCCESS are emitted inside and after the step.
+    assert "- dagster - DEBUG -" in err
+    assert "STEP_SUCCESS" in err or "RUN_SUCCESS" in err
+
+
 def test_pipeline_materialization_overhead_enabled_vs_disabled(captured: Any, bus: Any) -> None:
     """Whole-pipeline overhead: real materialize() runs with and without
     observability. Unlike the per-emit microbenchmarks, this exercises the

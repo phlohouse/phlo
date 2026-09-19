@@ -273,12 +273,14 @@ def _run_console_logger(stream: Any = None) -> logging.Logger:
     return run_logger
 
 
-def _dagster_context(*run_loggers: logging.Logger) -> Any:
-    """Minimal stand-in for a Dagster context: ``log._dagster_handler._loggers``."""
+def _dagster_context(*run_loggers: logging.Logger, run_config: Any = None) -> Any:
+    """Minimal stand-in for a Dagster context: ``log._dagster_handler._loggers``
+    plus ``run.run_config`` (where a caller's console level lives)."""
     return SimpleNamespace(
         log=SimpleNamespace(
             _dagster_handler=SimpleNamespace(_loggers=list(run_loggers), _handlers=[])
-        )
+        ),
+        run=SimpleNamespace(run_config=run_config or {}),
     )
 
 
@@ -343,6 +345,45 @@ def test_scope_leaves_console_alone_without_pretty(monkeypatch: pytest.MonkeyPat
     run_logger.setLevel(logging.ERROR)
     context = _dagster_context(run_logger)
 
+    with phlo_observe.dagster_run_scope(context):
+        pass
+
+    assert run_logger.level == logging.ERROR
+
+
+def test_scope_preserves_caller_explicit_console_level(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``log_level="DEBUG"`` in the run config is the caller's own verbose
+    configuration — scope entry must not quiet it even with the drain live."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    run_logger = _run_console_logger()
+    context = _dagster_context(
+        run_logger,
+        run_config={"loggers": {"console": {"config": {"log_level": "DEBUG"}}}},
+    )
+
+    assert phlo_observe.configure() is True
+    with phlo_observe.dagster_run_scope(context):
+        run_logger.debug("still debugging")
+
+    assert run_logger.isEnabledFor(logging.DEBUG) is True
+    assert "still debugging" in capsys.readouterr().err
+
+
+def test_scope_preserves_caller_explicit_quiet_level(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit non-default level also wins — a caller's ERROR console is
+    their configuration, not something pretty mode may reopen."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    run_logger = _run_console_logger()
+    context = _dagster_context(
+        run_logger,
+        run_config={"loggers": {"console": {"config": {"log_level": "ERROR"}}}},
+    )
+
+    assert phlo_observe.configure() is True
     with phlo_observe.dagster_run_scope(context):
         pass
 

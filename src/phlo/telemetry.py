@@ -731,6 +731,30 @@ def _dagster_console_loggers(context: Any) -> list[logging.Logger]:
     return found
 
 
+def _caller_console_level(context: Any) -> int | None:
+    """The console ``log_level`` the caller put in the run config, if any.
+
+    ``context.run.run_config`` is the resolved run config — Dagster adds no
+    ``loggers`` section of its own, so a level there is the caller's
+    explicit choice and always wins over Phlo's alignment. Older contexts
+    without ``.run`` fall back to the deprecated ``context.run_config``.
+    """
+    run = getattr(context, "run", None)
+    run_config = getattr(run, "run_config", None)
+    if run_config is None:
+        run_config = getattr(context, "run_config", None)
+    if not isinstance(run_config, Mapping):
+        return None
+    loggers = run_config.get("loggers")
+    console = loggers.get("console") if isinstance(loggers, Mapping) else None
+    config = console.get("config") if isinstance(console, Mapping) else None
+    level = config.get("log_level") if isinstance(config, Mapping) else None
+    if level is None:
+        return None
+    resolved = logging.getLevelNamesMapping().get(str(level).upper())
+    return resolved if resolved is not None else logging.DEBUG
+
+
 def _apply_dagster_console_level(context: Any) -> None:
     """Align the run's framework-console level inside the run worker.
 
@@ -739,6 +763,8 @@ def _apply_dagster_console_level(context: Any) -> None:
     ``Runtime.add_drain``/``PrettyRenderer`` — so the decision is finalized
     here at the first scope the adapter opens:
 
+    - the caller's explicit ``loggers.console.config.log_level`` always
+      wins (and repairs any level we previously set);
     - drain attached → ``WARNING`` (the pretty stream leads the terminal);
     - pretty requested but the drain cannot attach → ``DEBUG`` (undo any
       injected quieting so the run narrative is never lost);
@@ -753,7 +779,10 @@ def _apply_dagster_console_level(context: Any) -> None:
     """
     want_pretty = _want_pretty() and _env_flag("PHLO_OBSERVE_ENABLED") is not False
     attached = want_pretty and _configured and not _configure_failed and _ensure_pretty_drain()
-    if _framework_debug_requested():
+    explicit = _caller_console_level(context)
+    if explicit is not None:
+        target = explicit
+    elif _framework_debug_requested():
         target = logging.DEBUG
     elif attached:
         target = logging.WARNING
