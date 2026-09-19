@@ -60,6 +60,7 @@ from phlo.cli.infrastructure.utils import get_project_name
 from phlo.cli.output import service_unavailable_error, json_envelope
 from phlo.cli.contract import PhloCommand
 from phlo.capabilities.discovery import discover_capabilities
+from phlo.config.env import load_project_env
 from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
 from phlo_dagster.cli_materialize import wait_for_dagster_runtime
@@ -357,6 +358,9 @@ def _run_wap_backfill(
             "[yellow]WAP backfills serialize partitions through promotion; "
             "--parallel is limited to 1 for this target.[/yellow]"
         )
+    # A GraphQL launch carries no env vars — the worker sees the
+    # file-sourced project environment and decides pretty/console itself at
+    # scope entry, where whether the SDK can drive the drain is knowable.
     for partition_date in remaining:
         try:
             lifecycle = in_flight_wap.get(partition_date)
@@ -605,25 +609,39 @@ def _build_materialize_command(
     host_platform = platform.system()
     selected_backend = backend or select_project_container_backend()
 
+    command = [
+        "dagster",
+        "asset",
+        "materialize",
+        "-m",
+        "phlo_dagster.framework.definitions",
+        "--select",
+        asset_name,
+        "--partition",
+        partition_date,
+    ]
+    project_env = load_project_env()
+    # The run process decides console quieting itself at scope entry once
+    # the drain's attach state is known — the launcher only forwards the
+    # pretty opt-in env so the worker can honor it.
+    exec_env = {
+        "PHLO_HOST_PLATFORM": host_platform,
+        "PHLO_PROJECT_PATH": "/app",
+    }
+    for pretty_var in (
+        "PHLO_OBSERVE_PRETTY",
+        "PHLO_OBSERVE_PRETTY_VERBOSE",
+        "OBSERVE_DRAINS",
+    ):
+        if project_env.get(pretty_var):
+            exec_env[pretty_var] = project_env[pretty_var]
+
     return selected_backend.container_exec_cmd(
         container_name=container_name,
         user=f"{os.getuid()}:{os.getgid()}" if host_platform == "Linux" else None,
-        env={
-            "PHLO_HOST_PLATFORM": host_platform,
-            "PHLO_PROJECT_PATH": "/app",
-        },
+        env=exec_env,
         workdir="/app",
-        command=[
-            "dagster",
-            "asset",
-            "materialize",
-            "-m",
-            "phlo_dagster.framework.definitions",
-            "--select",
-            asset_name,
-            "--partition",
-            partition_date,
-        ],
+        command=command,
     )
 
 

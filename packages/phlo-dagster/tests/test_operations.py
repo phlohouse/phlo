@@ -397,3 +397,53 @@ def test_wait_for_dagster_http_times_out_with_actionable_error(monkeypatch) -> N
                 poll_interval_seconds=0,
             )
         )
+
+
+def test_launch_materialize_never_injects_console_level(monkeypatch) -> None:
+    """GraphQL launches pass run config through untouched: the console-level
+    decision is made inside the worker at scope entry, where whether the
+    SDK can actually drive the pretty drain is knowable. A host-side guess —
+    env flags or PHLO_OBSERVE_SDK presence — must never quiet a console
+    that has no drain replacing it."""
+    captured: list[dict[str, object]] = []
+
+    async def fake_post(self, url, json=None, headers=None):  # noqa: ANN001, ANN202, ARG001
+        captured.append(json)
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "data": {
+                    "launchPipelineExecution": {
+                        "__typename": "LaunchRunSuccess",
+                        "run": {"runId": "run-1", "status": "STARTED"},
+                    }
+                }
+            },
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    # Pretty opted in on the host shell — must still not reach the payload.
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+
+    def _run_config() -> dict[str, object]:
+        return captured[-1]["variables"]["executionParams"]["runConfigData"]  # type: ignore[index]
+
+    asyncio.run(
+        launch_materialize(
+            dagster_url="http://dagster.test/graphql",
+            asset_key_path="silver/orders",
+            job_name="orders_job",
+        )
+    )
+    assert _run_config() == {}
+
+    asyncio.run(
+        launch_materialize(
+            dagster_url="http://dagster.test/graphql",
+            asset_key_path="silver/orders",
+            job_name="orders_job",
+            run_config={"ops": {"asset": {"config": {"x": 1}}}},
+        )
+    )
+    assert _run_config() == {"ops": {"asset": {"config": {"x": 1}}}}

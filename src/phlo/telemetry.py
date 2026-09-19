@@ -9,11 +9,32 @@ Configuration is environment-driven via ``configure_phlo``:
 
 - ``OBSERVE_HTTP_ENDPOINT`` enables emission and appends an HTTP drain
   (``OBSERVE_HTTP_TOKEN`` / ``OBSERVE_HTTP_API_KEY`` supply credentials).
-- ``OBSERVE_DRAINS`` selects drains explicitly (``console,http,...``).
+- ``OBSERVE_DRAINS`` selects drains explicitly (``console,http,...``). The
+  name ``pretty`` is also accepted: it is Phlo's own human-readable drain
+  (``phlo_observe_plugin.presentation.PrettyDrain``), filtered out of the
+  drain list the SDK parses (passed as an explicit override — the env var
+  itself is never mutated) and registered on the runtime afterwards.
+- ``PHLO_OBSERVE_PRETTY`` (``1``/``true``/``yes``/``on``) attaches the pretty
+  drain without naming it in ``OBSERVE_DRAINS``. With no other drains or
+  endpoint configured it replaces the SDK's console-drain default.
+- ``PHLO_OBSERVE_PRETTY_VERBOSE`` renders the pretty drain in ``verbose``
+  mode — secondary events and diagnostic fields join the output — and
+  preserves the orchestrator's full framework log stream (see below).
 - ``PHLO_OBSERVE_ENABLED=false`` disables emission outright; ``true`` enables
   the SDK defaults even without an endpoint.
 - With neither endpoint nor drains configured the runtime stays disabled so
   plain installs emit nothing.
+
+When the pretty drain is enabled it is the primary human-facing surface, so
+``dagster_run_scope``/``dagster_step`` quiet the run's framework console
+loggers to ``WARNING`` at scope entry — the pretty event stream leads the
+terminal. The decision is made inside the run worker, where whether the
+drain actually attached is knowable: when pretty was requested but the
+drain cannot run (missing or too-old SDK), the console is restored to
+``DEBUG`` rather than left suppressed. ``PHLO_OBSERVE_PRETTY_VERBOSE`` or
+``PHLO_LOG_LEVEL=DEBUG`` keeps the framework console at ``DEBUG``. This only
+reshapes what the console *renders* — the Dagster event log and captured
+``context.log`` records keep every event.
 
 Optional dependencies are resolved through ``importlib`` so static analysis
 never sees the imports: on Python versions the SDK does not support, or in
@@ -23,9 +44,12 @@ environments where it is simply not installed, this module still loads.
 from __future__ import annotations
 
 import contextlib
+import gc
 import importlib
+import logging
 import os
-from collections.abc import Iterator
+import sys
+from collections.abc import Container, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any
 
@@ -37,6 +61,8 @@ _sdk: Any | None = None
 _sdk_checked = False
 _configured = False
 _configure_failed = False
+_pretty_drain_attached = False
+_pretty_attach_attempted = False
 
 
 def _import_optional(module_name: str, attr: str | None = None) -> Any | None:
@@ -90,12 +116,73 @@ def enabled() -> bool:
         return False
 
 
-def _env_flag(name: str) -> bool | None:
+def _env_flag(name: str, env: Mapping[str, str] | None = None) -> bool | None:
     """Parse a boolean-ish environment variable; None when unset."""
-    raw = os.environ.get(name)
+    raw = (os.environ if env is None else env).get(name)
     if raw is None:
         return None
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+@contextmanager
+def _hidden_env(name: str) -> Iterator[None]:
+    """Unset one environment variable for the block, restoring it verbatim.
+
+    Used to keep a Phlo-only drain name (``pretty``) out of the SDK's
+    OBSERVE_DRAINS env parse — pydantic-settings prepares the value before
+    init precedence applies, so hiding the var is the only way an
+    application-named drain can survive ``ObserveSettings`` construction.
+    """
+    saved = os.environ.pop(name, None)
+    try:
+        yield
+    finally:
+        if saved is not None:
+            os.environ[name] = saved
+
+
+def _want_pretty(
+    drain_names: Container[str] | None = None, env: Mapping[str, str] | None = None
+) -> bool:
+    """Whether the pretty drain was requested via drains or the env flag."""
+    env = os.environ if env is None else env
+    if drain_names is None:
+        drains_env = env.get("OBSERVE_DRAINS")
+        drain_names = {n.strip() for n in (drains_env or "").split(",") if n.strip()}
+    return "pretty" in drain_names or bool(_env_flag("PHLO_OBSERVE_PRETTY", env))
+
+
+def _pretty_verbose(env: Mapping[str, str] | None = None) -> bool:
+    """Whether verbose pretty output was requested."""
+    return bool(_env_flag("PHLO_OBSERVE_PRETTY_VERBOSE", env))
+
+
+def _framework_debug_requested(env: Mapping[str, str] | None = None) -> bool:
+    """Whether verbose/debug configuration asks for the full framework log.
+
+    ``PHLO_OBSERVE_PRETTY_VERBOSE`` requests the verbose pretty surface and
+    ``PHLO_LOG_LEVEL=DEBUG`` is Phlo's general debug switch — either means the
+    user opted into maximum terminal detail.
+    """
+    if _pretty_verbose(env):
+        return True
+    env = os.environ if env is None else env
+    return env.get("PHLO_LOG_LEVEL", "").strip().upper() == "DEBUG"
+
+
+def _pretty_drain_available() -> bool:
+    """Whether this process can actually attach the pretty drain.
+
+    Quieting the framework console is only safe when the replacement
+    surface can run: the SDK, observe-core's drain registry, and the
+    plugin's ``PrettyDrain`` must all be importable.
+    """
+    if _observe_core() is None:
+        return False
+    if _import_optional("phlo_observe_plugin.presentation", "PrettyDrain") is None:
+        return False
+    runtime_mod = _import_optional("observe_core.runtime")
+    return hasattr(getattr(runtime_mod, "Runtime", None), "add_drain")
 
 
 def configure(**overrides: Any) -> bool:
@@ -114,21 +201,44 @@ def configure(**overrides: Any) -> bool:
         return False
     try:
         enabled_override = _env_flag("PHLO_OBSERVE_ENABLED")
+        # ``pretty`` is Phlo's human-readable drain, not an observe-core drain
+        # name — the SDK's OBSERVE_DRAINS env source rejects unknown names
+        # outright, before init values can take precedence. The name is
+        # therefore split out here: the remaining drains go through an
+        # explicit override, the env var is hidden for the duration of the
+        # SDK's settings parse, and the drain registers on the runtime
+        # afterwards.
+        drains_env = os.environ.get("OBSERVE_DRAINS")
+        drain_names = {n.strip() for n in (drains_env or "").split(",") if n.strip()}
+        want_pretty = _want_pretty(drain_names)
         if enabled_override is False:
             overrides.setdefault("enabled", False)
         elif enabled_override is not True and not (
-            os.environ.get("OBSERVE_HTTP_ENDPOINT") or os.environ.get("OBSERVE_DRAINS")
+            os.environ.get("OBSERVE_HTTP_ENDPOINT") or drain_names or want_pretty
         ):
             # No endpoint and no explicit drains: stay silent rather than
-            # defaulting to console output in every Phlo process.
+            # defaulting to console output in every Phlo process. The pretty
+            # flag counts as a configured drain — a drain appended to a
+            # disabled runtime never receives events.
             overrides.setdefault("enabled", False)
-        if os.environ.get("OBSERVE_HTTP_ENDPOINT") and not os.environ.get("OBSERVE_DRAINS"):
+        if "pretty" in drain_names:
+            # An empty remainder suppresses the SDK's console-drain default:
+            # the pretty drain replaces it.
+            overrides.setdefault("drains", ",".join(sorted(drain_names - {"pretty"})))
+        elif want_pretty and not drain_names:
+            # PHLO_OBSERVE_PRETTY with no explicit drains: pretty replaces the
+            # console-drain default rather than doubling output alongside it.
+            overrides.setdefault("drains", [])
+        elif os.environ.get("OBSERVE_HTTP_ENDPOINT") and not drains_env:
             # Replace the SDK's default console drain with the HTTP drain that
             # configure_phlo appends for the endpoint; duplicate stdout noise is
             # never the right default inside a production process.
             overrides.setdefault("drains", [])
         overrides.setdefault("service_name", "phlo")
-        sdk.configure_phlo(**overrides)
+        with _hidden_env("OBSERVE_DRAINS") if "pretty" in drain_names else contextlib.nullcontext():
+            runtime = sdk.configure_phlo(**overrides)
+        if want_pretty:
+            _attach_pretty_drain(runtime)
     except Exception as exc:  # noqa: BLE001 - telemetry config must never abort startup
         logger.warning("phlo_observe_configure_failed", error=str(exc))
         _configure_failed = True
@@ -136,12 +246,40 @@ def configure(**overrides: Any) -> bool:
     return True
 
 
+def _attach_pretty_drain(runtime: Any) -> None:
+    """Register the Phlo pretty drain on a configured observe runtime.
+
+    The drain lives in ``phlo_observe_plugin.presentation`` — imported
+    lazily like every SDK surface — and registers through observe-core's
+    ``Runtime.add_drain``, which also wires it into the backend's drain
+    list and the runtime's shutdown/flush lifecycle. A missing or
+    too-old SDK logs a warning; emission to the other drains is
+    unaffected.
+    """
+    global _pretty_drain_attached, _pretty_attach_attempted
+    _pretty_attach_attempted = True
+    presentation = _import_optional("phlo_observe_plugin.presentation")
+    drain_cls = getattr(presentation, "PrettyDrain", None) if presentation else None
+    add_drain = getattr(runtime, "add_drain", None)
+    if drain_cls is None or add_drain is None:
+        logger.warning(
+            "phlo_observe_pretty_unavailable",
+            hint="pretty output needs phlo-observe-plugin and a PrettyRenderer-capable observe-core",
+        )
+        return
+    add_drain(drain_cls(mode="verbose" if _pretty_verbose() else "pretty"))
+    _pretty_drain_attached = True
+
+
 def reset_for_tests() -> None:
     """Reset cached SDK/config state. Intended for tests only."""
     global _configured, _configure_failed, _sdk_checked
+    global _pretty_drain_attached, _pretty_attach_attempted
     _configured = False
     _configure_failed = False
     _sdk_checked = False
+    _pretty_drain_attached = False
+    _pretty_attach_attempted = False
     _sdk = None
     _unsupported_surface_warned.clear()
 
@@ -453,9 +591,218 @@ def _guarded(context: Any) -> Any:
 # -- Dagster integration ------------------------------------------------------
 
 
+def dagster_console_log_level(
+    default: str = "DEBUG",
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """Console log level for Dagster's per-run framework logger.
+
+    With pretty observability on, the pretty drain is the primary terminal
+    surface and Dagster's lifecycle chatter (RUN_START, STEP_OUTPUT, …) is
+    redundant — the level drops to ``WARNING`` so the pretty stream leads.
+    Verbose/debug configuration preserves the full stream.
+
+    A render-level decision only: the Dagster event log and captured
+    ``context.log`` records keep every event — nothing is dropped from the
+    canonical stores.
+
+    ``env`` defaults to ``os.environ``; pass a mapping describing the run's
+    environment. The level is a *request*: ``dagster_run_scope`` re-verifies
+    inside the worker that the pretty drain actually attached and restores
+    the default when it cannot run, so an injected ``WARNING`` can never
+    strand a run without its narrative. This process's SDK is probed only
+    as a cheap pre-filter for in-process launches — do not use it to predict
+    a remote worker's capability.
+    """
+    if _env_flag("PHLO_OBSERVE_ENABLED", env) is False:
+        # Pretty is configured out — quieting the framework console would
+        # leave the terminal with no run narrative at all.
+        return default
+    if not _pretty_drain_available():
+        return default
+    if _want_pretty(env=env) and not _framework_debug_requested(env):
+        return "WARNING"
+    return default
+
+
+def dagster_loggers_config(
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Any] | None:
+    """The ``loggers`` section for a Dagster run config, or ``None``.
+
+    ``None`` means Dagster's own defaults apply — either pretty output is not
+    the primary surface or verbose/debug configuration asked for the full
+    framework stream.
+    """
+    level = dagster_console_log_level(env=env)
+    if level == "DEBUG":
+        return None
+    return {"console": {"config": {"log_level": level}}}
+
+
+def dagster_run_config(
+    run_config: dict[str, Any] | None = None,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Merge Phlo's Dagster console-log level into a run config.
+
+    In-process launch sites (``dagster.materialize``) pass their run config
+    through here so the console level applies from run start. A no-op when
+    framework logging stays at default; an explicitly configured ``console``
+    ``log_level`` always wins. Remote launches do not need this — the worker
+    aligns its console at scope entry once the drain's attach state is
+    known.
+    """
+    merged: dict[str, Any] = dict(run_config or {})
+    loggers_config = dagster_loggers_config(env)
+    if loggers_config is None:
+        return merged
+    loggers = dict(merged.get("loggers") or {})
+    console = dict(loggers.get("console") or {})
+    config = dict(console.get("config") or {})
+    config.setdefault("log_level", loggers_config["console"]["config"]["log_level"])
+    console["config"] = config
+    loggers["console"] = console
+    merged["loggers"] = loggers
+    return merged
+
+
+def _ensure_pretty_drain() -> bool:
+    """Whether a pretty drain is live on the configured runtime.
+
+    Scope entry may be the first moment this worker knows the opt-in — a
+    runtime configured before ``PHLO_OBSERVE_PRETTY`` was set, or launched
+    without it, gets the drain attached here. ``False`` when the runtime
+    cannot carry it (no ``add_drain``, no plugin ``PrettyDrain``, runtime
+    disabled): exactly the case where the framework console must stay loud.
+    """
+    global _pretty_drain_attached
+    if _pretty_drain_attached:
+        return True
+    runtime_mod = _import_optional("observe_core.runtime")
+    if runtime_mod is None:
+        return False
+    try:
+        runtime = runtime_mod.get_runtime()
+        if not getattr(getattr(runtime, "settings", None), "enabled", True):
+            return False
+        if any(getattr(d, "name", None) == "pretty" for d in getattr(runtime, "drains", ())):
+            _pretty_drain_attached = True
+            return True
+        if _pretty_attach_attempted:
+            # Attach already failed once — do not warn again on every step scope.
+            return False
+        _attach_pretty_drain(runtime)
+    except Exception:  # noqa: BLE001 - attach failure reads as unavailable
+        return False
+    return _pretty_drain_attached
+
+
+def _dagster_console_loggers(context: Any) -> list[logging.Logger]:
+    """The run's console-render loggers — per-run ``dagster`` loggers that
+    write to stdout/stderr.
+
+    Dagster constructs the console logger per context phase (run, plan,
+    step) as an unregistered instance, so there is no registry to reach them
+    through: collect whatever the context's log handler references and sweep
+    live objects for the rest. Only stream-backed ``dagster`` loggers
+    qualify — the log manager (also named ``dagster``), user file loggers,
+    and the drain itself (which writes to ``sys.stderr`` directly, not via
+    logging) are left alone.
+    """
+    found: list[logging.Logger] = []
+    seen: set[int] = set()
+    streams = {sys.stderr, sys.stdout, sys.__stderr__, sys.__stdout__}
+
+    def _collect(candidate: Any) -> None:
+        if not isinstance(candidate, logging.Logger) or candidate.name != "dagster":
+            return
+        if id(candidate) in seen:
+            return
+        if any(getattr(h, "stream", None) in streams for h in candidate.handlers):
+            seen.add(id(candidate))
+            found.append(candidate)
+
+    dagster_handler = getattr(getattr(context, "log", None), "_dagster_handler", None)
+    for run_logger in getattr(dagster_handler, "_loggers", ()) or ():
+        _collect(run_logger)
+    for obj in gc.get_objects():
+        _collect(obj)
+    return found
+
+
+def _caller_console_level(context: Any) -> int | None:
+    """The console ``log_level`` the caller put in the run config, if any.
+
+    ``context.run.run_config`` is the resolved run config — Dagster adds no
+    ``loggers`` section of its own, so a level there is the caller's
+    explicit choice and always wins over Phlo's alignment. Older contexts
+    without ``.run`` fall back to the deprecated ``context.run_config``.
+    """
+    run = getattr(context, "run", None)
+    run_config = getattr(run, "run_config", None)
+    if run_config is None:
+        run_config = getattr(context, "run_config", None)
+    if not isinstance(run_config, Mapping):
+        return None
+    loggers = run_config.get("loggers")
+    console = loggers.get("console") if isinstance(loggers, Mapping) else None
+    config = console.get("config") if isinstance(console, Mapping) else None
+    level = config.get("log_level") if isinstance(config, Mapping) else None
+    if level is None:
+        return None
+    resolved = logging.getLevelNamesMapping().get(str(level).upper())
+    return resolved if resolved is not None else logging.DEBUG
+
+
+def _apply_dagster_console_level(context: Any) -> None:
+    """Align the run's framework-console level inside the run worker.
+
+    Launch-time decisions cannot know whether the worker's SDK can attach
+    the pretty drain — the image may carry an SDK too old for
+    ``Runtime.add_drain``/``PrettyRenderer`` — so the decision is finalized
+    here at the first scope the adapter opens:
+
+    - the caller's explicit ``loggers.console.config.log_level`` always
+      wins (and repairs any level we previously set);
+    - drain attached → ``WARNING`` (the pretty stream leads the terminal);
+    - pretty requested but the drain cannot attach → ``DEBUG`` (undo any
+      injected quieting so the run narrative is never lost);
+    - ``PHLO_OBSERVE_PRETTY_VERBOSE`` / ``PHLO_LOG_LEVEL=DEBUG`` → ``DEBUG``
+      (debug configuration keeps the full stream);
+    - otherwise the console is left exactly as configured.
+
+    ``setLevel`` alone is not enough: these loggers are unregistered, so
+    ``logging``'s cache invalidation never reaches them — each logger's
+    ``isEnabledFor`` cache must be cleared or the first-seen level keeps
+    passing.
+    """
+    want_pretty = _want_pretty() and _env_flag("PHLO_OBSERVE_ENABLED") is not False
+    attached = want_pretty and _configured and not _configure_failed and _ensure_pretty_drain()
+    explicit = _caller_console_level(context)
+    if explicit is not None:
+        target = explicit
+    elif _framework_debug_requested():
+        target = logging.DEBUG
+    elif attached:
+        target = logging.WARNING
+    elif want_pretty:
+        target = logging.DEBUG
+    else:
+        return
+    for console_logger in _dagster_console_loggers(context):
+        with contextlib.suppress(Exception):
+            console_logger.setLevel(target)
+            cache = getattr(console_logger, "_cache", None)
+            if cache is not None:
+                cache.clear()
+
+
 def dagster_run_scope(context: Any, *, asset_key: str | None = None) -> Any:
     """Bind Dagster run/job/partition correlation for the enclosed block."""
-    if _sdk_module() is None or not configure():
+    sdk_ready = _sdk_module() is not None and configure()
+    _apply_dagster_console_level(context)
+    if not sdk_ready:
         return contextlib.nullcontext()
     scope = _import_optional("phlo_observe.integrations.dagster", "dagster_run_scope")
     if scope is None:
@@ -468,7 +815,9 @@ def dagster_run_scope(context: Any, *, asset_key: str | None = None) -> Any:
 
 def dagster_step(context: Any, **kwargs: Any) -> Any:
     """Wrap a Dagster step; emits ``pipeline.step`` on exit."""
-    if _sdk_module() is None or not configure():
+    sdk_ready = _sdk_module() is not None and configure()
+    _apply_dagster_console_level(context)
+    if not sdk_ready:
         return _null_scope()
     step = _import_optional("phlo_observe.integrations.dagster", "dagster_step")
     if step is None:
