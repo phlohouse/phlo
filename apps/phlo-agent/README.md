@@ -30,10 +30,10 @@ The broader session performs both procedures:
 
 The upstream inventory is rebuilt from all package manifests, lockfiles,
 service definitions, workflows, and `registry/support/v1.json` on every run; it
-is not a fixed package list. Renovate continues to own routine version and
-image-digest bumps. The agent focuses on release-note analysis, API or default
-changes, migrations, security notices, test gaps, and other compatibility work
-that a version bot cannot infer.
+is not a fixed package list. Existing bot- or human-authored dependency pull
+requests are reused when present. The agent focuses on release-note analysis,
+API or default changes, migrations, security notices, test gaps, and other
+compatibility work that a version bot cannot infer.
 
 Python vulnerability discovery remains deterministic: the daily pass audits
 every tracked `uv.lock`, matching `.github/workflows/security.yml`. Fixable
@@ -41,9 +41,9 @@ findings can be sent in one compact request to Jev, which returns only a typed
 review lane. Jev never chooses a version, edits a manifest, waives a
 vulnerability, or authorizes a merge or release. Findings without a listed fix
 and classifications below the confidence floor are routed to human review. A
-routine finding reuses Renovate work when available; otherwise the scheduled
-run may create one verified draft remediation pull request using uv's listed
-fix versions and resolver.
+routine finding reuses an existing dependency remediation pull request when
+available; otherwise the scheduled run may create one verified draft
+remediation pull request using uv's listed fix versions and resolver.
 
 Each run searches existing issues and pull requests first. A mechanical,
 low-risk fix may become a verified **draft** pull request. A finding that needs

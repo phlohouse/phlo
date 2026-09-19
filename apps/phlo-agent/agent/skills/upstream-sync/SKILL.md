@@ -30,11 +30,11 @@ support-window changes to the exact Phlo adapters, services, tests, docs, and
 version constraints they affect. When one upstream is shared by multiple Phlo
 packages, identify every affected consumer before proposing work.
 
-Renovate owns routine version and digest bumps. Do not duplicate its PRs or
-bypass Dependency Dashboard approval. Read `renovate.json`,
-`docs/operations/release-management.md`, and the output of
-`make dependency-refresh` before proposing dependency work. This skill owns
-semantic compatibility analysis and adaptations that automation cannot infer.
+Do not assume Renovate or another dependency bot is active. Search for existing
+bot- and human-authored dependency work and do not duplicate it. Read
+`renovate.json`, `docs/operations/release-management.md`, and the output of
+`make dependency-refresh` before proposing dependency work. When no existing
+work owns a vulnerability, this skill owns producing the bounded remediation.
 
 Audit every tracked `uv.lock` with `uv audit --locked --project <lockfile-dir>
 --output-format json`, matching `.github/workflows/security.yml`, as the
@@ -44,9 +44,10 @@ release-note evidence, then call `maintenance__route_findings` once with all
 findings. Keep version availability, manifest discovery, and test selection
 deterministic. Treat the returned route as prioritization only:
 
-- `routine_update` first reuses an existing Renovate pull request. If none
-  exists, a scheduled run may create one verified draft pull request using the
-  audit's listed fixed versions and normal uv constraint/lock tooling.
+- `routine_update` first reuses any existing dependency remediation pull
+  request. If none exists, a scheduled run may create one verified draft pull
+  request using the audit's listed fixed versions and normal uv constraint/lock
+  tooling.
 - `compatibility_review` requires mapping the change to every affected Phlo
   surface and running its compatibility checks.
 - `security_review`, `human_review`, and `no_fix_available` may produce a
