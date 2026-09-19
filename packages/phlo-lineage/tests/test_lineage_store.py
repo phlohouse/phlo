@@ -646,5 +646,5 @@ class TestResolveLineageDbUrl:
 
         assert (
             resolve_lineage_db_url_with_postgres_fallback()
-            == "postgresql://phlo:secret@localhost:15432/warehouse"
+            == "postgresql://phlo:secret@127.0.0.1:15432/warehouse"
         )

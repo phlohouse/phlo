@@ -236,7 +236,7 @@ def test_resolve_dbt_runtime_config_resolves_unreachable_trino_host(tmp_path, mo
 
     config = resolve_dbt_runtime_config()
 
-    assert config.host == "localhost"
+    assert config.host == "127.0.0.1"
     assert config.port == 18080
     runtime_config.get_dbt_settings.cache_clear()
 
