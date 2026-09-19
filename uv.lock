@@ -44,6 +44,7 @@ members = [
     "phlo-oauth2-proxy",
     "phlo-observatory",
     "phlo-observatory-example",
+    "phlo-observe-plugin",
     "phlo-openmetadata",
     "phlo-otel",
     "phlo-pandera",
@@ -2755,6 +2756,26 @@ wheels = [
 ]
 
 [[package]]
+name = "observe-core"
+version = "0.1.0"
+source = { git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fobserve-core&rev=91a32fa29ce19aac0e31ed3750a9090776267bd0#91a32fa29ce19aac0e31ed3750a9090776267bd0" }
+dependencies = [
+    { name = "httpx" },
+    { name = "orjson" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+
+[[package]]
+name = "observe-query"
+version = "0.1.0"
+source = { git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fobserve-query&rev=91a32fa29ce19aac0e31ed3750a9090776267bd0#91a32fa29ce19aac0e31ed3750a9090776267bd0" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[[package]]
 name = "opentelemetry-api"
 version = "1.40.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3143,6 +3164,9 @@ defaults = [
     { name = "phlo-postgres" },
     { name = "phlo-trino" },
 ]
+observe = [
+    { name = "phlo-observe-plugin" },
+]
 openmetadata = [
     { name = "phlo-openmetadata" },
 ]
@@ -3166,6 +3190,8 @@ dev = [
     { name = "fastapi" },
     { name = "libcst" },
     { name = "minio" },
+    { name = "observe-core", marker = "python_full_version >= '3.12'" },
+    { name = "observe-query", marker = "python_full_version >= '3.12'" },
     { name = "pandas" },
     { name = "pandera" },
     { name = "phlo-airbyte" },
@@ -3191,6 +3217,8 @@ dev = [
     { name = "phlo-oauth2-proxy" },
     { name = "phlo-observatory" },
     { name = "phlo-observatory-example" },
+    { name = "phlo-observe", marker = "python_full_version >= '3.12'" },
+    { name = "phlo-observe-plugin" },
     { name = "phlo-openmetadata" },
     { name = "phlo-otel" },
     { name = "phlo-pandera" },
@@ -3243,6 +3271,7 @@ requires-dist = [
     { name = "phlo-nessie", marker = "extra == 'core-services'", editable = "packages/phlo-nessie" },
     { name = "phlo-nessie", marker = "extra == 'defaults'", editable = "packages/phlo-nessie" },
     { name = "phlo-observatory", marker = "extra == 'defaults'", editable = "packages/phlo-observatory" },
+    { name = "phlo-observe-plugin", marker = "extra == 'observe'", editable = "packages/phlo-observe-plugin" },
     { name = "phlo-openmetadata", marker = "extra == 'openmetadata'", editable = "packages/phlo-openmetadata" },
     { name = "phlo-pandera", marker = "extra == 'defaults'", editable = "packages/phlo-pandera" },
     { name = "phlo-postgres", marker = "extra == 'core-services'", editable = "packages/phlo-postgres" },
@@ -3256,7 +3285,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0" },
     { name = "structlog", specifier = ">=25.5.0" },
 ]
-provides-extras = ["blueprints", "codemods", "core-services", "defaults", "openmetadata", "runtime"]
+provides-extras = ["blueprints", "codemods", "core-services", "defaults", "observe", "openmetadata", "runtime"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3267,6 +3296,8 @@ dev = [
     { name = "fastapi", specifier = ">=0.127.0" },
     { name = "libcst", specifier = ">=1.5.0" },
     { name = "minio", specifier = ">=7.2.20" },
+    { name = "observe-core", marker = "python_full_version >= '3.12'", git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fobserve-core&rev=91a32fa29ce19aac0e31ed3750a9090776267bd0" },
+    { name = "observe-query", marker = "python_full_version >= '3.12'", git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fobserve-query&rev=91a32fa29ce19aac0e31ed3750a9090776267bd0" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "pandera", specifier = ">=0.26.1" },
     { name = "phlo-airbyte", editable = "packages/phlo-airbyte" },
@@ -3292,6 +3323,8 @@ dev = [
     { name = "phlo-oauth2-proxy", editable = "packages/phlo-oauth2-proxy" },
     { name = "phlo-observatory", editable = "packages/phlo-observatory" },
     { name = "phlo-observatory-example", editable = "packages/phlo-observatory-example" },
+    { name = "phlo-observe", marker = "python_full_version >= '3.12'", git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fphlo-observe-sdk&rev=91a32fa29ce19aac0e31ed3750a9090776267bd0" },
+    { name = "phlo-observe-plugin", editable = "packages/phlo-observe-plugin" },
     { name = "phlo-openmetadata", editable = "packages/phlo-openmetadata" },
     { name = "phlo-otel", editable = "packages/phlo-otel" },
     { name = "phlo-pandera", editable = "packages/phlo-pandera" },
@@ -4006,6 +4039,40 @@ requires-dist = [
     { name = "phlo", editable = "." },
     { name = "phlo-observatory", editable = "packages/phlo-observatory" },
 ]
+
+[[package]]
+name = "phlo-observe"
+version = "0.1.0"
+source = { git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fphlo-observe-sdk&rev=91a32fa29ce19aac0e31ed3750a9090776267bd0#91a32fa29ce19aac0e31ed3750a9090776267bd0" }
+dependencies = [
+    { name = "observe-core" },
+    { name = "observe-query" },
+    { name = "pydantic" },
+]
+
+[[package]]
+name = "phlo-observe-plugin"
+version = "0.1.0"
+source = { editable = "packages/phlo-observe-plugin" }
+dependencies = [
+    { name = "phlo" },
+    { name = "phlo-dagster" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "phlo", editable = "." },
+    { name = "phlo-dagster", editable = "packages/phlo-dagster" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-openmetadata"

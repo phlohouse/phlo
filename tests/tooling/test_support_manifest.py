@@ -558,15 +558,16 @@ def _capability(manifest: dict[str, object], name: str) -> dict[str, object]:
 
 
 def test_observatory_run_report_evidence_binds_to_committed_implementation() -> None:
-    """The run-report capability must cite the actual API, UI route, and test."""
+    """The run-report capability must cite the actual API, UI surface, and test."""
     manifest = _manifest()
     capability = _capability(manifest, "observatory_run_report")
     evidence = set(capability["evidence"])
 
     assert "packages/phlo-api/src/phlo_api/observatory_api/run_report.py" in evidence
+    # The single-surface rebuild removed the dedicated report route; the UI
+    # surface is the report resource module (auth middleware + resource).
     assert (
-        "packages/phlo-observatory/src/phlo_observatory/src/routes/"
-        "runs.$projectId.$runId.attempts.$attempt.report.tsx"
+        "packages/phlo-observatory/src/phlo_observatory/src/observatory/api/resources.ts"
     ) in evidence
     assert "packages/phlo-api/tests/test_observatory_api.py" in evidence
     for path in evidence:

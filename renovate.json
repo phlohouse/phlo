@@ -36,7 +36,10 @@
     {
       "description": "Do not update Phlo-owned published images as upstream dependencies.",
       "matchManagers": ["custom.regex"],
-      "matchPackageNames": ["ghcr.io/phlohouse/phlo-*"],
+      "matchPackageNames": [
+        "ghcr.io/phlohouse/phlo-*",
+        "!ghcr.io/phlohouse/phlo-observe/**"
+      ],
       "enabled": false
     },
     {

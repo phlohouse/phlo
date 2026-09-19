@@ -76,6 +76,7 @@ from phlo_dagster.run_evidence import DagsterRunEvidenceSource
 from phlo_dagster.wap_launch import (
     WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
+    WAP_CATALOG_SYSTEM_TAG,
     WAP_PROJECT_ID_TAG,
     WAP_REF_TAG,
     WAP_RUN_ID_TAG,
@@ -356,7 +357,12 @@ def _quality_check_records(instance: Any, run_id: str) -> list[dict[str, Any]] |
 
 
 def _persist_aggregate_quality_decision(
-    *, project_id: str, run_id: str, attempt: int, checks: list[dict[str, Any]]
+    *,
+    project_id: str,
+    run_id: str,
+    attempt: int,
+    checks: list[dict[str, Any]],
+    dagster_run_id: str | None = None,
 ) -> str | None:
     """Persist and return the durable aggregate quality-result identity.
 
@@ -407,6 +413,7 @@ def _persist_aggregate_quality_decision(
             "failed_check_ids": [c["event_id"] for c in error_failures if c["event_id"]],
             "warned_check_ids": [c["event_id"] for c in warn_failures if c["event_id"]],
             "checks": checks,
+            "dagster_run_id": dagster_run_id,
         },
         correlation=HookCorrelation(
             project_id=project_id,
@@ -473,6 +480,9 @@ def _quality_evidence(
             run_id=evidence_run_id or run_id,
             attempt=attempt,
             checks=checks,
+            # ``run_id`` here is the physical Dagster id (used above for
+            # instance queries); evidence_run_id carries the logical id.
+            dagster_run_id=run_id,
         )
         if aggregate_id is not None:
             quality_id = aggregate_id
@@ -571,6 +581,13 @@ def _verify_wap_launch_manifest(run: Any, branch_name: str) -> tuple[str, dict[s
         WAP_PROJECT_ID_TAG: project.project_id,
         WAP_ATTEMPT_TAG: str(attempt),
     }
+    # phlo/catalog_system is set at launch from the resolved catalog provider
+    # and stored in launch_tags alongside the required tags. Manifests written
+    # before the tag existed carry neither — require it only when present so
+    # strict binding equality still verifies older launches.
+    catalog_system = tags.get(WAP_CATALOG_SYSTEM_TAG)
+    if catalog_system:
+        expected_tags[WAP_CATALOG_SYSTEM_TAG] = catalog_system
     if (
         not logical_run_id
         or not dagster_run_id
@@ -707,6 +724,13 @@ def _emit_wap_observation(
         catalog_change={
             "operation": operation,
             "catalog_ref": catalog_ref,
+            # Physical attempt identity + the run's audit ref let downstream
+            # translators bind WAP lifecycle events to the Dagster run row and
+            # the canonical branch://<system> entity (catalog_ref is the mutated
+            # ref - "main" for promotions, the branch itself for cleanup).
+            "dagster_run_id": str(getattr(run, "run_id", "") or "") or None,
+            "wap_branch": (getattr(run, "tags", None) or {}).get(WAP_BRANCH_TAG),
+            "catalog_system": (getattr(run, "tags", None) or {}).get(WAP_CATALOG_SYSTEM_TAG),
             "resource_identity": {
                 "resource_type": "catalog_ref",
                 "resource_id": catalog_ref,

@@ -133,6 +133,7 @@ class IngestionEventContext:
     project_id: str | None = None
     run_id: str | None = None
     branch_name: str | None = None
+    catalog_system: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
     correlation: HookCorrelation = field(default_factory=HookCorrelation)
     producer: str = "phlo"
@@ -185,6 +186,7 @@ class IngestionEventEmitter(_ContextEmitterBase):
                 partition_key=self._context.partition_key,
                 run_id=self._context.run_id,
                 branch_name=self._context.branch_name,
+                catalog_system=self._context.catalog_system,
                 status=status,
                 metrics=metrics or {},
                 error=error,

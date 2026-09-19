@@ -1494,3 +1494,96 @@ def test_generate_gitignore_ignores_staged_uv_lock_metadata(tmp_path) -> None:
     assert "/uv.lock" in content
     assert "pyproject.toml" in content
     assert "uv.lock" in content
+
+
+def _install_windows_default_encoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make ``open()``'s platform default behave like Windows cp1252.
+
+    ``Path.write_text()`` without an explicit encoding resolves to the
+    pseudo-encoding ``"locale"``, which means UTF-8 on POSIX runners but
+    cp1252 on Windows. Translating that sentinel here reproduces the exact
+    Windows behaviour — a dropped ``encoding=`` anywhere in the generation
+    path writes cp1252 bytes (em-dash → 0x97) instead of silently passing.
+    """
+    from pathlib import Path
+
+    real_open = Path.open
+
+    def windows_open(self, mode="r", buffering=-1, encoding=None, *args, **kwargs):
+        if encoding == "locale" and "b" not in mode:
+            encoding = "cp1252"
+        return real_open(self, mode, buffering, encoding, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", windows_open)
+
+
+def test_services_init_writes_env_defaults_as_utf8_with_non_ascii_descriptions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Generated .env defaults are UTF-8 on every platform.
+
+    ``Path.write_text()`` falls back to the locale encoding — cp1252 on
+    Windows — so a non-ASCII env description (the em-dash that shipped in
+    PHLO_OBSERVE_SDK's help text) landed as byte 0x97 and python-dotenv
+    could not read the file back as UTF-8: the Windows Compose portability
+    failure. Generation must pin UTF-8 rather than inherit the platform
+    default.
+    """
+    from phlo.config.layout import env_defaults_path, env_secrets_path
+
+    _install_windows_default_encoding(monkeypatch)
+    service = ServiceDefinition(
+        name="postgres",
+        description="postgres service",
+        category="core",
+        default=True,
+        env_vars={
+            "POSTGRES_EXTRA": {
+                "default": "",
+                "description": "non-ASCII marker — kept portable",
+            }
+        },
+    )
+    fake_discovery = FakeDiscovery({service.name: service}, default_names=(service.name,))
+    monkeypatch.chdir(tmp_path)
+    from phlo.cli.commands.services import init as init_module
+
+    monkeypatch.setattr(init_module, "ServiceDiscovery", lambda: fake_discovery)
+
+    result = CliRunner().invoke(init_module.init_cmd, ["--no-dev", "--allow-insecure"])
+    assert result.exit_code == 0, result.output
+
+    phlo_dir = tmp_path / ".phlo"
+    defaults = env_defaults_path(phlo_dir).read_bytes().decode("utf-8")
+    assert "—" in defaults
+    env_secrets_path(phlo_dir).read_bytes().decode("utf-8")
+
+
+def test_regenerate_compose_writes_env_defaults_as_utf8_with_non_ascii_descriptions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The add/remove regeneration path must honour the same UTF-8 contract."""
+    from phlo.cli.commands.services.utils import _regenerate_compose
+    from phlo.config.layout import env_defaults_path
+
+    _install_windows_default_encoding(monkeypatch)
+    service = ServiceDefinition(
+        name="postgres",
+        description="postgres service",
+        category="core",
+        default=True,
+        env_vars={
+            "POSTGRES_EXTRA": {
+                "default": "",
+                "description": "non-ASCII marker — kept portable",
+            }
+        },
+    )
+    fake_discovery = FakeDiscovery({service.name: service}, default_names=(service.name,))
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+
+    _regenerate_compose(fake_discovery, {}, phlo_dir)
+
+    defaults = env_defaults_path(phlo_dir).read_bytes().decode("utf-8")
+    assert "—" in defaults

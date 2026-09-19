@@ -26,7 +26,7 @@ Implements the Trino capability resource; nothing outside this package imports i
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 import os
 import re
@@ -36,6 +36,7 @@ from typing import Any, Iterable
 import pandas as pd
 from trino.dbapi import connect
 
+import phlo.telemetry as phlo_observe
 from phlo.capabilities import (
     CapabilitySupport,
     MaintenanceExecutionError,
@@ -61,6 +62,140 @@ TRINO_QUERY_ENGINE_SUPPORT = CapabilitySupport(
     supports_refs=True,
     supports_time_travel=True,
 )
+
+
+class _ObservedCursor:
+    """Proxy a Trino cursor so every ``execute`` emits a ``trino.query`` event.
+
+    SQL text is never recorded (the SDK emits a stable sanitized query hash
+    and class); the trino-side query id is attached when the cursor exposes it.
+    Internal catalog DDL issued through ``bootstrap.cursor()`` connections is
+    deliberately not traced — those statements are provisioning bookkeeping,
+    not workload queries.
+    """
+
+    def __init__(self, cursor: Any, *, catalog: str | None, schema: str | None) -> None:
+        self._cursor = cursor
+        self._catalog = catalog
+        self._schema = schema
+        self._query_scope: Any = None
+        self._query_event: Any = None
+
+    def execute(self, sql: str, params: Iterable[object] | None = None) -> Any:
+        """Execute SQL inside a ``trino.query`` observe scope.
+
+        Trino returns from ``execute`` after the first result page at most,
+        so the scope stays open until the result set is consumed or the
+        cursor closes — fetch-time errors and full duration are observed.
+        """
+        self._finish_query(None)
+        scope = phlo_observe.trino_query(sql=sql, catalog=self._catalog, schema=self._schema)
+        evt = scope.__enter__()
+        phlo_observe.bind_run_entity(evt)
+        try:
+            self._cursor.execute(sql, params)
+        except BaseException as exc:
+            self._exit_scope(scope, (type(exc), exc, exc.__traceback__))
+            raise
+        self._query_scope = scope
+        self._query_event = evt
+        if getattr(self._cursor, "description", None) is None:
+            # No result set to consume — the query is already complete.
+            self._finish_query(None)
+        # DB-API ``execute`` returns the cursor; returning the proxy keeps
+        # chained ``.execute()`` calls observed instead of leaking the
+        # inner cursor past the wrapper.
+        return self
+
+    def _exit_scope(self, scope: Any, exc_info: tuple[Any, Any, Any] | None) -> None:
+        """Exit a query scope; scope failure must never mask the caller's."""
+        with suppress(Exception):
+            scope.__exit__(*(exc_info or (None, None, None)))
+
+    def _finish_query(self, exc_info: tuple[Any, Any, Any] | None) -> None:
+        """Close the open ``trino.query`` scope exactly once."""
+        scope, evt = self._query_scope, self._query_event
+        self._query_scope = self._query_event = None
+        if scope is None:
+            return
+        if evt is not None:
+            with suppress(Exception):
+                evt.set(
+                    query_id=getattr(self._cursor, "query_id", None),
+                    row_count=getattr(self._cursor, "rowcount", None),
+                )
+        self._exit_scope(scope, exc_info)
+
+    def fetchall(self) -> Any:
+        """Fetch remaining rows, ending the query observation on completion."""
+        try:
+            rows = self._cursor.fetchall()
+        except BaseException as exc:
+            self._finish_query((type(exc), exc, exc.__traceback__))
+            raise
+        self._finish_query(None)
+        return rows
+
+    def fetchone(self) -> Any:
+        """Fetch one row; ``None`` marks the result set consumed."""
+        try:
+            row = self._cursor.fetchone()
+        except BaseException as exc:
+            self._finish_query((type(exc), exc, exc.__traceback__))
+            raise
+        if row is None:
+            self._finish_query(None)
+        return row
+
+    def fetchmany(self, size: int | None = None) -> Any:
+        """Fetch up to ``size`` rows; a short page ends the observation."""
+        try:
+            rows = self._cursor.fetchmany(size) if size is not None else self._cursor.fetchmany()
+        except BaseException as exc:
+            self._finish_query((type(exc), exc, exc.__traceback__))
+            raise
+        expected = size if size is not None else getattr(self._cursor, "arraysize", 1)
+        if len(rows) < expected:
+            self._finish_query(None)
+        return rows
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._cursor, name)
+
+    def __iter__(self) -> Any:
+        # Implicit special-method lookup bypasses __getattr__, so row
+        # iteration must be delegated explicitly or `for row in cursor`
+        # raises TypeError where the bare cursor worked.
+        return self
+
+    def __next__(self) -> Any:
+        # The real trino.dbapi.Cursor is iterable via __iter__ alone — it has
+        # no __next__ (``next(cursor)`` raises TypeError), so rows arrive
+        # through fetchone(), which already ends the observation on
+        # exhaustion or error.
+        row = self.fetchone()
+        if row is None:
+            raise StopIteration
+        return row
+
+    def __enter__(self) -> _ObservedCursor:
+        self._cursor.__enter__()
+        return self
+
+    def __exit__(self, *exc: Any) -> Any:
+        try:
+            return self._cursor.__exit__(*exc)
+        finally:
+            # Consumption ends with the cursor; body exceptions are the
+            # caller's, not the query's — fetch errors are already recorded.
+            self._finish_query(None)
+
+    def close(self) -> Any:
+        """Close the wrapped cursor, ending any open query observation."""
+        try:
+            return self._cursor.close()
+        finally:
+            self._finish_query(None)
 
 
 class _ConfigFacade:
@@ -253,18 +388,21 @@ class TrinoResource:
 
     @contextmanager
     def cursor(self, schema: str | None = None):
-        """Yield an active Trino cursor, closing cursor and connection on exit."""
+        """Yield an active Trino cursor, closing cursor and connection on exit.
+
+        The proxy's ``close`` finishes any open query observation before the
+        inner cursor closes, so an abandoned result set still emits its
+        ``trino.query`` event.
+        """
         conn = self.get_connection(schema=schema)
-        cursor = None
         try:
-            cursor = conn.cursor()
-            yield cursor
-        finally:
+            cursor = _ObservedCursor(conn.cursor(), catalog=self._resolved_catalog(), schema=schema)
             try:
-                if cursor is not None:
-                    cursor.close()
+                yield cursor
             finally:
-                conn.close()
+                cursor.close()
+        finally:
+            conn.close()
 
     def execute(self, sql: str, params: Iterable[object] | None = None, schema: str | None = None):
         """Execute SQL with optional positional params; return rows, or [] without a result set."""

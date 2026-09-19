@@ -37,17 +37,22 @@ Ported from ``phlo`` core as a capability plugin.
 
 from __future__ import annotations
 
+import contextlib
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import pyarrow.parquet as pq
 from pyiceberg.exceptions import TableAlreadyExistsError
 from pyiceberg.schema import Schema
 from pyiceberg.table import Table
 
-from phlo.capabilities import SAFE_MIN_RETENTION_HOURS
+from phlo.capabilities import SAFE_MIN_RETENTION_HOURS, resolve_capability
 from phlo.helpers import deduplicate_arrow_by_unique_key
 from phlo.logging import get_logger
+import phlo.telemetry as phlo_observe
 from phlo_iceberg.catalog import create_namespace, get_catalog
 
 # Suppress expected pyiceberg warning on first run (no rows to delete during merge)
@@ -58,6 +63,69 @@ warnings.filterwarnings(
 )
 
 logger = get_logger(__name__)
+
+
+def _current_snapshot_id(table) -> str | None:
+    """Return the table's current snapshot id; None on read failure or none."""
+    try:
+        snapshot = table.current_snapshot()
+        return str(snapshot.snapshot_id) if snapshot is not None else None
+    except Exception:  # noqa: BLE001 - snapshot introspection must not break writes
+        return None
+
+
+def _catalog_system_for_ref() -> str:
+    """Return the catalog system that owns refs written by this process.
+
+    The SDK's ``iceberg_commit`` pins branch entities to the ``nessie``
+    namespace; under a snapshot-promotion catalog (e.g. polaris) every ref —
+    the staging namespace or ``main`` — is owned by that provider, so the
+    entity must name the resolved catalog instead. ``nessie`` remains the
+    default when no catalog capability is installed.
+    """
+    try:
+        resolution = resolve_capability("catalog")
+        name = str(getattr(resolution, "name", "") or "")
+        if name:
+            return name
+    except Exception:  # noqa: BLE001 - entity naming must never break writes
+        pass
+    return "nessie"
+
+
+@contextmanager
+def _iceberg_commit_scope(
+    table_name: str, ref: str, operation: str, **kwargs: Any
+) -> Iterator[Any]:
+    """Open an ``iceberg.commit`` observation scoped to the ambient run.
+
+    ``snapshot_id_before`` is captured by the caller; ``snapshot_id_after`` is
+    filled in by ``_finish_iceberg_commit`` once the commit lands.
+    """
+    with phlo_observe.iceberg_commit(
+        table=table_name,
+        branch=ref,
+        operation=operation,
+        **kwargs,
+    ) as commit_op:
+        phlo_observe.bind_run_entity(commit_op)
+        branch_entity = phlo_observe.branch_entity_id(ref, system=_catalog_system_for_ref())
+        if branch_entity:
+            with contextlib.suppress(Exception):
+                commit_op.set_entity("branch", branch_entity)
+        yield commit_op
+
+
+def _finish_iceberg_commit(scope, table) -> None:
+    """Record the post-commit snapshot on the builder; best-effort."""
+    snapshot_after = _current_snapshot_id(table)
+    if snapshot_after is None:
+        return
+    try:
+        scope.set(snapshot_id_after=snapshot_after)
+        scope.set_correlation(snapshot_id=snapshot_after)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _align_arrow_table_to_target_schema(arrow_table, target_schema, *, table_name: str):
@@ -274,7 +342,15 @@ def append_to_table(
                 "arrow_cast_to_target_schema_failed", table_name=table_name, error=str(e)
             )
 
-        table.append(arrow_table)
+        with _iceberg_commit_scope(
+            table_name,
+            ref,
+            "append",
+            snapshot_id_before=_current_snapshot_id(table),
+            rows_added=len(arrow_table),
+        ) as commit_op:
+            table.append(arrow_table)
+            _finish_iceberg_commit(commit_op, table)
         rows_inserted = len(arrow_table)
         result = {"rows_inserted": rows_inserted, "rows_deleted": 0}
     except Exception as exc:
@@ -460,13 +536,25 @@ def merge_to_table(
         batch_size = 1000
         unique_values_list = list(unique_values_set)
 
-        for i in range(0, len(unique_values_list), batch_size):
-            batch = unique_values_list[i : i + batch_size]
-            delete_expr = In(term=Reference(unique_key), values=set(batch))
-            table.delete(delete_expr)
-            rows_deleted += len(batch)  # Approximation
+        with _iceberg_commit_scope(
+            table_name,
+            ref,
+            "merge",
+            snapshot_id_before=_current_snapshot_id(table),
+            rows_added=len(arrow_table),
+        ) as commit_op:
+            for i in range(0, len(unique_values_list), batch_size):
+                batch = unique_values_list[i : i + batch_size]
+                delete_expr = In(term=Reference(unique_key), values=set(batch))
+                table.delete(delete_expr)
+                rows_deleted += len(batch)  # Approximation
 
-        table.append(arrow_table)
+            table.append(arrow_table)
+            _finish_iceberg_commit(commit_op, table)
+            try:
+                commit_op.set(rows_removed=rows_deleted)
+            except Exception:  # noqa: BLE001
+                pass
         rows_inserted = len(arrow_table)
 
     except Exception as exc:
@@ -576,7 +664,15 @@ def overwrite_table(
                 "arrow_cast_to_target_schema_failed", table_name=table_name, error=str(e)
             )
 
-        table.overwrite(arrow_table)
+        with _iceberg_commit_scope(
+            table_name,
+            ref,
+            "overwrite",
+            snapshot_id_before=_current_snapshot_id(table),
+            rows_added=len(arrow_table),
+        ) as commit_op:
+            table.overwrite(arrow_table)
+            _finish_iceberg_commit(commit_op, table)
         rows_inserted = len(arrow_table)
         result = {"rows_inserted": rows_inserted, "rows_deleted": 0}
     except Exception as exc:
