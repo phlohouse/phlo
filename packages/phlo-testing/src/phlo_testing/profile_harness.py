@@ -318,10 +318,15 @@ def _cleanup_existing_bundled_stack_projects(base_dir: Path, *, stream_output: b
 
 
 def _port_in_use(port: int) -> bool:
-    """Return True when the TCP port is already in use."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return sock.connect_ex(("127.0.0.1", port)) == 0
+    """Return True when the TCP port is already in use on IPv4 or IPv6 loopback."""
+    for family, address in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as sock:
+                if sock.connect_ex((address, port)) == 0:
+                    return True
+        except OSError:
+            continue
+    return False
 
 
 def _allocate_unique_port(

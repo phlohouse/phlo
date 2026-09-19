@@ -121,17 +121,27 @@ class NativeProcessManager:
             logger.error("service_missing_dev_command", service_name=service.name)
             return None
 
-        # Build environment
+        # Build environment. Project env overrides must be visible while
+        # expanding the service's dev.environment placeholders (for example
+        # ${DAGSTER_PORT}), so expand them first against os.environ and let the
+        # dev.environment expand against the merged result. Overrides keep
+        # final precedence on same-key conflicts, matching previous behavior.
         env = os.environ.copy()
+        overrides_expanded = (
+            {k: self._expand_env_vars(v, env) for k, v in env_overrides.items()}
+            if env_overrides
+            else {}
+        )
+        lookup_env = {**env, **overrides_expanded}
         if dev_env := dev_config.get("environment"):
             env.update(
                 {
-                    k: self._expand_env_vars(v, env) if isinstance(v, str) else str(v)
+                    k: self._expand_env_vars(v, lookup_env) if isinstance(v, str) else str(v)
                     for k, v in dev_env.items()
                 }
             )
-        if env_overrides:
-            env.update({k: self._expand_env_vars(v, env) for k, v in env_overrides.items()})
+        if overrides_expanded:
+            env.update(overrides_expanded)
 
         project_venv = self.project_root / ".venv"
         project_venv_bin = project_venv / "bin"

@@ -33,7 +33,7 @@ def test_openmetadata_settings_resolves_unreachable_host(tmp_path, monkeypatch) 
 
     settings = OpenMetadataSettings()
 
-    assert settings.openmetadata_uri() == "http://localhost:18585/api"
+    assert settings.openmetadata_uri() == "http://127.0.0.1:18585/api"
 
 
 def test_openmetadata_database_prefers_explicit_name():

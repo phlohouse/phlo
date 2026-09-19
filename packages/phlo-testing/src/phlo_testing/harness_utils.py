@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -94,9 +95,15 @@ def force_remove_directory(path: Path) -> bool:
 
 
 def check_port_in_use(port: int) -> bool:
-    """Check if a port is in use."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("127.0.0.1", port)) == 0
+    """Check if a port is in use on either IPv4 or IPv6 loopback."""
+    for family, address in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as s:
+                if s.connect_ex((address, port)) == 0:
+                    return True
+        except OSError:
+            continue
+    return False
 
 
 def find_available_port(start_port: int, *, max_tries: int = 50) -> int | None:
@@ -115,10 +122,12 @@ def run_command(
     timeout: int | None = None,
     check: bool = True,
     stream_output: bool = True,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a command with live output streaming."""
     log_info(f"Running: {' '.join(args)}")
 
+    process_env = {**os.environ, **env} if env else None
     if stream_output:
         process = subprocess.Popen(
             args,
@@ -127,6 +136,7 @@ def run_command(
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=process_env,
         )
         output_lines = []
         try:
@@ -152,6 +162,7 @@ def run_command(
             text=True,
             capture_output=True,
             timeout=timeout,
+            env=process_env,
         )
 
     if check and result.returncode != 0:
@@ -171,6 +182,7 @@ def run_phlo(
     check: bool = True,
     stream_output: bool = True,
     python_exe: str | Path | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a phlo CLI command, preferring the project venv python when given."""
     exe = str(python_exe) if python_exe else sys.executable
@@ -180,6 +192,7 @@ def run_phlo(
         timeout=timeout,
         check=check,
         stream_output=stream_output,
+        env=env,
     )
 
 

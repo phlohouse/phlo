@@ -62,7 +62,11 @@ def resolve_host(host: str, port: int, *, port_env_var: str | None = None) -> tu
             original_port=port,
             resolved_port=resolved_port,
         )
-        return "localhost", resolved_port
+        # Return a literal IPv4 loopback rather than "localhost": on dual-stack
+        # hosts "localhost" may resolve to ::1 first, where an unrelated
+        # IPv6-only listener can answer while the target service only
+        # published the IPv4 wildcard (or vice versa).
+        return "127.0.0.1", resolved_port
 
 
 def resolve_url(url: str, *, port_env_var: str | None = None) -> str:
@@ -86,7 +90,9 @@ def resolve_url(url: str, *, port_env_var: str | None = None) -> str:
         original_port = parsed.port
         default_port = original_port or 80
         resolved_port = _port_from_env(port_env_var, default_port)
-        netloc = f"localhost:{resolved_port}" if resolved_port else "localhost"
+        # Literal IPv4 loopback: "localhost" can resolve to ::1 first on
+        # dual-stack hosts and hit an unrelated IPv6-only listener.
+        netloc = f"127.0.0.1:{resolved_port}" if resolved_port else "127.0.0.1"
         resolved = urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
         logger.debug(
             "url_resolved_to_localhost",

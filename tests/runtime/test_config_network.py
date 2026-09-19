@@ -56,7 +56,7 @@ def test_resolve_url_uses_project_env_port_for_unresolvable_service(tmp_path, mo
     monkeypatch.setattr("phlo.config.network.socket.gethostbyname", raise_unresolvable)
 
     assert resolve_url("http://trino:8080/v1/info", port_env_var="TRINO_PORT") == (
-        "http://localhost:18080/v1/info"
+        "http://127.0.0.1:18080/v1/info"
     )
 
 
@@ -73,9 +73,9 @@ def test_resolve_url_falls_back_when_project_env_port_is_invalid(tmp_path, monke
     monkeypatch.setattr("phlo.config.network.socket.gethostbyname", raise_unresolvable)
 
     assert resolve_url("http://trino:8080/v1/info", port_env_var="TRINO_PORT") == (
-        "http://localhost:8080/v1/info"
+        "http://127.0.0.1:8080/v1/info"
     )
-    assert resolve_host("trino", 8080, port_env_var="TRINO_PORT") == ("localhost", 8080)
+    assert resolve_host("trino", 8080, port_env_var="TRINO_PORT") == ("127.0.0.1", 8080)
 
 
 def test_project_env_parser_only_strips_balanced_quotes(tmp_path) -> None:

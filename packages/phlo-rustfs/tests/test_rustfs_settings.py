@@ -30,7 +30,7 @@ def test_rustfs_settings_defaults():
     """
     settings = RustfsSettings()
 
-    assert settings.rustfs_host == "localhost"
+    assert settings.rustfs_host == "127.0.0.1"
     assert settings.rustfs_access_key == "rustfsadmin"
     assert settings.rustfs_secret_key == "rustfsadmin"
     assert settings.rustfs_api_port == 9000
@@ -50,7 +50,7 @@ def test_rustfs_endpoint():
     settings = RustfsSettings()
     endpoint = settings.rustfs_endpoint()
 
-    assert endpoint == "localhost:9000"
+    assert endpoint == "127.0.0.1:9000"
 
 
 def test_rustfs_endpoint_custom_port():
@@ -65,7 +65,7 @@ def test_rustfs_endpoint_custom_port():
     settings = RustfsSettings(rustfs_api_port=19000)
     endpoint = settings.rustfs_endpoint()
 
-    assert endpoint == "localhost:19000"
+    assert endpoint == "127.0.0.1:19000"
 
 
 def test_rustfs_endpoint_custom_host():
@@ -81,4 +81,4 @@ def test_rustfs_endpoint_custom_host():
     settings = RustfsSettings(rustfs_host="storage.local")
     endpoint = settings.rustfs_endpoint()
 
-    assert endpoint == "localhost:9000"
+    assert endpoint == "127.0.0.1:9000"

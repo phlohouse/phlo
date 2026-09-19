@@ -564,10 +564,7 @@ def test_observatory_run_report_evidence_binds_to_committed_implementation() -> 
     evidence = set(capability["evidence"])
 
     assert "packages/phlo-api/src/phlo_api/observatory_api/run_report.py" in evidence
-    assert (
-        "packages/phlo-observatory/src/phlo_observatory/src/routes/"
-        "runs.$projectId.$runId.attempts.$attempt.report.tsx"
-    ) in evidence
+    assert ("packages/phlo-observatory/web/src/routes/runs/$runId.tsx") in evidence
     assert "packages/phlo-api/tests/test_observatory_api.py" in evidence
     for path in evidence:
         assert (ROOT / path.split("#", 1)[0]).exists(), f"missing evidence: {path}"
