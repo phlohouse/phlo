@@ -18,8 +18,10 @@ The initial setup includes:
 
 ## Autonomous maintenance
 
-The agent runs one maintenance session at 08:00 UTC every Tuesday and Thursday.
-Each session performs both procedures:
+The agent runs a focused dependency-security pass every day at 02:00 UTC,
+shortly after the repository's 01:00 UTC whole-tree Security workflow. It also
+runs a broader maintenance session at 08:00 UTC every Tuesday and Thursday.
+The broader session performs both procedures:
 
 | Procedure | Outcome |
 | --- | --- |
@@ -33,12 +35,15 @@ image-digest bumps. The agent focuses on release-note analysis, API or default
 changes, migrations, security notices, test gaps, and other compatibility work
 that a version bot cannot infer.
 
-Python vulnerability discovery remains deterministic: the maintenance pass
-runs `uv audit --locked --output-format json`. Fixable findings can be sent in
-one compact request to Jev, which returns only a typed review lane. Jev never
-chooses a version, edits a manifest, waives a vulnerability, or authorizes a
-merge or release. Findings without a listed fix and classifications below the
-confidence floor are routed to human review.
+Python vulnerability discovery remains deterministic: the daily pass audits
+every tracked `uv.lock`, matching `.github/workflows/security.yml`. Fixable
+findings can be sent in one compact request to Jev, which returns only a typed
+review lane. Jev never chooses a version, edits a manifest, waives a
+vulnerability, or authorizes a merge or release. Findings without a listed fix
+and classifications below the confidence floor are routed to human review. A
+routine finding reuses Renovate work when available; otherwise the scheduled
+run may create one verified draft remediation pull request using uv's listed
+fix versions and resolver.
 
 Each run searches existing issues and pull requests first. A mechanical,
 low-risk fix may become a verified **draft** pull request. A finding that needs
@@ -103,16 +108,18 @@ agent instructions.
    npx eve deploy
    ```
 
-5. Verify the deployed health endpoint and confirm Vercel discovered the
-   `maintenance` cron job with expression `0 8 * * 2,4`.
+5. Verify the deployed health endpoint and confirm Vercel discovered both the
+   daily `dependency-security` cron (`0 2 * * *`) and the broader `maintenance`
+   cron (`0 8 * * 2,4`).
 
 6. Run the write-disabled canary described below. Review its Agent Run and
    confirm that it reads current `main`, loads both maintenance skills, and
    creates no GitHub artifact.
 
 7. Set `PHLO_AGENT_AUTONOMOUS_WRITES=1` in Vercel production and redeploy.
-   Monitor the first Tuesday or Thursday run and review every issue or draft PR
-   it creates. To stop writes, restore the value to `0` and redeploy.
+   Monitor the first daily security pass and broader Tuesday or Thursday run,
+   and review every issue or draft PR they create. To stop writes, restore the
+   value to `0` and redeploy.
 
 ## Local setup
 
@@ -162,8 +169,8 @@ so they are intentionally not performed by repository setup.
 
 ## Canary and enable writes
 
-After deploying with autonomous writes disabled, trigger one maintenance run
-from a local Eve development session and inspect its Agent Run and logs:
+After deploying with autonomous writes disabled, trigger both schedules from a
+local Eve development session and inspect their Agent Runs and logs:
 
 ```bash
 cd apps/phlo-agent
@@ -171,13 +178,16 @@ PHLO_AGENT_AUTONOMOUS_WRITES=0 npm run dev
 
 # In another terminal:
 curl -X POST http://localhost:2000/eve/v1/dev/schedules/maintenance
+# Also canary the focused daily path:
+curl -X POST http://localhost:2000/eve/v1/dev/schedules/dependency-security
 ```
 
-The response includes the schedule session ID. Confirm that the run loads both
-maintenance skills, reads current `main`, and creates no GitHub artifact. Then
-set `PHLO_AGENT_AUTONOMOUS_WRITES=1` in the Vercel project's production
-environment and redeploy. Setting it back to `0` and redeploying is the kill
-switch.
+Each response includes a schedule session ID. Confirm that the broader run
+loads both maintenance skills, the focused run performs only the Python
+vulnerability procedure, both read current `main`, and neither creates a
+GitHub artifact. Then set `PHLO_AGENT_AUTONOMOUS_WRITES=1` in the Vercel
+project's production environment and redeploy. Setting it back to `0` and
+redeploying is the kill switch.
 
 ## Billing
 
@@ -195,8 +205,8 @@ Gateway markup. Add paid AI Gateway credits when either:
 Buying credits moves the team to AI Gateway's paid tier and ends its monthly
 free-credit allocation. Production also consumes the Vercel resources used by
 Eve: Functions, Workflows, and Sandbox. Configure spend alerts before deploying:
-the two weekly scheduled runs begin automatically once Vercel enables the cron
-job.
+the daily focused pass and two weekly broader runs begin automatically once
+Vercel enables the cron jobs.
 
 Current prices and eligibility can change. Check the
 [AI Gateway pricing page](https://vercel.com/docs/ai-gateway/pricing) and the
