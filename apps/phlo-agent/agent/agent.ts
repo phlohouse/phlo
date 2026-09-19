@@ -34,9 +34,13 @@ export default defineAgent({
       }),
     },
   }),
-  reasoning: 'high',
+  reasoning: 'medium',
+  compaction: {
+    thresholdPercent: 0.7,
+  },
   limits: {
-    maxInputTokensPerSession: 20_000_000,
-    maxOutputTokensPerSession: 250_000,
+    maxInputTokensPerSession: 2_000_000,
+    maxOutputTokensPerSession: 50_000,
+    sessionTimeoutMs: 6 * 60 * 60 * 1_000,
   },
 })

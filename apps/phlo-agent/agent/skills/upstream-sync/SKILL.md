@@ -36,6 +36,23 @@ bypass Dependency Dashboard approval. Read `renovate.json`,
 `make dependency-refresh` before proposing dependency work. This skill owns
 semantic compatibility analysis and adaptations that automation cannot infer.
 
+Run `uv audit --locked --output-format json` as the authoritative Python
+vulnerability inventory. If it reports findings, compact its machine-readable
+records and relevant authoritative advisory or release-note evidence, then call
+`maintenance__route_findings` once with all findings. Keep version availability,
+manifest discovery, and test selection deterministic. Treat the returned route
+as prioritization only:
+
+- `routine_update` leaves the version bump with Renovate and normal CI.
+- `compatibility_review` requires mapping the change to every affected Phlo
+  surface and running its compatibility checks.
+- `security_review`, `human_review`, and `no_fix_available` may produce a
+  focused issue, but never a waiver or speculative patch.
+
+Never pass repository source, lockfiles, or complete logs to the classifier;
+send only the bounded evidence fields accepted by the tool. Never reinterpret a
+low-confidence result as permission to act.
+
 Search existing issues and pull requests first. Ignore version churn with no
 demonstrable effect on Phlo.
 

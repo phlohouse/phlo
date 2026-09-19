@@ -11,4 +11,6 @@ issues, Renovate work, and pull requests before proposing anything. Across both
 procedures, create at most two artifacts total, and only grounded GitHub issues
 or verified draft pull requests. If autonomous writes are disabled, complete
 the audit without trying to deliver an artifact. Create nothing when no action
-is warranted.
+is warranted. Use `maintenance__route_findings` for fixable dependency audit
+findings as directed by the upstream-sync skill; it prioritizes evidence but
+never replaces uv, Renovate, compatibility tests, or human security judgment.
