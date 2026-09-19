@@ -63,7 +63,6 @@ from phlo.capabilities.discovery import discover_capabilities
 from phlo.config.env import load_project_env
 from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
-import phlo.telemetry as phlo_observe
 from phlo_dagster.cli_materialize import wait_for_dagster_runtime
 from phlo_dagster.containers import find_dagster_container
 from phlo_dagster.operations import get_run_status, launch_materialize, wait_for_dagster_http
@@ -359,11 +358,9 @@ def _run_wap_backfill(
             "[yellow]WAP backfills serialize partitions through promotion; "
             "--parallel is limited to 1 for this target.[/yellow]"
         )
-    # A GraphQL launch carries no env vars — the worker sees only the
-    # file-sourced project environment, and PHLO_OBSERVE_SDK records
-    # whether the image was built with the SDK the pretty drain needs.
-    deployment_env = load_project_env(include_os=False)
-    worker_sdk = bool(deployment_env.get("PHLO_OBSERVE_SDK"))
+    # A GraphQL launch carries no env vars — the worker sees the
+    # file-sourced project environment and decides pretty/console itself at
+    # scope entry, where whether the SDK can drive the drain is knowable.
     for partition_date in remaining:
         try:
             lifecycle = in_flight_wap.get(partition_date)
@@ -388,8 +385,6 @@ def _run_wap_backfill(
                             partition_key=partition_date,
                             idempotency_key=logical_run_id,
                             tags=launch.tags,
-                            env=deployment_env,
-                            sdk_available=worker_sdk,
                         )
                     )
                 except Exception as exc:
@@ -626,14 +621,9 @@ def _build_materialize_command(
         partition_date,
     ]
     project_env = load_project_env()
-    # The container was built with the phlo-observe SDK only when
-    # PHLO_OBSERVE_SDK was set — without it the pretty drain cannot run and
-    # the framework console must stay at its default level.
-    worker_sdk = bool(load_project_env(include_os=False).get("PHLO_OBSERVE_SDK"))
-    loggers_config = phlo_observe.dagster_loggers_config(env=project_env, sdk_available=worker_sdk)
-    if loggers_config:
-        command.extend(["--config-json", json.dumps({"loggers": loggers_config})])
-
+    # The run process decides console quieting itself at scope entry once
+    # the drain's attach state is known — the launcher only forwards the
+    # pretty opt-in env so the worker can honor it.
     exec_env = {
         "PHLO_HOST_PLATFORM": host_platform,
         "PHLO_PROJECT_PATH": "/app",

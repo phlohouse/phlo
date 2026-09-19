@@ -9,7 +9,11 @@ and the drain registers through ``Runtime.add_drain``.
 
 from __future__ import annotations
 
+import logging
 import os
+import sys
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -261,11 +265,85 @@ def test_framework_console_preserved_when_drain_cannot_run(
     assert phlo_observe.dagster_loggers_config() is None
 
 
-def test_dagster_loggers_config_explicit_sdk_available() -> None:
-    """Container launch sites pass the worker's SDK availability explicitly —
-    the image ships phlo-observe only when built with PHLO_OBSERVE_SDK."""
-    env = {"PHLO_OBSERVE_PRETTY": "1"}
-    assert phlo_observe.dagster_loggers_config(env=env, sdk_available=False) is None
-    assert phlo_observe.dagster_loggers_config(env=env, sdk_available=True) == {
-        "console": {"config": {"log_level": "WARNING"}}
-    }
+def _run_console_logger(stream: Any = None) -> logging.Logger:
+    """An unregistered ``dagster`` console logger, like Dagster's per-run one."""
+    run_logger = logging.Logger("dagster")
+    run_logger.addHandler(logging.StreamHandler(stream or sys.stderr))
+    run_logger.setLevel(logging.DEBUG)
+    return run_logger
+
+
+def _dagster_context(*run_loggers: logging.Logger) -> Any:
+    """Minimal stand-in for a Dagster context: ``log._dagster_handler._loggers``."""
+    return SimpleNamespace(
+        log=SimpleNamespace(
+            _dagster_handler=SimpleNamespace(_loggers=list(run_loggers), _handlers=[])
+        )
+    )
+
+
+def test_scope_quiets_framework_console_once_drain_attached(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Inside the worker the decision is final: a real pretty drain attached,
+    so the run's console loggers drop to WARNING and stay quiet."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    run_logger = _run_console_logger()
+    context = _dagster_context(run_logger)
+
+    assert phlo_observe.configure() is True
+    with phlo_observe.dagster_run_scope(context):
+        run_logger.debug("framework chatter")
+        run_logger.warning("real warning")
+
+    assert run_logger.level == logging.WARNING
+    rendered = capsys.readouterr().err
+    assert "framework chatter" not in rendered
+    assert "real warning" in rendered
+
+
+def test_scope_restores_console_when_drain_cannot_attach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pretty requested but the worker's SDK cannot drive the drain: an
+    injected WARNING must be undone — the console keeps the run narrative."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    monkeypatch.setattr(phlo_observe, "_sdk_module", lambda: None)
+    run_logger = _run_console_logger()
+    run_logger.setLevel(logging.WARNING)  # simulates a stale injected quieting
+    context = _dagster_context(run_logger)
+
+    with phlo_observe.dagster_run_scope(context):
+        pass
+
+    assert run_logger.level == logging.DEBUG
+    assert run_logger.isEnabledFor(logging.DEBUG) is True
+
+
+def test_scope_keeps_framework_console_under_verbose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verbose/debug configuration wins even when the drain attached."""
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "1")
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY_VERBOSE", "1")
+    run_logger = _run_console_logger()
+    context = _dagster_context(run_logger)
+
+    assert phlo_observe.configure() is True
+    with phlo_observe.dagster_run_scope(context):
+        pass
+
+    assert run_logger.isEnabledFor(logging.DEBUG) is True
+
+
+def test_scope_leaves_console_alone_without_pretty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No pretty request: the console is left exactly as configured, even
+    when it was explicitly raised by the caller."""
+    run_logger = _run_console_logger()
+    run_logger.setLevel(logging.ERROR)
+    context = _dagster_context(run_logger)
+
+    with phlo_observe.dagster_run_scope(context):
+        pass
+
+    assert run_logger.level == logging.ERROR

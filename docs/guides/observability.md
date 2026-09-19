@@ -240,17 +240,17 @@ misconfigured:
   failure escalation); `PHLO_OBSERVE_PRETTY` composes with the other drains,
   so `OBSERVE_DRAINS=jsonl` plus the flag keeps the canonical file while
   showing the readable view.
-- With pretty enabled, Phlo's launch surfaces (`phlo materialize`, sensor
-  `RunRequest`s, GraphQL launches) merge `loggers.console` into the run
-  config so the run's Dagster console drops to `WARNING` — the pretty event
-  stream is the primary terminal narrative. This only changes what the
-  console *renders*: the Dagster event log and captured `context.log`
-  records keep every event. `PHLO_OBSERVE_PRETTY_VERBOSE=true` or
-  `PHLO_LOG_LEVEL=DEBUG` restores the full framework stream, and an explicit
-  `loggers.console.config.log_level` in a caller's own run config always
-  wins. Runs launched outside Phlo's surfaces (the Dagster UI's materialize
-  button, a bare `dagster.materialize` call) keep Dagster's default logging
-  unless their run config is merged through `phlo_observe.dagster_run_config`.
+- With pretty enabled, the run's Dagster console drops to `WARNING` once the
+  first observation scope opens — the pretty event stream is the primary
+  terminal narrative. The decision is made inside the run worker, where
+  whether the drain actually attached is knowable: if pretty was requested
+  but the worker's SDK cannot drive the drain (missing or too old for
+  `Runtime.add_drain`), the console keeps its default level rather than
+  losing the run narrative. This only changes what the console *renders*:
+  the Dagster event log and captured `context.log` records keep every
+  event. `PHLO_OBSERVE_PRETTY_VERBOSE=true` or `PHLO_LOG_LEVEL=DEBUG` keeps
+  the full framework stream. Runs whose assets never open a Phlo
+  observation scope keep Dagster's default logging.
 - The hook bus keeps working regardless: `FailurePolicy.LOG` contains
   translation errors, and the run-evidence store remains the source of truth
   for WAP audit state — observe events are a projection, not the record.

@@ -41,7 +41,6 @@ Example:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import platform
 import shlex
@@ -65,7 +64,6 @@ from phlo.cli.output import command_failed_error, service_unavailable_error, jso
 from phlo.cli.contract import PhloCommand
 from phlo.config.env import load_project_env
 from phlo.infrastructure import load_wap_config
-import phlo.telemetry as phlo_observe
 from phlo_dagster.containers import find_dagster_container
 from phlo_dagster.operations import launch_materialize, wait_for_dagster_http
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
@@ -159,14 +157,6 @@ def materialize(
         partition = datetime.now(UTC).strftime("%Y-%m-%d")
 
     wap_config = load_wap_config()
-    # The run executes against the Dagster deployment — the merged project
-    # environment predicts the pretty/console decision the worker will make.
-    project_env = load_project_env()
-    # A GraphQL launch carries no env vars, so the worker sees only the
-    # file-sourced project environment; PHLO_OBSERVE_SDK records whether
-    # the image was built with the SDK the pretty drain needs.
-    deployment_env = load_project_env(include_os=False)
-    worker_sdk = bool(deployment_env.get("PHLO_OBSERVE_SDK"))
     if wap_config.enabled:
         if not asset_name or select:
             raise click.UsageError(
@@ -218,8 +208,6 @@ def materialize(
                     partition_key=partition,
                     idempotency_key=logical_run_id,
                     tags=wap_launch.tags,
-                    env=deployment_env,
-                    sdk_available=worker_sdk,
                 )
             )
         except Exception as exc:
@@ -310,8 +298,9 @@ def materialize(
             "PHLO_CONTRACT_REFRESH_SELECTION": effective_selection,
         }
         # Pretty opt-in from the shell or project env must reach the run
-        # process — the drain and the console quieting both decide inside
-        # the container.
+        # process — the drain attaches and the console quieting decides
+        # inside the container, where SDK capability is knowable.
+        project_env = load_project_env()
         for pretty_var in (
             "PHLO_OBSERVE_PRETTY",
             "PHLO_OBSERVE_PRETTY_VERBOSE",
@@ -338,14 +327,6 @@ def materialize(
 
         if partition:
             cmd.extend(["--partition", partition])
-
-        loggers_config = phlo_observe.dagster_loggers_config(
-            env=project_env, sdk_available=worker_sdk
-        )
-        if loggers_config:
-            # Pretty owns the terminal: quiet the framework console in the
-            # run itself; the event log keeps the full stream regardless.
-            cmd.extend(["--config-json", json.dumps({"loggers": loggers_config})])
 
         if dry_run:
             if output_json:
