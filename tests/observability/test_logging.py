@@ -303,7 +303,7 @@ def test_record_to_event_merges_bound_correlation_context() -> None:
 def test_log_router_handler_emit_routes_and_reports_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Routes converted events and reports failures through `handleError`."""
+    """Routes converted events to hooks and the canonical observe runtime."""
 
     class FailableRecordingBus(RecordingBus):
         def __init__(self) -> None:
@@ -316,15 +316,36 @@ def test_log_router_handler_emit_routes_and_reports_errors(
             self.events.append(event)
 
     bus = FailableRecordingBus()
+    observed: list[dict[str, Any]] = []
     monkeypatch.setattr("phlo.hooks.bus.get_hook_bus", lambda: bus)
+    monkeypatch.setattr(
+        "phlo.telemetry.emit",
+        lambda name, **fields: observed.append({"name": name, **fields}),
+    )
     handler = LogRouterHandler(service_name="router-service")
 
-    routed = _make_record(msg={"event": "routed", "tags": {"source": "test"}})
+    routed = _make_record(
+        msg={
+            "event": "routed",
+            "run_id": "run-1",
+            "asset_key": "raw.users",
+            "tags": {"source": "test"},
+            "rows": 12,
+        }
+    )
     handler.emit(routed)
 
     assert len(bus.events) == 1
     assert bus.events[0].message == "routed"
     assert bus.events[0].tags["source"] == "test"
+    assert observed[0]["name"] == "application.log"
+    assert observed[0]["attributes"]["message"] == "routed"
+    assert observed[0]["attributes"]["rows"] == 12
+    assert observed[0]["correlation"] == {
+        "run_id": "run-1",
+        "asset_key": "raw.users",
+    }
+    assert observed[0]["tags"] == {"source": "test", "service": "router-service"}
 
     errors: list[logging.LogRecord] = []
     monkeypatch.setattr(handler, "handleError", lambda failed: errors.append(failed))

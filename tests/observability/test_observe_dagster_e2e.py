@@ -16,7 +16,7 @@ full chain executes for real:
 The captured envelopes must form one correlated history on the physical
 Dagster run id — the contract the observer reconstructs runs from.
 
-The SDK requires Python >=3.12; the module skips cleanly on 3.11.
+The module skips cleanly when its external services are unavailable.
 """
 
 from __future__ import annotations

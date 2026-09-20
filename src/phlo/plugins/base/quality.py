@@ -6,14 +6,12 @@ This module defines plugin types for custom data quality validation.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from phlo.plugins.base.plugin import Plugin
 
-TQualityCheck = TypeVar("TQualityCheck")
 
-
-class QualityCheckPlugin(Plugin, ABC, Generic[TQualityCheck]):
+class QualityCheckPlugin[TQualityCheck](Plugin, ABC):
     """Base class for quality check plugins.
 
     Quality check plugins enable custom data validation logic

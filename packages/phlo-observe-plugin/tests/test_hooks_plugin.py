@@ -1,9 +1,8 @@
 """Translation tests for ObserveHookPlugin.
 
-The phlo-observe SDK is optional (absent on Python 3.11), so tests capture
-emissions by monkeypatching ``phlo.telemetry.emit`` — the plugin's single
-emission surface — and faking the identifier builders. This exercises the
-full translation layer without requiring the SDK.
+Tests capture emissions by monkeypatching ``phlo.telemetry.emit`` — the
+plugin's single emission surface — and faking the identifier builders. This
+exercises the full translation layer independently of the configured drains.
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """Capture every phlo_observe.emit call as a kwargs dict.
 
     ``enabled`` is patched live too: _handle gates on it before translating,
-    and the real check needs the optional SDK which 3.11 test runs lack.
+    and the real check depends on runtime configuration outside this unit test.
     """
     calls: list[dict[str, Any]] = []
 

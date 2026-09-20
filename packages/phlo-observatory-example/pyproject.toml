@@ -10,7 +10,7 @@ dependencies = [
 description = "Example Observatory extension plugin"
 name = "phlo-observatory-example"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.15.4"
 
 [[project.authors]]
@@ -32,4 +32,4 @@ packages = ["src/phlo_observatory_example"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"

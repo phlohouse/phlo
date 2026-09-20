@@ -14,7 +14,7 @@ dependencies = [
 ]
 description = "Delta Lake table-store capability plugin for Phlo"
 name = "phlo-delta"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.15.4"
 
 [[project.authors]]
@@ -40,7 +40,7 @@ text = "Delta Lake table-store capability plugin for Phlo."
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools.package-dir]
 "" = "src"

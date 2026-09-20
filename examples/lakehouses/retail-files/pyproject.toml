@@ -6,7 +6,7 @@ requires = ["hatchling"]
 description = "Retail Files blueprint: a production-shaped, network-independent retail lakehouse project template for phlo"
 name = "phlo-retail-files"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.1.0"
 dependencies = [
     "phlo[defaults]==0.16.2",
@@ -28,7 +28,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

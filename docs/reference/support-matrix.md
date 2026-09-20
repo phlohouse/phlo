@@ -257,10 +257,10 @@ A target profile states the intended support boundary. Maturity and readiness st
 
 ### `phlo-observe-plugin`
 
-- Target profile: `optional`; target status: `preview`.
-- Current maturity: `preview`; readiness: `not gated`.
-- Applicable gates: none.
-- Blockers: none.
+- Target profile: `blessed_core`; target status: `supported`.
+- Current maturity: `alpha`; readiness: `blocked`.
+- Applicable gates: `security`, `upgrade_restore`, `golden_path`, `run_evidence`.
+- Blockers: `security`, `upgrade_restore`, `golden_path`, `run_evidence`.
 
 ### `phlo-openmetadata`
 

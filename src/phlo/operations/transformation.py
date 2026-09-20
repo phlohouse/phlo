@@ -7,7 +7,7 @@ depending on any concrete implementation.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Protocol
 
 
 @dataclass
@@ -36,10 +36,7 @@ class Logger(Protocol):
         """Log a transformation error message."""
 
 
-ContextT = TypeVar("ContextT")
-
-
-class BaseTransformer(Generic[ContextT], ABC):
+class BaseTransformer[ContextT](ABC):
     """Base contract for transformation engines."""
 
     def __init__(self, context: ContextT, logger: Logger):
@@ -58,7 +55,7 @@ class BaseTransformer(Generic[ContextT], ABC):
         ...
 
 
-class AsyncTransformer(Generic[ContextT], ABC):
+class AsyncTransformer[ContextT](ABC):
     """Async contract for transformation engines."""
 
     def __init__(self, context: ContextT, logger: Logger):

@@ -34,7 +34,7 @@ The default `LOG` policy records handler failures and continues with the remaini
 
 ## Package consumers
 
-The alerting package consumes hook events through `AlertingHookPlugin`. The lineage package records lineage events. OpenMetadata translates metadata events, `phlo-otel` exports telemetry, and `phlo-observe-plugin` translates events for its Observatory service.
+The alerting package consumes hook events through `AlertingHookPlugin`. The lineage package records lineage events. OpenMetadata translates metadata events. Phlo emits canonical logs, metrics, and operation events through `phlo-observe`, while `phlo-observe-plugin` translates domain hook events for its Observatory service. The optional `phlo-otel` package exports OpenTelemetry data.
 
 The bus discovers core telemetry and run-evidence providers lazily, then discovers installed plugin providers through the hook entry point group. Install the package that owns the integration before expecting its handler to be registered.
 

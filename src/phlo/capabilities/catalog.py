@@ -12,10 +12,7 @@ from __future__ import annotations
 import builtins
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
-from typing import Any, Generic, Protocol, TypeVar
-
-SpecT = TypeVar("SpecT")
-KeyT = TypeVar("KeyT", bound=Hashable)
+from typing import Any, Protocol, TypeVar
 
 
 class NamedSpec(Protocol):
@@ -28,7 +25,7 @@ NamedSpecT = TypeVar("NamedSpecT", bound=NamedSpec)
 
 
 @dataclass(slots=True)
-class CapabilityFamily(Generic[SpecT, KeyT]):
+class CapabilityFamily[SpecT, KeyT: Hashable]:
     """Registration storage for one capability family."""
 
     key: Callable[[SpecT], KeyT]
@@ -53,7 +50,7 @@ def named_family() -> CapabilityFamily[NamedSpecT, str]:
 
 
 @dataclass(frozen=True, slots=True)
-class CapabilityFamilyDefinition(Generic[SpecT, KeyT]):
+class CapabilityFamilyDefinition[SpecT, KeyT: Hashable]:
     """Metadata describing one named capability family."""
 
     name: str

@@ -15,7 +15,7 @@ dependencies = [
 ]
 description = "Quality checks and schema utilities for Phlo"
 name = "phlo-pandera"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.15.4"
 
 [[project.authors]]
@@ -47,7 +47,7 @@ text = "Quality checks and Pandera utilities for Phlo."
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools]
 include-package-data = true

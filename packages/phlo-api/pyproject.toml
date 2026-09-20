@@ -18,7 +18,7 @@ dependencies = [
 ]
 description = "Phlo API - Backend service exposing Phlo internals to Observatory"
 name = "phlo-api"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.16.2"
 
 [[project.authors]]
@@ -44,7 +44,7 @@ text = "Phlo API backend for Observatory."
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools]
 include-package-data = true

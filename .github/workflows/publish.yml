@@ -28,7 +28,7 @@ jobs:
           version: "0.12.1"
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv python install 3.12
 
       - name: Determine packages and build
         env:

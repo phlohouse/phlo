@@ -517,13 +517,23 @@
       "target_status": "development_only"
     },
     {
-      "applicable_gates": [],
-      "blockers": [],
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence"
+      ],
       "component": "package:phlo-observe-plugin",
-      "current_maturity": "preview",
-      "readiness": "not gated",
-      "target_profile": "optional",
-      "target_status": "preview"
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
     },
     {
       "applicable_gates": [],

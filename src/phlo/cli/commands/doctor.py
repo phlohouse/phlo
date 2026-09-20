@@ -307,14 +307,14 @@ def check_environment(*, verbose: bool = False) -> list[DiagnosticResult]:
         )
     ]
     python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    python_status = DiagnosticStatus.OK if sys.version_info >= (3, 11) else DiagnosticStatus.FAIL
+    python_status = DiagnosticStatus.OK if sys.version_info >= (3, 12) else DiagnosticStatus.FAIL
     results.append(
         DiagnosticResult(
             "env.python",
             "Environment",
             python_status,
             f"Python {python_version}",
-            None if python_status == DiagnosticStatus.OK else "Install Python 3.11 or newer.",
+            None if python_status == DiagnosticStatus.OK else "Install Python 3.12 or newer.",
         )
     )
 

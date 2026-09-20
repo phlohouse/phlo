@@ -7,9 +7,7 @@ occurrences in input order.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any, TypeVar
-
-_T = TypeVar("_T")
+from typing import Any
 
 
 def compact_dict(d: Mapping[str, Any]) -> dict[str, Any]:
@@ -17,10 +15,10 @@ def compact_dict(d: Mapping[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in d.items() if v is not None}
 
 
-def dedupe_preserve_order(values: Iterable[_T]) -> list[_T]:
+def dedupe_preserve_order[T](values: Iterable[T]) -> list[T]:
     """Return unique values in input order."""
-    seen: set[_T] = set()
-    deduped: list[_T] = []
+    seen: set[T] = set()
+    deduped: list[T] = []
     for value in values:
         if value in seen:
             continue

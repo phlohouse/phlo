@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "phlo-wap-failure-lab-example"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "phlo[defaults] @ git+https://github.com/phlohouse/phlo.git@1fe9d7584ef774890c3e6f57d398138e1cd6f44d",
     "phlo-dagster @ git+https://github.com/phlohouse/phlo.git@1fe9d7584ef774890c3e6f57d398138e1cd6f44d#subdirectory=packages/phlo-dagster",
@@ -32,7 +32,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

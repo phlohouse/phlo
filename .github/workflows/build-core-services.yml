@@ -44,8 +44,8 @@ jobs:
 
       - name: Install workspace service plugins
         run: |
-          uv python install 3.11
-          uv sync --python 3.11 --all-packages --locked
+          uv python install 3.12
+          uv sync --python 3.12 --all-packages --locked
 
       - name: Render every installed service through the public CLI
         id: matrix

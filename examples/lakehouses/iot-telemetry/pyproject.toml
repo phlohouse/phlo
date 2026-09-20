@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "phlo-iot-telemetry-example"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "phlo[defaults]==0.14.0",
     "phlo-dagster @ git+https://github.com/phlohouse/phlo.git@c74e78f95a#subdirectory=packages/phlo-dagster",
@@ -32,7 +32,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

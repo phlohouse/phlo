@@ -38,8 +38,8 @@ jobs:
       - name: Install the complete service workspace
         working-directory: source
         run: |
-          uv python install 3.11
-          uv sync --python 3.11 --all-packages --locked
+          uv python install 3.12
+          uv sync --python 3.12 --all-packages --locked
 
       - name: Generate and commit the shared Compose layout
         working-directory: source
@@ -124,9 +124,9 @@ jobs:
       - name: Install the built CLI into a clean Windows environment
         shell: pwsh
         run: |
-          uv python install 3.11
+          uv python install 3.12
           $venv = Join-Path $env:RUNNER_TEMP "phlo-windows-venv"
-          uv venv --python 3.11 $venv
+          uv venv --python 3.12 $venv
           $python = Join-Path $venv "Scripts\python.exe"
           $wheels = Get-ChildItem (Join-Path $env:GITHUB_WORKSPACE "fixture-input\wheelhouse") -Filter *.whl
           if ($wheels.Count -eq 0) { throw "No workspace wheels were uploaded" }

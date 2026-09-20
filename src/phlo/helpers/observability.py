@@ -12,6 +12,7 @@ import time
 from contextlib import contextmanager
 from typing import Any
 
+import phlo.telemetry as phlo_observe
 from phlo.capabilities import resolve_capability
 from phlo.logging import log_event
 
@@ -24,7 +25,8 @@ def emit_metric(
     payload: dict[str, Any] | None = None,
     backend: Any = None,
 ) -> None:
-    """Emit a metric when an observability backend is available."""
+    """Emit a canonical metric and forward it to a legacy backend if present."""
+    phlo_observe.metric(name, value, unit=unit)
     provider = backend
     if provider is None:
         resolution = resolve_capability("observability_backend")

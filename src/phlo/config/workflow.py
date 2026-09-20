@@ -9,13 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, TypeVar, overload
+from typing import Any, overload
 
 from pydantic import BaseModel, ValidationError
 
 from phlo.config.env import load_project_env
-
-SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 
 class WorkflowSettingsError(ValueError):
@@ -120,7 +118,7 @@ def _format_validation_error(namespace: str | None, exc: ValidationError) -> Wor
 
 
 @overload
-def workflow_settings(
+def workflow_settings[SchemaT: BaseModel](
     namespace: str | None = None,
     *,
     schema: type[SchemaT],
@@ -137,7 +135,7 @@ def workflow_settings(
 ) -> SimpleNamespace: ...
 
 
-def workflow_settings(
+def workflow_settings[SchemaT: BaseModel](
     namespace: str | None = None,
     *,
     schema: type[SchemaT] | None = None,

@@ -34,8 +34,8 @@ try {
     $fakePython = Join-Path $fakeBin "py.cmd"
     Set-Content -Path $fakePython -Encoding ascii -Value @(
         "@echo off"
-        'if "%1"=="-3.11" if "%2"=="--version" ('
-        "  echo Python 3.11.9"
+        'if "%1"=="-3.12" if "%2"=="--version" ('
+        "  echo Python 3.12.9"
         "  exit /b 0"
         ")"
         "exit /b 23"
@@ -51,10 +51,10 @@ try {
     $env:Path = $emptyBin
     $missingOutput = & $pwsh -NoProfile -File $launcher -WhatIf 2>&1 | Out-String
     if ($LASTEXITCODE -eq 0) {
-        throw "Launcher accepted a missing Python 3.11 interpreter. Output: $missingOutput"
+        throw "Launcher accepted a missing Python 3.12 interpreter. Output: $missingOutput"
     }
-    Assert-Contains $missingOutput "Python 3.11 was not found"
-    Assert-Contains $missingOutput "py -3.11"
+    Assert-Contains $missingOutput "Python 3.12 was not found"
+    Assert-Contains $missingOutput "py -3.12"
 }
 finally {
     $env:Path = $originalPath

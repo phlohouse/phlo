@@ -12,7 +12,7 @@ dependencies = [
 ]
 description = "superset service plugin for Phlo"
 name = "phlo-superset"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.15.4"
 
 [[project.authors]]
@@ -37,7 +37,7 @@ text = "superset service plugin for Phlo."
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools]
 include-package-data = true

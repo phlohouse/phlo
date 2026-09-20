@@ -227,10 +227,17 @@ def test_lineage_emitter_merges_bound_correlation_context() -> None:
     assert event.correlation.job_name == "lineage_job"
 
 
-def test_telemetry_emitter_merges_bound_correlation_context() -> None:
+def test_telemetry_emitter_merges_bound_correlation_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     bus = RecordingBus()
+    observed: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "phlo.telemetry.metric",
+        lambda name, value, **fields: observed.append({"name": name, "value": value, **fields}),
+    )
     emitter = TelemetryEventEmitter(
-        TelemetryEventContext(),
+        TelemetryEventContext(tags={"source": "test"}),
         hook_bus=bus,
     )
 
@@ -247,6 +254,60 @@ def test_telemetry_emitter_merges_bound_correlation_context() -> None:
     assert event.unit == "rows"
     assert event.correlation.trace_id == "tm1"
     assert event.correlation.job_name == "telemetry_job"
+    assert observed == [
+        {
+            "name": "rows_processed",
+            "value": 1000,
+            "unit": "rows",
+            "correlation": {
+                "trace_id": "tm1",
+                "span_id": "tms1",
+                "job_id": "telemetry_job",
+            },
+            "tags": {"source": "test"},
+        }
+    ]
+
+
+def test_telemetry_log_emits_canonical_application_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bus = RecordingBus()
+    observed: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "phlo.telemetry.emit",
+        lambda name, **fields: observed.append({"name": name, **fields}),
+    )
+    emitter = TelemetryEventEmitter(
+        TelemetryEventContext(
+            tags={"source": "maintenance"},
+            correlation=HookCorrelation(run_id="run-2", job_name="compact"),
+        ),
+        hook_bus=bus,
+    )
+
+    emitter.emit_log(
+        name="maintenance_failed",
+        level="error",
+        payload={"table": "raw.users"},
+    )
+
+    assert bus.events[0].event_type == "telemetry.log"
+    assert observed == [
+        {
+            "name": "application.log",
+            "category": "application",
+            "severity": "error",
+            "outcome": "failure",
+            "attributes": {
+                "logger": "phlo.telemetry",
+                "message": "maintenance_failed",
+                "table": "raw.users",
+            },
+            "correlation": {"run_id": "run-2", "job_id": "compact"},
+            "tags": {"source": "maintenance"},
+        }
+    ]
 
 
 def test_service_lifecycle_emitter_merges_bound_correlation_context() -> None:

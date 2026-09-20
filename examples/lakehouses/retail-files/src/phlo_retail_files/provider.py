@@ -22,7 +22,7 @@ requires = ["setuptools>=75", "wheel"]
 [project]
 description = "{description}"
 name = "{project_name}"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.1.0"
 dependencies = [
 {dependencies}
@@ -38,7 +38,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

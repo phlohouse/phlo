@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "phlo-ecommerce-replication-example"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "phlo[defaults]==0.14.0",
     "phlo-dagster @ git+https://github.com/phlohouse/phlo.git@2beae89f69462ca0bb788137cd9d47a98f65e5b7#subdirectory=packages/phlo-dagster",
@@ -29,7 +29,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

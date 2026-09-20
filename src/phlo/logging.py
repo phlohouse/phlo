@@ -299,16 +299,29 @@ def log_event(logger: Any, level: str, event: str, **fields: Any) -> None:
 def bind_context(**fields: Any) -> None:
     """Bind fields to the current contextvars scope for structured logging."""
     structlog.contextvars.bind_contextvars(**fields)
+    from phlo import telemetry
+
+    telemetry.bind_logging_context(**fields)
 
 
 def clear_context() -> None:
     """Clear all structlog contextvars fields for the current scope."""
     structlog.contextvars.clear_contextvars()
+    from phlo import telemetry
+
+    telemetry.clear_logging_context()
 
 
 def get_bound_correlation_context() -> HookCorrelation:
     """Return the current correlation fields bound in logging contextvars."""
-    values: dict[str, Any] = {}
+    from phlo import telemetry
+
+    observed = telemetry.logging_correlation()
+    values: dict[str, Any] = {
+        "job_name" if key == "job_id" else key: value
+        for key, value in observed.items()
+        if ("job_name" if key == "job_id" else key) in _CORRELATION_FIELDS
+    }
     for field in _CORRELATION_FIELDS:
         value = _coerce_optional_string(structlog.contextvars.get_contextvars().get(field))
         if value is not None:
@@ -349,6 +362,7 @@ class LogRouterHandler(logging.Handler):
             event = _record_to_event(record, self._service_name)
             if event is None:
                 return
+            _emit_observed_log(event)
             from phlo.hooks.bus import get_hook_bus
 
             get_hook_bus().emit(event)
@@ -356,6 +370,37 @@ class LogRouterHandler(logging.Handler):
             self.handleError(record)
         finally:
             _ROUTER_ACTIVE.reset(token)
+
+
+def _emit_observed_log(event: LogEvent) -> None:
+    """Emit a routed log as a canonical phlo-observe event."""
+    from phlo import telemetry
+
+    correlation = {
+        "request_id": event.correlation.request_id,
+        "trace_id": event.correlation.trace_id,
+        "span_id": event.correlation.span_id,
+        "run_id": event.correlation.run_id,
+        "asset_key": event.correlation.asset_key,
+        "job_id": event.correlation.job_name,
+        "partition_key": event.correlation.partition_key,
+    }
+    telemetry.emit(
+        "application.log",
+        category="application",
+        delivery="telemetry",
+        severity={"warning": "warn", "fatal": "critical"}.get(event.level, event.level),
+        outcome="failure" if event.level in {"error", "critical", "fatal"} else None,
+        attributes={
+            "logger": event.logger,
+            "level": event.level.upper(),
+            "message": event.message,
+            "service": event.service,
+            **event.metadata,
+        },
+        correlation={key: value for key, value in correlation.items() if value is not None},
+        tags=event.tags,
+    )
 
 
 class PhloConsoleRenderer:

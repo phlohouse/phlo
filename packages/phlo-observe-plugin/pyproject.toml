@@ -9,15 +9,10 @@ requires = [
 dependencies = [
     "phlo>=0.16.2,<0.17",
     "phlo-dagster>=0.3.2",
-    # The phlo-observe SDK (observe-core + phlo-observe) is intentionally NOT
-    # declared: it requires Python >=3.12, is not yet published to PyPI, and
-    # published packages may not carry git dependencies. Install it into the
-    # runtime environment separately (e.g. the Dagster image); without it
-    # every integration point degrades to a no-op via phlo.telemetry.
 ]
 description = "phlo-observe SDK integration and phlo-observer service for Phlo"
 name = "phlo-observe-plugin"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.1.0"
 
 [[project.authors]]
@@ -49,7 +44,7 @@ text = "Canonical event emission and observer service wiring for Phlo."
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools.package-dir]
 "" = "src"

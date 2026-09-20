@@ -1,9 +1,4 @@
-"""Tests for the phlo.telemetry soft-import shim.
-
-The phlo-observe SDK is an optional dependency (Python >=3.12 only). These
-tests exercise the shim's degraded path — every helper must no-op cleanly
-when the SDK is absent, and instrumentation call sites must be unaffected.
-"""
+"""Tests for the fail-open phlo.telemetry bridge."""
 
 from __future__ import annotations
 
@@ -80,6 +75,62 @@ def test_emit_noop() -> None:
     )
     phlo_observe.emit_dbt_run_results({"results": []})
     phlo_observe.emit_asset_check(object(), check_name="x", passed=True)
+
+
+def test_metric_uses_observe_core_metric(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, float, dict[str, object]]] = []
+
+    class _Core:
+        @staticmethod
+        def metric(name: str, value: float, **kwargs: object) -> None:
+            calls.append((name, value, kwargs))
+
+    monkeypatch.setattr(phlo_observe, "_observe_core", lambda: _Core())
+    monkeypatch.setattr(phlo_observe, "enabled", lambda: True)
+
+    phlo_observe.metric(
+        "rows_processed",
+        12,
+        unit="rows",
+        correlation={"run_id": "run-1"},
+        tags={"asset": "raw.users"},
+    )
+
+    assert calls == [
+        (
+            "rows_processed",
+            12.0,
+            {
+                "dimensions": {"unit": "rows"},
+                "correlation": {"run_id": "run-1"},
+                "tags": {"asset": "raw.users"},
+            },
+        )
+    ]
+
+
+def test_logging_context_is_mirrored_into_observe_core(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bound: list[dict[str, object]] = []
+    cleared: list[bool] = []
+    monkeypatch.setattr(
+        phlo_observe,
+        "_import_optional",
+        lambda module, attr=None: (
+            (lambda **fields: bound.append(fields))
+            if attr == "bind_context_token"
+            else (lambda: cleared.append(True))
+            if attr == "clear_context"
+            else None
+        ),
+    )
+
+    phlo_observe.bind_logging_context(run_id="run-1", path="/health")
+    phlo_observe.clear_logging_context()
+
+    assert bound == [{"run_id": "run-1", "path": "/health"}]
+    assert cleared == [True]
 
 
 def test_enabled_false_without_sdk(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -12,14 +12,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from functools import lru_cache, wraps
 from pathlib import Path
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, Protocol, cast
 
 from phlo.config.env import resolve_project_root, use_project_root
 
-T = TypeVar("T")
 
-
-class ProjectRootCached(Protocol[T]):
+class ProjectRootCached[T](Protocol):
     """Callable configuration cache with the standard invalidation hook."""
 
     def __call__(self, project_root: Path | str | None = None) -> T: ...
@@ -33,7 +31,7 @@ class ProjectRootCached(Protocol[T]):
         ...
 
 
-def project_root_cached(factory: Callable[[Path], T]) -> ProjectRootCached[T]:
+def project_root_cached[T](factory: Callable[[Path], T]) -> ProjectRootCached[T]:
     """Cache a configuration factory by its resolved project root.
 
     The returned callable accepts an optional ``project_root`` argument and

@@ -255,7 +255,7 @@ def register_default_capability_providers() -> None:
             name="default",
             provider=DefaultObservabilityBackend(),
             metadata={
-                "default_stack": ["phlo-otel", "phlo-clickstack"],
+                "default_stack": ["phlo-observe", "phlo-clickstack"],
                 "service_dependencies": ["clickstack"],
             },
             support=CapabilitySupport(

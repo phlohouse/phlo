@@ -49,7 +49,10 @@ def test_discover_capabilities_registers_core_default_providers() -> None:
     assert isinstance(maintenance_specs[0].provider, DefaultMaintenanceReadModel)
     assert [spec.name for spec in observability_specs] == ["default"]
     assert isinstance(observability_specs[0].provider, DefaultObservabilityBackend)
-    assert observability_specs[0].metadata["default_stack"] == ["phlo-otel", "phlo-clickstack"]
+    assert observability_specs[0].metadata["default_stack"] == [
+        "phlo-observe",
+        "phlo-clickstack",
+    ]
     assert observability_specs[0].metadata["service_dependencies"] == ["clickstack"]
     assert observability_specs[0].support.supports_metrics is True
     assert observability_specs[0].support.supports_logs is True

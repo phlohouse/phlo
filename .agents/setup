@@ -90,8 +90,8 @@ run_step "Install Docker" install_docker
 run_step "Start Docker daemon" ensure_docker_daemon
 run_step "Install uv 0.12.1" install_uv
 export PATH="$HOME/.local/bin:$PATH"
-run_step "Install Python 3.11" uv python install 3.11
-run_step "Sync Python workspace" uv sync --python 3.11 --dev --locked
+run_step "Install Python 3.12" uv python install 3.12
+run_step "Sync Python workspace" uv sync --python 3.12 --dev --locked
 run_step "Install Node.js 24" install_node
 run_step "Sync Observatory dependencies" npm ci --prefix "$observatory_dir"
 run_step "Sync Phlo GitHub writer dependencies" npm ci --prefix "$writer_dir"

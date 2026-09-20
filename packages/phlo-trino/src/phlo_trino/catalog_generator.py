@@ -34,12 +34,7 @@ logger = get_logger(__name__)
 
 def _load_entry_points(group: str) -> list[CatalogPlugin]:
     """Load catalog plugins from a Python entry-point group."""
-    try:
-        entry_points = importlib.metadata.entry_points(group=group)
-    except TypeError:
-        # Python < 3.10 has no selectable entry_points(group=...) API.
-        all_entry_points = importlib.metadata.entry_points()
-        entry_points = all_entry_points.get(group, [])
+    entry_points = importlib.metadata.entry_points(group=group)
 
     catalogs: list[CatalogPlugin] = []
     for entry_point in entry_points:

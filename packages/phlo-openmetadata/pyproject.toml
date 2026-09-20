@@ -12,7 +12,7 @@ dependencies = [
 ]
 description = "OpenMetadata integration for Phlo"
 name = "phlo-openmetadata"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.15.4"
 
 [[project.authors]]
@@ -52,7 +52,7 @@ text = "OpenMetadata integration for Phlo."
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools]
 include-package-data = true

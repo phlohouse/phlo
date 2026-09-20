@@ -1,9 +1,8 @@
-"""Optional bridge to the phlo-observe SDK (``observe-core`` + ``phlo-observe``).
+"""Phlo bridge to the phlo-observe SDK (``observe-core`` + ``phlo-observe``).
 
-All phlo-internal emission of canonical observability events routes through
-this module so the SDK remains an optional dependency: when it is not
-installed (or observability is disabled) every helper degrades to a no-op and
-pipeline execution is unaffected.
+All Phlo-internal canonical logs, metrics, and operation events route through
+this module. Emission remains fail-open when observability is disabled or its
+runtime cannot initialize, so telemetry never breaks pipeline execution.
 
 Configuration is environment-driven via ``configure_phlo``:
 
@@ -36,9 +35,8 @@ drain cannot run (missing or too-old SDK), the console is restored to
 reshapes what the console *renders* — the Dagster event log and captured
 ``context.log`` records keep every event.
 
-Optional dependencies are resolved through ``importlib`` so static analysis
-never sees the imports: on Python versions the SDK does not support, or in
-environments where it is simply not installed, this module still loads.
+SDK surfaces are resolved lazily through ``importlib`` so importing Phlo does
+not initialize the observability runtime.
 """
 
 from __future__ import annotations
@@ -338,6 +336,31 @@ def bind_context(**values: Any) -> Any:
         return contextlib.nullcontext()
 
 
+def bind_logging_context(**values: Any) -> None:
+    """Mirror Phlo's imperative logging context into observe-core."""
+    bind = _import_optional("observe_core.context", "bind_context_token")
+    if bind is not None:
+        bind(**values)
+
+
+def clear_logging_context() -> None:
+    """Clear context previously mirrored from Phlo logging."""
+    clear = _import_optional("observe_core.context", "clear_context")
+    if clear is not None:
+        clear()
+
+
+def logging_correlation() -> dict[str, str]:
+    """Return effective observe-core correlation for Phlo hook events."""
+    effective = _import_optional("observe_core.context", "effective_correlation")
+    if effective is None:
+        return {}
+    try:
+        return dict(effective())
+    except Exception:  # noqa: BLE001 - correlation enrichment is best-effort
+        return {}
+
+
 def _ambient_value(key: str) -> str | None:
     """Read one ambient correlation value; None when absent or SDK missing."""
     if _observe_core() is None:
@@ -532,6 +555,30 @@ def emit(
         runtime_mod.get_runtime().emit(builder, None)
     except Exception as exc:  # noqa: BLE001 - emission must never break the caller
         logger.debug("phlo_observe_emit_failed", event_name=name, error=str(exc))
+
+
+def metric(
+    name: str,
+    value: float,
+    *,
+    unit: str | None = None,
+    correlation: dict[str, Any] | None = None,
+    tags: dict[str, Any] | None = None,
+) -> None:
+    """Record an aggregated metric through observe-core when enabled."""
+    core = _observe_core()
+    if core is None or not enabled():
+        return
+    try:
+        core.metric(
+            name,
+            float(value),
+            dimensions={"unit": unit} if unit else None,
+            correlation=correlation,
+            tags=tags,
+        )
+    except Exception as exc:  # noqa: BLE001 - metrics must never break the caller
+        logger.debug("phlo_observe_metric_failed", metric_name=name, error=str(exc))
 
 
 class _GuardedContext:

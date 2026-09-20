@@ -11,7 +11,7 @@ topological sort with cycle detection, no phlo imports beyond its own cycle help
 from __future__ import annotations
 
 from collections import deque
-from typing import Protocol, TypeVar
+from typing import Protocol
 
 from phlo.plugins.discovery._service_cycles import find_cycles
 
@@ -23,10 +23,9 @@ class _ServiceLike(Protocol):
     depends_on: list[str]
 
 
-_ServiceT = TypeVar("_ServiceT", bound=_ServiceLike)
-
-
-def resolve_service_dependencies(services: list[_ServiceT]) -> list[_ServiceT]:
+def resolve_service_dependencies[ServiceT: _ServiceLike](
+    services: list[ServiceT],
+) -> list[ServiceT]:
     """Resolve and sort services by dependencies (topological order)."""
     service_names = {service.name for service in services}
     graph: dict[str, set[str]] = {}
