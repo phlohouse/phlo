@@ -1130,7 +1130,7 @@
         "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
         "packages/phlo-observatory/src/phlo_observatory/src/observatory/api/resources.ts",
         "packages/phlo-api/tests/test_observatory_api.py",
-        "docs/packages/phlo-observatory.md#durable-run-report-support-boundary"
+        "docs/reference/packages.md#durable-run-report-support-boundary"
       ]
     },
     {
@@ -1151,7 +1151,7 @@
       "current_maturity": "blocked",
       "reason": "Current generated services include development credentials, public ports, or disabled authentication; the secure production profile is not implemented.",
       "evidence": [
-        "docs/setup/security.md",
+        "docs/guides/secure-the-stack.md",
         "packages/phlo-postgres/src/phlo_postgres/service.yaml",
         "packages/phlo-minio/src/phlo_minio/service.yaml"
       ]
@@ -1167,7 +1167,7 @@
         "packages/phlo-iceberg/tests/test_compaction_contract.py",
         "packages/phlo-trino/src/phlo_trino/resource.py",
         "packages/phlo-trino/tests/test_resource_maintenance.py",
-        "docs/operations/operations-guide.md"
+        "docs/guides/run-in-production.md"
       ]
     },
     {
@@ -1180,7 +1180,7 @@
         "scripts/recovery_drill.py",
         "tests/scripts/test_recovery_drill.py",
         ".github/workflows/ci.yml",
-        "docs/operations/operations-guide.md"
+        "docs/guides/run-in-production.md"
       ]
     },
     {
@@ -1800,7 +1800,7 @@
       "reason": "Required CI runs on ubuntu-latest; platform tests and documentation do not establish native OS compatibility.",
       "evidence": [
         ".github/workflows/ci.yml",
-        "docs/getting-started/installation.md",
+        "docs/getting-started/install.md",
         "tests/runtime/test_definitions.py"
       ]
     },
@@ -1815,7 +1815,7 @@
       ],
       "reason": "Docker and Podman are documented, but the backend tests mock subprocesses and CI has no Podman lane.",
       "evidence": [
-        "docs/getting-started/installation.md",
+        "docs/getting-started/install.md",
         "tests/runtime/test_container_backend.py",
         ".github/workflows/ci.yml"
       ]
@@ -1838,9 +1838,9 @@
     "reason": "Mandatory HTTP authorization, scoped workload identities, backend-native readiness adapters, and fail-closed durable audit on mutations are implemented and observable through the production preflight; the gate remains open until converged grant/audit evidence is demonstrated on a live deployment and the other release gates pass.",
     "release_cut_note": "production.status is required_before_release because release BOM resolution, supply-chain checks, and final release-cut evidence are outside this support boundary.",
     "evidence": [
-      "docs/setup/security.md",
+      "docs/guides/secure-the-stack.md",
       "docs/reference/auth-and-access.md",
-      "docs/operations/production-readiness.md"
+      "docs/guides/run-in-production.md"
     ]
   },
   "exclusions": [
@@ -1849,7 +1849,7 @@
       "status": "excluded",
       "reason": "v1 is one project and one tenant per deployment.",
       "evidence": [
-        "docs/reference/configuration-reference.md#tenant-scope"
+        "docs/reference/configuration.md#tenant-scope"
       ]
     },
     {
@@ -1865,7 +1865,7 @@
       "status": "excluded",
       "reason": "These deployment guarantees are outside the single-project v1 contract.",
       "evidence": [
-        "docs/operations/release-management.md#release-artifact-support-boundary"
+        "docs/guides/run-in-production.md#release-artifact-support-boundary"
       ]
     },
     {
@@ -1873,7 +1873,7 @@
       "status": "excluded",
       "reason": "Exact artifact resolution is a release-cut responsibility rather than a support-classification guarantee.",
       "evidence": [
-        "docs/operations/release-management.md#release-artifact-support-boundary"
+        "docs/guides/run-in-production.md#release-artifact-support-boundary"
       ]
     }
   ]

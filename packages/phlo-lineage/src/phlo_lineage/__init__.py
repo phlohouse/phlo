@@ -22,7 +22,7 @@ Example:
     >>> graph = get_lineage_graph()
 
 See Also:
-    - Documentation: docs/packages/phlo-lineage.md
+    - Documentation: docs/reference/packages.md
     - Repository: https://github.com/phlohouse/phlo
 
 """

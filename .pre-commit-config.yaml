@@ -64,6 +64,12 @@ repos:
         entry: python3 scripts/check_file_headers.py
         language: system
         types_or: [python, ts, tsx, javascript, sql, shell]
+      - id: generated-reference-docs
+        name: generated reference docs
+        entry: uv run --locked python scripts/generate_reference_docs.py --check
+        language: system
+        pass_filenames: false
+        files: ^(scripts/generate_reference_docs\.py|src/|packages/|registry/support/v1\.json)
       - id: prettier-observatory
         name: prettier (Observatory)
         entry: packages/phlo-observatory/src/phlo_observatory/node_modules/.bin/prettier --cache --write

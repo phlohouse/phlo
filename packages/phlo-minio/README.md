@@ -62,7 +62,7 @@ MINIO_AUDIT_ENABLED=on
 MINIO_AUDIT_ENDPOINT=http://loki:3100/loki/api/v1/push
 ```
 
-Route audit events to a durable backend and correlate them with centralized application logs. See `docs/operations/audit-logging.md` for the full platform posture.
+Route audit events to a durable backend and correlate them with centralized application logs. See `docs/guides/monitor-and-debug.md` for the full platform posture.
 
 ## Endpoints
 

@@ -132,6 +132,9 @@ jobs:
       - name: Check Python formatting
         run: uv run --locked ruff format --check .
 
+      - name: Check generated reference documentation
+        run: make docs-reference-check
+
       - name: Type check with ty
         run: make typecheck-python
 

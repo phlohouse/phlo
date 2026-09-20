@@ -122,7 +122,7 @@ data = connector.fetch_data(config={...})
 
 ## Plugin Development Guide
 
-See docs/PLUGIN_DEVELOPMENT.md for complete guide on developing plugins.
+See docs/guides/write-a-plugin.md for complete guide on developing plugins.
 
 ## Security
 

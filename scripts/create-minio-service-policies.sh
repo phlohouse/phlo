@@ -12,7 +12,7 @@
 #   DAGSTER_MINIO_ACCESS_KEY=<dagster-access-key>
 #   DAGSTER_MINIO_SECRET_KEY=<dagster-secret-key>
 #
-# See docs/setup/service-credentials.md for the full guide.
+# See docs/guides/secure-the-stack.md for the full guide.
 
 set -euo pipefail
 

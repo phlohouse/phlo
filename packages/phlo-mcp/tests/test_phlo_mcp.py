@@ -243,7 +243,14 @@ def test_create_server_registers_resources() -> None:
     ]
 
 
-def test_package_docs_resource_reads_local_docs() -> None:
+def test_package_docs_resource_reads_matching_section(tmp_path, monkeypatch) -> None:
+    docs = tmp_path / "docs" / "reference"
+    docs.mkdir(parents=True)
+    (docs / "packages.md").write_text(
+        "# Packages\n\n## phlo-mcp\n\nMCP package details.\n\n## phlo-dlt\n\nDLT package details.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
     server = create_server(McpConfig())
     template = next(
         template
@@ -253,7 +260,8 @@ def test_package_docs_resource_reads_local_docs() -> None:
 
     rendered = template.fn("phlo-mcp")
 
-    assert "# phlo-mcp" in rendered
+    assert rendered == "# phlo-mcp\n\nMCP package details.\n"
+    assert "DLT package details" not in rendered
 
 
 def test_api_client_adds_bearer_token_header(monkeypatch) -> None:

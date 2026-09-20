@@ -1,10 +1,4 @@
-"""MCP server exposing curated Phlo observability tools.
-
-Builds a FastMCP instance whose tools and resources delegate to one shared
-PhloApiClient; configuration comes from the environment, OpenTelemetry
-tracing is configured at creation, and package docs are read from
-docs/packages/ under the project root.
-"""
+"""MCP server exposing curated Phlo observability tools and package sections from docs/reference/packages.md."""
 
 from __future__ import annotations
 
@@ -32,9 +26,26 @@ def _read_package_doc(package_name: str) -> str:
     if "/" in safe_name or "\\" in safe_name or safe_name in {"", ".", ".."}:
         return f"# {package_name}\n\nPackage documentation not found.\n"
     for base in (Path.cwd(), *Path.cwd().parents):
-        candidate = base / "docs" / "packages" / f"{safe_name}.md"
+        candidate = base / "docs" / "reference" / "packages.md"
         if candidate.is_file():
-            return candidate.read_text(encoding="utf-8")
+            lines = candidate.read_text(encoding="utf-8").splitlines(keepends=True)
+            heading = f"## {safe_name}"
+            try:
+                start = next(
+                    index for index, line in enumerate(lines) if line.rstrip("\r\n") == heading
+                )
+            except StopIteration:
+                return f"# {package_name}\n\nPackage documentation not found.\n"
+            end = next(
+                (
+                    index
+                    for index, line in enumerate(lines[start + 1 :], start + 1)
+                    if line.startswith("## ")
+                ),
+                len(lines),
+            )
+            section = "".join(lines[start + 1 : end]).strip()
+            return f"# {safe_name}\n\n{section}\n"
     return f"# {package_name}\n\nPackage documentation not found.\n"
 
 
@@ -164,7 +175,7 @@ def create_server(config: McpConfig | None = None) -> FastMCP:
         mime_type="text/markdown",
     )
     def package_docs(package_name: str) -> str:
-        """Read package documentation from the local docs tree."""
+        """Read package documentation from the local package reference."""
         return _read_package_doc(package_name)
 
     @mcp.resource("phlo://docs/mcp/tools", name="mcp_tools", mime_type="application/json")

@@ -1,15 +1,15 @@
 # Architecture
 
-This section covers the public system shape of Phlo: major layers, boundaries, and runtime relationships.
+Phlo architecture records are organized as decision records and a regulated surface inventory.
 
-## In This Section
+## Decision records
 
-- [Public System Design](public-system-design.md): major layers, boundaries, and runtime relationships
-- [Architecture Overview](../reference/architecture.md): detailed component-level overview
-- [Platform Topology](../reference/platform-topology.md): where optional surfaces and runtime services fit
+The [decision record index](decisions/meta.json) lists the accepted architecture decisions. Each record preserves the context, decision, and consequences for one bounded design question.
 
-## Reading Order
+## Regulated surface inventory
 
-1. [Public System Design](public-system-design.md)
-2. [Platform Topology](../reference/platform-topology.md)
-3. [Architecture Overview](../reference/architecture.md)
+The [regulated surface inventory](regulated-surface-inventory.md) identifies the interfaces and behaviors that require deliberate compatibility review.
+
+## Reading order
+
+Read the inventory first when changing a regulated interface. Read the relevant decision record next for the design context and constraints.

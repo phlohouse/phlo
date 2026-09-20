@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "examples": [
+    {"name": "clickhouse-ops", "title": "ClickHouse operational lakehouse", "focus": ["clickhouse", "operational-analytics", "dbt"]},
+    {"name": "customer360", "title": "Customer 360 lakehouse", "focus": ["multi-domain", "identity-resolution", "dbt"]},
+    {"name": "delta-portability", "title": "Delta Portability lakehouse", "focus": ["delta", "portability", "iot"]},
+    {"name": "ecommerce-replication", "title": "E-commerce Replication lakehouse", "focus": ["postgres", "replication", "dbt"]},
+    {"name": "federated-domains", "title": "Federated domains lakehouse", "focus": ["federation", "multi-team", "dbt"]},
+    {"name": "healthcare-claims", "title": "Healthcare Claims lakehouse", "focus": ["regulated-data", "contracts", "quality"]},
+    {"name": "iot-telemetry", "title": "IoT Telemetry lakehouse", "focus": ["iot", "pipeline-stages", "schema-evolution"]},
+    {"name": "logistics-control-tower", "title": "Logistics Control Tower lakehouse", "focus": ["mixed-sources", "logistics", "dbt"]},
+    {"name": "market-data-fx", "title": "Market Data and FX lakehouse", "focus": ["rest-api", "market-data", "dbt"]},
+    {"name": "polaris-streaming", "title": "Polaris streaming lakehouse", "focus": ["polaris", "kafka", "airbyte"]},
+    {"name": "public-data-research", "title": "Public Data Research lakehouse", "focus": ["rest-api", "public-data", "dbt"]},
+    {"name": "retail-files", "title": "Retail Files blueprint", "focus": ["files", "blueprint", "beginner"]},
+    {"name": "saas-product-analytics", "title": "SaaS Product Analytics lakehouse", "focus": ["rest-api", "pagination", "schema-evolution"]},
+    {"name": "wap-failure-lab", "title": "WAP Failure Lab", "focus": ["write-audit-publish", "failure", "recovery"]}
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "title": "Learn",
+  "pages": [
+    "index",
+    "01-what-data-engineering-is",
+    "02-your-first-phlo-project",
+    "03-ingestion-with-dlt",
+    "04-tables-with-iceberg-and-nessie",
+    "05-orchestration-with-dagster",
+    "06-transformation-with-dbt",
+    "07-quality-with-pandera",
+    "08-schema-evolution-and-contracts",
+    "09-observability",
+    "10-incidents-and-debugging",
+    "11-performance-and-cost",
+    "12-extending-phlo"
+  ]
+}

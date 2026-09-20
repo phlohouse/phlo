@@ -23,7 +23,7 @@ Phlo is the framework and plugin runtime that ties together familiar lakehouse t
 
 Most lakehouse projects start in Python and quickly spill into YAML, Compose files, orchestration config, catalog setup, quality checks, and a pile of glue scripts and duplicated config. Phlo keeps those pieces in one project.
 
-Use the `phlo` CLI to create a project, start the local stack, materialize assets, run quality checks, follow logs, and inspect what happened. Add provider packages when you need them: Dagster for orchestration, dlt or Sling for ingestion, dbt for transforms, Iceberg or Delta for tables, Trino for query, and Observatory for a UI to inspect assets, tables, lineage, quality, services, and logs.
+Use the `phlo` CLI to create a project, start the local stack, materialise assets, run quality checks, follow logs, and inspect what happened. Add provider packages when you need them: Dagster for orchestration, dlt or Sling for ingestion, dbt for transforms, Iceberg or Delta for tables, Trino for query, and Observatory for a UI to inspect assets, tables, lineage, quality, services, and logs.
 
 ## What a Phlo asset looks like
 
@@ -39,7 +39,7 @@ import phlo
 from workflows.schemas.csv import EventsSchema
 
 
-@phlo.ingestion(
+@phlo.ingest.dlt(
     table_name="events",
     unique_key="event_id",
     validation_schema=EventsSchema,
@@ -53,7 +53,7 @@ def csv_events(partition_date: str) -> object:
     return dlt.resource(rows, name="events")
 ```
 
-This single function registers a partitioned ingestion asset, validates rows with Pandera, materializes through the configured orchestrator, lands the table in your configured storage and catalog, and becomes visible in Observatory and the catalog CLI; the starter wires the providers you install and generates the local runtime configuration.
+This single function registers a partitioned ingestion asset, validates rows with Pandera, materialises through the configured orchestrator, lands the table in your configured storage and catalog, and becomes visible in Observatory and the catalog CLI; the starter wires the providers you install and generates the local runtime configuration.
 
 ## Quick Start
 
@@ -91,6 +91,9 @@ phlo materialize dlt_events --partition 2025-01-15
 # Verify the table landed in the catalog
 phlo catalog tables
 
+# Open the Trino shell on the Iceberg catalog
+phlo trino --catalog iceberg
+
 # Stop the local stack when finished
 phlo services stop
 ```
@@ -120,14 +123,14 @@ Phlo's core stays small. Installed provider packages contribute capabilities thr
 
 ## Documentation
 
-- [Installation Guide](docs/getting-started/installation.md)
-- [Quickstart Guide](docs/getting-started/quickstart.md)
-- [Core Concepts](docs/getting-started/core-concepts.md)
-- [Choosing Components](docs/guides/choosing-components.md)
-- [Workflow Development](docs/guides/workflow-development.md)
-- [Plugin Development](docs/guides/plugin-development.md)
-- [Operations Guide](docs/operations/operations-guide.md)
-- [CLI Reference](docs/reference/cli-reference.md)
+- [Installation guide](docs/getting-started/install.md)
+- [First pipeline](docs/getting-started/first-pipeline.md)
+- [Concepts](docs/concepts/how-phlo-works.md)
+- [Choose your stack](docs/guides/choose-your-stack.md)
+- [Ingest data](docs/guides/ingest-data.md)
+- [Write a plugin](docs/guides/write-a-plugin.md)
+- [Run in production](docs/guides/run-in-production.md)
+- [CLI reference](docs/reference/cli.md)
 
 ## Project status
 
