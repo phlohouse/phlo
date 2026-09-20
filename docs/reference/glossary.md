@@ -107,7 +107,7 @@ The security mode enabled by `PHLO_REGULATED` that applies regulated validation 
 
 ## Native mode
 
-Development mode in which services with a `dev` command are started as host subprocesses by `NativeProcessManager`.
+Development mode in which services with a `dev` command are started as host subprocesses.
 
 ## Branch
 

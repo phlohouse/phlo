@@ -63,4 +63,4 @@ phlo init --list-templates
 phlo init my-project --template minimal
 ```
 
-The generated README records template-specific next steps. The source of the metadata is under `src/phlo/cli/templates/` and the provider template modules under `packages/phlo-dbt`, `packages/phlo-dlt`, and `packages/phlo-sling`.
+The generated README records template-specific next steps.

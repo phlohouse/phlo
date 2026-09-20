@@ -1,6 +1,6 @@
 # Package reference
 
-Package versions and support classifications come from `registry/support/v1.json`. Package READMEs contain package-specific implementation details.
+Package versions and support classifications come from the bundled support manifest. Package READMEs contain package-specific implementation details.
 
 ## Install extras
 

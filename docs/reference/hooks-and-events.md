@@ -1,6 +1,6 @@
 # Hooks and events
 
-Phlo hooks provide an extension boundary for telemetry, alerts, lineage, metadata catalogues, and run evidence. The event definitions are in `src/phlo/hooks/events.py`, and registration types are in `src/phlo/plugins/hooks.py`.
+Phlo hooks provide an extension boundary for telemetry, alerts, lineage, metadata catalogues, and run evidence.
 
 ## Event types
 

@@ -37,7 +37,7 @@ phlo operations restore plan --backup-set <backup-set-directory> --target <new-e
 phlo operations restore apply --plan <restore-plan.json> --confirmation-token <plan-token>
 ```
 
-Use the exact options shown by `phlo operations restore plan --help` for your installed version. The implementation binds the apply operation to the verified backup digest and explicit target.
+The apply operation is bound to the verified backup digest and explicit target.
 
 ## 4. Prove an upgrade
 
@@ -67,7 +67,7 @@ Before deleting a branch, confirm its name, head, and merge status. Branch delet
 phlo branch delete feature/new-model
 ```
 
-WAP uses an isolated branch or snapshot strategy when the configured catalog supports it. The WAP sensors promote successful audited work and clean up stale owned branches.
+WAP uses an isolated branch or snapshot strategy with Nessie. The WAP sensors promote successful audited work and clean up stale owned branches.
 
 ## 6. Plan a data migration
 
@@ -92,9 +92,9 @@ The `phlo migrate decorators-2026-05` codemod reports pending decorator changes 
 
 ## 7. Recover a Dagster run
 
-Open the Dagster UI and select the failed run. Use the run actions exposed by the configured API and authorisation policy to retry or cancel it.
+Open the Dagster UI and select the failed run. Select **Re-execute** and choose all steps or the steps from the failure, or select **Terminate** to cancel a running run.
 
-Run retry and cancel operations are governed actions. The Dagster authorisation adapter in `packages/phlo-dagster/src/phlo_dagster/authorization.py` maps the operation and selection to the configured access policy.
+The Dagster webserver authorises these GraphQL actions as `run.manage` operations. The Phlo API also exposes `POST /api/observatory/runs/{run_id}/retry` and `POST /api/observatory/runs/{run_id}/cancel`. These API routes require the `lakehouse:operate` permission and a non-blank idempotency key. The run-action contract marks both actions as requiring confirmation.
 
 ## Verify
 

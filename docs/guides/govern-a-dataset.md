@@ -26,7 +26,7 @@ def governed_events():
     """Describe the dlt_events governance surface."""
 ```
 
-The `ContractSpec` and `AssetSpec` created by these decorators are folded into the governance surface by `src/phlo/governance/surface.py`. Keep the table name aligned with the provider asset.
+These declarations join the governance metadata for the table. Keep the table name aligned with the provider asset.
 
 ## 2. Check readiness
 
@@ -69,7 +69,7 @@ Run the provider asset through Dagster after the metadata is ready.
 phlo materialize dlt_events --partition 2025-01-15
 ```
 
-The Dagster run records asset metadata and checks. Observatory and the browser-safe governance read model can then expose the owner, consumers, SLA, access policies, and readiness evidence when those integrations are enabled.
+The Dagster run records asset metadata and checks. Observatory and the browser-safe governance read model expose the owner, consumers, SLA, access policies, and readiness evidence.
 
 ## Verify
 

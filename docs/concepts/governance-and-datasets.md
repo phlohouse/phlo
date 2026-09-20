@@ -1,16 +1,16 @@
 # Governance and datasets
 
-Phlo combines declarations, readiness checks, and a canonical Dataset state model so you can describe who owns a table, who consumes it, and whether it is ready for publication.
+Governance metadata makes ownership, consumers, service expectations, access, and publication state visible alongside your data. After reading this page, you can connect declarations, contract checks, and Dataset transitions into a controlled publication workflow.
 
 ## What Phlo governs
 
-The governance surface merges `@phlo.contract`, `@phlo.publish`, `@phlo.access`, and `@phlo.observe` declarations into a `GovernedTable` in `src/phlo/governance/surface.py`. A row can include an owner, lifecycle, PII marker, audience, consumers, SLA, access policies, classifications, observability, and warnings.
+The governance surface merges `@phlo.contract`, `@phlo.publish`, `@phlo.access`, and `@phlo.observe` declarations. The resulting metadata can include an owner, lifecycle, PII marker, audience, consumers, SLA, access policies, classifications, observability, and warnings.
 
-`Consumer` and `SLA` are value objects in `src/phlo/contracts.py`. `Consumer` carries a name, contact, and usage. `SLA` carries freshness hours, a quality threshold, a maximum failure count, and notification targets.
+`Consumer` carries a name, contact, and usage. `SLA` carries freshness hours, a quality threshold, a maximum failure count, and notification targets.
 
 ## Contracts and the schema registry
 
-`SchemaRegistry` and `SchemaSnapshot` in `src/phlo/schema_registry.py` store immutable normalised schema snapshots in PostgreSQL. Registry lookup accepts `PHLO_REGISTRY_DB_URL`, `PHLO_LINEAGE_DB_URL`, or `DAGSTER_PG_DB_CONNECTION_STRING`.
+Phlo stores immutable normalised schema snapshots in PostgreSQL. Registry lookup accepts `PHLO_REGISTRY_DB_URL`, `PHLO_LINEAGE_DB_URL`, or `DAGSTER_PG_DB_CONNECTION_STRING`.
 
 Use `phlo contracts snapshot` to store a snapshot and `phlo contracts check` to compare a table with its previous snapshot. Normal materialisation refreshes contracts unless you pass `--no-contract-refresh` to `phlo materialize`. Use `phlo schema-migrate` when the compatibility result requires a planned schema change.
 
@@ -22,9 +22,9 @@ Use `phlo contracts snapshot` to store a snapshot and `phlo contracts check` to 
 
 ## Dataset identity and state
 
-The Dataset model in `src/phlo/dataset/models.py` uses `candidate:<table_id>` for candidates and `<table_id>` for promoted datasets. Candidate workflow states are `claimed`, `review`, `promoted`, and `rejected`. Publication states are `draft`, `published`, and `retired`.
+Dataset IDs use `candidate:<table_id>` for candidates and `<table_id>` for promoted datasets. Candidate workflow states are `claimed`, `review`, `promoted`, and `rejected`. Publication states are `draft`, `published`, and `retired`.
 
-Use `phlo dataset list` to list canonical projections and `phlo dataset show <dataset-id>` to inspect one projection. `phlo dataset transition <dataset-id> <action>` applies `claim`, `review`, `promote`, `reject`, `publish`, or `retire` through the core service.
+Use `phlo dataset list` to list canonical projections and `phlo dataset show <dataset-id>` to inspect one projection. `phlo dataset transition <dataset-id> <action>` applies `claim`, `review`, `promote`, `reject`, `publish`, or `retire` through the Dataset state store.
 
 The durable store is provider-owned and is selected by default. The explicit `memory` mode is process-local test state. Set `PHLO_DATASET_STATE_STORE=memory` only for local experiments or tests, or install `phlo-postgres` for the durable dataset state capability.
 
@@ -38,7 +38,7 @@ Use [Secure the stack](../guides/secure-the-stack.md) when you need to configure
 
 ## Where metadata appears
 
-The governance export feeds browser-safe views, while API and MCP integrations expose read models to clients. Observatory can show asset metadata, quality evidence, lineage, and run reports when its service and extensions are enabled.
+The governance export feeds browser-safe views, while API and MCP integrations expose read models to clients. Observatory shows asset metadata, quality evidence, lineage, and run reports through its configured service.
 
 ## Where to look next
 

@@ -18,7 +18,7 @@ The command starts the Dagster development server for your workflows. Its option
 
 ## 2. Start native service processes when supported
 
-`NativeProcessManager` starts only services whose manifest has a `dev.command`. The current service manifests provide native commands for `phlo-api` and Observatory. Use `phlo services start --native` when you want those service processes on the host.
+Native mode starts only services whose manifest has a `dev.command`. The current service manifests provide native commands for `phlo-api` and Observatory. Use `phlo services start --native` when you want those service processes on the host.
 
 ```bash
 phlo services start --native
