@@ -6,6 +6,7 @@ inspired by [Evi](https://github.com/hugorcd/evlog/tree/main/apps/evi).
 The initial setup includes:
 
 - DeepSeek V4 Flash for text and Qwen 3.7 Flash for turns containing images
+- DeepSeek V4.1 Flash pull request review and issue triage in Amp orbs
 - Vercel AI Gateway routing with caching and usage tags
 - Jev confidence-gated routing for compact dependency-security findings
 - a GitHub channel and GitHub tools scoped to `phlohouse/phlo`
@@ -67,6 +68,50 @@ and posts one concise comment with genuinely useful evidence or a focused
 question. It does not close, assign, rewrite, or implement issues during
 automatic triage. Issue bodies are treated as untrusted evidence rather than
 agent instructions.
+
+## Amp pull request review and issue triage
+
+The project plugin in `.amp/plugins/phlo-github/` registers a signed GitHub
+webhook and starts a private DeepSeek V4.1 Flash orb for each non-draft pull
+request that is opened or marked ready for review, and for each newly opened
+issue. Its bundled `reviewing-phlo-github-events` skill carries the read-only
+review and triage policy.
+
+The orb cannot write to GitHub directly. Its publishing tool sends a signed,
+target-bound request to `/amp/v1/github-comments` in this application. The
+bridge rechecks the pull request head, validates issue labels, deduplicates the
+GitHub delivery, and posts through the existing `github/phlo-agent` connector.
+GitHub therefore shows only the `phlo-agent` App as the comment author.
+
+Both sides fail closed until configured:
+
+- Amp project settings require `PHLO_GITHUB_WEBHOOK_SECRET`,
+  `PHLO_AGENT_AMP_PUBLISH_TOKEN`, and `PHLO_AGENT_AMP_PUBLISH_URL`.
+- The Vercel deployment requires the same `PHLO_AGENT_AMP_PUBLISH_TOKEN` and
+  keeps `PHLO_AGENT_AMP_PUBLISH_WRITES=0` until cutover.
+- `PHLO_AGENT_EVE_GITHUB_AUTOMATION=0` disables Eve's original issue and pull
+  request handlers after the Amp path is ready, preventing duplicate comments.
+
+To cut over:
+
+1. Deploy this application with Amp publishing disabled.
+2. Generate independent high-entropy webhook and publishing secrets of at
+   least 32 characters. Put the publishing secret in both Vercel and the Amp
+   project; put the webhook secret in the Amp project and use it as the GitHub
+   webhook secret.
+3. Set `PHLO_AGENT_AMP_PUBLISH_URL` in the Amp project to the deployed
+   `/amp/v1/github-comments` route. Load the project plugin in one persistent,
+   unarchived orb thread, then copy its `phlo-github-events` URL from Amp's
+   trigger settings.
+4. Add that URL as a JSON GitHub repository webhook subscribed only to Issues
+   and Pull requests. Do not expose the URL or either secret in logs or thread
+   messages.
+5. In one Vercel deployment, set `PHLO_AGENT_AMP_PUBLISH_WRITES=1` and
+   `PHLO_AGENT_EVE_GITHUB_AUTOMATION=0`. Open a test issue and a non-draft test
+   pull request, then verify one comment appears for each.
+
+Set `PHLO_AGENT_AMP_PUBLISH_WRITES=0` and
+`PHLO_AGENT_EVE_GITHUB_AUTOMATION=1` to roll back comment generation to Eve.
 
 ## Post-merge rollout
 

@@ -14,7 +14,8 @@ import { githubCredentials } from '../lib/github/credentials'
 
 function onIssue(ctx: GitHubInboundContext, issue: GitHubIssueEvent) {
   if (
-    issue.action !== 'opened'
+    process.env.PHLO_AGENT_EVE_GITHUB_AUTOMATION === '0'
+    || issue.action !== 'opened'
     || ctx.repository.fullName.toLowerCase() !== 'phlohouse/phlo'
     || ctx.sender.type === 'Bot'
   ) {
@@ -35,7 +36,8 @@ function onPullRequest(ctx: GitHubInboundContext, pullRequest: GitHubPullRequest
     || (pullRequest.action === 'opened' && pullRequest.raw.draft !== true)
 
   if (
-    !shouldReview
+    process.env.PHLO_AGENT_EVE_GITHUB_AUTOMATION === '0'
+    || !shouldReview
     || ctx.repository.fullName.toLowerCase() !== 'phlohouse/phlo'
     || ctx.sender.type === 'Bot'
   ) {
