@@ -279,7 +279,7 @@ View logs from Phlo infrastructure services.
 | `--until TEXT` | Show logs before a timestamp or duration supported by Compose. |
 | `--timestamps` | Show log timestamps. |
 | `--no-color` | Disable coloured log output where supported. |
-| `--backend [docker|podman|auto]` | Container backend for this command. |
+| `--backend [docker\|podman\|auto]` | Container backend for this command. |
 
 ## phlo materialize
 
