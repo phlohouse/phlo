@@ -163,3 +163,4 @@ You have a project that Phlo can run end to end: a decorated Python function, a 
 - [Ingest data](../guides/ingest-data.md) shows how to pull from a REST API or replicate a database instead of reading a CSV.
 - [Add quality checks](../guides/add-quality-checks.md) shows how to block a bad partition before it is published.
 - [How Phlo works](../concepts/how-phlo-works.md) explains what happened between `phlo materialize` and the table in the catalog.
+- [Learn Phlo from first principles](../learn/index.md) explains the data-engineering ideas behind this project.

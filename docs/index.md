@@ -11,6 +11,8 @@ If you have never run Phlo, follow these two pages in order:
 1. [Install Phlo](getting-started/install.md) sets up Python, Docker, and the `phlo` command.
 2. [Build your first pipeline](getting-started/first-pipeline.md) creates a project, starts the stack, and materialises a table in about ten minutes.
 
+If you want to understand the ideas behind that workflow, follow [Learn Phlo from first principles](learn/index.md). The series builds on the same project and explains ingestion, storage, orchestration, quality, observability, and extension design.
+
 ## Understand how Phlo works
 
 Read these when you want the reasoning behind the design, not steps:
