@@ -99,15 +99,13 @@ export default async function (amp: PluginAPI) {
         headers: {
           authorization: `Bearer ${bridgeToken}`,
           'content-type': 'application/json',
-          'idempotency-key': target.deliveryId,
         },
         body: JSON.stringify({ ...target, body, labels }),
       })
-      const result = await response.json() as { error?: unknown; htmlUrl?: unknown; reused?: unknown }
       if (!response.ok) {
-        const reason = typeof result.error === 'string' ? ` ${result.error}` : ''
-        throw new Error(`phlo-agent refused the comment with HTTP ${response.status}.${reason}`)
+        throw new Error(`phlo-agent refused the comment with HTTP ${response.status}.`)
       }
+      const result = await response.json() as { htmlUrl?: unknown }
       return typeof result.htmlUrl === 'string' && result.htmlUrl.length > 0
         ? `Published: ${result.htmlUrl}`
         : 'Published through phlo-agent.'

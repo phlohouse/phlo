@@ -99,6 +99,7 @@ async function githubRequest(
       accept: 'application/vnd.github+json',
       authorization: `Bearer ${token}`,
       'content-type': 'application/json',
+      'user-agent': 'phlo-agent/1.0',
       'x-github-api-version': '2022-11-28',
       ...init?.headers,
     },

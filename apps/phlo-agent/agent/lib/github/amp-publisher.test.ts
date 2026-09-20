@@ -36,10 +36,15 @@ test('rejects requests while writes are disabled or authentication fails', async
 })
 
 test('checks the current head and publishes one marked pull request comment', async () => {
-  const calls: Array<{ body?: string; method: string; url: string }> = []
+  const calls: Array<{ body?: string; method: string; url: string; userAgent: string | null }> = []
   const fetcher: typeof fetch = async (input, init) => {
     const url = String(input)
-    calls.push({ body: init?.body?.toString(), method: init?.method ?? 'GET', url })
+    calls.push({
+      body: init?.body?.toString(),
+      method: init?.method ?? 'GET',
+      url,
+      userAgent: new Headers(init?.headers).get('user-agent'),
+    })
     if (url.endsWith('/pulls/42')) return Response.json({ head: { sha: validInput.headSha } })
     if (url.includes('/comments?')) return Response.json([])
     return Response.json({ html_url: 'https://github.com/phlohouse/phlo/pull/42#issuecomment-1' })
@@ -54,6 +59,11 @@ test('checks the current head and publishes one marked pull request comment', as
 
   assert.equal(response.status, 201)
   assert.deepEqual(calls.map(({ method }) => method), ['GET', 'GET', 'POST'])
+  assert.deepEqual(calls.map(({ userAgent }) => userAgent), [
+    'phlo-agent/1.0',
+    'phlo-agent/1.0',
+    'phlo-agent/1.0',
+  ])
   assert.match(calls[2]?.body ?? '', /phlo-agent-delivery:delivery-123/)
 })
 
