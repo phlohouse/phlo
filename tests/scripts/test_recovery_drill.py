@@ -62,6 +62,9 @@ def test_helper_is_network_local_and_uses_locked_dependency_export(tmp_path, mon
     recovery_drill.prepare_helper(tmp_path)
 
     assert recovery_drill.HELPER_IMAGE.startswith("python@sha256:")
+    assert recovery_drill.HELPER_IMAGE != (
+        "python@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93"
+    )
     assert "http://nessie:19120/iceberg/main" in recovery_drill.helper_source()
     assert '"s3.endpoint": "http://minio:9000"' in recovery_drill.helper_source()
     assert calls == [
