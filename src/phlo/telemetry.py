@@ -484,7 +484,7 @@ def _set_if_supported(
                 "phlo_observe_sdk_surface_unsupported",
                 builder_method=method,
                 event_name=event_name,
-                hint="installed phlo-observe SDK predates the V2 entity/tag model; those fields are dropped. Install a V2-capable SDK (see PHLO_OBSERVE_SDK) to restore them.",
+                hint="installed phlo-observe SDK predates the V2 entity/tag model; those fields are dropped. Upgrade Phlo to restore them.",
             )
         return
     for key, value in items.items():

@@ -33,6 +33,8 @@ RUN apk upgrade --no-cache \
 
 COPY --from=phlo-build-context /opt/phlo-build-context/wheelhouse /opt/phlo-wheelhouse
 
+# Phlo currently pins the unpublished observe packages by URL. uv requires
+# transitive URL dependencies to be repeated as direct installation inputs.
 RUN set -eux; \
     PHLO_REQUIREMENT="phlo"; \
     if [ -n "$PHLO_VERSION" ]; then PHLO_REQUIREMENT="phlo==$PHLO_VERSION"; fi; \
@@ -41,12 +43,17 @@ RUN set -eux; \
     if [ -n "$PHLO_WHEELHOUSE" ]; then \
         test -d /opt/phlo-wheelhouse; \
         uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "$PHLO_REQUIREMENT" "$PHLO_API_REQUIREMENT"; \
-        uv pip install --system --prerelease explicit --find-links /opt/phlo-wheelhouse "$PHLO_REQUIREMENT" "$PHLO_API_REQUIREMENT"; \
+        python -c 'import importlib.metadata as md; print("\n".join(r.split(";", 1)[0].strip() for r in (md.metadata("phlo").get_all("Requires-Dist") or []) if " @ " in r))' > /tmp/phlo-url-requirements.txt; \
+        uv pip install --system --prerelease explicit --find-links /opt/phlo-wheelhouse --requirement /tmp/phlo-url-requirements.txt "$PHLO_REQUIREMENT" "$PHLO_API_REQUIREMENT"; \
         uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "$PHLO_REQUIREMENT" "$PHLO_API_REQUIREMENT"; \
     elif [ -n "$PHLO_VERSION" ]; then \
-        uv pip install --system --prerelease explicit "$PHLO_REQUIREMENT" "$PHLO_API_REQUIREMENT"; \
+        uv pip install --system --no-deps --prerelease explicit "$PHLO_REQUIREMENT"; \
+        python -c 'import importlib.metadata as md; print("\n".join(r.split(";", 1)[0].strip() for r in (md.metadata("phlo").get_all("Requires-Dist") or []) if " @ " in r))' > /tmp/phlo-url-requirements.txt; \
+        uv pip install --system --prerelease explicit --requirement /tmp/phlo-url-requirements.txt "$PHLO_REQUIREMENT" "$PHLO_API_REQUIREMENT"; \
     else \
-        uv pip install --system phlo "$PHLO_API_REQUIREMENT"; \
+        uv pip install --system --no-deps phlo; \
+        python -c 'import importlib.metadata as md; print("\n".join(r.split(";", 1)[0].strip() for r in (md.metadata("phlo").get_all("Requires-Dist") or []) if " @ " in r))' > /tmp/phlo-url-requirements.txt; \
+        uv pip install --system --requirement /tmp/phlo-url-requirements.txt phlo "$PHLO_API_REQUIREMENT"; \
     fi && apk del .build-deps
 
 # Do not retain uv's downloaded archives in the runtime image; they are not needed to run Phlo.

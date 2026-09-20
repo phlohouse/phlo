@@ -7,11 +7,10 @@ profile: observability
 # No V2-capable phlo-observer release exists yet: every published image
 # (0.1.0, latest) predates the V2 envelope and rejects schema_version 2.x
 # payloads. Until phlo-observer/v0.2.x is published the image is built from
-# the phlo-observe monorepo at the same pinned V2 commit the Dagster image
-# installs the SDK from (PHLO_OBSERVE_SDK); the `image:` key names the local
-# tag the build produces. Renovate does not track git-context builds — switch
-# `image:` to the published tag+digest and drop `build:` when a V2 release
-# lands. See docs/guides/monitor-and-debug.md "Known phlo-observe gaps".
+# the phlo-observe monorepo; the `image:` key names the local tag the build
+# produces. Renovate does not track git-context builds — switch `image:` to
+# the published tag+digest and drop `build:` when a V2 release lands. See
+# docs/guides/monitor-and-debug.md "Known phlo-observe gaps".
 image: phlo-observer:v2-91a32fa
 build:
   context: https://github.com/phlohouse/phlo-observe.git#91a32fa29ce19aac0e31ed3750a9090776267bd0

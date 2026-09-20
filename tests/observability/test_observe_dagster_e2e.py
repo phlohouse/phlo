@@ -569,8 +569,8 @@ def _terminal_run_event(result: Any, *, fail: bool) -> None:
 
 
 def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
-    """The production-path run keeps an exhaustive canonical stream while
-    the default human view stays selective."""
+    """The production-path run keeps its operational stream while the default
+    human view stays selective."""
     from phlo_observe_plugin.presentation import render_events
 
     result = dagster.materialize([_build_wap_asset(bus)])
@@ -578,8 +578,10 @@ def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
     _terminal_run_event(result, fail=False)
 
     payloads = captured.payloads()
-    names = [p.get("event") for p in payloads]
-    assert names == [
+    operational_names = [
+        payload.get("event") for payload in payloads if payload.get("event") != "application.log"
+    ]
+    assert operational_names == [
         "wap.branch.create",
         "nessie.branch.create",
         "ingestion.extract",

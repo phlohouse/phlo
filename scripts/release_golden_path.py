@@ -253,10 +253,24 @@ def force_local_install(config: RunConfig, python: Path, *packages: str) -> None
 
 
 def build_wheelhouse(config: RunConfig) -> None:
-    """Build all workspace wheels into the wheelhouse."""
+    """Build all workspace wheels and their locked constraints."""
     config.wheelhouse.mkdir(parents=True, exist_ok=True)
     run(
         command("uv", "build", "--all-packages", "--wheel", "--out-dir", str(config.wheelhouse)),
+        cwd=config.repo_root,
+    )
+    run(
+        command(
+            "uv",
+            "export",
+            "--all-packages",
+            "--no-dev",
+            "--locked",
+            "--no-emit-workspace",
+            "--no-hashes",
+            "--output-file",
+            str(config.wheelhouse / "constraints.txt"),
+        ),
         cwd=config.repo_root,
     )
 
@@ -289,6 +303,8 @@ def install_operator(config: RunConfig) -> None:
             "install",
             "--python",
             str(config.operator_python),
+            "--constraint",
+            str(config.wheelhouse / "constraints.txt"),
             "--find-links",
             str(config.wheelhouse),
             "phlo[core-services]",

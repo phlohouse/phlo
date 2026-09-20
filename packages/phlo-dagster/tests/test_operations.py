@@ -403,8 +403,8 @@ def test_launch_materialize_never_injects_console_level(monkeypatch) -> None:
     """GraphQL launches pass run config through untouched: the console-level
     decision is made inside the worker at scope entry, where whether the
     SDK can actually drive the pretty drain is knowable. A host-side guess —
-    env flags or PHLO_OBSERVE_SDK presence — must never quiet a console
-    that has no drain replacing it."""
+    based on environment flags — must never quiet a console that has no drain
+    replacing it."""
     captured: list[dict[str, object]] = []
 
     async def fake_post(self, url, json=None, headers=None):  # noqa: ANN001, ANN202, ARG001
