@@ -10,13 +10,9 @@ A table format adds structure around the files. It records columns and types, gr
 
 Snapshots make time part of the table's meaning. You can ask which state a successful write produced rather than looking at file modification times. Schema metadata makes a column change visible to readers and checks. Atomic commits mean a reader observes the previous state or the new committed state, rather than the middle of a collection of file writes.
 
-Snapshots make time part of the table's meaning. You can ask which state a successful write produced rather than looking at file modification times. Schema metadata makes a column change visible to readers and checks. Atomic commits mean a reader observes the previous state or the new committed state, rather than the middle of a collection of file writes.
-
 A catalogue is the directory for tables. It maps a table name to its current metadata and lets clients find the table without knowing its storage path. A query engine such as Trino asks the catalogue where the table is and then reads the Iceberg metadata and files.
 
 Version control adds a second idea. A code branch lets you prepare a change without changing the main branch. A data branch can do the same for table references. You can write and inspect a candidate table state, compare it with another branch, and merge it when the result is ready.
-
-This is not a claim that data branches remove every risk. A branch still needs an owner, a comparison, and a decision about when to publish. It gives you a place to perform that work with less pressure on the consumer-facing reference. Nessie supplies the reference operation, while Iceberg supplies the table state that the reference identifies.
 
 This is not a claim that data branches remove every risk. A branch still needs an owner, a comparison, and a decision about when to publish. It gives you a place to perform that work with less pressure on the consumer-facing reference. Nessie supplies the reference operation, while Iceberg supplies the table state that the reference identifies.
 

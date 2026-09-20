@@ -24,8 +24,6 @@ The model remains understandable when the platform is not running. You can revie
 
 This is also why a transformation model should have a narrow purpose. A model that cleans one relation is easier to test than a model that combines ingestion, business logic, and serving decisions. Keep the source relation and the consumer result visible in the SQL, then let the asset graph explain how the model fits with the rest of the project.
 
-This is also why a transformation model should have a narrow purpose. A model that cleans one relation is easier to test than a model that combines ingestion, business logic, and serving decisions. Keep the source relation and the consumer result visible in the SQL, then let the asset graph explain how the model fits with the rest of the project.
-
 The normal execution path is Dagster. `phlo dbt compile` is useful for local SQL inspection. `phlo dbt run` and `phlo dbt test` call dbt directly for debugging and do not create the normal Dagster run record, lineage, or asset-check results. Use `phlo materialize` to populate the lakehouse.
 
 ## Try it

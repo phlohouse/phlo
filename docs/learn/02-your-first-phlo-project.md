@@ -12,8 +12,6 @@ Containers provide another boundary. A database, object store, catalogue, query 
 
 This separation also makes the tutorial reproducible. A new contributor can inspect the template, install the project, initialise the generated runtime, and see the same service names. The workflow remains ordinary Python, so you can read it before you learn every detail of the platform. The runtime files describe how that Python code reaches Dagster, the catalogue, the object store, and the query engine.
 
-This separation also makes the tutorial reproducible. A new contributor can inspect the template, install the project, initialise the generated runtime, and see the same service names. The workflow remains ordinary Python, so you can read it before you learn every detail of the platform. The runtime files describe how that Python code reaches Dagster, the catalogue, the object store, and the query engine.
-
 ## How Phlo approaches it
 
 `phlo init` renders a project from a template. The `csv-batch` template includes `phlo`, `phlo-dlt`, and `phlo-pandera`, a small CSV file, an ingestion workflow, and a Pandera schema. The generated `pyproject.toml` makes the `workflows` package importable by the runtime.
@@ -31,8 +29,6 @@ my-lakehouse/
 ```
 
 The workflow module contains a decorated function. In the template, `@phlo.ingest.dlt` declares a partitioned asset named `dlt_events`. The function reads `data/events.csv`, adds the partition date to each event identifier, and returns a dlt resource. The schema in `workflows/schemas/csv.py` validates the rows.
-
-The decorator is the important boundary in this first project. The function describes how to obtain rows. The decorator supplies the asset identity, partition behaviour, validation integration, and connection to the execution graph. You can therefore read the function as source logic and inspect the asset as a platform object. That distinction becomes useful when later posts add a dbt model or a quality check without turning the ingestion function into one large script.
 
 The decorator is the important boundary in this first project. The function describes how to obtain rows. The decorator supplies the asset identity, partition behaviour, validation integration, and connection to the execution graph. You can therefore read the function as source logic and inspect the asset as a platform object. That distinction becomes useful when later posts add a dbt model or a quality check without turning the ingestion function into one large script.
 

@@ -26,8 +26,6 @@ The run record is also a handoff between people. The person who writes an asset 
 
 When you work through the UI, look at the asset before the run and the run before the service logs. The asset tells you what should exist. The run tells you what Dagster attempted. The step log tells you where execution stopped. That order keeps an infrastructure symptom from obscuring a data or dependency problem.
 
-When you work through the UI, look at the asset before the run and the run before the service logs. The asset tells you what should exist. The run tells you what Dagster attempted. The step log tells you where execution stopped. That order keeps an infrastructure symptom from obscuring a data or dependency problem.
-
 Provider command groups are not the normal run path. `phlo dbt`, `phlo sling`, `phlo airbyte`, and similar commands call their providers directly for inspection or debugging. They do not create the standard Dagster run record, lineage, or asset-check results.
 
 ## Try it
@@ -49,7 +47,7 @@ phlo materialize dlt_events --partition 2025-01-15
 Select several assets with Dagster's selector syntax:
 
 ```bash
-phlo materialize --select "tag:bronze"
+phlo materialize --select "tag:provider=dlt"
 ```
 
 Use an asset key when you know the exact asset:

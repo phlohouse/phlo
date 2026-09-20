@@ -14,10 +14,6 @@ Staging also protects the reader from partial work. The run can collect and vali
 
 Replayability is the practical benefit of these choices. A dated partition, stable key, and explicit merge strategy let you answer what to rerun and what a rerun should do. Without those decisions, retrying an ingestion job can create a second copy of a record or replace a complete table with an incomplete response.
 
-Staging also protects the reader from partial work. The run can collect and validate its rows before the table state changes. If the run fails while reading the source, the previous published state remains available. If the run succeeds but a later check blocks publication, you have an audit result to investigate instead of an unexplained overwrite.
-
-Replayability is the practical benefit of these choices. A dated partition, stable key, and explicit merge strategy let you answer what to rerun and what a rerun should do. Without those decisions, retrying an ingestion job can create a second copy of a record or replace a complete table with an incomplete response.
-
 ## How Phlo approaches it
 
 The `phlo-dlt` package provides `@phlo.ingest.dlt`. The decorator turns a Python function into a Dagster asset and connects the returned dlt resource to table storage. `phlo-pandera` can validate each batch before publication.
@@ -25,8 +21,6 @@ The `phlo-dlt` package provides `@phlo.ingest.dlt`. The decorator turns a Python
 The tutorial asset uses a daily partition and `unique_key="event_id"`. The default `merge_strategy="merge"` upserts rows on that key. The other supported value is `merge_strategy="append"`, which inserts rows without using a merge key. Use append for an immutable event stream where each row is new. Set `partitioned=False` for reference data that has no natural partition.
 
 Phlo accepts `merge_strategy="append"` and `merge_strategy="merge"`. These are the only values the ingestion decorator accepts. `freshness_hours=(warning_hours, error_hours)` can add freshness checks, while `strict_validation` controls whether failed validation blocks the run.
-
-The decorator does not decide what a row means for you. You still need to choose a key that identifies the source entity and a partition that matches the source's time semantics. If the source has immutable events, an event identifier can be retained as data while append preserves each event. If the source sends current entity state, a stable key and merge make replaying a partition safer.
 
 The decorator does not decide what a row means for you. You still need to choose a key that identifies the source entity and a partition that matches the source's time semantics. If the source has immutable events, an event identifier can be retained as data while append preserves each event. If the source sends current entity state, a stable key and merge make replaying a partition safer.
 

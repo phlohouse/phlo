@@ -18,11 +18,11 @@ Create the tutorial project once by following [Build your first pipeline](../get
 
 | Post | Focus | Reading time |
 | --- | --- | ---: |
-| 1. [What data engineering is](01-what-data-engineering-is.md) | How raw records become trustworthy datasets | 6 min |
-| 2. [Your first Phlo project](02-your-first-phlo-project.md) | Project files, services, assets, and the first run | 6 min |
-| 3. [Ingestion with dlt](03-ingestion-with-dlt.md) | Extracting, normalising, partitioning, and merging data | 6 min |
-| 4. [Tables with Iceberg and Nessie](04-tables-with-iceberg-and-nessie.md) | Table snapshots, catalogues, branches, and publication | 6 min |
-| 5. [Orchestration with Dagster](05-orchestration-with-dagster.md) | Asset graphs, runs, schedules, sensors, and checks | 6 min |
+| 1. [What data engineering is](01-what-data-engineering-is.md) | How raw records become trustworthy datasets | 4 min |
+| 2. [Your first Phlo project](02-your-first-phlo-project.md) | Project files, services, assets, and the first run | 4 min |
+| 3. [Ingestion with dlt](03-ingestion-with-dlt.md) | Extracting, normalising, partitioning, and merging data | 4 min |
+| 4. [Tables with Iceberg and Nessie](04-tables-with-iceberg-and-nessie.md) | Table snapshots, catalogues, branches, and publication | 4 min |
+| 5. [Orchestration with Dagster](05-orchestration-with-dagster.md) | Asset graphs, runs, schedules, sensors, and checks | 4 min |
 | 6. [Transformation with dbt](06-transformation-with-dbt.md) | SQL models, dependencies, and transformation checks | 4 min |
 | 7. [Quality with Pandera](07-quality-with-pandera.md) | Contracts, blocking checks, warnings, and evidence | 4 min |
 | 8. [Schema evolution and contracts](08-schema-evolution-and-contracts.md) | Changing data without surprising consumers | 4 min |

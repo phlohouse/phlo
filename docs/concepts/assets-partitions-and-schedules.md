@@ -31,7 +31,7 @@ The `--no-contract-refresh` option skips the automatic schema contract refresh b
 The `--select` value is forwarded to Dagster's [asset selection syntax](https://docs.dagster.io/guides/build/assets/asset-selection-syntax). Dagster accepts `*`, `tag:<tag>`, an asset key, and graph clauses with optional `+` or `*` prefixes and suffixes for upstream and downstream depth.
 
 ```bash
-phlo materialize --select "tag:bronze"
+phlo materialize --select "tag:provider=dlt"
 phlo materialize --select "dlt_orders"
 phlo materialize --select "*"
 phlo materialize --select "+event_summary"

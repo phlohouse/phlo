@@ -24,8 +24,6 @@ Start with the smallest rule that protects a real consumer need. If a report gro
 
 Quality is not a promise that every source value is perfect. It is a visible decision about what the project accepts, what it warns about, and what it refuses to publish. Revisit those decisions when a consumer changes, because the same rule can be too strict for exploration and too weak for a regulated output.
 
-Quality is not a promise that every source value is perfect. It is a visible decision about what the project accepts, what it warns about, and what it refuses to publish. Revisit those decisions when a consumer changes, because the same rule can be too strict for exploration and too weak for a regulated output.
-
 Thresholds are supported for quality checks that allow a proportion of failures. `warn_threshold` maps a small failure fraction to warning severity. Pandera schema contract failures remain blocking. Freshness settings can describe warning and error ages through the asset's freshness policy.
 
 The normal path is Dagster. `phlo materialize` runs the asset and records the check result. The Dagster UI shows checks next to the asset and the run that produced them.

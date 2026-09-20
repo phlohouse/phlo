@@ -22,14 +22,6 @@ The work has several layers:
 
 You do not need every layer on the first day. You do need to know which layer owns each decision. A source problem should not be fixed by weakening a quality rule. A slow query should not be fixed by deleting the evidence that the query was slow.
 
-The boundary between layers is also a boundary between questions. Ingestion asks whether the source was read and converted. Storage asks whether a reader can find a consistent table state. Transformation asks whether the rows answer a business question. Quality asks whether the result satisfies its contract. Orchestration asks whether the work ran at the expected time and in the expected order. Serving asks whether a consumer can query the result. Observation asks whether someone can see all of those answers later.
-
-That map helps you choose the next investigation. If the source file is missing, a SQL model is not the first place to look. If a model returns the wrong value, restarting MinIO cannot fix the transformation. If a result is right but stale, inspect scheduling and freshness rather than rewriting the schema. A platform becomes easier to operate when each symptom has a first place to look.
-
-The boundary between layers is also a boundary between questions. Ingestion asks whether the source was read and converted. Storage asks whether a reader can find a consistent table state. Transformation asks whether the rows answer a business question. Quality asks whether the result satisfies its contract. Orchestration asks whether the work ran at the expected time and in the expected order. Serving asks whether a consumer can query the result. Observation asks whether someone can see all of those answers later.
-
-That map helps you choose the next investigation. If the source file is missing, a SQL model is not the first place to look. If a model returns the wrong value, restarting MinIO cannot fix the transformation. If a result is right but stale, inspect scheduling and freshness rather than rewriting the schema. A platform becomes easier to operate when each symptom has a first place to look.
-
 ## How Phlo approaches it
 
 Phlo gives each layer a package and a visible runtime boundary. The `phlo-dlt` package provides ingestion assets. `phlo-iceberg` provides table storage and `phlo-nessie` provides the catalogue and its branches. `phlo-dbt` turns dbt models into Dagster assets. `phlo-pandera` provides schema validation and quality checks.
