@@ -24,7 +24,7 @@ phlo services status
 
 Open `http://localhost:10006` and select **Runs**. Each `phlo materialize`, `phlo backfill`, and scheduled run appears here with its status, partition, and step logs. Select the failed run to read the step that raised the error. Select the asset to see its asset checks and the latest materialisation for each partition.
 
-Dagster is the source of truth for what ran. `phlo status` and `phlo logs` read from the same runs, so start here before reading raw container logs.
+Dagster is the source of truth for what ran. Start here before reading raw container logs.
 
 ## 3. Read the right log stream
 

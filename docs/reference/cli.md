@@ -238,11 +238,7 @@ Initialise a new Phlo project.
 
 Interact with the Kafka broker (status, topics).
 
-This command accepts no subcommands or options beyond `--help`.
-
-Forwards arguments to the Kafka provider.
-
-These commands bypass Dagster. Use `phlo materialize` for normal runs.
+This command has no subcommands. It forwards its arguments to the Kafka provider for broker inspection. Kafka ingestion assets run through Dagster with `phlo materialize`.
 
 ## phlo lineage
 
