@@ -69,7 +69,7 @@ phlo services init
 phlo services start
 ```
 
-`phlo services init` writes `.phlo/docker-compose.yml`, `.phlo/.env`, and `.phlo/.env.local`. These files are generated state. Your source stays in the project root.
+`phlo services init` writes `.phlo/docker-compose.yml`, `.phlo/overrides/.env`, and `.phlo/secrets/.env`. These files are generated state. Your source stays in the project root.
 
 The first start pulls images and can take a few minutes. When it returns, check that everything is healthy:
 

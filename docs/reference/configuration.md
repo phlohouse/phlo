@@ -6,24 +6,35 @@ Phlo reads project configuration from `phlo.yaml` and settings from environment 
 
 | File | Scope | Precedence |
 | --- | --- | --- |
-| `phlo.yaml` | Project infrastructure and service declarations. | Project configuration. |
-| `.phlo/.env` | Generated project defaults and service settings. | Lower than `.phlo/.env.local`. |
-| `.phlo/.env.local` | Local overrides and secrets. | Higher than `.phlo/.env`. |
-| Process environment | Runtime settings and overrides. | Highest for matching settings fields. |
+| `phlo.yaml` | Project infrastructure and service declarations. | Separate project configuration. |
+| `.phlo/.env` | Legacy generated defaults. | Lowest environment-file precedence. |
+| `.phlo/.env.local` | Legacy local overrides and secrets. | Higher than `.phlo/.env`. |
+| `.phlo/overrides/.env` | Project defaults and local overrides in the shared layout. | Higher than the legacy files. |
+| `.phlo/secrets/.env` | Credentials in the shared layout. | Highest environment-file precedence. |
+| Process environment | Runtime settings and overrides. | Higher than the project environment files. |
 
-`BaseConfig` uses `env_file=None`, `case_sensitive=False`, and `extra="ignore"`. The project resolves `.phlo/.env` and `.phlo/.env.local` through `src/phlo/config/base.py`.
+`BaseConfig` uses `env_file=None`, `case_sensitive=False`, and `extra="ignore"`. The project resolves the four environment files in the order shown through `src/phlo/config/layout.py`. New projects write defaults to `.phlo/overrides/.env` and credentials to `.phlo/secrets/.env`; the legacy files remain readable for existing projects.
 
 ## phlo.yaml
 
-The `infrastructure` object is validated by `InfrastructureConfig` in `src/phlo/config_schema.py`.
+`phlo.yaml` keeps API policy, WAP policy, service overrides, and generated infrastructure in separate top-level sections. `src/phlo/config_schema.py` defines the models below.
 
-### InfrastructureConfig
+### Top-level sections
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `api` | `ApiConfig \| None` | `None` | API configuration. |
 | `wap` | `WapConfig` | `WapConfig()` | Write-Audit-Publish launch policy. |
 | `services` | `dict[str, ServiceOverride]` | `{}` | Per-service overrides. |
+| `infrastructure` | `InfrastructureConfig` | `InfrastructureConfig()` | Generated container and network configuration. |
+
+### InfrastructureConfig
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `container_backend` | `docker \| podman \| auto` | `docker` | Container backend for service commands. |
+| `container_naming_pattern` | `str` | `{project}-{service}-1` | Generated container-name pattern. |
+| `services` | `dict[str, ServiceConfig]` | `{}` | Generated service definitions. |
 | `network` | `NetworkConfig` | `NetworkConfig()` | Generated network settings. |
 
 ### ApiConfig
@@ -38,6 +49,8 @@ The `infrastructure` object is validated by `InfrastructureConfig` in `src/phlo/
 | --- | --- | --- | --- |
 | `backend` | `str \| None` | `None` | Authorisation capability name. |
 | `mode` | `str \| None` | `None` | `optional` or `required`. |
+
+For API authorisation, `services.phlo-api.authorization` takes precedence over `api.authorization`.
 
 ### WapConfig
 

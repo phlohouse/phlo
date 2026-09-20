@@ -38,21 +38,22 @@ Each guide solves one problem and assumes you have finished the first pipeline:
 | Serve tables to apps, analysts, and BI tools | [Expose data](guides/expose-data.md) |
 | Add authentication, per-service credentials, and audit logs | [Secure the stack](guides/secure-the-stack.md) |
 | Read logs, trace lineage, and fix a failing run | [Monitor and debug](guides/monitor-and-debug.md) |
+| Diagnose a `PHLO-` error code | [Troubleshoot Phlo errors](guides/troubleshoot-errors.md) |
 | Test assets locally and in CI | [Test a project](guides/test-a-project.md) |
 | Add a command, service, or UI panel to Phlo | [Write a plugin](guides/write-a-plugin.md) |
-| Run Phlo for real users | [Run in production](guides/run-in-production.md) |
+| Prepare a Compose deployment for production | [Run in production](guides/run-in-production.md) |
 | Govern a published table | [Govern a dataset](guides/govern-a-dataset.md) |
 | Collect and verify evidence | [Collect evidence](guides/collect-evidence.md) |
 | Add telemetry and alerts | [Add observability](guides/add-observability.md) |
 | Run Dagster on the host | [Develop natively](guides/develop-natively.md) |
-| Maintain and recover state | [Maintain and recover](guides/maintain-and-recover.md) |
+| Choose a maintenance or recovery runbook | [Maintain and recover](guides/maintain-and-recover.md) |
 
 ## Look something up
 
 Reference pages describe what exists. They do not teach:
 
-- [CLI](reference/cli.md): every `phlo` command and option.
-- [Configuration](reference/configuration.md): `phlo.yaml`, `.phlo/.env`, and every environment variable.
+- [CLI](reference/cli.md): the top-level `phlo` commands and their subcommands. Run `phlo <command> --help` for all options on the installed version.
+- [Configuration](reference/configuration.md): `phlo.yaml`, environment-file precedence, and core and default-stack variables.
 - [Project layout](reference/project-layout.md): the files in a project and what generates them.
 - [Python API](reference/python-api.md): the decorators and helpers under `import phlo`.
 - [Plugin API](reference/plugin-api.md): entry points, hooks, `service.yaml`, and extension manifests.
@@ -64,7 +65,7 @@ Reference pages describe what exists. They do not teach:
 - [Templates](reference/templates.md): project starters and generated files.
 - [Hooks and events](reference/hooks-and-events.md): event types, filters, and dispatch semantics.
 
-The Python reference, generated from docstrings in `src/phlo`, is in the **Python Reference** section of the published site.
+The hand-maintained [Python API reference](reference/python-api.md) covers the public decorators and helpers. The current build does not publish the generated `python-reference` route.
 
 ## Architecture records
 

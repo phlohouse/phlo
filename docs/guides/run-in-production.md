@@ -1,28 +1,27 @@
-# Run in production
+# Prepare a Compose deployment for production
 
-This guide turns a reviewed Phlo project into a supported Compose deployment with protected secrets, durable volumes, verified backups, and an explicit release boundary.
+This guide prepares a reviewed Phlo project for a single-host Compose deployment. It checks the support contract, protects credentials, starts the generated stack, and records readiness evidence.
+
+This deployment model does not provide high availability, multi-region operation, or a built-in live restore or upgrade operation.
 
 ## Before you start
 
-- You have a reviewed version tag, a deployment host with Docker Compose, and an operator responsible for backups and upgrades.
-- You have replaced development credentials and configured the production environment in `.phlo/.env.local`.
-- You have installed the release artifacts that the bundled support contract expects.
+- You have a reviewed version tag and the exact package versions required by `registry/support/v1.json`.
+- The deployment host runs Docker Compose and has enough durable storage for the generated volumes.
+- An operator owns TLS termination, network exposure, credentials, monitoring, backups, restore testing, and upgrades.
+- The production credential values are ready for installation after the stack is rendered.
 
-## 1. Check the support tier
-
-Check the bundled, offline support contract before selecting artifacts for production:
+## 1. Check the support contract
 
 ```bash
 phlo support status
 ```
 
-The command reads the bundled contract without contacting a registry. A real run prints `Manifest: bundled (trusted)`, a `Compatible` result, a `Production ready` result, package-by-package expected and installed versions, and the release gates. The current development environment reported `Compatible: False` and `Production ready: False` because it contained unexpected optional packages. Maintainers can review the full [support registry](https://github.com/iamgp/phlo/blob/main/registry/support/v1.json).
+The command reads the bundled contract without contacting a registry. Confirm that `Compatible` and `Production ready` are both `True`, then review every package version and release gate in the output.
 
-The tier describes the support contract for the package. It does not promise high availability, multi-region operation, or an operator's backup retention.
+A package tier does not promise high availability, multi-region operation, or a working operator restore procedure.
 
-## 2. Render the Compose deployment
-
-Initialise the generated infrastructure from the installed providers and set production mode:
+## 2. Render and inspect the deployment
 
 ```bash
 phlo services init
@@ -30,74 +29,73 @@ export PHLO_ENVIRONMENT=production
 phlo services preflight --production --json --output .phlo/preflight.json
 ```
 
-Phlo renders the core Compose shape around Dagster, PostgreSQL, MinIO, Nessie, and Trino when the default stack is selected. Optional API, Observatory, and BI services are added only when enabled.
+Phlo renders the selected services into `.phlo/docker-compose.yml`. Review the images, published ports, volume mounts, health checks, and environment files before starting the stack.
 
-## 3. Protect secrets and volumes
+Do not expose PostgreSQL, MinIO, Nessie, Trino, Dagster, the API, or Observatory to an untrusted network without appropriate authentication, authorisation, TLS, and network controls.
 
-Keep credentials in `.phlo/.env.local` and retain the named volumes used by stateful services:
+## 3. Protect credentials and state
+
+Replace every development credential in `.phlo/secrets/.env`, then restrict the file before starting services:
 
 ```bash
-chmod 600 .phlo/.env.local
+chmod 600 .phlo/secrets/.env
 phlo services start
 phlo services ports
 ```
 
-PostgreSQL stores orchestration state, MinIO stores object data, Nessie stores catalog state, and the generated `.phlo/volumes/` paths identify local volume mounts. Back up these providers together so catalog metadata and objects remain consistent.
+Use `phlo services ports` to confirm the actual host exposure. Keep the stateful service volumes on durable storage and include their capacity in monitoring.
 
 ## 4. Create and verify a backup
 
-Use the plan-first backup commands instead of copying one service volume in isolation:
+Follow [Create and verify a backup](create-and-verify-a-backup.md). Retain the accepted manifest and verification result outside the deployment host.
 
-```bash
-phlo operations backup create --target /backups/phlo-2025-01-15
-phlo operations backup verify --backup-set /backups/phlo-2025-01-15
-```
+The current Phlo CLI cannot restore a live deployment from that backup. Before go-live, test a provider-specific restore of PostgreSQL, object storage, the catalog, and every other stateful provider in an isolated environment.
 
-Creation finalises one manifest after provider artifacts and SHA-256 digests succeed. Verification is read-only and rejects partial, corrupt, mixed-run, or wrong-owner sets.
+## 5. Define restart, restore, and upgrade procedures
 
-## 5. Upgrade with the supported operation
+Before accepting traffic, document and test:
 
-Inspect the operations help and use the bound upgrade flow when changing deployment versions:
+- how the stack starts after a host restart;
+- how operators restore each stateful provider to a consistent point;
+- how operators roll back a failed deployment change;
+- how package and image versions move between releases;
+- when an operator must stop and escalate.
 
-```bash
-phlo operations --help
-phlo operations upgrade plan --from 0.14.0 --to 0.15.0 --backup-set /backups/phlo-2025-01-15 --target /srv/phlo
-phlo operations upgrade apply --plan .phlo/upgrade-plan.json --confirmation-token <token>
-```
-
-The verified operations flow requires a backup of the exact source state and binds the plan to source, candidate, backup digest, migration digest, and target. `phlo migrate` and `phlo config upgrade` are configuration migrations, not deployment-upgrade acceptance.
+Do not use `phlo operations restore apply` or `phlo operations upgrade apply` for live operations. Both commands require `--fixture-substrate` and only stage fixture artifacts.
 
 ## 6. Monitor the deployment
-
-Keep health, service status, logs, catalog history, and preflight evidence in the operator runbook:
 
 ```bash
 phlo doctor
 phlo status
 phlo services status
 phlo logs --lines 200 --timestamps
-phlo metrics
+phlo metrics summary
 ```
 
-Monitor Dagster runs and checks, PostgreSQL and MinIO storage, Nessie catalog health, Trino query failures, API authorisation, and the age of `.phlo/logs/` evidence.
+Monitor Dagster runs and checks, storage capacity, catalog health, query failures, API authorisation failures, and the age of backup and evidence artifacts.
 
-## Verify
+## Verify readiness
 
 ```bash
 phlo services preflight --production --json
 phlo doctor
+phlo services status
 ```
 
-Preflight returns `"passed": true` only when required production checks pass, and doctor reports no live service failures. Retain both outputs with the deployment record.
+Do not accept traffic until preflight returns `"passed": true`, doctor reports no live service failures, every required service is healthy, and the operator has completed a restore test.
+
+Retain the preflight output, package versions, rendered Compose file, backup verification, restore-test result, and approval with the deployment record.
 
 ## Release artifact support boundary
 
-The release workflow prepares versioned Python packages, updates bounded package compatibility and checked support-manifest references, refreshes the lockfile, and publishes packages from the merged release commit. The core-service image workflow builds images for `phlo-api` and Observatory when a GitHub Release is published.
+The release workflow publishes versioned Python packages and builds images for `phlo-api` and Observatory when a GitHub Release is published. The support manifest records the accepted package set and compatibility boundary.
 
-Publishing an artifact and pulling an image proves that the registry contains the requested object. It does not establish support for every image tag or digest. The v1 support boundary also excludes high-availability and multi-region deployment guarantees. A release artifact remains subject to the package tier, the support manifest, the exact deployment configuration, and the operator's production checks.
+The presence of an artifact in a registry does not make every tag, digest, or deployment configuration supported. Check the package tier, support manifest, deployment configuration, and production checks together.
 
 ## Related
 
 - [Secure the stack](secure-the-stack.md) for authorisation and secret handling.
+- [Maintain and recover a deployment](maintain-and-recover.md) for supported runbooks and current recovery limits.
 - [Monitor and debug](monitor-and-debug.md) for runtime diagnosis.
 - [Packages](../reference/packages.md) for package support tiers.

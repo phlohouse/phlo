@@ -1,6 +1,6 @@
 # Learn Phlo from first principles
 
-This series explains the ideas behind a reliable data platform before it asks you to learn its tools. You will build one small `csv-batch` project as you move from raw records to an observable, tested, versioned dataset.
+This conceptual series explains the ideas behind a reliable data platform through one small `csv-batch` project. The lessons build a mental model; the linked tutorials and guides contain the complete procedures.
 
 The series is for backend developers, analysts, product people, students, and anyone who wants to understand why data systems need more than a script that copies rows. Each post stands alone, but the examples use the same project, asset, and partition so that each idea has somewhere concrete to land.
 
@@ -12,7 +12,7 @@ You will start with the `csv-batch` template and its `dlt_events` asset. The ass
 
 Install Phlo by following [Install Phlo](../getting-started/install.md). You need Python, Docker, and a shell where the `phlo` command is available.
 
-Create the tutorial project once by following [Build your first pipeline](../getting-started/first-pipeline.md). Stop after you have materialised `dlt_events` for `2025-01-15`. Return to this series when that project is ready.
+Create the tutorial project once by following [Build your first pipeline](../getting-started/first-pipeline.md). Stop after you have materialised `dlt_events` for `2025-01-15`. Return to this series when that project is ready. The **Try it** sections assume this starting state and do not repeat the complete procedure.
 
 ## Follow the series
 

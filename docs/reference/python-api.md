@@ -179,7 +179,7 @@ rules = [
     phlo.not_null("name"),
     phlo.unique("event_id"),
     phlo.freshness("updated_at", hours=24),
-    phlo.range_between("value", minimum=0, maximum=100),
+    phlo.range_between("value", min_value=0, max_value=100),
     phlo.accepted_values("status", ["open", "closed"]),
 ]
 ```

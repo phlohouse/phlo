@@ -54,8 +54,8 @@ The file backend writes daily files under `.phlo/logs/`, using the configured `P
 Use metadata commands to establish whether the failure occurred before or after a table commit:
 
 ```bash
-phlo lineage dlt_events
-phlo metrics
+phlo lineage show dlt_events
+phlo metrics summary
 phlo catalog tables
 phlo catalog history raw.events
 ```
@@ -101,7 +101,7 @@ The UI is exposed on port `3001` when the package's default mapping is used. `ph
 
 ```bash
 phlo doctor
-phlo metrics
+phlo metrics summary
 ```
 
 The diagnostic summary has no failures, and metrics returns a response rather than an unavailable-backend message.

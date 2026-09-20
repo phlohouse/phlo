@@ -30,7 +30,7 @@ Relations can be resolved with `ref` and `source`. These return a `LogicalRelati
 
 ## Where configuration applies
 
-`phlo.yaml` describes infrastructure and service overrides. Settings classes read package environment variables. The CLI uses the project root to resolve `.phlo/.env` and `.phlo/.env.local`.
+`phlo.yaml` describes infrastructure and service overrides. Settings classes read package environment variables. New projects keep defaults in `.phlo/overrides/.env` and credentials in `.phlo/secrets/.env`; the CLI also reads the legacy `.phlo/.env` and `.phlo/.env.local` files.
 
 Capability selection can come from project defaults, workflow tags, or asset-level overrides. A provider is required only when a declaration or adapter needs that capability.
 

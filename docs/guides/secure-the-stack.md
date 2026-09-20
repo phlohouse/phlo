@@ -5,36 +5,38 @@ This guide keeps deployment secrets out of source control, enables API authorisa
 ## Before you start
 
 - You have a deployment environment that can supply secrets and an owner for the access policy.
+- You have run `phlo services init` so that the shared environment-file layout exists.
 - You know whether the API should fail open for development (`optional`) or fail closed (`required`).
 - You have reviewed the regulated-surface boundary in [Auth and access](../reference/auth-and-access.md).
 
 ## 1. Keep secrets in local configuration
 
-Put credentials in `.phlo/.env.local`, which is loaded after generated `.phlo/.env` and should be mode `0600`:
+Put credentials in `.phlo/secrets/.env`, which is the highest-precedence project environment file and should be mode `0600`:
 
 ```bash
 umask 077
-cat >> .phlo/.env.local <<'EOF'
+cat >> .phlo/secrets/.env <<'EOF'
 POSTGRES_PASSWORD=replace-me
 MINIO_ROOT_PASSWORD=replace-me
 PHLO_ICEBERG_S3_SECRET_KEY=replace-me
 EOF
-chmod 600 .phlo/.env.local
+chmod 600 .phlo/secrets/.env
 ```
 
-The generated stack receives the values without placing them in `phlo.yaml`, workflow code, or a tracked file.
+The generated stack receives the values without placing them in `phlo.yaml`, workflow code, or a tracked file. Existing projects can still use the legacy `.phlo/.env.local` path, but new projects should use the shared layout.
 
 ## 2. Configure API authorisation
 
 Set the authorisation backend and mode in `phlo.yaml`:
 
 ```yaml
-infrastructure:
-  api:
-    authorization:
-      backend: static
-      mode: required
+api:
+  authorization:
+    backend: static
+    mode: required
 ```
+
+You can instead set `authorization` under `services.phlo-api`. The service-specific value takes precedence over top-level `api.authorization`.
 
 `optional` permits guarded routes when no backend resolves. `required` fails closed with HTTP `503` until the configured backend is available.
 
@@ -46,7 +48,7 @@ infrastructure:
 
 ## 3. Choose an authentication provider
 
-Set provider-specific values in `.phlo/.env.local` and keep the mode declaration in project configuration:
+Set provider-specific values in `.phlo/secrets/.env` and keep the mode declaration in project configuration:
 
 ```bash
 PHLO_AUTHENTICATION_PROVIDER=proxy
@@ -86,7 +88,7 @@ Phlo records request-time authentication and authorisation evidence for its gove
 ## Verify
 
 ```bash
-stat -c '%a' .phlo/.env.local
+stat -c '%a' .phlo/secrets/.env
 phlo authz verify
 ```
 

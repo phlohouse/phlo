@@ -25,20 +25,20 @@ Create `tests/test_events.py` and validate a DataFrame against the CSV template 
 ```python
 import pandas as pd
 
-from phlo_testing import test_asset_execution
-from workflows.schemas.csv import EventSchema
+from workflows.schemas.csv import EventsSchema
 
 
 def test_events_match_template_schema():
     frame = pd.DataFrame(
         {
             "event_id": ["1-2025-01-15", "2-2025-01-15"],
+            "id": [1, 2],
             "name": ["alpha", "beta"],
             "value": [10, 20],
         }
     )
 
-    validated = EventSchema.validate(frame)
+    validated = EventsSchema.validate(frame)
 
     assert list(validated["event_id"]) == ["1-2025-01-15", "2-2025-01-15"]
 ```
@@ -95,7 +95,7 @@ The schema gate reports syntax and integration issues, while the workflow gate c
 ## Verify
 
 ```bash
-phlo test tests/test_events.py
+phlo test events
 ```
 
 The output collects `test_events_match_template_schema` and reports one passing test. The exact test count may include other project tests.

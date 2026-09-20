@@ -9,6 +9,7 @@
     "expose-data",
     "secure-the-stack",
     "monitor-and-debug",
+    "troubleshoot-errors",
     "test-a-project",
     "write-a-plugin",
     "run-in-production",
@@ -16,6 +17,10 @@
     "collect-evidence",
     "add-observability",
     "develop-natively",
-    "maintain-and-recover"
+    "maintain-and-recover",
+    "maintain-a-table",
+    "create-and-verify-a-backup",
+    "manage-catalog-branches-and-migrations",
+    "recover-a-dagster-run"
   ]
 }

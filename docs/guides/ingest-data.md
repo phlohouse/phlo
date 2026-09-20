@@ -73,7 +73,7 @@ What each argument does:
 | `cron="0 */6 * * *"` | Creates a Dagster schedule that runs every six hours. |
 | `freshness_hours=(6, 24)` | Warns when the table is older than 6 hours and fails freshness checks after 24. |
 
-The table lands in the `raw` namespace by default. Set `DLT_DEFAULT_NAMESPACE` in `.phlo/.env.local` to change it. The full parameter list is in [Python API](../reference/python-api.md#phloingestdlt).
+The table lands in the `raw` namespace by default. Set `DLT_DEFAULT_NAMESPACE` in `.phlo/overrides/.env` to change it. The full parameter list is in [Python API](../reference/python-api.md#phloingestdlt).
 
 ## 3. Choose how rows are written
 
