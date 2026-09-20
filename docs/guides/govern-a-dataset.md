@@ -11,17 +11,17 @@ You need a Phlo project with `phlo`, `phlo-core-plugins`, and the provider that 
 Create or update a workflow module such as `workflows/governed_table.py`. The decorators below register governance metadata and do not replace the provider asset that materialises the table.
 
 ```python
+import phlo
 from phlo.contracts import Consumer, SLA
-from phlo.flow import contract, publish
 
 
-@contract(
+@phlo.contract(
     table="dlt_events",
     owner="data-platform",
     consumers=[Consumer(name="analytics", usage="daily reporting")],
     sla=SLA(freshness_hours=24),
 )
-@publish(table="dlt_events", audience=["analytics"], owner="data-platform")
+@phlo.publish(table="dlt_events", audience=["analytics"], owner="data-platform")
 def governed_events():
     """Describe the dlt_events governance surface."""
 ```
