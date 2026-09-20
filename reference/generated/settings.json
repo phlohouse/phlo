@@ -1,0 +1,1675 @@
+{
+  "field_count": 177,
+  "model_count": 28,
+  "models": [
+    {
+      "class": "BaseConfig",
+      "fields": [],
+      "module": "phlo.config.base",
+      "package": "phlo",
+      "source": "src/phlo/config/base.py",
+      "status": "introspected"
+    },
+    {
+      "class": "Settings",
+      "fields": [
+        {
+          "alias": "AliasChoices(choices=['PHLO_DEFAULT_CAPABILITIES'])",
+          "annotation": "dict[str, str]",
+          "default": "<factory:dict>",
+          "description": "Default capability provider names keyed by capability type (for example {'table_store': 'iceberg'})",
+          "name": "phlo_default_capabilities",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_ENVIRONMENT', 'ENVIRONMENT'])",
+          "annotation": "<class 'str'>",
+          "default": "dev",
+          "description": "Runtime environment attached to structured logs",
+          "name": "phlo_environment",
+          "required": false
+        },
+        {
+          "alias": "phlo_log_file_template",
+          "annotation": "<class 'str'>",
+          "default": ".phlo/logs/{YMD}.log",
+          "description": "Optional log file path template (empty to disable)",
+          "name": "phlo_log_file_template",
+          "required": false
+        },
+        {
+          "alias": "phlo_log_format",
+          "annotation": "<class 'str'>",
+          "default": "auto",
+          "description": "Log format (auto|json|console)",
+          "name": "phlo_log_format",
+          "required": false
+        },
+        {
+          "alias": "phlo_log_level",
+          "annotation": "<class 'str'>",
+          "default": "WARNING",
+          "description": "Default log level for Phlo",
+          "name": "phlo_log_level",
+          "required": false
+        },
+        {
+          "alias": "phlo_log_router_enabled",
+          "annotation": "<class 'bool'>",
+          "default": true,
+          "description": "Emit structured log events to the hook bus",
+          "name": "phlo_log_router_enabled",
+          "required": false
+        },
+        {
+          "alias": "phlo_log_service_name",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "Default service name for log records",
+          "name": "phlo_log_service_name",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_ORCHESTRATOR', 'PHLO_ORCHESTRATOR_NAME'])",
+          "annotation": "<class 'str'>",
+          "default": "dagster",
+          "description": "Active orchestrator adapter name",
+          "name": "phlo_orchestrator",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_PROJECT'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Optional project identifier attached to observability resources",
+          "name": "phlo_project",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_SERVICE_INSTANCE_ID', 'OTEL_SERVICE_INSTANCE_ID'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Optional default service instance identifier for observability resources",
+          "name": "phlo_service_instance_id",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_SERVICE_NAMESPACE', 'OTEL_SERVICE_NAMESPACE'])",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "Default service namespace attached to observability resources",
+          "name": "phlo_service_namespace",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_SERVICE_VERSION', 'OTEL_SERVICE_VERSION'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Optional default service version attached to observability resources",
+          "name": "phlo_service_version",
+          "required": false
+        },
+        {
+          "alias": "plugin_registry_cache_ttl_seconds",
+          "annotation": "<class 'int'>",
+          "default": 3600,
+          "description": "Registry cache TTL in seconds",
+          "name": "plugin_registry_cache_ttl_seconds",
+          "required": false
+        },
+        {
+          "alias": "plugin_registry_timeout_seconds",
+          "annotation": "<class 'int'>",
+          "default": 10,
+          "description": "Registry fetch timeout in seconds",
+          "name": "plugin_registry_timeout_seconds",
+          "required": false
+        },
+        {
+          "alias": "plugin_registry_url",
+          "annotation": "<class 'str'>",
+          "default": "https://registry.phlohouse.com/plugins.json",
+          "description": "URL for the plugin registry catalog",
+          "name": "plugin_registry_url",
+          "required": false
+        },
+        {
+          "alias": "plugins_auto_discover",
+          "annotation": "<class 'bool'>",
+          "default": true,
+          "description": "Automatically discover plugins from entry points on import",
+          "name": "plugins_auto_discover",
+          "required": false
+        },
+        {
+          "alias": "plugins_blacklist",
+          "annotation": "list[str]",
+          "default": "<factory:list>",
+          "description": "Blacklist of plugin names to exclude",
+          "name": "plugins_blacklist",
+          "required": false
+        },
+        {
+          "alias": "plugins_enabled",
+          "annotation": "<class 'bool'>",
+          "default": true,
+          "description": "Enable plugin system",
+          "name": "plugins_enabled",
+          "required": false
+        },
+        {
+          "alias": "plugins_whitelist",
+          "annotation": "list[str]",
+          "default": "<factory:list>",
+          "description": "Whitelist of plugin names to load (empty = all allowed)",
+          "name": "plugins_whitelist",
+          "required": false
+        }
+      ],
+      "module": "phlo.config.settings",
+      "package": "phlo",
+      "source": "src/phlo/config/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "MetricsBackendSettings",
+      "fields": [
+        {
+          "alias": "metrics_query_catalog",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Catalog name used for query-engine table stats lookups",
+          "name": "metrics_query_catalog",
+          "required": false
+        },
+        {
+          "alias": "metrics_query_engine",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Optional query_engine capability name for table stats queries",
+          "name": "metrics_query_engine",
+          "required": false
+        },
+        {
+          "alias": "nessie_api_version",
+          "annotation": "<class 'str'>",
+          "default": "v1",
+          "description": "Nessie API version",
+          "name": "nessie_api_version",
+          "required": false
+        },
+        {
+          "alias": "nessie_host",
+          "annotation": "<class 'str'>",
+          "default": "nessie",
+          "description": "Nessie host",
+          "name": "nessie_host",
+          "required": false
+        },
+        {
+          "alias": "nessie_port",
+          "annotation": "<class 'int'>",
+          "default": 19120,
+          "description": "Nessie port",
+          "name": "nessie_port",
+          "required": false
+        },
+        {
+          "alias": "postgres_db",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "PostgreSQL database name",
+          "name": "postgres_db",
+          "required": false
+        },
+        {
+          "alias": "postgres_host",
+          "annotation": "<class 'str'>",
+          "default": "postgres",
+          "description": "PostgreSQL host",
+          "name": "postgres_host",
+          "required": false
+        },
+        {
+          "alias": "postgres_password",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "PostgreSQL password",
+          "name": "postgres_password",
+          "required": false
+        },
+        {
+          "alias": "postgres_port",
+          "annotation": "<class 'int'>",
+          "default": 5432,
+          "description": "PostgreSQL port",
+          "name": "postgres_port",
+          "required": false
+        },
+        {
+          "alias": "postgres_user",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "PostgreSQL username",
+          "name": "postgres_user",
+          "required": false
+        }
+      ],
+      "module": "phlo.metrics",
+      "package": "phlo",
+      "source": "src/phlo/metrics.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ObservatorySettingsStorageConfig",
+      "fields": [
+        {
+          "alias": "AliasChoices(choices=['PHLO_OBSERVATORY_SETTINGS_BACKEND'])",
+          "annotation": "Literal['postgres', 'memory']",
+          "default": "postgres",
+          "description": "Settings storage backend: 'postgres' (durable, default) or 'memory' (dev/test only)",
+          "name": "observatory_settings_backend",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_OBSERVATORY_SETTINGS_DB_URL'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "PostgreSQL DSN override for Observatory settings storage",
+          "name": "observatory_settings_db_url",
+          "required": false
+        }
+      ],
+      "module": "phlo.plugins.observatory_settings",
+      "package": "phlo",
+      "source": "src/phlo/plugins/observatory_settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "AirbyteSettings",
+      "fields": [
+        {
+          "alias": "airbyte_client_id",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Airbyte API client id for token auth",
+          "name": "airbyte_client_id",
+          "required": false
+        },
+        {
+          "alias": "airbyte_client_secret",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Airbyte API client secret for token auth",
+          "name": "airbyte_client_secret",
+          "required": false
+        },
+        {
+          "alias": "airbyte_host",
+          "annotation": "<class 'str'>",
+          "default": "airbyte-server",
+          "description": "Airbyte API host",
+          "name": "airbyte_host",
+          "required": false
+        },
+        {
+          "alias": "airbyte_poll_interval_seconds",
+          "annotation": "<class 'int'>",
+          "default": 10,
+          "description": "Seconds between sync job status polls",
+          "name": "airbyte_poll_interval_seconds",
+          "required": false
+        },
+        {
+          "alias": "airbyte_port",
+          "annotation": "<class 'int'>",
+          "default": 8001,
+          "description": "Airbyte server API port",
+          "name": "airbyte_port",
+          "required": false
+        },
+        {
+          "alias": "airbyte_sync_timeout_seconds",
+          "annotation": "<class 'int'>",
+          "default": 3600,
+          "description": "Maximum seconds to wait for one sync to reach a terminal state",
+          "name": "airbyte_sync_timeout_seconds",
+          "required": false
+        },
+        {
+          "alias": "airbyte_workspace_id",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Airbyte workspace id for connection lookups",
+          "name": "airbyte_workspace_id",
+          "required": false
+        }
+      ],
+      "module": "phlo_airbyte.settings",
+      "package": "phlo-airbyte",
+      "source": "packages/phlo-airbyte/src/phlo_airbyte/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "AlertingSettings",
+      "fields": [
+        {
+          "alias": "phlo_alert_email_recipients",
+          "annotation": "list[str]",
+          "default": "<factory:list>",
+          "description": "Email recipients for alerts",
+          "name": "phlo_alert_email_recipients",
+          "required": false
+        },
+        {
+          "alias": "phlo_alert_email_smtp_host",
+          "annotation": "str | None",
+          "default": null,
+          "description": "SMTP server hostname",
+          "name": "phlo_alert_email_smtp_host",
+          "required": false
+        },
+        {
+          "alias": "phlo_alert_email_smtp_password",
+          "annotation": "str | None",
+          "default": null,
+          "description": "SMTP password",
+          "name": "phlo_alert_email_smtp_password",
+          "required": false
+        },
+        {
+          "alias": "phlo_alert_email_smtp_port",
+          "annotation": "<class 'int'>",
+          "default": 587,
+          "description": "SMTP server port",
+          "name": "phlo_alert_email_smtp_port",
+          "required": false
+        },
+        {
+          "alias": "phlo_alert_email_smtp_user",
+          "annotation": "str | None",
+          "default": null,
+          "description": "SMTP username",
+          "name": "phlo_alert_email_smtp_user",
+          "required": false
+        },
+        {
+          "alias": "phlo_alert_pagerduty_key",
+          "annotation": "str | None",
+          "default": null,
+          "description": "PagerDuty Events API v2 integration key",
+          "name": "phlo_alert_pagerduty_key",
+          "required": false
+        },
+        {
+          "alias": "phlo_alert_slack_channel",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Default Slack channel for alerts",
+          "name": "phlo_alert_slack_channel",
+          "required": false
+        },
+        {
+          "alias": "phlo_alert_slack_webhook",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Slack incoming webhook URL",
+          "name": "phlo_alert_slack_webhook",
+          "required": false
+        }
+      ],
+      "module": "phlo_alerting.settings",
+      "package": "phlo-alerting",
+      "source": "packages/phlo-alerting/src/phlo_alerting/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ClickHouseSettings",
+      "fields": [
+        {
+          "alias": "clickhouse_db",
+          "annotation": "<class 'str'>",
+          "default": "default",
+          "description": "Default ClickHouse database",
+          "name": "clickhouse_db",
+          "required": false
+        },
+        {
+          "alias": "clickhouse_host",
+          "annotation": "<class 'str'>",
+          "default": "clickhouse",
+          "description": "ClickHouse service hostname",
+          "name": "clickhouse_host",
+          "required": false
+        },
+        {
+          "alias": "clickhouse_http_port",
+          "annotation": "<class 'int'>",
+          "default": 8123,
+          "description": "ClickHouse HTTP interface port",
+          "name": "clickhouse_http_port",
+          "required": false
+        },
+        {
+          "alias": "clickhouse_native_port",
+          "annotation": "<class 'int'>",
+          "default": 19000,
+          "description": "ClickHouse native protocol port",
+          "name": "clickhouse_native_port",
+          "required": false
+        },
+        {
+          "alias": "clickhouse_password",
+          "annotation": "<class 'str'>",
+          "default": "",
+          "description": "ClickHouse password",
+          "name": "clickhouse_password",
+          "required": false
+        },
+        {
+          "alias": "clickhouse_secure",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Use TLS for ClickHouse connections",
+          "name": "clickhouse_secure",
+          "required": false
+        },
+        {
+          "alias": "clickhouse_user",
+          "annotation": "<class 'str'>",
+          "default": "default",
+          "description": "ClickHouse username",
+          "name": "clickhouse_user",
+          "required": false
+        }
+      ],
+      "module": "phlo_clickhouse.settings",
+      "package": "phlo-clickhouse",
+      "source": "packages/phlo-clickhouse/src/phlo_clickhouse/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "DagsterSettings",
+      "fields": [
+        {
+          "alias": "dagster_port",
+          "annotation": "<class 'int'>",
+          "default": 10006,
+          "description": "Dagster webserver port",
+          "name": "dagster_port",
+          "required": false
+        },
+        {
+          "alias": "phlo_force_in_process_executor",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Force use of in-process executor",
+          "name": "phlo_force_in_process_executor",
+          "required": false
+        },
+        {
+          "alias": "phlo_force_multiprocess_executor",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Force use of multiprocess executor",
+          "name": "phlo_force_multiprocess_executor",
+          "required": false
+        },
+        {
+          "alias": "phlo_host_platform",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Host platform for executor selection (Darwin/Linux/Windows). Auto-detected in CLI; set explicitly for daemon/webserver on macOS.",
+          "name": "phlo_host_platform",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_WORKFLOWS_PATH', 'WORKFLOWS_PATH', 'workflows_path'])",
+          "annotation": "<class 'str'>",
+          "default": "workflows",
+          "description": "Path to user workflows directory (for external projects)",
+          "name": "workflows_path",
+          "required": false
+        }
+      ],
+      "module": "phlo_dagster.settings",
+      "package": "phlo-dagster",
+      "source": "packages/phlo-dagster/src/phlo_dagster/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "DbtSettings",
+      "fields": [
+        {
+          "alias": "dbt_catalog_path",
+          "annotation": "<class 'str'>",
+          "default": "",
+          "description": "Path to dbt catalog.json for column-level documentation",
+          "name": "dbt_catalog_path",
+          "required": false
+        },
+        {
+          "alias": "dbt_manifest_path",
+          "annotation": "<class 'str'>",
+          "default": "",
+          "description": "Path to dbt manifest.json after running dbt docs generate",
+          "name": "dbt_manifest_path",
+          "required": false
+        },
+        {
+          "alias": "dbt_namespaced_asset_keys",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Prefix dbt-derived asset keys with the dbt project name (e.g. sales.deal_pipeline) to prevent cross-domain collisions. Recommended when multiple projects are activated.",
+          "name": "dbt_namespaced_asset_keys",
+          "required": false
+        },
+        {
+          "alias": "dbt_project_dir",
+          "annotation": "<class 'str'>",
+          "default": "workflows/transforms/dbt",
+          "description": "Path to dbt project directory",
+          "name": "dbt_project_dir",
+          "required": false
+        },
+        {
+          "alias": "dbt_project_dirs",
+          "annotation": "<class 'str'>",
+          "default": "",
+          "description": "Comma-separated list of dbt project directories to activate together (multi-project federation). Overrides dbt_project_dir.",
+          "name": "dbt_project_dirs",
+          "required": false
+        },
+        {
+          "alias": "dbt_query_auth_method",
+          "annotation": "<class 'str'>",
+          "default": "none",
+          "description": "Auth method for generated dbt profiles",
+          "name": "dbt_query_auth_method",
+          "required": false
+        },
+        {
+          "alias": "dbt_query_catalog",
+          "annotation": "<class 'str'>",
+          "default": "iceberg",
+          "description": "Base query engine catalog for generated dbt profiles",
+          "name": "dbt_query_catalog",
+          "required": false
+        },
+        {
+          "alias": "dbt_query_engine_type",
+          "annotation": "<class 'str'>",
+          "default": "trino",
+          "description": "Query engine adapter used by dbt profiles",
+          "name": "dbt_query_engine_type",
+          "required": false
+        },
+        {
+          "alias": "dbt_query_host",
+          "annotation": "<class 'str'>",
+          "default": "trino",
+          "description": "Query engine host for generated dbt profiles",
+          "name": "dbt_query_host",
+          "required": false
+        },
+        {
+          "alias": "dbt_query_http_scheme",
+          "annotation": "<class 'str'>",
+          "default": "http",
+          "description": "HTTP scheme for generated dbt profiles",
+          "name": "dbt_query_http_scheme",
+          "required": false
+        },
+        {
+          "alias": "dbt_query_password",
+          "annotation": "<class 'str'>",
+          "default": "",
+          "description": "Query engine password for generated dbt profiles",
+          "name": "dbt_query_password",
+          "required": false
+        },
+        {
+          "alias": "dbt_query_port",
+          "annotation": "<class 'int'>",
+          "default": 8080,
+          "description": "Query engine port for generated dbt profiles",
+          "name": "dbt_query_port",
+          "required": false
+        },
+        {
+          "alias": "dbt_query_schema",
+          "annotation": "<class 'str'>",
+          "default": "raw",
+          "description": "Default schema for generated dbt profiles",
+          "name": "dbt_query_schema",
+          "required": false
+        },
+        {
+          "alias": "dbt_query_threads",
+          "annotation": "<class 'int'>",
+          "default": 2,
+          "description": "Worker threads for generated dbt profiles",
+          "name": "dbt_query_threads",
+          "required": false
+        },
+        {
+          "alias": "dbt_query_user",
+          "annotation": "<class 'str'>",
+          "default": "dagster",
+          "description": "Query engine user for generated dbt profiles",
+          "name": "dbt_query_user",
+          "required": false
+        },
+        {
+          "alias": "dbt_shared_schema",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Keep the shared dbt_query_schema for every activated project. By default, multi-project activation isolates each project in its own schema ({project_name}_{schema}) so independent domains do not write into the same relations.",
+          "name": "dbt_shared_schema",
+          "required": false
+        }
+      ],
+      "module": "phlo_dbt.settings",
+      "package": "phlo-dbt",
+      "source": "packages/phlo-dbt/src/phlo_dbt/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "DeltaSettings",
+      "fields": [
+        {
+          "alias": "delta_default_namespace",
+          "annotation": "<class 'str'>",
+          "default": "raw",
+          "description": "Default namespace/schema for Delta tables",
+          "name": "delta_default_namespace",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['DELTA_S3_ACCESS_KEY', 'AWS_ACCESS_KEY_ID'])",
+          "annotation": "<class 'str'>",
+          "default": "minio",
+          "description": "S3 access key for Delta I/O",
+          "name": "delta_s3_access_key",
+          "required": false
+        },
+        {
+          "alias": "delta_s3_allow_unsafe_rename",
+          "annotation": "<class 'bool'>",
+          "default": true,
+          "description": "Allow unsafe rename for S3 (non-HDFS) backends",
+          "name": "delta_s3_allow_unsafe_rename",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['DELTA_S3_ENDPOINT', 'AWS_S3_ENDPOINT'])",
+          "annotation": "str | None",
+          "default": "http://localhost:9000",
+          "description": "S3 endpoint URL for Delta I/O",
+          "name": "delta_s3_endpoint",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['DELTA_S3_REGION', 'AWS_REGION'])",
+          "annotation": "<class 'str'>",
+          "default": "us-east-1",
+          "description": "S3 region for Delta I/O",
+          "name": "delta_s3_region",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['DELTA_S3_SECRET_KEY', 'AWS_SECRET_ACCESS_KEY'])",
+          "annotation": "<class 'str'>",
+          "default": "minio123",
+          "description": "S3 secret key for Delta I/O",
+          "name": "delta_s3_secret_key",
+          "required": false
+        },
+        {
+          "alias": "delta_staging_path",
+          "annotation": "<class 'str'>",
+          "default": "s3://lake/stage",
+          "description": "S3 path for staging parquet files",
+          "name": "delta_staging_path",
+          "required": false
+        },
+        {
+          "alias": "delta_warehouse_path",
+          "annotation": "<class 'str'>",
+          "default": "s3://lake/warehouse/delta",
+          "description": "S3 path for Delta tables",
+          "name": "delta_warehouse_path",
+          "required": false
+        }
+      ],
+      "module": "phlo_delta.settings",
+      "package": "phlo-delta",
+      "source": "packages/phlo-delta/src/phlo_delta/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "DltSettings",
+      "fields": [
+        {
+          "alias": "dlt_default_namespace",
+          "annotation": "<class 'str'>",
+          "default": "raw",
+          "description": "Default namespace/schema used for generated ingestion table names.",
+          "name": "dlt_default_namespace",
+          "required": false
+        }
+      ],
+      "module": "phlo_dlt.settings",
+      "package": "phlo-dlt",
+      "source": "packages/phlo-dlt/src/phlo_dlt/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "HasuraClientSettings",
+      "fields": [
+        {
+          "alias": "hasura_admin_secret",
+          "annotation": "str | None",
+          "default": "phlo-hasura-admin-secret",
+          "description": "Hasura admin secret used for Metadata API requests",
+          "name": "hasura_admin_secret",
+          "required": false
+        }
+      ],
+      "module": "phlo_hasura.client",
+      "package": "phlo-hasura",
+      "source": "packages/phlo-hasura/src/phlo_hasura/client.py",
+      "status": "introspected"
+    },
+    {
+      "class": "HasuraPostgresSettings",
+      "fields": [
+        {
+          "alias": "postgres_db",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "PostgreSQL database name",
+          "name": "postgres_db",
+          "required": false
+        },
+        {
+          "alias": "postgres_host",
+          "annotation": "<class 'str'>",
+          "default": "postgres",
+          "description": "PostgreSQL host",
+          "name": "postgres_host",
+          "required": false
+        },
+        {
+          "alias": "postgres_password",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "PostgreSQL password",
+          "name": "postgres_password",
+          "required": false
+        },
+        {
+          "alias": "postgres_port",
+          "annotation": "<class 'int'>",
+          "default": 5432,
+          "description": "PostgreSQL port",
+          "name": "postgres_port",
+          "required": false
+        },
+        {
+          "alias": "postgres_user",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "PostgreSQL username",
+          "name": "postgres_user",
+          "required": false
+        }
+      ],
+      "module": "phlo_hasura.track",
+      "package": "phlo-hasura",
+      "source": "packages/phlo-hasura/src/phlo_hasura/track.py",
+      "status": "introspected"
+    },
+    {
+      "class": "IcebergSettings",
+      "fields": [
+        {
+          "alias": "AliasChoices(choices=['iceberg_catalog_uri', 'PHLO_ICEBERG_CATALOG_URI', 'ICEBERG_CATALOG_URI'])",
+          "annotation": "<class 'str'>",
+          "default": "http://nessie:19120/iceberg",
+          "description": "Iceberg REST catalog endpoint base URI",
+          "name": "iceberg_catalog_uri",
+          "required": false
+        },
+        {
+          "alias": "iceberg_default_namespace",
+          "annotation": "<class 'str'>",
+          "default": "raw",
+          "description": "Default namespace/schema for Iceberg tables",
+          "name": "iceberg_default_namespace",
+          "required": false
+        },
+        {
+          "alias": "iceberg_default_ref",
+          "annotation": "<class 'str'>",
+          "default": "main",
+          "description": "Default catalog ref/branch for Iceberg operations",
+          "name": "iceberg_default_ref",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['iceberg_s3_access_key', 'PHLO_ICEBERG_S3_ACCESS_KEY', 'ICEBERG_S3_ACCESS_KEY', 'AWS_ACCESS_KEY_ID'])",
+          "annotation": "<class 'str'>",
+          "default": "minio",
+          "description": "S3 access key for Iceberg I/O",
+          "name": "iceberg_s3_access_key",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['iceberg_s3_endpoint', 'PHLO_ICEBERG_S3_ENDPOINT', 'ICEBERG_S3_ENDPOINT'])",
+          "annotation": "<class 'str'>",
+          "default": "http://minio:10001",
+          "description": "S3 endpoint URL for Iceberg I/O",
+          "name": "iceberg_s3_endpoint",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['iceberg_s3_region', 'PHLO_ICEBERG_S3_REGION', 'ICEBERG_S3_REGION', 'AWS_REGION', 'AWS_DEFAULT_REGION'])",
+          "annotation": "<class 'str'>",
+          "default": "us-east-1",
+          "description": "S3 region for Iceberg I/O",
+          "name": "iceberg_s3_region",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['iceberg_s3_secret_key', 'PHLO_ICEBERG_S3_SECRET_KEY', 'ICEBERG_S3_SECRET_KEY', 'AWS_SECRET_ACCESS_KEY'])",
+          "annotation": "<class 'str'>",
+          "default": "minio123",
+          "description": "S3 secret key for Iceberg I/O",
+          "name": "iceberg_s3_secret_key",
+          "required": false
+        },
+        {
+          "alias": "iceberg_staging_path",
+          "annotation": "<class 'str'>",
+          "default": "s3://lake/stage",
+          "description": "S3 path for staging parquet files",
+          "name": "iceberg_staging_path",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['iceberg_warehouse_path', 'PHLO_ICEBERG_WAREHOUSE_PATH', 'ICEBERG_WAREHOUSE_PATH'])",
+          "annotation": "<class 'str'>",
+          "default": "s3://lake/warehouse",
+          "description": "S3 path for Iceberg warehouse",
+          "name": "iceberg_warehouse_path",
+          "required": false
+        }
+      ],
+      "module": "phlo_iceberg.settings",
+      "package": "phlo-iceberg",
+      "source": "packages/phlo-iceberg/src/phlo_iceberg/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "KafkaSettings",
+      "fields": [
+        {
+          "alias": "kafka_checkpoint_topic",
+          "annotation": "<class 'str'>",
+          "default": "phlo-ingestion-checkpoints",
+          "description": "Compacted topic mirroring durable ingestion checkpoints",
+          "name": "kafka_checkpoint_topic",
+          "required": false
+        },
+        {
+          "alias": "kafka_consumer_group_prefix",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "Prefix applied to consumer group ids",
+          "name": "kafka_consumer_group_prefix",
+          "required": false
+        },
+        {
+          "alias": "kafka_dead_letter_retention_ms",
+          "annotation": "<class 'int'>",
+          "default": 2592000000,
+          "description": "Dead-letter topic retention in milliseconds (default 30d)",
+          "name": "kafka_dead_letter_retention_ms",
+          "required": false
+        },
+        {
+          "alias": "kafka_dead_letter_suffix",
+          "annotation": "<class 'str'>",
+          "default": ".dlq",
+          "description": "Suffix for dead-letter topics",
+          "name": "kafka_dead_letter_suffix",
+          "required": false
+        },
+        {
+          "alias": "kafka_host",
+          "annotation": "<class 'str'>",
+          "default": "kafka",
+          "description": "Kafka broker host",
+          "name": "kafka_host",
+          "required": false
+        },
+        {
+          "alias": "kafka_port",
+          "annotation": "<class 'int'>",
+          "default": 9092,
+          "description": "Kafka broker port",
+          "name": "kafka_port",
+          "required": false
+        },
+        {
+          "alias": "kafka_retention_ms",
+          "annotation": "<class 'int'>",
+          "default": 604800000,
+          "description": "Source topic retention in milliseconds (default 7d)",
+          "name": "kafka_retention_ms",
+          "required": false
+        },
+        {
+          "alias": "kafka_schema_policy",
+          "annotation": "<class 'str'>",
+          "default": "additive",
+          "description": "Default schema policy: additive compatible changes auto-register",
+          "name": "kafka_schema_policy",
+          "required": false
+        }
+      ],
+      "module": "phlo_kafka.settings",
+      "package": "phlo-kafka",
+      "source": "packages/phlo-kafka/src/phlo_kafka/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "LineageSettings",
+      "fields": [
+        {
+          "alias": "AliasChoices(choices=['LINEAGE_DB_URL', 'PHLO_LINEAGE_DB_URL', 'DAGSTER_PG_DB_CONNECTION_STRING'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "PostgreSQL DSN for the row-level lineage store",
+          "name": "lineage_db_url",
+          "required": false
+        }
+      ],
+      "module": "phlo_lineage.settings",
+      "package": "phlo-lineage",
+      "source": "packages/phlo-lineage/src/phlo_lineage/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "MinioSettings",
+      "fields": [
+        {
+          "alias": "minio_api_port",
+          "annotation": "<class 'int'>",
+          "default": 10001,
+          "description": "MinIO API port",
+          "name": "minio_api_port",
+          "required": false
+        },
+        {
+          "alias": "minio_console_port",
+          "annotation": "<class 'int'>",
+          "default": 10002,
+          "description": "MinIO console port",
+          "name": "minio_console_port",
+          "required": false
+        },
+        {
+          "alias": "minio_host",
+          "annotation": "<class 'str'>",
+          "default": "minio",
+          "description": "MinIO service hostname",
+          "name": "minio_host",
+          "required": false
+        },
+        {
+          "alias": "minio_root_password",
+          "annotation": "<class 'str'>",
+          "default": "minio123",
+          "description": "MinIO root password",
+          "name": "minio_root_password",
+          "required": false
+        },
+        {
+          "alias": "minio_root_user",
+          "annotation": "<class 'str'>",
+          "default": "minio",
+          "description": "MinIO root username",
+          "name": "minio_root_user",
+          "required": false
+        },
+        {
+          "alias": "s3_region",
+          "annotation": "<class 'str'>",
+          "default": "us-east-1",
+          "description": "S3 region",
+          "name": "s3_region",
+          "required": false
+        }
+      ],
+      "module": "phlo_minio.settings",
+      "package": "phlo-minio",
+      "source": "packages/phlo-minio/src/phlo_minio/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "NessieSettings",
+      "fields": [
+        {
+          "alias": "nessie_api_version",
+          "annotation": "<class 'str'>",
+          "default": "v1",
+          "description": "Nessie API version",
+          "name": "nessie_api_version",
+          "required": false
+        },
+        {
+          "alias": "nessie_default_ref",
+          "annotation": "<class 'str'>",
+          "default": "main",
+          "description": "Default Nessie branch/tag",
+          "name": "nessie_default_ref",
+          "required": false
+        },
+        {
+          "alias": "nessie_host",
+          "annotation": "<class 'str'>",
+          "default": "nessie",
+          "description": "Nessie service hostname",
+          "name": "nessie_host",
+          "required": false
+        },
+        {
+          "alias": "nessie_port",
+          "annotation": "<class 'int'>",
+          "default": 19120,
+          "description": "Nessie REST API port",
+          "name": "nessie_port",
+          "required": false
+        },
+        {
+          "alias": "nessie_query_engine",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Optional query_engine capability name for catalog scan fallbacks",
+          "name": "nessie_query_engine",
+          "required": false
+        },
+        {
+          "alias": "nessie_version",
+          "annotation": "<class 'str'>",
+          "default": "0.108.3",
+          "description": "Nessie version",
+          "name": "nessie_version",
+          "required": false
+        }
+      ],
+      "module": "phlo_nessie.settings",
+      "package": "phlo-nessie",
+      "source": "packages/phlo-nessie/src/phlo_nessie/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ObservatorySettings",
+      "fields": [
+        {
+          "alias": "AliasChoices(choices=['PHLO_OBSERVATORY_SETTINGS_DB_URL'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "PostgreSQL DSN for Observatory settings storage",
+          "name": "observatory_settings_db_url",
+          "required": false
+        }
+      ],
+      "module": "phlo_observatory.settings",
+      "package": "phlo-observatory",
+      "source": "packages/phlo-observatory/src/phlo_observatory/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "OpenMetadataSettings",
+      "fields": [
+        {
+          "alias": "openmetadata_catalog_scanner",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Catalog scanner capability name to use for sync operations",
+          "name": "openmetadata_catalog_scanner",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_database_name",
+          "annotation": "str | None",
+          "default": null,
+          "description": "OpenMetadata database name (required unless a query_engine capability declares catalog metadata)",
+          "name": "openmetadata_database_name",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_dbt_catalog_path",
+          "annotation": "<class 'str'>",
+          "default": "workflows/transforms/dbt/target/catalog.json",
+          "description": "Path to dbt catalog.json for metadata sync",
+          "name": "openmetadata_dbt_catalog_path",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_dbt_manifest_path",
+          "annotation": "<class 'str'>",
+          "default": "workflows/transforms/dbt/target/manifest.json",
+          "description": "Path to dbt manifest.json for metadata sync",
+          "name": "openmetadata_dbt_manifest_path",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_host",
+          "annotation": "<class 'str'>",
+          "default": "openmetadata-server",
+          "description": "OpenMetadata server hostname",
+          "name": "openmetadata_host",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_password",
+          "annotation": "<class 'str'>",
+          "default": "admin",
+          "description": "OpenMetadata admin password",
+          "name": "openmetadata_password",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_port",
+          "annotation": "<class 'int'>",
+          "default": 8585,
+          "description": "OpenMetadata server port",
+          "name": "openmetadata_port",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_query_engine",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Query engine capability name used to infer the OpenMetadata database name",
+          "name": "openmetadata_query_engine",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_service_name",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "OpenMetadata database service name for Phlo metadata sync",
+          "name": "openmetadata_service_name",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_service_type",
+          "annotation": "str | None",
+          "default": null,
+          "description": "OpenMetadata database service type (required unless query_engine metadata declares service_type)",
+          "name": "openmetadata_service_type",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_sync_enabled",
+          "annotation": "<class 'bool'>",
+          "default": true,
+          "description": "Enable automatic metadata sync to OpenMetadata",
+          "name": "openmetadata_sync_enabled",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_sync_interval_seconds",
+          "annotation": "<class 'int'>",
+          "default": 300,
+          "description": "Minimum interval between metadata syncs (seconds)",
+          "name": "openmetadata_sync_interval_seconds",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_username",
+          "annotation": "<class 'str'>",
+          "default": "admin",
+          "description": "OpenMetadata admin username",
+          "name": "openmetadata_username",
+          "required": false
+        },
+        {
+          "alias": "openmetadata_verify_ssl",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Verify SSL certificates for OpenMetadata connections",
+          "name": "openmetadata_verify_ssl",
+          "required": false
+        }
+      ],
+      "module": "phlo_openmetadata.settings",
+      "package": "phlo-openmetadata",
+      "source": "packages/phlo-openmetadata/src/phlo_openmetadata/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "PolarisSettings",
+      "fields": [
+        {
+          "alias": "polaris_catalog",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "Polaris catalog name backing the Phlo warehouse",
+          "name": "polaris_catalog",
+          "required": false
+        },
+        {
+          "alias": "polaris_host",
+          "annotation": "<class 'str'>",
+          "default": "polaris",
+          "description": "Polaris API host",
+          "name": "polaris_host",
+          "required": false
+        },
+        {
+          "alias": "polaris_port",
+          "annotation": "<class 'int'>",
+          "default": 8181,
+          "description": "Polaris API port",
+          "name": "polaris_port",
+          "required": false
+        },
+        {
+          "alias": "polaris_query_engine",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Optional query-engine capability used by catalog scanners",
+          "name": "polaris_query_engine",
+          "required": false
+        },
+        {
+          "alias": "polaris_reader_client_id",
+          "annotation": "<class 'str'>",
+          "default": "phlo_reader",
+          "description": "Reader principal client id",
+          "name": "polaris_reader_client_id",
+          "required": false
+        },
+        {
+          "alias": "polaris_reader_client_secret",
+          "annotation": "<class 'str'>",
+          "default": "phlo-reader-secret",
+          "description": "Reader principal client secret",
+          "name": "polaris_reader_client_secret",
+          "required": false
+        },
+        {
+          "alias": "polaris_root_credentials",
+          "annotation": "<class 'str'>",
+          "default": "root:s3cr3t",
+          "description": "Bootstrap principal credentials as client_id:client_secret",
+          "name": "polaris_root_credentials",
+          "required": false
+        },
+        {
+          "alias": "polaris_writer_client_id",
+          "annotation": "<class 'str'>",
+          "default": "phlo_writer",
+          "description": "Writer principal client id",
+          "name": "polaris_writer_client_id",
+          "required": false
+        },
+        {
+          "alias": "polaris_writer_client_secret",
+          "annotation": "<class 'str'>",
+          "default": "phlo-writer-secret",
+          "description": "Writer principal client secret",
+          "name": "polaris_writer_client_secret",
+          "required": false
+        }
+      ],
+      "module": "phlo_polaris.settings",
+      "package": "phlo-polaris",
+      "source": "packages/phlo-polaris/src/phlo_polaris/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "PostgresSettings",
+      "fields": [
+        {
+          "alias": "postgres_db",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "PostgreSQL database name",
+          "name": "postgres_db",
+          "required": false
+        },
+        {
+          "alias": "postgres_host",
+          "annotation": "<class 'str'>",
+          "default": "postgres",
+          "description": "PostgreSQL host",
+          "name": "postgres_host",
+          "required": false
+        },
+        {
+          "alias": "postgres_mart_schema",
+          "annotation": "<class 'str'>",
+          "default": "marts",
+          "description": "Schema for published mart tables",
+          "name": "postgres_mart_schema",
+          "required": false
+        },
+        {
+          "alias": "postgres_password",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "PostgreSQL password",
+          "name": "postgres_password",
+          "required": false
+        },
+        {
+          "alias": "postgres_port",
+          "annotation": "<class 'int'>",
+          "default": 5432,
+          "description": "PostgreSQL port",
+          "name": "postgres_port",
+          "required": false
+        },
+        {
+          "alias": "postgres_user",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "PostgreSQL username",
+          "name": "postgres_user",
+          "required": false
+        }
+      ],
+      "module": "phlo_postgres.settings",
+      "package": "phlo-postgres",
+      "source": "packages/phlo-postgres/src/phlo_postgres/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "PostgrestViewsSettings",
+      "fields": [
+        {
+          "alias": "dbt_api_source_schema",
+          "annotation": "str | None",
+          "default": null,
+          "description": "dbt schema to expose through generated PostgREST views",
+          "name": "dbt_api_source_schema",
+          "required": false
+        },
+        {
+          "alias": "dbt_manifest_path",
+          "annotation": "<class 'str'>",
+          "default": "workflows/transforms/dbt/target/manifest.json",
+          "description": "Path to dbt manifest.json",
+          "name": "dbt_manifest_path",
+          "required": false
+        },
+        {
+          "alias": "postgres_db",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "PostgreSQL database name",
+          "name": "postgres_db",
+          "required": false
+        },
+        {
+          "alias": "postgres_host",
+          "annotation": "<class 'str'>",
+          "default": "postgres",
+          "description": "PostgreSQL host",
+          "name": "postgres_host",
+          "required": false
+        },
+        {
+          "alias": "postgres_password",
+          "annotation": "str | None",
+          "default": null,
+          "description": "PostgreSQL password (required; set PHLO_POSTGRES_PASSWORD or POSTGRES_PASSWORD env var)",
+          "name": "postgres_password",
+          "required": false
+        },
+        {
+          "alias": "postgres_port",
+          "annotation": "<class 'int'>",
+          "default": 5432,
+          "description": "PostgreSQL port",
+          "name": "postgres_port",
+          "required": false
+        },
+        {
+          "alias": "postgres_user",
+          "annotation": "<class 'str'>",
+          "default": "phlo",
+          "description": "PostgreSQL username",
+          "name": "postgres_user",
+          "required": false
+        }
+      ],
+      "module": "phlo_postgrest.views",
+      "package": "phlo-postgrest",
+      "source": "packages/phlo-postgrest/src/phlo_postgrest/views.py",
+      "status": "introspected"
+    },
+    {
+      "class": "RustfsSettings",
+      "fields": [
+        {
+          "alias": "rustfs_access_key",
+          "annotation": "<class 'str'>",
+          "default": "rustfsadmin",
+          "description": "RustFS access key",
+          "name": "rustfs_access_key",
+          "required": false
+        },
+        {
+          "alias": "rustfs_api_port",
+          "annotation": "<class 'int'>",
+          "default": 9000,
+          "description": "RustFS S3 API port",
+          "name": "rustfs_api_port",
+          "required": false
+        },
+        {
+          "alias": "rustfs_console_port",
+          "annotation": "<class 'int'>",
+          "default": 9001,
+          "description": "RustFS console port",
+          "name": "rustfs_console_port",
+          "required": false
+        },
+        {
+          "alias": "rustfs_host",
+          "annotation": "<class 'str'>",
+          "default": "rustfs",
+          "description": "RustFS service hostname",
+          "name": "rustfs_host",
+          "required": false
+        },
+        {
+          "alias": "rustfs_secret_key",
+          "annotation": "<class 'str'>",
+          "default": "rustfsadmin",
+          "description": "RustFS secret key",
+          "name": "rustfs_secret_key",
+          "required": false
+        },
+        {
+          "alias": "s3_region",
+          "annotation": "<class 'str'>",
+          "default": "us-east-1",
+          "description": "S3 region",
+          "name": "s3_region",
+          "required": false
+        }
+      ],
+      "module": "phlo_rustfs.settings",
+      "package": "phlo-rustfs",
+      "source": "packages/phlo-rustfs/src/phlo_rustfs/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "SlingSettings",
+      "fields": [
+        {
+          "alias": "sling_auto_connections",
+          "annotation": "<class 'bool'>",
+          "default": true,
+          "description": "Auto-generate Sling connections from Phlo capability metadata.",
+          "name": "sling_auto_connections",
+          "required": false
+        },
+        {
+          "alias": "sling_binary_path",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Override path to the sling binary. None uses the bundled binary.",
+          "name": "sling_binary_path",
+          "required": false
+        },
+        {
+          "alias": "sling_connections_dir",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Directory containing Sling env.yaml files for explicit connections.",
+          "name": "sling_connections_dir",
+          "required": false
+        },
+        {
+          "alias": "sling_default_mode",
+          "annotation": "<class 'str'>",
+          "default": "incremental",
+          "description": "Default replication mode (full-refresh, incremental, snapshot, backfill).",
+          "name": "sling_default_mode",
+          "required": false
+        },
+        {
+          "alias": "sling_default_namespace",
+          "annotation": "<class 'str'>",
+          "default": "raw",
+          "description": "Default namespace for generated replication table names.",
+          "name": "sling_default_namespace",
+          "required": false
+        }
+      ],
+      "module": "phlo_sling.settings",
+      "package": "phlo-sling",
+      "source": "packages/phlo-sling/src/phlo_sling/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "SupersetSettings",
+      "fields": [
+        {
+          "alias": "superset_admin_email",
+          "annotation": "<class 'str'>",
+          "default": "admin@example.com",
+          "description": "Superset admin email",
+          "name": "superset_admin_email",
+          "required": false
+        },
+        {
+          "alias": "superset_admin_password",
+          "annotation": "<class 'str'>",
+          "default": "admin",
+          "description": "Superset admin password",
+          "name": "superset_admin_password",
+          "required": false
+        },
+        {
+          "alias": "superset_admin_user",
+          "annotation": "<class 'str'>",
+          "default": "admin",
+          "description": "Superset admin username",
+          "name": "superset_admin_user",
+          "required": false
+        },
+        {
+          "alias": "superset_port",
+          "annotation": "<class 'int'>",
+          "default": 10007,
+          "description": "Superset web port",
+          "name": "superset_port",
+          "required": false
+        }
+      ],
+      "module": "phlo_superset.settings",
+      "package": "phlo-superset",
+      "source": "packages/phlo-superset/src/phlo_superset/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "TrinoPublishingSettings",
+      "fields": [
+        {
+          "alias": "postgres_mart_schema",
+          "annotation": "<class 'str'>",
+          "default": "marts",
+          "description": "Default mart schema",
+          "name": "postgres_mart_schema",
+          "required": false
+        }
+      ],
+      "module": "phlo_trino.publishing",
+      "package": "phlo-trino",
+      "source": "packages/phlo-trino/src/phlo_trino/publishing.py",
+      "status": "introspected"
+    },
+    {
+      "class": "TrinoSettings",
+      "fields": [
+        {
+          "alias": "trino_catalog",
+          "annotation": "<class 'str'>",
+          "default": "iceberg",
+          "description": "Trino catalog name for Iceberg",
+          "name": "trino_catalog",
+          "required": false
+        },
+        {
+          "alias": "trino_default_ref",
+          "annotation": "<class 'str'>",
+          "default": "main",
+          "description": "Default branch/tag suffix",
+          "name": "trino_default_ref",
+          "required": false
+        },
+        {
+          "alias": "trino_host",
+          "annotation": "<class 'str'>",
+          "default": "trino",
+          "description": "Trino service hostname",
+          "name": "trino_host",
+          "required": false
+        },
+        {
+          "alias": "trino_port",
+          "annotation": "<class 'int'>",
+          "default": 10005,
+          "description": "Trino HTTP port",
+          "name": "trino_port",
+          "required": false
+        },
+        {
+          "alias": "trino_version",
+          "annotation": "<class 'str'>",
+          "default": "477",
+          "description": "Trino version",
+          "name": "trino_version",
+          "required": false
+        }
+      ],
+      "module": "phlo_trino.settings",
+      "package": "phlo-trino",
+      "source": "packages/phlo-trino/src/phlo_trino/settings.py",
+      "status": "introspected"
+    }
+  ],
+  "schema_version": 1,
+  "unavailable_model_count": 0
+}

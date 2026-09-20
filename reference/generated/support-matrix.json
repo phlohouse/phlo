@@ -1,0 +1,1167 @@
+{
+  "component_count": 89,
+  "components": [
+    {
+      "applicable_gates": [
+        "security",
+        "run_evidence",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "blockers": [
+        "security",
+        "run_evidence",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "component": "capability:dbt_transformations",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "run_evidence",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "blockers": [
+        "security",
+        "run_evidence",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "component": "capability:dlt_ingestion",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "golden_path"
+      ],
+      "blockers": [
+        "golden_path"
+      ],
+      "component": "capability:golden_path_ci",
+      "current_maturity": "planned",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "required"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "run_evidence",
+        "maintenance",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "blockers": [
+        "security",
+        "run_evidence",
+        "maintenance",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "component": "capability:iceberg_tables",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "maintenance",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "blockers": [
+        "security",
+        "maintenance",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "component": "capability:maintenance_operations",
+      "current_maturity": "planned",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "required"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "golden_path"
+      ],
+      "blockers": [
+        "security",
+        "golden_path"
+      ],
+      "component": "capability:mandatory_authorization",
+      "current_maturity": "blocked",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "required"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "run_evidence",
+        "maintenance",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "blockers": [
+        "security",
+        "run_evidence",
+        "maintenance",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "component": "capability:nessie_branch_write_audit_publish",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "run_evidence",
+        "golden_path"
+      ],
+      "blockers": [
+        "security",
+        "run_evidence",
+        "golden_path"
+      ],
+      "component": "capability:observatory_run_report",
+      "current_maturity": "planned",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "required"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "run_evidence",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "blockers": [
+        "security",
+        "run_evidence",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "component": "capability:pandera_quality",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security"
+      ],
+      "blockers": [
+        "security"
+      ],
+      "component": "capability:secure_production_deployment",
+      "current_maturity": "blocked",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "required"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "component": "capability:upgrade_restore",
+      "current_maturity": "planned",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "required"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "component": "package:phlo",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-airbyte",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-alerting",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-alloy",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "package:phlo-api",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-clickhouse",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-clickstack",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path"
+      ],
+      "component": "package:phlo-core-plugins",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "package:phlo-dagster",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence"
+      ],
+      "component": "package:phlo-dbt",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-delta",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence"
+      ],
+      "component": "package:phlo-dlt",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-grafana",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-hasura",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "package:phlo-iceberg",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-kafka",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-lineage",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-loki",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-mcp",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "component": "package:phlo-minio",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "package:phlo-nessie",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-oauth2-proxy",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence"
+      ],
+      "component": "package:phlo-observatory",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-observatory-example",
+      "current_maturity": "development_only",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "development_only"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-observe-plugin",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-openmetadata",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-otel",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence"
+      ],
+      "component": "package:phlo-pandera",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-pgweb",
+      "current_maturity": "development_only",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "development_only"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-polaris",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "package:phlo-postgres",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-postgrest",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-prometheus",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-rustfs",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-sling",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-superset",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-testing",
+      "current_maturity": "development_only",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "development_only"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-traefik",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "package:phlo-trino",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:airbyte",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:airbyte-bootloader",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:airbyte-manifest",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:airbyte-temporal",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:alloy",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:clickhouse",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:clickhouse-setup",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:clickstack",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "service:dagster",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "service:dagster-daemon",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:grafana",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:hasura",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:kafka",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:loki",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "component": "service:minio",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "component": "service:minio-setup",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "service:nessie",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:oauth2-proxy",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "service:observatory",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:openmetadata",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:openmetadata-elasticsearch",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:openmetadata-mysql",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:openmetadata-setup",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:pgweb",
+      "current_maturity": "development_only",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "development_only"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "service:phlo-api",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:phlo-observer",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:phlo-observer-db-setup",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:polaris",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "service:postgres",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:postgres-exporter",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "component": "service:postgres-volume-setup",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:postgrest",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:prometheus",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:rustfs",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:rustfs-setup",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:rustfs-volume-setup",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:superset",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:traefik",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "run_evidence",
+        "maintenance"
+      ],
+      "component": "service:trino",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    }
+  ],
+  "gate_status": {
+    "golden_path": "planned",
+    "maintenance": "planned",
+    "run_evidence": "planned",
+    "security": "planned",
+    "upgrade_restore": "planned"
+  },
+  "release": {
+    "maturity": "alpha",
+    "production_ready": false,
+    "version": "0.16.2"
+  },
+  "schema_version": 1
+}

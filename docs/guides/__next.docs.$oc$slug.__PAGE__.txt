@@ -1,89 +1,21 @@
 1:"$Sreact.fragment"
-2:I[98330,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/1si-8ebur8tfq.js","/phlo/_next/static/chunks/3fr4fve7ydu9p.js","/phlo/_next/static/chunks/0g2u_8svgsk6-.js","/phlo/_next/static/chunks/3p291xavd8ll9.js","/phlo/_next/static/chunks/0ir4hn50thz5z.js","/phlo/_next/static/chunks/1h3k9ghskr5r8.js"],"DocsPage"]
-3:I[98330,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/1si-8ebur8tfq.js","/phlo/_next/static/chunks/3fr4fve7ydu9p.js","/phlo/_next/static/chunks/0g2u_8svgsk6-.js","/phlo/_next/static/chunks/3p291xavd8ll9.js","/phlo/_next/static/chunks/0ir4hn50thz5z.js","/phlo/_next/static/chunks/1h3k9ghskr5r8.js"],"DocsBody"]
-4:I[94157,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/1si-8ebur8tfq.js","/phlo/_next/static/chunks/3fr4fve7ydu9p.js","/phlo/_next/static/chunks/0g2u_8svgsk6-.js","/phlo/_next/static/chunks/3p291xavd8ll9.js","/phlo/_next/static/chunks/0ir4hn50thz5z.js","/phlo/_next/static/chunks/1h3k9ghskr5r8.js"],"Heading"]
-5:T17c5,<svg class="phlo-mermaid-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 284.83299999999997 409.4" width="284.83299999999997" height="409.4" style="--bg:var(--color-fd-card);--fg:var(--color-fd-foreground);--line:var(--color-fd-foreground);--accent:var(--color-fd-primary);--muted:var(--color-fd-muted-foreground);--surface:var(--color-fd-secondary);--border:var(--color-fd-border)">
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
-  text { font-family: 'Inter', system-ui, sans-serif; }
-  svg {
-    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
-    --_text:          var(--fg);
-    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
-    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
-    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
-    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
-    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
-    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
-    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
-    --_group-fill:    var(--bg);
-    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
-    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
-    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
-  }
-</style>
-<defs>
-  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
-    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
-  </marker>
-  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
-    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
-  </marker>
-</defs>
-<polyline class="edge" data-from="model" data-to="ingest" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="142.41649999999998,60.900000000000006 142.41649999999998,88.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="ingest" data-to="transform" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="142.41649999999998,125.80000000000001 142.41649999999998,153.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="transform" data-to="package" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="142.41649999999998,190.70000000000002 142.41649999999998,218.70000000000002" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="package" data-to="extend" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="142.41649999999998,255.60000000000002 142.41649999999998,283.6" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="extend" data-to="operate" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="142.41649999999998,320.5 142.41649999999998,348.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<g class="node" data-id="model" data-label="Model the data and contracts" data-shape="rectangle">
-  <rect x="38.07900000000001" y="24" width="208.67499999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="142.41649999999998" y="42.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Model the data and contracts</text>
-</g>
-<g class="node" data-id="ingest" data-label="Ingest and validate" data-shape="rectangle">
-  <rect x="67.34849999999999" y="88.9" width="150.13600000000002" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="142.41649999999998" y="107.35000000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Ingest and validate</text>
-</g>
-<g class="node" data-id="transform" data-label="Transform and publish" data-shape="rectangle">
-  <rect x="55.49249999999999" y="153.8" width="173.848" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="142.41649999999998" y="172.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Transform and publish</text>
-</g>
-<g class="node" data-id="package" data-label="Compose runtime services" data-shape="rectangle">
-  <rect x="43.63650000000001" y="218.70000000000002" width="197.55999999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="142.41649999999998" y="237.15000000000003" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Compose runtime services</text>
-</g>
-<g class="node" data-id="extend" data-label="Extend with plugins and hooks" data-shape="rectangle">
-  <rect x="34.00349999999999" y="283.6" width="216.82600000000002" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="142.41649999999998" y="302.05" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Extend with plugins and hooks</text>
-</g>
-<g class="node" data-id="operate" data-label="Test and run in real environments" data-shape="rectangle">
-  <rect x="24" y="348.5" width="236.833" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="142.41649999999998" y="366.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Test and run in real environments</text>
-</g>
-</svg>e:X
-13:X
-13:C
-0:{"buildId":"FyZL6w1yzIQpAz_ioZUYa","data":[{"rsc":["$","$1","c",{"children":[["$","$L2",null,{"toc":[{"depth":1,"url":"#guides","title":"Guides"},{"depth":2,"url":"#developer-story","title":"Developer Story"},{"depth":2,"url":"#recommended-reading-order","title":"Recommended Reading Order"},{"depth":2,"url":"#guide-categories","title":"Guide Categories"}],"children":["$","$L3",null,{"children":[["$","$L4",null,{"as":"h1","id":"guides","children":"Guides"}],"\n",["$","p",null,{"children":"Use these guides to build pipelines, compose services, choose components, and extend the platform."}],"\n",["$","$L4",null,{"as":"h2","id":"developer-story","children":"Developer Story"}],"\n",["$","div",null,{"className":"phlo-mermaid overflow-x-auto rounded-xl border bg-fd-card p-4","dangerouslySetInnerHTML":{"__html":"$5"}}],"\n","$L6","\n","$L7","\n","$L8","\n","$L9"]}]}],["$La","$Lb"],"$Lc"]}],"isPartial":"$@d","staleTime":"$e","varyParams":null},{"rsc":"$Lf","isPartial":"$@10","staleTime":"$e","varyParams":null},{"rsc":"$L11","isPartial":"$@12","staleTime":"$e","varyParams":"$13"}],"isUpgradeableISRFallback":false,"a":"$@14","rootVaryParams":null,"needsRuntimeRequest":"$@15"}
-16:I[47873,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/1si-8ebur8tfq.js","/phlo/_next/static/chunks/3fr4fve7ydu9p.js","/phlo/_next/static/chunks/0g2u_8svgsk6-.js","/phlo/_next/static/chunks/3p291xavd8ll9.js","/phlo/_next/static/chunks/0ir4hn50thz5z.js","/phlo/_next/static/chunks/1h3k9ghskr5r8.js"],"default"]
-17:I[97367,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/1si-8ebur8tfq.js"],"OutletBoundary"]
-18:"$Sreact.suspense"
-1a:I[97367,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/1si-8ebur8tfq.js"],"ViewportBoundary"]
-1b:I[97367,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/1si-8ebur8tfq.js"],"MetadataBoundary"]
-1c:I[39756,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/1si-8ebur8tfq.js"],"default"]
-1d:I[37457,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/1si-8ebur8tfq.js"],"default"]
-6:["$","$L4",null,{"as":"h2","id":"recommended-reading-order","children":"Recommended Reading Order"}]
-7:["$","ol",null,{"children":["\n",["$","li",null,{"children":["$","$L16",null,{"href":"developer-guide.md","children":"Developer Guide"}]}],"\n",["$","li",null,{"children":["$","$L16",null,{"href":"workflow-development.md","children":"Workflow Development"}]}],"\n",["$","li",null,{"children":["$","$L16",null,{"href":"lakehouse-helpers.md","children":"Lakehouse Helper Utilities"}]}],"\n",["$","li",null,{"children":["$","$L16",null,{"href":"data-modeling.md","children":"Data Modeling"}]}],"\n",["$","li",null,{"children":["$","$L16",null,{"href":"service-packages.md","children":"Service Packages"}]}],"\n",["$","li",null,{"children":["$","$L16",null,{"href":"integration-profiles.md","children":"Integration Profiles"}]}],"\n",["$","li",null,{"children":["$","$L16",null,{"href":"testing-strategy.md","children":"Testing Strategy"}]}],"\n"]}]
-8:["$","$L4",null,{"as":"h2","id":"guide-categories","children":"Guide Categories"}]
-9:["$","ul",null,{"children":["\n",["$","li",null,{"children":["Workflow authoring: ",["$","$L16",null,{"href":"developer-guide.md","children":"Developer Guide"}],", ",["$","$L16",null,{"href":"workflow-development.md","children":"Workflow Development"}],", ",["$","$L16",null,{"href":"lakehouse-helpers.md","children":"Lakehouse Helper Utilities"}],", ",["$","$L16",null,{"href":"dbt-development.md","children":"dbt Development"}]]}],"\n",["$","li",null,{"children":["Platform composition: ",["$","$L16",null,{"href":"service-packages.md","children":"Service Packages"}],", ",["$","$L16",null,{"href":"compose-generation.md","children":"Compose Generation"}],", ",["$","$L16",null,{"href":"integration-profiles.md","children":"Integration Profiles"}]]}],"\n",["$","li",null,{"children":["Extension points: ",["$","$L16",null,{"href":"plugin-development.md","children":"Plugin Development"}],", ",["$","$L16",null,{"href":"capability-primitives.md","children":"Capability Primitives"}],", ",["$","$L16",null,{"href":"hook-event-bus.md","children":"Hook Event Bus"}]]}],"\n",["$","li",null,{"children":["Operations-aware design: ",["$","$L16",null,{"href":"testing-strategy.md","children":"Testing Strategy"}],", ",["$","$L16",null,{"href":"logging.md","children":"Logging"}],", ",["$","$L16",null,{"href":"operations-contracts.md","children":"Operations Contracts"}]]}],"\n"]}]
-a:["$","script","script-0",{"src":"/phlo/_next/static/chunks/0ir4hn50thz5z.js","async":true}]
-b:["$","script","script-1",{"src":"/phlo/_next/static/chunks/1h3k9ghskr5r8.js","async":true}]
-c:["$","$L17",null,{"children":["$","$18",null,{"name":"Next.MetadataOutlet","children":"$@19"}]}]
-f:["$","$1","h",{"children":[null,["$","$L1a",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]}],["$","div",null,{"hidden":true,"children":["$","$L1b",null,{"children":["$","$18",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"Phlo"}],["$","meta","1",{"name":"description","content":"Generated documentation site"}]]}]}]}],null]}]
-11:["$","$1","c",{"children":[null,["$","$L1c",null,{"parallelRouterKey":"children","template":["$","$L1d",null,{}]}]]}]
-15:true
-19:null
-e:300
-e:C
-14:0
-10:"$undefined"
-12:"$undefined"
-d:"$undefined"
+2:I[98330,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/05azszwkd0__4.js","/phlo/_next/static/chunks/3fr4fve7ydu9p.js","/phlo/_next/static/chunks/0g2u_8svgsk6-.js","/phlo/_next/static/chunks/3p291xavd8ll9.js","/phlo/_next/static/chunks/0ir4hn50thz5z.js","/phlo/_next/static/chunks/1h3k9ghskr5r8.js"],"DocsPage"]
+3:I[98330,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/05azszwkd0__4.js","/phlo/_next/static/chunks/3fr4fve7ydu9p.js","/phlo/_next/static/chunks/0g2u_8svgsk6-.js","/phlo/_next/static/chunks/3p291xavd8ll9.js","/phlo/_next/static/chunks/0ir4hn50thz5z.js","/phlo/_next/static/chunks/1h3k9ghskr5r8.js"],"DocsBody"]
+4:I[97367,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/05azszwkd0__4.js"],"OutletBoundary"]
+5:"$Sreact.suspense"
+9:I[97367,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/05azszwkd0__4.js"],"ViewportBoundary"]
+a:I[97367,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/05azszwkd0__4.js"],"MetadataBoundary"]
+c:I[39756,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/05azszwkd0__4.js"],"default"]
+d:I[37457,["/phlo/_next/static/chunks/176mzrsa28qdg.js","/phlo/_next/static/chunks/05azszwkd0__4.js"],"default"]
+8:X
+f:X
+f:C
+0:{"buildId":"4XK3nr2iNXNQaGMRKegqe","data":[{"rsc":["$","$1","c",{"children":[["$","$L2",null,{"toc":[],"children":["$","$L3",null,{}]}],[["$","script","script-0",{"src":"/phlo/_next/static/chunks/0ir4hn50thz5z.js","async":true}],["$","script","script-1",{"src":"/phlo/_next/static/chunks/1h3k9ghskr5r8.js","async":true}]],["$","$L4",null,{"children":["$","$5",null,{"name":"Next.MetadataOutlet","children":"$@6"}]}]]}],"isPartial":"$@7","staleTime":"$8","varyParams":null},{"rsc":["$","$1","h",{"children":[null,["$","$L9",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]}],["$","div",null,{"hidden":true,"children":["$","$La",null,{"children":["$","$5",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"Phlo"}],["$","meta","1",{"name":"description","content":"Generated documentation site"}]]}]}]}],null]}],"isPartial":"$@b","staleTime":"$8","varyParams":null},{"rsc":["$","$1","c",{"children":[null,["$","$Lc",null,{"parallelRouterKey":"children","template":["$","$Ld",null,{}]}]]}],"isPartial":"$@e","staleTime":"$8","varyParams":"$f"}],"isUpgradeableISRFallback":false,"a":"$@10","rootVaryParams":null,"needsRuntimeRequest":"$@11"}
+6:null
+11:true
+8:300
+8:C
+10:0
+b:"$undefined"
+e:"$undefined"
+7:"$undefined"
