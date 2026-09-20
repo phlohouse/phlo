@@ -58,6 +58,7 @@ members = [
     "phlo-superset",
     "phlo-testing",
     "phlo-traefik",
+    "phlo-transform",
     "phlo-trino",
 ]
 
@@ -3232,6 +3233,7 @@ dev = [
     { name = "phlo-superset" },
     { name = "phlo-testing" },
     { name = "phlo-traefik" },
+    { name = "phlo-transform" },
     { name = "phlo-trino" },
     { name = "psycopg2-binary" },
     { name = "pyiceberg" },
@@ -3338,6 +3340,7 @@ dev = [
     { name = "phlo-superset", editable = "packages/phlo-superset" },
     { name = "phlo-testing", editable = "packages/phlo-testing" },
     { name = "phlo-traefik", editable = "packages/phlo-traefik" },
+    { name = "phlo-transform", editable = "packages/phlo-transform" },
     { name = "phlo-trino", editable = "packages/phlo-trino" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pyiceberg", specifier = ">=0.10.0" },
@@ -4472,6 +4475,28 @@ provides-extras = ["dev", "dlt", "trino"]
 name = "phlo-traefik"
 version = "0.15.4"
 source = { editable = "packages/phlo-traefik" }
+dependencies = [
+    { name = "phlo" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "phlo", editable = "." },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "phlo-transform"
+version = "0.1.0"
+source = { editable = "packages/phlo-transform" }
 dependencies = [
     { name = "phlo" },
 ]

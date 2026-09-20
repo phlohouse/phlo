@@ -44,6 +44,7 @@ dev = [
     "phlo-superset>=0.1.0",
     "phlo-testing>=0.1.0",
     "phlo-traefik>=0.1.0",
+    "phlo-transform>=0.1.0",
     "phlo-trino>=0.1.0",
     # phlo-observe SDK: unpublished and Python >=3.12 only, so it is a
     # marker-gated dev dependency resolved from the pinned V2 commit (the same
@@ -245,6 +246,7 @@ extra-paths = [
     "packages/phlo-superset/src",
     "packages/phlo-testing/src",
     "packages/phlo-traefik/src",
+    "packages/phlo-transform/src",
     "packages/phlo-trino/src",
 ]
 python-version = "3.11"
@@ -403,6 +405,9 @@ workspace = true
 workspace = true
 
 [tool.uv.sources.phlo-traefik]
+workspace = true
+
+[tool.uv.sources.phlo-transform]
 workspace = true
 
 [tool.uv.sources.phlo-trino]

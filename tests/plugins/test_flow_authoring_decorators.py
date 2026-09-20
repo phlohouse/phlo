@@ -395,8 +395,6 @@ def test_deprecated_dormant_decorators_warn_at_decoration_time() -> None:
     """Deprecated decorators warn but retain their registration behavior."""
     import phlo
 
-    transform = importlib.import_module("phlo.transform")
-    transform.clear_transform_assets()
     phlo.clear_backfill_assets()
     phlo.clear_schedules()
 
@@ -412,16 +410,9 @@ def test_deprecated_dormant_decorators_warn_at_decoration_time() -> None:
         def _schedule() -> None:
             return None
 
-    with pytest.warns(DeprecationWarning, match="phlo.transform.sql is deprecated"):
-
-        @transform.sql(table="silver.orders")
-        def _transform() -> str:
-            return "select 1"
-
     # Deprecated does not mean dead: registration behavior is unchanged.
     assert len(phlo.get_backfill_assets()) == 1
     assert len(phlo.get_schedules()) == 1
-    assert len(transform.get_transform_assets()) == 1
 
 
 def test_governance_metadata_decorators_do_not_warn() -> None:

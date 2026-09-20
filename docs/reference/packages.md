@@ -26,6 +26,7 @@ The table's **target status** is the intended boundary, not a production-readine
 | `phlo-observatory` | Run and platform UI | supported |
 | `phlo-pandera` | Data quality | supported |
 | `phlo-postgres` | Postgres service | supported |
+| `phlo-transform` | SQL transform capability | development-only |
 | `phlo-trino` | Trino query engine | supported |
 | `phlo-alerting` | Alert destinations | supported |
 | `phlo-hasura` | Hasura API | supported |
@@ -105,6 +106,10 @@ Provides Pandera schemas, quality checks, the Pandera provider, and quality Obse
 ## phlo-postgres
 
 Provides Postgres resources and service metadata. Install with `pip install phlo-postgres`. Services: `postgres`, `postgres-volume-setup`, and `postgres-exporter`. Settings class: `PostgresSettings`.
+
+## phlo-transform
+
+Provides asset and transformation-provider plugins for declarations created with `phlo.transform.sql`. Install with `pip install phlo-transform`. It defines no service or settings.
 
 ## phlo-trino
 
@@ -289,6 +294,7 @@ Provides the first-party testing harness used by packages and repository test su
 | `phlo-postgrest` | PostgREST API and service | [README](../../packages/phlo-postgrest/README.md) |
 | `phlo-sling` | Replication assets and CLI | [README](../../packages/phlo-sling/README.md) |
 | `phlo-traefik` | Reverse-proxy service | [README](../../packages/phlo-traefik/README.md) |
+| `phlo-transform` | SQL transform capability | [README](../../packages/phlo-transform/README.md) |
 | `phlo-airbyte` | Airbyte CLI and integration | [README](../../packages/phlo-airbyte/README.md) |
 | `phlo-alloy` | Telemetry service | [README](../../packages/phlo-alloy/README.md) |
 | `phlo-clickhouse` | ClickHouse CLI and service | [README](../../packages/phlo-clickhouse/README.md) |
