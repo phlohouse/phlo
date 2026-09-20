@@ -28,8 +28,8 @@ the mismatch.
 - Make the smallest change that fully solves the request. Do not mix unrelated
   cleanup into it.
 - A bug fix gets a regression test. Run targeted checks first, then the
-  relevant broader checks from `docs/contributing/verification-matrix.md`.
-  `make check` is the repository baseline, not the complete acceptance suite.
+  relevant broader checks. The repository-wide completion check is
+  `make check`.
 - Never claim a check passed unless you ran it. State checks that could not run
   in the pull request body.
 
