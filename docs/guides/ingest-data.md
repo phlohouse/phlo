@@ -105,7 +105,7 @@ def countries(partition_date: str):
 
 ## 4. Run the asset once
 
-Start the stack if it is not running, then materialize one partition:
+Start the stack if it is not running, then materialise one partition:
 
 ```bash
 phlo services start

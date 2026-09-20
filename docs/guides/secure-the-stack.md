@@ -1,6 +1,6 @@
 # Secure the stack
 
-This guide keeps deployment secrets out of source control, enables API authorization, and applies the canonical RBAC control plane to supported services.
+This guide keeps deployment secrets out of source control, enables API authorisation, and applies the canonical RBAC control plane to supported services.
 
 ## Before you start
 
@@ -24,9 +24,9 @@ chmod 600 .phlo/.env.local
 
 The generated stack receives the values without placing them in `phlo.yaml`, workflow code, or a tracked file.
 
-## 2. Configure API authorization
+## 2. Configure API authorisation
 
-Set the authorization backend and mode in `phlo.yaml`:
+Set the authorisation backend and mode in `phlo.yaml`:
 
 ```yaml
 infrastructure:
@@ -40,7 +40,7 @@ infrastructure:
 
 | Provider | Use |
 | --- | --- |
-| `static` | Resolve principals and policies from the local Phlo authorization configuration. |
+| `static` | Resolve principals and policies from the local Phlo authorisation configuration. |
 | `proxy` | Trust identity headers supplied by an authenticated reverse proxy. |
 | `service_token` | Authenticate service-to-service calls with a configured token. |
 
@@ -54,18 +54,18 @@ PHLO_AUTHORIZATION_BACKEND=static
 PHLO_AUTHORIZATION_MODE=required
 ```
 
-The API middleware resolves the authentication provider first, then evaluates authorization for the route and tenant context. A proxy provider still requires the ingress layer to enforce authentication.
+The API middleware resolves the authentication provider first, then evaluates authorisation for the route and tenant context. A proxy provider still requires the ingress layer to enforce authentication.
 
 ## 4. Define and validate RBAC policy
 
-The `.phlo/authorization/` directory is the source for roles, policies, and compiled backend artifacts. Validate and preview before synchronizing:
+The `.phlo/authorization/` directory is the source for roles, policies, and compiled backend artifacts. Validate and preview before synchronising:
 
 ```bash
 phlo authz validate
 phlo authz plan
 ```
 
-`validate` checks the policy files, and `plan` shows intended changes without applying them. The current CLI does not expose `authz check` or `authz explain`. Use `phlo authz verify` after synchronization to compare backend state with the desired policy.
+`validate` checks the policy files, and `plan` shows intended changes without applying them. The current CLI does not expose `authz check` or `authz explain`. Use `phlo authz verify` after synchronisation to compare backend state with the desired policy.
 
 ## 5. Regenerate and preflight
 
@@ -77,11 +77,11 @@ phlo services preflight --production
 phlo doctor
 ```
 
-Preflight reports authorization, authentication, secret-file, and protected-port checks. Doctor then checks project discovery and live service health.
+Preflight reports authorisation, authentication, secret-file, and protected-port checks. Doctor then checks project discovery and live service health.
 
 ## Support boundary
 
-Phlo records request-time authentication and authorization evidence for its governed surfaces, but it does not secure arbitrary direct ports or implement row-level policies inside Superset. Operators still own TLS termination, identity-provider availability, backend-native grants, credential rotation, log retention, and network controls.
+Phlo records request-time authentication and authorisation evidence for its governed surfaces, but it does not secure arbitrary direct ports or implement row-level policies inside Superset. Operators still own TLS termination, identity-provider availability, backend-native grants, credential rotation, log retention, and network controls.
 
 ## Verify
 

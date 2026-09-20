@@ -30,13 +30,13 @@ The `infrastructure` object is validated by `InfrastructureConfig` in `src/phlo/
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `authorization` | `ApiAuthorizationConfig \| None` | `None` | API authorization settings. |
+| `authorization` | `ApiAuthorizationConfig \| None` | `None` | API authorisation settings. |
 
 ### ApiAuthorizationConfig
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `backend` | `str \| None` | `None` | Authorization capability name. |
+| `backend` | `str \| None` | `None` | Authorisation capability name. |
 | `mode` | `str \| None` | `None` | `optional` or `required`. |
 
 ### WapConfig
@@ -61,7 +61,7 @@ The `infrastructure` object is validated by `InfrastructureConfig` in `src/phlo/
 | `extra_hosts` | `list[str] \| None` | `None` | Add Compose host mappings. |
 | `depends_on` | `list[str] \| None` | `None` | Replace service dependencies. |
 | `command` | `str \| list[str] \| None` | `None` | Replace the container command. |
-| `authorization` | `ApiAuthorizationConfig \| None` | `None` | Service-scoped API authorization. |
+| `authorization` | `ApiAuthorizationConfig \| None` | `None` | Service-scoped API authorisation. |
 | `type` | `str \| None` | `None` | Set to `inline` for a custom service. |
 | `image` | `str \| None` | `None` | Image for an inline service. |
 | `build` | `dict[str, Any] \| None` | `None` | Build configuration for an inline service. |
@@ -76,7 +76,7 @@ The `infrastructure` object is validated by `InfrastructureConfig` in `src/phlo/
 
 ## Tenant scope
 
-Tenant scope is a request and resource attribute used by API and Observatory surfaces. A tenant identifies the logical boundary for principals, datasets, runs, and policy evaluation. The API authorization layer receives tenant context with the authenticated principal and applies route guards before provider operations.
+Tenant scope is a request and resource attribute used by API and Observatory surfaces. A tenant identifies the logical boundary for principals, datasets, runs, and policy evaluation. The API authorisation layer receives tenant context with the authenticated principal and applies route guards before provider operations.
 
 Tenant scope does not change the Docker Compose project name, the Iceberg namespace, or the Nessie reference. Those are independent project, catalog, and branch identifiers.
 

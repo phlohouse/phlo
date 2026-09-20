@@ -4,7 +4,7 @@ Phlo separates writing data from auditing it and publishing it because each stag
 
 ## Why writing is separate
 
-An ingestion or transformation asset produces a table. Its job is to read source data, apply the declared schema, and write a consistent table version. The asset owns source-specific concerns such as pagination, replication mode, partition keys, and merge behavior.
+An ingestion or transformation asset produces a table. Its job is to read source data, apply the declared schema, and write a consistent table version. The asset owns source-specific concerns such as pagination, replication mode, partition keys, and merge behaviour.
 
 Separating the write stage gives the table store one clear writer contract. Downstream checks can inspect the written relation rather than reimplementing source access.
 
@@ -49,7 +49,7 @@ Publication therefore remains an explicit declaration. A project can write inter
 
 ## Why audits use the written relation
 
-Audits run against the relation that consumers would read. This makes checks sensitive to serialization, type conversion, partition selection, and merge behavior.
+Audits run against the relation that consumers would read. This makes checks sensitive to serialisation, type conversion, partition selection, and merge behaviour.
 
 An audit that runs only against an in-memory source frame can miss errors introduced while writing the table. Query-backed checks also allow a provider to evaluate large tables without loading every row into the process.
 

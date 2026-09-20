@@ -1,34 +1,43 @@
 # Transform with dbt
 
-This guide adds a dbt model to the generated workflow tree, runs it through Phlo, and verifies that the model is exposed as a Dagster asset.
+This guide adds a dbt model to a Phlo project, materialises it as a Dagster asset with `phlo materialize`, and verifies the result in the catalog.
+
+In Phlo, dbt models are not run with the dbt CLI. `phlo-dbt` reads the dbt manifest and turns every model, seed, and snapshot into a Dagster asset. You materialise those assets the same way you materialise an ingestion asset, and dbt tests run as asset checks on the same run.
 
 ## Before you start
 
-- You have a project created with `phlo init --template dbt-medallion` and a running default stack with Trino.
-- `phlo-dbt` is installed, and the source table already exists in the `iceberg` catalog.
+- You have the `my-lakehouse` project from [Your first pipeline](../getting-started/first-pipeline.md), the stack is running, and `dlt_events` has been materialised so `iceberg.raw.events` exists.
 - You know whether the model should be a view, table, or incremental model.
 
-## 1. Inspect the dbt project layout
+If you prefer to start from a dbt-first project, `phlo init --template dbt-medallion` scaffolds the same layout with sample bronze, silver, and gold models but no ingestion asset.
 
-The dbt-medallion template places the dbt project under `workflows/transforms/dbt`. Keep `dbt_project.yml`, `profiles/`, `models/`, and `macros/` inside that directory so the Phlo dbt provider can discover them.
+## 1. Add the dbt project
 
-```text
-workflows/transforms/dbt/
-├── dbt_project.yml
-├── profiles/profiles.yml
-├── models/
-│   ├── sources/sources.yml
-│   ├── bronze/
-│   ├── silver/
-│   └── gold/
-└── macros/
+Add `phlo-dbt` to the project dependencies in `pyproject.toml` and install it:
+
+```bash
+uv pip install -e .
 ```
 
-The template gives you a working profile and medallion model directories. Your first visible result is a dbt project that `phlo dbt` can locate without a second project root.
+Create `workflows/transforms/dbt/dbt_project.yml`. `phlo-dbt` discovers a dbt project at this path without further configuration.
+
+```yaml
+name: my_lakehouse
+version: 1.0.0
+config-version: 2
+profile: phlo
+model-paths: ["models"]
+
+models:
+  my_lakehouse:
+    +materialized: table
+```
+
+You do not write a `profiles.yml`. `phlo-dbt` generates the `phlo` profile from your Trino settings when it compiles the project.
 
 ## 2. Declare the Phlo table as a source
 
-Create `workflows/transforms/dbt/models/sources/events.yml`. dbt's `source()` helper expands the catalog and schema names from this declaration instead of embedding a three-part relation in every model.
+Create `workflows/transforms/dbt/models/sources.yml` with a source that points at the ingestion table. The `phlo_asset_key` entry binds the dbt source to the `dlt_events` Dagster asset so the model depends on the ingestion asset in the asset graph.
 
 ```yaml
 version: 2
@@ -39,16 +48,18 @@ sources:
     schema: raw
     tables:
       - name: events
+        meta:
+          phlo_asset_key: dlt_events
 ```
 
-The source node appears in dbt's manifest and becomes the dependency of every model that calls `source('raw', 'events')`.
+Without `phlo_asset_key`, the provider derives the key `raw.events` and Dagster shows the model with an external dependency instead of a link to `dlt_events`.
 
 ## 3. Write a model
 
-Create `workflows/transforms/dbt/models/silver/event_summary.sql`. `source()` is for an ingestion table. Use `ref()` when one dbt model depends on another.
+Create `workflows/transforms/dbt/models/silver/event_summary.sql`. Use `source()` for an ingestion table and `ref()` when one dbt model depends on another.
 
 ```sql
-{{ config(materialized='table', schema='silver') }}
+{{ config(materialized='table') }}
 
 select
     event_id,
@@ -58,55 +69,74 @@ from {{ source('raw', 'events') }}
 where value is not null
 ```
 
-The model compiles to a Trino query against `iceberg.raw.events` and writes the result to the configured `silver` schema.
+The model compiles to a Trino query against `iceberg.raw.events` and writes the result to the profile's default schema, `raw`. Set `DBT_QUERY_SCHEMA` to change the default schema for every model.
 
 | Setting | Effect |
 | --- | --- |
-| `source('raw', 'events')` | References the declared Phlo table and records lineage. |
-| `ref('other_model')` | References another dbt model and adds a model dependency. |
+| `source('raw', 'events')` | References the declared Phlo table and records lineage to `dlt_events`. |
+| `ref('other_model')` | References another dbt model and adds an asset dependency. |
 | `materialized='table'` | Creates a physical table for the model result. |
-| `schema='silver'` | Places the model in the target schema configured by the profile. |
+| `materialized='view'` | Creates a view instead of a table. |
 
-## 4. Run dbt through Phlo
+The asset key is the model name, `event_summary`. The asset group is inferred from the model path, so a model under `models/silver/` lands in the `silver` group.
 
-Inspect the provider's command group before running a transformation:
+## 4. Add a dbt test
+
+Create `workflows/transforms/dbt/models/silver/schema.yml`. Each dbt test becomes a Dagster asset check on `event_summary`.
+
+```yaml
+version: 2
+
+models:
+  - name: event_summary
+    columns:
+      - name: event_id
+        tests:
+          - not_null
+          - unique
+```
+
+## 5. Compile and reload the asset graph
+
+Compile the project so the manifest exists, then restart Dagster so it picks up the new assets:
 
 ```bash
-phlo dbt --help
 phlo dbt compile
-phlo dbt run
-phlo dbt test
+phlo services restart --service dagster
 ```
 
-`compile` writes compiled SQL and a manifest, `run` materializes selected models, and `test` executes dbt tests. The command output names the project, selected models, and each completed dbt task.
+Open `http://localhost:10006` and search for `event_summary`. The asset has `dlt_events` upstream and two asset checks.
 
-## 5. Inspect the asset graph
+`phlo dbt compile` only parses the project. It does not create tables. Use `phlo dbt run` and `phlo dbt test` for local debugging of SQL. Do not use them to populate the lakehouse, because runs made outside Dagster leave no run record, no lineage, and no asset-check results.
 
-The `phlo-dbt` provider emits model definitions that the Dagster adapter presents as assets. Open `http://localhost:10006` and search for `event_summary`. Its upstream graph includes the source-backed ingestion relation.
+## 6. Materialise the model
+
+dbt assets are daily partitioned, like ingestion assets. Materialise the model for the same partition as the source data:
 
 ```bash
-phlo catalog tables
+phlo materialize event_summary --partition 2025-01-15
 ```
 
-The catalog listing includes the model's target relation after a successful run, while Dagster shows the model as an asset with its dbt dependency metadata.
+The run compiles the model, executes it through Trino, and evaluates the `not_null` and `unique` checks. Dagster records the materialisation, the check results, and the upstream link to `dlt_events`.
 
 ## Verify
 
-Run the model and query the target relation with an explicit Trino catalog:
+Confirm the target relation exists and query it with an explicit Trino catalog:
 
 ```bash
-phlo dbt run --select event_summary
+phlo catalog tables
 phlo trino --catalog iceberg
 ```
 
 ```sql
-select event_id, name, value from silver.event_summary limit 10;
+select event_id, name, value from raw.event_summary limit 10;
 ```
 
-The expected result is a table of transformed rows and a Dagster run marked successful for the dbt asset.
+The expected result is a table of transformed rows, a successful Dagster run for `event_summary`, and two passing asset checks.
 
 ## Related
 
 - [Ingest data](ingest-data.md) for the raw table used by this model.
+- [Add quality checks](add-quality-checks.md) for checks on ingestion assets.
 - [Choose your stack](choose-your-stack.md) for query-engine and transformation packages.
 - [Packages](../reference/packages.md) for `phlo-dbt` support details.

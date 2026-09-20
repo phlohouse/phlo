@@ -22,7 +22,7 @@ The public APIs below are defined in `phlo`, `phlo-dlt`, `phlo-sling`, and `phlo
 | `validate` | `bool` | `True` | Enable validation. |
 | `strict_validation` | `bool` | `True` | Make validation failures blocking. |
 | `merge_strategy` | `Literal["append", "merge"]` | `"merge"` | Append rows or merge on `unique_key`. |
-| `merge_config` | `dict[str, Any] \| None` | `None` | Merge behavior overrides. |
+| `merge_config` | `dict[str, Any] \| None` | `None` | Merge behaviour overrides. |
 | `add_metadata_columns` | `bool` | `True` | Add Phlo metadata columns. |
 | `owner` | `str \| None` | `None` | Owning team. |
 | `consumers` | `list[Consumer \| str] \| None` | `None` | Downstream consumers. |

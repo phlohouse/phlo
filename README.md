@@ -23,7 +23,7 @@ Phlo is the framework and plugin runtime that ties together familiar lakehouse t
 
 Most lakehouse projects start in Python and quickly spill into YAML, Compose files, orchestration config, catalog setup, quality checks, and a pile of glue scripts and duplicated config. Phlo keeps those pieces in one project.
 
-Use the `phlo` CLI to create a project, start the local stack, materialize assets, run quality checks, follow logs, and inspect what happened. Add provider packages when you need them: Dagster for orchestration, dlt or Sling for ingestion, dbt for transforms, Iceberg or Delta for tables, Trino for query, and Observatory for a UI to inspect assets, tables, lineage, quality, services, and logs.
+Use the `phlo` CLI to create a project, start the local stack, materialise assets, run quality checks, follow logs, and inspect what happened. Add provider packages when you need them: Dagster for orchestration, dlt or Sling for ingestion, dbt for transforms, Iceberg or Delta for tables, Trino for query, and Observatory for a UI to inspect assets, tables, lineage, quality, services, and logs.
 
 ## What a Phlo asset looks like
 
@@ -53,7 +53,7 @@ def csv_events(partition_date: str) -> object:
     return dlt.resource(rows, name="events")
 ```
 
-This single function registers a partitioned ingestion asset, validates rows with Pandera, materializes through the configured orchestrator, lands the table in your configured storage and catalog, and becomes visible in Observatory and the catalog CLI; the starter wires the providers you install and generates the local runtime configuration.
+This single function registers a partitioned ingestion asset, validates rows with Pandera, materialises through the configured orchestrator, lands the table in your configured storage and catalog, and becomes visible in Observatory and the catalog CLI; the starter wires the providers you install and generates the local runtime configuration.
 
 ## Quick Start
 

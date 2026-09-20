@@ -24,7 +24,7 @@ Airbyte control-plane commands from `phlo-airbyte`.
 | `connections` | Inspect Airbyte connections. |
 | `sources` | Inspect Airbyte sources. |
 | `destinations` | Inspect Airbyte destinations. |
-| `sync` | Run an Airbyte synchronization. |
+| `sync` | Run an Airbyte synchronisation. |
 
 ## phlo alerts
 
@@ -46,7 +46,7 @@ Audit event commands from the core audit surface.
 
 ## phlo authz
 
-Authorization inspection commands from `phlo-api`.
+Authorisation inspection commands from `phlo-api`.
 
 | Subcommand | What it does |
 | --- | --- |
@@ -210,12 +210,12 @@ Hasura integration commands from `phlo-hasura`.
 
 ## phlo init
 
-Initialize a new Phlo project. Creates a minimal project structure for using Phlo as an installable package. Users only need to maintain workflow files, not the entire framework.
+Initialise a new Phlo project. Creates a minimal project structure for using Phlo as an installable package. Users only need to maintain workflow files, not the entire framework.
 
 | Option | Meaning |
 | --- | --- |
 | `--template TEXT` | Select a template. |
-| `--force` | Allow initialization in an existing destination. |
+| `--force` | Allow initialisation in an existing destination. |
 | `--list-templates` | List discovered templates. |
 | `--json` | Emit machine-readable output. |
 
@@ -232,7 +232,7 @@ Kafka ingestion commands from `phlo-kafka`.
 
 ## phlo lineage
 
-Asset dependency and lineage visualization commands. This command group provides tools for exploring data lineage, including ASCII trees, external exports, impact analysis, and column-level lineage.
+Asset dependency and lineage visualisation commands. This command group provides tools for exploring data lineage, including ASCII trees, external exports, impact analysis, and column-level lineage.
 
 | Subcommand | What it does |
 | --- | --- |
@@ -251,17 +251,17 @@ View logs from Phlo infrastructure services.
 | `--since TEXT` | Show logs since a timestamp or duration supported by Compose. |
 | `--until TEXT` | Show logs before a timestamp or duration supported by Compose. |
 | `--timestamps` | Show log timestamps. |
-| `--no-color` | Disable colored log output where supported. |
+| `--no-color` | Disable coloured log output where supported. |
 | `--backend [docker\|podman\|auto]` | Container backend for this command. |
 
 ## phlo materialize
 
-Materialize Dagster assets via the configured container backend.
+Materialise Dagster assets via the configured container backend.
 
 | Option | Meaning |
 | --- | --- |
-| `[ASSET_NAME]` | Asset key to materialize. |
-| `--partition TEXT` | Materialize one partition. |
+| `[ASSET_NAME]` | Asset key to materialise. |
+| `--partition TEXT` | Materialise one partition. |
 | `--no-default-partition` | Disable the default partition. |
 | `--select TEXT` | Select an asset expression. |
 | `--no-contract-refresh` | Skip contract refresh. |
@@ -314,7 +314,7 @@ OpenMetadata commands from `phlo-openmetadata`.
 | Subcommand | What it does |
 | --- | --- |
 | `status` | Show OpenMetadata state. |
-| `sync` | Synchronize metadata. |
+| `sync` | Synchronise metadata. |
 
 ## phlo operations
 

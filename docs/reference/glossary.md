@@ -71,7 +71,7 @@ A local or deployed infrastructure component described by a package service mani
 
 ## Tenant
 
-The logical authorization boundary associated with principals and resources.
+The logical authorisation boundary associated with principals and resources.
 
 ## Trino
 
@@ -131,7 +131,7 @@ A local or deployed infrastructure component described by a package service mani
 
 ## Tenant
 
-The logical authorization boundary associated with principals and resources.
+The logical authorisation boundary associated with principals and resources.
 
 ## Trino
 

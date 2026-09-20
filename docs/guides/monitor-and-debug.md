@@ -4,7 +4,7 @@ This guide uses Phlo's health, status, log, lineage, and metrics commands to nar
 
 ## Before you start
 
-- You have a project with `.phlo/` initialized and permission to read service logs.
+- You have a project with `.phlo/` initialised and permission to read service logs.
 - The local stack is running, or you have the deployment's Phlo CLI context.
 - You know the asset and partition that failed.
 
@@ -18,7 +18,7 @@ phlo status
 phlo services status
 ```
 
-`doctor` summarizes environment and live checks, `status` reports assets and runs, and `services status` prints Docker service names, health, and ports. A healthy tutorial stack reports `Summary: 14 ok, 0 warnings, 0 failures, 0 skipped`.
+`doctor` summarises environment and live checks, `status` reports assets and runs, and `services status` prints Docker service names, health, and ports. A healthy tutorial stack reports `Summary: 14 ok, 0 warnings, 0 failures, 0 skipped`.
 
 ## 2. Read the right log stream
 
@@ -54,11 +54,11 @@ phlo catalog tables
 phlo catalog history raw.events
 ```
 
-Lineage shows upstream and downstream assets, metrics summarizes platform measurements, and catalog history proves whether a successful snapshot was committed.
+Lineage shows upstream and downstream assets, metrics summarises platform measurements, and catalog history proves whether a successful snapshot was committed.
 
 ## 4. Reproduce one partition
 
-Materialize the failed asset with its exact partition instead of selecting every asset:
+Materialise the failed asset with its exact partition instead of selecting every asset:
 
 ```bash
 phlo materialize dlt_events --partition 2025-01-15
@@ -82,12 +82,12 @@ phlo services init
 phlo services start --service observatory
 ```
 
-The UI is exposed on port `3001` when the package's default mapping is used. `phlo services ports` is authoritative for a customized deployment.
+The UI is exposed on port `3001` when the package's default mapping is used. `phlo services ports` is authoritative for a customised deployment.
 
 | Failure | First check | Fix |
 | --- | --- | --- |
 | Service unhealthy | `phlo services status` and service logs. | Restart the named service, then inspect its dependency and port mapping. |
-| Partition rejected | Materialization output and partition format. | Use `--partition YYYY-MM-DD` and confirm the asset declares compatible partitions. |
+| Partition rejected | Materialisation output and partition format. | Use `--partition YYYY-MM-DD` and confirm the asset declares compatible partitions. |
 | Validation failure | Dagster asset checks and validation log. | Correct the source rows or schema constraint before retrying. |
 | Catalog not found | `phlo catalog tables` and Nessie/Trino logs. | Start the catalog services and use `phlo trino --catalog iceberg`. |
 

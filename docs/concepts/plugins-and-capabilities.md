@@ -44,7 +44,7 @@ The asset does not need to know whether a capability is implemented by a Python 
 
 Plugin discovery loads entry points from installed distributions and validates their metadata before registration. A plugin that cannot be loaded can produce a discovery error without changing the declarations in another package.
 
-The registry keeps provider identity separate from runtime state. This lets commands inspect available providers before a materialization starts and lets tests select a provider without changing workflow source.
+The registry keeps provider identity separate from runtime state. This lets commands inspect available providers before a materialisation starts and lets tests select a provider without changing workflow source.
 
 Optional capabilities can remain absent. A project only fails when a declaration or command requires a capability that no configured provider can satisfy.
 
@@ -60,7 +60,7 @@ Shared specifications also give the CLI a common surface for validation, status 
 
 A plugin boundary should follow the external responsibility that changes independently. A source connector should own source access. A service plugin should own service declaration. A governance plugin should own policy operations.
 
-Combining unrelated responsibilities makes installation and failure behavior harder to reason about. It also forces projects to install capabilities they do not use.
+Combining unrelated responsibilities makes installation and failure behaviour harder to reason about. It also forces projects to install capabilities they do not use.
 
 When an integration only observes lifecycle events, a hook plugin is a better boundary than an asset provider. When it owns execution, an asset or resource provider is the more direct boundary.
 

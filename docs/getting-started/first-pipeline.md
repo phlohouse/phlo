@@ -1,6 +1,6 @@
 # Build your first pipeline
 
-In this tutorial we create a Phlo project from the `csv-batch` template, start the local stack, materialize one partition of a CSV ingestion asset, and read the resulting Iceberg table back from the catalog. It takes about ten minutes, most of it waiting for containers to start.
+In this tutorial we create a Phlo project from the `csv-batch` template, start the local stack, materialise one partition of a CSV ingestion asset, and read the resulting Iceberg table back from the catalog. It takes about ten minutes, most of it waiting for containers to start.
 
 Before you start, [install Phlo](install.md) and make sure Docker is running.
 
@@ -94,7 +94,7 @@ trino            Up 31 seconds (healthy)   0.0.0.0:10005->8080/tcp
 
 Open Dagster at `http://localhost:10006`. The asset graph shows one asset named `dlt_events`. Nothing has run yet.
 
-## Materialize a partition
+## Materialise a partition
 
 Ask the orchestrator to run the asset for one day:
 
@@ -104,7 +104,7 @@ phlo materialize dlt_events --partition 2025-01-15
 
 The partition must be a completed day. Today's partition is still open, so the default daily partition set does not accept it.
 
-The command streams the run log and ends with `Successfully materialized dlt_events`. In Dagster, the `dlt_events` asset now shows a green materialization for `2025-01-15`.
+The command streams the run log and ends with `Successfully materialized dlt_events`. In Dagster, the `dlt_events` asset now shows a green materialisation for `2025-01-15`.
 
 ## Read the table back
 

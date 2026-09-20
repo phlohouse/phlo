@@ -9,7 +9,7 @@ The core stays small. Everything else, from Dagster and dlt to Iceberg, Nessie, 
 If you have never run Phlo, follow these two pages in order:
 
 1. [Install Phlo](getting-started/install.md) sets up Python, Docker, and the `phlo` command.
-2. [Build your first pipeline](getting-started/first-pipeline.md) creates a project, starts the stack, and materializes a table in about ten minutes.
+2. [Build your first pipeline](getting-started/first-pipeline.md) creates a project, starts the stack, and materialises a table in about ten minutes.
 
 ## Understand how Phlo works
 

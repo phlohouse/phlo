@@ -65,7 +65,7 @@ The decorator creates an asset check named from the callable, evaluates it after
 
 ## 3. Attach neutral rules to an asset
 
-Use `@phlo.quality.rules` for rules that query a materialized table rather than inspect the ingestion DataFrame. The decorated function is an asset definition, and its return value is not the rule input. The `table` argument identifies the table evaluated by the provider.
+Use `@phlo.quality.rules` for rules that query a materialised table rather than inspect the ingestion DataFrame. The decorated function is an asset definition, and its return value is not the rule input. The `table` argument identifies the table evaluated by the provider.
 
 ```python
 import phlo
@@ -85,7 +85,7 @@ def events_quality():
     return None
 ```
 
-The rules provider turns these declarations into a quality asset check, and the orchestrator executes that check when the generated quality asset is materialized. Use the exported neutral helpers if your project imports them at the top level.
+The rules provider turns these declarations into a quality asset check, and the orchestrator executes that check when the generated quality asset is materialised. Use the exported neutral helpers if your project imports them at the top level.
 
 | Rule | Checks |
 | --- | --- |
@@ -95,7 +95,7 @@ The rules provider turns these declarations into a quality asset check, and the 
 | `range_between("column", min_value, max_value)` | Values stay within the inclusive bounds supplied. |
 | `freshness("column", hours=24)` | The newest timestamp is within the allowed age. |
 
-## 4. Choose blocking behavior
+## 4. Choose blocking behaviour
 
 Keep `strict_validation=True` when the table must not be published after a failed check. Set it to `False` when the check is advisory and the run should produce a warning while retaining the result for review.
 
@@ -112,9 +112,9 @@ def events_with_warning(partition_date: str):
     return load_events(partition_date)
 ```
 
-With strict validation, Dagster records a failed blocking `AssetCheckResult` and the materialization fails. With non-strict validation, Dagster records the check with warning severity and the materialization can finish.
+With strict validation, Dagster records a failed blocking `AssetCheckResult` and the materialisation fails. With non-strict validation, Dagster records the check with warning severity and the materialisation can finish.
 
-## 5. Materialize and inspect the result
+## 5. Materialise and inspect the result
 
 Run the asset using its positional name and a known partition:
 

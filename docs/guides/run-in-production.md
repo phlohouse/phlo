@@ -22,7 +22,7 @@ The tier describes the support contract for the package. It does not promise hig
 
 ## 2. Render the Compose deployment
 
-Initialize the generated infrastructure from the installed providers and set production mode:
+Initialise the generated infrastructure from the installed providers and set production mode:
 
 ```bash
 phlo services init
@@ -53,7 +53,7 @@ phlo operations backup create --target /backups/phlo-2025-01-15
 phlo operations backup verify --backup-set /backups/phlo-2025-01-15
 ```
 
-Creation finalizes one manifest after provider artifacts and SHA-256 digests succeed. Verification is read-only and rejects partial, corrupt, mixed-run, or wrong-owner sets.
+Creation finalises one manifest after provider artifacts and SHA-256 digests succeed. Verification is read-only and rejects partial, corrupt, mixed-run, or wrong-owner sets.
 
 ## 5. Upgrade with the supported operation
 
@@ -79,7 +79,7 @@ phlo logs --lines 200 --timestamps
 phlo metrics
 ```
 
-Monitor Dagster runs and checks, PostgreSQL and MinIO storage, Nessie catalog health, Trino query failures, API authorization, and the age of `.phlo/logs/` evidence.
+Monitor Dagster runs and checks, PostgreSQL and MinIO storage, Nessie catalog health, Trino query failures, API authorisation, and the age of `.phlo/logs/` evidence.
 
 ## Verify
 
@@ -98,6 +98,6 @@ Publishing an artifact and pulling an image proves that the registry contains th
 
 ## Related
 
-- [Secure the stack](secure-the-stack.md) for authorization and secret handling.
+- [Secure the stack](secure-the-stack.md) for authorisation and secret handling.
 - [Monitor and debug](monitor-and-debug.md) for runtime diagnosis.
 - [Packages](../reference/packages.md) for package support tiers.

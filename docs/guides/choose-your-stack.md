@@ -17,7 +17,7 @@ phlo init --help
 phlo init demo --template dbt-medallion
 ```
 
-The current template set includes `minimal`, `basic`, `dbt-medallion`, `csv-batch`, `api-ingestion`, `observability-demo`, and `sling-replication`. The initializer creates the workflow tree and the service configuration that the template declares.
+The current template set includes `minimal`, `basic`, `dbt-medallion`, `csv-batch`, `api-ingestion`, `observability-demo`, and `sling-replication`. The initialiser creates the workflow tree and the service configuration that the template declares.
 
 ## 2. Understand capability names
 
@@ -42,7 +42,7 @@ Install the packages for the capabilities used by the workflows:
 uv pip install phlo-dagster phlo-dlt phlo-pandera phlo-iceberg phlo-nessie phlo-minio phlo-trino
 ```
 
-Installation makes the entry points discoverable. It does not change the generated Compose file until services are initialized again.
+Installation makes the entry points discoverable. It does not change the generated Compose file until services are initialised again.
 
 ## 4. Select a non-default provider
 

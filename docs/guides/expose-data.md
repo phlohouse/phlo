@@ -4,7 +4,7 @@ This guide publishes a table through Phlo's API and shows how the optional REST,
 
 ## Before you start
 
-- You have a materialized table such as `raw.events` and know which audience may read it.
+- You have a materialised table such as `raw.events` and know which audience may read it.
 - The default stack is running, or you have installed the optional package for the surface you need.
 - You can edit `phlo.yaml` and regenerate `.phlo/` with `phlo services init`.
 
@@ -107,6 +107,6 @@ A healthy API returns a JSON health response with HTTP status `200`. If the rout
 
 ## Related
 
-- [Secure the stack](secure-the-stack.md) for API authorization and service boundaries.
+- [Secure the stack](secure-the-stack.md) for API authorisation and service boundaries.
 - [Choose your stack](choose-your-stack.md) for optional service providers.
 - [Auth and access](../reference/auth-and-access.md) for access decorators and policy metadata.

@@ -1,6 +1,6 @@
 # Auth and access reference
 
-Authentication and authorization in Phlo are layered.
+Authentication and authorisation in Phlo are layered.
 
 ## Target regulated model
 
@@ -30,7 +30,7 @@ flowchart TD
 ## Responsibilities
 
 - authentication decides who the caller is
-- authorization decides what that caller may do
+- authorisation decides what that caller may do
 - serving layers like `phlo-api`, `Hasura`, and `PostgREST` enforce those decisions in different ways
 - governance and backend systems may apply their own secondary controls
 
@@ -68,9 +68,9 @@ If one of those layers is missing, the deployment is only partially regulated.
 
 ## phlo-api Route Guard Semantics
 
-- `phlo-api` route guards only enforce authorization when an authorization backend is configured
+- `phlo-api` route guards only enforce authorisation when an authorisation backend is configured
 - with the default `PHLO_AUTHORIZATION_MODE=optional`, guarded routes remain reachable when `PHLO_AUTHORIZATION_BACKEND` is unset
-- set `PHLO_AUTHORIZATION_MODE=required` to fail closed with HTTP `503` on guarded routes when no authorization backend is configured
+- set `PHLO_AUTHORIZATION_MODE=required` to fail closed with HTTP `503` on guarded routes when no authorisation backend is configured
 - once a backend is configured, route guards evaluate the caller normally and still return `401` or `403` based on authentication and policy decisions
 - regulated mode itself can be enabled with `PHLO_REGULATED=true` or `regulated: true` at the root of `phlo.yaml`
 
@@ -196,17 +196,17 @@ Phlo's canonical RBAC control plane lives under `.phlo/authorization/` and provi
 - canonical RBAC currently supports `allow` policies only
 - canonical `deny` rules are rejected by validation and backend compilation
 
-The canonical RBAC files and commands are part of the authorization control plane.
+The canonical RBAC files and commands are part of the authorisation control plane.
 
 ## Current configuration model
 
-The core authorization model is represented by `ApiAuthorizationConfig`. Its fields are `backend` and `mode`. `mode` accepts `optional` and `required`. An API route guard uses the configured backend when present. Required mode treats a missing backend as unavailable authorization configuration.
+The core authorisation model is represented by `ApiAuthorizationConfig`. Its fields are `backend` and `mode`. `mode` accepts `optional` and `required`. An API route guard uses the configured backend when present. Required mode treats a missing backend as unavailable authorisation configuration.
 
 Service overrides use the same authorization fields under `infrastructure.services.<name>`. The core configuration schema does not define an identity-provider user store, token issuer, tenant directory, or external ingress policy.
 
-## Authorization boundary
+## Authorisation boundary
 
-Phlo evaluates authorization context at supported API and Observatory surfaces. Operators configure identity providers, token signing keys, secret storage, TLS, network ingress, tenant provisioning, role assignment, and service credentials.
+Phlo evaluates authorisation context at supported API and Observatory surfaces. Operators configure identity providers, token signing keys, secret storage, TLS, network ingress, tenant provisioning, role assignment, and service credentials.
 
 ## Where to look
 

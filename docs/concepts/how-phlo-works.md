@@ -1,6 +1,6 @@
 # How Phlo works
 
-Phlo turns workflow code into discoverable data assets and governance metadata. This page explains how a project moves from source files to a materialized table.
+Phlo turns workflow code into discoverable data assets and governance metadata. This page explains how a project moves from source files to a materialised table.
 
 ## What a Phlo project contains
 
@@ -12,7 +12,7 @@ Workflow modules declare assets with provider decorators. A DLT decorator regist
 
 The CLI loads the configured workflow path and imports Python modules. Installed plugins contribute asset providers, query engines, catalogs, and service definitions through Python entry points.
 
-Discovery creates `AssetSpec` and related capability specifications. These specifications describe names, groups, dependencies, checks, and run behavior. The core package does not require one orchestrator for every declaration.
+Discovery creates `AssetSpec` and related capability specifications. These specifications describe names, groups, dependencies, checks, and run behaviour. The core package does not require one orchestrator for every declaration.
 
 ## How execution works
 
@@ -34,7 +34,7 @@ Capability selection can come from project defaults, workflow tags, or asset-lev
 
 ## What remains provider-specific
 
-The asset model is shared, but execution details remain with providers. DLT controls source and load behavior. Dagster controls orchestration. Iceberg and Nessie control table and catalog operations.
+The asset model is shared, but execution details remain with providers. DLT controls source and load behaviour. Dagster controls orchestration. Iceberg and Nessie control table and catalog operations.
 
 This separation lets a project describe data once while choosing compatible runtime components for local development or deployment.
 
@@ -72,6 +72,6 @@ This boundary keeps development commands useful without making local container n
 
 ## What remains provider-specific
 
-Source credentials, retry behavior, table commits, query syntax, service health, and orchestration retries remain provider concerns. Phlo carries their outcomes as shared metadata and errors.
+Source credentials, retry behaviour, table commits, query syntax, service health, and orchestration retries remain provider concerns. Phlo carries their outcomes as shared metadata and errors.
 
 That boundary allows a project to change one provider without rewriting the declarations that describe its data products.

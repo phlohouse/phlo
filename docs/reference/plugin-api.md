@@ -9,7 +9,7 @@ Phlo plugins are Python classes discovered through entry points. Base classes ar
 | Member | Type | Meaning |
 | --- | --- | --- |
 | `metadata` | `PluginMetadata` property | Plugin identity and metadata. |
-| `initialize` | `(config: dict[str, Any]) -> None` | Initialize plugin state. |
+| `initialize` | `(config: dict[str, Any]) -> None` | Initialise plugin state. |
 | `cleanup` | `() -> None` | Release plugin state. |
 
 `PluginMetadata` contains `name`, `version`, `description`, `author`, `license`, `homepage`, `tags`, `dependencies`, and capability support metadata.
@@ -29,7 +29,7 @@ Phlo plugins are Python classes discovered through entry points. Base classes ar
 | `requires_capabilities` | `list[str]` property | Required capabilities. |
 | `optional_capabilities` | `list[str]` property | Optional capabilities. |
 | `get_compose_fragment` | `() -> dict[str, Any]` | Compose fragment. |
-| `get_files` | `() -> list[dict[str, str]]` | Initialization files. |
+| `get_files` | `() -> list[dict[str, str]]` | Initialisation files. |
 | `get_dependencies` | `() -> list[str]` | Service dependencies. |
 
 `PackageYamlServicePlugin` is the service subclass that reads a package service declaration.

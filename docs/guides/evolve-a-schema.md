@@ -1,12 +1,12 @@
 # Evolve a schema
 
-This guide changes a managed table safely by updating its quality schema, inspecting the contract snapshot, planning the migration, and materializing the owner asset.
+This guide changes a managed table safely by updating its quality schema, inspecting the contract snapshot, planning the migration, and materialising the owner asset.
 
 ## Before you start
 
 - You have a running stack and an existing Iceberg table such as `raw.events`.
 - The table's owning asset has a Pandera schema under `workflows/schemas/`.
-- The project contains a `contracts/` directory created by initialization or a previous contract export.
+- The project contains a `contracts/` directory created by initialisation or a previous contract export.
 
 ## 1. Inspect the current schema and contract
 
@@ -20,7 +20,7 @@ phlo schema-migrate history raw.events
 phlo contracts --help
 ```
 
-`schema show` prints fields and constraints, while migration history and contract commands show the storage-facing record against which a new materialization is compared.
+`schema show` prints fields and constraints, while migration history and contract commands show the storage-facing record against which a new materialisation is compared.
 
 A contract snapshot is a versioned description of the table's expected columns, types, and compatibility metadata. Phlo stores project snapshots under `contracts/` so a schema change can be reviewed independently of the running table.
 
@@ -71,11 +71,11 @@ phlo schema-migrate plan raw.events --migration-file .phlo/migrations/events-ren
 phlo schema-migrate apply raw.events --migration-file .phlo/migrations/events-rename.yaml --yes
 ```
 
-The scaffold makes the old and new names reviewable. The plan output is the visible proof that Phlo recognized a rename rather than silently dropping a column.
+The scaffold makes the old and new names reviewable. The plan output is the visible proof that Phlo recognised a rename rather than silently dropping a column.
 
-## 5. Materialize without refreshing the contract
+## 5. Materialise without refreshing the contract
 
-Materialization refreshes contracts automatically unless you opt out. Use the flag when reviewing a run against a previously approved snapshot:
+Materialisation refreshes contracts automatically unless you opt out. Use the flag when reviewing a run against a previously approved snapshot:
 
 ```bash
 phlo materialize dlt_events --partition 2025-01-15 --no-contract-refresh
