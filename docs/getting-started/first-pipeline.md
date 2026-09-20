@@ -11,10 +11,10 @@ Run `phlo init` with the `csv-batch` template and move into the new directory:
 ```bash
 phlo init my-lakehouse --template csv-batch
 cd my-lakehouse
-uv pip install -e .
+uv sync
 ```
 
-`phlo init` writes the files you own. `uv pip install -e .` installs the project so the orchestrator can import your `workflows` package. The files that matter for this tutorial are:
+`phlo init` writes the files you own. `uv sync` creates or updates the project environment from `pyproject.toml` and installs the project so the orchestrator can import your `workflows` package. From this point, use `uv run phlo ...`; that remains reliable in a fresh terminal without activating an environment. The files that matter for this tutorial are:
 
 ```text
 my-lakehouse/
@@ -65,8 +65,8 @@ One decorator turns the function into a partitioned ingestion asset. Phlo valida
 Generate the runtime configuration, then start the services:
 
 ```bash
-phlo services init
-phlo services start
+uv run phlo services init
+uv run phlo services start
 ```
 
 `phlo services init` writes `.phlo/docker-compose.yml`, `.phlo/overrides/.env`, and `.phlo/secrets/.env`. These files are generated state. Your source stays in the project root.
@@ -74,8 +74,8 @@ phlo services start
 The first start pulls images and can take a few minutes. When it returns, check that everything is healthy:
 
 ```bash
-phlo services status
-phlo doctor
+uv run phlo services status
+uv run phlo doctor
 ```
 
 `phlo services status` prints one row per service. Every `STATUS` should start with `Up`, and the services with health checks should read `(healthy)`:
@@ -99,7 +99,7 @@ Open Dagster at `http://localhost:10006`. The asset graph shows one asset named 
 Ask Dagster to run the asset for one day. `phlo materialize` launches a Dagster run and streams its log to your terminal:
 
 ```bash
-phlo materialize dlt_events --partition 2025-01-15
+uv run phlo materialize dlt_events --partition 2025-01-15
 ```
 
 The partition must be a completed day. Today's partition is still open, so the default daily partition set does not accept it.
@@ -113,14 +113,14 @@ You can launch the same run from the Dagster UI. Select `dlt_events`, choose **M
 List the tables that the run created in the Nessie catalog:
 
 ```bash
-phlo catalog tables
+uv run phlo catalog tables
 ```
 
 The output lists one table, `raw.events`. The `raw` namespace is where ingestion assets land. Inspect it:
 
 ```bash
-phlo catalog describe raw.events
-phlo catalog history raw.events
+uv run phlo catalog describe raw.events
+uv run phlo catalog history raw.events
 ```
 
 `describe` shows the Iceberg schema, which matches `EventsSchema` plus the partition column. `history` shows one snapshot, written by the run you launched.
@@ -128,7 +128,7 @@ phlo catalog history raw.events
 To query the rows, open a Trino shell on the `iceberg` catalog and select from the table:
 
 ```bash
-phlo trino --catalog iceberg
+uv run phlo trino --catalog iceberg
 ```
 
 ```sql
@@ -149,7 +149,7 @@ Two rows come back:
 When you are done, stop the containers. Data volumes survive a stop:
 
 ```bash
-phlo services stop
+uv run phlo services stop
 ```
 
 To delete the data as well, add `--volumes`.
@@ -157,6 +157,16 @@ To delete the data as well, add `--volumes`.
 ## What you built
 
 You have a project that Phlo can run end to end: a decorated Python function, a Pandera schema, a generated Docker stack, a Dagster run, and an Iceberg table on a Nessie catalog. Everything the run produced sits under `.phlo/` or in the containers. Everything you wrote sits in `workflows/`. The `tests/` directory is empty. [Test a project](../guides/test-a-project.md) shows how to fill it and run `phlo test`.
+
+## Make and debug one change
+
+Change `data/events.csv` so the second row has a negative value, then tighten `workflows/schemas/csv.py`:
+
+```python
+value: int = pa.Field(ge=0)
+```
+
+Run the same partition again. The run should fail validation and name the `value` constraint. Restore the positive value and rerun; the partition should succeed. This edit proves that your schema is executable policy rather than descriptive metadata. Use `uv run phlo services logs --service dagster` when the CLI summary does not contain enough detail.
 
 ## Where to go next
 

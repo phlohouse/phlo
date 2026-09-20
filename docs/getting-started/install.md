@@ -31,7 +31,19 @@ phlo --version
 phlo init --list-templates
 ```
 
-The second command prints the eight project templates that the installed packages provide. If it prints only `minimal`, the provider packages did not install. Rerun the `uv pip install` command inside the activated environment.
+The second command prints the seven project templates that the installed packages provide: `minimal`, `basic`, `dbt-medallion`, `csv-batch`, `api-ingestion`, `observability-demo`, and `sling-replication`. If it prints only `minimal`, the provider packages did not install. Rerun the `uv pip install` command inside the activated environment.
+
+## Return in a new terminal
+
+The CLI environment lives in `phlo-workspace/.venv`. In each new terminal, reactivate it before running bare `phlo` commands:
+
+```bash
+cd phlo-workspace
+source .venv/bin/activate
+phlo --version
+```
+
+On PowerShell inside a native Windows environment, activation is `.venv\\Scripts\\Activate.ps1`; the supported Windows route for the local stack remains WSL 2. If you prefer not to activate the environment, prefix commands with `uv run`, for example `uv run phlo --version`.
 
 ## Install fewer packages
 

@@ -1,0 +1,950 @@
+{
+  "api": {
+    "description": "Backend API for Phlo Observatory",
+    "title": "Phlo API",
+    "version": "0.1.0"
+  },
+  "endpoint_count": 107,
+  "endpoints": [
+    {
+      "method": "GET",
+      "operation_id": "run_doctor_api_authoring_doctor_get",
+      "path": "/api/authoring/doctor",
+      "summary": "Run Doctor",
+      "tags": [
+        "authoring"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "lint_project_api_authoring_project_lint_post",
+      "path": "/api/authoring/project/lint",
+      "summary": "Lint Project",
+      "tags": [
+        "authoring"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "validate_schema_api_authoring_schemas_validate_post",
+      "path": "/api/authoring/schemas/validate",
+      "summary": "Validate Schema",
+      "tags": [
+        "authoring"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "list_templates_api_authoring_templates_get",
+      "path": "/api/authoring/templates",
+      "summary": "List Templates",
+      "tags": [
+        "authoring"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "list_workflows_api_authoring_workflows_get",
+      "path": "/api/authoring/workflows",
+      "summary": "List Workflows",
+      "tags": [
+        "authoring"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "create_workflow_api_authoring_workflows_post",
+      "path": "/api/authoring/workflows",
+      "summary": "Create Workflow",
+      "tags": [
+        "authoring"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "validate_workflow_api_authoring_workflows_validate_post",
+      "path": "/api/authoring/workflows/validate",
+      "summary": "Validate Workflow",
+      "tags": [
+        "authoring"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_api_backends_api_backends_get",
+      "path": "/api/backends",
+      "summary": "Get Api Backends",
+      "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_api_backend_info_api_backends__name__get",
+      "path": "/api/backends/{name}",
+      "summary": "Get Api Backend Info",
+      "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_config_api_config_get",
+      "path": "/api/config",
+      "summary": "Get Config",
+      "tags": []
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_continuity_apply_api_continuity_apply_post",
+      "path": "/api/continuity/apply",
+      "summary": "Post Continuity Apply",
+      "tags": [
+        "continuity"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "list_continuity_operations_api_continuity_operations_get",
+      "path": "/api/continuity/operations",
+      "summary": "List Continuity Operations",
+      "tags": [
+        "continuity"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_continuity_plan_api_continuity_plan_post",
+      "path": "/api/continuity/plan",
+      "summary": "Post Continuity Plan",
+      "tags": [
+        "continuity"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_continuity_verification_api_continuity_verifications__operation_id__get",
+      "path": "/api/continuity/verifications/{operation_id}",
+      "summary": "Get Continuity Verification",
+      "tags": [
+        "continuity"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_contracts_api_contracts_get",
+      "path": "/api/contracts",
+      "summary": "Get Contracts",
+      "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_contract_api_contracts__table_name__get",
+      "path": "/api/contracts/{table_name}",
+      "summary": "Get Contract",
+      "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "query_asset_logs_api_loki_assets__asset_key__get",
+      "path": "/api/loki/assets/{asset_key}",
+      "summary": "Query Asset Logs",
+      "tags": [
+        "loki"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "check_connection_api_loki_connection_get",
+      "path": "/api/loki/connection",
+      "summary": "Check Connection",
+      "tags": [
+        "loki"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_log_labels_api_loki_labels_get",
+      "path": "/api/loki/labels",
+      "summary": "Get Log Labels",
+      "tags": [
+        "loki"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "query_logs_api_loki_query_get",
+      "path": "/api/loki/query",
+      "summary": "Query Logs",
+      "tags": [
+        "loki"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "query_run_logs_api_loki_runs__run_id__get",
+      "path": "/api/loki/runs/{run_id}",
+      "summary": "Query Run Logs",
+      "tags": [
+        "loki"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "stream_run_logs_api_loki_runs__run_id__stream_get",
+      "path": "/api/loki/runs/{run_id}/stream",
+      "summary": "Stream Run Logs",
+      "tags": [
+        "loki"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_maintenance_metrics_api_maintenance_metrics_get",
+      "path": "/api/maintenance/metrics",
+      "summary": "Get Maintenance Metrics",
+      "tags": [
+        "maintenance"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_maintenance_status_api_maintenance_status_get",
+      "path": "/api/maintenance/status",
+      "summary": "Get Maintenance Status",
+      "tags": [
+        "maintenance"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_recent_alerts_api_observability_alerts_get",
+      "path": "/api/observability/alerts",
+      "summary": "Get Recent Alerts",
+      "tags": [
+        "observability"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_dashboard_links_api_observability_dashboards_get",
+      "path": "/api/observability/dashboards",
+      "summary": "Get Dashboard Links",
+      "tags": [
+        "observability"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_health_summary_api_observability_health_get",
+      "path": "/api/observability/health",
+      "summary": "Get Health Summary",
+      "tags": [
+        "observability"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_logs_query_link_api_observability_links_logs_get",
+      "path": "/api/observability/links/logs",
+      "summary": "Get Logs Query Link",
+      "tags": [
+        "observability"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_metrics_query_link_api_observability_links_metrics_get",
+      "path": "/api/observability/links/metrics",
+      "summary": "Get Metrics Query Link",
+      "tags": [
+        "observability"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_platform_metrics_api_observability_metrics_get",
+      "path": "/api/observability/metrics",
+      "summary": "Get Platform Metrics",
+      "tags": [
+        "observability"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_service_status_api_observability_services_get",
+      "path": "/api/observability/services",
+      "summary": "Get Service Status",
+      "tags": [
+        "observability"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_trace_spans_api_observability_traces_get",
+      "path": "/api/observability/traces",
+      "summary": "Get Trace Spans",
+      "tags": [
+        "observability"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_run_trace_spans_api_observability_traces_runs__run_id__get",
+      "path": "/api/observability/traces/runs/{run_id}",
+      "summary": "Get Run Trace Spans",
+      "tags": [
+        "observability"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_action_api_observatory_actions_post",
+      "path": "/api/observatory/actions",
+      "summary": "Post Observatory Action",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_apis_api_observatory_apis_get",
+      "path": "/api/observatory/apis",
+      "summary": "Get Observatory Apis",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_asset_graph_api_observatory_asset_graph_get",
+      "path": "/api/observatory/asset-graph",
+      "summary": "Get Observatory Asset Graph",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_asset_impact_api_observatory_asset_graph_impact_get",
+      "path": "/api/observatory/asset-graph/impact",
+      "summary": "Get Observatory Asset Impact",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_asset_neighbors_api_observatory_asset_graph_neighbors_get",
+      "path": "/api/observatory/asset-graph/neighbors",
+      "summary": "Get Observatory Asset Neighbors",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_assets_api_observatory_assets_get",
+      "path": "/api/observatory/assets",
+      "summary": "Get Observatory Assets",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_asset_detail_api_observatory_assets__asset_id__get",
+      "path": "/api/observatory/assets/{asset_id}",
+      "summary": "Get Observatory Asset Detail",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_asset_backfill_api_observatory_assets__asset_id__backfill_post",
+      "path": "/api/observatory/assets/{asset_id}/backfill",
+      "summary": "Post Observatory Asset Backfill",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_asset_materializations_api_observatory_assets__asset_id__materializations_get",
+      "path": "/api/observatory/assets/{asset_id}/materializations",
+      "summary": "Get Observatory Asset Materializations",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_asset_materialize_api_observatory_assets__asset_id__materialize_post",
+      "path": "/api/observatory/assets/{asset_id}/materialize",
+      "summary": "Post Observatory Asset Materialize",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_asset_partitions_api_observatory_assets__asset_id__partitions_get",
+      "path": "/api/observatory/assets/{asset_id}/partitions",
+      "summary": "Get Observatory Asset Partitions",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_bi_api_observatory_bi_get",
+      "path": "/api/observatory/bi",
+      "summary": "Get Observatory Bi",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_branches_api_observatory_branches_get",
+      "path": "/api/observatory/branches",
+      "summary": "Get Observatory Branches",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_branch_action_api_observatory_branches_actions_post",
+      "path": "/api/observatory/branches/actions",
+      "summary": "Post Observatory Branch Action",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_branch_detail_api_observatory_branches__branch_name__get",
+      "path": "/api/observatory/branches/{branch_name}",
+      "summary": "Get Observatory Branch Detail",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_capabilities_api_observatory_capabilities_get",
+      "path": "/api/observatory/capabilities",
+      "summary": "Get Observatory Capabilities",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_capability_inventory_api_observatory_capability_inventory_get",
+      "path": "/api/observatory/capability-inventory",
+      "summary": "Get Observatory Capability Inventory",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_contributing_rows_page_api_observatory_contributing_rows_page_post",
+      "path": "/api/observatory/contributing-rows/page",
+      "summary": "Post Observatory Contributing Rows Page",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_contributing_rows_query_api_observatory_contributing_rows_query_post",
+      "path": "/api/observatory/contributing-rows/query",
+      "summary": "Post Observatory Contributing Rows Query",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_dataset_workflow_config_api_observatory_dataset_workflow_config_get",
+      "path": "/api/observatory/dataset-workflow/config",
+      "summary": "Get Observatory Dataset Workflow Config",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "PUT",
+      "operation_id": "put_observatory_dataset_workflow_config_api_observatory_dataset_workflow_config_put",
+      "path": "/api/observatory/dataset-workflow/config",
+      "summary": "Put Observatory Dataset Workflow Config",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_datasets_api_observatory_datasets_get",
+      "path": "/api/observatory/datasets",
+      "summary": "Get Observatory Datasets",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_dataset_facets_api_observatory_datasets_facets_get",
+      "path": "/api/observatory/datasets/facets",
+      "summary": "Get Observatory Dataset Facets",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_publishing_readiness_api_observatory_datasets_publishing_readiness_get",
+      "path": "/api/observatory/datasets/publishing-readiness",
+      "summary": "Get Observatory Publishing Readiness",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_dataset_profile_api_observatory_datasets__dataset_id__get",
+      "path": "/api/observatory/datasets/{dataset_id}",
+      "summary": "Get Observatory Dataset Profile",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_extension_manifests_api_observatory_extension_manifests_get",
+      "path": "/api/observatory/extension-manifests",
+      "summary": "Get Observatory Extension Manifests",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_extensions_api_observatory_extensions_get",
+      "path": "/api/observatory/extensions",
+      "summary": "Get Observatory Extensions",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_extension_detail_api_observatory_extensions__extension_id__get",
+      "path": "/api/observatory/extensions/{extension_id}",
+      "summary": "Get Observatory Extension Detail",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_extension_asset_api_observatory_extensions__name__assets__asset_path__get",
+      "path": "/api/observatory/extensions/{name}/assets/{asset_path}",
+      "summary": "Get Observatory Extension Asset",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_extension_settings_api_observatory_extensions__name__settings_get",
+      "path": "/api/observatory/extensions/{name}/settings",
+      "summary": "Get Observatory Extension Settings",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "PUT",
+      "operation_id": "put_observatory_extension_settings_api_observatory_extensions__name__settings_put",
+      "path": "/api/observatory/extensions/{name}/settings",
+      "summary": "Put Observatory Extension Settings",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_governance_api_observatory_governance_get",
+      "path": "/api/observatory/governance",
+      "summary": "Get Observatory Governance",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_logs_api_observatory_logs_get",
+      "path": "/api/observatory/logs",
+      "summary": "Get Observatory Logs",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_log_facets_api_observatory_logs_facets_get",
+      "path": "/api/observatory/logs/facets",
+      "summary": "Get Observatory Log Facets",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_observability_api_observatory_observability_get",
+      "path": "/api/observatory/observability",
+      "summary": "Get Observatory Observability",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_operations_api_observatory_operations_get",
+      "path": "/api/observatory/operations",
+      "summary": "Get Observatory Operations",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_operation_detail_api_observatory_operations__operation_id__get",
+      "path": "/api/observatory/operations/{operation_id}",
+      "summary": "Get Observatory Operation Detail",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_operation_agent_context_api_observatory_operations__operation_id__agent_context_get",
+      "path": "/api/observatory/operations/{operation_id}/agent-context",
+      "summary": "Get Observatory Operation Agent Context",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_overview_api_observatory_overview_get",
+      "path": "/api/observatory/overview",
+      "summary": "Get Observatory Overview",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_package_install_api_observatory_packages_install_post",
+      "path": "/api/observatory/packages/install",
+      "summary": "Post Observatory Package Install",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_pipelines_api_observatory_pipelines_get",
+      "path": "/api/observatory/pipelines",
+      "summary": "Get Observatory Pipelines",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_preferences_api_observatory_preferences_get",
+      "path": "/api/observatory/preferences",
+      "summary": "Get Observatory Preferences",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "PUT",
+      "operation_id": "put_observatory_preferences_api_observatory_preferences_put",
+      "path": "/api/observatory/preferences",
+      "summary": "Put Observatory Preferences",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_run_report_api_observatory_projects__project_id__runs__run_id__attempts__attempt__report_get",
+      "path": "/api/observatory/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report",
+      "summary": "Get Observatory Run Report",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_quality_api_observatory_quality_get",
+      "path": "/api/observatory/quality",
+      "summary": "Get Observatory Quality",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_quality_detail_api_observatory_quality__check_id__get",
+      "path": "/api/observatory/quality/{check_id}",
+      "summary": "Get Observatory Quality Detail",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_query_api_observatory_query_post",
+      "path": "/api/observatory/query",
+      "summary": "Post Observatory Query",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_row_journey_api_observatory_row_journey__table_id___row_id__get",
+      "path": "/api/observatory/row-journey/{table_id}/{row_id}",
+      "summary": "Get Observatory Row Journey",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_runs_api_observatory_runs_get",
+      "path": "/api/observatory/runs",
+      "summary": "Get Observatory Runs",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_run_cancel_api_observatory_runs__run_id__cancel_post",
+      "path": "/api/observatory/runs/{run_id}/cancel",
+      "summary": "Post Observatory Run Cancel",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_run_retry_api_observatory_runs__run_id__retry_post",
+      "path": "/api/observatory/runs/{run_id}/retry",
+      "summary": "Post Observatory Run Retry",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_run_status_api_observatory_runs__run_id__status_get",
+      "path": "/api/observatory/runs/{run_id}/status",
+      "summary": "Get Observatory Run Status",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_saved_queries_api_observatory_saved_queries_get",
+      "path": "/api/observatory/saved-queries",
+      "summary": "Get Observatory Saved Queries",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_saved_query_api_observatory_saved_queries_post",
+      "path": "/api/observatory/saved-queries",
+      "summary": "Post Observatory Saved Query",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_schema_diff_api_observatory_schemas_diff_post",
+      "path": "/api/observatory/schemas/diff",
+      "summary": "Post Observatory Schema Diff",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_search_api_observatory_search_get",
+      "path": "/api/observatory/search",
+      "summary": "Get Observatory Search",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_services_api_observatory_services_get",
+      "path": "/api/observatory/services",
+      "summary": "Get Observatory Services",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_service_detail_api_observatory_services__service_id__get",
+      "path": "/api/observatory/services/{service_id}",
+      "summary": "Get Observatory Service Detail",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_settings_api_observatory_settings_get",
+      "path": "/api/observatory/settings",
+      "summary": "Get Observatory Settings",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_stage_diff_api_observatory_stage_diff_get",
+      "path": "/api/observatory/stage-diff",
+      "summary": "Get Observatory Stage Diff",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_storage_api_observatory_storage_get",
+      "path": "/api/observatory/storage",
+      "summary": "Get Observatory Storage",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_surface_capabilities_api_observatory_surface_capabilities_get",
+      "path": "/api/observatory/surface-capabilities",
+      "summary": "Get Observatory Surface Capabilities",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_table_preview_api_observatory_table_preview__table_id__get",
+      "path": "/api/observatory/table-preview/{table_id}",
+      "summary": "Get Observatory Table Preview",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_tables_api_observatory_tables_get",
+      "path": "/api/observatory/tables",
+      "summary": "Get Observatory Tables",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_workflow_wizard_api_observatory_workflow_wizard_get",
+      "path": "/api/observatory/workflow-wizard",
+      "summary": "Get Observatory Workflow Wizard",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_workflow_wizard_action_api_observatory_workflow_wizard_actions_post",
+      "path": "/api/observatory/workflow-wizard/actions",
+      "summary": "Post Observatory Workflow Wizard Action",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "post_observatory_workflow_wizard_proposal_api_observatory_workflow_wizard_proposals_post",
+      "path": "/api/observatory/workflow-wizard/proposals",
+      "summary": "Post Observatory Workflow Wizard Proposal",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_plugins_api_plugins_get",
+      "path": "/api/plugins",
+      "summary": "Get Plugins",
+      "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_plugins_by_type_api_plugins__plugin_type__get",
+      "path": "/api/plugins/{plugin_type}",
+      "summary": "Get Plugins By Type",
+      "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_plugin_info_api_plugins__plugin_type___name__get",
+      "path": "/api/plugins/{plugin_type}/{name}",
+      "summary": "Get Plugin Info",
+      "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_registry_api_registry_get",
+      "path": "/api/registry",
+      "summary": "Get Registry",
+      "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_services_api_services_get",
+      "path": "/api/services",
+      "summary": "Get Services",
+      "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_service_info_api_services__name__get",
+      "path": "/api/services/{name}",
+      "summary": "Get Service Info",
+      "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "health_health_get",
+      "path": "/health",
+      "summary": "Health",
+      "tags": []
+    }
+  ],
+  "schema_version": 1
+}

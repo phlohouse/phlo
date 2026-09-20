@@ -1,8 +1,9 @@
 # Contributing to Phlo
 
 Thank you for contributing to Phlo. Please discuss substantial changes in an
-issue before opening a pull request, and run `make check` locally before
-submitting it.
+issue before opening a pull request. Start with `make check`, then use the
+[verification matrix](docs/contributing/verification-matrix.md) to select the
+checks for the surfaces you changed.
 
 ## Contribution licence
 
@@ -92,6 +93,12 @@ repository checkout has no root `compose.yaml`, so `make up` and friends never
 worked from the root. Project lifecycle (init, start, stop, logs, service
 health) belongs to the `phlo` CLI (`phlo services init|start|stop|logs`,
 `phlo doctor`) run inside a Phlo project.
+
+Use the [engineering map](docs/contributing/engineering-map.md) to find source
+ownership and generated-file boundaries. `make check` is a broad baseline, not
+the exhaustive acceptance suite; the [verification
+matrix](docs/contributing/verification-matrix.md) lists the additional checks
+for applications, integrations, documentation, workflows, and visible UI work.
 
 ## Contributor Licence Agreement
 

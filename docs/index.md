@@ -4,6 +4,12 @@ Phlo is a Python framework for building a lakehouse. You write ingestion, qualit
 
 The core stays small. Everything else, from Dagster and dlt to Iceberg, Nessie, Trino, and MinIO, arrives as an installable `phlo-*` package that plugs into the CLI and the runtime.
 
+## Is Phlo right for you?
+
+Phlo is useful when you want one Python project to own ingestion, validation, transformation, orchestration, and a local lakehouse stack. It is designed for teams that want replaceable providers without assembling every integration themselves.
+
+Phlo is currently alpha and is not production-ready. Choose it for evaluation, local development, prototypes, and contributions where API and project-layout changes are acceptable. Do not choose it yet when you need a stable 1.0 compatibility promise, a supported live restore path, or an already-certified production deployment. The [support matrix](reference/support-matrix.md) separates target support from current maturity and release blockers.
+
 ## Start here
 
 If you have never run Phlo, follow these two pages in order:
@@ -12,6 +18,14 @@ If you have never run Phlo, follow these two pages in order:
 2. [Build your first pipeline](getting-started/first-pipeline.md) creates a project, starts the stack, and materialises a table in about ten minutes.
 
 If you want to understand the ideas behind that workflow, follow [Learn Phlo from first principles](learn/index.md). The series builds on the same project and explains ingestion, storage, orchestration, quality, observability, and extension design.
+
+## Your first week with Phlo
+
+1. **Run a known path:** [install Phlo](getting-started/install.md) and [build the CSV pipeline](getting-started/first-pipeline.md).
+2. **Change something safely:** [connect your first API](guides/connect-your-first-api.md), then [add a quality check](guides/add-quality-checks.md).
+3. **Understand the system:** read [How Phlo works](concepts/how-phlo-works.md) and inspect the [service topology](architecture/service-topology.md).
+4. **Choose a realistic pattern:** browse the [example lakehouses](guides/example-lakehouses.md) by source, architecture, or failure mode.
+5. **Operate what you built:** use [Monitor and debug](guides/monitor-and-debug.md), then read the [support matrix](reference/support-matrix.md) before relying on a component.
 
 ## Understand how Phlo works
 
@@ -30,6 +44,7 @@ Each guide solves one problem and assumes you have finished the first pipeline:
 
 | Goal | Guide |
 | --- | --- |
+| Connect and test a REST API | [Connect your first API](guides/connect-your-first-api.md) |
 | Load data from an API, a file, or a database | [Ingest data](guides/ingest-data.md) |
 | Stop bad rows before they reach a published table | [Add quality checks](guides/add-quality-checks.md) |
 | Model bronze, silver, and gold layers | [Transform with dbt](guides/transform-with-dbt.md) |
@@ -47,19 +62,27 @@ Each guide solves one problem and assumes you have finished the first pipeline:
 | Add telemetry and alerts | [Add observability](guides/add-observability.md) |
 | Run Dagster on the host | [Develop natively](guides/develop-natively.md) |
 | Choose a maintenance or recovery runbook | [Maintain and recover](guides/maintain-and-recover.md) |
+| Upgrade packages and project configuration | [Upgrade Phlo](guides/upgrade-phlo.md) |
+| Find a complete example lakehouse | [Example lakehouses](guides/example-lakehouses.md) |
 
 ## Look something up
 
 Reference pages describe what exists. They do not teach:
 
-- [CLI](reference/cli.md): the top-level `phlo` commands and their subcommands. Run `phlo <command> --help` for all options on the installed version.
+- [CLI](reference/cli.md): every installed command path, option, default, and capability flag.
 - [Configuration](reference/configuration.md): `phlo.yaml`, environment-file precedence, and core and default-stack variables.
+- [Settings inventory](reference/settings.md): generated Pydantic settings fields across core and provider packages.
 - [Project layout](reference/project-layout.md): the files in a project and what generates them.
 - [Python API](reference/python-api.md): the decorators and helpers under `import phlo`.
 - [Plugin API](reference/plugin-api.md): entry points, hooks, `service.yaml`, and extension manifests.
+- [Capabilities and plugins](reference/capabilities-and-plugins.md): exact entry-point families, resolution order, and failure semantics.
+- [Observatory extensions](reference/observatory-extensions.md): manifest, asset, compatibility, storage, and trust contracts.
 - [Quality checks](reference/quality-checks.md): every built-in check and its parameters.
-- [Packages](reference/packages.md): what each `phlo-*` package adds and its support tier.
+- [Packages](reference/packages.md): what each `phlo-*` package adds and its target status.
+- [Support matrix](reference/support-matrix.md): generated target profiles, current maturity, gates, and blockers.
+- [HTTP API](reference/http-api.md): generated FastAPI endpoint inventory and security boundary.
 - [Auth and access](reference/auth-and-access.md): principals, roles, and route guards.
+- [Continuity](reference/continuity.md): what backup, verification, restore fixtures, and exclusions actually guarantee.
 - [Errors](reference/errors.md): every `PHLO-` error code, its cause, and its fix.
 - [Glossary](reference/glossary.md): the terms these docs use.
 - [Templates](reference/templates.md): project starters and generated files.
@@ -69,7 +92,9 @@ The hand-maintained [Python API reference](reference/python-api.md) covers the p
 
 ## Architecture records
 
-[Architecture](architecture/index.md) holds the decision log and the regulated surface inventory. Read them when you need to know why something is the way it is.
+[Architecture](architecture/index.md) holds the decision log, [service topology](architecture/service-topology.md), and regulated surface inventory. Read these pages when you need to know why something is the way it is or where a runtime boundary lives.
+
+Contributors and coding agents should begin with the [engineering map](contributing/engineering-map.md) and select checks from the [verification matrix](contributing/verification-matrix.md).
 
 ## Project status
 

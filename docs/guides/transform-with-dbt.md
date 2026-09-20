@@ -8,18 +8,25 @@ In Phlo, dbt models are not run with the dbt CLI. `phlo-dbt` reads the dbt manif
 
 - You have the `my-lakehouse` project from [Your first pipeline](../getting-started/first-pipeline.md), the stack is running, and `dlt_events` has been materialised so `iceberg.raw.events` exists.
 - You know whether the model should be a view, table, or incremental model.
+- The project can install packages from its configured Python index. The `csv-batch` template does not include `phlo-dbt`.
 
 If you prefer to start from a dbt-first project, `phlo init --template dbt-medallion` scaffolds the same layout with sample bronze, silver, and gold models but no ingestion asset.
 
 ## 1. Add the dbt project
 
-Add `phlo-dbt` to the project dependencies in `pyproject.toml` and install it:
+Add `phlo-dbt` to the project dependencies in `pyproject.toml`, then update the project environment:
 
 ```bash
-uv pip install -e .
+uv add phlo-dbt
 ```
 
-Create `workflows/transforms/dbt/dbt_project.yml`. `phlo-dbt` discovers a dbt project at this path without further configuration.
+Create the dbt directories, then add the files in the following steps:
+
+```bash
+mkdir -p workflows/transforms/dbt/models/silver
+```
+
+`phlo-dbt` discovers `workflows/transforms/dbt/dbt_project.yml` without further configuration.
 
 ```yaml
 name: my_lakehouse

@@ -2,6 +2,7 @@
   "title": "Architecture",
   "pages": [
     "index",
+    "service-topology",
     "regulated-surface-inventory",
     "decisions/index"
   ]

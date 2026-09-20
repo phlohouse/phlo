@@ -9,6 +9,7 @@ TY_CHECK_SCOPE := src/phlo $(wildcard packages/*/src)
 CHECK_CMD := scripts/run-parallel \
 	"support manifest" "python3 scripts/validate_support_manifest.py" \
 	"version drift" "python3 scripts/check_version_drift.py" \
+	"reference docs" "uv run --locked python scripts/generate_reference_docs.py --check" \
 	"py lint" "uv run --locked ruff check ." \
 	"py format" "uv run --locked ruff format --check ." \
 	"py typecheck" "uv run --locked ty check --error-on-warning $(TY_CHECK_SCOPE)" \
@@ -29,7 +30,8 @@ PYMDX_DOCS_PORT ?= 3000
 	dependency-refresh dependency-refresh-check \
 	validate-support-manifest \
 	lint-ts format-ts typecheck-ts test-core-regression test-quickstart-smoke fix-sql \
-	prek-install prek-run prek-validate zizmor actionlint docs-generate docs-dev docs-build docs-serve docs-clean
+	prek-install prek-run prek-validate zizmor actionlint docs-reference-generate docs-reference-check \
+	docs-generate docs-dev docs-build docs-serve docs-clean
 
 setup: venv install
 
@@ -91,13 +93,19 @@ openmetadata:
 
 catalog: openmetadata
 
+docs-reference-generate:
+	uv run --locked python scripts/generate_reference_docs.py
+
+docs-reference-check:
+	uv run --locked python scripts/generate_reference_docs.py --check
+
 docs-generate:
 	uv run --locked pymdx generate src/phlo --docs docs --output $(PYMDX_DOCS_DIR)
 
 docs-dev: docs-generate
 	uv run --locked pymdx dev $(PYMDX_DOCS_DIR) --port $(PYMDX_DOCS_PORT)
 
-docs-build: docs-generate
+docs-build: docs-reference-check docs-generate
 	uv run --locked pymdx build $(PYMDX_DOCS_DIR)
 
 docs-serve: docs-dev

@@ -1,6 +1,8 @@
 # Package reference
 
-Package versions and support classifications come from the bundled support manifest. Package READMEs contain package-specific implementation details.
+Package versions and classifications come from the bundled support manifest. Package READMEs contain package-specific implementation details.
+
+The table's **target status** is the intended boundary, not a production-readiness claim. The current Phlo release is alpha and not production-ready; even entries whose target status is `supported` can have blocked release gates. Use the generated [support matrix](support-matrix.md) for current maturity, readiness, gates, and blockers.
 
 ## Install extras
 
@@ -10,7 +12,7 @@ Package versions and support classifications come from the bundled support manif
 
 ## Package index
 
-| Package | Area | Support tier |
+| Package | Area | Target status |
 | --- | --- | --- |
 | `phlo` | Core CLI and runtime | supported |
 | `phlo-api` | API and Observatory integration | supported |
