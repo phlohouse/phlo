@@ -112,93 +112,139 @@ Provides Trino query integration, shell support, and catalog generation. Install
 
 Provides alert destination integrations and the `alerts` CLI group. Install with `pip install phlo-alerting`. Support tier: supported. Settings class: `AlertingSettings`.
 
+**Enable:** Install the package. **Settings:** Set destination settings under `PHLO_ALERT_*`. Alert destinations receive failure events from Dagster's alerting sensor.
+
 ## phlo-hasura
 
 Provides Hasura API integration and the `hasura` CLI group. Install with `pip install phlo-hasura`. Support tier: supported. Settings are package-local.
+
+**Enable:** Run `phlo services add --service hasura`. **Settings:** Set `HASURA_PORT`, default `8082`. Hasura exposes governed data and is not an asset execution provider.
 
 ## phlo-lineage
 
 Provides lineage metadata and the `lineage` CLI group. Install with `pip install phlo-lineage`. Support tier: supported. Settings class: `LineageSettings`.
 
+**Enable:** Install the package. **Settings:** Set `PHLO_LINEAGE_DB_URL` or use `DAGSTER_PG_DB_CONNECTION_STRING` for the lineage store. **Runs through Dagster as:** A hook consumer that records lineage from normal asset runs.
+
 ## phlo-oauth2-proxy
 
 Provides OAuth2 Proxy service metadata for OIDC front-door access. Install with `pip install phlo-oauth2-proxy`. Support tier: supported.
+
+**Enable:** Add the `proxy` profile after configuring the OIDC settings in its service manifest. **Settings:** OIDC settings are defined by the service manifest. OAuth2 Proxy protects HTTP entry points and is not an asset provider.
 
 ## phlo-otel
 
 Provides OpenTelemetry configuration and instrumentation. Install with `pip install phlo-otel`. Support tier: supported.
 
+**Enable:** Install the package. **Settings:** Set standard `OTEL_*` variables such as `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME`. **Runs through Dagster as:** Instrumentation inside Dagster and provider processes.
+
 ## phlo-postgrest
 
 Provides PostgREST API integration and service metadata. Install with `pip install phlo-postgrest`. Support tier: supported. Settings class: `PostgrestSettings`.
+
+**Enable:** Run `phlo services add --service postgrest`. **Settings:** Set `POSTGREST_PORT`, default `3002`. PostgREST is an API surface and is not an asset provider.
 
 ## phlo-sling
 
 Provides Sling replication decorators, assets, and the `sling` CLI group. Install with `pip install phlo-sling`. Support tier: supported. Settings class: `SlingSettings`.
 
+**Enable:** Install it and declare Sling assets in workflows. **Settings:** Use `SlingSettings` and the package environment settings. **Runs through Dagster as:** Sling assets launched by `phlo materialize` or `phlo backfill`. `phlo sling run` calls Sling directly for inspection or debugging.
+
 ## phlo-traefik
 
 Provides Traefik reverse-proxy service metadata. Install with `pip install phlo-traefik`. Support tier: supported.
+
+**Enable:** Add the `proxy` profile. **Settings:** Set `TRAEFIK_HTTP_PORT`, default `80`, and `TRAEFIK_DOMAIN`, default `phlo.localhost`. Traefik routes HTTP services and is not an asset provider.
 
 ## phlo-airbyte
 
 Provides Airbyte control-plane integration and the `airbyte` CLI group. Install with `pip install phlo-airbyte`. Support tier: preview. Settings class: `AirbyteSettings`.
 
+**Enable:** Run `phlo services add --service airbyte`. **Settings:** Set `AIRBYTE_PORT`, default `10020`, through `AirbyteSettings`. **Runs through Dagster as:** Airbyte assets declared in workflows. The `phlo airbyte` group calls the control plane directly.
+
 ## phlo-alloy
 
 Provides Alloy telemetry collector service metadata. Install with `pip install phlo-alloy`. Support tier: preview.
+
+**Enable:** Add the observability profile. **Settings:** Set `ALLOY_PORT`, default `12345`. Alloy receives and routes telemetry. It is not an asset provider.
 
 ## phlo-clickhouse
 
 Provides ClickHouse integration and the `clickhouse` CLI group. Install with `pip install phlo-clickhouse`. Support tier: preview. Settings class: `ClickHouseSettings`. Services: `clickhouse`, `clickhouse-setup`.
 
+**Enable:** Run `phlo services add --service clickhouse`. **Settings:** Set `CLICKHOUSE_HTTP_PORT`, `CLICKHOUSE_NATIVE_PORT`, and `CLICKHOUSE_METRICS_PORT` through `ClickHouseSettings`. **Runs through Dagster as:** ClickHouse assets launched by Dagster. The `phlo clickhouse` group is for direct inspection.
+
 ## phlo-clickstack
 
 Provides ClickStack observability service metadata and CLI integration. Install with `pip install phlo-clickstack`. Support tier: preview.
+
+**Enable:** Add the observability profile. **Settings:** Set `CLICKSTACK_PORT`, `CLICKSTACK_HTTP_PORT`, or `CLICKSTACK_NATIVE_PORT` as needed. ClickStack receives observability data and is not an asset provider.
 
 ## phlo-delta
 
 Provides Delta Lake integration. Install with `pip install phlo-delta`. Support tier: preview. Settings class: `DeltaSettings`.
 
+**Enable:** Install the package and configure its provider capability. **Settings:** Use `DeltaSettings` values from the package settings module. **Runs through Dagster as:** Delta assets declared by a provider workflow.
+
 ## phlo-grafana
 
 Provides Grafana dashboard service metadata. Install with `pip install phlo-grafana`. Support tier: preview. Service: `grafana`.
+
+**Enable:** Add the observability profile. **Settings:** Set `GRAFANA_PORT`, default `3003`. Grafana displays metrics and dashboards and is not an asset provider.
 
 ## phlo-kafka
 
 Provides Kafka ingestion, checkpoint lifecycle, and the `kafka` CLI group. Install with `pip install phlo-kafka`. Support tier: preview. Settings class: `KafkaSettings`.
 
+**Enable:** Run `phlo services add --service kafka`. **Settings:** Set `KAFKA_PORT`, default `10021`, through `KafkaSettings`. **Runs through Dagster as:** Kafka ingestion assets launched by Dagster. The `phlo kafka` group forwards provider arguments directly.
+
 ## phlo-loki
 
 Provides Loki log-storage service metadata. Install with `pip install phlo-loki`. Support tier: preview. Service: `loki`.
+
+**Enable:** Add the observability profile. **Settings:** Set `LOKI_PORT`, default `3100`. Loki stores logs and is not an asset provider.
 
 ## phlo-mcp
 
 Provides the MCP server, tools, prompts, and package documentation resources. Install with `pip install phlo-mcp`. Support tier: preview.
 
+**Enable:** Enable the MCP service through its service definition. **Settings:** Configure the endpoint and client authentication in the service settings. MCP exposes read-only project and runtime resources and does not run assets.
+
 ## phlo-observe-plugin
 
 Provides hook translation, Dagster run sensors, and provider instrumentation for Observatory. Install with `pip install phlo-observe-plugin`. Support tier: preview. No packaged README exists for this package.
+
+**Enable:** Add the `phlo-observer` service. **Settings:** Set `PHLO_OBSERVER_PORT`, `PHLO_OBSERVER_DATABASE_URL`, and the ingest, read, and admin token settings. **Runs through Dagster as:** A consumer of Dagster and hook events rather than an asset definition provider.
 
 ## phlo-openmetadata
 
 Provides OpenMetadata catalog integration and the `openmetadata` CLI group. Install with `pip install phlo-openmetadata`. Support tier: preview. Settings class: `OpenMetadataSettings`.
 
+**Enable:** Run `phlo services add --service openmetadata`. **Settings:** Set `OPENMETADATA_PORT`, `OPENMETADATA_ADMIN_PORT`, `OPENMETADATA_DB_PORT`, and `OPENMETADATA_ES_PORT` through `OpenMetadataSettings`. **Runs through Dagster as:** A metadata provider consuming Dagster and hook events. The CLI is for direct catalog inspection.
+
 ## phlo-polaris
 
 Provides Polaris snapshot-promotion catalog integration. Install with `pip install phlo-polaris`. Support tier: preview. Settings class: `PolarisSettings`.
+
+**Enable:** Run `phlo services add --service polaris`. **Settings:** Set `POLARIS_PORT`, default `10018`, through `PolarisSettings`. **Runs through Dagster as:** The catalog promotion capability used by Dagster WAP runs. Polaris is not a query engine.
 
 ## phlo-prometheus
 
 Provides Prometheus metrics service metadata. Install with `pip install phlo-prometheus`. Support tier: preview. Service: `prometheus`.
 
+**Enable:** Add the observability profile. **Settings:** Set `PROMETHEUS_PORT`, default `9090`. Prometheus stores metrics emitted by instrumented runs and is not an asset provider.
+
 ## phlo-rustfs
 
 Provides RustFS object-storage integration and service metadata. Install with `pip install phlo-rustfs`. Support tier: preview. Settings class: `RustfsSettings`. Services: `rustfs`, `rustfs-setup`.
 
+**Enable:** Run `phlo services add --service rustfs`. **Settings:** Set `RUSTFS_API_PORT`, default `9000`, and `RUSTFS_CONSOLE_PORT`, default `9001`, through `RustfsSettings`. **Runs through Dagster as:** Object storage used by provider assets.
+
 ## phlo-superset
 
 Provides Superset BI service metadata and integration. Install with `pip install phlo-superset`. Support tier: preview. Settings class: `SupersetSettings`.
+
+**Enable:** Run `phlo services add --service superset`. **Settings:** Set `SUPERSET_PORT`, default `8088` in the service manifest. Superset queries published data and is not an asset provider.
 
 ## phlo-observatory-example
 
@@ -208,9 +254,13 @@ Provides an Observatory example extension. Install with `pip install phlo-observ
 
 Provides the pgweb development service. Install with `pip install phlo-pgweb`. Support tier: development-only.
 
+**Enable:** Run `phlo services add --service pgweb`. **Settings:** Set `PGWEB_PORT`, default `8081`. pgweb is a development database UI and is not an asset provider.
+
 ## phlo-testing
 
 Provides the first-party testing harness used by packages and repository test suites. Install with `pip install phlo-testing`. Support tier: development-only.
+
+**Enable:** Install the package in a development environment. **Settings:** The testing helpers use project test configuration. Its helpers execute tests and do not create production Dagster runs.
 
 ## Package contributions and READMEs
 

@@ -40,6 +40,12 @@ The asset model is shared, but execution details remain with providers. DLT cont
 
 This separation lets a project describe data once while choosing compatible runtime components for local development or deployment.
 
+## Where to read next
+
+- [Assets, partitions, and schedules](assets-partitions-and-schedules.md)
+- [Governance and datasets](governance-and-datasets.md)
+- [Evidence, audit, and compliance](evidence-audit-and-compliance.md)
+
 ## How discovery preserves intent
 
 Discovery reads declarations before execution begins. It records the declared table, group, schedule, dependencies, quality checks, ownership, and capability choices without running the asset function.

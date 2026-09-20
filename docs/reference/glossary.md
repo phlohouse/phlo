@@ -77,6 +77,42 @@ The logical authorisation boundary associated with principals and resources.
 
 The SQL query engine used to query Iceberg tables in the generated stack.
 
+## Dataset
+
+A canonical projection of governed table identity, workflow state, and publication state.
+
+## Evidence pack
+
+A tamper-evident ZIP archive containing audit records, signatures, and system manifest data.
+
+## Run evidence
+
+Structured records describing a pipeline run, its events, stages, resources, lineage, quality results, and artefacts.
+
+## Hook
+
+An extension handler registered on the Phlo hook bus for selected event types, assets, or tags.
+
+## Sensor
+
+A Dagster definition that polls state and can launch or coordinate work such as WAP promotion, maintenance, or failure alerts.
+
+## Selector
+
+A Dagster asset selection expression passed to `phlo materialize --select`.
+
+## Regulated mode
+
+The security mode enabled by `PHLO_REGULATED` that applies regulated validation and enforcement paths.
+
+## Native mode
+
+Development mode in which services with a `dev` command are started as host subprocesses by `NativeProcessManager`.
+
+## Branch
+
+A versioned catalog reference used to isolate, compare, merge, or publish table changes.
+
 ## Asset
 
 A named unit of data work discovered by an orchestrator or provider.

@@ -18,6 +18,9 @@ Read these when you want the reasoning behind the design, not steps:
 - [How Phlo works](concepts/how-phlo-works.md) explains what your project owns, what the runtime generates, and how an asset becomes a table.
 - [Write-audit-publish](concepts/write-audit-publish.md) explains how Phlo isolates each run on a catalog branch and promotes only runs that pass their checks.
 - [Plugins and capabilities](concepts/plugins-and-capabilities.md) explains how packages extend the CLI, the stack, and Observatory.
+- [Assets, partitions, and schedules](concepts/assets-partitions-and-schedules.md) explains Dagster assets, partition runs, selectors, schedules, and sensors.
+- [Governance and datasets](concepts/governance-and-datasets.md) explains contracts, readiness metadata, Dataset projections, and authorised transitions.
+- [Evidence, audit, and compliance](concepts/evidence-audit-and-compliance.md) explains run evidence, audit records, evidence packs, and regulated mode.
 
 ## Get something done
 
@@ -36,6 +39,11 @@ Each guide solves one problem and assumes you have finished the first pipeline:
 | Test assets locally and in CI | [Test a project](guides/test-a-project.md) |
 | Add a command, service, or UI panel to Phlo | [Write a plugin](guides/write-a-plugin.md) |
 | Run Phlo for real users | [Run in production](guides/run-in-production.md) |
+| Govern a published table | [Govern a dataset](guides/govern-a-dataset.md) |
+| Collect and verify evidence | [Collect evidence](guides/collect-evidence.md) |
+| Add telemetry and alerts | [Add observability](guides/add-observability.md) |
+| Run Dagster on the host | [Develop natively](guides/develop-natively.md) |
+| Maintain and recover state | [Maintain and recover](guides/maintain-and-recover.md) |
 
 ## Look something up
 
@@ -51,6 +59,8 @@ Reference pages describe what exists. They do not teach:
 - [Auth and access](reference/auth-and-access.md): principals, roles, and route guards.
 - [Errors](reference/errors.md): every `PHLO-` error code, its cause, and its fix.
 - [Glossary](reference/glossary.md): the terms these docs use.
+- [Templates](reference/templates.md): project starters and generated files.
+- [Hooks and events](reference/hooks-and-events.md): event types, filters, and dispatch semantics.
 
 The Python reference, generated from docstrings in `src/phlo`, is in the **Python Reference** section of the published site.
 

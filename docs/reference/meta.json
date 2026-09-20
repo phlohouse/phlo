@@ -10,6 +10,8 @@
     "packages",
     "auth-and-access",
     "errors",
-    "glossary"
+    "glossary",
+    "templates",
+    "hooks-and-events"
   ]
 }

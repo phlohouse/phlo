@@ -29,6 +29,8 @@ These commands bypass Dagster. Use `phlo materialize` for normal runs.
 
 Alert management and configuration.
 
+See [Add observability](../guides/add-observability.md) for destination setup.
+
 | Subcommand | What it does |
 | --- | --- |
 | `list` | List configured alert destinations. |
@@ -38,6 +40,8 @@ Alert management and configuration.
 ## phlo audit
 
 Inspect local Phlo audit records.
+
+See [Evidence, audit, and compliance](../concepts/evidence-audit-and-compliance.md) for storage and verification.
 
 | Subcommand | What it does |
 | --- | --- |
@@ -76,6 +80,8 @@ Usage: `phlo backfill [OPTIONS] [ASSET_NAME]`
 ## phlo branch
 
 Manage Nessie branches for data versioning.
+
+See [Maintain and recover](../guides/maintain-and-recover.md) for branch operations and WAP.
 
 | Subcommand | What it does |
 | --- | --- |
@@ -124,6 +130,8 @@ List installed commands and their output, preview, and confirmation options.
 
 Manage compliance features and evidence.
 
+See [Collect evidence](../guides/collect-evidence.md) for an evidence-pack workflow.
+
 | Subcommand | What it does |
 | --- | --- |
 | `export-evidence` | Export a compliance evidence pack. |
@@ -152,6 +160,8 @@ Schema registry and data contract management.
 
 Dataset workflow commands.
 
+See [Governance and datasets](../concepts/governance-and-datasets.md) for the state model.
+
 | Subcommand | What it does |
 | --- | --- |
 | `list` | List canonical projections for every governed table. |
@@ -175,6 +185,8 @@ These commands bypass Dagster. Use `phlo materialize` for normal runs.
 ## phlo dev
 
 Start the Dagster development server for your workflows.
+
+See [Develop natively](../guides/develop-natively.md) for host execution and service boundaries.
 
 | Option | Meaning |
 | --- | --- |
@@ -202,6 +214,8 @@ Manage environment configuration.
 ## phlo governance
 
 Check and export governance readiness from Phlo declarations.
+
+See [Govern a dataset](../guides/govern-a-dataset.md) for declarations and readiness checks.
 
 | Subcommand | What it does |
 | --- | --- |
@@ -306,6 +320,8 @@ Pipeline and data metrics exposure.
 
 Data migration commands.
 
+See [Maintain and recover](../guides/maintain-and-recover.md) for migration planning and execution.
+
 | Subcommand | What it does |
 | --- | --- |
 | `decorators-2026-05` | Migrate May 2026 decorator APIs. |
@@ -332,6 +348,8 @@ Manage OpenMetadata integration (optional): check health and sync catalog tables
 ## phlo operations
 
 Guarded plan-first operations (maintenance, backup, restore, upgrade).
+
+See [Maintain and recover](../guides/maintain-and-recover.md) for plan and apply workflows.
 
 | Subcommand | What it does |
 | --- | --- |

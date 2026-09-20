@@ -111,3 +111,5 @@ The diagnostic summary has no failures, and metrics returns a response rather th
 - [Test a project](test-a-project.md) for repeatable workflow checks.
 - [Add quality checks](add-quality-checks.md) for validation failures.
 - [Expose data](expose-data.md) for Observatory and API surfaces.
+- [Evidence, audit, and compliance](../concepts/evidence-audit-and-compliance.md) for run records and evidence packs.
+- [Add observability](add-observability.md) for telemetry, logs, metrics, and alerts.

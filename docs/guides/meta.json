@@ -11,6 +11,11 @@
     "monitor-and-debug",
     "test-a-project",
     "write-a-plugin",
-    "run-in-production"
+    "run-in-production",
+    "govern-a-dataset",
+    "collect-evidence",
+    "add-observability",
+    "develop-natively",
+    "maintain-and-recover"
   ]
 }

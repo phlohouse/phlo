@@ -3,6 +3,9 @@
   "pages": [
     "how-phlo-works",
     "write-audit-publish",
-    "plugins-and-capabilities"
+    "plugins-and-capabilities",
+    "assets-partitions-and-schedules",
+    "governance-and-datasets",
+    "evidence-audit-and-compliance"
   ]
 }
