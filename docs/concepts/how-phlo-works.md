@@ -18,6 +18,8 @@ Discovery creates `AssetSpec` and related capability specifications. These speci
 
 Provider adapters translate specifications into runtime definitions. The default stack uses Dagster for orchestration, DLT for ingestion, Iceberg for tables, Nessie for catalog metadata, MinIO for object storage, and Trino for queries.
 
+Every asset runs as a Dagster run. `phlo materialize` and `phlo backfill` launch runs in the Dagster container, the Dagster UI launches them from the asset graph, and schedules declared with `cron` launch them on a timer. Provider command groups such as `phlo dbt` and `phlo sling` call the provider directly. They are debugging tools. Runs made through them leave no Dagster run record, lineage, or asset-check results.
+
 The adapter invokes the source function, writes data, evaluates checks, and records the result in the provider's runtime system. A failed blocking check prevents a successful publication.
 
 ## How data moves

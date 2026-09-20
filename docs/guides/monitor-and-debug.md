@@ -20,7 +20,13 @@ phlo services status
 
 `doctor` summarises environment and live checks, `status` reports assets and runs, and `services status` prints Docker service names, health, and ports. A healthy tutorial stack reports `Summary: 14 ok, 0 warnings, 0 failures, 0 skipped`.
 
-## 2. Read the right log stream
+## 2. Inspect the run in Dagster
+
+Open `http://localhost:10006` and select **Runs**. Each `phlo materialize`, `phlo backfill`, and scheduled run appears here with its status, partition, and step logs. Select the failed run to read the step that raised the error. Select the asset to see its asset checks and the latest materialisation for each partition.
+
+Dagster is the source of truth for what ran. `phlo status` and `phlo logs` read from the same runs, so start here before reading raw container logs.
+
+## 3. Read the right log stream
 
 Inspect command options, then select a bounded time window:
 
@@ -43,7 +49,7 @@ phlo services logs trino --lines 100
 
 The file backend writes daily files under `.phlo/logs/`, using the configured `PHLO_LOG_FILE_TEMPLATE` path.
 
-## 3. Inspect lineage, metrics, and the catalog
+## 4. Inspect lineage, metrics, and the catalog
 
 Use metadata commands to establish whether the failure occurred before or after a table commit:
 
@@ -56,7 +62,7 @@ phlo catalog history raw.events
 
 Lineage shows upstream and downstream assets, metrics summarises platform measurements, and catalog history proves whether a successful snapshot was committed.
 
-## 4. Reproduce one partition
+## 5. Reproduce one partition
 
 Materialise the failed asset with its exact partition instead of selecting every asset:
 
@@ -66,7 +72,7 @@ phlo materialize dlt_events --partition 2025-01-15
 
 The streamed log identifies the first failing step. A successful retry ends with `Successfully materialized dlt_events` and adds a catalog snapshot.
 
-## 5. Open Observatory when enabled
+## 6. Open Observatory when enabled
 
 Observatory is the optional browser surface for asset health, lineage, table previews, quality evidence, and service status. Enable it and regenerate the stack:
 

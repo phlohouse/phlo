@@ -75,7 +75,7 @@ The scaffold makes the old and new names reviewable. The plan output is the visi
 
 ## 5. Materialise without refreshing the contract
 
-Materialisation refreshes contracts automatically unless you opt out. Use the flag when reviewing a run against a previously approved snapshot:
+Materialisation refreshes contracts automatically unless you opt out. The command launches a Dagster run. Use the flag when reviewing a run against a previously approved snapshot:
 
 ```bash
 phlo materialize dlt_events --partition 2025-01-15 --no-contract-refresh

@@ -2,6 +2,8 @@
 
 Phlo exposes the `phlo` command and provider commands through Click entry points. The root command reports the installed version with `--version`.
 
+Run assets through Dagster with `phlo materialize` and `phlo backfill`. Provider command groups such as `phlo dbt`, `phlo sling`, and `phlo trino` call the provider directly for inspection and debugging. Runs made through them are not recorded by Dagster.
+
 Regenerate the help dump with:
 
 ```bash
@@ -17,227 +19,242 @@ for c in $(phlo --help | sed -n '/^Commands:/,/^$/s/^  \([a-z-]*\).*/\1/p'); do 
 
 ## phlo airbyte
 
-Airbyte control-plane commands from `phlo-airbyte`.
+Interact with the Airbyte control plane (status, connections, sync).
 
-| Subcommand | What it does |
-| --- | --- |
-| `connections` | Inspect Airbyte connections. |
-| `sources` | Inspect Airbyte sources. |
-| `destinations` | Inspect Airbyte destinations. |
-| `sync` | Run an Airbyte synchronisation. |
+This command accepts no subcommands or options beyond `--help`.
+
+These commands bypass Dagster. Use `phlo materialize` for normal runs.
 
 ## phlo alerts
 
-Alert destination commands from the alerting package.
+Alert management and configuration.
 
 | Subcommand | What it does |
 | --- | --- |
 | `list` | List configured alert destinations. |
-| `test` | Send a destination test event. |
+| `status` | Check alert system status. |
+| `test` | Send a test alert to configured destinations. |
 
 ## phlo audit
 
-Audit event commands from the core audit surface.
+Inspect local Phlo audit records.
 
 | Subcommand | What it does |
 | --- | --- |
-| `events` | List or inspect audit events. |
-| `verify` | Verify audit records. |
+| `query` | Query audit records. |
+| `tail` | Tail recent audit records. |
 
 ## phlo authz
 
-Authorisation inspection commands from `phlo-api`.
+Manage RBAC authorisation policies and backend synchronisation.
 
 | Subcommand | What it does |
 | --- | --- |
-| `check` | Evaluate access for a principal and route. |
-| `explain` | Show the route guard decision inputs. |
+| `plan` | Create a sync plan without applying changes. |
+| `revert` | Revert previously applied policy changes. |
+| `sync` | Synchronise RBAC policies to backend-native enforcement. |
+| `validate` | Validate RBAC configuration files. |
+| `verify` | Verify backend state matches desired RBAC state. |
 
 ## phlo backfill
 
-Launch a backfill for a registered asset.
+Run asset materialisation across a date range with parallel execution.
+
+Usage: `phlo backfill [OPTIONS] [ASSET_NAME]`
 
 | Option | Meaning |
 | --- | --- |
-| `--start` | Inclusive start partition. |
-| `--end` | Inclusive end partition. |
-| `--partition` | Run one partition. |
-| `--select` | Select an asset or selection expression. |
-| `--dry-run` | Show the launch without executing it. |
-| `--json` | Emit a JSON result envelope. |
+| `--start-date TEXT` | Start date (YYYY-MM-DD) |
+| `--end-date TEXT` | End date (YYYY-MM-DD) |
+| `--partitions TEXT` | Comma-separated partition dates (YYYY-MM-DD,YYYY-MM-DD,...) |
+| `--parallel INTEGER` | Number of concurrent partitions to process (default: 1. WAP runs serialise through promotion) |
+| `--resume` | Resume last backfill, skipping completed partitions |
+| `--dry-run` | Show what would be executed without running |
+| `--delay FLOAT` | Delay between parallel executions in seconds (rate limiting) |
+| `--json` | Emit a structured result. |
 
 ## phlo branch
 
-Manage versioned catalog branches.
+Manage Nessie branches for data versioning.
 
 | Subcommand | What it does |
 | --- | --- |
-| `create` | Create a catalog branch. |
-| `delete` | Delete a catalog branch. |
-| `list` | List catalog branches. |
-| `merge` | Merge a branch. |
+| `create` | Create a new branch. |
+| `delete` | Delete a branch. |
+| `diff` | Show differences between branches. |
+| `list` | List all branches. |
+| `merge` | Merge source branch into target branch. |
 
 ## phlo catalog
 
-Inspect catalog tables through a catalog provider.
+Manage the lakehouse catalog (Nessie-backed).
 
 | Subcommand | What it does |
 | --- | --- |
-| `tables` | List tables. |
-| `describe` | Show a table schema and properties. |
+| `describe` | Show detailed table metadata. |
 | `history` | Show table snapshot history. |
-
-`describe` and `history` accept a table name and support a catalog reference option.
+| `tables` | List all Iceberg tables in the catalog. |
 
 ## phlo clickhouse
 
-ClickHouse service commands from `phlo-clickhouse`.
+Query and inspect the ClickHouse data plane service.
 
 | Subcommand | What it does |
 | --- | --- |
-| `status` | Show ClickHouse service state. |
-| `query` | Run a ClickHouse query. |
+| `query` | Execute a SQL query against the running ClickHouse service via... |
+| `status` | Show ClickHouse service status: version, uptime, and current... |
 
 ## phlo clickstack
 
-ClickStack service commands from `phlo-clickstack`.
+Query and inspect the ClickStack service.
 
 | Subcommand | What it does |
 | --- | --- |
-| `status` | Show ClickStack service state. |
+| `query` | Execute a ClickHouse query against the running ClickStack service. |
 
 ## phlo commands
 
-Inspect commands registered by installed plugins.
+List installed commands and their output, preview, and confirmation options.
 
-| Subcommand | What it does |
+| Option | Meaning |
 | --- | --- |
-| `list` | List command paths. |
-| `describe` | Describe a command path. |
+| `--json` | Emit installed command metadata as JSON. |
 
 ## phlo compliance
 
-Evaluate compliance checks for the current project.
+Manage compliance features and evidence.
 
 | Subcommand | What it does |
 | --- | --- |
-| `check` | Run compliance checks. |
-| `report` | Render a compliance report. |
+| `export-evidence` | Export a compliance evidence pack. |
+| `verify-evidence` | Verify the integrity of an evidence pack. |
 
 ## phlo config
 
-Inspect resolved project configuration.
+Manage infrastructure configuration.
 
 | Subcommand | What it does |
 | --- | --- |
-| `show` | Show configuration values. |
-| `validate` | Validate `phlo.yaml`. |
+| `show` | Show the effective infrastructure configuration. |
+| `upgrade` | Upgrade phlo.yaml through ordered detect -> plan -> apply ->... |
+| `validate` | Validate infrastructure configuration in phlo.yaml. |
 
 ## phlo contracts
 
-Inspect data contract declarations.
+Schema registry and data contract management.
 
 | Subcommand | What it does |
 | --- | --- |
-| `list` | List contracts. |
-| `show` | Show a contract. |
+| `check` | Check schema compatibility for a table against its previous... |
+| `snapshot` | Snapshot a schema from a JSON file into the registry. |
 
 ## phlo dataset
 
-Manage dataset publication and migration state.
+Dataset workflow commands.
 
 | Subcommand | What it does |
 | --- | --- |
-| `list` | List datasets. |
-| `publish` | Publish a dataset declaration. |
-| `discard` | Discard an overlay. |
-| `migrate` | Plan or execute a dataset migration. |
+| `list` | List canonical projections for every governed table. |
+| `migrate-overlay` | Plan, apply, or discard the legacy Observatory dataset... |
+| `show` | Show the canonical Dataset projection for one Dataset ID. |
+| `transition` | Apply one authorized Dataset transition through the... |
 
 ## phlo dbt
 
-Run dbt provider commands from `phlo-dbt`.
+Dbt commands (compile, run, test, publishing).
 
 | Subcommand | What it does |
 | --- | --- |
-| `run` | Run dbt models. |
-| `test` | Run dbt tests. |
-| `build` | Run dbt build. |
+| `compile` | Compile dbt models in the local project. |
+| `publishing` | Manage publishing configuration. |
+| `run` | Run dbt models in the local project. |
+| `test` | Run dbt tests in the local project. |
+
+These commands bypass Dagster. Use `phlo materialize` for normal runs.
 
 ## phlo dev
 
-Run local development helpers.
+Start the Dagster development server for your workflows.
 
-| Subcommand | What it does |
+| Option | Meaning |
 | --- | --- |
-| `shell` | Open a project shell with Phlo environment values. |
-| `watch` | Watch project files. |
+| `--host TEXT` | Host to bind to |
+| `--port INTEGER` | Port to bind to |
+| `--workflows-path TEXT` | Path to workflows directory |
 
 ## phlo doctor
 
-Run environment, project, port, and live service diagnostics.
+Diagnose local Phlo setup and service health.
 
 | Option | Meaning |
 | --- | --- |
-| `--json` | Emit diagnostics as JSON. |
-| `--verbose` | Include diagnostic details. |
+| `--json` | Output diagnostics as JSON. |
+| `--verbose` | Include exception details where available. |
 
 ## phlo env
 
-Inspect resolved environment values.
+Manage environment configuration.
 
 | Subcommand | What it does |
 | --- | --- |
-| `show` | Show environment keys and sources. |
-| `validate` | Validate environment configuration. |
+| `export` | Export the generated environment configuration. |
 
 ## phlo governance
 
-Inspect governance metadata.
+Check and export governance readiness from Phlo declarations.
 
 | Subcommand | What it does |
 | --- | --- |
-| `list` | List governance declarations. |
-| `show` | Show one declaration. |
+| `check` | Validate governed tables for publish and production readiness. |
+| `export` | Export the browser-safe governance read model. |
 
 ## phlo hasura
 
-Hasura integration commands from `phlo-hasura`.
+Hasura GraphQL metadata management CLI.
 
 | Subcommand | What it does |
 | --- | --- |
-| `status` | Show Hasura state. |
-| `metadata` | Inspect Hasura metadata. |
+| `apply` | Apply Hasura metadata from a previously exported JSON... |
+| `auto-setup` | Run track, relationships, and permissions in sequence... |
+| `export` | Export the complete Hasura metadata (tracked tables,... |
+| `permissions` | Create default SELECT permissions for standard roles... |
+| `relationships` | Analyse foreign key constraints in the schema and... |
+| `status` | Show a summary of all tracked tables organised by... |
+| `sync-permissions` | Apply permission configurations from a YAML or JSON... |
+| `track` | Auto-discover and track tables in Hasura, optionally... |
 
 ## phlo init
 
-Initialise a new Phlo project. Creates a minimal project structure for using Phlo as an installable package. Users only need to maintain workflow files, not the entire framework.
+Initialise a new Phlo project.
 
 | Option | Meaning |
 | --- | --- |
-| `--template TEXT` | Select a template. |
-| `--force` | Allow initialisation in an existing destination. |
-| `--list-templates` | List discovered templates. |
-| `--json` | Emit machine-readable output. |
-
-The default template is `minimal`.
+| `--template TEXT` | Project template to use  [default: minimal] |
+| `--force` | Initialise in non-empty directory |
+| `--list-templates` | List available project templates and exit. |
+| `--json` | Emit machine-readable JSON. |
 
 ## phlo kafka
 
-Kafka ingestion commands from `phlo-kafka`.
+Interact with the Kafka broker (status, topics).
 
-| Subcommand | What it does |
-| --- | --- |
-| `topics` | Inspect Kafka topics. |
-| `consume` | Run a consumer. |
+This command accepts no subcommands or options beyond `--help`.
+
+Forwards arguments to the Kafka provider.
+
+These commands bypass Dagster. Use `phlo materialize` for normal runs.
 
 ## phlo lineage
 
-Asset dependency and lineage visualisation commands. This command group provides tools for exploring data lineage, including ASCII trees, external exports, impact analysis, and column-level lineage.
+Asset dependency and lineage visualisation commands.
 
 | Subcommand | What it does |
 | --- | --- |
-| `graph` | Show a lineage graph. |
-| `list` | List lineage edges. |
+| `column` | Column-level lineage commands. |
+| `export` | Export lineage to external visualisation formats. |
+| `impact` | Analyse downstream impact of an asset. |
+| `show` | Display asset dependencies in ASCII tree format. |
+| `status` | Show lineage graph status and statistics. |
 
 ## phlo logs
 
@@ -245,14 +262,14 @@ View logs from Phlo infrastructure services.
 
 | Option | Meaning |
 | --- | --- |
-| `--service TEXT` | Filter by service. |
-| `--follow` | Follow new log records. |
-| `--tail INTEGER`, `--lines INTEGER` | Number of recent lines to show before streaming. Default `100`. |
+| `-s, --service, --package TEXT` | Service/package to include. Repeat or use commas to select several. |
+| `-f, --follow` | Follow log output |
+| `-n, --tail, --lines INTEGER RANGE` | Number of recent lines to show before streaming.  [default: 100. x>=0] |
 | `--since TEXT` | Show logs since a timestamp or duration supported by Compose. |
 | `--until TEXT` | Show logs before a timestamp or duration supported by Compose. |
 | `--timestamps` | Show log timestamps. |
 | `--no-color` | Disable coloured log output where supported. |
-| `--backend [docker\|podman\|auto]` | Container backend for this command. |
+| `--backend [docker|podman|auto]` | Container backend for this command. |
 
 ## phlo materialize
 
@@ -260,13 +277,12 @@ Materialise Dagster assets via the configured container backend.
 
 | Option | Meaning |
 | --- | --- |
-| `[ASSET_NAME]` | Asset key to materialise. |
-| `--partition TEXT` | Materialise one partition. |
-| `--no-default-partition` | Disable the default partition. |
-| `--select TEXT` | Select an asset expression. |
-| `--no-contract-refresh` | Skip contract refresh. |
-| `--dry-run` | Plan without execution. |
-| `--json` | Emit a JSON result envelope. |
+| `-p, --partition TEXT` | Partition date (YYYY-MM-DD) |
+| `--no-default-partition` | Do not default the partition to today when --partition is omitted |
+| `--select TEXT` | Asset selector expression |
+| `--no-contract-refresh` | Skip automatic schema contract refresh before materialisation |
+| `--dry-run` | Show command without executing |
+| `--json` | Emit a structured result. |
 
 ## phlo mcp
 
@@ -274,204 +290,214 @@ Run and inspect the Phlo MCP server.
 
 | Subcommand | What it does |
 | --- | --- |
-| `serve` | Run the MCP server. |
-| `tools` | List MCP tools. |
-| `resources` | List MCP resources. |
+| `config` | Print resolved MCP configuration with secrets redacted. |
+| `install` | Print or write an MCP client configuration snippet. |
+| `prompts` | List prompts registered by the local MCP server. |
+| `serve` | Serve the Phlo MCP server. |
+| `tools` | List tools registered by the local MCP server. |
 
 ## phlo metrics
 
-Display runtime metrics.
+Pipeline and data metrics exposure.
 
-| Option | Meaning |
+| Subcommand | What it does |
 | --- | --- |
-| `--json` | Emit metrics as JSON. |
-| `--limit INTEGER` | Limit displayed runs. |
+| `asset` | Show per-asset metrics. |
+| `export` | Export metrics to JSON, CSV, or Prometheus text. |
+| `summary` | Show key metrics overview. |
 
 ## phlo migrate
 
-Manage recorded data migrations.
+Data migration commands.
 
 | Subcommand | What it does |
 | --- | --- |
-| `plan` | Show pending migrations. |
-| `apply` | Apply migrations. |
-| `status` | Report migration status. |
-| `list` | List migration specifications. |
+| `decorators-2026-05` | Migrate May 2026 decorator APIs. |
+| `list` | List available migration spec files. |
+| `run` | Execute a migration spec. |
+| `status` | Show recent migration history. |
+| `validate` | Validate a migration spec without executing. |
 
 ## phlo minio
 
-MinIO commands from `phlo-minio`.
+Run MinIO client (mc) commands inside the project service container. This is the main entry point for MinIO CLI operations. It handles common subcommands like 'ls' and 'admin info' with dedicated handlers, while passing other commands directly to the mc binary.
 
-| Subcommand | What it does |
-| --- | --- |
-| `status` | Show MinIO state. |
-| `buckets` | Inspect buckets. |
+This command accepts no subcommands or options beyond `--help`.
 
 ## phlo openmetadata
 
-OpenMetadata commands from `phlo-openmetadata`.
+Manage OpenMetadata integration (optional): check health and sync catalog tables and dbt documentation.
 
 | Subcommand | What it does |
 | --- | --- |
-| `status` | Show OpenMetadata state. |
-| `sync` | Synchronise metadata. |
+| `health` | Check OpenMetadata connectivity using configured credentials.... |
+| `sync` | Sync Nessie catalog tables (and optionally dbt docs) into... |
 
 ## phlo operations
 
-Plan and execute catalog operations.
+Guarded plan-first operations (maintenance, backup, restore, upgrade).
 
 | Subcommand | What it does |
 | --- | --- |
-| `plan` | Plan an operation. |
-| `execute` | Execute an approved operation. |
-| `status` | Show operation status. |
+| `backup` | Create and verify immutable v1 backup sets (ADR 0049 §3). |
+| `maintenance` | Plan and apply v1 table maintenance (compaction, snapshot... |
+| `restore` | Plan and apply an explicit-target restore (ADR 0049 §4). |
+| `upgrade` | Prove the supported deployment upgrade pair (ADR 0049 §5). |
 
 ## phlo plugin
 
-Inspect, scaffold, validate, install, and manage plugins.
+Manage Phlo plugins.
 
 | Subcommand | What it does |
 | --- | --- |
-| `create` | Scaffold a plugin. |
-| `check` | Run plugin checks. |
-| `install` | Install a plugin. |
-| `list` | List installed plugins. |
-| `remove` | Remove a plugin. |
+| `check` | Validate installed plugins. |
+| `create` | Create scaffolding for a new plugin. |
+| `info` | Show detailed plugin information. |
+| `install` | Install a plugin from the registry (wraps pip). |
+| `list` | List all discovered plugins. |
+| `search` | Search plugin registry. |
+| `update` | Update installed plugins based on registry versions. |
 
 ## phlo polaris
 
-Polaris catalog commands from `phlo-polaris`.
+Manage the Polaris catalog service (status, bootstrap, migration).
 
-| Subcommand | What it does |
-| --- | --- |
-| `status` | Show Polaris state. |
-| `branches` | Inspect catalog branches. |
+This command accepts no subcommands or options beyond `--help`.
 
 ## phlo postgres
 
-Postgres service commands from `phlo-postgres`.
+Run psql or PostgreSQL helper commands against the project database.
 
-| Subcommand | What it does |
-| --- | --- |
-| `status` | Show Postgres state. |
-| `query` | Run a Postgres query. |
+This command accepts no subcommands or options beyond `--help`.
 
 ## phlo postgrest
 
-PostgREST commands from `phlo-postgrest`.
+PostgREST API management commands.
 
 | Subcommand | What it does |
 | --- | --- |
-| `status` | Show PostgREST state. |
+| `generate-views` | Generate PostgREST API views from dbt models. |
+| `reload-schema` | Reload PostgREST's schema cache after migrations or... |
+| `setup-auth` | Set up PostgREST authentication infrastructure. |
 
 ## phlo schema
 
-Inspect schema declarations.
+Manage Pandera schemas and schema validation.
 
 | Subcommand | What it does |
 | --- | --- |
-| `list` | List schemas. |
-| `show` | Show a schema. |
+| `diff` | Compare a schema version against an older one. |
+| `generate` | Generate Pandera schemas from a bounded DLT inference sample. |
+| `list` | List all available Pandera schemas with name, field count,... |
+| `show` | Show a schema's fields, types, constraints, and descriptions. |
+| `validate` | Validate a schema file's syntax and common integration issues. |
 
 ## phlo schema-migrate
 
-Plan and execute schema migrations.
+Schema migration between quality schemas and storage tables.
 
 | Subcommand | What it does |
 | --- | --- |
-| `plan` | Classify schema changes. |
-| `apply` | Apply a schema migration. |
-| `status` | Show migration status. |
+| `apply` | Apply schema migration to a storage table. |
+| `diff` | Show pending schema changes between quality... |
+| `export-contract` | Export a Phlo contract snapshot for a table. |
+| `history` | Show schema version history for a table. |
+| `plan` | Generate a migration plan for a table. |
+| `scaffold-yaml` | Generate migration scaffold YAML from a Phlo... |
+| `scaffold-yaml-recent` | Generate migration scaffold YAML files for recent... |
 
 ## phlo services
 
-Manage generated Docker or Podman services.
+Manage Phlo infrastructure services (Docker).
 
 | Subcommand | What it does |
 | --- | --- |
-| `add` | Add a service package. |
-| `exec` | Execute a command in a service. |
-| `init` | Generate `.phlo/` infrastructure files. |
-| `list` | List discovered services. |
-| `logs` | Show service logs. |
-| `migrate` | Migrate service configuration. |
-| `ports` | Show configured ports. |
-| `preflight` | Check service prerequisites. |
-| `remove` | Remove a service package. |
-| `reset` | Reset generated service state. |
-| `restart` | Restart services. |
-| `start` | Start services. |
-| `status` | Show service status and published ports. |
-| `stop` | Stop services, with optional volume removal. |
+| `add` | Add optional services or profiles to the rendered project... |
+| `exec` | Run a command inside a running Phlo service container. |
+| `init` | Initialise Phlo infrastructure in .phlo/ directory. |
+| `list` | List available services with status and configuration. |
+| `logs` | View logs from Phlo infrastructure services. |
+| `migrate` | Move personal files aside and make existing .phlo... |
+| `ports` | Show port mappings for all services. |
+| `preflight` | Evaluate production readiness for the generated stack. |
+| `remove` | Remove a service from the project. |
+| `reset` | Reset Phlo infrastructure by stopping services and deleting... |
+| `restart` | Restart Phlo infrastructure services. |
+| `start` | Start Phlo infrastructure services. |
+| `status` | Show status of Phlo infrastructure services. |
+| `stop` | Stop Phlo infrastructure services. |
 
 ## phlo sling
 
-Sling replication commands from `phlo-sling`.
+Sling replication commands.
 
 | Subcommand | What it does |
 | --- | --- |
-| `replicate` | Run a Sling replication. |
-| `list` | List replication assets. |
+| `conns` | List available Sling connections. |
+| `discover` | Discover available streams from a Sling connection. |
+| `run` | Run a Sling replication. |
+
+These commands bypass Dagster. Use `phlo materialize` for normal runs.
 
 ## phlo status
 
-Show project and runtime status.
+Show current state of assets, jobs, and services: asset materialisation status and freshness, service health (Dagster, Trino, MinIO, Nessie), with colour-coded indicators. Options narrow the view to assets or services, filter by group or staleness, and emit JSON for scripting. Query failures are logged as warnings.
 
 | Option | Meaning |
 | --- | --- |
-| `--json` | Emit status as JSON. |
+| `--assets` | Show assets only |
+| `--services` | Show services only |
+| `--group TEXT` | Filter by asset group |
+| `--stale` | Show only stale assets |
+| `--json` | JSON output for scripting |
 
 ## phlo support
 
-Show package and service support status from the support manifest.
-
-| Option | Meaning |
-| --- | --- |
-| `--json` | Emit support status as JSON. |
-
-## phlo test
-
-Run project tests and workflow checks.
-
-| Option | Meaning |
-| --- | --- |
-| `[ASSET_NAME]` | Limit checks to an asset. |
-| `--local` | Use local execution mode. |
-| `--coverage` | Collect coverage. |
-| `-v`, `--verbose` | Increase test output. |
-| `-m`, `--marker TEXT` | Select tests by marker. |
-
-## phlo trino
-
-Run the Trino shell or pass helper arguments to the shell. The command is provided by `phlo-trino`.
-
-| Option | Meaning |
-| --- | --- |
-| `--catalog TEXT` | Set the query session catalog. |
-| `--schema TEXT` | Set the query session schema. |
-| `TRINO_ARGS` | Additional Trino shell arguments. |
-
-## phlo validate-schema
-
-Validate schema declarations.
-
-| Option | Meaning |
-| --- | --- |
-| `--json` | Emit validation results as JSON. |
-
-## phlo validate-workflow
-
-Validate discovered workflow definitions.
-
-| Option | Meaning |
-| --- | --- |
-| `--json` | Emit validation results as JSON. |
-
-## phlo workflow
-
-Inspect discovered workflows.
+Inspect the bundled, offline support contract.
 
 | Subcommand | What it does |
 | --- | --- |
-| `list` | List workflows. |
-| `show` | Show a workflow. |
+| `status` | Compare installed Phlo artifacts with the bundled release set. |
+
+## phlo test
+
+Run tests for Phlo workflows.
+
+| Option | Meaning |
+| --- | --- |
+| `--local` | Run tests locally without Docker |
+| `--coverage` | Generate coverage report |
+| `-v, --verbose` | Verbose output |
+| `-m, --marker TEXT` | Run tests with specific pytest marker |
+
+## phlo trino
+
+Run the Trino shell or a Trino-specific helper command.
+
+This command accepts no subcommands or options beyond `--help`.
+
+## phlo validate-schema
+
+Validate a Pandera schema file for valid DataFrameModel syntax, field descriptions, constraints, and type annotations. Exits 0 when valid and 1 when issues are found.
+
+| Option | Meaning |
+| --- | --- |
+| `--check-constraints` | Check that constraints are defined (default: True) |
+| `--check-descriptions` | Check that fields have descriptions (default: True) |
+
+## phlo validate-workflow
+
+Validate a workflow asset file for decorator usage, unique_key presence, cron validity, function signature, and return types before deployment. Exits 0 when valid and 1 when issues are found.
+
+| Option | Meaning |
+| --- | --- |
+| `--fix` | Auto-fix issues where possible |
+
+## phlo workflow
+
+Manage workflows.
+
+| Subcommand | What it does |
+| --- | --- |
+| `check` | Validate a workflow and its inferred schema before... |
+| `create` | Create a workflow scaffold. |

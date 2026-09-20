@@ -96,7 +96,7 @@ Open Dagster at `http://localhost:10006`. The asset graph shows one asset named 
 
 ## Materialise a partition
 
-Ask the orchestrator to run the asset for one day:
+Ask Dagster to run the asset for one day. `phlo materialize` launches a Dagster run and streams its log to your terminal:
 
 ```bash
 phlo materialize dlt_events --partition 2025-01-15
@@ -105,6 +105,8 @@ phlo materialize dlt_events --partition 2025-01-15
 The partition must be a completed day. Today's partition is still open, so the default daily partition set does not accept it.
 
 The command streams the run log and ends with `Successfully materialized dlt_events`. In Dagster, the `dlt_events` asset now shows a green materialisation for `2025-01-15`.
+
+You can launch the same run from the Dagster UI. Select `dlt_events`, choose **Materialize**, and pick the `2025-01-15` partition.
 
 ## Read the table back
 

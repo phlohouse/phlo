@@ -35,7 +35,7 @@ Governance metadata that describes ownership, consumers, service expectations, p
 
 ## Dagster
 
-The default orchestration adapter and the provider used by the generated local stack.
+The orchestrator in the default stack. Every asset runs as a Dagster run, whether launched by `phlo materialize`, `phlo backfill`, a schedule, or the Dagster UI at `http://localhost:10006`.
 
 ## DLT
 
@@ -95,7 +95,7 @@ Governance metadata that describes ownership, consumers, service expectations, p
 
 ## Dagster
 
-The default orchestration adapter and the provider used by the generated local stack.
+The orchestrator in the default stack. Every asset runs as a Dagster run, whether launched by `phlo materialize`, `phlo backfill`, a schedule, or the Dagster UI at `http://localhost:10006`.
 
 ## DLT
 

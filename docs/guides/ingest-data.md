@@ -105,7 +105,7 @@ def countries(partition_date: str):
 
 ## 4. Run the asset once
 
-Start the stack if it is not running, then materialise one partition:
+Start the stack if it is not running, then launch a Dagster run for one partition:
 
 ```bash
 phlo services start
@@ -113,6 +113,8 @@ phlo materialize dlt_users --partition 2025-01-15
 ```
 
 The command streams the run log and ends with `Successfully materialized dlt_users`. If validation fails, the log lists the failing column and check, and the table is not updated.
+
+The `cron` argument creates a Dagster schedule, so in steady state Dagster runs this asset every six hours without a manual command.
 
 ## 5. Verify the table
 
@@ -135,7 +137,7 @@ SELECT id, email, plan, _phlo_partition_date FROM raw.users LIMIT 10;
 
 ## Load older partitions
 
-To load a range of dates, use `phlo backfill` instead of running `materialize` in a loop:
+To load a range of dates, use `phlo backfill`. It launches one Dagster run per partition and can run several in parallel:
 
 ```bash
 phlo backfill dlt_users --start-date 2025-01-01 --end-date 2025-01-14 --parallel 4
@@ -144,7 +146,7 @@ phlo backfill dlt_users --start-date 2025-01-01 --end-date 2025-01-14 --parallel
 ## Ingest from other sources
 
 - **Files.** Read the file inside the function and return a `dlt.resource` of rows. The `csv-batch` template in [Your first pipeline](../getting-started/first-pipeline.md) shows this.
-- **Databases.** Use `@phlo.ingest.sling` from `phlo-sling` for table replication with `full-refresh` or `incremental` modes. `phlo init --template sling-replication` generates a working example.
+- **Databases.** Use `@phlo.ingest.sling` from `phlo-sling` for table replication with `full-refresh` or `incremental` modes. `phlo init --template sling-replication` generates a working example. Sling assets are Dagster assets too. Run them with `phlo materialize`. `phlo sling run` executes a replication directly and skips Dagster.
 - **Streams.** `phlo-kafka` and `phlo-airbyte` add provider-specific assets. [Packages](../reference/packages.md) lists what each package contributes.
 
 ## Related

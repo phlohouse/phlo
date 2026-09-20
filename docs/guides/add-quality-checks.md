@@ -116,7 +116,7 @@ With strict validation, Dagster records a failed blocking `AssetCheckResult` and
 
 ## 5. Materialise and inspect the result
 
-Run the asset using its positional name and a known partition:
+Launch a Dagster run with `phlo materialize` using the asset's positional name and a known partition:
 
 ```bash
 phlo materialize dlt_events --partition 2025-01-15
