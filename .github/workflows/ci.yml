@@ -514,12 +514,12 @@ jobs:
       - name: Run tests
         run: npm test
 
-  phlo-agent:
-    name: agent / eve
+  phlo-github-writer:
+    name: agent / GitHub writer
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/phlo-agent
+        working-directory: apps/phlo-github-writer
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -530,7 +530,7 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-          cache-dependency-path: apps/phlo-agent/package-lock.json
+          cache-dependency-path: apps/phlo-github-writer/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -541,7 +541,7 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build agent
+      - name: Build writer
         run: npm run build
 
   ci-status:
@@ -559,7 +559,7 @@ jobs:
       - windows-release-contract
       - python-package-tests
       - frontend
-      - phlo-agent
+      - phlo-github-writer
     steps:
       - name: Summarize CI lane results
         shell: bash
@@ -574,7 +574,7 @@ jobs:
           WINDOWS_RELEASE_CONTRACT: ${{ needs.windows-release-contract.result }}
           PYTHON_PACKAGE_TESTS: ${{ needs.python-package-tests.result }}
           FRONTEND: ${{ needs.frontend.result }}
-          PHLO_AGENT: ${{ needs.phlo-agent.result }}
+          PHLO_GITHUB_WRITER: ${{ needs.phlo-github-writer.result }}
         run: |
           set -euo pipefail
 
@@ -593,7 +593,7 @@ jobs:
             echo "| windows / release golden path contract | ${WINDOWS_RELEASE_CONTRACT} |"
             echo "| python / package tests | ${PYTHON_PACKAGE_TESTS} |"
             echo "| frontend / observatory | ${FRONTEND} |"
-            echo "| agent / eve | ${PHLO_AGENT} |"
+            echo "| agent / GitHub writer | ${PHLO_GITHUB_WRITER} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           for result in \
@@ -607,7 +607,7 @@ jobs:
             "${WINDOWS_RELEASE_CONTRACT}" \
             "${PYTHON_PACKAGE_TESTS}" \
             "${FRONTEND}" \
-            "${PHLO_AGENT}"; do
+            "${PHLO_GITHUB_WRITER}"; do
             if [ "${result}" != "success" ]; then
               exit 1
             fi

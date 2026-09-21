@@ -1,3 +1,6 @@
+// @amp-agent-mode {"key":"phlo-review","label":"Phlo review","color":"#60a5fa"}
+// @amp-agent-mode {"key":"phlo-maintenance","label":"Phlo maintenance","color":"#34d399"}
+
 /**
  * Project automation that turns signed GitHub events into read-only DeepSeek
  * review threads and exposes a target-bound phlo-agent publishing tool.
@@ -11,9 +14,10 @@ import {
   verifyGitHubSignature,
 } from './lib'
 
-export const description = 'Reviews new Phlo issues and pull requests in DeepSeek V4.1 and publishes through phlo-agent.'
+export const description = 'Runs Phlo GitHub review, triage, and scheduled maintenance in Amp.'
 
 const SKILL = 'phlo-github:reviewing-phlo-github-events'
+const MAINTENANCE_TOOLS = 'plugin__phlo-github__publish_phlo_maintenance_*'
 
 function textFromMessages(messages: ThreadMessage[]): string[] {
   return messages
@@ -23,7 +27,7 @@ function textFromMessages(messages: ThreadMessage[]): string[] {
     .map((block) => block.text)
 }
 
-function publishingUrl(raw: string): string | null {
+function writerUrl(raw: string): string | null {
   try {
     const url = new URL(raw)
     return url.protocol === 'https:' ? url.href : null
@@ -38,6 +42,8 @@ function configuredSecret(value: string | undefined): string | undefined {
 
 export default async function (amp: PluginAPI) {
   await amp.registerSkill({ path: 'skills/reviewing-phlo-github-events' })
+  await amp.registerSkill({ path: 'skills/repo-health' })
+  await amp.registerSkill({ path: 'skills/upstream-sync' })
 
   const reviewer = amp.createAgent({
     extends: 'medium',
@@ -50,14 +56,52 @@ export default async function (amp: PluginAPI) {
       'This is read-only analysis. Do not edit files, execute pull request code, or perform any write except the skill-gated publishing tool.',
     ].join(' '),
     tools: {
-      exclude: ['apply_patch', 'create_file', 'edit_file', 'create_thread', 'painter'],
+      exclude: [
+        'apply_patch',
+        'create_file',
+        'edit_file',
+        'create_thread',
+        'painter',
+        MAINTENANCE_TOOLS,
+      ],
     },
     display: { label: 'Phlo review', color: '#60a5fa' },
   })
 
+  // Orb threads can only run custom agents registered as an active agent mode.
+  amp.registerAgentMode({
+    key: 'phlo-review',
+    label: 'Phlo review',
+    description: 'Reviews new Phlo issues and pull requests in DeepSeek V4.1 and publishes through the phlo-agent GitHub App.',
+    color: '#60a5fa',
+    agent: reviewer.definition,
+  })
+
+  const maintenance = amp.createAgent({
+    extends: 'high',
+    model: 'deepseek/deepseek-v4.1-flash',
+    reasoningEffort: 'high',
+    instructions: [
+      'You are the scheduled maintenance agent for phlohouse/phlo.',
+      'Follow only the schedule prompt and its named Phlo maintenance skills.',
+      'Ground every finding in current main and search existing issues and pull requests before proposing work.',
+      'Never push, merge, release, change secrets or workflows, or publish directly with gh.',
+      'The only permitted GitHub writes are one bounded issue or draft pull request through the phlo maintenance publishing tools.',
+    ].join(' '),
+    tools: { add: [MAINTENANCE_TOOLS] },
+    display: { label: 'Phlo maintenance', color: '#34d399' },
+  })
+  amp.registerAgentMode({
+    key: 'phlo-maintenance',
+    label: 'Phlo maintenance',
+    description: 'Audits Phlo main and may publish a bounded issue or verified draft pull request.',
+    color: '#34d399',
+    agent: maintenance.definition,
+  })
+
   amp.registerTool({
     name: 'publish_phlo_github_comment',
-    description: 'Publish the finished comment for the signed Phlo GitHub event through phlo-agent.',
+    description: 'Publish the finished comment for the signed Phlo GitHub event through the phlo-agent GitHub App.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -73,9 +117,9 @@ export default async function (amp: PluginAPI) {
     },
     async execute(input, ctx) {
       const secret = configuredSecret(process.env.PHLO_GITHUB_WEBHOOK_SECRET)
-      const bridgeToken = configuredSecret(process.env.PHLO_AGENT_AMP_PUBLISH_TOKEN)
-      const bridgeUrl = publishingUrl(process.env.PHLO_AGENT_AMP_PUBLISH_URL ?? '')
-      if (secret === undefined || bridgeToken === undefined || bridgeUrl === null) {
+      const publishToken = configuredSecret(process.env.PHLO_GITHUB_WRITER_TOKEN)
+      const url = writerUrl(process.env.PHLO_GITHUB_WRITER_URL ?? '')
+      if (secret === undefined || publishToken === undefined || url === null) {
         throw new Error('Phlo GitHub publishing is not configured.')
       }
 
@@ -94,28 +138,79 @@ export default async function (amp: PluginAPI) {
         throw new Error('The proposed labels are invalid.')
       }
 
-      const response = await fetch(bridgeUrl, {
+      const response = await fetch(new URL('/v1/github-comments', url), {
         method: 'POST',
         headers: {
-          authorization: `Bearer ${bridgeToken}`,
+          authorization: `Bearer ${publishToken}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify({ ...target, body, labels }),
       })
       if (!response.ok) {
-        throw new Error(`phlo-agent refused the comment with HTTP ${response.status}.`)
+        throw new Error(`The Phlo GitHub writer refused the comment with HTTP ${response.status}.`)
       }
       const result = await response.json() as { htmlUrl?: unknown }
       return typeof result.htmlUrl === 'string' && result.htmlUrl.length > 0
         ? `Published: ${result.htmlUrl}`
-        : 'Published through phlo-agent.'
+        : 'Published through the phlo-agent GitHub App.'
+    },
+  })
+
+  amp.registerTool({
+    name: 'publish_phlo_maintenance_issue',
+    description: 'Create one grounded Phlo maintenance issue. Use only from a scheduled Phlo maintenance thread.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Concise conventional issue title.' },
+        body: { type: 'string', description: 'Grounded issue body with evidence and acceptance criteria.' },
+        labels: { type: 'array', items: { type: 'string' }, maxItems: 4 },
+      },
+      required: ['title', 'body'],
+      additionalProperties: false,
+    },
+    async execute(input) {
+      return publishMaintenance('/v1/issues', input)
+    },
+  })
+
+  amp.registerTool({
+    name: 'publish_phlo_maintenance_pull_request',
+    description: 'Create one feature branch and draft Phlo maintenance pull request from verified file contents. Workflow and Amp automation files are refused.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        baseSha: { type: 'string', description: 'Exact origin/main SHA used for the change.' },
+        branch: { type: 'string', description: 'New agent/* branch name.' },
+        title: { type: 'string', description: 'Conventional Commit style pull request title.' },
+        body: { type: 'string', description: 'Draft pull request body including checks run.' },
+        files: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 50,
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+              content: { type: ['string', 'null'], description: 'Complete file content, or null to delete.' },
+            },
+            required: ['path', 'content'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['baseSha', 'branch', 'title', 'body', 'files'],
+      additionalProperties: false,
+    },
+    async execute(input) {
+      return publishMaintenance('/v1/draft-pull-requests', input)
     },
   })
 
   const webhookSecret = configuredSecret(process.env.PHLO_GITHUB_WEBHOOK_SECRET)
-  const bridgeToken = configuredSecret(process.env.PHLO_AGENT_AMP_PUBLISH_TOKEN)
-  const bridgeUrl = publishingUrl(process.env.PHLO_AGENT_AMP_PUBLISH_URL ?? '')
-  if (webhookSecret === undefined || bridgeToken === undefined || bridgeUrl === null) {
+  const publishToken = configuredSecret(process.env.PHLO_GITHUB_WRITER_TOKEN)
+  const url = writerUrl(process.env.PHLO_GITHUB_WRITER_URL ?? '')
+  if (webhookSecret === undefined || publishToken === undefined || url === null) {
     amp.logger.log('Phlo GitHub automation is disabled because its secrets or publishing URL are not configured.')
     return
   }
@@ -142,16 +237,38 @@ export default async function (amp: PluginAPI) {
         visibility: 'private',
       })
       const subject = target.kind === 'pull_request'
-        ? `pull request #${target.number} at ${target.headSha}`
-        : `issue #${target.number}`
+        ? `Phlo PR #${target.number} @ ${target.headSha?.slice(0, 12)}`
+        : `Phlo issue #${target.number}`
       await thread.appendUserMessage({
         type: 'user-message',
         content: [
+          subject,
           createCapability(target, webhookSecret),
-          `Process the trusted automatic Phlo GitHub event for ${subject}.`,
+          `Process the trusted automatic GitHub event for ${subject}.`,
           `Load ${SKILL}, investigate the event, and publish exactly one finished comment through its publishing tool.`,
         ].join('\n'),
       })
     },
   })
+
+  async function publishMaintenance(path: string, input: unknown): Promise<string> {
+    const publishToken = configuredSecret(process.env.PHLO_GITHUB_WRITER_TOKEN)
+    const url = writerUrl(process.env.PHLO_GITHUB_WRITER_URL ?? '')
+    if (publishToken === undefined || url === null) {
+      throw new Error('Phlo GitHub publishing is not configured.')
+    }
+    const response = await fetch(new URL(path, url), {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${publishToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    })
+    if (!response.ok) throw new Error(`The Phlo GitHub writer refused the maintenance artifact with HTTP ${response.status}.`)
+    const result = await response.json() as { htmlUrl?: unknown }
+    return typeof result.htmlUrl === 'string' && result.htmlUrl.length > 0
+      ? `Published: ${result.htmlUrl}`
+      : 'Published through the phlo-agent GitHub App.'
+  }
 }

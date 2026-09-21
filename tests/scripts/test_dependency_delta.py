@@ -102,6 +102,32 @@ def test_all_current_product_locks_are_readable() -> None:
         assert delta.parse_lock(path, (root / path).read_bytes())
 
 
+def test_renamed_product_lock_uses_its_previous_path(monkeypatch) -> None:
+    lock = json.dumps(
+        {
+            "lockfileVersion": 3,
+            "packages": {
+                "node_modules/example": {
+                    "version": "1.0.0",
+                    "resolved": "https://registry.npmjs.org/example/-/example-1.0.0.tgz",
+                }
+            },
+        }
+    ).encode()
+
+    def git_show(command, *, capture_output):
+        del capture_output
+        if command[-1].endswith(":apps/phlo-agent/package-lock.json"):
+            return subprocess.CompletedProcess(command, 0, stdout=lock)
+        return subprocess.CompletedProcess(command, 128, stdout=b"")
+
+    monkeypatch.setattr(delta, "LOCKFILES", ("apps/phlo-github-writer/package-lock.json",))
+    monkeypatch.setattr(delta.subprocess, "run", git_show)
+    assert delta.inventory("a" * 40) == {
+        "apps/phlo-github-writer/package-lock.json": {("npm", "example", "1.0.0")}
+    }
+
+
 @pytest.mark.parametrize("response", [{"results": []}, {"results": [{"next_page_token": "x"}]}])
 def test_incomplete_scanner_response_is_not_clean(monkeypatch, response) -> None:
     import io

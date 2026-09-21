@@ -23,8 +23,11 @@ Package = tuple[str, str, str]
 LOCKFILES = (
     "uv.lock",
     "packages/phlo-observatory/src/phlo_observatory/package-lock.json",
-    "apps/phlo-agent/package-lock.json",
+    "apps/phlo-github-writer/package-lock.json",
 )
+LOCKFILE_ALIASES = {
+    "apps/phlo-github-writer/package-lock.json": ("apps/phlo-agent/package-lock.json",),
+}
 
 
 def parse_lock(path: str, content: bytes) -> set[Package]:
@@ -77,9 +80,14 @@ def inventory(ref: str) -> dict[str, set[Package]]:
         raise ValueError("Expected an exact 40-character commit SHA")
     result = {}
     for path in LOCKFILES:
-        content = subprocess.run(
-            ["git", "show", f"{ref}:{path}"], check=True, capture_output=True
-        ).stdout
+        candidates = (path, *LOCKFILE_ALIASES.get(path, ()))
+        for candidate in candidates:
+            completed = subprocess.run(["git", "show", f"{ref}:{candidate}"], capture_output=True)
+            if completed.returncode == 0:
+                content = completed.stdout
+                break
+        else:
+            raise ValueError(f"No lockfile for {path} at {ref}")
         result[path] = parse_lock(path, content)
     return result
 

@@ -65,8 +65,8 @@ export function createCapability(target: ReviewTarget, secret: string): string {
 }
 
 export function parseCapability(message: string, secret: string): ReviewTarget | null {
-  const line = message.split('\n', 1)[0]
-  if (!line?.startsWith(`${CAPABILITY_PREFIX} `)) return null
+  const line = message.split('\n').find((candidate) => candidate.startsWith(`${CAPABILITY_PREFIX} `))
+  if (line === undefined) return null
   const token = line.slice(CAPABILITY_PREFIX.length + 1)
   const separator = token.lastIndexOf('.')
   if (separator < 1) return null

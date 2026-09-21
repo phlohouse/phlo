@@ -172,11 +172,8 @@ docs-app/content/
 docs-app/node_modules/
 docs-app/out/
 
-# Phlo agent
-apps/phlo-agent/.eve/
-apps/phlo-agent/.output/
-apps/phlo-agent/node_modules/
-!apps/phlo-agent/.env.example
+# Phlo GitHub writer
+apps/phlo-github-writer/node_modules/
 
 # Local-only docs
 agents.md

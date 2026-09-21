@@ -1,6 +1,6 @@
 ---
 name: upstream-sync
-description: Check Phlo's upstream lakehouse ecosystem for compatibility-impacting releases and open a bounded draft PR or issue. Load when the upstream-sync schedule fires.
+description: Check Phlo's upstream ecosystem for compatibility-impacting releases and publish a bounded draft PR or issue. Load only from a scheduled phlo-maintenance thread.
 ---
 
 # Upstream sync
@@ -21,9 +21,6 @@ because it was absent from a prior prompt. Prioritize v1-target surfaces first,
 then preview surfaces, then development-only integrations, using the current
 support manifest rather than model memory.
 
-Also check the agent's Eve ecosystem dependencies, but treat those as one
-integration area rather than the whole upstream pass.
-
 Read authoritative release notes, migration guides, and changelogs. Map removed
 APIs, changed defaults, deprecations, security notices, image behavior, and
 support-window changes to the exact Phlo adapters, services, tests, docs, and
@@ -37,36 +34,36 @@ work owns a vulnerability, this skill owns producing the bounded remediation.
 
 Audit every tracked `uv.lock` with `uv audit --locked --project <lockfile-dir>
 --output-format json`, matching `.github/workflows/security.yml`, as the
-authoritative Python vulnerability inventory. If any audit reports findings,
-compact its machine-readable records and relevant authoritative advisory or
-release-note evidence, then call `maintenance__route_findings` once with all
-findings. Keep version availability, manifest discovery, and test selection
-deterministic. Treat the returned route as prioritization only:
+authoritative Python vulnerability inventory. Keep version availability,
+manifest discovery, and test selection deterministic:
 
-- `routine_update` first reuses any existing dependency remediation pull
+- A routine update first reuses any existing dependency remediation pull
   request. If none exists, a scheduled run may create one verified draft pull
   request using the audit's listed fixed versions and normal uv constraint/lock
   tooling.
-- `compatibility_review` requires mapping the change to every affected Phlo
+- Compatibility work requires mapping the change to every affected Phlo
   surface and running its compatibility checks.
-- `security_review`, `human_review`, and `no_fix_available` may produce a
-  focused issue, but never a waiver or speculative patch.
+- Security judgment, ambiguous impact, low-confidence classification, and
+  findings without a fix may produce a focused issue, but never a waiver or
+  speculative patch.
 
-Jev never chooses a version: uv's machine-readable fix data and resolver remain
-authoritative. Never pass repository source, lockfiles, or complete logs to the
-classifier; send only the bounded evidence fields accepted by the tool. Never
-reinterpret a low-confidence result as permission to act.
+The audit's machine-readable fix data and uv's resolver remain authoritative.
+Never reinterpret uncertainty as permission to act.
 
 Search existing issues and pull requests first. Ignore version churn with no
 demonstrable effect on Phlo.
 
 - If a compatibility adaptation is mechanical and safe against current or
-  explicitly approved pins, create one feature branch, update the code and
-  tests, run the affected package checks plus dependency-refresh validation,
-  commit, call `git__push`, and open a **draft** pull request.
-- If an update requires a product or security decision, create one focused
-  GitHub issue explaining the upstream release, affected Phlo surfaces,
-  evidence, risk, migration path, and decision.
+  explicitly approved pins, update the code and tests, run the affected package
+  checks plus dependency-refresh validation, then call
+  `publish_phlo_maintenance_pull_request` with the exact `origin/main` SHA and
+  complete changed-file contents. It creates the `agent/*` branch and **draft**
+  pull request.
+- If an update requires a product or security decision, call
+  `publish_phlo_maintenance_issue` with one focused issue explaining the
+  upstream release, affected Phlo surfaces, evidence, risk, migration path, and
+  decision.
 - If nothing warrants action, create nothing.
 
-Never merge, publish, release, or open more than one artifact per run.
+Never push with Git, merge, publish, release, alter `.github` workflows, `.amp`
+automation, or secrets, or open more than one artifact per run.

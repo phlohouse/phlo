@@ -96,18 +96,6 @@ jobs:
           name: docs-site-out
           path: docs-site/out
 
-      - name: Disable Vercel deployment for the docs branch
-        run: |
-          mkdir -p docs-site/out/apps/phlo-agent
-          cat > docs-site/out/apps/phlo-agent/vercel.json <<'EOF'
-          {
-            "$schema": "https://openapi.vercel.sh/vercel.json",
-            "git": {
-              "deploymentEnabled": false
-            }
-          }
-          EOF
-
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@e9c66a37f080288a11235e32cbe2dc5fb3a679cc # v4
         with:

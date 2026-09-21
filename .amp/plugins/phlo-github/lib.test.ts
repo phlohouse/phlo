@@ -28,7 +28,7 @@ test('round-trips signed review capabilities and rejects tampering', () => {
     receivedAt: '2026-09-20T10:00:00.000Z',
   }
   const capability = createCapability(target, secret)
-  assert.deepEqual(parseCapability(`${capability}\nReview it.`, secret), target)
+  assert.deepEqual(parseCapability(`Review Phlo PR #42 @ ${target.headSha}\n${capability}\nReview it.`, secret), target)
   const replacement = capability.endsWith('a') ? 'b' : 'a'
   assert.equal(parseCapability(`${capability.slice(0, -1)}${replacement}`, secret), null)
 })
