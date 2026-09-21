@@ -33,6 +33,14 @@ phlo-agent directly to update that pull request's title or description. On
 GitHub, an owner, member, or collaborator can invoke the same thread by starting
 a new issue, pull request, or review comment with `@phlo-agent`.
 
+Set the global Amp plugin configuration key `phloGitHubAutomationHost` to the
+thread ID of the persistent PR and issue automation host before enabling the
+webhook. Keep that host unarchived. The current deployment uses
+`T-01a0c4b8-dd82-72c6-a2d8-23b9fa401492`. If the key is absent or invalid, the
+plugin logs the problem and parents review threads under the webhook owner.
+Changing the host creates one replacement thread for each PR or issue when its
+next event arrives; existing threads cannot be reparented.
+
 ## Deploy the Cloudflare Worker
 
 Authenticate Wrangler with the Cloudflare account that will own the Worker,

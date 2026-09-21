@@ -9,9 +9,11 @@ import type { PluginAPI, PluginThread, ThreadID, ThreadMessage } from '@ampcode/
 import {
   capabilityPrefix,
   createCapability,
+  isAmpThreadID,
   parseCapability,
   parseGitHubEvent,
   parseGitHubMention,
+  reviewParentThreadID,
   verifyGitHubSignature,
 } from './lib'
 
@@ -49,10 +51,6 @@ function configuredReviewThreads(value: unknown): Record<string, ThreadID> {
   return Object.fromEntries(Object.entries(value).filter(
     (entry): entry is [string, ThreadID] => typeof entry[1] === 'string' && entry[1].startsWith('T-'),
   ))
-}
-
-function configuredThreadID(value: unknown): ThreadID | undefined {
-  return typeof value === 'string' && value.startsWith('T-') ? value : undefined
 }
 
 async function targetFromThread(thread: PluginThread, secret: string) {
@@ -348,7 +346,11 @@ export default async function (amp: PluginAPI) {
       } as const
       const configuration = await amp.configuration.get()
       const reviewThreads = configuredReviewThreads(configuration[REVIEW_THREAD_CONFIGURATION])
-      const parentThreadID = configuredThreadID(configuration[AUTOMATION_HOST_CONFIGURATION]) ?? ctx.thread.id
+      const configuredHost = configuration[AUTOMATION_HOST_CONFIGURATION]
+      const parentThreadID = reviewParentThreadID(configuredHost, ctx.thread.id)
+      if (configuredHost !== undefined && !isAmpThreadID(configuredHost)) {
+        ctx.logger.log(`Ignored invalid ${AUTOMATION_HOST_CONFIGURATION}; using webhook owner ${ctx.thread.id}.`)
+      }
       const key = `${parentThreadID}:${target.kind}:${target.number}`
       let thread = reviewThreads[key] === undefined ? undefined : amp.threads.get(reviewThreads[key])
       try {
