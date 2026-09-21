@@ -6,6 +6,8 @@ const CAPABILITY_PREFIX = '[phlo-github-event:v1]'
 const DELIVERY_PATTERN = /^[A-Za-z0-9:_-]{1,200}$/
 const SHA_PATTERN = /^[0-9a-f]{40}$/i
 
+export type AmpThreadID = `T-${string}`
+
 export interface ReviewTarget {
   deliveryId: string
   headSha?: string
@@ -31,6 +33,14 @@ export interface GitHubMention {
   number: number
   receivedAt: string
   request: string
+}
+
+export function isAmpThreadID(value: unknown): value is AmpThreadID {
+  return typeof value === 'string' && value.startsWith('T-')
+}
+
+export function reviewParentThreadID(configuredHost: unknown, webhookThreadID: AmpThreadID): AmpThreadID {
+  return isAmpThreadID(configuredHost) ? configuredHost : webhookThreadID
 }
 
 const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])

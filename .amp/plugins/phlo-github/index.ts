@@ -9,9 +9,11 @@ import type { PluginAPI, PluginThread, ThreadID, ThreadMessage } from '@ampcode/
 import {
   capabilityPrefix,
   createCapability,
+  isAmpThreadID,
   parseCapability,
   parseGitHubEvent,
   parseGitHubMention,
+  reviewParentThreadID,
   verifyGitHubSignature,
 } from './lib'
 
@@ -20,6 +22,7 @@ export const description = 'Runs Phlo GitHub review, triage, and scheduled maint
 const SKILL = 'phlo-github:reviewing-phlo-github-events'
 const MAINTENANCE_TOOLS = 'plugin__phlo-github__publish_phlo_maintenance_*'
 const READ_ONLY_TOOLS = ['Read', 'finder', 'librarian', 'read_web_page', 'web_search', 'skill']
+const AUTOMATION_HOST_CONFIGURATION = 'phloGitHubAutomationHost'
 const REVIEW_THREAD_CONFIGURATION = 'phloGitHubReviewThreads'
 
 function textFromMessages(messages: ThreadMessage[]): string[] {
@@ -343,7 +346,12 @@ export default async function (amp: PluginAPI) {
       } as const
       const configuration = await amp.configuration.get()
       const reviewThreads = configuredReviewThreads(configuration[REVIEW_THREAD_CONFIGURATION])
-      const key = `${ctx.thread.id}:${target.kind}:${target.number}`
+      const configuredHost = configuration[AUTOMATION_HOST_CONFIGURATION]
+      const parentThreadID = reviewParentThreadID(configuredHost, ctx.thread.id)
+      if (configuredHost !== undefined && !isAmpThreadID(configuredHost)) {
+        ctx.logger.log(`Ignored invalid ${AUTOMATION_HOST_CONFIGURATION}; using webhook owner ${ctx.thread.id}.`)
+      }
+      const key = `${parentThreadID}:${target.kind}:${target.number}`
       let thread = reviewThreads[key] === undefined ? undefined : amp.threads.get(reviewThreads[key])
       try {
         if (thread !== undefined) {
@@ -356,7 +364,7 @@ export default async function (amp: PluginAPI) {
       thread = await reviewer.createThread({
         executor: 'orb',
         features: [],
-        parentThreadID: ctx.thread.id,
+        parentThreadID,
         visibility: 'private',
       })
       await amp.configuration.update({

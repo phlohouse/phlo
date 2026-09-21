@@ -7,6 +7,7 @@ import {
   parseCapability,
   parseGitHubEvent,
   parseGitHubMention,
+  reviewParentThreadID,
   verifyGitHubSignature,
   type ReviewTarget,
 } from './lib.ts'
@@ -113,4 +114,12 @@ test('accepts phlo-agent mentions only from trusted collaborators', () => {
     'x-github-delivery': 'no-mention',
     'x-github-event': 'issue_comment',
   }, receivedAt), null)
+})
+
+test('uses the configured automation host for review threads', () => {
+  const webhookThread = 'T-webhook-owner'
+
+  assert.equal(reviewParentThreadID('T-automation-host', webhookThread), 'T-automation-host')
+  assert.equal(reviewParentThreadID(undefined, webhookThread), webhookThread)
+  assert.equal(reviewParentThreadID('automation-host', webhookThread), webhookThread)
 })
