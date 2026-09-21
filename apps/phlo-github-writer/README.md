@@ -5,8 +5,8 @@ project plugin sends narrow requests to the server. The server validates each
 request, mints a short-lived installation token for the existing `phlo-agent`
 GitHub App, and writes only to `phlohouse/phlo`.
 
-The GitHub App private key belongs in Amp App secrets. Do not add the key to the
-Phlo Amp project, a repository secret, or an orb environment.
+The GitHub App private key belongs in Cloudflare Worker secrets. Do not add the
+key to the Phlo Amp project, the repository, or an orb environment.
 
 ## Supported writes
 
@@ -33,44 +33,29 @@ phlo-agent directly to update that pull request's title or description. On
 GitHub, an owner, member, or collaborator can invoke the same thread by starting
 a new issue, pull request, or review comment with `@phlo-agent`.
 
-## Deploy the Amp App
+## Deploy the Cloudflare Worker
 
-Amp Apps are workspace-owned. Create or join an Amp workspace before cutover;
-a personal Amp project cannot own this deployment.
-
-Build the server before deployment. Amp Apps do not install dependencies or run
-a build.
+Authenticate Wrangler with the Cloudflare account that will own the Worker,
+then test and deploy it:
 
 ```bash
 cd apps/phlo-github-writer
 npm ci
 npm test
-amp apps deploy <workspace>/phlo-github-writer dist \
-  --command node \
-  --arg server.js \
-  --port 3000 \
-  --health-path /health
+npm run deploy
 ```
 
-Set these app-scoped values, then deploy again:
+The public App ID is configured in `wrangler.jsonc`. Add the two encrypted
+Worker secrets through files or standard input so they do not appear in shell
+history:
 
-| Name | Kind | Value |
-| --- | --- | --- |
-| `PHLO_GITHUB_APP_ID` | Environment variable | The existing `phlo-agent` App ID, `4662586` |
-| `PHLO_GITHUB_APP_PRIVATE_KEY` | Secret | A current private key generated in the GitHub App settings |
-| `PHLO_GITHUB_PUBLISH_TOKEN` | Secret | A new random value of at least 32 characters |
-
-Pass secret values through files so they do not appear in shell history:
-
-```bash
-amp secrets set PHLO_GITHUB_APP_PRIVATE_KEY \
-  --app <workspace>/phlo-github-writer \
-  --secret \
-  --data-file /path/to/private-key.pem
+```console
+npx wrangler secret put PHLO_GITHUB_APP_PRIVATE_KEY < /path/to/private-key.pem
+npx wrangler secret put PHLO_GITHUB_PUBLISH_TOKEN < /path/to/publish-token
 ```
 
 Set `PHLO_GITHUB_WRITER_URL` and `PHLO_GITHUB_WRITER_TOKEN` in the `iamgp/phlo`
-Amp project. The URL is the Amp App origin. The token must match
+Amp project. The URL is the deployed Worker origin. The token must match
 `PHLO_GITHUB_PUBLISH_TOKEN`.
 
 ## Run scheduled maintenance
