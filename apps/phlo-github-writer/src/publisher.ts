@@ -30,6 +30,12 @@ interface ChangedFile {
   path: string
 }
 
+interface PullRequestMetadataRequest {
+  body?: string
+  number: number
+  title?: string
+}
+
 function safeEqual(actual: string, expected: string): boolean {
   const left = Buffer.from(actual)
   const right = Buffer.from(expected)
@@ -154,6 +160,19 @@ function issueInput(value: unknown): { body: string; labels: string[]; title: st
   return { body: data.body, labels, title: data.title }
 }
 
+function pullRequestMetadataInput(value: unknown): PullRequestMetadataRequest | null {
+  const data = object(value)
+  if (data === null || !Number.isSafeInteger(data.number) || (data.number as number) < 1) return null
+  if (data.title !== undefined && (typeof data.title !== 'string' || data.title.length < 1 || data.title.length > 256)) return null
+  if (data.body !== undefined && (typeof data.body !== 'string' || data.body.length > MAX_BODY_LENGTH)) return null
+  if (data.title === undefined && data.body === undefined) return null
+  return {
+    ...(typeof data.body === 'string' ? { body: data.body } : {}),
+    number: data.number as number,
+    ...(typeof data.title === 'string' ? { title: data.title } : {}),
+  }
+}
+
 function pullRequestInput(value: unknown): {
   baseSha: string
   body: string
@@ -184,6 +203,23 @@ async function publishIssue(issue: ReturnType<typeof issueInput> & {}, token: st
     body: JSON.stringify(issue),
   })
   if (!response.ok) throw new Error(`GitHub issue creation failed with HTTP ${response.status}.`)
+  const result = await response.json() as { html_url?: unknown }
+  return { htmlUrl: typeof result.html_url === 'string' ? result.html_url : '' }
+}
+
+async function updatePullRequest(
+  pull: PullRequestMetadataRequest,
+  token: string,
+  fetcher: Fetcher,
+) {
+  const response = await githubRequest(`/repos/${repository}/pulls/${pull.number}`, token, fetcher, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      ...(pull.body === undefined ? {} : { body: pull.body }),
+      ...(pull.title === undefined ? {} : { title: pull.title }),
+    }),
+  })
+  if (!response.ok) throw new Error(`GitHub pull request update failed with HTTP ${response.status}.`)
   const result = await response.json() as { html_url?: unknown }
   return { htmlUrl: typeof result.html_url === 'string' ? result.html_url : '' }
 }
@@ -280,6 +316,8 @@ export async function handleRequest(request: Request, dependencies: Dependencies
   }
   const parsed = url.pathname === '/v1/github-comments'
     ? reviewInput(value)
+    : url.pathname === '/v1/pull-request-metadata'
+      ? pullRequestMetadataInput(value)
     : url.pathname === '/v1/issues'
       ? issueInput(value)
       : url.pathname === '/v1/draft-pull-requests'
@@ -295,6 +333,8 @@ export async function handleRequest(request: Request, dependencies: Dependencies
     const token = await installationToken(dependencies.appId, dependencies.privateKey, fetcher)
     const result = url.pathname === '/v1/github-comments'
       ? await publishReview(parsed as ReviewRequest, token, fetcher)
+      : url.pathname === '/v1/pull-request-metadata'
+        ? await updatePullRequest(parsed as PullRequestMetadataRequest, token, fetcher)
       : url.pathname === '/v1/issues'
         ? await publishIssue(parsed as ReturnType<typeof issueInput> & {}, token, fetcher)
         : await publishPullRequest(parsed as ReturnType<typeof pullRequestInput> & {}, token, fetcher)

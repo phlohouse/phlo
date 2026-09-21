@@ -15,6 +15,8 @@ The server exposes these routes:
 - `GET /health` returns the service status.
 - `POST /v1/github-comments` checks the pull request head, validates issue
   triage labels, deduplicates the GitHub delivery, and creates one comment.
+- `POST /v1/pull-request-metadata` updates only the title or description of a
+  target-bound pull request.
 - `POST /v1/issues` creates one maintenance issue.
 - `POST /v1/draft-pull-requests` creates an `agent/*` branch from the supplied
   `main` SHA and opens a draft pull request. It refuses changes under `.github/`,
@@ -22,6 +24,10 @@ The server exposes these routes:
 
 All write routes require `Authorization: Bearer <PHLO_GITHUB_PUBLISH_TOKEN>`.
 The GitHub App key never leaves the server.
+
+The webhook plugin keeps one private review thread per pull request or issue and
+reuses it for later accepted events. In a pull request review thread, ask
+phlo-agent directly to update that pull request's title or description.
 
 ## Deploy the Amp App
 

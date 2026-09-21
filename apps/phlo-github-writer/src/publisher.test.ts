@@ -74,6 +74,33 @@ test('checks the pull request head and deduplicates review comments', async () =
   assert.equal(writes, 0)
 })
 
+test('updates only supplied pull request metadata', async () => {
+  let patch: { body?: unknown; method?: string; url?: string } = {}
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = String(input)
+    const auth = githubAuth(url)
+    if (auth !== null) return auth
+    patch = {
+      body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+      method: init?.method ?? 'GET',
+      url,
+    }
+    return Response.json({ html_url: 'https://github.com/phlohouse/phlo/pull/42' })
+  }
+  const response = await handleRequest(request('/v1/pull-request-metadata', {
+    number: 42,
+    title: 'fix(agent): reuse review threads',
+  }), { ...credentials, fetch: fetcher })
+
+  assert.equal(response.status, 201)
+  assert.deepEqual(patch, {
+    body: { title: 'fix(agent): reuse review threads' },
+    method: 'PATCH',
+    url: 'https://api.github.com/repos/phlohouse/phlo/pulls/42',
+  })
+  assert.equal((await handleRequest(request('/v1/pull-request-metadata', { number: 42 }), credentials)).status, 400)
+})
+
 test('creates a draft pull request from bounded file content', async () => {
   const baseSha = 'a'.repeat(40)
   const baseTreeSha = 'e'.repeat(40)
