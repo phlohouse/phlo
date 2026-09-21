@@ -30,6 +30,9 @@ dev = [
     "phlo-nessie>=0.3.2",
     "phlo-observatory>=0.1.0",
     "phlo-observe-plugin>=0.1.0",
+    "observe-core @ git+https://github.com/phlohouse/phlo-observe.git@observe-core/v0.3.0#subdirectory=packages/observe-core",
+    "observe-query @ git+https://github.com/phlohouse/phlo-observe.git@phlo-observe/v0.2.1#subdirectory=packages/observe-query",
+    "phlo-observe @ git+https://github.com/phlohouse/phlo-observe.git@phlo-observe/v0.2.1#subdirectory=packages/phlo-observe-sdk",
     "phlo-polaris>=0.1.0",
     "phlo-observatory-example>=0.1.0",
     "phlo-openmetadata>=0.1.0",
@@ -82,9 +85,6 @@ dependencies = [
     "structlog>=25.5.0",
     "jsonschema>=4.23.0",
     "packaging>=24.0",
-    "observe-core @ git+https://github.com/phlohouse/phlo-observe.git@observe-core/v0.3.0#subdirectory=packages/observe-core",
-    "observe-query @ git+https://github.com/phlohouse/phlo-observe.git@phlo-observe/v0.2.1#subdirectory=packages/observe-query",
-    "phlo-observe @ git+https://github.com/phlohouse/phlo-observe.git@phlo-observe/v0.2.1#subdirectory=packages/phlo-observe-sdk",
 ]
 description = "Lakehouse platform"
 license = "AGPL-3.0-or-later"
@@ -158,9 +158,6 @@ include = [
     "src/phlo/sql/*.sql",
 ]
 packages = ["src/phlo"]
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.pytest.ini_options]
 addopts = "--ignore=src --continue-on-collection-errors --import-mode=importlib --strict-markers -m 'not integration'"

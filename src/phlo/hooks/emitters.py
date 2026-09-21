@@ -522,29 +522,6 @@ class TelemetryEventEmitter(_ContextEmitterBase):
             tags=event.tags,
         )
 
-    def _emit(
-        self,
-        *,
-        event_type: str,
-        name: str,
-        value: Any | None,
-        level: str | None,
-        unit: str | None,
-        payload: dict[str, Any] | None,
-    ) -> None:
-        """Emit a telemetry event."""
-        self._emit_event(
-            TelemetryEvent(
-                event_type=event_type,
-                name=name,
-                value=value,
-                level=level,
-                unit=unit,
-                payload=payload or {},
-                tags=self._context.tags.copy(),
-            ),
-        )
-
 
 def _observe_correlation(correlation: HookCorrelation) -> dict[str, Any]:
     """Map Phlo hook correlation onto observe-core's canonical keys."""

@@ -49,6 +49,7 @@ import os
 import sys
 from collections.abc import Container, Iterator, Mapping
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from phlo.logging import get_logger
@@ -61,6 +62,9 @@ _configured = False
 _configure_failed = False
 _pretty_drain_attached = False
 _pretty_attach_attempted = False
+_logging_context_tokens: ContextVar[tuple[Any, ...]] = ContextVar(
+    "phlo_logging_context_tokens", default=()
+)
 
 
 def _import_optional(module_name: str, attr: str | None = None) -> Any | None:
@@ -279,6 +283,7 @@ def reset_for_tests() -> None:
     _pretty_drain_attached = False
     _pretty_attach_attempted = False
     _sdk = None
+    _logging_context_tokens.set(())
     _unsupported_surface_warned.clear()
 
 
@@ -340,14 +345,22 @@ def bind_logging_context(**values: Any) -> None:
     """Mirror Phlo's imperative logging context into observe-core."""
     bind = _import_optional("observe_core.context", "bind_context_token")
     if bind is not None:
-        bind(**values)
+        try:
+            token = bind(**values)
+            _logging_context_tokens.set((*_logging_context_tokens.get(), token))
+        except Exception:  # noqa: BLE001 - logging context must remain fail-open
+            return
 
 
 def clear_logging_context() -> None:
-    """Clear context previously mirrored from Phlo logging."""
-    clear = _import_optional("observe_core.context", "clear_context")
-    if clear is not None:
-        clear()
+    """Reset only context previously mirrored from Phlo logging."""
+    tokens = _logging_context_tokens.get()
+    _logging_context_tokens.set(())
+    for token in reversed(tokens):
+        try:
+            token.reset()
+        except Exception:  # noqa: BLE001 - logging cleanup must remain fail-open
+            continue
 
 
 def logging_correlation() -> dict[str, str]:

@@ -2,6 +2,12 @@
 
 Canonical `phlo-observe` integration for Phlo.
 
+The observer SDK packages are currently sourced from their release branches
+while their package distributions are prepared. Repository development installs
+them through Phlo's `dev` dependency group. A published `phlo` installation
+remains URL-free; enable the integration after installing compatible observer
+SDK distributions or source packages in your environment.
+
 ## What it provides
 
 - A hook plugin that translates pipeline events into canonical logs, metrics,

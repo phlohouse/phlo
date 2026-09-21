@@ -284,6 +284,25 @@ def test_get_bound_correlation_context_reads_structlog_contextvars() -> None:
     assert correlation.trace_id == "abc123"
 
 
+def test_bound_correlation_merges_observe_context_without_overriding_structlog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "phlo.telemetry.logging_correlation",
+        lambda: {"run_id": "observe-run", "job_id": "observe-job", "asset_key": "raw.users"},
+    )
+    bind_context(run_id="logging-run")
+
+    try:
+        correlation = get_bound_correlation_context()
+    finally:
+        clear_context()
+
+    assert correlation.run_id == "logging-run"
+    assert correlation.job_name == "observe-job"
+    assert correlation.asset_key == "raw.users"
+
+
 def test_record_to_event_merges_bound_correlation_context() -> None:
     bind_context(run_id="run-77", asset_key="bronze.orders", trace_id="abc123")
 

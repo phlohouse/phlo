@@ -113,24 +113,35 @@ def test_logging_context_is_mirrored_into_observe_core(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bound: list[dict[str, object]] = []
-    cleared: list[bool] = []
+    reset: list[str] = []
+
+    class Token:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def reset(self) -> None:
+            reset.append(self.name)
+
+    tokens = iter((Token("first"), Token("second")))
     monkeypatch.setattr(
         phlo_observe,
         "_import_optional",
         lambda module, attr=None: (
-            (lambda **fields: bound.append(fields))
+            (lambda **fields: (bound.append(fields), next(tokens))[1])
             if attr == "bind_context_token"
-            else (lambda: cleared.append(True))
-            if attr == "clear_context"
             else None
         ),
     )
 
     phlo_observe.bind_logging_context(run_id="run-1", path="/health")
+    phlo_observe.bind_logging_context(asset_key="raw.users")
     phlo_observe.clear_logging_context()
 
-    assert bound == [{"run_id": "run-1", "path": "/health"}]
-    assert cleared == [True]
+    assert bound == [
+        {"run_id": "run-1", "path": "/health"},
+        {"asset_key": "raw.users"},
+    ]
+    assert reset == ["second", "first"]
 
 
 def test_enabled_false_without_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
