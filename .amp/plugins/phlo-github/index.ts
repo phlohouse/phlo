@@ -1,3 +1,5 @@
+// @amp-agent-mode {"key":"phlo-review","label":"Phlo review","color":"#60a5fa"}
+
 /**
  * Project automation that turns signed GitHub events into read-only DeepSeek
  * review threads and exposes a target-bound phlo-agent publishing tool.
@@ -53,6 +55,15 @@ export default async function (amp: PluginAPI) {
       exclude: ['apply_patch', 'create_file', 'edit_file', 'create_thread', 'painter'],
     },
     display: { label: 'Phlo review', color: '#60a5fa' },
+  })
+
+  // Orb threads can only run custom agents registered as an active agent mode.
+  amp.registerAgentMode({
+    key: 'phlo-review',
+    label: 'Phlo review',
+    description: 'Reviews new Phlo issues and pull requests in DeepSeek V4.1 and publishes through phlo-agent.',
+    color: '#60a5fa',
+    agent: reviewer.definition,
   })
 
   amp.registerTool({
