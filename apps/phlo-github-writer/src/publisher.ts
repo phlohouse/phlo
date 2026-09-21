@@ -173,6 +173,13 @@ function pullRequestMetadataInput(value: unknown): PullRequestMetadataRequest | 
   }
 }
 
+function pullRequestNumberInput(value: unknown): { number: number } | null {
+  const data = object(value)
+  return data !== null && Number.isSafeInteger(data.number) && (data.number as number) > 0
+    ? { number: data.number as number }
+    : null
+}
+
 function pullRequestInput(value: unknown): {
   baseSha: string
   body: string
@@ -222,6 +229,16 @@ async function updatePullRequest(
   if (!response.ok) throw new Error(`GitHub pull request update failed with HTTP ${response.status}.`)
   const result = await response.json() as { html_url?: unknown }
   return { htmlUrl: typeof result.html_url === 'string' ? result.html_url : '' }
+}
+
+async function pullRequestHead(number: number, token: string, fetcher: Fetcher) {
+  const response = await githubRequest(`/repos/${repository}/pulls/${number}`, token, fetcher)
+  if (!response.ok) throw new Error(`GitHub pull request lookup failed with HTTP ${response.status}.`)
+  const result = await response.json() as { head?: { sha?: unknown } }
+  if (typeof result.head?.sha !== 'string' || !SHA_PATTERN.test(result.head.sha)) {
+    throw new Error('GitHub returned an invalid pull request head SHA.')
+  }
+  return { headSha: result.head.sha }
 }
 
 async function publishPullRequest(
@@ -316,6 +333,8 @@ export async function handleRequest(request: Request, dependencies: Dependencies
   }
   const parsed = url.pathname === '/v1/github-comments'
     ? reviewInput(value)
+    : url.pathname === '/v1/pull-request-head'
+      ? pullRequestNumberInput(value)
     : url.pathname === '/v1/pull-request-metadata'
       ? pullRequestMetadataInput(value)
     : url.pathname === '/v1/issues'
@@ -333,6 +352,8 @@ export async function handleRequest(request: Request, dependencies: Dependencies
     const token = await installationToken(dependencies.appId, dependencies.privateKey, fetcher)
     const result = url.pathname === '/v1/github-comments'
       ? await publishReview(parsed as ReviewRequest, token, fetcher)
+      : url.pathname === '/v1/pull-request-head'
+        ? await pullRequestHead((parsed as { number: number }).number, token, fetcher)
       : url.pathname === '/v1/pull-request-metadata'
         ? await updatePullRequest(parsed as PullRequestMetadataRequest, token, fetcher)
       : url.pathname === '/v1/issues'

@@ -17,6 +17,8 @@ The server exposes these routes:
   triage labels, deduplicates the GitHub delivery, and creates one comment.
 - `POST /v1/pull-request-metadata` updates only the title or description of a
   target-bound pull request.
+- `POST /v1/pull-request-head` resolves the current head for an authorized
+  `@phlo-agent` request before the plugin signs its thread capability.
 - `POST /v1/issues` creates one maintenance issue.
 - `POST /v1/draft-pull-requests` creates an `agent/*` branch from the supplied
   `main` SHA and opens a draft pull request. It refuses changes under `.github/`,
@@ -27,7 +29,9 @@ The GitHub App key never leaves the server.
 
 The webhook plugin keeps one private review thread per pull request or issue and
 reuses it for later accepted events. In a pull request review thread, ask
-phlo-agent directly to update that pull request's title or description.
+phlo-agent directly to update that pull request's title or description. On
+GitHub, an owner, member, or collaborator can invoke the same thread by starting
+a new issue, pull request, or review comment with `@phlo-agent`.
 
 ## Deploy the Amp App
 

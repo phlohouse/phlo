@@ -101,6 +101,24 @@ test('updates only supplied pull request metadata', async () => {
   assert.equal((await handleRequest(request('/v1/pull-request-metadata', { number: 42 }), credentials)).status, 400)
 })
 
+test('resolves a pull request head for an authorized mention', async () => {
+  const headSha = 'f'.repeat(40)
+  const fetcher: typeof fetch = async (input) => {
+    const url = String(input)
+    const auth = githubAuth(url)
+    if (auth !== null) return auth
+    assert.equal(url, 'https://api.github.com/repos/phlohouse/phlo/pulls/42')
+    return Response.json({ head: { sha: headSha } })
+  }
+  const response = await handleRequest(request('/v1/pull-request-head', { number: 42 }), {
+    ...credentials,
+    fetch: fetcher,
+  })
+
+  assert.equal(response.status, 201)
+  assert.deepEqual(await response.json(), { headSha })
+})
+
 test('creates a draft pull request from bounded file content', async () => {
   const baseSha = 'a'.repeat(40)
   const baseTreeSha = 'e'.repeat(40)

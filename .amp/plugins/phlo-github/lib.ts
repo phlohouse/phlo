@@ -16,12 +16,25 @@ export interface ReviewTarget {
 
 interface GitHubPayload {
   action?: unknown
-  issue?: { number?: unknown }
+  comment?: { author_association?: unknown; body?: unknown }
+  issue?: { number?: unknown; pull_request?: unknown }
   number?: unknown
-  pull_request?: { draft?: unknown; head?: { sha?: unknown } }
+  pull_request?: { draft?: unknown; head?: { sha?: unknown }; number?: unknown }
   repository?: { full_name?: unknown }
-  sender?: { type?: unknown }
+  sender?: { login?: unknown; type?: unknown }
 }
+
+export interface GitHubMention {
+  author: string
+  deliveryId: string
+  kind: 'issue' | 'pull_request'
+  number: number
+  receivedAt: string
+  request: string
+}
+
+const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
+const PHLO_AGENT_MENTION = /@phlo-agent\b/i
 
 function constantTimeEqual(actual: string, expected: string): boolean {
   const actualBytes = Buffer.from(actual)
@@ -115,6 +128,51 @@ export function parseGitHubEvent(
   const headSha = payload.pull_request?.head?.sha
   if (!shouldReview || typeof headSha !== 'string' || !SHA_PATTERN.test(headSha)) return null
   return { deliveryId, headSha, kind: 'pull_request', number: number as number, receivedAt }
+}
+
+export function parseGitHubMention(
+  body: Uint8Array,
+  headers: Readonly<Record<string, string>>,
+  receivedAt: string,
+): GitHubMention | null {
+  const deliveryId = headers['x-github-delivery']
+  if (deliveryId === undefined || !DELIVERY_PATTERN.test(deliveryId)) return null
+
+  let payload: GitHubPayload
+  try {
+    payload = JSON.parse(Buffer.from(body).toString()) as GitHubPayload
+  } catch {
+    return null
+  }
+  const event = headers['x-github-event']
+  const commentBody = payload.comment?.body
+  const author = payload.sender?.login
+  if (
+    payload.action !== 'created'
+    || (event !== 'issue_comment' && event !== 'pull_request_review_comment')
+    || payload.repository?.full_name?.toString().toLowerCase() !== REPOSITORY
+    || payload.sender?.type === 'Bot'
+    || typeof author !== 'string'
+    || typeof commentBody !== 'string'
+    || !TRUSTED_ASSOCIATIONS.has(String(payload.comment?.author_association))
+    || !PHLO_AGENT_MENTION.test(commentBody)
+  ) {
+    return null
+  }
+  const number = event === 'issue_comment' ? payload.issue?.number : payload.pull_request?.number
+  if (!Number.isSafeInteger(number) || (number as number) < 1) return null
+  const request = commentBody.replace(/@phlo-agent\b/gi, '').trim()
+  if (request.length === 0 || request.length > 60_000) return null
+  return {
+    author,
+    deliveryId,
+    kind: event === 'pull_request_review_comment' || payload.issue?.pull_request !== undefined
+      ? 'pull_request'
+      : 'issue',
+    number: number as number,
+    receivedAt,
+    request,
+  }
 }
 
 export const capabilityPrefix = CAPABILITY_PREFIX

@@ -11,6 +11,7 @@ import {
   createCapability,
   parseCapability,
   parseGitHubEvent,
+  parseGitHubMention,
   verifyGitHubSignature,
 } from './lib'
 
@@ -280,19 +281,64 @@ export default async function (amp: PluginAPI) {
         ctx.logger.log('Ignored a Phlo GitHub webhook with an invalid signature.')
         return
       }
-      const target = parseGitHubEvent(event.body, event.headers, event.receivedAt)
+      const automaticTarget = parseGitHubEvent(event.body, event.headers, event.receivedAt)
+      const mention = automaticTarget === null
+        ? parseGitHubMention(event.body, event.headers, event.receivedAt)
+        : null
+      if (automaticTarget === null && mention === null) return
+
+      let target = automaticTarget
+      if (target === null && mention?.kind === 'issue') {
+        target = {
+          deliveryId: mention.deliveryId,
+          kind: 'issue',
+          number: mention.number,
+          receivedAt: mention.receivedAt,
+        }
+      }
+      if (target === null && mention?.kind === 'pull_request') {
+        const response = await fetch(new URL('/v1/pull-request-head', url), {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${publishToken}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ number: mention.number }),
+        })
+        if (!response.ok) {
+          throw new Error(`The Phlo GitHub writer could not resolve the pull request head with HTTP ${response.status}.`)
+        }
+        const result = await response.json() as { headSha?: unknown }
+        if (typeof result.headSha !== 'string') throw new Error('The Phlo GitHub writer returned an invalid head SHA.')
+        target = {
+          deliveryId: mention.deliveryId,
+          headSha: result.headSha,
+          kind: 'pull_request',
+          number: mention.number,
+          receivedAt: mention.receivedAt,
+        }
+      }
       if (target === null) return
 
       const subject = target.kind === 'pull_request'
         ? `Phlo PR #${target.number} @ ${target.headSha?.slice(0, 12)}`
         : `Phlo issue #${target.number}`
+      const task = mention === null
+        ? [
+            `Process the trusted automatic GitHub event for ${subject}.`,
+            `Load ${SKILL}, investigate the event, and publish exactly one finished comment through its publishing tool.`,
+          ]
+        : [
+            `Process this authorized @phlo-agent request from GitHub user @${mention.author} for ${subject}:`,
+            mention.request,
+            `Load ${SKILL}, complete only that request, and publish exactly one finished response through its publishing tool.`,
+          ]
       const message = {
         type: 'user-message',
         content: [
           subject,
           createCapability(target, webhookSecret),
-          `Process the trusted automatic GitHub event for ${subject}.`,
-          `Load ${SKILL}, investigate the event, and publish exactly one finished comment through its publishing tool.`,
+          ...task,
         ].join('\n'),
       } as const
       const configuration = await amp.configuration.get()

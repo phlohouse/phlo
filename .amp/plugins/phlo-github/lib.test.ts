@@ -6,6 +6,7 @@ import {
   createCapability,
   parseCapability,
   parseGitHubEvent,
+  parseGitHubMention,
   verifyGitHubSignature,
   type ReviewTarget,
 } from './lib.ts'
@@ -71,5 +72,45 @@ test('accepts only matching Phlo issue and pull request triggers', () => {
   assert.equal(parseGitHubEvent(botBody, {
     'x-github-delivery': 'bot-event',
     'x-github-event': 'issues',
+  }, receivedAt), null)
+})
+
+test('accepts phlo-agent mentions only from trusted collaborators', () => {
+  const receivedAt = '2026-09-20T10:00:00.000Z'
+  const payload = {
+    action: 'created',
+    comment: {
+      author_association: 'OWNER',
+      body: '@phlo-agent rewrite the PR description',
+    },
+    issue: { number: 42, pull_request: { url: 'https://api.github.com/repos/phlohouse/phlo/pulls/42' } },
+    repository: { full_name: 'phlohouse/phlo' },
+    sender: { login: 'iamgp', type: 'User' },
+  }
+  assert.deepEqual(parseGitHubMention(Buffer.from(JSON.stringify(payload)), {
+    'x-github-delivery': 'mention-event',
+    'x-github-event': 'issue_comment',
+  }, receivedAt), {
+    author: 'iamgp',
+    deliveryId: 'mention-event',
+    kind: 'pull_request',
+    number: 42,
+    receivedAt,
+    request: 'rewrite the PR description',
+  })
+
+  assert.equal(parseGitHubMention(Buffer.from(JSON.stringify({
+    ...payload,
+    comment: { ...payload.comment, author_association: 'NONE' },
+  })), {
+    'x-github-delivery': 'untrusted-mention',
+    'x-github-event': 'issue_comment',
+  }, receivedAt), null)
+  assert.equal(parseGitHubMention(Buffer.from(JSON.stringify({
+    ...payload,
+    comment: { ...payload.comment, body: 'No mention here.' },
+  })), {
+    'x-github-delivery': 'no-mention',
+    'x-github-event': 'issue_comment',
   }, receivedAt), null)
 })
