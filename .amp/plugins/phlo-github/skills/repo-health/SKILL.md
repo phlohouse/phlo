@@ -5,8 +5,8 @@ description: Audit Phlo for grounded maintenance findings and deliver a bounded 
 
 # Repository health
 
-Work from current `origin/main`. Read `CONTRIBUTING.md` and all applicable
-`AGENTS.md` files before changing anything.
+Use Librarian to inspect current `phlohouse/phlo` main and Read for repository
+guidance. No shell, code execution, or general-purpose write tool is available.
 
 Inspect these areas:
 
@@ -23,12 +23,14 @@ pull requests before creating anything.
 
 Deliver at most one artifact per run:
 
-- For a mechanical, low-risk fix: create a feature branch, make only that fix,
-  run targeted checks and the relevant broader checks, then pass the exact
-  `origin/main` SHA, complete changed-file contents, `agent/*` branch, title,
-  and body to `publish_phlo_maintenance_pull_request`. Include all check results.
-- For anything requiring product judgment: create one focused GitHub issue with
-  context, evidence, expected outcome, and acceptance criteria through
+- For a mechanical documentation-only fix whose complete output follows directly
+  from inspected source: pass the exact main SHA, complete changed-file contents,
+  `agent/*` branch, title, and body to
+  `publish_phlo_maintenance_pull_request`. State that no local checks were run
+  and CI must validate the draft.
+- For code changes, generated files, dependency resolution, or anything requiring
+  execution or product judgment: create one focused GitHub issue with context,
+  evidence, expected outcome, and acceptance criteria through
   `publish_phlo_maintenance_issue`. Do not code it.
 
 Never push with Git, merge, mark a draft ready, publish, release, alter `.github`

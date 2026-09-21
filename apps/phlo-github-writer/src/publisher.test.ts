@@ -110,15 +110,24 @@ test('creates a draft pull request from bounded file content', async () => {
   assert.equal((calls.at(-1)?.body as { draft?: unknown }).draft, true)
 })
 
-test('refuses workflow changes and stale maintenance bases', async () => {
-  const invalid = await handleRequest(request('/v1/draft-pull-requests', {
-    baseSha: 'a'.repeat(40),
-    body: 'Change CI.',
-    branch: 'agent/change-ci',
-    files: [{ path: '.github/workflows/ci.yml', content: 'unsafe\n' }],
-    title: 'ci: change workflow',
+test('refuses automation changes, unknown labels, and stale maintenance bases', async () => {
+  for (const path of ['.github/workflows/ci.yml', '.agents/setup']) {
+    const invalid = await handleRequest(request('/v1/draft-pull-requests', {
+      baseSha: 'a'.repeat(40),
+      body: 'Change automation.',
+      branch: 'agent/change-automation',
+      files: [{ path, content: 'unsafe\n' }],
+      title: 'ci: change automation',
+    }), credentials)
+    assert.equal(invalid.status, 400)
+  }
+
+  const unknownLabel = await handleRequest(request('/v1/issues', {
+    body: 'Grounded maintenance finding.',
+    labels: ['invented-label'],
+    title: 'chore: investigate finding',
   }), credentials)
-  assert.equal(invalid.status, 400)
+  assert.equal(unknownLabel.status, 400)
 
   const fetcher: typeof fetch = async (input) => {
     const auth = githubAuth(String(input))

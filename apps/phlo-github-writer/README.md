@@ -18,7 +18,7 @@ The server exposes these routes:
 - `POST /v1/issues` creates one maintenance issue.
 - `POST /v1/draft-pull-requests` creates an `agent/*` branch from the supplied
   `main` SHA and opens a draft pull request. It refuses changes under `.github/`,
-  `.amp/`, and `.git/`.
+  `.agents/`, `.amp/`, and `.git/`.
 
 All write routes require `Authorization: Bearer <PHLO_GITHUB_PUBLISH_TOKEN>`.
 The GitHub App key never leaves the server.
@@ -73,13 +73,12 @@ plugin is active on `main`. Schedule these prompts:
 Run at `0 2 * * *` UTC:
 
 > Run Phlo's focused dependency-security pass against current `origin/main`.
-> Load `phlo-github:upstream-sync`. Audit every tracked `uv.lock` with `uv
-> audit --locked --project <lockfile-dir> --output-format json` before any
-> broader investigation. If every audit is clean, stop and create nothing. For
-> findings, search existing issues and pull requests, then follow the skill.
-> Create at most one issue or verified draft pull request through the Phlo
-> maintenance publishing tools. Never merge, waive a finding, publish, or
-> release.
+> Load `phlo-github:upstream-sync`. Inspect the latest public main-branch
+> security CI result and authoritative upstream advisories. If they are clean,
+> stop and create nothing. For findings, search existing issues and pull
+> requests, then follow the skill. Create at most one issue or bounded draft
+> pull request through the Phlo maintenance publishing tools. Never merge,
+> waive a finding, publish, or release.
 
 ### Repository maintenance
 
@@ -88,7 +87,7 @@ Run at `0 8 * * 2,4` UTC:
 > Run Phlo's scheduled maintenance pass against current `origin/main`. Load and
 > follow both `phlo-github:upstream-sync` and `phlo-github:repo-health`. Search
 > existing issues and pull requests before proposing work. Create at most one
-> grounded issue or verified draft pull request through the Phlo maintenance
+> grounded issue or bounded draft pull request through the Phlo maintenance
 > publishing tools. Create nothing when no action is warranted. Never merge,
 > publish, release, change workflows or Amp automation, or modify secrets.
 

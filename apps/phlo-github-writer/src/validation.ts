@@ -39,6 +39,7 @@ export function validChangedPath(path: unknown): path is string {
     && !path.startsWith('/')
     && !path.startsWith('.git/')
     && !path.startsWith('.github/')
+    && !path.startsWith('.agents/')
     && !path.startsWith('.amp/')
     && !path.split('/').includes('..')
 }

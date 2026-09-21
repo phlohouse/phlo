@@ -150,7 +150,7 @@ function issueInput(value: unknown): { body: string; labels: string[]; title: st
   const labels = data?.labels ?? []
   if (data === null || typeof data.title !== 'string' || data.title.length < 1 || data.title.length > 256) return null
   if (typeof data.body !== 'string' || data.body.length < 1 || data.body.length > MAX_BODY_LENGTH) return null
-  if (!Array.isArray(labels) || labels.length > 4 || !labels.every((label) => typeof label === 'string')) return null
+  if (!issueTriageLabelsAllowed(labels)) return null
   return { body: data.body, labels, title: data.title }
 }
 
