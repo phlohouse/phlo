@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "phlo-github-writer",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-21",
+  "vars": {
+    "PHLO_GITHUB_APP_ID": "4662586"
+  }
+}
