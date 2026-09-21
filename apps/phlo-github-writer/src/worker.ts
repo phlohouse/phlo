@@ -8,13 +8,12 @@ interface Environment {
 
 export default {
   async fetch(request: Request, environment: Environment): Promise<Response> {
+    const privateKey = environment.PHLO_GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, '\n')
     return handleRequest(request, {
       ...(environment.PHLO_GITHUB_APP_ID === undefined
         ? {}
         : { appId: environment.PHLO_GITHUB_APP_ID }),
-      ...(environment.PHLO_GITHUB_APP_PRIVATE_KEY === undefined
-        ? {}
-        : { privateKey: environment.PHLO_GITHUB_APP_PRIVATE_KEY }),
+      ...(privateKey === undefined ? {} : { privateKey }),
       ...(environment.PHLO_GITHUB_PUBLISH_TOKEN === undefined
         ? {}
         : { publishToken: environment.PHLO_GITHUB_PUBLISH_TOKEN }),
