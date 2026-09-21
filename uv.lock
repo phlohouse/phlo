@@ -3580,7 +3580,6 @@ source = { editable = "packages/phlo-mcp" }
 dependencies = [
     { name = "httpx" },
     { name = "mcp", extra = ["cli"] },
-    { name = "opentelemetry-sdk" },
     { name = "phlo" },
     { name = "phlo-api" },
     { name = "python-multipart" },
@@ -3596,7 +3595,6 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.28.1" },
-    { name = "opentelemetry-sdk", specifier = ">=1.38.0" },
     { name = "phlo", editable = "." },
     { name = "phlo-api", editable = "packages/phlo-api" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },

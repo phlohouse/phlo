@@ -392,3 +392,22 @@ def test_log_event_falls_back_when_logger_rejects_structured_kwargs() -> None:
     log_event(logger, "info", "legacy event", run_id="run-1", attempt=3)
 
     assert logger.messages == ["legacy event run_id=run-1 attempt=3"]
+
+
+def test_bound_correlation_uses_only_a_valid_active_otel_span() -> None:
+    """Hook correlation adopts optional OTel context without inventing IDs."""
+    trace = pytest.importorskip("opentelemetry.trace")
+    span_context = trace.SpanContext(
+        trace_id=int("a" * 32, 16),
+        span_id=int("b" * 16, 16),
+        is_remote=False,
+        trace_flags=trace.TraceFlags(1),
+        trace_state=trace.TraceState(),
+    )
+
+    with trace.use_span(trace.NonRecordingSpan(span_context), end_on_exit=False):
+        correlation = get_bound_correlation_context()
+
+    assert correlation.trace_id == "a" * 32
+    assert correlation.span_id == "b" * 16
+    assert correlation.trace_flags == "01"

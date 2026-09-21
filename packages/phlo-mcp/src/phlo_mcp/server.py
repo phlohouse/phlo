@@ -8,8 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from opentelemetry import trace
-
 from phlo_mcp.api_client import PhloApiClient
 from phlo_mcp.config import McpConfig, config_from_env
 from phlo_mcp.models import ToolContract
@@ -18,7 +16,7 @@ from phlo_mcp.run_analysis import (
     render_span_tree,
     summarize_run_logs,
 )
-from phlo_mcp.tracing import configure_tracing
+from phlo_mcp.tracing import configure_tracing, get_tracer
 
 
 def _read_package_doc(package_name: str) -> str:
@@ -59,7 +57,7 @@ def create_server(config: McpConfig | None = None) -> FastMCP:
     mcp.settings.port = resolved.port
     mcp.settings.streamable_http_path = resolved.streamable_http_path
 
-    tracer = trace.get_tracer("phlo.mcp")
+    tracer = get_tracer()
     client = PhloApiClient(resolved)
 
     @mcp.resource(

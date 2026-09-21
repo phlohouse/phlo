@@ -313,7 +313,11 @@ def clear_context() -> None:
 
 
 def get_bound_correlation_context() -> HookCorrelation:
-    """Return the current correlation fields bound in logging contextvars."""
+    """Return current correlation, including a valid optional OTel context.
+
+    OTel remains an optional projection: importing it or reading an invalid
+    non-recording span must not change normal Phlo logging or hook delivery.
+    """
     from phlo import telemetry
 
     observed = telemetry.logging_correlation()
@@ -326,7 +330,23 @@ def get_bound_correlation_context() -> HookCorrelation:
         value = _coerce_optional_string(structlog.contextvars.get_contextvars().get(field))
         if value is not None:
             values[field] = value
+    _merge_active_otel_context(values)
     return HookCorrelation(**values)
+
+
+def _merge_active_otel_context(values: dict[str, Any]) -> None:
+    """Fill missing trace fields from an active, valid OTel span only."""
+    try:
+        from opentelemetry import trace
+
+        context = trace.get_current_span().get_span_context()
+        if not context.is_valid:
+            return
+        values.setdefault("trace_id", f"{context.trace_id:032x}")
+        values.setdefault("span_id", f"{context.span_id:016x}")
+        values.setdefault("trace_flags", f"{int(context.trace_flags):02x}")
+    except Exception:  # noqa: BLE001 - OTel is an optional projection
+        return
 
 
 @contextmanager

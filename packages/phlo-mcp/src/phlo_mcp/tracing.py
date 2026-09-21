@@ -1,66 +1,23 @@
-"""Local tracing utilities for phlo-mcp.
-
-Spans are exported as JSON lines to the file named by PHLO_MCP_TRACE_FILE
-using a SimpleSpanProcessor; tracing stays disabled when no file is
-configured. load_spans/render_trace_tree read that same file back for
-local debugging.
-"""
+"""Canonical MCP operation scopes with a compatible JSONL debug drain."""
 
 from __future__ import annotations
 
 import json
 import os
 from collections import defaultdict
+from contextlib import AbstractContextManager
+from contextvars import ContextVar
 from pathlib import Path
-from collections.abc import Sequence
 from typing import Any
+from uuid import uuid4
 
-from opentelemetry import trace
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
+import phlo.telemetry as phlo_observe
 
 _TRACE_FILE_ENV = "PHLO_MCP_TRACE_FILE"
 _CONFIGURED_PATH: str | None = None
-
-
-class JsonLineSpanExporter(SpanExporter):
-    """Write spans to a JSONL file for local tracing/debug workflows."""
-
-    def __init__(self, path: str):
-        self._path = Path(path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-
-    def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
-        """Append readable spans to the JSONL trace file and report success."""
-        with self._path.open("a", encoding="utf-8") as handle:
-            for span in spans:
-                parent_id = None
-                if span.parent is not None:
-                    parent_id = f"{span.parent.span_id:016x}"
-                payload = {
-                    "name": span.name,
-                    "context": {
-                        "trace_id": f"{span.context.trace_id:032x}",
-                        "span_id": f"{span.context.span_id:016x}",
-                        "parent_id": parent_id,
-                    },
-                    "start_time_ns": span.start_time,
-                    "end_time_ns": span.end_time,
-                    "attributes": {key: value for key, value in (span.attributes or {}).items()},
-                    "status": {
-                        "code": getattr(
-                            span.status.status_code, "name", str(span.status.status_code)
-                        ),
-                        "description": span.status.description,
-                    },
-                }
-                handle.write(json.dumps(payload, sort_keys=True) + "\n")
-        return SpanExportResult.SUCCESS
-
-    def shutdown(self) -> None:
-        """No-op shutdown; spans are flushed by the simple span processor."""
-        return None
+_ACTIVE_SPANS: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
+    "phlo_mcp_active_spans", default=()
+)
 
 
 def configure_tracing(
@@ -69,9 +26,9 @@ def configure_tracing(
     """Configure local tracing if a trace file is configured."""
     global _CONFIGURED_PATH
     resolved_trace_file = trace_file or os.environ.get(_TRACE_FILE_ENV)
-    # Tracing is configured at most once per process. The global tracer provider
-    # cannot be swapped after installation, so a call with a different path keeps
-    # whichever file won the race rather than silently redirecting spans.
+    # The debug drain is configured at most once per process. A later call with
+    # a different path keeps the first destination rather than splitting one
+    # operation tree across files.
     if _CONFIGURED_PATH == resolved_trace_file:
         return resolved_trace_file
     if _CONFIGURED_PATH is not None and _CONFIGURED_PATH != resolved_trace_file:
@@ -79,19 +36,79 @@ def configure_tracing(
     if not resolved_trace_file:
         return None
 
-    resource = Resource.create(
-        {
-            "service.name": service_name,
-            "service.namespace": "phlo",
-            "phlo.package": "phlo-mcp",
-            "phlo.runtime": "python",
-        }
-    )
-    provider = TracerProvider(resource=resource)
-    provider.add_span_processor(SimpleSpanProcessor(JsonLineSpanExporter(resolved_trace_file)))
-    trace.set_tracer_provider(provider)
+    Path(resolved_trace_file).parent.mkdir(parents=True, exist_ok=True)
     _CONFIGURED_PATH = resolved_trace_file
     return resolved_trace_file
+
+
+class _OperationScope(AbstractContextManager["_OperationScope"]):
+    """Observe-core operation plus the legacy local debug-drain record."""
+
+    def __init__(self, name: str, attributes: dict[str, Any] | None = None) -> None:
+        self.name = name
+        self.attributes = attributes or {}
+        self._scope: Any = None
+        self._started_at = 0
+        self._span: dict[str, Any] | None = None
+        self._token: Any = None
+
+    def __enter__(self) -> "_OperationScope":
+        from time import time_ns
+
+        self._started_at = time_ns()
+        parent = _ACTIVE_SPANS.get()
+        trace_id = parent[-1]["context"]["trace_id"] if parent else uuid4().hex
+        self._span = {
+            "name": self.name,
+            "context": {
+                "trace_id": trace_id,
+                "span_id": uuid4().hex[:16],
+                "parent_id": parent[-1]["context"]["span_id"] if parent else None,
+            },
+            "start_time_ns": self._started_at,
+            "attributes": self.attributes,
+        }
+        self._token = _ACTIVE_SPANS.set((*parent, self._span))
+        self._scope = phlo_observe.observe(self.name)
+        event = self._scope.__enter__()
+        if self.attributes:
+            event.set(**self.attributes)
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> bool | None:
+        from time import time_ns
+
+        if self._span is not None:
+            self._span["end_time_ns"] = time_ns()
+            self._span["status"] = {
+                "code": "ERROR" if exc_type else "UNSET",
+                "description": str(exc) if exc else None,
+            }
+            _write_debug_span(self._span)
+        if self._token is not None:
+            _ACTIVE_SPANS.reset(self._token)
+        return self._scope.__exit__(exc_type, exc, traceback)
+
+
+class CanonicalTracer:
+    """Compatibility façade for MCP nesting while observe-core owns activity."""
+
+    def start_as_current_span(
+        self, name: str, *, attributes: dict[str, Any] | None = None
+    ) -> _OperationScope:
+        return _OperationScope(name, attributes)
+
+
+def get_tracer() -> CanonicalTracer:
+    """Return the MCP operation façade; no OTel provider is installed here."""
+    return CanonicalTracer()
+
+
+def _write_debug_span(span: dict[str, Any]) -> None:
+    if not _CONFIGURED_PATH:
+        return
+    with Path(_CONFIGURED_PATH).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(span, sort_keys=True, default=str) + "\n")
 
 
 def load_spans(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
@@ -105,7 +122,7 @@ def load_spans(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
 
 
 def render_trace_tree(path: str | os.PathLike[str]) -> str:
-    """Render a compact tree view for spans written by JsonLineSpanExporter."""
+    """Render a compact tree view for records written by the debug drain."""
     spans = load_spans(path)
     if not spans:
         return "(no spans captured)"

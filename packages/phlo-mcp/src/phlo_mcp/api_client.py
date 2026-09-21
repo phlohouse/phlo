@@ -13,10 +13,10 @@ import json
 from typing import Any
 
 import httpx
-from opentelemetry import trace
 
 from phlo_mcp.config import McpConfig
 from phlo_mcp.errors import map_httpx_error
+from phlo_mcp.tracing import CanonicalTracer, get_tracer
 
 
 class PhloApiClient:
@@ -26,7 +26,7 @@ class PhloApiClient:
 
     def __init__(self, config: McpConfig, *, tracer_name: str = "phlo.mcp") -> None:
         self._config = config
-        self._tracer = trace.get_tracer(tracer_name)
+        self._tracer: CanonicalTracer = get_tracer()
 
     @property
     def api_base_url(self) -> str:
