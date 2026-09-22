@@ -246,6 +246,53 @@ def test_run_transform_counts_models_and_tests_from_run_results(tmp_path: Path) 
     assert result.tests_failed == 1
 
 
+def test_run_transform_isolates_dagster_asset_artifacts(tmp_path: Path) -> None:
+    """Concurrent assets must not overwrite each other's dbt result files."""
+    transformer = DbtTransformer(
+        context=SimpleNamespace(run_id="run/1", asset_key="raw/orders"),
+        logger=get_logger("test_dbt_transformer_isolated_artifacts"),
+        project_dir=tmp_path,
+        profiles_dir=tmp_path,
+    )
+    run_calls: list[list[str]] = []
+
+    def fake_run_command(args: list[str], env: dict[str, str] | None = None):
+        run_calls.append(args)
+        target_path = Path(args[args.index("--target-path") + 1])
+        target_path.mkdir(parents=True)
+        (target_path / "run_results.json").write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {"resource_type": "model", "status": "success"},
+                        {"resource_type": "test", "status": "pass"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(
+            args=["dbt"] + args,
+            returncode=0,
+            stdout="PASS=2 WARN=0 ERROR=0 SKIP=0 TOTAL=2",
+            stderr="",
+        )
+
+    transformer._run_command = fake_run_command  # type: ignore[method-assign]
+
+    result = transformer.run_transform(parameters={"generate_docs": False})
+
+    expected = tmp_path / "target" / "runs" / "run_1" / "raw_orders"
+    assert result.models_built == 1
+    assert result.tests_passed == 1
+    assert run_calls[0][-4:] == [
+        "--target-path",
+        str(expected),
+        "--log-path",
+        str(expected / "logs"),
+    ]
+
+
 def test_run_transform_preserves_build_results_before_docs_overwrites_them(tmp_path: Path) -> None:
     """The build artifact remains available after dbt docs generate overwrites its file."""
     transformer = DbtTransformer(

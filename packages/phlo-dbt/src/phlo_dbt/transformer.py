@@ -430,6 +430,14 @@ class DbtTransformer(BaseTransformer):
                 resolved_asset_key = str(asset_key.to_user_string())
             else:
                 resolved_asset_key = str(asset_key)
+        artifact_path = self.project_dir / "target"
+        if run_id:
+            safe_run_id = re.sub(r"[^A-Za-z0-9_.-]", "_", str(run_id))
+            safe_asset_key = re.sub(r"[^A-Za-z0-9_.-]", "_", resolved_asset_key or "run")
+            artifact_path = artifact_path / "runs" / safe_run_id / safe_asset_key
+            build_args.extend(
+                ["--target-path", str(artifact_path), "--log-path", str(artifact_path / "logs")]
+            )
         correlation = HookCorrelation(
             run_id=run_id,
             asset_key=resolved_asset_key,
@@ -473,9 +481,7 @@ class DbtTransformer(BaseTransformer):
             if not skip_build:
                 result = self._run_command(build_args)
                 result_stdout = result.stdout
-                self.build_run_results = _read_run_results(
-                    self.project_dir / "target" / "run_results.json"
-                )
+                self.build_run_results = _read_run_results(artifact_path / "run_results.json")
                 # Emit the dbt invocation + per-node events before the
                 # returncode check so failed builds still report their model
                 # and test outcomes. run_results carries its own invocation_id,
@@ -502,7 +508,7 @@ class DbtTransformer(BaseTransformer):
                 )
 
             # 3. Emit lineage from the manifest left by the build.
-            manifest_path = self.project_dir / "target" / "manifest.json"
+            manifest_path = artifact_path / "manifest.json"
             translator = DbtSpecTranslator(project_dir=self.project_dir, key_prefix=self.key_prefix)
 
             _emit_dbt_lineage(
@@ -524,6 +530,15 @@ class DbtTransformer(BaseTransformer):
                     "--target",
                     self.target,
                 ]
+                if run_id:
+                    docs_args.extend(
+                        [
+                            "--target-path",
+                            str(artifact_path),
+                            "--log-path",
+                            str(artifact_path / "logs"),
+                        ]
+                    )
                 self._run_command(docs_args)
 
             if skip_build:
