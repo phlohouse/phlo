@@ -2484,26 +2484,6 @@ wheels = [
 ]
 
 [[package]]
-name = "observe-core"
-version = "0.3.1"
-source = { git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fobserve-core&rev=191d22bd42b449048b1e6f0e2475157a1297ffa2#191d22bd42b449048b1e6f0e2475157a1297ffa2" }
-dependencies = [
-    { name = "httpx" },
-    { name = "orjson" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-]
-
-[[package]]
-name = "observe-query"
-version = "0.2.0"
-source = { git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fobserve-query&rev=191d22bd42b449048b1e6f0e2475157a1297ffa2#191d22bd42b449048b1e6f0e2475157a1297ffa2" }
-dependencies = [
-    { name = "httpx" },
-    { name = "pydantic" },
-]
-
-[[package]]
 name = "opentelemetry-api"
 version = "1.40.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2879,8 +2859,6 @@ dev = [
     { name = "fastapi" },
     { name = "libcst" },
     { name = "minio" },
-    { name = "observe-core" },
-    { name = "observe-query" },
     { name = "pandas" },
     { name = "pandera" },
     { name = "phlo-airbyte" },
@@ -2986,8 +2964,6 @@ dev = [
     { name = "fastapi", specifier = ">=0.127.0" },
     { name = "libcst", specifier = ">=1.5.0" },
     { name = "minio", specifier = ">=7.2.20" },
-    { name = "observe-core", git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fobserve-core&rev=191d22bd42b449048b1e6f0e2475157a1297ffa2" },
-    { name = "observe-query", git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fobserve-query&rev=191d22bd42b449048b1e6f0e2475157a1297ffa2" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "pandera", specifier = ">=0.26.1" },
     { name = "phlo-airbyte", editable = "packages/phlo-airbyte" },
@@ -3013,7 +2989,7 @@ dev = [
     { name = "phlo-oauth2-proxy", editable = "packages/phlo-oauth2-proxy" },
     { name = "phlo-observatory", editable = "packages/phlo-observatory" },
     { name = "phlo-observatory-example", editable = "packages/phlo-observatory-example" },
-    { name = "phlo-observe", git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fphlo-observe-sdk&rev=191d22bd42b449048b1e6f0e2475157a1297ffa2" },
+    { name = "phlo-observe", specifier = ">=0.2.3,<0.3" },
     { name = "phlo-observe-plugin", editable = "packages/phlo-observe-plugin" },
     { name = "phlo-openmetadata", editable = "packages/phlo-openmetadata" },
     { name = "phlo-otel", editable = "packages/phlo-otel" },
@@ -3730,12 +3706,31 @@ requires-dist = [
 
 [[package]]
 name = "phlo-observe"
-version = "0.2.2"
-source = { git = "https://github.com/phlohouse/phlo-observe.git?subdirectory=packages%2Fphlo-observe-sdk&rev=191d22bd42b449048b1e6f0e2475157a1297ffa2#191d22bd42b449048b1e6f0e2475157a1297ffa2" }
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "observe-core" },
-    { name = "observe-query" },
+    { name = "phlo-observe-core" },
+    { name = "phlo-observe-query" },
     { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/85/27/b4b9050461845b51438b5162c2d40bb925f4348836fee1226ceec8ab8fb1/phlo_observe-0.2.3.tar.gz", hash = "sha256:663add9e32b208c8ada8b6d608a78bca411335a764129ab5dbec26423db09ac4", size = 16064, upload-time = "2026-09-22T21:17:54.448Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/30/8d/98268c5c8c53ab09cec45d1beca816850407a6e9116b4d6effb3f9ba54ae/phlo_observe-0.2.3-py3-none-any.whl", hash = "sha256:1c3984bab4dc9bd01750224cb2b14331afb9d67269546bdb2e0ce9bbed189e94", size = 23611, upload-time = "2026-09-22T21:17:53.291Z" },
+]
+
+[[package]]
+name = "phlo-observe-core"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "orjson" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/09/51/0a8bb73ab9a6db2235b193c00043e1f5ece55fca88d26a76480838a93a8b/phlo_observe_core-0.4.0.tar.gz", hash = "sha256:e4c24c4019e76cdae170c715977afca3a230f86144711adee9cfb5480b7f613f", size = 73758, upload-time = "2026-09-22T21:17:48.996Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/32/738565ade6817472abfbfdd1990605cde5b16d370a1c2aaa8e74a2adc56b/phlo_observe_core-0.4.0-py3-none-any.whl", hash = "sha256:5b4b9321f16edd8463b7c7b76b25452d3b3f4df1312461ace31d93dbe93bae5f", size = 90707, upload-time = "2026-09-22T21:17:47.796Z" },
 ]
 
 [[package]]
@@ -3745,6 +3740,7 @@ source = { editable = "packages/phlo-observe-plugin" }
 dependencies = [
     { name = "phlo" },
     { name = "phlo-dagster" },
+    { name = "phlo-observe" },
 ]
 
 [package.optional-dependencies]
@@ -3757,10 +3753,24 @@ dev = [
 requires-dist = [
     { name = "phlo", editable = "." },
     { name = "phlo-dagster", editable = "packages/phlo-dagster" },
+    { name = "phlo-observe", specifier = ">=0.2.3,<0.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "phlo-observe-query"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cf/69/893799f4231f7a178c8ec35ffb9d053b603a5a2b6afaee5f96faed6f21ce/phlo_observe_query-0.3.0.tar.gz", hash = "sha256:4e111a2e3a404ff60d87813700e0a04ea37117a2a65870617bbecbeaad752aa3", size = 3730, upload-time = "2026-09-22T21:17:54.711Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/38/799a1c25495cabce66aaf3e6f8c6548b31598d4af3546631ee2cf93db4bb/phlo_observe_query-0.3.0-py3-none-any.whl", hash = "sha256:29a56c882175d29225539dd7c5d4eca619652b8fbe3c409372858420b2bd4aae", size = 5300, upload-time = "2026-09-22T21:17:53.617Z" },
+]
 
 [[package]]
 name = "phlo-openmetadata"

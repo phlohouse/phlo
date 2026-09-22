@@ -17,7 +17,7 @@ def test_observer_service_definition_parses() -> None:
     definition = ServiceDefinition.from_yaml(_PKG_SRC / "service.yaml")
     assert definition.name == "phlo-observer"
     assert definition.image is not None
-    assert definition.image.startswith("ghcr.io/phlohouse/phlo-observe/phlo-observer:0.2.2@sha256:")
+    assert definition.image.startswith("ghcr.io/phlohouse/phlo-observe/phlo-observer:0.2.3@sha256:")
     assert definition.build is None
 
     compose = definition.compose

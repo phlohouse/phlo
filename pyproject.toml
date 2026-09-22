@@ -30,9 +30,7 @@ dev = [
     "phlo-nessie>=0.3.2",
     "phlo-observatory>=0.1.0",
     "phlo-observe-plugin>=0.1.0",
-    "observe-core @ git+https://github.com/phlohouse/phlo-observe.git@191d22bd42b449048b1e6f0e2475157a1297ffa2#subdirectory=packages/observe-core",
-    "observe-query @ git+https://github.com/phlohouse/phlo-observe.git@191d22bd42b449048b1e6f0e2475157a1297ffa2#subdirectory=packages/observe-query",
-    "phlo-observe @ git+https://github.com/phlohouse/phlo-observe.git@191d22bd42b449048b1e6f0e2475157a1297ffa2#subdirectory=packages/phlo-observe-sdk",
+    "phlo-observe>=0.2.3,<0.3",
     "phlo-polaris>=0.1.0",
     "phlo-observatory-example>=0.1.0",
     "phlo-openmetadata>=0.1.0",
@@ -260,21 +258,6 @@ unsupported-operator = "error"
 
 [tool.ty.src]
 exclude = ["**/testing/**"]
-
-[tool.uv.sources.observe-core]
-git = "https://github.com/phlohouse/phlo-observe.git"
-subdirectory = "packages/observe-core"
-rev = "191d22bd42b449048b1e6f0e2475157a1297ffa2"
-
-[tool.uv.sources.observe-query]
-git = "https://github.com/phlohouse/phlo-observe.git"
-subdirectory = "packages/observe-query"
-rev = "191d22bd42b449048b1e6f0e2475157a1297ffa2"
-
-[tool.uv.sources.phlo-observe]
-git = "https://github.com/phlohouse/phlo-observe.git"
-subdirectory = "packages/phlo-observe-sdk"
-rev = "191d22bd42b449048b1e6f0e2475157a1297ffa2"
 
 [tool.uv.sources.phlo]
 workspace = true

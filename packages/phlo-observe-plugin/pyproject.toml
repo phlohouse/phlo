@@ -9,6 +9,7 @@ requires = [
 dependencies = [
     "phlo>=0.16.2,<0.17",
     "phlo-dagster>=0.3.2",
+    "phlo-observe>=0.2.3,<0.3",
 ]
 description = "phlo-observe SDK integration and phlo-observer service for Phlo"
 name = "phlo-observe-plugin"

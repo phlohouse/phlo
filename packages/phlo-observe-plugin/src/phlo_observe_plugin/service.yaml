@@ -4,7 +4,7 @@ category: observability
 default: false
 profile: observability
 
-image: ghcr.io/phlohouse/phlo-observe/phlo-observer:0.2.2@sha256:1a48497fb603541d48fa020c1fe2927bda6cfabab01766f9792b06d4e87ddb5c
+image: ghcr.io/phlohouse/phlo-observe/phlo-observer:0.2.3@sha256:951d86983db108f7c853ae9f2152577153ee36a868ac75d40aed82de4407ed35
 
 depends_on:
   - postgres
