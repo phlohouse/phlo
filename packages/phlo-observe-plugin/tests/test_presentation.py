@@ -31,7 +31,7 @@ BRANCH = "pipeline-run-abc123"
 
 def _wap_history() -> list[dict]:
     """A minimal canonical history in the shape phlo actually emits."""
-    corr = {"run_id": RUN, "root_run_id": RUN}
+    corr = {"run_id": RUN}
     return [
         {
             "event": "wap.branch.create",
@@ -124,8 +124,8 @@ def test_presentation_covers_phlo_event_vocabulary() -> None:
         "wap.promote",
         "wap.reject",
         "wap.cleanup",
-        "dlt.pipeline.run",
-        "dbt.invocation",
+        "ingestion.stage",
+        "transform.invocation",
         "dbt.model.execute",
         "dbt.test.execute",
         "iceberg.commit",
@@ -344,7 +344,7 @@ def test_failure_escalation_and_error_block() -> None:
 
 def test_context_fields_resolve() -> None:
     paths = {cf.path for cf in PHLO_CONTEXT}
-    assert "correlation.root_run_id" in paths
+    assert "correlation.run_id" in paths
 
 
 def test_drain_protocol_surface() -> None:

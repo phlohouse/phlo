@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -75,6 +76,86 @@ def test_emit_noop() -> None:
     )
     phlo_observe.emit_dbt_run_results({"results": []})
     phlo_observe.emit_asset_check(object(), check_name="x", passed=True)
+
+
+def test_nested_dbt_results_keep_ambient_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+    payloads = [
+        {
+            "event": "dbt.invocation",
+            "category": "pipeline",
+            "outcome": "success",
+            "correlation": {"run_id": "dbt-1", "invocation_id": "dbt-1"},
+            "entities": {"run": "run://dbt/dbt-1"},
+            "attributes": {"results_count": 1},
+        }
+    ]
+
+    monkeypatch.setattr(phlo_observe, "_sdk_module", lambda: object())
+    monkeypatch.setattr(phlo_observe, "configure", lambda: True)
+    monkeypatch.setattr(phlo_observe, "ambient_run_id", lambda: "dagster-1")
+    monkeypatch.setattr(phlo_observe, "run_entity_id", lambda: "run://dagster/dagster-1")
+    monkeypatch.setattr(
+        phlo_observe,
+        "_import_optional",
+        lambda _module, attr=None: (
+            (lambda _document: payloads) if attr == "run_results_events" else (lambda _document: 0)
+        ),
+    )
+    monkeypatch.setattr(
+        phlo_observe,
+        "emit",
+        lambda name, **kwargs: emitted.append((name, kwargs)),
+    )
+
+    assert phlo_observe.emit_dbt_run_results({"results": []}) == 1
+    assert emitted == [
+        (
+            "transform.invocation",
+            {
+                "category": "pipeline",
+                "severity": None,
+                "outcome": "success",
+                "duration_ms": None,
+                "attributes": {"results_count": 1},
+                "correlation": {"invocation_id": "dbt-1"},
+                "entities": {"run": "run://dagster/dagster-1"},
+                "producer": "dbt",
+            },
+        )
+    ]
+
+
+def test_nested_dlt_run_uses_non_terminal_stage_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+    pipeline = SimpleNamespace(
+        pipeline_name="users",
+        destination_name="filesystem",
+        dataset_name="staging",
+    )
+    scope = object()
+    monkeypatch.setattr(
+        phlo_observe,
+        "observe",
+        lambda name, **kwargs: calls.append((name, kwargs)) or scope,
+    )
+
+    assert phlo_observe.dlt_pipeline_run(pipeline) is scope
+    assert calls == [
+        (
+            "ingestion.stage",
+            {
+                "category": "pipeline",
+                "attributes": {
+                    "pipeline_name": "users",
+                    "destination": "filesystem",
+                    "dataset_name": "staging",
+                },
+                "correlation": {"pipeline": "users"},
+                "producer": "dlt",
+            },
+        )
+    ]
 
 
 def test_metric_uses_observe_core_metric(monkeypatch: pytest.MonkeyPatch) -> None:

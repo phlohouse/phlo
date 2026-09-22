@@ -215,12 +215,8 @@ class ObserveHookPlugin(HookPlugin):
             ambient = phlo_observe.ambient_run_id()
             if ambient:
                 out["run_id"] = ambient
-            root = phlo_observe.ambient_root_run_id()
-            if root:
-                out["root_run_id"] = root
         elif run_id:
             out["run_id"] = run_id
-            out["root_run_id"] = phlo_observe.ambient_root_run_id() or run_id
         for key in (
             "job_name",
             "partition_key",

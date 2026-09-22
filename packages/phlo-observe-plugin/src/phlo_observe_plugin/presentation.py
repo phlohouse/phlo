@@ -40,7 +40,7 @@ PHLO_CONTEXT: list[Any] = [
     # values uniform within a run: ``correlation.pipeline`` is set only by
     # dlt-scope events and ``branch``/``asset`` are per-event fields — a
     # sparse context value would fragment the run into alternating groups.
-    ContextField("correlation.root_run_id", label="Run", format="identifier"),
+    ContextField("correlation.run_id", label="Run", format="identifier"),
     ContextField("correlation.partition_key", label="Partition"),
     # ``correlation.trace_id`` is deliberately absent: a single run spans
     # several trace scopes (the step scope, materialize's own scope,
@@ -296,7 +296,7 @@ PHLO_PRESENTATION: dict[str, Any] = {
         ],
     ),
     # -- Sources: dlt / dbt --------------------------------------------------------
-    "dlt.pipeline.run": EventPresentation(
+    "ingestion.stage": EventPresentation(
         label="Stage",
         fields=[
             Field("attributes.pipeline_name", label="Pipeline"),
@@ -320,7 +320,7 @@ PHLO_PRESENTATION: dict[str, Any] = {
             ),
         ],
     ),
-    "dbt.invocation": EventPresentation(
+    "transform.invocation": EventPresentation(
         label="dbt run",
         fields=[
             Field("attributes.dbt_version", label="dbt"),
@@ -537,7 +537,7 @@ _STACKED_EVENTS = frozenset(
     {
         "ingestion.load",
         "iceberg.commit",
-        "dlt.pipeline.run",
+        "ingestion.stage",
         "wap.promote",
         "wap.reject",
     }

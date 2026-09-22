@@ -403,7 +403,7 @@ def _wap_lifecycle(bus: Any, physical: str | None, logical: str, *, fail: bool) 
     )
     # The source pipeline's own completion record (dlt integration).
     phlo_observe.emit(
-        "dlt.pipeline.run",
+        "ingestion.stage",
         category="data",
         outcome="success",
         producer="dlt",
@@ -415,7 +415,7 @@ def _wap_lifecycle(bus: Any, physical: str | None, logical: str, *, fail: bool) 
             "rows_loaded": 12481,
             "tables": [WAP_TABLE],
         },
-        correlation={"pipeline": "users_ingest", "run_id": "1726657408.123456"},
+        correlation={"pipeline": "users_ingest", "invocation_id": "1726657408.123456"},
     )
 
     # Column-level quality results on the staged data — the one that fails
@@ -571,7 +571,6 @@ def _terminal_run_event(result: Any, *, fail: bool) -> None:
         },
         correlation={
             "run_id": result.run_id,
-            "root_run_id": result.run_id,
             "job_id": "__anonymous_asset_job__",
             "branch": WAP_STAGING_REF,
         },
@@ -602,7 +601,7 @@ def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
         "ingestion.extract",
         "ingestion.load",
         "iceberg.commit",
-        "dlt.pipeline.run",
+        "ingestion.stage",
         "quality.check",
         "wap.validate",
         "wap.promote",
@@ -617,11 +616,11 @@ def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
         "pipeline.run",
     ]
 
-    dlt_event = next(payload for payload in payloads if payload.get("event") == "dlt.pipeline.run")
-    assert dlt_event["correlation"]["run_id"] != result.run_id
-    assert dlt_event["correlation"]["root_run_id"] == result.run_id
+    dlt_event = next(payload for payload in payloads if payload.get("event") == "ingestion.stage")
+    assert dlt_event["correlation"]["run_id"] == result.run_id
+    assert dlt_event["correlation"]["invocation_id"] == "1726657408.123456"
     assert {
-        payload["event"]: payload.get("correlation", {}).get("root_run_id")
+        payload["event"]: payload.get("correlation", {}).get("run_id")
         for payload in payloads
         if payload.get("event") != "application.log"
     } == dict.fromkeys(operational_names, result.run_id)

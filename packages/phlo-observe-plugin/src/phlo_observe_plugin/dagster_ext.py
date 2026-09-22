@@ -107,7 +107,6 @@ def _emit_pipeline_run(context: Any, dagster_status: Any) -> None:
             attributes=attributes,
             correlation={
                 "run_id": run_id,
-                "root_run_id": run.root_run_id or run_id,
                 "job_id": run.job_name,
                 "partition_key": partition_key,
                 "branch": branch,

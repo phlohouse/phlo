@@ -393,11 +393,6 @@ def ambient_run_id() -> str | None:
     return _ambient_value("run_id")
 
 
-def ambient_root_run_id() -> str | None:
-    """Return the top-level orchestrator run bound to the current operation."""
-    return _ambient_value("root_run_id")
-
-
 def ambient_producer() -> str | None:
     """Return the ambient source producer bound by ``bind_context``."""
     if _observe_core() is None:
@@ -936,16 +931,21 @@ def dlt_pipeline_scope(pipeline: Any) -> Any:
 
 
 def dlt_pipeline_run(pipeline: Any, **kwargs: Any) -> Any:
-    """Wrap ``pipeline.run(...)``; emits ``dlt.pipeline.run`` on exit."""
-    if _sdk_module() is None or not configure():
-        return _null_scope()
-    run = _import_optional("phlo_observe.integrations.dlt", "dlt_pipeline_run")
-    if run is None:
-        return _null_scope()
-    try:
-        return run(pipeline, **kwargs)
-    except Exception:  # noqa: BLE001
-        return _null_scope()
+    """Wrap nested DLT staging without creating a second observer run."""
+    pipeline_name = getattr(pipeline, "pipeline_name", None)
+    attributes = {
+        "pipeline_name": pipeline_name,
+        "destination": getattr(pipeline, "destination_name", None),
+        "dataset_name": getattr(pipeline, "dataset_name", None),
+        **(kwargs.get("attributes") or {}),
+    }
+    return observe(
+        "ingestion.stage",
+        category="pipeline",
+        attributes={key: value for key, value in attributes.items() if value is not None},
+        correlation={"pipeline": pipeline_name} if pipeline_name is not None else {},
+        producer="dlt",
+    )
 
 
 def dlt_load_info_attributes(load_info: Any) -> dict[str, Any]:
@@ -965,13 +965,37 @@ def dlt_load_info_attributes(load_info: Any) -> dict[str, Any]:
 
 
 def emit_dbt_run_results(path_or_dict: Any) -> int:
-    """Emit ``dbt.invocation`` + per-node events from a dbt run_results doc."""
+    """Emit dbt results, keeping nested invocations in the ambient Phlo run."""
     if _sdk_module() is None or not configure():
         return 0
     emit_results = _import_optional("phlo_observe.integrations.dbt", "emit_run_results")
     if emit_results is None:
         return 0
     try:
+        if ambient_run_id() is not None:
+            normalize = _import_optional("phlo_observe.integrations.dbt", "run_results_events")
+            if normalize is None:
+                return 0
+            payloads = normalize(path_or_dict)
+            for payload in payloads:
+                correlation = dict(payload.get("correlation") or {})
+                correlation.pop("run_id", None)
+                entities = dict(payload.get("entities") or {})
+                entities["run"] = run_entity_id()
+                emit(
+                    "transform.invocation"
+                    if payload["event"] == "dbt.invocation"
+                    else payload["event"],
+                    category=payload.get("category"),
+                    severity=payload.get("severity"),
+                    outcome=payload.get("outcome"),
+                    duration_ms=payload.get("duration_ms"),
+                    attributes=payload.get("attributes"),
+                    correlation=correlation,
+                    entities=entities,
+                    producer="dbt",
+                )
+            return len(payloads)
         return emit_results(path_or_dict)
     except Exception as exc:  # noqa: BLE001
         logger.debug("phlo_observe_dbt_results_failed", error=str(exc))
