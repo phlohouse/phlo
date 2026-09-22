@@ -126,7 +126,7 @@ def _bundle(
             "host": host,
             "runner": "scripts/release_golden_path.py --candidate-bom",
             "platform": "Linux x86_64",
-            "python": "3.11.0",
+            "python": "3.12.0",
             "promoting": False,
         },
     )

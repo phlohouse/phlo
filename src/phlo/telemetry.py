@@ -1,9 +1,8 @@
-"""Optional bridge to the phlo-observe SDK (``observe-core`` + ``phlo-observe``).
+"""Phlo bridge to the phlo-observe SDK (``observe-core`` + ``phlo-observe``).
 
-All phlo-internal emission of canonical observability events routes through
-this module so the SDK remains an optional dependency: when it is not
-installed (or observability is disabled) every helper degrades to a no-op and
-pipeline execution is unaffected.
+All Phlo-internal canonical logs, metrics, and operation events route through
+this module. Emission remains fail-open when observability is disabled or its
+runtime cannot initialize, so telemetry never breaks pipeline execution.
 
 Configuration is environment-driven via ``configure_phlo``:
 
@@ -36,9 +35,8 @@ drain cannot run (missing or too-old SDK), the console is restored to
 reshapes what the console *renders* — the Dagster event log and captured
 ``context.log`` records keep every event.
 
-Optional dependencies are resolved through ``importlib`` so static analysis
-never sees the imports: on Python versions the SDK does not support, or in
-environments where it is simply not installed, this module still loads.
+SDK surfaces are resolved lazily through ``importlib`` so importing Phlo does
+not initialize the observability runtime.
 """
 
 from __future__ import annotations
@@ -51,6 +49,7 @@ import os
 import sys
 from collections.abc import Container, Iterator, Mapping
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from phlo.logging import get_logger
@@ -63,6 +62,9 @@ _configured = False
 _configure_failed = False
 _pretty_drain_attached = False
 _pretty_attach_attempted = False
+_logging_context_tokens: ContextVar[tuple[Any, ...]] = ContextVar(
+    "phlo_logging_context_tokens", default=()
+)
 
 
 def _import_optional(module_name: str, attr: str | None = None) -> Any | None:
@@ -281,6 +283,7 @@ def reset_for_tests() -> None:
     _pretty_drain_attached = False
     _pretty_attach_attempted = False
     _sdk = None
+    _logging_context_tokens.set(())
     _unsupported_surface_warned.clear()
 
 
@@ -336,6 +339,39 @@ def bind_context(**values: Any) -> Any:
         return core.bind_context(**values)
     except Exception:  # noqa: BLE001
         return contextlib.nullcontext()
+
+
+def bind_logging_context(**values: Any) -> None:
+    """Mirror Phlo's imperative logging context into observe-core."""
+    bind = _import_optional("observe_core.context", "bind_context_token")
+    if bind is not None:
+        try:
+            token = bind(**values)
+            _logging_context_tokens.set((*_logging_context_tokens.get(), token))
+        except Exception:  # noqa: BLE001 - logging context must remain fail-open
+            return
+
+
+def clear_logging_context() -> None:
+    """Reset only context previously mirrored from Phlo logging."""
+    tokens = _logging_context_tokens.get()
+    _logging_context_tokens.set(())
+    for token in reversed(tokens):
+        try:
+            token.reset()
+        except Exception:  # noqa: BLE001 - logging cleanup must remain fail-open
+            continue
+
+
+def logging_correlation() -> dict[str, str]:
+    """Return effective observe-core correlation for Phlo hook events."""
+    effective = _import_optional("observe_core.context", "effective_correlation")
+    if effective is None:
+        return {}
+    try:
+        return dict(effective())
+    except Exception:  # noqa: BLE001 - correlation enrichment is best-effort
+        return {}
 
 
 def _ambient_value(key: str) -> str | None:
@@ -461,7 +497,7 @@ def _set_if_supported(
                 "phlo_observe_sdk_surface_unsupported",
                 builder_method=method,
                 event_name=event_name,
-                hint="installed phlo-observe SDK predates the V2 entity/tag model; those fields are dropped. Install a V2-capable SDK (see PHLO_OBSERVE_SDK) to restore them.",
+                hint="installed phlo-observe SDK predates the V2 entity/tag model; those fields are dropped. Upgrade Phlo to restore them.",
             )
         return
     for key, value in items.items():
@@ -532,6 +568,30 @@ def emit(
         runtime_mod.get_runtime().emit(builder, None)
     except Exception as exc:  # noqa: BLE001 - emission must never break the caller
         logger.debug("phlo_observe_emit_failed", event_name=name, error=str(exc))
+
+
+def metric(
+    name: str,
+    value: float,
+    *,
+    unit: str | None = None,
+    correlation: dict[str, Any] | None = None,
+    tags: dict[str, Any] | None = None,
+) -> None:
+    """Record an aggregated metric through observe-core when enabled."""
+    core = _observe_core()
+    if core is None or not enabled():
+        return
+    try:
+        core.metric(
+            name,
+            float(value),
+            dimensions={"unit": unit} if unit else None,
+            correlation=correlation,
+            tags=tags,
+        )
+    except Exception as exc:  # noqa: BLE001 - metrics must never break the caller
+        logger.debug("phlo_observe_metric_failed", metric_name=name, error=str(exc))
 
 
 class _GuardedContext:
@@ -871,16 +931,21 @@ def dlt_pipeline_scope(pipeline: Any) -> Any:
 
 
 def dlt_pipeline_run(pipeline: Any, **kwargs: Any) -> Any:
-    """Wrap ``pipeline.run(...)``; emits ``dlt.pipeline.run`` on exit."""
-    if _sdk_module() is None or not configure():
-        return _null_scope()
-    run = _import_optional("phlo_observe.integrations.dlt", "dlt_pipeline_run")
-    if run is None:
-        return _null_scope()
-    try:
-        return run(pipeline, **kwargs)
-    except Exception:  # noqa: BLE001
-        return _null_scope()
+    """Wrap nested DLT staging without creating a second observer run."""
+    pipeline_name = getattr(pipeline, "pipeline_name", None)
+    attributes = {
+        "pipeline_name": pipeline_name,
+        "destination": getattr(pipeline, "destination_name", None),
+        "dataset_name": getattr(pipeline, "dataset_name", None),
+        **(kwargs.get("attributes") or {}),
+    }
+    return observe(
+        "ingestion.stage",
+        category="pipeline",
+        attributes={key: value for key, value in attributes.items() if value is not None},
+        correlation={"pipeline": pipeline_name} if pipeline_name is not None else {},
+        producer="dlt",
+    )
 
 
 def dlt_load_info_attributes(load_info: Any) -> dict[str, Any]:
@@ -900,13 +965,37 @@ def dlt_load_info_attributes(load_info: Any) -> dict[str, Any]:
 
 
 def emit_dbt_run_results(path_or_dict: Any) -> int:
-    """Emit ``dbt.invocation`` + per-node events from a dbt run_results doc."""
+    """Emit dbt results, keeping nested invocations in the ambient Phlo run."""
     if _sdk_module() is None or not configure():
         return 0
     emit_results = _import_optional("phlo_observe.integrations.dbt", "emit_run_results")
     if emit_results is None:
         return 0
     try:
+        if ambient_run_id() is not None:
+            normalize = _import_optional("phlo_observe.integrations.dbt", "run_results_events")
+            if normalize is None:
+                return 0
+            payloads = normalize(path_or_dict)
+            for payload in payloads:
+                correlation = dict(payload.get("correlation") or {})
+                correlation.pop("run_id", None)
+                entities = dict(payload.get("entities") or {})
+                entities["run"] = run_entity_id()
+                emit(
+                    "transform.invocation"
+                    if payload["event"] == "dbt.invocation"
+                    else payload["event"],
+                    category=payload.get("category"),
+                    severity=payload.get("severity"),
+                    outcome=payload.get("outcome"),
+                    duration_ms=payload.get("duration_ms"),
+                    attributes=payload.get("attributes"),
+                    correlation=correlation,
+                    entities=entities,
+                    producer="dbt",
+                )
+            return len(payloads)
         return emit_results(path_or_dict)
     except Exception as exc:  # noqa: BLE001
         logger.debug("phlo_observe_dbt_results_failed", error=str(exc))

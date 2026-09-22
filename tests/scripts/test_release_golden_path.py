@@ -165,6 +165,9 @@ def test_operator_install_uses_wheelhouse_and_not_editable_source(
     assert "phlo[core-services]" in commands[-2]
     assert "phlo-api" in commands[-2]
     assert "phlo-dbt" in commands[-2]
+    assert commands[-2][commands[-2].index("--constraint") + 1] == str(
+        config.wheelhouse / "constraints.txt"
+    )
 
 
 def test_transform_fixture_has_a_raw_events_mart(tmp_path: Path) -> None:
@@ -900,6 +903,7 @@ def test_dagster_build_receives_a_local_wheelhouse_arg() -> None:
     service = yaml.safe_load((dagster_pkg / "service.yaml").read_text(encoding="utf-8"))
     daemon = yaml.safe_load((dagster_pkg / "dagster-daemon.yaml").read_text(encoding="utf-8"))
     dockerfile_lines = _dockerfile_lines(dagster_pkg / "Dockerfile")
+    entrypoint = (dagster_pkg / "entrypoint.sh").read_text(encoding="utf-8")
     trino_service = yaml.safe_load(
         (REPO_ROOT / "packages/phlo-trino/src/phlo_trino/service.yaml").read_text(encoding="utf-8")
     )
@@ -944,6 +948,13 @@ def test_dagster_build_receives_a_local_wheelhouse_arg() -> None:
     assert any(
         "uv pip install" in line and "--no-index" in line.split() for line in api_dockerfile_lines
     )
+    for lines in (dockerfile_lines, api_dockerfile_lines):
+        assert any("phlo-url-requirements.txt" in line for line in lines)
+        assert any(
+            "uv pip install" in line and "--requirement /tmp/phlo-url-requirements.txt" in line
+            for line in lines
+        )
+    assert "--requirement /tmp/phlo-url-requirements.txt -e ." in entrypoint
 
 
 def test_dagster_stable_version_install_keeps_base_requirements_unconditional() -> None:

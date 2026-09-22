@@ -4,7 +4,7 @@ Use this guide when you need telemetry, log storage, metrics, dashboards, alerts
 
 ## Before you start
 
-Start with a working Phlo project and the default Dagster stack. Review the support tier in [Package reference](../reference/packages.md) before enabling preview services. The observability profile includes Alloy, Loki, Prometheus, Grafana, ClickStack, and the `phlo-observe-plugin` service.
+Start with a working Phlo project and the default Dagster stack. Phlo emits canonical logs, metrics, and operation events through `phlo-observe`. The observability profile adds storage, dashboards, alerts, and the `phlo-observe-plugin` service. Review the support tier in [Package reference](../reference/packages.md) before enabling preview services.
 
 ## 1. Install the integrations
 
@@ -14,7 +14,7 @@ Add the packages you need to the project environment. The package entry points r
 uv add phlo-otel phlo-alloy phlo-loki phlo-prometheus phlo-grafana phlo-alerting
 ```
 
-Use `phlo-clickstack` instead of the Loki and Prometheus storage path when you choose the ClickStack alternative. `phlo-observe-plugin` provides the optional Observatory ingestion service and is configured separately.
+Use `phlo-clickstack` instead of the Loki and Prometheus storage path when you choose the ClickStack alternative. Phlo installs `phlo-observe-plugin` with its `defaults` extra. The plugin translates domain hook events and provides the optional Observatory ingestion service.
 
 ## 2. Generate the service configuration
 
@@ -34,12 +34,34 @@ Start only the services you selected in the generated configuration.
 
 ```bash
 phlo services start
+phlo services start --profile observability
 phlo services status
 ```
 
 The service manifests define the observability profile and service dependencies. They do not make preview services part of the blessed-core default extra.
 
 ## 4. Enable telemetry
+
+The local observability profile sets `OBSERVE_HTTP_ENDPOINT` to its observer and enables concise canonical event output automatically. Set the endpoint explicitly when sending events to another observer. Add a token when the endpoint requires one.
+
+```bash
+export OBSERVE_HTTP_ENDPOINT=http://localhost:10010/v1/events
+export OBSERVE_HTTP_TOKEN=replace-me
+```
+
+To keep the console mode in project configuration, add the settings to the top-level `env` block in `phlo.yaml`:
+
+```yaml
+env:
+  PHLO_OBSERVE_PRETTY: "true"
+  PHLO_OBSERVE_PRETTY_VERBOSE: "false"
+```
+
+Run `phlo services init --profile observability` again after you change the `env` block. Pass the profile each time you regenerate the service configuration.
+
+The default pretty mode prints a concise run narrative and hides routine framework messages. Set `PHLO_OBSERVE_PRETTY_VERBOSE=true` to include secondary diagnostic events and the full framework log stream. Set `PHLO_OBSERVE_PRETTY=false` to disable formatted canonical events in the console. Set `PHLO_OBSERVE_ENABLED=false` to disable canonical event emission, including delivery to the observer.
+
+`PHLO_LOG_FORMAT=console` controls the existing structlog renderer. It does not enable the canonical pretty output.
 
 Set standard OpenTelemetry environment variables when you want traces, metrics, or logs exported through OTLP.
 

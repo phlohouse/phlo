@@ -20,7 +20,7 @@ from phlo_mcp.run_analysis import (
     summarize_run_logs,
 )
 from phlo_mcp.server import create_server
-from phlo_mcp.tracing import render_trace_tree
+from phlo_mcp.tracing import configure_tracing, load_spans, render_trace_tree, get_tracer
 
 
 class _FakeResponse:
@@ -700,3 +700,27 @@ def test_render_trace_tree_formats_tree(tmp_path: Path) -> None:
     assert "Trace aaaaaaaa" in rendered
     assert "mcp.request 4.0ms" in rendered
     assert "mcp.tool.execute 2.0ms [tool=get_platform_health]" in rendered
+
+
+def test_canonical_tracer_preserves_debug_file_nesting(tmp_path: Path) -> None:
+    """The legacy debug file is a drain from canonical operation scopes."""
+    trace_file = tmp_path / "trace.jsonl"
+    configure_tracing(trace_file=str(trace_file))
+
+    tracer = get_tracer()
+    with tracer.start_as_current_span("mcp.request"):
+        with tracer.start_as_current_span(
+            "mcp.tool.execute", attributes={"mcp.tool.name": "get_platform_health"}
+        ):
+            pass
+
+    spans = load_spans(trace_file)
+    by_name = {span["name"]: span for span in spans}
+    assert (
+        by_name["mcp.request"]["context"]["trace_id"]
+        == by_name["mcp.tool.execute"]["context"]["trace_id"]
+    )
+    assert (
+        by_name["mcp.tool.execute"]["context"]["parent_id"]
+        == by_name["mcp.request"]["context"]["span_id"]
+    )

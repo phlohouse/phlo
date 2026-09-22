@@ -14,7 +14,7 @@ dependencies = [
 ]
 description = "OpenTelemetry traces and metrics for Phlo"
 name = "phlo-otel"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.15.4"
 
 [[project.authors]]
@@ -39,7 +39,7 @@ text = "OpenTelemetry instrumentation for Phlo hook events."
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools.package-dir]
 "" = "src"

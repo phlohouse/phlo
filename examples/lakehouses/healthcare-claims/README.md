@@ -51,8 +51,9 @@ Start the platform, then materialize in dependency order, waiting for each WAP
 report in `.phlo/wap-reports/` to reach `promoted`:
 
 ```bash
-uv run phlo services init --force --no-dev
+uv run phlo services init --force --no-dev --profile observability
 uv run phlo services start --build
+uv run phlo services start --profile observability
 uv run phlo doctor
 
 uv run phlo materialize dlt_providers

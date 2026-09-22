@@ -12,7 +12,7 @@ dependencies = [
 ]
 description = "Core plugin package for Phlo"
 name = "phlo-core-plugins"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.15.4"
 
 [[project.authors]]
@@ -45,7 +45,7 @@ text = "Core plugin package for Phlo."
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools.package-dir]
 "" = "src"

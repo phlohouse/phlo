@@ -13,6 +13,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+import phlo.telemetry as phlo_observe
 from phlo.hooks.bus import HookBus, get_hook_bus
 from phlo.hooks.events import (
     DataMigrationEvent,
@@ -469,14 +470,23 @@ class TelemetryEventEmitter(_ContextEmitterBase):
         payload: dict[str, Any] | None = None,
     ) -> None:
         """Emit a telemetry metric event."""
-        self._emit(
+        event = TelemetryEvent(
             event_type="telemetry.metric",
             name=name,
             value=value,
-            level=None,
             unit=unit,
-            payload=payload,
+            payload=payload or {},
+            tags=self._context.tags.copy(),
         )
+        self._emit_event(event)
+        if isinstance(value, (int, float)):
+            phlo_observe.metric(
+                name,
+                value,
+                unit=unit,
+                correlation=_observe_correlation(event.correlation),
+                tags=event.tags,
+            )
 
     def emit_log(
         self,
@@ -488,37 +498,43 @@ class TelemetryEventEmitter(_ContextEmitterBase):
         payload: dict[str, Any] | None = None,
     ) -> None:
         """Emit a telemetry log event."""
-        self._emit(
+        event = TelemetryEvent(
             event_type="telemetry.log",
             name=name,
             value=value,
             level=level,
             unit=unit,
-            payload=payload,
+            payload=payload or {},
+            tags=self._context.tags.copy(),
+        )
+        self._emit_event(event)
+        phlo_observe.emit(
+            "application.log",
+            category="application",
+            severity={"warning": "warn", "fatal": "critical"}.get(level, level),
+            outcome="failure" if level in {"error", "critical", "fatal"} else None,
+            attributes={
+                "logger": "phlo.telemetry",
+                "message": name,
+                **event.payload,
+            },
+            correlation=_observe_correlation(event.correlation),
+            tags=event.tags,
         )
 
-    def _emit(
-        self,
-        *,
-        event_type: str,
-        name: str,
-        value: Any | None,
-        level: str | None,
-        unit: str | None,
-        payload: dict[str, Any] | None,
-    ) -> None:
-        """Emit a telemetry event."""
-        self._emit_event(
-            TelemetryEvent(
-                event_type=event_type,
-                name=name,
-                value=value,
-                level=level,
-                unit=unit,
-                payload=payload or {},
-                tags=self._context.tags.copy(),
-            ),
-        )
+
+def _observe_correlation(correlation: HookCorrelation) -> dict[str, Any]:
+    """Map Phlo hook correlation onto observe-core's canonical keys."""
+    values = {
+        "request_id": correlation.request_id,
+        "trace_id": correlation.trace_id,
+        "span_id": correlation.span_id,
+        "run_id": correlation.run_id,
+        "asset_key": correlation.asset_key,
+        "job_id": correlation.job_name,
+        "partition_key": correlation.partition_key,
+    }
+    return {key: value for key, value in values.items() if value is not None}
 
 
 @dataclass(frozen=True)

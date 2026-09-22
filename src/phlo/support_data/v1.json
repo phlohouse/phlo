@@ -21,6 +21,7 @@
       {"name": "phlo-minio", "version": "0.15.4"},
       {"name": "phlo-nessie", "version": "0.15.4"},
       {"name": "phlo-observatory", "version": "0.16.2"},
+      {"name": "phlo-observe-plugin", "version": "0.1.0"},
       {"name": "phlo-pandera", "version": "0.15.4"},
       {"name": "phlo-postgres", "version": "0.15.4"},
       {"name": "phlo-trino", "version": "0.15.4"}
@@ -62,6 +63,7 @@
         "package:phlo-minio",
         "package:phlo-nessie",
         "package:phlo-observatory",
+        "package:phlo-observe-plugin",
         "package:phlo-pandera",
         "package:phlo-postgres",
         "package:phlo-trino",
@@ -119,7 +121,6 @@
         "package:phlo-kafka",
         "package:phlo-loki",
         "package:phlo-mcp",
-        "package:phlo-observe-plugin",
         "package:phlo-openmetadata",
         "package:phlo-polaris",
         "package:phlo-prometheus",
@@ -510,10 +511,10 @@
     },
     {
       "name": "phlo-observe-plugin",
-      "scope": "optional",
-      "target_status": "preview",
-      "current_maturity": "preview",
-      "reason": "Hook translation, Dagster run sensors, and provider instrumentation are implemented and unit-tested; the phlo-observe SDK is not yet published and the observer service lacks release-gate evidence.",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "The default observability bridge translates Phlo hooks and provider instrumentation into phlo-observe events; focused tests cover the integration while shared release gates still control readiness.",
       "evidence": [
         "packages/phlo-observe-plugin/pyproject.toml",
         "packages/phlo-observe-plugin/tests"
@@ -1379,6 +1380,22 @@
         ]
       },
       {
+        "name": "package:phlo-observe-plugin",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence"
+        ]
+      },
+      {
         "name": "package:phlo-pandera",
         "status": "blocked",
         "applicable_gates": [
@@ -1768,16 +1785,15 @@
   },
   "runtime": {
     "python": {
-      "minimum": "3.11",
+      "minimum": "3.12",
       "supported": [
-        "3.11",
         "3.12"
       ],
       "unverified": [
         "3.13",
         "3.14+"
       ],
-      "reason": "Only 3.11 and 3.12 execute in the CI matrix.",
+      "reason": "Python 3.12 is the minimum version and executes in the CI matrix.",
       "evidence": [
         "pyproject.toml",
         ".github/workflows/ci.yml"

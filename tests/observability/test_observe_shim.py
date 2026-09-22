@@ -1,13 +1,9 @@
-"""Tests for the phlo.telemetry soft-import shim.
-
-The phlo-observe SDK is an optional dependency (Python >=3.12 only). These
-tests exercise the shim's degraded path — every helper must no-op cleanly
-when the SDK is absent, and instrumentation call sites must be unaffected.
-"""
+"""Tests for the fail-open phlo.telemetry bridge."""
 
 from __future__ import annotations
 
 import contextlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -80,6 +76,153 @@ def test_emit_noop() -> None:
     )
     phlo_observe.emit_dbt_run_results({"results": []})
     phlo_observe.emit_asset_check(object(), check_name="x", passed=True)
+
+
+def test_nested_dbt_results_keep_ambient_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+    payloads = [
+        {
+            "event": "dbt.invocation",
+            "category": "pipeline",
+            "outcome": "success",
+            "correlation": {"run_id": "dbt-1", "invocation_id": "dbt-1"},
+            "entities": {"run": "run://dbt/dbt-1"},
+            "attributes": {"results_count": 1},
+        }
+    ]
+
+    monkeypatch.setattr(phlo_observe, "_sdk_module", lambda: object())
+    monkeypatch.setattr(phlo_observe, "configure", lambda: True)
+    monkeypatch.setattr(phlo_observe, "ambient_run_id", lambda: "dagster-1")
+    monkeypatch.setattr(phlo_observe, "run_entity_id", lambda: "run://dagster/dagster-1")
+    monkeypatch.setattr(
+        phlo_observe,
+        "_import_optional",
+        lambda _module, attr=None: (
+            (lambda _document: payloads) if attr == "run_results_events" else (lambda _document: 0)
+        ),
+    )
+    monkeypatch.setattr(
+        phlo_observe,
+        "emit",
+        lambda name, **kwargs: emitted.append((name, kwargs)),
+    )
+
+    assert phlo_observe.emit_dbt_run_results({"results": []}) == 1
+    assert emitted == [
+        (
+            "transform.invocation",
+            {
+                "category": "pipeline",
+                "severity": None,
+                "outcome": "success",
+                "duration_ms": None,
+                "attributes": {"results_count": 1},
+                "correlation": {"invocation_id": "dbt-1"},
+                "entities": {"run": "run://dagster/dagster-1"},
+                "producer": "dbt",
+            },
+        )
+    ]
+
+
+def test_nested_dlt_run_uses_non_terminal_stage_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+    pipeline = SimpleNamespace(
+        pipeline_name="users",
+        destination_name="filesystem",
+        dataset_name="staging",
+    )
+    scope = object()
+    monkeypatch.setattr(
+        phlo_observe,
+        "observe",
+        lambda name, **kwargs: calls.append((name, kwargs)) or scope,
+    )
+
+    assert phlo_observe.dlt_pipeline_run(pipeline) is scope
+    assert calls == [
+        (
+            "ingestion.stage",
+            {
+                "category": "pipeline",
+                "attributes": {
+                    "pipeline_name": "users",
+                    "destination": "filesystem",
+                    "dataset_name": "staging",
+                },
+                "correlation": {"pipeline": "users"},
+                "producer": "dlt",
+            },
+        )
+    ]
+
+
+def test_metric_uses_observe_core_metric(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, float, dict[str, object]]] = []
+
+    class _Core:
+        @staticmethod
+        def metric(name: str, value: float, **kwargs: object) -> None:
+            calls.append((name, value, kwargs))
+
+    monkeypatch.setattr(phlo_observe, "_observe_core", lambda: _Core())
+    monkeypatch.setattr(phlo_observe, "enabled", lambda: True)
+
+    phlo_observe.metric(
+        "rows_processed",
+        12,
+        unit="rows",
+        correlation={"run_id": "run-1"},
+        tags={"asset": "raw.users"},
+    )
+
+    assert calls == [
+        (
+            "rows_processed",
+            12.0,
+            {
+                "dimensions": {"unit": "rows"},
+                "correlation": {"run_id": "run-1"},
+                "tags": {"asset": "raw.users"},
+            },
+        )
+    ]
+
+
+def test_logging_context_is_mirrored_into_observe_core(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bound: list[dict[str, object]] = []
+    reset: list[str] = []
+
+    class Token:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def reset(self) -> None:
+            reset.append(self.name)
+
+    tokens = iter((Token("first"), Token("second")))
+    monkeypatch.setattr(
+        phlo_observe,
+        "_import_optional",
+        lambda module, attr=None: (
+            (lambda **fields: (bound.append(fields), next(tokens))[1])
+            if attr == "bind_context_token"
+            else None
+        ),
+    )
+
+    phlo_observe.bind_logging_context(run_id="run-1", path="/health")
+    phlo_observe.bind_logging_context(asset_key="raw.users")
+    phlo_observe.clear_logging_context()
+
+    assert bound == [
+        {"run_id": "run-1", "path": "/health"},
+        {"asset_key": "raw.users"},
+    ]
+    assert reset == ["second", "first"]
 
 
 def test_enabled_false_without_sdk(monkeypatch: pytest.MonkeyPatch) -> None:

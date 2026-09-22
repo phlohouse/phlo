@@ -1,10 +1,4 @@
-"""Tests for phlo-observe instrumentation in the DLT staging path.
-
-``stage_to_parquet`` owns a run-terminal ``dlt.pipeline.run`` event: it binds
-a provisional run id up front (so a failure inside a retried Dagster step can
-never poison the enclosing run's status) and rebinds to the real DLT load id
-once ``pipeline.run`` returns.
-"""
+"""Tests for phlo-observe instrumentation in the DLT staging path."""
 
 from __future__ import annotations
 
@@ -69,7 +63,7 @@ def _load_info(load_id: str | None = "load-1") -> MagicMock:
     return info
 
 
-def test_stage_to_parquet_rebinds_run_id_to_load_id(
+def test_stage_to_parquet_rebinds_invocation_id_to_load_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     sink = _patch_observe(monkeypatch)
@@ -81,9 +75,9 @@ def test_stage_to_parquet_rebinds_run_id_to_load_id(
     correlations = [v for kind, v in sink if kind == "set_correlation"]
     # First binding is provisional (<pipeline>-<ulid>), then the real load id.
     assert len(correlations) == 2
-    provisional = correlations[0]["run_id"]
+    provisional = correlations[0]["invocation_id"]
     assert provisional.startswith("users-")
-    assert correlations[1] == {"run_id": "load-1"}
+    assert correlations[1] == {"invocation_id": "load-1"}
     assert ("set", {"load_id": "load-1"}) in sink
 
 
@@ -95,8 +89,7 @@ def test_stage_to_parquet_failure_records_exception_in_scope(
 
     with pytest.raises(RuntimeError, match="no load info"):
         stage_to_parquet(MagicMock(), _pipeline(None), MagicMock(), tmp_path)
-    # The run scope exited with the RuntimeError, so the terminal
-    # dlt.pipeline.run event records failure rather than success.
+    # The stage scope exited with the RuntimeError, so the event records failure.
     exits = [v for kind, v in sink if kind == "exit"]
     assert exits[-1] is RuntimeError
 
@@ -112,10 +105,9 @@ def test_stage_to_parquet_failed_jobs_records_exception(
 
     with pytest.raises(RuntimeError, match="failed loader jobs"):
         stage_to_parquet(MagicMock(), pipeline, MagicMock(), tmp_path)
-    # The failed-jobs check sits inside the run scope so the terminal
-    # dlt.pipeline.run event records failure against the real load id.
+    # The failed-jobs check sits inside the stage scope and keeps the load id.
     correlations = [v for kind, v in sink if kind == "set_correlation"]
-    assert correlations[-1] == {"run_id": "load-1"}
+    assert correlations[-1] == {"invocation_id": "load-1"}
     exits = [v for kind, v in sink if kind == "exit"]
     assert exits[-1] is RuntimeError
     # The diagnostic stash must be set even on failure — a failed load's

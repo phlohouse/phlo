@@ -22,7 +22,7 @@ requires = ["setuptools>=75", "wheel"]
 [project]
 description = "{description}"
 name = "{project_name}"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.1.0"
 dependencies = [
 {dependencies}
@@ -38,7 +38,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
@@ -89,8 +89,9 @@ class RetailFilesTemplate:
             "docs/retail-files-e2e.md",
         ),
         next_steps=(
-            "phlo services init --force --no-dev",
+            "phlo services init --force --no-dev --profile observability",
             "phlo services start --build",
+            "phlo services start --profile observability",
             "phlo doctor",
             "uv run python scripts/generate_fixtures.py --scale default",
             "phlo materialize retail_wap_job --partition 2025-01-15",

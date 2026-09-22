@@ -117,8 +117,9 @@ Start the platform and source database:
 ```bash
 docker compose up -d
 uv run python scripts/seed_postgres.py
-uv run phlo services init --force --no-dev
+uv run phlo services init --force --no-dev --profile observability
 uv run phlo services start --build
+uv run phlo services start --profile observability
 ```
 
 Serve the evolved batch replay (only needed when materializing the T06

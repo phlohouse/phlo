@@ -9,7 +9,7 @@ requires = [
 dependencies = ["phlo>=0.16.2,<0.17"]
 description = "Phlo Observatory - Data platform UI (bundled with phlo core)"
 name = "phlo-observatory"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.16.2"
 
 [[project.authors]]
@@ -35,7 +35,7 @@ text = "Phlo Observatory - Data platform visibility and lineage UI."
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools]
 include-package-data = true

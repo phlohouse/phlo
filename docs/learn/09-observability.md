@@ -16,7 +16,7 @@ Use the signals in that order when a user reports a problem. First identify the 
 
 Dagster is the first place to inspect an asset run. The Runs view shows status, partition, steps, and logs. The asset page shows materialisations and checks. `phlo status` reads asset and service state, while `phlo logs` reads infrastructure service logs.
 
-Observatory provides a user-facing view of platform and run information. The `phlo-observatory` package supplies the UI and routes. The optional `phlo-observe-plugin` package translates events for its Observatory service. Run evidence can use local `.phlo/run-evidence.sqlite` storage or PostgreSQL when `PHLO_RUN_EVIDENCE_DB_URL` is set.
+Observatory provides a user-facing view of platform and run information. The `phlo-observatory` package supplies the UI and routes. The default `phlo-observe-plugin` package translates events for its Observatory service. Run evidence can use local `.phlo/run-evidence.sqlite` storage or PostgreSQL when `PHLO_RUN_EVIDENCE_DB_URL` is set.
 
 The optional stack is useful when several people need the same operational view. OpenTelemetry carries events, Alloy routes telemetry, Loki stores logs, Prometheus stores metrics, and Grafana presents dashboards. ClickStack provides a separate telemetry view. These components add collection and presentation. They do not replace the Dagster run record.
 

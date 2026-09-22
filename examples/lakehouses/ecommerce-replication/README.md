@@ -54,8 +54,9 @@ uv run phlo validate-workflow workflows/sources/commerce_postgres/__init__.py
 Start the platform and replicate:
 
 ```bash
-uv run phlo services init --force --no-dev
+uv run phlo services init --force --no-dev --profile observability
 uv run phlo services start --build
+uv run phlo services start --profile observability
 uv run phlo doctor
 uv run phlo dbt compile
 ```

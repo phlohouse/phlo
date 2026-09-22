@@ -30,7 +30,7 @@ NESSIE_ADMIN_IMAGE = "ghcr.io/projectnessie/nessie-server-admin@sha256:ffccc83ad
 MC_IMAGE = (
     "quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727"
 )
-HELPER_IMAGE = "python@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93"
+HELPER_IMAGE = "python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9"
 OWNER_MARKER = ".phlo-recovery-drill-owner.json"
 
 
@@ -336,6 +336,9 @@ def prepare_helper(directory: Path) -> None:
             "--locked",
             "--package",
             "phlo-iceberg",
+            "--no-dev",
+            "--prune",
+            "phlo",
             "--no-emit-workspace",
             "--no-editable",
             "--format",

@@ -63,7 +63,7 @@ PHLO_PRESENTATION: dict[str, Any] = {
             Field("attributes.job_name", label="Job", suppress=_anonymous_job_name),
             Field("attributes.dagster_status", label="Status"),
             Field("attributes.attempt", label="Attempt"),
-            Field("correlation.branch", label="Branch"),
+            Field("correlation.branch", label="Branch", visibility="secondary"),
             Field("attributes.asset_keys", label="Assets", visibility="secondary"),
             Field(
                 "attributes.phlo_run_id",
@@ -135,6 +135,7 @@ PHLO_PRESENTATION: dict[str, Any] = {
         fields=[
             Field("attributes.table_name", label="Table"),
             Field("attributes.rows_processed", label="Rows", format="integer"),
+            Field("attributes.rows_inserted", label="Rows", format="integer"),
             Field("attributes.group_name", label="Group"),
             Field("attributes.catalog_system", label="Catalog", visibility="secondary"),
             Field("attributes.status", label="Status", visibility="secondary"),
@@ -295,8 +296,8 @@ PHLO_PRESENTATION: dict[str, Any] = {
         ],
     ),
     # -- Sources: dlt / dbt --------------------------------------------------------
-    "dlt.pipeline.run": EventPresentation(
-        label="DLT load",
+    "ingestion.stage": EventPresentation(
+        label="Stage",
         fields=[
             Field("attributes.pipeline_name", label="Pipeline"),
             Field("attributes.destination", label="Destination"),
@@ -319,7 +320,7 @@ PHLO_PRESENTATION: dict[str, Any] = {
             ),
         ],
     ),
-    "dbt.invocation": EventPresentation(
+    "transform.invocation": EventPresentation(
         label="dbt run",
         fields=[
             Field("attributes.dbt_version", label="dbt"),
@@ -348,7 +349,7 @@ PHLO_PRESENTATION: dict[str, Any] = {
     ),
     # -- Storage / query ------------------------------------------------------------
     "iceberg.commit": EventPresentation(
-        label="Iceberg commit",
+        label="Commit",
         fields=[
             Field("correlation.table", label="Table"),
             Field("attributes.operation", label="Op"),
@@ -509,7 +510,15 @@ PHLO_PRESENTATION: dict[str, Any] = {
     # -- Application / observer-internal ------------------------------------------------
     "application.start": EventPresentation(label="Start"),
     "application.stop": EventPresentation(label="Stop"),
-    "application.log": EventPresentation(label="Log", visibility="secondary"),
+    "application.log": EventPresentation(
+        label="Log",
+        visibility="secondary",
+        fields=[
+            Field("attributes.message", label="Message"),
+            Field("attributes.logger", label="Logger", visibility="secondary"),
+            Field("attributes.level", label="Level", visibility="secondary"),
+        ],
+    ),
     # Observer-internal pipeline stages — bookkeeping for the service, not
     # run output a human follows. Escalated failures still surface.
     "observer.ingest": EventPresentation(label="Ingest", visibility="hidden"),
@@ -528,7 +537,7 @@ _STACKED_EVENTS = frozenset(
     {
         "ingestion.load",
         "iceberg.commit",
-        "dlt.pipeline.run",
+        "ingestion.stage",
         "wap.promote",
         "wap.reject",
     }

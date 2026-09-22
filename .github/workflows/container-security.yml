@@ -101,8 +101,8 @@ jobs:
           TARGETS: ${{ needs.affected.outputs.matrix }}
         run: |
           set -euo pipefail
-          uv python install 3.11
-          uv sync --python 3.11 --all-packages --locked
+          uv python install 3.12
+          uv sync --python 3.12 --all-packages --locked
           mapfile -t services < <(jq -r '.include[].service' <<< "$TARGETS")
           project="$RUNNER_TEMP/generated-service-project"
           mkdir -p "$project"

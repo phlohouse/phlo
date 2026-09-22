@@ -126,6 +126,22 @@ Environment names are case-insensitive. Core fields use explicit aliases in `src
 | `PLUGIN_REGISTRY_CACHE_TTL_SECONDS` | `3600` | Registry cache lifetime. |
 | `PLUGIN_REGISTRY_TIMEOUT_SECONDS` | `10` | Registry request timeout. |
 
+### Canonical observability settings
+
+The observability profile writes the local observer endpoint and enables concise pretty output. You can override these values in the top-level `env` block in `phlo.yaml`, a project environment file, or the process environment.
+
+| Variable | Profile default | Meaning |
+| --- | --- | --- |
+| `OBSERVE_HTTP_ENDPOINT` | `http://localhost:10010/v1/events` | Send canonical events to this ingest endpoint. Setting an endpoint enables canonical event emission. |
+| `OBSERVE_HTTP_TOKEN` | unset | Bearer token for the observer ingest endpoint. |
+| `OBSERVE_HTTP_API_KEY` | unset | API key for the observer ingest endpoint. |
+| `OBSERVE_DRAINS` | unset | Comma-separated observe drains. Use `pretty` to select Phlo's formatted console drain explicitly. |
+| `PHLO_OBSERVE_ENABLED` | inferred | Set to `false` to disable canonical event emission. Set to `true` to enable SDK defaults without an endpoint. |
+| `PHLO_OBSERVE_PRETTY` | `true` | Print canonical events as a concise run narrative. |
+| `PHLO_OBSERVE_PRETTY_VERBOSE` | `false` | Include secondary events, diagnostic fields, and the full framework log stream in pretty output. |
+
+`PHLO_LOG_FORMAT` configures the structlog console renderer. It does not enable canonical pretty output. See [Add observability](../guides/add-observability.md) for the setup commands and a `phlo.yaml` example.
+
 ### Default-stack settings
 
 #### DagsterSettings

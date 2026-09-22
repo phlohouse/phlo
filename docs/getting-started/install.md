@@ -4,7 +4,7 @@ This page gets the `phlo` command working on your machine. When you finish, cont
 
 ## Prerequisites
 
-- Python 3.11 or 3.12. Newer versions can resolve but are not tested in CI.
+- Python 3.12 or newer. Python 3.12 is tested in CI.
 - [uv](https://docs.astral.sh/uv/getting-started/installation/).
 - Docker with Compose v2. Podman with a Compose provider works in experiments but is not tested in CI.
 - 8 GB of RAM and 20 GB of disk for the local stack.
@@ -22,7 +22,7 @@ source .venv/bin/activate
 uv pip install "phlo[defaults]"
 ```
 
-The `defaults` extra installs the packages that the local stack needs: `phlo-dagster`, `phlo-dlt`, `phlo-pandera`, `phlo-dbt`, `phlo-iceberg`, `phlo-nessie`, `phlo-minio`, `phlo-trino`, `phlo-postgres`, `phlo-api`, `phlo-observatory`, and `phlo-core-plugins`.
+The `defaults` extra installs the packages that the local stack needs: `phlo-dagster`, `phlo-dlt`, `phlo-pandera`, `phlo-dbt`, `phlo-iceberg`, `phlo-nessie`, `phlo-minio`, `phlo-trino`, `phlo-postgres`, `phlo-api`, `phlo-observatory`, `phlo-observe-plugin`, and `phlo-core-plugins`.
 
 Check the install:
 

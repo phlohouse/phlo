@@ -16,7 +16,7 @@ full chain executes for real:
 The captured envelopes must form one correlated history on the physical
 Dagster run id — the contract the observer reconstructs runs from.
 
-The SDK requires Python >=3.12; the module skips cleanly on 3.11.
+The module skips cleanly when its external services are unavailable.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ pytest.importorskip("phlo_observe", reason="phlo-observe SDK not installed")
 dagster = pytest.importorskip("dagster", reason="dagster not installed")
 
 import phlo.telemetry as phlo_observe  # noqa: E402
+from phlo.logging import get_logger  # noqa: E402
 
 
 def _backend() -> Any:
@@ -88,6 +89,7 @@ def _build_ingesting_asset(bus: Any):
     def _run(runtime: Any) -> list[Any]:
         # Mirror production capability code: emit ingestion + quality hook
         # events through the bus, then report materialization + check results.
+        get_logger("test.dagster.e2e").warning("slow_source_read", rows=5)
         ingestion = IngestionEventEmitter(
             IngestionEventContext(
                 asset_key="bronze.users",
@@ -138,7 +140,12 @@ def test_dagster_materialization_produces_correlated_canonical_history(
     result = dagster.materialize([_build_ingesting_asset(bus)])
     assert result.success
 
-    payloads = captured.payloads()
+    physical_run = result.run_id
+    payloads = [
+        payload
+        for payload in captured.payloads()
+        if payload["correlation"].get("run_id") == physical_run
+    ]
     names = [p.get("event") for p in payloads]
 
     # The real execution path produced every expected canonical event:
@@ -147,11 +154,11 @@ def test_dagster_materialization_produces_correlated_canonical_history(
     # boundary event.
     assert "ingestion.extract" in names
     assert "ingestion.load" in names
+    assert "application.log" in names
     assert "asset.materialize" in names
     assert "pipeline.step" in names
     assert names.count("quality.check") == 2  # hook translation + CheckResult path
 
-    physical_run = result.run_id
     for payload in payloads:
         # Every event correlates to the physical Dagster run id — the key the
         # observer groups the run timeline by.
@@ -185,6 +192,13 @@ def test_dagster_materialization_produces_correlated_canonical_history(
     load = by_name["ingestion.load"]
     assert load["entities"].get("table") == "table://bronze.users"
     assert load["entities"].get("branch") == "branch://nessie/pipeline-run-e2e"
+    application_log = next(
+        payload
+        for payload in payloads
+        if payload["event"] == "application.log"
+        and payload["attributes"]["logger"] == "test.dagster.e2e"
+    )
+    assert application_log["attributes"]["message"] == "slow_source_read"
 
     # The step boundary event carries measured timing and success outcome.
     step = by_name["pipeline.step"]
@@ -389,7 +403,7 @@ def _wap_lifecycle(bus: Any, physical: str | None, logical: str, *, fail: bool) 
     )
     # The source pipeline's own completion record (dlt integration).
     phlo_observe.emit(
-        "dlt.pipeline.run",
+        "ingestion.stage",
         category="data",
         outcome="success",
         producer="dlt",
@@ -401,7 +415,7 @@ def _wap_lifecycle(bus: Any, physical: str | None, logical: str, *, fail: bool) 
             "rows_loaded": 12481,
             "tables": [WAP_TABLE],
         },
-        correlation={"pipeline": "users_ingest"},
+        correlation={"pipeline": "users_ingest", "invocation_id": "1726657408.123456"},
     )
 
     # Column-level quality results on the staged data — the one that fails
@@ -569,8 +583,8 @@ def _terminal_run_event(result: Any, *, fail: bool) -> None:
 
 
 def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
-    """The production-path run keeps an exhaustive canonical stream while
-    the default human view stays selective."""
+    """The production-path run keeps its operational stream while the default
+    human view stays selective."""
     from phlo_observe_plugin.presentation import render_events
 
     result = dagster.materialize([_build_wap_asset(bus)])
@@ -578,14 +592,16 @@ def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
     _terminal_run_event(result, fail=False)
 
     payloads = captured.payloads()
-    names = [p.get("event") for p in payloads]
-    assert names == [
+    operational_names = [
+        payload.get("event") for payload in payloads if payload.get("event") != "application.log"
+    ]
+    assert operational_names == [
         "wap.branch.create",
         "nessie.branch.create",
         "ingestion.extract",
         "ingestion.load",
         "iceberg.commit",
-        "dlt.pipeline.run",
+        "ingestion.stage",
         "quality.check",
         "wap.validate",
         "wap.promote",
@@ -600,6 +616,15 @@ def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
         "pipeline.run",
     ]
 
+    dlt_event = next(payload for payload in payloads if payload.get("event") == "ingestion.stage")
+    assert dlt_event["correlation"]["run_id"] == result.run_id
+    assert dlt_event["correlation"]["invocation_id"] == "1726657408.123456"
+    assert {
+        payload["event"]: payload.get("correlation", {}).get("run_id")
+        for payload in payloads
+        if payload.get("event") != "application.log"
+    } == dict.fromkeys(operational_names, result.run_id)
+
     # Default: thirteen operational events tell the story — the full WAP
     # lifecycle, the extract→load pair, the DLT run, both commits, checks,
     # the step, the materialization, the run's outcome. Field-dense events
@@ -612,11 +637,11 @@ def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
         f"TT:TT:TT.ttt ✓ Load  {WAP_TABLE}\n"
         "    Rows   12,481\n"
         "    Group  bronze\n"
-        f"TT:TT:TT.ttt ✓ Iceberg commit  {WAP_TABLE}\n"
+        f"TT:TT:TT.ttt ✓ Commit  {WAP_TABLE}\n"
         "    Op       append\n"
         "    Rows +   12,481\n"
         "    Files +  3\n"
-        "TT:TT:TT.ttt ✓ DLT load  users_ingest\n"
+        "TT:TT:TT.ttt ✓ Stage  users_ingest\n"
         "    Destination  iceberg\n"
         "    Dataset      bronze\n"
         "    Rows         12,481\n"
@@ -632,7 +657,7 @@ def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
         f"TT:TT:TT.ttt ✓ Check  Check: schema_ok  Asset: {WAP_ASSET}\n"
         f"TT:TT:TT.ttt ✓ Step  Asset: {WAP_ASSET}  Op: bronze__users  <dur>\n"
         f"TT:TT:TT.ttt ✓ Materialize  Asset: {WAP_ASSET}  Rows: 12,481\n"
-        f"TT:TT:TT.ttt ✓ Run  Status: SUCCESS  Branch: {WAP_STAGING_REF}"
+        "TT:TT:TT.ttt ✓ Run  Status: SUCCESS"
     )
 
     # Verbose: the plumbing-level events indent alongside, and the stacked
@@ -674,7 +699,7 @@ def test_wap_rejection_golden_ux(captured: Any, bus: Any) -> None:
     assert "    Merge  rejected_quality" in out
     assert "    quality gate rejected: check 'not_null' failed" in out
     # The run's terminal line carries the failed outcome.
-    assert f"✕ Run  Status: FAILURE  Branch: {WAP_STAGING_REF}" in out
+    assert "✕ Run  Status: FAILURE" in out
     # The failed load's error surfaces under the stacked block.
     assert f"✕ Load  {WAP_TABLE}" in out
     assert "    source read blew up" in out

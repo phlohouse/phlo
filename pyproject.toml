@@ -30,6 +30,7 @@ dev = [
     "phlo-nessie>=0.3.2",
     "phlo-observatory>=0.1.0",
     "phlo-observe-plugin>=0.1.0",
+    "phlo-observe>=0.2.3,<0.3",
     "phlo-polaris>=0.1.0",
     "phlo-observatory-example>=0.1.0",
     "phlo-openmetadata>=0.1.0",
@@ -45,13 +46,6 @@ dev = [
     "phlo-testing>=0.1.0",
     "phlo-traefik>=0.1.0",
     "phlo-trino>=0.1.0",
-    # phlo-observe SDK: unpublished and Python >=3.12 only, so it is a
-    # marker-gated dev dependency resolved from the pinned V2 commit (the same
-    # commit the Dagster image installs via PHLO_OBSERVE_SDK). Without it the
-    # observability e2e tests skip and the phlo.telemetry shim stays inert.
-    "observe-core>=0.1.0; python_version >= '3.12'",
-    "observe-query>=0.1.0; python_version >= '3.12'",
-    "phlo-observe>=0.1.0; python_version >= '3.12'",
     "asyncpg>=0.30.0",
     "dagster>=1.13,<1.14",
     "dagster-webserver>=1.13,<1.14",
@@ -76,7 +70,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: GNU Affero General Public License v3",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Database",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -95,7 +88,7 @@ description = "Lakehouse platform"
 license = "AGPL-3.0-or-later"
 name = "phlo"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.16.2"
 
 [project.entry-points."phlo.plugins.quality"]
@@ -126,13 +119,11 @@ defaults = [
     "phlo-minio>=0.3.2",
     "phlo-nessie>=0.3.2",
     "phlo-observatory>=0.1.0",
+    "phlo-observe-plugin>=0.1.0",
     "phlo-trino>=0.1.0",
 ]
-# Preview integration: the phlo-observe SDK is not yet published, so the
-# plugin stays opt-in rather than riding `defaults` (published defaults may
-# only advertise blessed_core/supported packages). Installing this extra makes
-# the hook translator, Dagster sensors, and phlo-observer service definitions
-# discoverable; emission still requires the SDK and OBSERVE_HTTP_ENDPOINT.
+# Explicit alias for installations that want the observe plugin without the
+# rest of Phlo's default integration packages.
 observe = ["phlo-observe-plugin>=0.1.0"]
 openmetadata = ["phlo-openmetadata>=0.1.0"]
 runtime = [
@@ -188,7 +179,7 @@ testpaths = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 ignore = ["E501"]
@@ -247,7 +238,7 @@ extra-paths = [
     "packages/phlo-traefik/src",
     "packages/phlo-trino/src",
 ]
-python-version = "3.11"
+python-version = "3.12"
 root = ["./src"]
 
 [tool.ty.rules]
@@ -267,26 +258,6 @@ unsupported-operator = "error"
 
 [tool.ty.src]
 exclude = ["**/testing/**"]
-
-[tool.uv.sources.observe-core]
-git = "https://github.com/phlohouse/phlo-observe.git"
-subdirectory = "packages/observe-core"
-tag = "observe-core/v0.3.0"
-marker = "python_version >= '3.12'"
-
-# observe-query has no release of its own; the tag names the monorepo
-# release commit it was verified at.
-[tool.uv.sources.observe-query]
-git = "https://github.com/phlohouse/phlo-observe.git"
-subdirectory = "packages/observe-query"
-tag = "phlo-observe/v0.2.1"
-marker = "python_version >= '3.12'"
-
-[tool.uv.sources.phlo-observe]
-git = "https://github.com/phlohouse/phlo-observe.git"
-subdirectory = "packages/phlo-observe-sdk"
-tag = "phlo-observe/v0.2.1"
-marker = "python_version >= '3.12'"
 
 [tool.uv.sources.phlo]
 workspace = true

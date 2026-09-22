@@ -152,7 +152,7 @@
           "additionalProperties": false,
           "required": ["minimum", "supported", "advertised_unverified", "unverified", "reason", "evidence"],
           "properties": {
-            "minimum": { "const": "3.11" },
+            "minimum": { "const": "3.12" },
             "supported": { "type": "array", "items": { "type": "string" } },
             "advertised_unverified": { "type": "array", "items": { "type": "string" } },
             "unverified": { "type": "array", "items": { "type": "string" } },

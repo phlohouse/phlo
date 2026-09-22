@@ -8,7 +8,7 @@ The table's **target status** is the intended boundary, not a production-readine
 
 | Extra | Packages |
 | --- | --- |
-| `defaults` | `phlo-core-plugins`, `phlo-api`, `phlo-iceberg`, `phlo-dlt`, `phlo-dbt`, `phlo-pandera`, `phlo-dagster`, `phlo-postgres`, `phlo-minio`, `phlo-nessie`, `phlo-observatory`, `phlo-trino` |
+| `defaults` | `phlo-core-plugins`, `phlo-api`, `phlo-iceberg`, `phlo-dlt`, `phlo-dbt`, `phlo-pandera`, `phlo-dagster`, `phlo-postgres`, `phlo-minio`, `phlo-nessie`, `phlo-observatory`, `phlo-observe-plugin`, `phlo-trino` |
 
 ## Package index
 
@@ -24,6 +24,7 @@ The table's **target status** is the intended boundary, not a production-readine
 | `phlo-minio` | S3-compatible object storage | supported |
 | `phlo-nessie` | Nessie catalog | supported |
 | `phlo-observatory` | Run and platform UI | supported |
+| `phlo-observe-plugin` | Canonical observability integration | supported |
 | `phlo-pandera` | Data quality | supported |
 | `phlo-postgres` | Postgres service | supported |
 | `phlo-trino` | Trino query engine | supported |
@@ -44,7 +45,6 @@ The table's **target status** is the intended boundary, not a production-readine
 | `phlo-kafka` | Kafka ingestion | preview |
 | `phlo-loki` | Log storage | preview |
 | `phlo-mcp` | MCP server | preview |
-| `phlo-observe-plugin` | Observatory event translation | preview |
 | `phlo-openmetadata` | Metadata catalog | preview |
 | `phlo-polaris` | Polaris catalog | preview |
 | `phlo-prometheus` | Metrics storage | preview |
@@ -214,7 +214,7 @@ Provides the MCP server, tools, prompts, and package documentation resources. In
 
 ## phlo-observe-plugin
 
-Provides hook translation, Dagster run sensors, and provider instrumentation for Observatory. Install with `pip install phlo-observe-plugin`. Support tier: preview. No packaged README exists for this package.
+Provides hook translation, Dagster run sensors, and provider instrumentation for Observatory. Install with `pip install phlo-observe-plugin`. Support tier: supported. See the package README for integration and service details.
 
 **Enable:** Add the `phlo-observer` service. **Settings:** Set `PHLO_OBSERVER_PORT`, `PHLO_OBSERVER_DATABASE_URL`, and the ingest, read, and admin token settings. **Runs through Dagster as:** A consumer of Dagster and hook events rather than an asset definition provider.
 

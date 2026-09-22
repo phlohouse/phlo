@@ -94,10 +94,10 @@ def build_wheelhouse(repo_root: Path, wheelhouse: Path) -> dict[str, Path]:
 
 
 def clean_environment(base: Path) -> tuple[Path, Path]:
-    """Create a fresh Python 3.11 venv and consumer project directory under ``base``."""
+    """Create a fresh Python 3.12 venv and consumer project directory under ``base``."""
     environment = base / "environment"
     consumer = base / "consumer"
-    _run(["uv", "venv", str(environment), "--python", "3.11"], cwd=base)
+    _run(["uv", "venv", str(environment), "--python", "3.12"], cwd=base)
     consumer.mkdir()
     return environment, consumer
 

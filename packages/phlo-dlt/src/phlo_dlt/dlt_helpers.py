@@ -376,19 +376,13 @@ def stage_to_parquet(
         pipeline_name=getattr(pipeline, "pipeline_name", ""),
     )
 
-    # dlt.pipeline.run is a run-boundary (terminal) event in phlo-observe.
-    # It must own its own run row (run://dlt/<load_id>) rather than fold into
-    # the ambient Dagster run: explicit correlation beats ambient, so the
-    # load_id is rebound once known. Trace/job/partition context still merges
-    # in from the enclosing Dagster scope.
+    # DLT staging is nested work in the enclosing Dagster run. Keep the load
+    # identity as an invocation rather than creating a second observer run.
     with phlo_observe.dlt_pipeline_scope(pipeline):
         with phlo_observe.dlt_pipeline_run(pipeline) as dlt_run:
-            # Bind a provisional run id up front: dlt.pipeline.run is terminal,
-            # and a failure inside a retried Dagster step must never poison the
-            # enclosing run's status (observer precedence is monotonic). The
-            # real load_id replaces it once pipeline.run returns.
+            phlo_observe.bind_run_entity(dlt_run)
             dlt_run.set_correlation(
-                run_id=f"{getattr(pipeline, 'pipeline_name', 'dlt')}-{ulid.ULID()}"
+                invocation_id=f"{getattr(pipeline, 'pipeline_name', 'dlt')}-{ulid.ULID()}"
             )
             load_info: LoadInfo = pipeline.run(dlt_source, loader_file_format="parquet")
             if load_info is None:
@@ -414,11 +408,11 @@ def stage_to_parquet(
                         load_id = load_ids[0]
                         break
             if load_id is not None:
-                dlt_run.set_correlation(run_id=str(load_id))
+                dlt_run.set_correlation(invocation_id=str(load_id))
             dlt_run.set(**phlo_observe.dlt_load_info_attributes(load_info))
 
-            # Load-outcome validation lives inside the scope so the terminal
-            # dlt.pipeline.run event records the failure it causes.
+            # Load-outcome validation lives inside the scope so the stage event
+            # records the failure it causes.
             if not load_info.load_packages:
                 logger.error(
                     "dlt_stage_to_parquet_missing_load_packages",

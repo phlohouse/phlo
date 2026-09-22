@@ -7,9 +7,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Find-Python311 {
+function Find-Python312 {
     $candidates = @(
-        @{ Name = "py"; PrefixArguments = @("-3.11") },
+        @{ Name = "py"; PrefixArguments = @("-3.12") },
         @{ Name = "python"; PrefixArguments = @() },
         @{ Name = "python3"; PrefixArguments = @() }
     )
@@ -23,7 +23,7 @@ function Find-Python311 {
 
         $prefixArguments = [string[]]$candidate.PrefixArguments
         $version = & $command.Source @prefixArguments --version 2>$null
-        if ($LASTEXITCODE -eq 0 -and ($version -match "Python 3\.11\.")) {
+        if ($LASTEXITCODE -eq 0 -and ($version -match "Python 3\.12\.")) {
             return @{
                 Executable = $command.Source
                 PrefixArguments = $prefixArguments
@@ -33,7 +33,7 @@ function Find-Python311 {
     }
 
     $checkedText = if ($checked.Count -eq 0) { "none" } else { $checked -join ", " }
-    throw "Python 3.11 was not found. Install Python 3.11 and make py -3.11 or python available on PATH. Checked: $checkedText."
+    throw "Python 3.12 was not found. Install Python 3.12 and make py -3.12 or python available on PATH. Checked: $checkedText."
 }
 
 function Quote-CommandPart([string]$Part) {
@@ -42,7 +42,7 @@ function Quote-CommandPart([string]$Part) {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $scriptPath = Join-Path $PSScriptRoot "release_golden_path.py"
-$python = Find-Python311
+$python = Find-Python312
 $arguments = [System.Collections.Generic.List[string]]::new()
 $arguments.AddRange([string[]]$python.PrefixArguments)
 $arguments.Add($scriptPath)

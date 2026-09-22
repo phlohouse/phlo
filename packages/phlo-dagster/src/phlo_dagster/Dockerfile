@@ -90,63 +90,44 @@ ENV PATH="/opt/phlo-project-venv/bin:${PATH}"
 
 # Lock-aware builds take their entire runtime dependency set from the staged
 # uv.lock, including phlo itself; the PyPI/wheelhouse resolution below must not
-# run for them.
+# run for them. Phlo currently pins the unpublished observe packages by URL;
+# uv requires transitive URL dependencies to be repeated as direct inputs, so
+# the non-lock path reads those requirements from the installed Phlo wheel.
 RUN if [ "$PHLO_UV_LOCKED" != "true" ]; then \
     PHLO_DBT_REQUIREMENT="phlo-dbt"; \
     if [ -n "$PHLO_DBT_VERSION" ]; then PHLO_DBT_REQUIREMENT="phlo-dbt==$PHLO_DBT_VERSION"; fi; \
     PHLO_DAGSTER_REQUIREMENT="phlo-dagster"; \
     if [ -n "$PHLO_DAGSTER_VERSION" ]; then PHLO_DAGSTER_REQUIREMENT="phlo-dagster==$PHLO_DAGSTER_VERSION"; fi; \
     if [ -n "$PHLO_VERSION" ]; then \
-    if [ -n "$PHLO_WHEELHOUSE" ]; then \
-        test -d /opt/phlo-wheelhouse; \
-        uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "phlo==$PHLO_VERSION"; \
-        uv pip install --system --prerelease explicit --find-links /opt/phlo-wheelhouse "phlo[defaults]==$PHLO_VERSION" "$PHLO_DBT_REQUIREMENT" dagster-webserver dagster-postgres "psycopg[binary]"; \
-        uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "phlo==$PHLO_VERSION"; \
-        if [ -n "$PHLO_DBT_VERSION" ]; then uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "$PHLO_DBT_REQUIREMENT"; fi; \
-        uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "$PHLO_DAGSTER_REQUIREMENT"; \
+        if [ -n "$PHLO_WHEELHOUSE" ]; then \
+            test -d /opt/phlo-wheelhouse; \
+            uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "phlo==$PHLO_VERSION"; \
+        else \
+            uv pip install --system --no-deps --prerelease explicit "phlo==$PHLO_VERSION"; \
+        fi; \
     else \
-        uv pip install --system --no-deps --prerelease explicit "phlo==$PHLO_VERSION"; \
-        PHLO_PRERELEASE_REQUIREMENTS="$(python -c 'import importlib.metadata as md, re; print(" ".join(req.split(";")[0].strip() for req in (md.metadata("phlo").get_all("Requires-Dist") or []) if "extra == '\''defaults'\''" in req and re.search(r"(a|b|rc|dev)[0-9]+", req)))')"; \
-        base_requirements=("phlo[defaults]==$PHLO_VERSION" "$PHLO_DBT_REQUIREMENT" "dbt-core<1.12" dagster-webserver dagster-postgres "psycopg[binary]"); \
-        if [ -n "$PHLO_PRERELEASE_REQUIREMENTS" ]; then read -r -a prerelease_requirements <<< "$PHLO_PRERELEASE_REQUIREMENTS"; base_requirements+=("${prerelease_requirements[@]}"); fi; \
-        uv pip install --system --prerelease explicit "${base_requirements[@]}"; \
+        uv pip install --system --no-deps phlo; \
     fi; \
+    python -c 'import importlib.metadata as md; print("\n".join(r.split(";", 1)[0].strip() for r in (md.metadata("phlo").get_all("Requires-Dist") or []) if " @ " in r))' > /tmp/phlo-url-requirements.txt; \
+    if [ -n "$PHLO_VERSION" ]; then \
+        if [ -n "$PHLO_WHEELHOUSE" ]; then \
+            uv pip install --system --prerelease explicit --find-links /opt/phlo-wheelhouse --requirement /tmp/phlo-url-requirements.txt "phlo[defaults]==$PHLO_VERSION" "$PHLO_DBT_REQUIREMENT" dagster-webserver dagster-postgres "psycopg[binary]"; \
+            uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "phlo==$PHLO_VERSION"; \
+            if [ -n "$PHLO_DBT_VERSION" ]; then uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "$PHLO_DBT_REQUIREMENT"; fi; \
+            uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "$PHLO_DAGSTER_REQUIREMENT"; \
+        else \
+            PHLO_PRERELEASE_REQUIREMENTS="$(python -c 'import importlib.metadata as md, re; print(" ".join(req.split(";")[0].strip() for req in (md.metadata("phlo").get_all("Requires-Dist") or []) if "extra == '\''defaults'\''" in req and re.search(r"(a|b|rc|dev)[0-9]+", req)))')"; \
+            base_requirements=("phlo[defaults]==$PHLO_VERSION" "$PHLO_DBT_REQUIREMENT" "dbt-core<1.12" dagster-webserver dagster-postgres "psycopg[binary]"); \
+            if [ -n "$PHLO_PRERELEASE_REQUIREMENTS" ]; then read -r -a prerelease_requirements <<< "$PHLO_PRERELEASE_REQUIREMENTS"; base_requirements+=("${prerelease_requirements[@]}"); fi; \
+            uv pip install --system --prerelease explicit --requirement /tmp/phlo-url-requirements.txt "${base_requirements[@]}"; \
+        fi; \
     else \
-        uv pip install --system "phlo[defaults]" "$PHLO_DBT_REQUIREMENT" "dbt-core<1.12" dagster-webserver dagster-postgres "psycopg[binary]"; \
+        uv pip install --system --requirement /tmp/phlo-url-requirements.txt "phlo[defaults]" "$PHLO_DBT_REQUIREMENT" "dbt-core<1.12" dagster-webserver dagster-postgres "psycopg[binary]"; \
     fi \
-    && uv pip install --system "$PHLO_DAGSTER_REQUIREMENT" "PyJWT[crypto]>=2.13.0" "cryptography>=48.0.1" \
+    && uv pip install --system --requirement /tmp/phlo-url-requirements.txt "$PHLO_DAGSTER_REQUIREMENT" "PyJWT[crypto]>=2.13.0" "cryptography>=48.0.1" \
     && if [ -n "$PHLO_WHEELHOUSE" ]; then \
         uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "phlo==$PHLO_VERSION" "$PHLO_DAGSTER_REQUIREMENT"; \
     fi; \
-    fi
-
-# Optional phlo-observe SDK. The SDK requires Python >=3.12 and is not on
-# PyPI, so it is never a declared dependency: pass the space-separated pip
-# requirements for every unpublished workspace package via PHLO_OBSERVE_SDK.
-# The integration requires the V2 SDK (canonical entities/set_entity); the
-# published phlo-observe/v0.1.0 tag is V1-only and predates it, so pin a V2
-# commit until a V2 release tag exists, for example
-# "git+https://github.com/phlohouse/phlo-observe.git@91a32fa29ce19aac0e31ed3750a9090776267bd0#subdirectory=packages/observe-core
-#  git+https://github.com/phlohouse/phlo-observe.git@91a32fa29ce19aac0e31ed3750a9090776267bd0#subdirectory=packages/observe-query
-#  git+https://github.com/phlohouse/phlo-observe.git@91a32fa29ce19aac0e31ed3750a9090776267bd0#subdirectory=packages/phlo-observe-sdk"
-# A single phlo-observe subdirectory install cannot resolve the repo's
-# workspace sources for observe-core/observe-query, so each package needs its
-# own git requirement. phlo-observe-plugin (Dagster sensors + hook-bus
-# translation) is a preview package that stays out of phlo[defaults]; it is
-# installed here, alongside the SDK it drives, resolved from the staged
-# wheelhouse when one is present and from PyPI otherwise. Empty
-# PHLO_OBSERVE_SDK leaves builds unchanged and the phlo.telemetry shim inert.
-ARG PHLO_OBSERVE_SDK=""
-# Deliberately unquoted: the value is a space-separated requirement list.
-# hadolint ignore=SC2086
-RUN if [ -n "$PHLO_OBSERVE_SDK" ]; then \
-        if [ "$PHLO_UV_LOCKED" = "true" ]; then \
-            uv pip install --python /opt/phlo-project-venv/bin/python phlo-observe-plugin $PHLO_OBSERVE_SDK; \
-        elif [ -n "$PHLO_WHEELHOUSE" ]; then \
-            uv pip install --system --find-links /opt/phlo-wheelhouse phlo-observe-plugin $PHLO_OBSERVE_SDK; \
-        else \
-            uv pip install --system phlo-observe-plugin $PHLO_OBSERVE_SDK; \
-        fi; \
     fi
 
 # Build caches contain package manifests that vulnerability scanners treat as runtime

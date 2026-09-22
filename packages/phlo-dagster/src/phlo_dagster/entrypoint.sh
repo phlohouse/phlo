@@ -88,6 +88,8 @@ PY
     # itself without re-resolving its dependencies.
     if [ -d /opt/phlo-project-venv ]; then
         (cd /app && uv pip install "${uv_target[@]}" --no-deps -e .)
+    elif [ -f /tmp/phlo-url-requirements.txt ]; then
+        (cd /app && uv pip install "${uv_target[@]}" --requirement /tmp/phlo-url-requirements.txt -e .)
     else
         (cd /app && uv pip install "${uv_target[@]}" -e .)
     fi

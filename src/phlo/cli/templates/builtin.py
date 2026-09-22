@@ -62,7 +62,7 @@ def _pyproject_toml(project_name: str, required_packages: tuple[str, ...]) -> st
 name = "{project_name}"
 version = "0.1.0"
 description = "Phlo data workflows"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
 {dependencies}
 ]
@@ -75,7 +75,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

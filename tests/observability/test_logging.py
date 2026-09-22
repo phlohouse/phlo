@@ -284,6 +284,25 @@ def test_get_bound_correlation_context_reads_structlog_contextvars() -> None:
     assert correlation.trace_id == "abc123"
 
 
+def test_bound_correlation_merges_observe_context_without_overriding_structlog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "phlo.telemetry.logging_correlation",
+        lambda: {"run_id": "observe-run", "job_id": "observe-job", "asset_key": "raw.users"},
+    )
+    bind_context(run_id="logging-run")
+
+    try:
+        correlation = get_bound_correlation_context()
+    finally:
+        clear_context()
+
+    assert correlation.run_id == "logging-run"
+    assert correlation.job_name == "observe-job"
+    assert correlation.asset_key == "raw.users"
+
+
 def test_record_to_event_merges_bound_correlation_context() -> None:
     bind_context(run_id="run-77", asset_key="bronze.orders", trace_id="abc123")
 
@@ -303,7 +322,7 @@ def test_record_to_event_merges_bound_correlation_context() -> None:
 def test_log_router_handler_emit_routes_and_reports_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Routes converted events and reports failures through `handleError`."""
+    """Routes converted events to hooks and the canonical observe runtime."""
 
     class FailableRecordingBus(RecordingBus):
         def __init__(self) -> None:
@@ -316,15 +335,36 @@ def test_log_router_handler_emit_routes_and_reports_errors(
             self.events.append(event)
 
     bus = FailableRecordingBus()
+    observed: list[dict[str, Any]] = []
     monkeypatch.setattr("phlo.hooks.bus.get_hook_bus", lambda: bus)
+    monkeypatch.setattr(
+        "phlo.telemetry.emit",
+        lambda name, **fields: observed.append({"name": name, **fields}),
+    )
     handler = LogRouterHandler(service_name="router-service")
 
-    routed = _make_record(msg={"event": "routed", "tags": {"source": "test"}})
+    routed = _make_record(
+        msg={
+            "event": "routed",
+            "run_id": "run-1",
+            "asset_key": "raw.users",
+            "tags": {"source": "test"},
+            "rows": 12,
+        }
+    )
     handler.emit(routed)
 
     assert len(bus.events) == 1
     assert bus.events[0].message == "routed"
     assert bus.events[0].tags["source"] == "test"
+    assert observed[0]["name"] == "application.log"
+    assert observed[0]["attributes"]["message"] == "routed"
+    assert observed[0]["attributes"]["rows"] == 12
+    assert observed[0]["correlation"] == {
+        "run_id": "run-1",
+        "asset_key": "raw.users",
+    }
+    assert observed[0]["tags"] == {"source": "test", "service": "router-service"}
 
     errors: list[logging.LogRecord] = []
     monkeypatch.setattr(handler, "handleError", lambda failed: errors.append(failed))
@@ -334,6 +374,21 @@ def test_log_router_handler_emit_routes_and_reports_errors(
     handler.emit(failing)
 
     assert errors == [failing]
+
+
+def test_setup_logging_places_router_before_existing_handlers() -> None:
+    """Preserves structured records when framework handlers mutate messages."""
+    existing = logging.StreamHandler()
+    logging.root.addHandler(existing)
+    settings = LoggingSettings(level="INFO", log_format="auto", router_enabled=True)
+
+    try:
+        setup_logging(settings, force=True)
+
+        assert isinstance(logging.root.handlers[0], LogRouterHandler)
+        assert logging.root.handlers.index(existing) > 0
+    finally:
+        logging.root.removeHandler(existing)
 
 
 def test_suppress_log_routing_blocks_emit_then_restores(
@@ -371,3 +426,22 @@ def test_log_event_falls_back_when_logger_rejects_structured_kwargs() -> None:
     log_event(logger, "info", "legacy event", run_id="run-1", attempt=3)
 
     assert logger.messages == ["legacy event run_id=run-1 attempt=3"]
+
+
+def test_bound_correlation_uses_only_a_valid_active_otel_span() -> None:
+    """Hook correlation adopts optional OTel context without inventing IDs."""
+    trace = pytest.importorskip("opentelemetry.trace")
+    span_context = trace.SpanContext(
+        trace_id=int("a" * 32, 16),
+        span_id=int("b" * 16, 16),
+        is_remote=False,
+        trace_flags=trace.TraceFlags(1),
+        trace_state=trace.TraceState(),
+    )
+
+    with trace.use_span(trace.NonRecordingSpan(span_context), end_on_exit=False):
+        correlation = get_bound_correlation_context()
+
+    assert correlation.trace_id == "a" * 32
+    assert correlation.span_id == "b" * 16
+    assert correlation.trace_flags == "01"

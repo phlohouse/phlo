@@ -57,10 +57,10 @@ def test_shards_are_disjoint_complete_and_keep_module_fixtures_together() -> Non
         assert len({shard_for(f"tests/test_{i}.py::test_case[{j}]", 3) for j in range(3)}) == 1
 
 
-def test_both_python_versions_run_before_merge() -> None:
+def test_supported_python_version_runs_before_merge() -> None:
     ci = workflow("ci.yml")["jobs"]
     for job in ("python-core-tests", "python-package-tests"):
-        assert ci[job]["strategy"]["matrix"]["python-version"] == ["3.11", "3.12"]
+        assert ci[job]["strategy"]["matrix"]["python-version"] == ["3.12"]
     assert ci["python-core-tests"]["env"]["UV_PYTHON"] == "${{ matrix.python-version }}"
 
 

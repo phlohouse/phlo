@@ -12,11 +12,9 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
-from typing import Any, TypeVar
+from typing import Any
 
 from phlo.exceptions import PhloError, PhloIngestionError
-
-T = TypeVar("T")
 
 
 def classify_exception(exc: Exception) -> str:
@@ -65,7 +63,7 @@ def with_phlo_errors(operation: str):
         ) from exc
 
 
-def retry_transient(
+def retry_transient[T](
     fn: Callable[[], T],
     *,
     attempts: int = 3,

@@ -4,21 +4,7 @@ category: observability
 default: false
 profile: observability
 
-# No V2-capable phlo-observer release exists yet: every published image
-# (0.1.0, latest) predates the V2 envelope and rejects schema_version 2.x
-# payloads. Until phlo-observer/v0.2.x is published the image is built from
-# the phlo-observe monorepo at the same pinned V2 commit the Dagster image
-# installs the SDK from (PHLO_OBSERVE_SDK); the `image:` key names the local
-# tag the build produces. Renovate does not track git-context builds — switch
-# `image:` to the published tag+digest and drop `build:` when a V2 release
-# lands. See docs/guides/monitor-and-debug.md "Known phlo-observe gaps".
-image: phlo-observer:v2-91a32fa
-build:
-  context: https://github.com/phlohouse/phlo-observe.git#91a32fa29ce19aac0e31ed3750a9090776267bd0
-  dockerfile: services/phlo-observer/Dockerfile
-  args:
-    VCS_REF: 91a32fa29ce19aac0e31ed3750a9090776267bd0
-    VERSION: v2-91a32fa
+image: ghcr.io/phlohouse/phlo-observe/phlo-observer:0.2.3@sha256:951d86983db108f7c853ae9f2152577153ee36a868ac75d40aed82de4407ed35
 
 depends_on:
   - postgres
@@ -26,8 +12,6 @@ depends_on:
 
 compose:
   restart: unless-stopped
-  # The tag above exists only as the local build output; never pull.
-  pull_policy: build
   labels:
     phlo.metrics.enabled: "false"
   environment:
@@ -60,11 +44,14 @@ env_vars:
     default: 10010
     description: phlo-observer HTTP port exposed on the host
   OBSERVE_HTTP_ENDPOINT:
-    default: ""
+    default: "http://localhost:10010/v1/events"
     description: >-
       Full ingest URL (e.g. http://localhost:10010/v1/events) enabling
       canonical phlo-observe event emission; dagster and dagster-daemon are
       wired to the in-cluster observer address when this is set
+  PHLO_OBSERVE_PRETTY:
+    default: "true"
+    description: Render canonical Phlo events as concise human-readable output
   # Token values are deliberately NOT marked secret: render_env would generate
   # an independent random value for each. The observer fails closed on every
   # surface as soon as ANY token set is non-empty, so a generated read/admin

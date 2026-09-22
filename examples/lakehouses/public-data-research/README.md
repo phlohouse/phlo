@@ -63,8 +63,9 @@ uv run ruff check .
 Start the platform, then materialize in dependency order:
 
 ```bash
-uv run phlo services init --force --no-dev
+uv run phlo services init --force --no-dev --profile observability
 uv run phlo services start --build
+uv run phlo services start --profile observability
 
 uv run phlo materialize dlt_places_geo
 uv run phlo materialize dlt_places_registry --partition 2026-08-10

@@ -19,8 +19,9 @@ order:
 
 ```bash
 uv run pytest -q
-uv run phlo services init --force --no-dev
+uv run phlo services init --force --no-dev --profile observability
 uv run phlo services start --build
+uv run phlo services start --profile observability
 uv run phlo doctor
 uv run phlo materialize dlt_saas_account_plans --partition 2025-01-02
 uv run phlo materialize dlt_saas_events --partition 2025-01-02

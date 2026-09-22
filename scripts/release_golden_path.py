@@ -253,10 +253,24 @@ def force_local_install(config: RunConfig, python: Path, *packages: str) -> None
 
 
 def build_wheelhouse(config: RunConfig) -> None:
-    """Build all workspace wheels into the wheelhouse."""
+    """Build all workspace wheels and their locked constraints."""
     config.wheelhouse.mkdir(parents=True, exist_ok=True)
     run(
         command("uv", "build", "--all-packages", "--wheel", "--out-dir", str(config.wheelhouse)),
+        cwd=config.repo_root,
+    )
+    run(
+        command(
+            "uv",
+            "export",
+            "--all-packages",
+            "--no-dev",
+            "--locked",
+            "--no-emit-workspace",
+            "--no-hashes",
+            "--output-file",
+            str(config.wheelhouse / "constraints.txt"),
+        ),
         cwd=config.repo_root,
     )
 
@@ -266,7 +280,7 @@ def build_wheelhouse(config: RunConfig) -> None:
 # packages to the local wheelhouse with --no-index/--no-deps.
 def install_operator(config: RunConfig) -> None:
     """Install the phlo CLI and core plugins into the operator venv."""
-    run(command("uv", "venv", str(config.operator_env), "--python", "3.11"), cwd=config.repo_root)
+    run(command("uv", "venv", str(config.operator_env), "--python", "3.12"), cwd=config.repo_root)
     run(
         command(
             "uv",
@@ -289,6 +303,8 @@ def install_operator(config: RunConfig) -> None:
             "install",
             "--python",
             str(config.operator_python),
+            "--constraint",
+            str(config.wheelhouse / "constraints.txt"),
             "--find-links",
             str(config.wheelhouse),
             "phlo[core-services]",
@@ -460,7 +476,7 @@ def align_project_name(config: RunConfig) -> None:
 
 def install_project_dependencies(config: RunConfig) -> None:
     """Install plugin dependencies into the generated project venv."""
-    run(command("uv", "venv", str(config.project_env), "--python", "3.11"), cwd=config.project_dir)
+    run(command("uv", "venv", str(config.project_env), "--python", "3.12"), cwd=config.project_dir)
     run(
         command(
             "uv",
@@ -1067,7 +1083,7 @@ def install_operator_from_bom(
     requirements = write_hashed_requirements(
         config, config.operator_env.parent / "candidate-requirements.txt"
     )
-    run(command("uv", "venv", str(config.operator_env), "--python", "3.11"), cwd=config.repo_root)
+    run(command("uv", "venv", str(config.operator_env), "--python", "3.12"), cwd=config.repo_root)
     # Exact bytes first: the installer itself rejects any wheel whose content
     # does not hash to its BOM digest.
     run(
@@ -1147,7 +1163,7 @@ def install_project_dependencies_from_bom(config: RunConfig) -> None:
     """Install plugin dependencies into the generated project venv from the BOM."""
     bom = config.bom
     assert bom is not None
-    run(command("uv", "venv", str(config.project_env), "--python", "3.11"), cwd=config.project_dir)
+    run(command("uv", "venv", str(config.project_env), "--python", "3.12"), cwd=config.project_dir)
     run(
         command(
             "uv",

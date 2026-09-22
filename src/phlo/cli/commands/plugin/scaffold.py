@@ -305,7 +305,7 @@ name = "{plugin_name}"
 version = "0.1.0"
 description = "Phlo {plugin_type} plugin"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [
     {{name = "Your Name", email = "your@email.com"}},
 ]
@@ -333,7 +333,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.basedpyright]
 typeCheckingMode = "standard"

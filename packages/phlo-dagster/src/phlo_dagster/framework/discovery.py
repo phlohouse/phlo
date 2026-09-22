@@ -413,10 +413,7 @@ def _discover_dagster_extensions() -> list[Any]:
         logger.info("dagster_plugin_system_disabled")
         return []
 
-    try:
-        entry_points = importlib.metadata.entry_points(group="phlo.plugins.dagster")
-    except TypeError:
-        entry_points = importlib.metadata.entry_points().get("phlo.plugins.dagster", [])
+    entry_points = importlib.metadata.entry_points(group="phlo.plugins.dagster")
 
     extensions: list[DagsterExtensionPlugin] = []
     for entry_point in entry_points:

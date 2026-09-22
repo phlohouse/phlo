@@ -14,7 +14,7 @@ dependencies = [
 ]
 description = "Iceberg table-store capability plugin for Phlo"
 name = "phlo-iceberg"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.15.4"
 
 [[project.authors]]
@@ -41,7 +41,7 @@ text = "Iceberg/Nessie catalog capability plugin for Phlo."
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools.package-dir]
 "" = "src"

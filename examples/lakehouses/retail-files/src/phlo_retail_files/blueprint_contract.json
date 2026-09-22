@@ -53,7 +53,7 @@
       "stockout_reorder": 12500
     }
   },
-  "resources_digest": "sha256:93df8f387da25c8328481a028782134510be4f9af3cd3033d2a56f0be0a389e8",
+  "resources_digest": "sha256:4087b5c740e57cda3d18be5401bbe9530f422ebaf92ef7928ec8ea2c41b6d646",
   "rendered_dependencies": {
     "runtime": [
       "phlo[defaults]==0.16.2",

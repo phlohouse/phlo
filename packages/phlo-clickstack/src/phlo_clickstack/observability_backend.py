@@ -138,7 +138,7 @@ def build_clickstack_observability_spec() -> ObservabilityBackendSpec:
         name="default",
         provider=ClickStackObservabilityBackend(),
         metadata={
-            "default_stack": ["phlo-otel", "phlo-clickstack"],
+            "default_stack": ["phlo-observe", "phlo-clickstack"],
             "service_dependencies": ["clickstack"],
             "backend": "clickstack",
         },

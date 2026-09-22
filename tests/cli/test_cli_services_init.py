@@ -1182,12 +1182,14 @@ def test_services_init_includes_requested_profile_services(
         {postgres.name: postgres, prometheus.name: prometheus},
         default_names=(postgres.name,),
     )
+    generated_env: dict[str, object] = {}
 
     class FakeComposer:
         def __init__(self, _discovery):
             pass
 
-        def generate_compose(self, services, output_dir, **_kwargs):
+        def generate_compose(self, services, output_dir, **kwargs):
+            generated_env.update(kwargs["env_values"])
             return yaml.safe_dump({"services": {s.name: {} for s in services}})
 
         def generate_env(self, _services, env_overrides=None):
@@ -1213,6 +1215,7 @@ def test_services_init_includes_requested_profile_services(
     compose = (tmp_path / ".phlo" / "docker-compose.yml").read_text()
     assert "postgres" in compose
     assert "prometheus" in compose
+    assert generated_env["OBSERVE_HTTP_ENDPOINT"] == "http://localhost:10010/v1/events"
 
 
 def test_services_init_uses_lifecycle_planner_for_profiles(
