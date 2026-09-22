@@ -169,6 +169,16 @@ class DagsterRuntime(RuntimeContext):
         return self.context.partition_key if self.context.has_partition_key else None
 
     @property
+    def asset_key(self) -> str:
+        """Return the active asset's user-facing key."""
+        return self.context.asset_key.to_user_string()
+
+    @property
+    def job_name(self) -> str:
+        """Return the active Dagster job name."""
+        return self.context.job_name
+
+    @property
     def tags(self) -> dict[str, str]:
         """Return run tags from the best available context attribute."""
         direct_tags = getattr(self.context, "tags", None)

@@ -158,6 +158,21 @@ def test_dagster_runtime_reads_run_id_from_run_object():
     assert runtime.run_id == "run-from-object"
 
 
+def test_dagster_runtime_exposes_asset_and_job_names():
+    """Provider runtimes can isolate artifacts by the active asset."""
+    from phlo_dagster.adapter import DagsterRuntime
+
+    context = SimpleNamespace(
+        asset_key=SimpleNamespace(to_user_string=lambda: "raw/orders"),
+        job_name="daily_orders",
+    )
+
+    runtime = DagsterRuntime(context=cast(AssetExecutionContext, context))
+
+    assert runtime.asset_key == "raw/orders"
+    assert runtime.job_name == "daily_orders"
+
+
 def test_dagster_runtime_builds_routing_without_recursion():
     """DagsterRuntime.routing should return concrete routing metadata."""
     from phlo_dagster.adapter import DagsterRuntime
