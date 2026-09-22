@@ -42,6 +42,7 @@ from phlo.cli.commands.services.utils import (
     get_profile_service_names,
     require_container_backend,
     stage_uv_lock_metadata,
+    stale_generated_build_inputs,
 )
 from phlo.cli.infrastructure.command import run_command
 from phlo.cli.infrastructure.compose import compose_base_cmd
@@ -1131,9 +1132,26 @@ def start_cmd(
                 service_count=len(docker_service_names),
                 service_names=docker_service_names,
             )
-            raise click.ClickException(
-                f"container compose failed (exit {result.returncode}): {' '.join(cmd)}"
-            )
+            message = f"container compose failed (exit {result.returncode}): {' '.join(cmd)}"
+            if build:
+                # `--build` compiles the committed .phlo copies, which a shared
+                # layout preserves across regeneration: a project initialised by
+                # an earlier phlo keeps failing on a build input that has since
+                # been fixed, so name it and the command that refreshes it.
+                stale_inputs = stale_generated_build_inputs(
+                    discovery, phlo_dir, docker_service_names
+                )
+                if stale_inputs:
+                    logger.warning(
+                        "services_start_stale_build_inputs",
+                        project_name=project_name,
+                        generated_files=stale_inputs,
+                    )
+                    message += (
+                        "\nGenerated build inputs differ from the installed phlo templates: "
+                        f"{', '.join(stale_inputs)}. Refresh them with `phlo services init --force`."
+                    )
+            raise click.ClickException(message)
     except FileNotFoundError:
         logger.error(
             "services_start_container_backend_not_found",
