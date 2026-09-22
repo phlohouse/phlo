@@ -32,7 +32,7 @@ def resource_digest() -> str:
     """
     entries: list[list[str]] = []
     for path in sorted(RESOURCES_DIR.rglob("*")):
-        if path.is_file():
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
             entries.append(
                 [
                     path.relative_to(RESOURCES_DIR).as_posix(),
