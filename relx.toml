@@ -35,6 +35,7 @@ packages = [
     "phlo-minio",
     "phlo-nessie",
     "phlo-observatory",
+    "phlo-observe-plugin",
     "phlo-pandera",
     "phlo-postgres",
     "phlo-trino",
@@ -83,15 +84,104 @@ replace = "image: ghcr.io/phlohouse/{name}:{next_version}"
 expected_matches = 1
 
 [[release.replacements]]
-files = ["examples/lakehouses/retail-files/pyproject.toml"]
+files = [
+    "examples/lakehouses/clickhouse-ops/pyproject.toml",
+    "examples/lakehouses/customer360/pyproject.toml",
+    "examples/lakehouses/delta-portability/pyproject.toml",
+    "examples/lakehouses/ecommerce-replication/pyproject.toml",
+    "examples/lakehouses/federated-domains/pyproject.toml",
+    "examples/lakehouses/healthcare-claims/pyproject.toml",
+    "examples/lakehouses/iot-telemetry/pyproject.toml",
+    "examples/lakehouses/logistics-control-tower/pyproject.toml",
+    "examples/lakehouses/market-data-fx/pyproject.toml",
+    "examples/lakehouses/public-data-research/pyproject.toml",
+    "examples/lakehouses/retail-files/pyproject.toml",
+    "examples/lakehouses/saas-product-analytics/pyproject.toml",
+    "examples/lakehouses/wap-failure-lab/pyproject.toml",
+]
 packages = ["phlo"]
 search = "phlo[defaults]=={current_version}"
 replace = "phlo[defaults]=={next_version}"
 expected_matches = 1
 
 [[release.replacements]]
-files = ["examples/lakehouses/retail-files/pyproject.toml"]
+files = [
+    "examples/lakehouses/clickhouse-ops/pyproject.toml",
+    "examples/lakehouses/customer360/pyproject.toml",
+    "examples/lakehouses/delta-portability/pyproject.toml",
+    "examples/lakehouses/ecommerce-replication/pyproject.toml",
+    "examples/lakehouses/federated-domains/pyproject.toml",
+    "examples/lakehouses/healthcare-claims/pyproject.toml",
+    "examples/lakehouses/iot-telemetry/pyproject.toml",
+    "examples/lakehouses/logistics-control-tower/pyproject.toml",
+    "examples/lakehouses/market-data-fx/pyproject.toml",
+    "examples/lakehouses/public-data-research/pyproject.toml",
+    "examples/lakehouses/retail-files/pyproject.toml",
+    "examples/lakehouses/saas-product-analytics/pyproject.toml",
+    "examples/lakehouses/wap-failure-lab/pyproject.toml",
+]
 packages = ["phlo-dagster", "phlo-dbt", "phlo-pandera"]
+search = "{name}=={current_version}"
+replace = "{name}=={next_version}"
+expected_matches = 1
+
+[[release.replacements]]
+files = [
+    "examples/lakehouses/clickhouse-ops/pyproject.toml",
+    "examples/lakehouses/customer360/pyproject.toml",
+    "examples/lakehouses/delta-portability/pyproject.toml",
+    "examples/lakehouses/federated-domains/pyproject.toml",
+    "examples/lakehouses/healthcare-claims/pyproject.toml",
+    "examples/lakehouses/iot-telemetry/pyproject.toml",
+    "examples/lakehouses/logistics-control-tower/pyproject.toml",
+    "examples/lakehouses/market-data-fx/pyproject.toml",
+    "examples/lakehouses/public-data-research/pyproject.toml",
+    "examples/lakehouses/wap-failure-lab/pyproject.toml",
+]
+packages = ["phlo-dlt"]
+search = "{name}=={current_version}"
+replace = "{name}=={next_version}"
+expected_matches = 1
+
+[[release.replacements]]
+files = [
+    "examples/lakehouses/customer360/pyproject.toml",
+    "examples/lakehouses/delta-portability/pyproject.toml",
+    "examples/lakehouses/healthcare-claims/pyproject.toml",
+    "examples/lakehouses/iot-telemetry/pyproject.toml",
+    "examples/lakehouses/logistics-control-tower/pyproject.toml",
+    "examples/lakehouses/market-data-fx/pyproject.toml",
+    "examples/lakehouses/public-data-research/pyproject.toml",
+    "examples/lakehouses/wap-failure-lab/pyproject.toml",
+]
+packages = ["phlo-iceberg", "phlo-trino"]
+search = "{name}=={current_version}"
+replace = "{name}=={next_version}"
+expected_matches = 1
+
+[[release.replacements]]
+files = [
+    "examples/lakehouses/clickhouse-ops/pyproject.toml",
+    "examples/lakehouses/customer360/pyproject.toml",
+    "examples/lakehouses/delta-portability/pyproject.toml",
+    "examples/lakehouses/ecommerce-replication/pyproject.toml",
+    "examples/lakehouses/logistics-control-tower/pyproject.toml",
+]
+packages = ["phlo-sling"]
+search = "{name}=={current_version}"
+replace = "{name}=={next_version}"
+expected_matches = 1
+
+[[release.replacements]]
+files = ["examples/lakehouses/clickhouse-ops/pyproject.toml"]
+packages = ["phlo-clickhouse"]
+search = "{name}=={current_version}"
+replace = "{name}=={next_version}"
+expected_matches = 1
+
+[[release.replacements]]
+files = ["examples/lakehouses/delta-portability/pyproject.toml"]
+packages = ["phlo-delta"]
 search = "{name}=={current_version}"
 replace = "{name}=={next_version}"
 expected_matches = 1
