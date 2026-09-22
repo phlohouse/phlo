@@ -263,7 +263,9 @@ def setup_logging(settings: LoggingSettings | None = None, *, force: bool = Fals
     if resolved.router_enabled:
         router_handler = LogRouterHandler(service_name=service_name, level=level)
         _mark_phlo_handler(router_handler)
-        root.addHandler(router_handler)
+        # Route the original record before framework handlers can format and
+        # mutate its structured ``msg`` payload (Dagster does this in workers).
+        root.handlers.insert(0, router_handler)
 
     logging.captureWarnings(True)
     _LOGGING_CONFIGURED = True

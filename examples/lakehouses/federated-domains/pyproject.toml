@@ -7,10 +7,10 @@ name = "phlo-federated-domains-example"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "phlo[defaults]==0.14.0",
-    "phlo-dagster @ git+https://github.com/phlohouse/phlo.git@0bcb8b8ede#subdirectory=packages/phlo-dagster",
-    "phlo-dlt @ git+https://github.com/phlohouse/phlo.git@0bcb8b8ede#subdirectory=packages/phlo-dlt",
-    "phlo-dbt @ git+https://github.com/phlohouse/phlo.git@main#subdirectory=packages/phlo-dbt",
+    "phlo[defaults]==0.16.2",
+    "phlo-dagster==0.16.2",
+    "phlo-dlt==0.15.4",
+    "phlo-dbt==0.15.4",
     "dlt[filesystem]>=1.20,<2",
     "pandas>=2.3,<3.1",
     "pyarrow>=21,<26",
@@ -20,7 +20,7 @@ dependencies = [
 dev = [
     "dbt-trino>=1.10,<1.12",
     "duckdb>=1.4,<1.6",
-    "phlo-pandera @ git+https://github.com/phlohouse/phlo.git@main#subdirectory=packages/phlo-pandera",
+    "phlo-pandera==0.15.4",
     "pytest",
     "ruff",
 ]
@@ -34,9 +34,6 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
-
-[tool.uv]
-override-dependencies = ["phlo[defaults]==0.14.0"]
 
 [tool.setuptools.packages.find]
 include = ["scripts*", "workflows*"]

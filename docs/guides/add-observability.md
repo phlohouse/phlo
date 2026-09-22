@@ -34,6 +34,7 @@ Start only the services you selected in the generated configuration.
 
 ```bash
 phlo services start
+phlo services start --profile observability
 phlo services status
 ```
 
@@ -41,7 +42,7 @@ The service manifests define the observability profile and service dependencies.
 
 ## 4. Enable telemetry
 
-Set `OBSERVE_HTTP_ENDPOINT` to send canonical Phlo events to an Observatory ingest endpoint. Add a token when the endpoint requires one.
+The local observability profile sets `OBSERVE_HTTP_ENDPOINT` to its observer automatically. Set it explicitly when sending canonical Phlo events to another endpoint. Add a token when the endpoint requires one.
 
 ```bash
 export OBSERVE_HTTP_ENDPOINT=http://localhost:10010/v1/events

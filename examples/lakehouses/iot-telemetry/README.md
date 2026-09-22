@@ -59,8 +59,9 @@ uv run ruff check .
 Start the platform:
 
 ```bash
-uv run phlo services init --force --no-dev
+uv run phlo services init --force --no-dev --profile observability
 uv run phlo services start --build
+uv run phlo services start --profile observability
 uv run phlo doctor
 ```
 

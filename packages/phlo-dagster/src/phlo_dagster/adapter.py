@@ -68,7 +68,7 @@ from phlo.capabilities.specs import (
     MaterializeResult,
     ResourceSpec,
 )
-from phlo.logging import get_logger
+from phlo.logging import get_logger, setup_logging
 from phlo.plugins.base import OrchestratorAdapterPlugin, PluginMetadata
 from phlo_dagster.framework.asset_diagnostics import raise_duplicate_asset_specs_if_present
 
@@ -395,6 +395,11 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
         )
         def _asset_fn(context) -> Iterable[Any]:
             """Execute capability asset logic and yield materializations or check results."""
+            # Dagster's multiprocess worker replaces root handlers after module
+            # import. Reattach Phlo's router in the worker so provider and user
+            # logs join the canonical run history instead of remaining only in
+            # Dagster's local event log.
+            setup_logging(force=True)
             runtime = DagsterRuntime(
                 context, asset_capability_overrides=dict(spec.capability_overrides)
             )
@@ -521,6 +526,7 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
         )
         def _check_fn(context) -> dg.AssetCheckResult:
             """Execute capability check logic and return the Dagster check result."""
+            setup_logging(force=True)
             runtime = DagsterRuntime(context)
             # Bind the physical run id so quality.result events emitted by
             # check providers (e.g. pandera) inside the fn carry this attempt's

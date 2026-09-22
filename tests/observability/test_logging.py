@@ -376,6 +376,21 @@ def test_log_router_handler_emit_routes_and_reports_errors(
     assert errors == [failing]
 
 
+def test_setup_logging_places_router_before_existing_handlers() -> None:
+    """Preserves structured records when framework handlers mutate messages."""
+    existing = logging.StreamHandler()
+    logging.root.addHandler(existing)
+    settings = LoggingSettings(level="INFO", log_format="auto", router_enabled=True)
+
+    try:
+        setup_logging(settings, force=True)
+
+        assert isinstance(logging.root.handlers[0], LogRouterHandler)
+        assert logging.root.handlers.index(existing) > 0
+    finally:
+        logging.root.removeHandler(existing)
+
+
 def test_suppress_log_routing_blocks_emit_then_restores(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

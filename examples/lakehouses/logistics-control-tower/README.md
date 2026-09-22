@@ -75,8 +75,9 @@ uv run python scripts/carrier_api.py &          # port 8090, serves generated-da
 Start the platform:
 
 ```bash
-uv run phlo services init --force --no-dev
+uv run phlo services init --force --no-dev --profile observability
 uv run phlo services start --build
+uv run phlo services start --profile observability
 uv run phlo doctor
 ```
 

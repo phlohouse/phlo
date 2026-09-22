@@ -17,15 +17,8 @@ def test_observer_service_definition_parses() -> None:
     definition = ServiceDefinition.from_yaml(_PKG_SRC / "service.yaml")
     assert definition.name == "phlo-observer"
     assert definition.image is not None
-    # No published image accepts the V2 envelope (0.1.0/latest reject
-    # schema_version 2.x), so the service builds from the pinned V2 commit
-    # until a phlo-observer v0.2.x release exists. The image key is only the
-    # local tag the build produces — pull_policy keeps compose from pulling it.
-    build = definition.build or {}
-    context = str(build.get("context", ""))
-    assert "phlo-observe.git#" in context
-    assert build.get("dockerfile") == "services/phlo-observer/Dockerfile"
-    assert definition.compose.get("pull_policy") == "build"
+    assert definition.image.startswith("ghcr.io/phlohouse/phlo-observe/phlo-observer:0.2.2@sha256:")
+    assert definition.build is None
 
     compose = definition.compose
     ports = compose.get("ports") or {}
@@ -38,7 +31,9 @@ def test_observer_service_declares_database_url_env() -> None:
     definition = ServiceDefinition.from_yaml(_PKG_SRC / "service.yaml")
     env_names = set(definition.env_vars)
     assert "PHLO_OBSERVER_DB" in env_names
-    assert "OBSERVE_HTTP_ENDPOINT" in env_names
+    assert definition.env_vars["OBSERVE_HTTP_ENDPOINT"]["default"] == (
+        "http://localhost:10010/v1/events"
+    )
     assert "OBSERVE_HTTP_TOKEN" in env_names
 
 

@@ -31,6 +31,7 @@ pytest.importorskip("phlo_observe", reason="phlo-observe SDK not installed")
 dagster = pytest.importorskip("dagster", reason="dagster not installed")
 
 import phlo.telemetry as phlo_observe  # noqa: E402
+from phlo.logging import get_logger  # noqa: E402
 
 
 def _backend() -> Any:
@@ -88,6 +89,7 @@ def _build_ingesting_asset(bus: Any):
     def _run(runtime: Any) -> list[Any]:
         # Mirror production capability code: emit ingestion + quality hook
         # events through the bus, then report materialization + check results.
+        get_logger("test.dagster.e2e").warning("slow_source_read", rows=5)
         ingestion = IngestionEventEmitter(
             IngestionEventContext(
                 asset_key="bronze.users",
@@ -138,7 +140,12 @@ def test_dagster_materialization_produces_correlated_canonical_history(
     result = dagster.materialize([_build_ingesting_asset(bus)])
     assert result.success
 
-    payloads = captured.payloads()
+    physical_run = result.run_id
+    payloads = [
+        payload
+        for payload in captured.payloads()
+        if payload["correlation"].get("run_id") == physical_run
+    ]
     names = [p.get("event") for p in payloads]
 
     # The real execution path produced every expected canonical event:
@@ -147,11 +154,11 @@ def test_dagster_materialization_produces_correlated_canonical_history(
     # boundary event.
     assert "ingestion.extract" in names
     assert "ingestion.load" in names
+    assert "application.log" in names
     assert "asset.materialize" in names
     assert "pipeline.step" in names
     assert names.count("quality.check") == 2  # hook translation + CheckResult path
 
-    physical_run = result.run_id
     for payload in payloads:
         # Every event correlates to the physical Dagster run id — the key the
         # observer groups the run timeline by.
@@ -185,6 +192,13 @@ def test_dagster_materialization_produces_correlated_canonical_history(
     load = by_name["ingestion.load"]
     assert load["entities"].get("table") == "table://bronze.users"
     assert load["entities"].get("branch") == "branch://nessie/pipeline-run-e2e"
+    application_log = next(
+        payload
+        for payload in payloads
+        if payload["event"] == "application.log"
+        and payload["attributes"]["logger"] == "test.dagster.e2e"
+    )
+    assert application_log["attributes"]["message"] == "slow_source_read"
 
     # The step boundary event carries measured timing and success outcome.
     step = by_name["pipeline.step"]

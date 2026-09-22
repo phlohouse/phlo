@@ -7,10 +7,10 @@ name = "phlo-ecommerce-replication-example"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "phlo[defaults]==0.14.0",
-    "phlo-dagster @ git+https://github.com/phlohouse/phlo.git@2beae89f69462ca0bb788137cd9d47a98f65e5b7#subdirectory=packages/phlo-dagster",
-    "phlo-dbt @ git+https://github.com/phlohouse/phlo.git@main#subdirectory=packages/phlo-dbt",
-    "phlo-sling @ git+https://github.com/phlohouse/phlo.git@main#subdirectory=packages/phlo-sling",
+    "phlo[defaults]==0.16.2",
+    "phlo-dagster==0.16.2",
+    "phlo-dbt==0.15.4",
+    "phlo-sling==0.15.4",
     "psycopg2-binary>=2.9,<3.1",
     "pandas>=2.3,<3.1",
 ]
@@ -19,7 +19,7 @@ dependencies = [
 dev = [
     "dbt-duckdb>=1.10,<1.12",
     "duckdb>=1.4,<1.6",
-    "phlo-pandera @ git+https://github.com/phlohouse/phlo.git@main#subdirectory=packages/phlo-pandera",
+    "phlo-pandera==0.15.4",
     "pytest",
     "ruff",
 ]
@@ -33,9 +33,6 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
-
-[tool.uv]
-override-dependencies = ["phlo[defaults]==0.14.0"]
 
 [tool.setuptools.packages.find]
 include = ["scripts*", "workflows*"]

@@ -391,6 +391,9 @@ def init_cmd(
         )
         sys.exit(1)
 
+    if "observability" in requested_profiles:
+        env_overrides.setdefault("OBSERVE_HTTP_ENDPOINT", "http://localhost:10010/v1/events")
+
     selection_plan = build_service_selection_plan(
         services=all_services,
         config=existing_config,

@@ -50,8 +50,9 @@ uv run --with pytest pytest -q tests
 uv run --with ruff ruff check .
 uv run phlo validate-workflow workflows/ingestion/retail/files.py
 
-uv run phlo services init --force --no-dev
+uv run phlo services init --force --no-dev --profile observability
 uv run phlo services start --build
+uv run phlo services start --profile observability
 uv run phlo doctor
 uv run phlo dbt compile
 ```
