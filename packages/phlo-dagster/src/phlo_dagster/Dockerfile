@@ -29,14 +29,20 @@ ARG PHLO_UV_LOCKED=""
 # gosu performs the entrypoint privilege drop.
 # No C/C++/Rust toolchain: every pinned Python dependency ships manylinux
 # wheels on glibc, so source builds are not expected in this image.
+# Debian packages stay unpinned: the archive drops superseded versions at every
+# trixie point release, so an exact version becomes a hard build failure for
+# consumers running `phlo services start --build` weeks after the phlo release.
+# The floating base tag and `apt-get upgrade` below already resolve the current
+# point release, so pins cost nothing but breakage.
+# hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get upgrade --no-install-recommends --yes \
     && apt-get install --yes --no-install-recommends \
-        bash=5.2.37-2+b10 \
-        ca-certificates=20250419 \
-        curl=8.14.1-2+deb13u5 \
-        git=1:2.47.3-0+deb13u1 \
-        gosu=1.17-3+b4 \
+        bash \
+        ca-certificates \
+        curl \
+        git \
+        gosu \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir "uv==0.12.5"
 

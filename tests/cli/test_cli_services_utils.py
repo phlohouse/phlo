@@ -210,3 +210,43 @@ def test_regenerate_compose_replaces_permissive_env_local_at_0600(
 
     assert env_local.read_text() == "POSTGRES_PASSWORD=new-secret\n"
     assert env_local.stat().st_mode & 0o7777 == 0o600
+
+
+def test_stale_generated_build_inputs_reports_only_drifted_copies(tmp_path: Path) -> None:
+    """A committed .phlo copy that differs from the installed template is named."""
+    templates = tmp_path / "templates"
+    (templates / "provisioning").mkdir(parents=True)
+    (templates / "Dockerfile").write_text("FROM python:3.12-slim\n")
+    (templates / "provisioning" / "datasources.yml").write_text("apiVersion: 1\n")
+    phlo_dir = tmp_path / ".phlo"
+    (phlo_dir / "dagster").mkdir(parents=True)
+    (phlo_dir / "dagster" / "Dockerfile").write_text(
+        "FROM python:3.12-slim\nRUN apt-get install bash=5.2.37-2+b9\n"
+    )
+    (phlo_dir / "grafana" / "provisioning").mkdir(parents=True)
+    (phlo_dir / "grafana" / "provisioning" / "datasources.yml").write_text("apiVersion: 1\n")
+    service = ServiceDefinition(
+        name="dagster",
+        description="dagster service",
+        category="orchestration",
+        files=[
+            {"source": "Dockerfile", "dest": "dagster/Dockerfile"},
+            {"source": "provisioning", "dest": "grafana/provisioning"},
+        ],
+        source_path=templates,
+    )
+    discovery = FakeDiscovery({"dagster": service})
+
+    assert service_utils.stale_generated_build_inputs(discovery, phlo_dir, ["dagster"]) == [
+        "dagster/Dockerfile"
+    ]
+
+    (phlo_dir / "dagster" / "Dockerfile").write_text("FROM python:3.12-slim\n")
+    assert service_utils.stale_generated_build_inputs(discovery, phlo_dir, ["dagster"]) == []
+    # A service without a template source, or without a generated copy, is not drift.
+    assert (
+        service_utils.stale_generated_build_inputs(
+            FakeDiscovery({"plain": _service("plain")}), phlo_dir, ["plain", "missing"]
+        )
+        == []
+    )

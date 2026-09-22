@@ -597,6 +597,55 @@ def test_services_start_uses_podman_backend(monkeypatch: pytest.MonkeyPatch, tmp
     assert calls[0][:2] == ["podman", "compose"]
 
 
+def test_services_start_build_failure_names_stale_generated_build_inputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A committed .phlo copy from an earlier phlo must explain its own build failure."""
+    from phlo.cli.commands.services import start as start_module
+
+    phlo_dir = tmp_path / ".phlo"
+    (phlo_dir / "dagster").mkdir(parents=True)
+    (phlo_dir / "dagster" / "Dockerfile").write_text(
+        "FROM python:3.12-slim\nRUN apt-get install bash=5.2.37-2+b9\n"
+    )
+    (phlo_dir / "docker-compose.yml").write_text("services:\n  dagster: {}\n")
+    (phlo_dir / ".env").write_text("")
+    (tmp_path / "phlo.yaml").write_text("name: demo\n")
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "Dockerfile").write_text("FROM python:3.12-slim\n")
+    service = ServiceDefinition(
+        name="dagster",
+        description="dagster service",
+        files=[{"source": "Dockerfile", "dest": "dagster/Dockerfile"}],
+        source_path=templates,
+    )
+
+    class DagsterFakeDiscovery(FakeDiscovery):
+        def __init__(self) -> None:
+            super().__init__({"dagster": service}, default_names=("dagster",))
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(start_module, "ServiceDiscovery", DagsterFakeDiscovery)
+    monkeypatch.setattr(start_module, "require_container_backend", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(start_module, "get_project_name", lambda: "demo")
+    monkeypatch.setattr(
+        start_module,
+        "run_command",
+        lambda cmd, **_kwargs: CompletedProcess(args=cmd, returncode=1),
+    )
+    monkeypatch.setattr(
+        start_module, "_emit_service_lifecycle_events", lambda *_args, **_kwargs: None
+    )
+
+    result = CliRunner().invoke(start_module.start_cmd, ["--build"])
+
+    assert result.exit_code == 1, result.output
+    assert "Generated build inputs differ from the installed phlo templates" in result.output
+    assert "dagster/Dockerfile" in result.output
+    assert "phlo services init --force" in result.output
+
+
 def test_services_start_uses_profile_targets_without_default_fallback(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:

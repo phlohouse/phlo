@@ -141,6 +141,45 @@ def apply_uv_lock_env_override(
     return env_overrides
 
 
+def stale_generated_build_inputs(
+    discovery: ServiceDiscovery,
+    phlo_dir: Path,
+    service_names: list[str],
+) -> list[str]:
+    """Return generated service files that differ from the installed templates.
+
+    Generated images build from the copies under ``.phlo`` rather than from the
+    templates the installed phlo ships, and a shared layout deliberately
+    preserves those copies across ``phlo services init``. A project initialised
+    by an earlier phlo therefore keeps building a stale Dockerfile, so the build
+    failure names the difference and the command that refreshes it.
+    """
+    services = discovery.discover()
+    stale: set[str] = set()
+    for name in service_names:
+        service = services.get(name)
+        if service is None or not service.source_path:
+            continue
+        for spec in service.files or []:
+            source = service.source_path / spec["source"]
+            dest = phlo_dir / spec["dest"]
+            if not source.exists():
+                continue
+            candidates = (
+                [
+                    (path, dest / path.relative_to(source))
+                    for path in source.rglob("*")
+                    if path.is_file()
+                ]
+                if source.is_dir()
+                else [(source, dest)]
+            )
+            for source_file, dest_file in candidates:
+                if dest_file.is_file() and source_file.read_bytes() != dest_file.read_bytes():
+                    stale.add(dest_file.relative_to(phlo_dir).as_posix())
+    return sorted(stale)
+
+
 def check_docker_available() -> bool:
     """Check if the Docker CLI is available.
 
