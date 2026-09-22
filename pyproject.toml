@@ -89,7 +89,7 @@ license = "AGPL-3.0-or-later"
 name = "phlo"
 readme = "README.md"
 requires-python = ">=3.12"
-version = "0.16.2"
+version = "0.17.0"
 
 [project.entry-points."phlo.plugins.quality"]
 
@@ -122,8 +122,6 @@ defaults = [
     "phlo-observe-plugin>=0.1.0",
     "phlo-trino>=0.1.0",
 ]
-# Explicit alias for installations that want the observe plugin without the
-# rest of Phlo's default integration packages.
 observe = ["phlo-observe-plugin>=0.1.0"]
 openmetadata = ["phlo-openmetadata>=0.1.0"]
 runtime = [

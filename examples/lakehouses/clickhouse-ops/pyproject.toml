@@ -7,12 +7,12 @@ name = "phlo-clickhouse-ops-example"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "phlo[defaults]==0.16.2",
-    "phlo-dagster==0.16.2",
-    "phlo-dlt==0.15.4",
-    "phlo-dbt==0.15.4",
-    "phlo-sling==0.15.4",
-    "phlo-clickhouse==0.15.4",
+    "phlo[defaults]==0.17.0",
+    "phlo-dagster==0.17.0",
+    "phlo-dlt==0.16.0",
+    "phlo-dbt==0.16.0",
+    "phlo-sling==0.16.0",
+    "phlo-clickhouse==0.16.0",
     "dbt-clickhouse>=1.10,<1.11",
     "dlt[filesystem]>=1.20,<2",
     "pandas>=2.3,<3.1",
@@ -23,7 +23,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "duckdb>=1.4,<1.6",
-    "phlo-pandera==0.15.4",
+    "phlo-pandera==0.16.0",
     "pytest",
     "ruff",
 ]
