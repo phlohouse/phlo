@@ -49,7 +49,19 @@ export OBSERVE_HTTP_ENDPOINT=http://localhost:10010/v1/events
 export OBSERVE_HTTP_TOKEN=replace-me
 ```
 
-Set `PHLO_OBSERVE_ENABLED=false` to disable canonical event emission. Set `PHLO_OBSERVE_PRETTY=false` to disable formatted canonical events in the console, or set `PHLO_OBSERVE_PRETTY_VERBOSE=true` to include secondary diagnostic events.
+To keep the console mode in project configuration, add the settings to the top-level `env` block in `phlo.yaml`:
+
+```yaml
+env:
+  PHLO_OBSERVE_PRETTY: "true"
+  PHLO_OBSERVE_PRETTY_VERBOSE: "false"
+```
+
+Run `phlo services init --profile observability` again after you change the `env` block. Pass the profile each time you regenerate the service configuration.
+
+The default pretty mode prints a concise run narrative and hides routine framework messages. Set `PHLO_OBSERVE_PRETTY_VERBOSE=true` to include secondary diagnostic events and the full framework log stream. Set `PHLO_OBSERVE_PRETTY=false` to disable formatted canonical events in the console. Set `PHLO_OBSERVE_ENABLED=false` to disable canonical event emission, including delivery to the observer.
+
+`PHLO_LOG_FORMAT=console` controls the existing structlog renderer. It does not enable the canonical pretty output.
 
 Set standard OpenTelemetry environment variables when you want traces, metrics, or logs exported through OTLP.
 

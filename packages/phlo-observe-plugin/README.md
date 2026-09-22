@@ -2,11 +2,8 @@
 
 Canonical `phlo-observe` integration for Phlo.
 
-The observer SDK packages are pinned to their released source commit while
-their package-index distributions are prepared. Repository development installs
-them through Phlo's `dev` dependency group. A published `phlo` installation
-remains URL-free; enable the integration after installing compatible observer
-SDK distributions or source packages in your environment.
+The package installs the published `phlo-observe` SDK and its core and query
+dependencies from PyPI.
 
 ## What it provides
 
@@ -27,6 +24,8 @@ observer is wanted:
 
 ```bash
 pip install phlo-observe-plugin
+phlo services init --profile observability
+phlo services start
 phlo services start --profile observability
 ```
 
@@ -36,6 +35,16 @@ deployments, configure matching `OBSERVE_HTTP_TOKEN` and
 `PHLO_OBSERVER_INGEST_TOKENS` values.
 
 The observability profile enables the concise terminal drain. Set
-`PHLO_OBSERVE_PRETTY=false` to keep canonical events out of the terminal. The
-existing hook bus API remains compatible; its events are translated rather
-than replaced.
+`PHLO_OBSERVE_PRETTY_VERBOSE=true` to include secondary diagnostic events and
+the full framework log stream. Set `PHLO_OBSERVE_PRETTY=false` to keep
+canonical events out of the terminal. Store either setting in the top-level
+`env` block in `phlo.yaml`, then regenerate the service configuration:
+
+```yaml
+env:
+  PHLO_OBSERVE_PRETTY: "true"
+  PHLO_OBSERVE_PRETTY_VERBOSE: "false"
+```
+
+The existing hook bus API remains compatible. The plugin translates its
+events rather than replacing them.
