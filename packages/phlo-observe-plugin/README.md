@@ -35,6 +35,7 @@ development, the service defaults to unauthenticated ingest. For hardened
 deployments, configure matching `OBSERVE_HTTP_TOKEN` and
 `PHLO_OBSERVER_INGEST_TOKENS` values.
 
-`PHLO_OBSERVE_PRETTY=true` enables the concise terminal drain. The existing
-hook bus API remains compatible; its events are translated rather than
-replaced.
+The observability profile enables the concise terminal drain. Set
+`PHLO_OBSERVE_PRETTY=false` to keep canonical events out of the terminal. The
+existing hook bus API remains compatible; its events are translated rather
+than replaced.

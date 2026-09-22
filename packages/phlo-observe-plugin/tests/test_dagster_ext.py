@@ -71,6 +71,7 @@ def test_success_run_emits_terminal_pipeline_run(captured: list) -> None:
     assert evt["severity"] == "info"
     corr = evt["correlation"]
     assert corr["run_id"] == "phys-1"
+    assert corr["root_run_id"] == "root-1"
     assert corr["job_id"] == "job-a"
     assert evt["attributes"]["phlo_run_id"] == "logical-1"
     assert evt["producer"] == "dagster"

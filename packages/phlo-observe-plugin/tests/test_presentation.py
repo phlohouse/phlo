@@ -31,7 +31,7 @@ BRANCH = "pipeline-run-abc123"
 
 def _wap_history() -> list[dict]:
     """A minimal canonical history in the shape phlo actually emits."""
-    corr = {"run_id": RUN}
+    corr = {"run_id": RUN, "root_run_id": RUN}
     return [
         {
             "event": "wap.branch.create",
@@ -158,7 +158,7 @@ def test_wap_run_golden() -> None:
         "    From     a1b2c3d4e5f6a1b2…\n"
         "    To       f6e5d4c3b2a1f6e5…\n"
         "    Catalog  nessie\n"
-        f"10:03:31.384 ✓ Run  Job: ingest_job  Status: SUCCESS  Branch: {BRANCH}  8.47s"
+        "10:03:31.384 ✓ Run  Job: ingest_job  Status: SUCCESS  8.47s"
     )
 
 
@@ -212,6 +212,22 @@ def test_internal_failure_still_surfaces() -> None:
     assert out.startswith("✕ Observation")
 
 
+def test_failed_application_log_surfaces_its_message() -> None:
+    """Escalated application logs must explain the failure, not say only Log."""
+    event = {
+        "event": "application.log",
+        "outcome": "failure",
+        "severity": "error",
+        "attributes": {
+            "message": "Failed to resolve asset job retail_daily_transform_job",
+            "logger": "dagster.code_server",
+            "level": "ERROR",
+        },
+    }
+    out = pretty_renderer(color="never", stream=io.StringIO()).render(event)
+    assert out == "✕ Log  Message: Failed to resolve asset job retail_daily_transform_job"
+
+
 def test_secondary_events_visible_in_verbose() -> None:
     """Plumbing-level events show only in verbose, indented."""
     events = [
@@ -254,7 +270,7 @@ def test_stacked_layout_replaces_long_lines() -> None:
         },
     }
     default = pretty_renderer(color="never", symbols="unicode", stream=io.StringIO()).render(event)
-    assert "✓ Iceberg commit  bronze.users" in default
+    assert "✓ Commit  bronze.users" in default
     assert "    Op       append" in default
     assert "    Rows +   12,481" in default
     # Secondary fields stay out of the default block.
@@ -328,7 +344,7 @@ def test_failure_escalation_and_error_block() -> None:
 
 def test_context_fields_resolve() -> None:
     paths = {cf.path for cf in PHLO_CONTEXT}
-    assert "correlation.run_id" in paths
+    assert "correlation.root_run_id" in paths
 
 
 def test_drain_protocol_surface() -> None:

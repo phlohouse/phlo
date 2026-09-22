@@ -42,14 +42,14 @@ The service manifests define the observability profile and service dependencies.
 
 ## 4. Enable telemetry
 
-The local observability profile sets `OBSERVE_HTTP_ENDPOINT` to its observer automatically. Set it explicitly when sending canonical Phlo events to another endpoint. Add a token when the endpoint requires one.
+The local observability profile sets `OBSERVE_HTTP_ENDPOINT` to its observer and enables concise canonical event output automatically. Set the endpoint explicitly when sending events to another observer. Add a token when the endpoint requires one.
 
 ```bash
 export OBSERVE_HTTP_ENDPOINT=http://localhost:10010/v1/events
 export OBSERVE_HTTP_TOKEN=replace-me
 ```
 
-Set `PHLO_OBSERVE_ENABLED=false` to disable canonical event emission. Set `PHLO_OBSERVE_PRETTY=true` to render canonical events in the console.
+Set `PHLO_OBSERVE_ENABLED=false` to disable canonical event emission. Set `PHLO_OBSERVE_PRETTY=false` to disable formatted canonical events in the console, or set `PHLO_OBSERVE_PRETTY_VERBOSE=true` to include secondary diagnostic events.
 
 Set standard OpenTelemetry environment variables when you want traces, metrics, or logs exported through OTLP.
 

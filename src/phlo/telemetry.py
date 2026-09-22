@@ -393,6 +393,11 @@ def ambient_run_id() -> str | None:
     return _ambient_value("run_id")
 
 
+def ambient_root_run_id() -> str | None:
+    """Return the top-level orchestrator run bound to the current operation."""
+    return _ambient_value("root_run_id")
+
+
 def ambient_producer() -> str | None:
     """Return the ambient source producer bound by ``bind_context``."""
     if _observe_core() is None:

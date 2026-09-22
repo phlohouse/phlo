@@ -49,6 +49,9 @@ env_vars:
       Full ingest URL (e.g. http://localhost:10010/v1/events) enabling
       canonical phlo-observe event emission; dagster and dagster-daemon are
       wired to the in-cluster observer address when this is set
+  PHLO_OBSERVE_PRETTY:
+    default: "true"
+    description: Render canonical Phlo events as concise human-readable output
   # Token values are deliberately NOT marked secret: render_env would generate
   # an independent random value for each. The observer fails closed on every
   # surface as soon as ANY token set is non-empty, so a generated read/admin

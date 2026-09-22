@@ -34,6 +34,7 @@ def test_observer_service_declares_database_url_env() -> None:
     assert definition.env_vars["OBSERVE_HTTP_ENDPOINT"]["default"] == (
         "http://localhost:10010/v1/events"
     )
+    assert definition.env_vars["PHLO_OBSERVE_PRETTY"]["default"] == "true"
     assert "OBSERVE_HTTP_TOKEN" in env_names
 
 

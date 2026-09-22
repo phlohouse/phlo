@@ -415,7 +415,7 @@ def _wap_lifecycle(bus: Any, physical: str | None, logical: str, *, fail: bool) 
             "rows_loaded": 12481,
             "tables": [WAP_TABLE],
         },
-        correlation={"pipeline": "users_ingest"},
+        correlation={"pipeline": "users_ingest", "run_id": "1726657408.123456"},
     )
 
     # Column-level quality results on the staged data — the one that fails
@@ -571,6 +571,7 @@ def _terminal_run_event(result: Any, *, fail: bool) -> None:
         },
         correlation={
             "run_id": result.run_id,
+            "root_run_id": result.run_id,
             "job_id": "__anonymous_asset_job__",
             "branch": WAP_STAGING_REF,
         },
@@ -616,6 +617,15 @@ def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
         "pipeline.run",
     ]
 
+    dlt_event = next(payload for payload in payloads if payload.get("event") == "dlt.pipeline.run")
+    assert dlt_event["correlation"]["run_id"] != result.run_id
+    assert dlt_event["correlation"]["root_run_id"] == result.run_id
+    assert {
+        payload["event"]: payload.get("correlation", {}).get("root_run_id")
+        for payload in payloads
+        if payload.get("event") != "application.log"
+    } == dict.fromkeys(operational_names, result.run_id)
+
     # Default: thirteen operational events tell the story — the full WAP
     # lifecycle, the extract→load pair, the DLT run, both commits, checks,
     # the step, the materialization, the run's outcome. Field-dense events
@@ -628,11 +638,11 @@ def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
         f"TT:TT:TT.ttt ✓ Load  {WAP_TABLE}\n"
         "    Rows   12,481\n"
         "    Group  bronze\n"
-        f"TT:TT:TT.ttt ✓ Iceberg commit  {WAP_TABLE}\n"
+        f"TT:TT:TT.ttt ✓ Commit  {WAP_TABLE}\n"
         "    Op       append\n"
         "    Rows +   12,481\n"
         "    Files +  3\n"
-        "TT:TT:TT.ttt ✓ DLT load  users_ingest\n"
+        "TT:TT:TT.ttt ✓ Stage  users_ingest\n"
         "    Destination  iceberg\n"
         "    Dataset      bronze\n"
         "    Rows         12,481\n"
@@ -648,7 +658,7 @@ def test_wap_run_golden_ux(captured: Any, bus: Any) -> None:
         f"TT:TT:TT.ttt ✓ Check  Check: schema_ok  Asset: {WAP_ASSET}\n"
         f"TT:TT:TT.ttt ✓ Step  Asset: {WAP_ASSET}  Op: bronze__users  <dur>\n"
         f"TT:TT:TT.ttt ✓ Materialize  Asset: {WAP_ASSET}  Rows: 12,481\n"
-        f"TT:TT:TT.ttt ✓ Run  Status: SUCCESS  Branch: {WAP_STAGING_REF}"
+        "TT:TT:TT.ttt ✓ Run  Status: SUCCESS"
     )
 
     # Verbose: the plumbing-level events indent alongside, and the stacked
@@ -690,7 +700,7 @@ def test_wap_rejection_golden_ux(captured: Any, bus: Any) -> None:
     assert "    Merge  rejected_quality" in out
     assert "    quality gate rejected: check 'not_null' failed" in out
     # The run's terminal line carries the failed outcome.
-    assert f"✕ Run  Status: FAILURE  Branch: {WAP_STAGING_REF}" in out
+    assert "✕ Run  Status: FAILURE" in out
     # The failed load's error surfaces under the stacked block.
     assert f"✕ Load  {WAP_TABLE}" in out
     assert "    source read blew up" in out
