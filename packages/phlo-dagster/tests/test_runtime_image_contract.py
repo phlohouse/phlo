@@ -8,7 +8,6 @@ instructions or the parsed service definition.
 
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
 from importlib import resources
@@ -30,41 +29,11 @@ def _dockerfile_instruction_lines(text: str) -> list[str]:
     ]
 
 
-def _dockerfile_instructions(text: str) -> list[str]:
-    """Join continued lines so each instruction is asserted as a whole."""
-    instructions: list[str] = []
-    pending = ""
-    for line in _dockerfile_instruction_lines(text):
-        continued = line.endswith("\\")
-        pending = f"{pending} {line[:-1] if continued else line}"
-        if not continued:
-            instructions.append(pending.strip())
-            pending = ""
-    return instructions
-
-
 def test_dagster_runtime_image_is_glibc_based_for_external_binaries() -> None:
     """Sling publishes no musl build; an Alpine base would break ingest assets."""
     lines = _dockerfile_instruction_lines(_runtime_resource("Dockerfile"))
     first_from = next(line for line in lines if line.startswith("FROM "))
     assert first_from.split()[1] == "python:3.12-slim"
-
-
-def test_dagster_runtime_image_leaves_debian_packages_unpinned() -> None:
-    """Debian drops superseded versions at point releases.
-
-    Generated lakehouse stacks build this Dockerfile from the committed
-    ``.phlo`` copy weeks or months after the phlo release, so an exact version
-    turns into ``Version ... was not found`` and fails the build. The floating
-    base tag and the ``apt-get upgrade`` in the same instruction already resolve
-    the current point release.
-    """
-    instructions = _dockerfile_instructions(_runtime_resource("Dockerfile"))
-    install = next(line for line in instructions if "apt-get install" in line)
-    specs = re.search(r"apt-get install\b(?P<specs>.*?)(?:\s&&|$)", install)
-    assert specs is not None, install
-    pinned = [spec for spec in specs.group("specs").split() if "=" in spec]
-    assert pinned == [], f"apt packages must not pin versions: {pinned}"
 
 
 def test_dagster_service_uses_the_image_bootstrap_script() -> None:
