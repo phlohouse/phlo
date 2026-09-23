@@ -227,6 +227,8 @@ def minio_client():
         endpoint = settings.minio_endpoint()
         access_key = settings.minio_root_user
         secret_key = settings.minio_root_password
+        if not secret_key:
+            pytest.skip("MinIO credentials are not configured")
 
         # Remove protocol if present
         if "://" in endpoint:
