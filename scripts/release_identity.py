@@ -14,6 +14,7 @@ import posixpath
 import subprocess
 import tarfile
 import tempfile
+import time
 import tomllib
 import urllib.error
 import urllib.request
@@ -297,19 +298,23 @@ def _sdist_content_sha256(path: Path) -> str:
 
 
 def _pypi_files(project: str, version: str) -> dict[str, tuple[str, bool, str]]:
-    try:
-        with urllib.request.urlopen(
-            f"https://pypi.org/pypi/{project}/{version}/json", timeout=30
-        ) as response:
-            payload = json.load(response)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return {}
-        raise
-    except urllib.error.URLError as exc:
-        raise ReleaseIdentityError(
-            f"could not retrieve PyPI metadata for {project} {version}: {exc.reason}"
-        ) from exc
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(
+                f"https://pypi.org/pypi/{project}/{version}/json", timeout=30
+            ) as response:
+                payload = json.load(response)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return {}
+            if exc.code not in {408, 429, 500, 502, 503, 504} or attempt == 2:
+                raise
+            time.sleep(2**attempt)
+        except urllib.error.URLError as exc:
+            raise ReleaseIdentityError(
+                f"could not retrieve PyPI metadata for {project} {version}: {exc.reason}"
+            ) from exc
     return {
         entry["filename"]: (entry["digests"]["sha256"], bool(entry["yanked"]), entry["url"])
         for entry in payload["urls"]

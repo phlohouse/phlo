@@ -279,16 +279,20 @@ jobs:
           for artifact in "${artifacts[@]}"; do args+=(--artifact "$artifact"); done
           python scripts/release_identity.py artifacts --tag "$TAG" "${args[@]}" --output release-manifest.json
 
+      - name: Prepare current release identity checker for PyPI lookups
+        run: git show origin/main:scripts/release_identity.py > "$RUNNER_TEMP/release_identity.py"
+
       - name: Publish missing coherent artifacts
         env:
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
-          python scripts/release_identity.py publish-plan --manifest release-manifest.json --output publish-plan.json
+          identity_script="$RUNNER_TEMP/release_identity.py"
+          python "$identity_script" publish-plan --manifest release-manifest.json --output publish-plan.json
           mapfile -t artifacts < <(jq -r '.upload[].path' publish-plan.json)
           if [ "${#artifacts[@]}" -eq 0 ]; then
             echo "All expected artifacts are already published with matching hashes."
           else
             uv publish "${artifacts[@]}" --token "$PYPI_API_TOKEN"
           fi
-          python scripts/release_identity.py publish-plan --manifest release-manifest.json --output publish-plan.json
+          python "$identity_script" publish-plan --manifest release-manifest.json --output publish-plan.json
           test "$(jq '.upload | length' publish-plan.json)" = 0

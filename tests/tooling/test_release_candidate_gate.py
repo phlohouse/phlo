@@ -141,17 +141,14 @@ def test_release_publish_validates_the_complete_artifact_manifest() -> None:
     assert "continue-on-error" not in gate
     assert not publish_job.get("continue-on-error")
 
-    commands = [
-        line.split()
+    artifact_validation = any(
+        line.strip().startswith("python scripts/release_identity.py artifacts ")
         for step in publish_job["steps"]
         for line in _step_run_script(step).splitlines()
-    ]
-    subcommands = {
-        parts[2]
-        for parts in commands
-        if len(parts) > 2 and parts[:2] == ["python", "scripts/release_identity.py"]
-    }
-    assert {"artifacts", "publish-plan"} <= subcommands
+    )
+    assert artifact_validation
+    assert "git show origin/main:scripts/release_identity.py" in str(publish_job["steps"])
+    assert "publish-plan" in str(publish_job["steps"])
     assert IDENTITY_SCRIPT.is_file()
 
 
