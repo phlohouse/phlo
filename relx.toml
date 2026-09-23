@@ -263,3 +263,17 @@ enabled = true
 
 [prerelease.workspace]
 sync_root_extras = ["defaults", "core-services"]
+
+[[release.transformers]]
+name = "generate-support-matrix"
+command = ["python3", "scripts/release_support_matrix_transformer.py"]
+timeout_seconds = 120
+inputs = [
+    "registry/support/v1.json",
+    "scripts/generate_reference_docs.py",
+    "scripts/release_support_matrix_transformer.py",
+]
+outputs = [
+    "docs/reference/support-matrix.md",
+    "docs/reference/generated/support-matrix.json",
+]
