@@ -7,12 +7,12 @@ name = "phlo-market-data-fx-example"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "phlo[defaults]==0.16.2",
-    "phlo-dagster==0.16.2",
-    "phlo-dlt==0.15.4",
-    "phlo-dbt==0.15.4",
-    "phlo-iceberg==0.15.4",
-    "phlo-trino==0.15.4",
+    "phlo[defaults]==0.17.0",
+    "phlo-dagster==0.17.0",
+    "phlo-dlt==0.16.0",
+    "phlo-dbt==0.16.0",
+    "phlo-iceberg==0.16.0",
+    "phlo-trino==0.16.0",
     "dlt[filesystem]>=1.20,<2",
     "pandas>=2.3,<3.1",
     "pyarrow>=21,<26",
@@ -22,7 +22,7 @@ dependencies = [
 dev = [
     "dbt-trino>=1.10,<1.12",
     "duckdb>=1.4,<1.6",
-    "phlo-pandera==0.15.4",
+    "phlo-pandera==0.16.0",
     "pytest",
     "ruff",
 ]
