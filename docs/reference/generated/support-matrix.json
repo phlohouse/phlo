@@ -1171,7 +1171,7 @@
   "release": {
     "maturity": "alpha",
     "production_ready": false,
-    "version": "0.17.0"
+    "version": "0.18.0"
   },
   "schema_version": 1
 }
