@@ -7,6 +7,7 @@ suites.
 from __future__ import annotations
 
 import contextlib
+import sys
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -18,6 +19,26 @@ from phlo.plugins import (
     TransformationPlugin,
 )
 from phlo.plugins.discovery import ServiceDefinition
+
+
+@contextlib.contextmanager
+def isolated_workflows_imports():
+    """Keep temporary project ``workflows`` packages out of the process cache."""
+    previous = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "workflows" or name.startswith("workflows.")
+    }
+    for name in previous:
+        sys.modules.pop(name, None)
+
+    try:
+        yield
+    finally:
+        for name in tuple(sys.modules):
+            if name == "workflows" or name.startswith("workflows."):
+                sys.modules.pop(name, None)
+        sys.modules.update(previous)
 
 
 def reset_capability_test_state() -> None:

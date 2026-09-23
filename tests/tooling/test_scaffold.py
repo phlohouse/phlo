@@ -16,6 +16,8 @@ from phlo_dlt.scaffold import (
     parse_field_specs,
 )
 
+from tests.helpers import isolated_workflows_imports
+
 
 def _requirement_name(requirement: str) -> str:
     """Return the package name from a simple PEP 508 dependency string."""
@@ -231,14 +233,17 @@ def test_generated_partitioned_sql_callable_constructs_partition_window(
         fields=["order_id:int", "updated_at:datetime"],
         source_kind="partitioned-sql",
     )
+    (tmp_path / "workflows" / "__init__.py").write_text("")
+    (tmp_path / "workflows" / "schemas" / "__init__.py").write_text("")
 
     asset_path = tmp_path / "workflows" / "ingestion" / "warehouse" / "orders.py"
-    spec = importlib.util.spec_from_file_location("scaffolded_warehouse_orders", asset_path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with isolated_workflows_imports():
+        spec = importlib.util.spec_from_file_location("scaffolded_warehouse_orders", asset_path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
 
-    resource = module.orders("2026-06-04")
+        resource = module.orders("2026-06-04")
 
     assert resource is not None
 

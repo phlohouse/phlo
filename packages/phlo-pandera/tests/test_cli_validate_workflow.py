@@ -20,6 +20,7 @@ from phlo_pandera.cli_validate import (
     _validate_cron_format,
     validate_workflow,
 )
+from tests.helpers import isolated_workflows_imports
 
 
 def test_validate_workflow_missing_file_prints_rerun_hint() -> None:
@@ -37,6 +38,10 @@ def test_validate_workflow_resolves_project_workflow_imports(monkeypatch, tmp_pa
     schema_file = tmp_path / "workflows" / "schemas" / "demo.py"
     workflow_file.parent.mkdir(parents=True)
     schema_file.parent.mkdir(parents=True)
+    (tmp_path / "workflows" / "__init__.py").write_text("")
+    (tmp_path / "workflows" / "schemas" / "__init__.py").write_text("")
+    (tmp_path / "workflows" / "ingestion" / "__init__.py").write_text("")
+    workflow_file.parent.joinpath("__init__.py").write_text("")
     schema_file.write_text("class RawEvents: pass\n")
     workflow_file.write_text(
         """
@@ -64,7 +69,8 @@ def events(partition_date: str) -> None:
     )
     monkeypatch.chdir(tmp_path)
 
-    result = CliRunner().invoke(validate_workflow, [str(workflow_file)])
+    with isolated_workflows_imports():
+        result = CliRunner().invoke(validate_workflow, [str(workflow_file)])
 
     assert result.exit_code == 0
     assert "Workflow is valid" in result.output
@@ -239,12 +245,6 @@ class TestValidateCronFormat:
         assert len(errors) > 0
         assert "month" in errors[0].lower()
 
-    def test_warning_for_very_frequent_cron(self):
-        """Test that very frequent cron schedules are warned about."""
-        _validate_cron_format("*/1 * * * *")
-        # May contain warnings about frequent execution
-        # This is informational, not necessarily an error
-
 
 class TestValidateFieldNames:
     """Tests for naming convention validation."""
@@ -345,7 +345,8 @@ def test_workflow(partition_date: str):
 
         result = runner.invoke(validate_workflow, [str(workflow_file)])
         # Should detect missing group parameter
-        assert result.exit_code == 1 or "group" in result.output.lower()
+        assert result.exit_code == 1
+        assert "missing required 'group' parameter" in result.output.lower()
 
     def test_validate_workflow_file_invalid_cron(self, tmp_path):
         """Test that invalid cron is caught."""
@@ -371,7 +372,8 @@ def test_workflow(partition_date: str):
         )
 
         result = runner.invoke(validate_workflow, [str(workflow_file)])
-        assert result.exit_code == 1 or "cron" in result.output.lower()
+        assert result.exit_code == 1
+        assert "cron" in result.output.lower()
 
     def test_validate_workflow_directory(self, tmp_path):
         """Test validating a directory of workflow files."""
@@ -454,7 +456,8 @@ def test_workflow(partition_date: str):
 
         result = runner.invoke(validate_workflow, [str(workflow_file)])
         # Should catch the invalid table name
-        assert "invalid" in result.output.lower() or result.exit_code == 1
+        assert result.exit_code == 1
+        assert "invalid" in result.output.lower()
 
     def test_validate_workflow_with_invalid_unique_key(self, tmp_path):
         """Test that invalid unique key names are caught."""
@@ -481,7 +484,8 @@ def test_workflow(partition_date: str):
 
         result = runner.invoke(validate_workflow, [str(workflow_file)])
         # Should catch the invalid key name
-        assert "invalid" in result.output.lower() or result.exit_code == 1
+        assert result.exit_code == 1
+        assert "invalid" in result.output.lower()
 
     def test_validate_workflow_warns_on_missing_schema(self, tmp_path):
         """Test that missing validation_schema generates warning."""
@@ -576,7 +580,10 @@ class TestValidateWorkflowEdgeCases:
         workflow_file = Path(tmp_path) / "test_workflow.py"
         workflow_file.write_text(
             """
-from phlo_dlt import phlo_ingestion
+def phlo_ingestion(**kwargs):
+    def decorator(func):
+        return func
+    return decorator
 
 @phlo_ingestion(
     table_name="table1",
@@ -600,7 +607,8 @@ def workflow2(partition_date: str):
 
         result = runner.invoke(validate_workflow, [str(workflow_file)])
         # Should handle multiple workflows
-        assert "workflow" in result.output.lower() or result.exit_code == 0
+        assert result.exit_code == 0
+        assert "2 workflow(s)" in result.output.lower()
 
 
 class TestCronExpressionExamples:

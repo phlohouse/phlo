@@ -15,9 +15,6 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-pytestmark = pytest.mark.integration
-
-
 # =============================================================================
 # Unit Tests: Type Mapping (No external dependencies)
 # =============================================================================
@@ -512,6 +509,7 @@ class TestTrinoServicePlugin:
 @pytest.fixture
 def trino_service():
     """Fixture that provides a Trino connection if available."""
+    from trino.exceptions import TrinoConnectionError
     from phlo_trino import TrinoResource
 
     # Check if Trino is available
@@ -521,16 +519,15 @@ def trino_service():
     resource = TrinoResource(host=host, port=port)
 
     try:
-        # Try to connect
         result = resource.execute("SELECT 1")
-        if result and list(result[0]) == [1]:
-            yield resource
-        else:
-            pytest.skip("Trino returned unexpected result")
-    except Exception as e:
+    except TrinoConnectionError as e:
         pytest.skip(f"Trino not available: {e}")
 
+    assert result and list(result[0]) == [1], f"Trino health check returned {result!r}"
+    yield resource
 
+
+@pytest.mark.integration
 class TestTrinoIntegrationReal:
     """Real integration tests against a running Trino instance."""
 

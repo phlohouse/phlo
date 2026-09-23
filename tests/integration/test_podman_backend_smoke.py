@@ -1,12 +1,12 @@
-"""Opt-in Podman backend smoke test; requires PHLO_PODMAN_SMOKE=1 and a local podman.
+"""Podman backend smoke test; requires a local Podman installation.
 
 Initializes a minimal project, forces the podman backend, and asserts the CLI
-never falls back to docker. Skips silently when either prerequisite is absent.
+never falls back to docker. Skips when Podman is unavailable.
 """
 
 from __future__ import annotations
 
-import os
+import json
 import shutil
 from pathlib import Path
 
@@ -19,8 +19,6 @@ pytestmark = pytest.mark.integration
 
 
 def test_podman_backend_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    if os.environ.get("PHLO_PODMAN_SMOKE") != "1":
-        pytest.skip("set PHLO_PODMAN_SMOKE=1 to run Podman smoke")
     if shutil.which("podman") is None:
         pytest.skip("podman not installed")
 
@@ -34,5 +32,6 @@ def test_podman_backend_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("PHLO_CONTAINER_BACKEND", "podman")
 
     services_result = runner.invoke(cli, ["services", "ports", "--json"])
-    assert services_result.exit_code in (0, 1)
+    assert services_result.exit_code == 0, services_result.output
     assert "docker" not in services_result.output.lower()
+    assert isinstance(json.loads(services_result.output), list)

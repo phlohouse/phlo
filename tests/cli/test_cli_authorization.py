@@ -23,6 +23,7 @@ from phlo.cli.authorization import (
     CliPrincipalResolver,
     CliSurfaceAdapter,
 )
+from phlo.security.adapters import EnforcementResult
 
 pytestmark = pytest.mark.core_regression
 
@@ -158,27 +159,24 @@ class TestEnforcement:
     def test_check_mutation_command_enforced(self):
         """Mutation commands go through enforcement."""
         adapter = CliSurfaceAdapter()
-        with patch("phlo.security.enforcement.EnforcementContext") as mock_ctx:
-            mock_instance = MagicMock()
-            mock_ctx.get_instance.return_value = mock_instance
-            mock_instance.canonicalize.return_value = MagicMock(
-                subject="test-user",
-                principal_type="user",
-                roles=("admin",),
-                attributes={"authentication_source": "env"},
-            )
-            mock_instance.authorization_backend.explain_decision.return_value = MagicMock(
-                allowed=True,
-                reason_code=None,
-                policy_id=None,
-                explanation=None,
-            )
+        principal = MagicMock(
+            subject="test-user",
+            principal_type="user",
+            roles=("admin",),
+            attributes={"authentication_source": "env"},
+        )
+        adapter._resolver.resolve = MagicMock(return_value=principal)
+        adapter._enforce = MagicMock(side_effect=lambda **_: EnforcementResult.allow())
 
-            for cmd in MUTATION_COMMANDS:
-                result = adapter.check_command_authorization(cmd)
-                assert not result.allowed or result.allowed, (
-                    f"Mutation {cmd} should go through enforcement"
-                )
+        for cmd in MUTATION_COMMANDS:
+            result = adapter.check_command_authorization(cmd)
+            assert result.allowed, f"Mutation {cmd} should preserve the enforcement decision"
+
+        assert adapter._enforce.call_count == len(MUTATION_COMMANDS)
+        assert adapter._resolver.resolve.call_count == len(MUTATION_COMMANDS)
+        assert [call.kwargs["action"] for call in adapter._enforce.call_args_list] == [
+            COMMAND_ACTION_MAP.get(cmd, f"cli.{cmd}") for cmd in MUTATION_COMMANDS
+        ]
 
     def test_check_unknown_command_denied(self):
         """Unknown commands are denied."""

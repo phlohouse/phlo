@@ -222,12 +222,10 @@ def test_run_transform_profile_write_uses_own_project_profile(monkeypatch, tmp_p
         project_dir=project,
         profiles_dir=project / "profiles",
     )
-    try:
-        transformer.run_transform(parameters={"skip_build": True, "generate_docs": False})
-    except Exception:
-        pass  # telemetry hooks may be absent in this stub context
+    result = transformer.run_transform(parameters={"skip_build": True, "generate_docs": False})
 
     assert captured["project_dir"] == project
+    assert result.status == "success"
 
 
 def test_external_deps_recorded_for_cross_provider_references(monkeypatch, tmp_path) -> None:

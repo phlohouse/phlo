@@ -10,9 +10,6 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-pytestmark = pytest.mark.integration
-
-
 # =============================================================================
 # Connection Configuration Tests
 # =============================================================================
@@ -185,12 +182,18 @@ def postgres_connection():
             password=settings.postgres_password,
             connect_timeout=5,
         )
-        yield conn
-        conn.close()
-    except Exception as e:
+    except psycopg2.OperationalError as e:
+        if e.pgcode is not None:
+            raise
         pytest.skip(f"Postgres not available: {e}")
 
+    try:
+        yield conn
+    finally:
+        conn.close()
 
+
+@pytest.mark.integration
 class TestPostgresIntegrationReal:
     """Real integration tests against a running Postgres instance."""
 
