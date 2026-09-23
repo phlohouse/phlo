@@ -34,4 +34,4 @@ def test_podman_backend_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     services_result = runner.invoke(cli, ["services", "ports", "--json"])
     assert services_result.exit_code == 0, services_result.output
     assert "docker" not in services_result.output.lower()
-    assert isinstance(json.loads(services_result.output), list)
+    assert isinstance(json.loads(services_result.output)["data"], list)
