@@ -19,6 +19,7 @@ from contextlib import suppress
 from subprocess import CompletedProcess
 from types import SimpleNamespace
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -725,7 +726,7 @@ def test_services_start_preflights_env_local_port_collisions(
     )
     monkeypatch.setattr(start_module, "_is_host_port_available", lambda port: port != 3300)
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(click.ClickException) as exc_info:
         start_module._preflight_requested_host_ports(
             plan=StartPreflightPlan(
                 phlo_dir=phlo_dir,
@@ -766,7 +767,7 @@ def test_services_start_preflights_invalid_env_port_values(
         lambda _port: (_ for _ in ()).throw(AssertionError("port bind should not run")),
     )
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(click.ClickException) as exc_info:
         start_module._preflight_requested_host_ports(
             plan=StartPreflightPlan(
                 phlo_dir=phlo_dir,

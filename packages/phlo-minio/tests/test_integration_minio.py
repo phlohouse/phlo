@@ -12,9 +12,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-pytestmark = pytest.mark.integration
-
-
 # =============================================================================
 # Service Plugin Tests
 # =============================================================================
@@ -219,6 +216,8 @@ class TestMinioClientMocked:
 @pytest.fixture
 def minio_client():
     """Fixture providing a real MinIO client if available."""
+    from urllib3.exceptions import HTTPError
+
     try:
         from minio import Minio
         from phlo_minio.settings import get_settings
@@ -242,11 +241,13 @@ def minio_client():
 
         # Verify connectivity
         client.list_buckets()
-        yield client
-    except Exception as e:
+    except (HTTPError, OSError) as e:
         pytest.skip(f"MinIO not available: {e}")
 
+    yield client
 
+
+@pytest.mark.integration
 class TestMinioIntegrationReal:
     """Real integration tests against a running MinIO instance."""
 

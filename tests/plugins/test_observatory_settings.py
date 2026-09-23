@@ -15,6 +15,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from phlo.plugins.observatory_settings import (
     InMemorySettingsService,
@@ -86,7 +87,7 @@ def test_memory_backend_via_explicit_config(monkeypatch) -> None:
 
 def test_invalid_backend_name_fails_validation(monkeypatch) -> None:
     monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "redis")
-    with pytest.raises(Exception, match="postgres|memory"):
+    with pytest.raises(ValidationError, match="postgres|memory"):
         ObservatorySettingsStorageConfig()
 
 

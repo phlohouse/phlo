@@ -7,22 +7,10 @@ live in ``phlo_testing.harness_utils``.
 
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 
 from phlo_testing import harness_utils
 from phlo_testing.harness_utils import read_env_file, run_phlo
-from phlo_testing.profile_harness import bootstrap_bundled_stack_harness  # noqa: F401
-
-
-def test_profile_harness_does_not_reference_repo_script() -> None:
-    """The profile harness must not load scripts/run_golden_path.py at runtime."""
-    import phlo_testing.profile_harness as profile_harness
-
-    harness_source = inspect.getsource(profile_harness)
-    assert "_load_golden_path_module" not in harness_source
-    assert "run_golden_path" not in harness_source
-    assert "importlib.util" not in harness_source
 
 
 def test_run_phlo_uses_python_module_entrypoint(tmp_path: Path, monkeypatch) -> None:

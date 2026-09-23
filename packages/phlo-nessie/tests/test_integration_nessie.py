@@ -10,9 +10,6 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-pytestmark = pytest.mark.integration
-
-
 # =============================================================================
 # Service Plugin Tests
 # =============================================================================
@@ -268,19 +265,17 @@ def nessie_client():
     from phlo_nessie.resource import NessieResource
     import requests
 
+    resource = NessieResource()
     try:
-        resource = NessieResource()
-
-        # Try to connect
         response = requests.get(f"{resource.base_url}/api/v1/trees", timeout=5)
-        if response.status_code == 200:
-            yield resource
-        else:
-            pytest.skip(f"Nessie returned status {response.status_code}")
-    except Exception as e:
+    except (requests.ConnectionError, requests.Timeout) as e:
         pytest.skip(f"Nessie not available: {e}")
 
+    assert response.status_code == 200, f"Nessie health check failed: {response.status_code}"
+    yield resource
 
+
+@pytest.mark.integration
 class TestNessieIntegrationReal:
     """Real integration tests against a running Nessie instance."""
 

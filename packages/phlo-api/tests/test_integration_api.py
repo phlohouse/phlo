@@ -6,13 +6,10 @@ Per TEST_STRATEGY.md Level 2 (Functional):
 - Plugin/Service Discovery: Test plugin listing endpoints
 """
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
 from security_test_support import authenticated_client
-
-pytestmark = pytest.mark.integration
-
 
 # =============================================================================
 # FastAPI App Tests
@@ -191,26 +188,62 @@ class TestServicesEndpoints:
 
     def test_services_with_discovery(self):
         """Test services endpoint returns valid data structure."""
+        from phlo.plugins.discovery import ServiceDiscovery
 
-        client = authenticated_client("admin")
-        response = client.get("/api/services")
+        with patch.object(ServiceDiscovery, "discover") as discover:
+            discover.return_value = {
+                "trino": SimpleNamespace(
+                    name="trino",
+                    description="Query engine",
+                    category="query",
+                    default=True,
+                    profile="core",
+                    core=True,
+                )
+            }
+            response = authenticated_client("admin").get("/api/services")
 
         assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        # If services returned, check structure
-        if len(data) > 0:
-            assert "name" in data[0] or isinstance(data[0], str)
+        assert response.json() == [
+            {
+                "name": "trino",
+                "description": "Query engine",
+                "category": "query",
+                "default": True,
+                "profile": "core",
+                "core": True,
+            }
+        ]
 
     def test_service_info_endpoint(self):
         """Test getting specific service info returns valid response."""
 
-        client = authenticated_client("admin")
-        # Try to get a service that likely exists or doesn't
-        response = client.get("/api/services/trino")
+        from phlo.plugins.discovery import ServiceDiscovery
 
-        # trino may or may not exist in local service manifests.
-        assert response.status_code in (200, 404)
+        service = SimpleNamespace(
+            name="trino",
+            description="Query engine",
+            category="query",
+            default=True,
+            profile="core",
+            depends_on=[],
+            env_vars={},
+            core=True,
+        )
+        with patch.object(ServiceDiscovery, "get_service", return_value=service):
+            response = authenticated_client("admin").get("/api/services/trino")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "name": "trino",
+            "description": "Query engine",
+            "category": "query",
+            "default": True,
+            "profile": "core",
+            "depends_on": [],
+            "env_vars": {},
+            "core": True,
+        }
 
     def test_service_not_found_returns_404(self):
         """Test unknown service returns 404."""
