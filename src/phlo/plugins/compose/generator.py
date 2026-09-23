@@ -331,9 +331,15 @@ class ComposeGenerator:
         # Add env_file for phlo_dev services to pick up project secrets (e.g., GITHUB_TOKEN)
         # Path is relative to .phlo/ directory where docker-compose.yml lives
         if service.phlo_dev:
+            env_paths = (env_defaults_path(output_dir), env_secrets_path(output_dir))
+            legacy_env_files = [
+                path.relative_to(output_dir).as_posix()
+                for name in (".env", ".env.local")
+                if (path := output_dir / name).is_file() and path not in env_paths
+            ]
             config["env_file"] = [
-                env_defaults_path(output_dir).relative_to(output_dir).as_posix(),
-                env_secrets_path(output_dir).relative_to(output_dir).as_posix(),
+                *legacy_env_files,
+                *(path.relative_to(output_dir).as_posix() for path in env_paths),
             ]
 
         if compose.get("command"):
