@@ -48,7 +48,7 @@ jobs:
           while IFS= read -r lockfile; do
             project_dir="$(dirname "$lockfile")"
             echo "::group::Audit $lockfile"
-            uv audit --locked --project "$project_dir"
+            uv audit --frozen --project "$project_dir"
             echo "::endgroup::"
           done < <(git ls-files "*uv.lock")
 
