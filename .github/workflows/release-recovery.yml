@@ -1,0 +1,148 @@
+name: Release Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Merged ReleaseX release commit to recover
+        required: true
+        type: string
+      evidence_sha:
+        description: Later commit with successful release-candidate evidence
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  recover-tag:
+    runs-on: ubuntu-latest
+    environment: release
+    concurrency:
+      group: release-tag-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: read
+      checks: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 0
+          persist-credentials: true
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Validate release identity and equivalent passing candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          EVIDENCE_SHA: ${{ inputs.evidence_sha }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EVIDENCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git cat-file -e "${EVIDENCE_SHA}^{commit}"
+          git merge-base --is-ancestor "$CANDIDATE_SHA" "$EVIDENCE_SHA"
+          git merge-base --is-ancestor "$EVIDENCE_SHA" origin/main
+
+          changed="$(git diff --name-only "$CANDIDATE_SHA" "$EVIDENCE_SHA" | sort)"
+          expected="$(printf '%s\n' .github/workflows/security.yml tests/tooling/test_toolchain_pins.py | sort)"
+          if [ "$changed" != "$expected" ]; then
+            echo "::error::Evidence commit differs outside the audited security-tooling fix."
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+
+          evidence_conclusion="$(gh api --paginate "/repos/${REPOSITORY}/commits/${EVIDENCE_SHA}/check-runs?per_page=100" --jq '
+            [.check_runs[] | select(.name == "release candidate / status" and .app.slug == "github-actions")]
+            | max_by(.completed_at)
+            | .conclusion
+          ')"
+          if [ "$evidence_conclusion" != success ]; then
+            echo "::error::Evidence commit has no successful release-candidate status."
+            exit 1
+          fi
+
+          root_version="$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as handle:
+              print(tomllib.load(handle)["project"]["version"])
+          PY
+          )"
+          tag="v${root_version}"
+          python scripts/release_identity.py source --tag "$tag"
+          prs="$(gh api --paginate "/repos/${REPOSITORY}/commits/${CANDIDATE_SHA}/pulls?per_page=100")"
+          matching="$(jq --arg sha "$CANDIDATE_SHA" --arg title "chore(release): phlo ${root_version}" '
+            [.[] | select(
+              .state == "closed" and .merged_at != null and .merge_commit_sha == $sha and
+              .base.ref == "main" and .base.repo.full_name == .head.repo.full_name and
+              .head.ref == "relx/release/monorepo/main-release-set" and
+              (.title | startswith($title)) and
+              ([.labels[].name] | index("autorelease: pending"))
+            )] | length
+          ' <<<"$prs")"
+          if [ "$matching" != 1 ]; then
+            echo "::error::Candidate is not exactly one merged ReleaseX release PR."
+            exit 1
+          fi
+          if gh api "/repos/${REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            echo "::error::Tag ${tag} already exists; refusing recovery."
+            exit 1
+          fi
+
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+          enable-cache: false
+
+      - uses: iamgp/ReleaseX@5dc88dc73d728dd1560444baadf66d6115c1bec2
+        with:
+          command: release tag
+          version: v1.5.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Verify recovered tag and record the checked evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          EVIDENCE_SHA: ${{ inputs.evidence_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force origin
+          tag="v$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as handle:
+              print(tomllib.load(handle)["project"]["version"])
+          PY
+          )"
+          test "$(git rev-parse "${tag}^{commit}")" = "$CANDIDATE_SHA"
+          python - <<'PY' > recovery-evidence.json
+          import json
+          import os
+
+          evidence_sha = os.environ["EVIDENCE_SHA"]
+          candidate_sha = os.environ["CANDIDATE_SHA"]
+          print(json.dumps({
+              "name": "release candidate / status",
+              "head_sha": candidate_sha,
+              "status": "completed",
+              "conclusion": "success",
+              "output": {
+                  "title": "Recovered release-candidate evidence",
+                  "summary": (
+                      f"All release-candidate checks passed at {evidence_sha}. Its only differences "
+                      "from this release candidate are the frozen-mode security audit fix and its focused test."
+                  ),
+              },
+          }))
+          PY
+          gh api --method POST "/repos/${REPOSITORY}/check-runs" --input recovery-evidence.json
