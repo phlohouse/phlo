@@ -3,7 +3,7 @@
 Workflows and pre-commit configuration are parsed as YAML and checked
 structurally: third-party actions must be SHA-pinned, toolchain steps must
 carry exact version pins, and every project uv invocation must run in
-locked mode.
+locked or frozen mode.
 """
 
 import re
@@ -111,6 +111,10 @@ def test_workflow_uv_commands_run_in_locked_mode() -> None:
                 if 'uv run "${run_args[@]}"' in line:
                     assert "run_args=(--locked" in script, (
                         f"{path.name}: run_args indirection without a locked default: {line}"
+                    )
+                elif re.search(r"\buv audit\b", line):
+                    assert "--frozen" in line, (
+                        f"{path.name}: uv audit must use frozen lockfile mode: {line}"
                     )
                 else:
                     assert "--locked" in line, f"{path.name}: unlocked uv command: {line}"
