@@ -8,7 +8,9 @@ Tests the workflow validation CLI command, including:
 """
 
 import ast
+import contextlib
 from pathlib import Path
+import sys
 
 from click.testing import CliRunner
 
@@ -20,7 +22,26 @@ from phlo_pandera.cli_validate import (
     _validate_cron_format,
     validate_workflow,
 )
-from tests.helpers import isolated_workflows_imports
+
+
+@contextlib.contextmanager
+def isolated_workflows_imports():
+    """Keep temporary project ``workflows`` packages out of the process cache."""
+    previous = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "workflows" or name.startswith("workflows.")
+    }
+    for name in previous:
+        sys.modules.pop(name, None)
+
+    try:
+        yield
+    finally:
+        for name in tuple(sys.modules):
+            if name == "workflows" or name.startswith("workflows."):
+                sys.modules.pop(name, None)
+        sys.modules.update(previous)
 
 
 def test_validate_workflow_missing_file_prints_rerun_hint() -> None:
