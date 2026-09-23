@@ -7,7 +7,9 @@ import json
 import sys
 from pathlib import Path
 
-from generate_reference_docs import support_docs, write_outputs
+sys.dont_write_bytecode = True
+
+from generate_reference_docs import support_docs, write_outputs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
