@@ -14,7 +14,9 @@ import json
 import subprocess
 import sys
 import tarfile
+import urllib.error
 from pathlib import Path
+from types import SimpleNamespace
 from zipfile import ZipFile
 
 import pytest
@@ -221,3 +223,29 @@ def test_publish_plan_rejects_conflicting_or_unexpected_remote_artifacts(
     assert upload == []
     assert "different PyPI SHA-256" in conflicts[0]
     assert "unexpected PyPI files" in conflicts[1]
+
+
+def test_pypi_file_lookup_retries_transient_server_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    delays: list[float] = []
+
+    def open_url(_url: str, *, timeout: int) -> io.BytesIO:
+        nonlocal attempts
+        assert timeout == 30
+        attempts += 1
+        if attempts < 3:
+            raise urllib.error.HTTPError(
+                "https://pypi.org/pypi/phlo/1.2.3/json", 503, "unhealthy", None, None
+            )
+        return io.BytesIO(b'{"urls": []}')
+
+    monkeypatch.setattr(release_identity.urllib.request, "urlopen", open_url)
+    monkeypatch.setattr(
+        release_identity, "time", SimpleNamespace(sleep=delays.append), raising=False
+    )
+
+    assert release_identity._pypi_files("phlo", "1.2.3") == {}
+    assert attempts == 3
+    assert delays == [1, 2]
