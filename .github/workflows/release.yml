@@ -78,8 +78,11 @@ jobs:
             conclusion="$(gh api \
               --paginate \
               "/repos/${REPOSITORY}/commits/${CANDIDATE_SHA}/check-runs?per_page=100" \
-              --jq '.check_runs[] | select(.name == "release candidate / status" and .app.slug == "github-actions") | .conclusion' \
-              | tail -n 1)"
+              --jq '
+                [.check_runs[] | select(.name == "release candidate / status" and .app.slug == "github-actions")]
+                | max_by(.completed_at)
+                | .conclusion
+              ')"
             case "$conclusion" in
               success)
                 echo "Release-candidate evidence is successful for ${CANDIDATE_SHA}."
@@ -223,13 +226,24 @@ jobs:
         run: |
           set -euo pipefail
           candidate_sha="$(git rev-parse HEAD)"
-          conclusion="$(gh api \
-            --paginate \
-            "/repos/${REPOSITORY}/commits/${candidate_sha}/check-runs?per_page=100" \
-            --jq '.check_runs[] | select(.name == "release candidate / status" and .app.slug == "github-actions") | .conclusion' \
-            | tail -n 1)"
-          if [ "$conclusion" != "success" ]; then
-            echo "::error::Tag target ${candidate_sha} has no successful release-candidate evidence (got: ${conclusion:-missing})"
+          deadline=$((SECONDS + 3600))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            conclusion="$(gh api \
+              --paginate \
+              "/repos/${REPOSITORY}/commits/${candidate_sha}/check-runs?per_page=100" \
+              --jq '
+                [.check_runs[] | select(.name == "release candidate / status" and .app.slug == "github-actions")]
+                | max_by(.completed_at)
+                | .conclusion
+              ' || true)"
+            if [ "$conclusion" = success ]; then
+              break
+            fi
+            echo "Waiting for successful release-candidate evidence on ${candidate_sha}."
+            sleep 30
+          done
+          if [ "${conclusion:-}" != success ]; then
+            echo "::error::Tag target ${candidate_sha} has no successful release-candidate evidence."
             exit 1
           fi
 
