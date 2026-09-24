@@ -57,6 +57,7 @@ const config = defineConfig({
   plugins: [
     devtools(),
     nitro({
+      plugins: ['./src/server/auth-startup.ts'],
       routeRules: {
         '/api/observatory/**': {
           proxy: `${phloApiUrl}/api/observatory/**`,

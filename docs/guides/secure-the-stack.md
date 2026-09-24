@@ -58,7 +58,18 @@ PHLO_AUTHORIZATION_MODE=required
 
 The API middleware resolves the authentication provider first, then evaluates authorisation for the route and tenant context. A proxy provider still requires the ingress layer to enforce authentication.
 
-## 4. Define and validate RBAC policy
+## 4. Authenticate Observatory
+
+Observatory exposes service-lifecycle and operational server functions (start, stop, restart, cache controls, and service inventory). Set the shared credential in `.phlo/secrets/.env`:
+
+```bash
+OBSERVATORY_AUTH_ENABLED=true
+OBSERVATORY_AUTH_TOKEN=replace-me
+```
+
+Callers present the token with each guarded request. When `PHLO_ENVIRONMENT` is `prod`, `production`, `staging`, or `regulated` — or `PHLO_REGULATED` is enabled — authentication is mandatory rather than opt-in: Observatory refuses to start until `OBSERVATORY_AUTH_TOKEN` is configured. `OBSERVATORY_AUTH_ENABLED` only opts environments in ahead of that; it cannot opt a production-like deployment out.
+
+## 5. Define and validate RBAC policy
 
 The `.phlo/authorization/` directory is the source for roles, policies, and compiled backend artifacts. Validate and preview before synchronising:
 
@@ -69,7 +80,7 @@ phlo authz plan
 
 `validate` checks the policy files, and `plan` shows intended changes without applying them. The current CLI does not expose `authz check` or `authz explain`. Use `phlo authz verify` after synchronisation to compare backend state with the desired policy.
 
-## 5. Regenerate and preflight
+## 6. Regenerate and preflight
 
 Render the service settings, then run the production checks without contacting Docker:
 
