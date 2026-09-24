@@ -183,10 +183,8 @@ async function browserApiPost<T>(
   }
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
-    const detail =
-      readPhloApiErrorBody(payload)?.message ??
-      `${response.status} ${response.statusText}`
-    throw new Error(`phlo-api error: ${detail}`)
+    const detail = readPhloApiErrorBody(payload)?.message ?? response.statusText
+    throw new Error(`phlo-api error: ${response.status} ${detail}`)
   }
   return response.json()
 }
@@ -225,10 +223,8 @@ async function browserApiPut<T>(
   }
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
-    const detail =
-      readPhloApiErrorBody(payload)?.message ??
-      `${response.status} ${response.statusText}`
-    throw new Error(`phlo-api error: ${detail}`)
+    const detail = readPhloApiErrorBody(payload)?.message ?? response.statusText
+    throw new Error(`phlo-api error: ${response.status} ${detail}`)
   }
   return response.json()
 }

@@ -69,8 +69,9 @@ export function describePhloApiError(error: unknown): PhloApiErrorInfo {
       const parsed = readPhloApiErrorBody(JSON.parse(body))
       if (parsed) return { status, code: parsed.code, message: parsed.message }
     } catch {
-      // Body is not JSON — fall through to the raw message.
+      // Body is not JSON — report the text after the status.
     }
+    return { status, message: body }
   }
   return { status, message: error.message }
 }

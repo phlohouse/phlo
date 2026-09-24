@@ -386,13 +386,18 @@ async def fetch_log_entries(
                 },
             )
             response.raise_for_status()
-            result = response.json()
     except httpx.HTTPStatusError as exc:
         logger.exception("Failed to query logs")
         raise BadGatewayError("Loki returned an error response.") from exc
     except Exception as exc:
         logger.exception("Failed to query logs")
         raise BackendUnavailableError("Loki backend is unavailable.") from exc
+
+    try:
+        result = response.json()
+    except ValueError as exc:
+        logger.exception("Failed to decode Loki response")
+        raise BadGatewayError("Loki returned an unreadable response.") from exc
 
     try:
         entries = parse_loki_response(result)
