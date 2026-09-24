@@ -141,7 +141,11 @@ def _ensure_regex_filter_worker() -> tuple[Connection, Connection]:
         _regex_filter_process, _regex_filter_reader, _regex_filter_writer = (
             _start_regex_filter_worker()
         )
-    return _regex_filter_reader, _regex_filter_writer
+    reader = _regex_filter_reader
+    writer = _regex_filter_writer
+    if reader is None or writer is None:  # pragma: no cover - worker always owns its pipes
+        raise RuntimeError("regex filter worker pipes not initialised")
+    return reader, writer
 
 
 def _filter_entries_with_regex(entries: list[LogEntry], pattern_text: str) -> list[LogEntry]:
