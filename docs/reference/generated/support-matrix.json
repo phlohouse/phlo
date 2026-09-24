@@ -1,5 +1,5 @@
 {
-  "component_count": 89,
+  "component_count": 90,
   "components": [
     {
       "applicable_gates": [
@@ -878,6 +878,25 @@
         "maintenance"
       ],
       "component": "service:minio-setup",
+      "current_maturity": "alpha",
+      "readiness": "blocked",
+      "target_profile": "blessed_core",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "blockers": [
+        "security",
+        "upgrade_restore",
+        "golden_path",
+        "maintenance"
+      ],
+      "component": "service:minio-volume-setup",
       "current_maturity": "alpha",
       "readiness": "blocked",
       "target_profile": "blessed_core",

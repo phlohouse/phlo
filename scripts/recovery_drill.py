@@ -24,12 +24,10 @@ from typing import Any
 from uuid import uuid4
 
 POSTGRES_IMAGE = "postgres:18-alpine"
-MINIO_IMAGE = "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+MINIO_IMAGE = "bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20"
 NESSIE_IMAGE = "ghcr.io/projectnessie/nessie:0.108.3"
 NESSIE_ADMIN_IMAGE = "ghcr.io/projectnessie/nessie-server-admin@sha256:ffccc83adc048ae9c069205b2b7c79c8c72604574558f915b730f2266262c159"
-MC_IMAGE = (
-    "quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727"
-)
+MC_IMAGE = "bitnamilegacy/minio-client@sha256:73bd39f7899a0cef12b8dd5df13aa93a3ed1aaa44236542442e9ac76819ac158"
 HELPER_IMAGE = "python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9"
 OWNER_MARKER = ".phlo-recovery-drill-owner.json"
 
@@ -92,12 +90,12 @@ def compose_yaml(stack: Stack) -> str:
       retries: 30
   minio:
     image: {MINIO_IMAGE}
-    command: [\"server\", \"/data\"]
+    command: [\"server\", \"/bitnami/minio/data\"]
     environment:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: minio123
     ports: [\"127.0.0.1::9000\"]
-    volumes: [minio-data:/data]
+    volumes: [minio-data:/bitnami/minio/data]
   nessie:
     image: {NESSIE_IMAGE}
     environment:
