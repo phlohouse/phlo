@@ -34,6 +34,13 @@ from typing import Any, Literal, cast
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from phlo_api.errors import (
+    BackendUnavailableError,
+    BadGatewayError,
+    BadInputError,
+    NotFoundError,
+    UnprocessableInputError,
+)
 from phlo_api.observatory_api.trino import (
     QueryExecutionError,
     execute_trino_query,
@@ -375,16 +382,19 @@ def build_contributing_rows_query(
     return True, mode, query
 
 
-async def _execute_trino_or_error(
+async def _execute_trino_or_raise(
     query: str,
     catalog: str,
     schema: str,
     trino_url: str | None,
     timeout_ms: int | None,
-) -> dict[str, Any] | dict[str, str]:
+) -> dict[str, Any]:
+    """Run a Trino query, raising the typed API error for its failure."""
     result = await execute_trino_query(query, catalog, schema, trino_url, timeout_ms or 30000)
     if isinstance(result, QueryExecutionError):
-        return {"error": result.error}
+        if result.kind == "timeout":
+            raise BackendUnavailableError("The Trino query timed out.")
+        raise BadGatewayError("The Trino query failed.")
     return result
 
 
@@ -395,22 +405,24 @@ async def resolve_iceberg_table(
     timeout_ms: int | None,
     catalog: str,
 ) -> ResolveTableResult | None:
-    """Resolve schema and columns for an Iceberg table by name."""
+    """Resolve schema and columns for an Iceberg table by name.
+
+    Returns None only when no schema exposes the table; Trino and resolver
+    failures propagate as typed API errors.
+    """
     try:
         default_ref = resolve_default_ref()
-    except RuntimeError:
-        return None
+    except RuntimeError as exc:
+        raise BackendUnavailableError("Trino default ref is unavailable.") from exc
 
     safe_name = escape_sql_string(table_name)
     schema_query = (
         f"select table_schema from {quote_identifier(catalog)}.information_schema.tables "
         f"where table_name = '{safe_name}'"
     )
-    schemas_result = await _execute_trino_or_error(
+    schemas_result = await _execute_trino_or_raise(
         schema_query, catalog, default_ref, trino_url, timeout_ms
     )
-    if "error" in schemas_result:
-        return None
 
     schema_rows = _result_rows(schemas_result)
     schemas = [
@@ -434,15 +446,13 @@ async def resolve_iceberg_table(
         f"select column_name, data_type from {quote_identifier(catalog)}.information_schema.columns "
         f"where table_schema = '{escape_sql_string(schema)}' and table_name = '{safe_name}'"
     )
-    columns_result = await _execute_trino_or_error(
+    columns_result = await _execute_trino_or_raise(
         columns_query,
         catalog,
         default_ref,
         trino_url,
         timeout_ms,
     )
-    if "error" in columns_result:
-        return None
 
     column_rows = _result_rows(columns_result)
     column_types = {
@@ -461,22 +471,26 @@ async def resolve_iceberg_table(
     )
 
 
-@router.post("/query", response_model=ContributingRowsQueryResponse | dict)
+@router.post("/query", response_model=ContributingRowsQueryResponse)
 async def get_contributing_rows_query(
     request: ContributingRowsQueryRequest,
-) -> ContributingRowsQueryResponse | dict[str, str]:
+) -> ContributingRowsQueryResponse:
     """Generate the SQL query finding upstream rows that contributed to a downstream row.
 
-    Returns the query and upstream reference, or an error dictionary;
-    exceptions are caught and reported in the response rather than raised.
+    Returns the query and upstream reference; failures raise the matching
+    typed API error (400 for an unrelated pair, 404 for an unresolvable
+    upstream table, 422 when no safe predicates exist, 502/503 when the
+    backend cannot be queried).
 
     """
     try:
         catalog = resolve_default_catalog()
     except RuntimeError as exc:
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Trino default catalog is unavailable.") from exc
     if not _asset_pair_is_lineage_related(request.upstream_asset_key, request.downstream_asset_key):
-        return {"error": "unrelated_asset_pair"}
+        raise BadInputError(
+            "The requested asset pair is not lineage-related.", code="unrelated_asset_pair"
+        )
     upstream_table_name = get_table_from_asset_key(request.upstream_asset_key)
     downstream_table_name = get_table_from_asset_key(request.downstream_asset_key)
 
@@ -487,7 +501,7 @@ async def get_contributing_rows_query(
         catalog=catalog,
     )
     if upstream is None:
-        return {"error": f"Could not resolve upstream table for {upstream_table_name}"}
+        raise NotFoundError(f"Could not resolve upstream table for {upstream_table_name}.")
 
     row_data = {key: value for key, value in request.row_data.items()}
     ok, _mode, query_or_error = build_contributing_rows_query(
@@ -498,7 +512,7 @@ async def get_contributing_rows_query(
         page=0,
     )
     if not ok:
-        return {"error": query_or_error}
+        raise UnprocessableInputError(query_or_error)
 
     query = (
         query_or_error.rsplit(" OFFSET ", 1)[0]
@@ -511,24 +525,27 @@ async def get_contributing_rows_query(
     )
 
 
-@router.post("/page", response_model=ContributingRowsPageResponse | dict)
+@router.post("/page", response_model=ContributingRowsPageResponse)
 async def get_contributing_rows_page(
     request: ContributingRowsPageRequest,
-) -> ContributingRowsPageResponse | dict[str, str]:
+) -> ContributingRowsPageResponse:
     """Return paginated contributing rows with a has_more flag for the selected pair.
 
     Executes the generated query and returns mode, rows, columns, and
-    pagination info, or an error dictionary; exceptions are caught and
-    reported in the response rather than raised.
+    pagination info; failures raise the matching typed API error (400 for an
+    unrelated pair, 404 for an unresolvable upstream table, 422 when no safe
+    predicates exist, 502/503 when the backend cannot be queried).
 
     """
     try:
         catalog = resolve_default_catalog()
         default_ref = resolve_default_ref()
     except RuntimeError as exc:
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Trino defaults are unavailable.") from exc
     if not _asset_pair_is_lineage_related(request.upstream_asset_key, request.downstream_asset_key):
-        return {"error": "unrelated_asset_pair"}
+        raise BadInputError(
+            "The requested asset pair is not lineage-related.", code="unrelated_asset_pair"
+        )
     upstream_table_name = get_table_from_asset_key(request.upstream_asset_key)
     downstream_table_name = get_table_from_asset_key(request.downstream_asset_key)
 
@@ -539,7 +556,7 @@ async def get_contributing_rows_page(
         catalog=catalog,
     )
     if upstream is None:
-        return {"error": f"Could not resolve upstream table for {upstream_table_name}"}
+        raise NotFoundError(f"Could not resolve upstream table for {upstream_table_name}.")
 
     page_size = to_safe_page_size(request.page_size)
     page = to_safe_page(request.page)
@@ -553,13 +570,11 @@ async def get_contributing_rows_page(
         page=page,
     )
     if not ok or mode is None:
-        return {"error": query_or_error}
+        raise UnprocessableInputError(query_or_error)
 
-    result = await _execute_trino_or_error(
+    result = await _execute_trino_or_raise(
         query_or_error, catalog, default_ref, None, request.timeout_ms
     )
-    if "error" in result:
-        return result
 
     rows = _result_rows(result)
     columns = _result_columns(result)

@@ -51,6 +51,7 @@ from pydantic import BaseModel, Field
 from phlo.capabilities import TraceSpanFilter, list_capabilities, resolve_capability
 from phlo.capabilities.discovery import discover_capabilities
 from phlo.logging import get_logger
+from phlo_api.errors import BackendUnavailableError
 from phlo_api.pagination import paginate_items
 
 logger = get_logger(__name__)
@@ -147,10 +148,24 @@ class TraceSpanResponse(BaseModel):
     resource_attributes: dict[str, Any] = Field(default_factory=dict)
 
 
-@router.get("/health", response_model=HealthSummaryResponse | dict)
+class AlertListPage(BaseModel):
+    """Cursor-paginated alert page."""
+
+    items: list[AlertResponse]
+    next_cursor: str | None = None
+
+
+class TraceSpanListPage(BaseModel):
+    """Cursor-paginated trace span page."""
+
+    items: list[TraceSpanResponse]
+    next_cursor: str | None = None
+
+
+@router.get("/health", response_model=HealthSummaryResponse)
 def get_health_summary(
     backend: str | None = Query(default=None, description="Observability backend name"),
-) -> HealthSummaryResponse | dict[str, str]:
+) -> HealthSummaryResponse:
     """Get platform health summary from observability backend."""
     try:
         provider = _resolve_observability_backend(backend)
@@ -162,13 +177,13 @@ def get_health_summary(
         )
     except Exception as exc:
         logger.exception("health_summary_load_failed")
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Observability backend is unavailable.") from exc
 
 
-@router.get("/services", response_model=list[ServiceStatusResponse] | dict)
+@router.get("/services", response_model=list[ServiceStatusResponse])
 def get_service_status(
     backend: str | None = Query(default=None, description="Observability backend name"),
-) -> list[ServiceStatusResponse] | dict[str, str]:
+) -> list[ServiceStatusResponse]:
     """Get service status list from observability backend."""
     try:
         provider = _resolve_observability_backend(backend)
@@ -183,14 +198,14 @@ def get_service_status(
         ]
     except Exception as exc:
         logger.exception("service_status_load_failed")
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Observability backend is unavailable.") from exc
 
 
-@router.get("/metrics", response_model=PlatformMetricsResponse | dict)
+@router.get("/metrics", response_model=PlatformMetricsResponse)
 def get_platform_metrics(
     period: str = Query(default="24h"),
     backend: str | None = Query(default=None, description="Observability backend name"),
-) -> PlatformMetricsResponse | dict[str, str]:
+) -> PlatformMetricsResponse:
     """Get platform metrics for a time period from observability backend."""
     try:
         provider = _resolve_observability_backend(backend)
@@ -202,15 +217,15 @@ def get_platform_metrics(
         )
     except Exception as exc:
         logger.exception("platform_metrics_load_failed")
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Observability backend is unavailable.") from exc
 
 
-@router.get("/alerts", response_model=list[AlertResponse] | dict)
+@router.get("/alerts", response_model=list[AlertResponse] | AlertListPage)
 def get_recent_alerts(
     limit: Annotated[int, Query(le=100)] = 10,
     cursor: Annotated[str | None, Query()] = None,
     backend: Annotated[str | None, Query(description="Observability backend name")] = None,
-) -> list[AlertResponse] | dict[str, Any]:
+) -> list[AlertResponse] | AlertListPage:
     """Get recent alerts from observability backend."""
     try:
         provider = _resolve_observability_backend(backend)
@@ -226,17 +241,17 @@ def get_recent_alerts(
         ]
         if cursor:
             page, next_cursor = paginate_items(items, limit=limit, cursor=cursor)
-            return {"items": page, "next_cursor": next_cursor}
+            return AlertListPage(items=page, next_cursor=next_cursor)
         return items[:limit]
     except Exception as exc:
         logger.exception("recent_alerts_load_failed")
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Observability backend is unavailable.") from exc
 
 
-@router.get("/dashboards", response_model=list[DashboardLinkResponse] | dict)
+@router.get("/dashboards", response_model=list[DashboardLinkResponse])
 def get_dashboard_links(
     backend: Annotated[str | None, Query(description="Observability backend name")] = None,
-) -> list[DashboardLinkResponse] | dict[str, str]:
+) -> list[DashboardLinkResponse]:
     """Get dashboard links from observability backend."""
     try:
         provider = _resolve_observability_backend(backend)
@@ -251,7 +266,7 @@ def get_dashboard_links(
         ]
     except Exception as exc:
         logger.exception("dashboard_links_load_failed")
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Observability backend is unavailable.") from exc
 
 
 @router.get("/links/logs")
@@ -266,7 +281,7 @@ def get_logs_query_link(
         return {"url": link}
     except Exception as exc:
         logger.exception("logs_query_link_failed")
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Observability backend is unavailable.") from exc
 
 
 @router.get("/links/metrics")
@@ -281,16 +296,16 @@ def get_metrics_query_link(
         return {"url": link}
     except Exception as exc:
         logger.exception("metrics_query_link_failed")
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Observability backend is unavailable.") from exc
 
 
-@router.get("/traces/runs/{run_id}", response_model=list[TraceSpanResponse] | dict)
+@router.get("/traces/runs/{run_id}", response_model=list[TraceSpanResponse] | TraceSpanListPage)
 def get_run_trace_spans(
     run_id: str,
     limit: Annotated[int, Query(le=5000)] = 500,
     cursor: Annotated[str | None, Query()] = None,
     backend: Annotated[str | None, Query(description="Observability backend name")] = None,
-) -> list[TraceSpanResponse] | dict[str, Any]:
+) -> list[TraceSpanResponse] | TraceSpanListPage:
     """Get OTEL spans correlated to a run id from the observability backend."""
     try:
         provider = _resolve_observability_backend(backend)
@@ -301,14 +316,14 @@ def get_run_trace_spans(
         items = [TraceSpanResponse(**span.__dict__) for span in spans]
         if cursor:
             page, next_cursor = paginate_items(items, limit=limit, cursor=cursor)
-            return {"items": page, "next_cursor": next_cursor}
+            return TraceSpanListPage(items=page, next_cursor=next_cursor)
         return items[:limit]
     except Exception as exc:
         logger.exception("run_trace_spans_load_failed", run_id=run_id)
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Observability backend is unavailable.") from exc
 
 
-@router.get("/traces", response_model=list[TraceSpanResponse] | dict)
+@router.get("/traces", response_model=list[TraceSpanResponse] | TraceSpanListPage)
 def get_trace_spans(
     run_id: Annotated[str | None, Query()] = None,
     asset_key: Annotated[str | None, Query()] = None,
@@ -321,7 +336,7 @@ def get_trace_spans(
     limit: Annotated[int, Query(le=5000)] = 500,
     cursor: Annotated[str | None, Query()] = None,
     backend: Annotated[str | None, Query(description="Observability backend name")] = None,
-) -> list[TraceSpanResponse] | dict[str, Any]:
+) -> list[TraceSpanResponse] | TraceSpanListPage:
     """Get OTEL spans matching bounded observability filters."""
     try:
         provider = _resolve_observability_backend(backend)
@@ -345,8 +360,8 @@ def get_trace_spans(
         items = [TraceSpanResponse(**span.__dict__) for span in spans]
         if cursor:
             page, next_cursor = paginate_items(items, limit=limit, cursor=cursor)
-            return {"items": page, "next_cursor": next_cursor}
+            return TraceSpanListPage(items=page, next_cursor=next_cursor)
         return items[:limit]
     except Exception as exc:
         logger.exception("trace_spans_load_failed")
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Observability backend is unavailable.") from exc
