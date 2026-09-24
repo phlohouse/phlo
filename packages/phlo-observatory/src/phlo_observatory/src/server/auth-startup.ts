@@ -6,9 +6,9 @@
  * fatal, actionable startup error instead of a silent anonymous control
  * plane.
  */
-import type { NitroAppPlugin } from 'nitro/types'
-
 import { assertObservatoryAuthConfiguration } from '../observatory/api/auth'
+
+import type { NitroAppPlugin } from 'nitro/types'
 
 const observatoryAuthStartup: NitroAppPlugin = () => {
   assertObservatoryAuthConfiguration()

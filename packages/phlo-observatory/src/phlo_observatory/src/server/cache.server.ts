@@ -4,9 +4,10 @@
 
 import { createServerFn } from '@tanstack/react-start'
 
+import { clearCache, getCacheStats } from './cache'
+
 import { authMiddleware } from '@/observatory/api/auth'
 import { mutationAuthorization } from '@/server/authenticated-mutation'
-import { clearCache, getCacheStats } from './cache'
 
 export const getCacheStatsEndpoint = createServerFn()
   .middleware([authMiddleware])
