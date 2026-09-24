@@ -1,7 +1,7 @@
 # Debian (glibc) is required, not Alpine (musl): ingestion providers such as
 # phlo-sling execute external binaries that upstream publishes glibc-only. The
 # Sling CLI fails under musl even with gcompat (fcntl64 relocation missing).
-FROM python:3.12-slim AS phlo-build-context
+FROM python:3.12-slim@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9 AS phlo-build-context
 
 WORKDIR /opt/phlo-build-context
 
@@ -12,7 +12,7 @@ COPY . .
 RUN mkdir -p /opt/phlo-build-context/wheelhouse \
     && touch /opt/phlo-build-context/pyproject.toml /opt/phlo-build-context/uv.lock
 
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9 AS runtime
 
 WORKDIR /opt/dagster
 
@@ -32,8 +32,8 @@ ARG PHLO_UV_LOCKED=""
 # Debian packages stay unpinned: the archive drops superseded versions at every
 # trixie point release, so an exact version becomes a hard build failure for
 # consumers running `phlo services start --build` weeks after the phlo release.
-# The floating base tag and `apt-get upgrade` below already resolve the current
-# point release, so pins cost nothing but breakage.
+# The base image is pinned by digest (Renovate refreshes it) and `apt-get
+# upgrade` below resolves the current point release on top of it.
 # hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get upgrade --no-install-recommends --yes \

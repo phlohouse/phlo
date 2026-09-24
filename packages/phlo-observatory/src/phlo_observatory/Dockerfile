@@ -1,5 +1,5 @@
 # Build stage
-FROM node:24-alpine AS builder
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS builder
 
 WORKDIR /app
 
@@ -16,15 +16,16 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:24-alpine AS runtime
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime
 
 WORKDIR /app
 
 # Required for service discovery/status code paths that run `docker ps`.
 # Alpine packages stay unpinned: the branch archive drops superseded versions,
 # so an exact version becomes a hard build failure for consumers running
-# `phlo services start --build` weeks after the phlo release. The floating base
-# tag and `apk upgrade` below already resolve the current branch versions.
+# `phlo services start --build` weeks after the phlo release. The base image is
+# pinned by digest (Renovate refreshes it) and `apk upgrade` below resolves the
+# current branch versions on top of it.
 # hadolint ignore=DL3018
 RUN apk upgrade --no-cache \
     && apk add --no-cache docker-cli

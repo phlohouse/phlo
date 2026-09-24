@@ -159,12 +159,14 @@ jobs:
     needs: [gate]
     # The release-owner approval is a human act on the `release`
     # environment; automation may prepare but never authorise. contents:write
-    # is required only for the authorized push of the release tag.
+    # is required only for the authorized push of the release tag. id-token:write
+    # lets the pypi_publish step mint a PyPI OIDC token (trusted publishing).
     environment: release
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: write
+      id-token: write
     steps:
       - name: Check out the candidate identity
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

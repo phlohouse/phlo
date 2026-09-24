@@ -217,9 +217,8 @@ enabled = true
 provider = "uv"
 repository = "pypi"
 dist_dir = "dist"
-trusted_publishing = false
-oidc = false
-token_env = "PYPI_API_TOKEN"
+trusted_publishing = true
+oidc = true
 
 [github]
 token_env = "GITHUB_TOKEN"

@@ -272,6 +272,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Keyless cosign signing needs a GitHub OIDC token for this job only.
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -299,6 +301,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: "v3.1.3"
+
       - name: Publish multi-architecture manifest
         id: manifest
         env:
@@ -322,6 +328,19 @@ jobs:
           )"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Sign published manifest digest
+        env:
+          IMAGE: ${{ matrix.target.image }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign sign --yes "$IMAGE@$DIGEST"
+          cosign verify "$IMAGE@$DIGEST" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity-regexp \
+              "^https://github\\.com/${GITHUB_REPOSITORY}/\\.github/workflows/build-core-services\\.yml@.+$"
 
       - name: Record published digest
         env:
