@@ -195,10 +195,18 @@ def minio_service():
         return
 
     try:
-        with MinioContainer(
-            "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
-            "@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
-        ) as minio:
+        # The bitnami image runs unprivileged and keeps its writable data dir
+        # under /bitnami/minio/data; root credentials use the MINIO_ROOT_* names.
+        container = (
+            MinioContainer(
+                "bitnamilegacy/minio:2025.7.23-debian-12-r5"
+                "@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20"
+            )
+            .with_env("MINIO_ROOT_USER", "minioadmin")
+            .with_env("MINIO_ROOT_PASSWORD", "minioadmin")
+            .with_command("server /bitnami/minio/data --address :9000")
+        )
+        with container as minio:
             yield minio
     # A container that fails to start degrades to None exactly like the
     # no-Docker path, so integration tests fall back to the local filesystem.
