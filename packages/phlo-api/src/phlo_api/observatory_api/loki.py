@@ -29,12 +29,16 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import atexit
+import contextlib
 import json
-import multiprocessing
-import re
+import os
+import subprocess
+import sys
+import threading
 from datetime import datetime, timedelta
 from multiprocessing.connection import Connection
-from time import monotonic
+from pathlib import Path
 from typing import Any, Literal
 
 import httpx
@@ -73,56 +77,108 @@ class _RegexEvaluationTimeoutError(Exception):
     """Raised when message-filter regex evaluation exceeds its budget."""
 
 
-def _regex_filter_worker(
-    result_connection: Connection, pattern_text: str, messages: list[str]
-) -> None:
-    """Evaluate a regex filter in an isolated process.
+_REGEX_WORKER_PATH = Path(__file__).resolve().with_name("_loki_regex_worker.py")
 
-    The parent enforces the deadline and terminates this process if Python's
-    backtracking engine takes too long. Only matching indexes cross the process
-    boundary so worker failures can never include log contents in an error.
+_regex_filter_lock = threading.Lock()
+_regex_filter_process: subprocess.Popen[bytes] | None = None
+_regex_filter_reader: Connection | None = None
+_regex_filter_writer: Connection | None = None
+
+
+def _start_regex_filter_worker() -> tuple[subprocess.Popen[bytes], Connection, Connection]:
+    """Spawn the long-lived regex filter worker as a clean interpreter.
+
+    ``python -I`` execs a fresh interpreter carrying no shared state from this
+    multi-threaded process, unlike ``fork()`` which can copy a thread-held
+    lock and deadlock the child.
     """
+    to_worker_read, to_worker_write = os.pipe()
+    from_worker_read, from_worker_write = os.pipe()
     try:
-        pattern = re.compile(pattern_text)
-    except re.error:
-        result_connection.send(("invalid", []))
-    else:
-        result_connection.send(
-            (
-                "matches",
-                [index for index, message in enumerate(messages) if pattern.search(message)],
-            )
+        process = subprocess.Popen(
+            [sys.executable or "python3", "-I", str(_REGEX_WORKER_PATH)],
+            stdin=to_worker_read,
+            stdout=from_worker_write,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
         )
     finally:
-        result_connection.close()
+        os.close(to_worker_read)
+        os.close(from_worker_write)
+    return process, Connection(from_worker_read), Connection(to_worker_write)
+
+
+def _drop_regex_filter_worker() -> None:
+    """Kill the current worker if any, close its pipes, and reap it."""
+    global _regex_filter_process, _regex_filter_reader, _regex_filter_writer
+    reader, writer, process = (
+        _regex_filter_reader,
+        _regex_filter_writer,
+        _regex_filter_process,
+    )
+    _regex_filter_process = None
+    _regex_filter_reader = None
+    _regex_filter_writer = None
+    for connection in (reader, writer):
+        if connection is not None:
+            with contextlib.suppress(OSError):
+                connection.close()
+    if process is None:
+        return
+    if process.poll() is None:
+        with contextlib.suppress(OSError):
+            process.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=2)
+
+
+def _ensure_regex_filter_worker() -> tuple[Connection, Connection]:
+    """Return live worker pipes, respawning the worker when it has died."""
+    global _regex_filter_process, _regex_filter_reader, _regex_filter_writer
+    if _regex_filter_process is not None and _regex_filter_process.poll() is not None:
+        _drop_regex_filter_worker()
+    if _regex_filter_process is None:
+        _regex_filter_process, _regex_filter_reader, _regex_filter_writer = (
+            _start_regex_filter_worker()
+        )
+    return _regex_filter_reader, _regex_filter_writer
 
 
 def _filter_entries_with_regex(entries: list[LogEntry], pattern_text: str) -> list[LogEntry]:
-    """Filter entries with a hard total evaluation deadline outside the API process."""
-    receive_connection, send_connection = multiprocessing.Pipe(duplex=False)
-    process = multiprocessing.get_context("fork").Process(
-        target=_regex_filter_worker,
-        args=(send_connection, pattern_text, [entry.message for entry in entries]),
-    )
-    deadline = monotonic() + REGEX_EVALUATION_TIMEOUT_SECONDS
-    try:
-        process.start()
-        send_connection.close()
-        remaining = deadline - monotonic()
-        if remaining <= 0 or not receive_connection.poll(remaining):
-            raise _RegexEvaluationTimeoutError
-        status, matching_indexes = receive_connection.recv()
-    except EOFError as exc:
-        raise _InvalidRegexError from exc
-    finally:
-        receive_connection.close()
-        if process.is_alive():
-            process.terminate()
-        process.join()
+    """Filter entries with a hard evaluation deadline inside a spawned worker.
+
+    The worker enforces the deadline and is hard-killed and lazily respawned on
+    timeout so a stuck evaluation can never stall the API process. Only
+    matching indexes cross the process boundary, so errors can never include
+    log contents.
+    """
+    with _regex_filter_lock:
+        reader, writer = _ensure_regex_filter_worker()
+        try:
+            writer.send((pattern_text, [entry.message for entry in entries]))
+            if not reader.poll(REGEX_EVALUATION_TIMEOUT_SECONDS):
+                raise _RegexEvaluationTimeoutError
+            status, matching_indexes = reader.recv()
+        except _RegexEvaluationTimeoutError:
+            _drop_regex_filter_worker()
+            raise
+        except (EOFError, OSError) as exc:
+            _drop_regex_filter_worker()
+            raise _RegexEvaluationTimeoutError from exc
 
     if status == "invalid":
         raise _InvalidRegexError
+    if status != "matches":
+        raise _RegexEvaluationTimeoutError
     return [entries[index] for index in matching_indexes]
+
+
+def _shutdown_regex_filter_worker() -> None:
+    with contextlib.suppress(Exception):
+        _drop_regex_filter_worker()
+
+
+atexit.register(_shutdown_regex_filter_worker)
 
 
 def resolve_loki_url() -> str:
