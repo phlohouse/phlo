@@ -91,7 +91,7 @@ def test_core_service_dependencies_are_declared() -> None:
         "nessie": {"postgres", "minio"},
         "trino": {"nessie", "minio"},
         "postgres": {"postgres-volume-setup"},
-        "minio": set(),
+        "minio": {"minio-volume-setup"},
     }
 
     for name, fixture in CORE_SERVICES.items():
