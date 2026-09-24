@@ -474,6 +474,13 @@ A target profile states the intended support boundary. Maturity and readiness st
 - Applicable gates: `security`, `upgrade_restore`, `golden_path`, `maintenance`.
 - Blockers: `security`, `upgrade_restore`, `golden_path`, `maintenance`.
 
+### `minio-volume-setup`
+
+- Target profile: `blessed_core`; target status: `supported`.
+- Current maturity: `alpha`; readiness: `blocked`.
+- Applicable gates: `security`, `upgrade_restore`, `golden_path`, `maintenance`.
+- Blockers: `security`, `upgrade_restore`, `golden_path`, `maintenance`.
+
 ### `nessie`
 
 - Target profile: `blessed_core`; target status: `supported`.
