@@ -28,7 +28,10 @@ compose:
   volumes:
     - postgres-data:/var/lib/postgresql
   healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-phlo}"]
+    # Probe over TCP: pg_isready via the unix socket also answers during the
+    # image's temporary init server, marking the container healthy before it
+    # restarts for real — dependents connecting in the gap lose the connection.
+    test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-phlo}"]
     interval: 10s
     timeout: 5s
     retries: 10
