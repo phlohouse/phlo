@@ -6,6 +6,9 @@ waits for mc readiness, and the plugin exposes an object_store capability
 backed by MinioResourceProvider.
 """
 
+from pathlib import Path
+
+from phlo.plugins.discovery._service_definition import ServiceDefinition
 from phlo_minio.plugin import MinioResourceProvider, MinioServicePlugin, MinioSetupServicePlugin
 
 
@@ -25,7 +28,7 @@ def test_minio_service_uses_named_volume():
     plugin = MinioServicePlugin()
     volumes = plugin.service_definition["compose"]["volumes"]
 
-    assert "minio-data:/data" in volumes
+    assert "minio-data:/bitnami/minio/data" in volumes
     assert all("./volumes/minio" not in volume for volume in volumes)
 
 
@@ -34,16 +37,23 @@ def test_minio_services_use_pinned_upstream_images() -> None:
     setup = MinioSetupServicePlugin().service_definition
 
     assert server["image"] == (
-        "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@"
-        "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+        "bitnamilegacy/minio:2025.7.23-debian-12-r5@"
+        "sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20"
     )
     assert setup["image"] == (
-        "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@"
-        "sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727"
+        "bitnamilegacy/minio-client:2025.7.21-debian-12-r3@"
+        "sha256:73bd39f7899a0cef12b8dd5df13aa93a3ed1aaa44236542442e9ac76819ac158"
     )
     assert "build" not in server
     assert "build" not in setup
     assert "until mc ready myminio" in setup["compose"]["entrypoint"]
+
+    volume_setup = ServiceDefinition.from_yaml(
+        Path(__file__).resolve().parents[1] / "src" / "phlo_minio" / "minio-volume-setup.yaml"
+    )
+    assert volume_setup.image == (
+        "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+    )
 
 
 def test_minio_resource_provider_exposes_object_store(monkeypatch) -> None:
