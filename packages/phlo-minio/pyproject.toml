@@ -50,6 +50,7 @@ include-package-data = true
 phlo_minio = [
     "service.yaml",
     "minio-setup.yaml",
+    "minio-volume-setup.yaml",
 ]
 
 [tool.setuptools.package-dir]

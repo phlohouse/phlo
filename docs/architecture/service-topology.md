@@ -21,7 +21,8 @@ All blessed-core services in this table currently have alpha maturity and blocke
 | --- | --- | --- | --- | --- | --- |
 | `postgres-volume-setup` | `phlo-postgres`; blessed core | None | None | Prepares `postgres-data` | One-shot completion |
 | `postgres` | `phlo-postgres`; blessed core, default | volume setup | `10000` to 5432 | `postgres-data:/var/lib/postgresql` | `pg_isready` |
-| `minio` | `phlo-minio`; blessed core, default | None | `10001` API, `10002` console | `minio-data:/bitnami/minio/data` | `/minio/health/ready` |
+| `minio-volume-setup` | `phlo-minio`; blessed core | None | None | Prepares `minio-data` | One-shot completion |
+| `minio` | `phlo-minio`; blessed core, default | volume setup | `10001` API, `10002` console | `minio-data:/bitnami/minio/data` | `/minio/health/ready` |
 | `minio-setup` | `phlo-minio`; blessed core | MinIO | None | Creates required buckets | One-shot completion |
 | `nessie` | `phlo-nessie`; blessed core, default | PostgreSQL, MinIO | `10003` | Catalogue state in PostgreSQL; read-only `./nessie` authorisation config; warehouse in MinIO | `/api/v1/config` |
 | `trino` | `phlo-trino`; blessed core, default | Nessie, MinIO | `10005` | Generated `./trino` configuration, mounted read/write | `/v1/info/state` must be `ACTIVE` |

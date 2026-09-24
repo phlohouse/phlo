@@ -32,6 +32,7 @@
       {"name": "postgres", "image_reference": "postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"},
       {"name": "postgres-volume-setup", "image_reference": "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"},
       {"name": "minio", "image_reference": "bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20"},
+      {"name": "minio-volume-setup", "image_reference": "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"},
       {"name": "minio-setup", "image_reference": "bitnamilegacy/minio-client:2025.7.21-debian-12-r3@sha256:73bd39f7899a0cef12b8dd5df13aa93a3ed1aaa44236542442e9ac76819ac158"},
       {"name": "nessie", "image_reference": "ghcr.io/projectnessie/nessie:0.108.3@sha256:219709df809fcfac7abe0491b2070c8d56178ed29828fb30968a4365b62bcc8a"},
       {"name": "trino", "image_reference": "trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534"},
@@ -72,6 +73,7 @@
         "service:postgres",
         "service:postgres-volume-setup",
         "service:minio",
+        "service:minio-volume-setup",
         "service:minio-setup",
         "service:nessie",
         "service:trino",
@@ -658,6 +660,18 @@
       "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
       "evidence": [
         "packages/phlo-minio/src/phlo_minio/service.yaml"
+      ]
+    },
+    {
+      "name": "minio-volume-setup",
+      "package": "phlo-minio",
+      "source": "packages/phlo-minio/src/phlo_minio/minio-volume-setup.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-minio/src/phlo_minio/minio-volume-setup.yaml"
       ]
     },
     {
@@ -1519,6 +1533,22 @@
       },
       {
         "name": "service:minio",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:minio-volume-setup",
         "status": "blocked",
         "applicable_gates": [
           "security",

@@ -6,6 +6,9 @@ waits for mc readiness, and the plugin exposes an object_store capability
 backed by MinioResourceProvider.
 """
 
+from pathlib import Path
+
+from phlo.plugins.discovery._service_definition import ServiceDefinition
 from phlo_minio.plugin import MinioResourceProvider, MinioServicePlugin, MinioSetupServicePlugin
 
 
@@ -44,6 +47,13 @@ def test_minio_services_use_pinned_upstream_images() -> None:
     assert "build" not in server
     assert "build" not in setup
     assert "until mc ready myminio" in setup["compose"]["entrypoint"]
+
+    volume_setup = ServiceDefinition.from_yaml(
+        Path(__file__).resolve().parents[1] / "src" / "phlo_minio" / "minio-volume-setup.yaml"
+    )
+    assert volume_setup.image == (
+        "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+    )
 
 
 def test_minio_resource_provider_exposes_object_store(monkeypatch) -> None:

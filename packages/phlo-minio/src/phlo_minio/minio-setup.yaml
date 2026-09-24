@@ -4,6 +4,8 @@ description: Initialize MinIO buckets for data lake
 category: core
 default: true
 
+# Stopgap source: bitnamilegacy mirrors the gated quay.io/minio images but is
+# unmaintained; move to a permanent image source when one is chosen (see #1027).
 image: bitnamilegacy/minio-client:2025.7.21-debian-12-r3@sha256:73bd39f7899a0cef12b8dd5df13aa93a3ed1aaa44236542442e9ac76819ac158
 
 depends_on:
