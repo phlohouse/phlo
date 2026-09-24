@@ -8,6 +8,11 @@ classification stays a conscious, reviewer-visible decision (issue #981).
 
 from __future__ import annotations
 
+import importlib
+import inspect
+import re
+
+import pytest
 from fastapi import APIRouter, FastAPI
 
 from phlo_api.main import app
@@ -34,20 +39,19 @@ _GUARDED_NON_GET_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/observatory/actions"): "lakehouse:operate",
     ("PUT", "/api/observatory/extensions/{name}/settings"): "admin",
     ("PUT", "/api/observatory/preferences"): "check_admin_manage",
+    ("POST", "/api/observatory/saved-queries"): "project:write",
     ("POST", "/api/observatory/workflow-wizard/proposals"): "project:write",
     ("POST", "/api/observatory/workflow-wizard/actions"): "project:write",
 }
 
 # Non-GET routes intentionally reachable without a scope guard: read-only
-# queries expressed as POST so the request can carry a body, plus local
-# per-user convenience state that is not a lakehouse or project mutation.
+# queries expressed as POST so the request can carry a body.
 _PUBLIC_NON_GET_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/api/observatory/query"),
         ("POST", "/api/observatory/schemas/diff"),
         ("POST", "/api/observatory/contributing-rows/query"),
         ("POST", "/api/observatory/contributing-rows/page"),
-        ("POST", "/api/observatory/saved-queries"),
     }
 )
 
@@ -100,3 +104,60 @@ def test_route_inventory_flags_new_unguarded_mutation_route() -> None:
     probe.include_router(probe_router)
 
     assert _unclassified_mutation_routes(list(probe.routes)) == [("POST", "/api/probe/mutate")]
+
+
+_GUARD_CALL = re.compile(r"\b(require_scope|check_[a-z_]+)\s*\(")
+
+
+def _endpoint_dispatch_source(path: str, method: str) -> str:
+    """Handler source plus one level of phlo_api callees (delegated guards)."""
+    for route in app.routes:
+        if getattr(route, "path", None) == path and method in set(route.methods or ()):
+            endpoint = route.endpoint
+            break
+    else:
+        raise AssertionError(f"{method} {path} is not mounted")
+
+    source = inspect.getsource(endpoint)
+    module_globals = getattr(endpoint, "__globals__", {})
+    called = set(re.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", source))
+    candidates: list[object] = [
+        module_globals.get(name) for name in called if name in module_globals
+    ]
+    # Handlers that defer their guard to a callee may import it inside the
+    # function body rather than at module level.
+    for module_name, names in re.findall(r"from\s+([\w.]+)\s+import\s+\(?\n?\s*([\w\s,]+)", source):
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+        candidates.extend(
+            getattr(module, name.strip(), None) for name in names.split(",") if name.strip()
+        )
+    parts = [source]
+    for candidate in candidates:
+        if inspect.isfunction(candidate):
+            try:
+                parts.append(inspect.getsource(candidate))
+            except (OSError, TypeError):
+                pass
+    return "\n".join(parts)
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "guard"),
+    [(method, path, guard) for (method, path), guard in sorted(_GUARDED_NON_GET_ROUTES.items())],
+)
+def test_guarded_route_handlers_contain_a_guard(method: str, path: str, guard: str) -> None:
+    """Every declared guarded route really calls a guard in its dispatch path."""
+    source = _endpoint_dispatch_source(path, method)
+    if guard.startswith("check_"):
+        assert f"{guard}(" in source or f"{guard} (" in source, (
+            f"{method} {path} is declared guarded by {guard} but the call is "
+            "absent from the handler's dispatch path"
+        )
+    else:
+        assert _GUARD_CALL.search(source), (
+            f"{method} {path} is declared guarded but no require_scope()/check_* "
+            "call exists in the handler's dispatch path"
+        )

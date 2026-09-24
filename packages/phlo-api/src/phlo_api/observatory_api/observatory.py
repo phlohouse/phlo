@@ -4899,8 +4899,12 @@ def get_observatory_saved_queries() -> ObservatorySavedQueryList:
 
 
 @router.post("/saved-queries", response_model=ObservatorySavedQuery)
-def post_observatory_saved_query(request: ObservatorySavedQueryRequest) -> ObservatorySavedQuery:
+def post_observatory_saved_query(
+    request: ObservatorySavedQueryRequest,
+    http_request: Request,
+) -> ObservatorySavedQuery:
     """Persist a saved Observatory query."""
+    require_scope(http_request, "project:write")
     try:
         return _save_query(request)
     except RuntimeError as exc:

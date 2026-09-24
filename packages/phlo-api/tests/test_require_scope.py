@@ -220,3 +220,21 @@ def test_observatory_action_route_rejects_anonymous(
         "/api/observatory/actions", json={"action_id": "service:restart:demo"}
     )
     assert analyst.status_code == 403
+
+
+def test_saved_query_route_enforces_project_write_scope(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """POST /saved-queries: 401 anonymous, 403 analyst, allowed operator."""
+    _apply_env(monkeypatch, tmp_path, authorization_mode="required")
+    url = "/api/observatory/saved-queries"
+    body = {"name": "probe", "sql": "select 1"}
+
+    anonymous = TestClient(app).post(url, json=body)
+    assert anonymous.status_code == 401
+
+    analyst = authenticated_client("analyst").post(url, json=body)
+    assert analyst.status_code == 403
+
+    operator = authenticated_client("operator").post(url, json=body)
+    assert operator.status_code not in (401, 403)
