@@ -1,4 +1,4 @@
-FROM python:3.12-alpine AS phlo-build-context
+FROM python:3.12-alpine@sha256:4c47124a8391cb7a9f571164147d154777cf012a4ece5f86097130d7a4478111 AS phlo-build-context
 
 WORKDIR /opt/phlo-build-context
 
@@ -8,7 +8,7 @@ RUN set -eux; \
     install -m 0755 "$entrypoint" /opt/phlo-build-context/phlo-api-entrypoint.sh; \
     mkdir -p /opt/phlo-build-context/wheelhouse
 
-FROM python:3.12-alpine AS runtime
+FROM python:3.12-alpine@sha256:4c47124a8391cb7a9f571164147d154777cf012a4ece5f86097130d7a4478111 AS runtime
 
 WORKDIR /app
 
@@ -18,8 +18,9 @@ ARG PHLO_WHEELHOUSE=
 
 # Alpine packages stay unpinned: the branch archive drops superseded versions,
 # so an exact version becomes a hard build failure for consumers running
-# `phlo services start --build` weeks after the phlo release. The floating base
-# tag and `apk upgrade` below already resolve the current branch versions.
+# `phlo services start --build` weeks after the phlo release. The base image is
+# pinned by digest (Renovate refreshes it) and `apk upgrade` below resolves the
+# current branch versions on top of it.
 # hadolint ignore=DL3018
 RUN apk upgrade --no-cache \
     && apk add --no-cache ca-certificates \

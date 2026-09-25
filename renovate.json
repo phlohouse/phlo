@@ -43,6 +43,12 @@
       "enabled": false
     },
     {
+      "description": "Group Dockerfile base image tag and digest updates per base image; review-required.",
+      "matchManagers": ["dockerfile"],
+      "groupName": "dockerfile {{{depNameSanitized}}}",
+      "automerge": false
+    },
+    {
       "description": "Group GitHub Actions updates.",
       "matchManagers": ["github-actions"],
       "groupName": "github-actions"
@@ -109,11 +115,6 @@
       "description": "Keep major updates manual.",
       "matchUpdateTypes": ["major"],
       "automerge": false
-    },
-    {
-      "matchPackageNames": ["python"],
-      "matchDatasources": ["docker"],
-      "enabled": false
     }
   ]
 }

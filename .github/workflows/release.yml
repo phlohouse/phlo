@@ -3,13 +3,20 @@ name: Release
 on:
   push:
     branches: [main, beta]
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
         description: Release tag to publish or recover, for example `v0.7.9`
         required: true
         type: string
+      recovery:
+        description: >-
+          Recovery-only rebuild and republish of the named tag. Normal releases
+          publish the exact validated bytes via the Release Promotion workflow;
+          leave this unchecked otherwise.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -171,8 +178,10 @@ jobs:
           test "$target" = "$CANDIDATE_SHA"
           gh api "/repos/${REPOSITORY}/releases/tags/${TAG}" >/dev/null
 
+  # Exact-byte promotion via release-promotion.yml is the only normal
+  # publication path; this job survives solely as an explicit recovery hatch.
   publish:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.recovery
     runs-on: ubuntu-latest
     environment: pypi
     concurrency:
@@ -181,24 +190,19 @@ jobs:
     permissions:
       contents: read
       checks: read
+      id-token: write
     steps:
       - name: Resolve publish ref
         id: publish-ref
         env:
-          EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
-          PUBLISH_GITHUB_REF: ${{ github.ref }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            tag_input="$INPUT_TAG"
-            case "$tag_input" in
-              v*) ;;
-              *) tag_input="v$tag_input" ;;
-            esac
-            ref="refs/tags/$tag_input"
-          else
-            ref="$PUBLISH_GITHUB_REF"
-          fi
+          tag_input="$INPUT_TAG"
+          case "$tag_input" in
+            v*) ;;
+            *) tag_input="v$tag_input" ;;
+          esac
+          ref="refs/tags/$tag_input"
 
           case "$ref" in
             refs/tags/v*) ;;
@@ -283,8 +287,6 @@ jobs:
         run: git show origin/main:scripts/release_identity.py > "$RUNNER_TEMP/release_identity.py"
 
       - name: Publish missing coherent artifacts
-        env:
-          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           identity_script="$RUNNER_TEMP/release_identity.py"
           python "$identity_script" publish-plan --manifest release-manifest.json --output publish-plan.json
@@ -292,7 +294,7 @@ jobs:
           if [ "${#artifacts[@]}" -eq 0 ]; then
             echo "All expected artifacts are already published with matching hashes."
           else
-            uv publish "${artifacts[@]}" --token "$PYPI_API_TOKEN"
+            uv publish "${artifacts[@]}"
           fi
           python "$identity_script" publish-plan --manifest release-manifest.json --output publish-plan.json
           test "$(jq '.upload | length' publish-plan.json)" = 0
