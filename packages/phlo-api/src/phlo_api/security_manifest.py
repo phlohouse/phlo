@@ -92,6 +92,25 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         public=True,
     ),
     *_specs(
+        ("v1_me", "v1_environments"),
+        action=CanonicalAction.PLATFORM_METADATA_READ.value,
+        resource_type="platform_metadata",
+    ),
+    *_specs(
+        ("v1_services",),
+        action=CanonicalAction.SERVICE_READ.value,
+        resource_type="service",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
+        ("v1_events",),
+        action=CanonicalAction.RUN_READ.value,
+        resource_type="run",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
         (
             "openapi",
             "swagger_ui_html",
@@ -752,7 +771,11 @@ async def enforce_http_operation(
     # authorization is required (ADR 0047). Otherwise unregulated development
     # keeps the historical behavior: RBAC is skipped, but run-scoped service
     # tokens remain confined to their single report.
-    if not is_regulated() and not requires_http_authorization():
+    if (
+        not spec.operation_name.startswith("v1_")
+        and not is_regulated()
+        and not requires_http_authorization()
+    ):
         if spec.operation_name == "get_observatory_run_report":
             auth_principal = get_request_principal(request)
             if (
@@ -767,12 +790,29 @@ async def enforce_http_operation(
     auth_principal = get_request_principal(request)
     if auth_principal is None:
         _raise_unauthorized()
+    if (
+        spec.operation_name.startswith("v1_")
+        and auth_principal.principal_type == "service"
+        and RUN_REPORT_RESOURCE_ID_ATTRIBUTE in auth_principal.attributes
+    ):
+        raise HTTPException(
+            status_code=403, detail={"error": "forbidden", "reason": "run_report_scope_mismatch"}
+        )
+    if spec.operation_name in {"v1_services", "v1_events"}:
+        selections = request.query_params.getlist("env")
+        if len(selections) != 1 or selections[0] not in {"prod", "staging"}:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "unprocessable_input", "reason": "Invalid env selector."},
+            )
 
     spec = await _specialize_operation(request, spec)
     await _validate_request_payload(request, spec)
     resource = await resolve_resource(request, spec, path_params)
     _enforce_scoped_run_report_service_identity(auth_principal, spec, resource)
-    context: DecisionContext = create_decision_context(request)
+    context: DecisionContext = create_decision_context(
+        request, request.query_params.get("env") if spec.operation_name.startswith("v1_") else None
+    )
     correlation_id = get_request_correlation_id(request)
 
     if is_regulated():
@@ -990,11 +1030,29 @@ def install_manifest_enforcement(app: Any) -> None:
             spec, path_params = resolved
             try:
                 await enforce_http_operation(request, spec, path_params)
+                if spec.operation_name == "v1_events":
+                    # A combined run/service stream requires both permissions.
+                    await enforce_http_operation(
+                        request,
+                        replace(
+                            spec, action=CanonicalAction.SERVICE_READ.value, resource_type="service"
+                        ),
+                        path_params,
+                    )
             except HTTPException as exc:
                 detail = exc.detail if isinstance(exc.detail, dict) else {"detail": exc.detail}
                 response = JSONResponse(
                     status_code=exc.status_code,
-                    content=detail,
+                    content=(
+                        {
+                            "error": {
+                                "code": detail.get("error", "access_denied"),
+                                "message": detail.get("reason", "Access denied."),
+                            }
+                        }
+                        if spec.operation_name.startswith("v1_")
+                        else detail
+                    ),
                     headers=exc.headers,
                 )
                 response.headers.setdefault("x-request-id", request_id)
@@ -1006,10 +1064,19 @@ def install_manifest_enforcement(app: Any) -> None:
                 logger.exception("phlo_api_security_boundary_unavailable")
                 response = JSONResponse(
                     status_code=503,
-                    content={
-                        "error": "service_unavailable",
-                        "reason": "authorization_unavailable",
-                    },
+                    content=(
+                        {
+                            "error": {
+                                "code": "authorization_unavailable",
+                                "message": "Authorization is unavailable.",
+                            }
+                        }
+                        if spec.operation_name.startswith("v1_")
+                        else {
+                            "error": "service_unavailable",
+                            "reason": "authorization_unavailable",
+                        }
+                    ),
                 )
                 response.headers.setdefault("x-request-id", request_id)
                 return response
