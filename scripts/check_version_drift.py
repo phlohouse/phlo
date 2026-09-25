@@ -5,7 +5,8 @@ Each distribution's ``pyproject.toml`` is the single version authority; its
 Python sources may not carry a hand-maintained
 ``__version__`` literal, the plugin registries may not carry a hand-maintained
 per-plugin ``version`` column, and the support manifest's release set must
-agree with the package metadata it pins.
+agree with the package metadata it pins. Workspace dependency ranges must
+also accept the versions built from this checkout.
 """
 
 from __future__ import annotations
@@ -15,6 +16,13 @@ import re
 import sys
 import tomllib
 from pathlib import Path
+
+try:
+    from packaging.requirements import Requirement
+    from packaging.version import Version
+except ModuleNotFoundError:  # Bare python3 may not have the project environment installed.
+    from pip._vendor.packaging.requirements import Requirement
+    from pip._vendor.packaging.version import Version
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATHS = ("registry/plugins.json", "src/phlo/plugins/registry_data.json")
@@ -33,6 +41,33 @@ def workspace_distributions() -> dict[str, str]:
             project = tomllib.load(handle)["project"]
         distributions[project["name"]] = project["version"]
     return distributions
+
+
+def workspace_requirement_errors(distributions: dict[str, str]) -> list[str]:
+    """Workspace requirements must accept the version built from this checkout."""
+    errors: list[str] = []
+    for pyproject in [
+        ROOT / "pyproject.toml",
+        *sorted((ROOT / "packages").glob("*/pyproject.toml")),
+    ]:
+        with pyproject.open("rb") as handle:
+            metadata = tomllib.load(handle)
+        project = metadata["project"]
+        groups = {
+            "dependencies": project.get("dependencies", []),
+            **project.get("optional-dependencies", {}),
+            **metadata.get("dependency-groups", {}),
+        }
+        for group, specs in groups.items():
+            for spec in specs:
+                requirement = Requirement(spec)
+                version = distributions.get(requirement.name)
+                if version is not None and Version(version) not in requirement.specifier:
+                    errors.append(
+                        f"{pyproject.relative_to(ROOT)} [{group}]: {spec!r} excludes "
+                        f"workspace {requirement.name}=={version}"
+                    )
+    return errors
 
 
 def version_literal_errors(distributions: dict[str, str]) -> list[str]:
@@ -96,7 +131,8 @@ def support_manifest_errors(distributions: dict[str, str]) -> list[str]:
 def main() -> int:
     distributions = workspace_distributions()
     errors = (
-        version_literal_errors(distributions)
+        workspace_requirement_errors(distributions)
+        + version_literal_errors(distributions)
         + registry_version_column_errors()
         + support_manifest_errors(distributions)
     )

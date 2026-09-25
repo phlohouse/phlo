@@ -32,11 +32,14 @@ name = "Phlo Team"
 text = "MIT"
 
 [project.optional-dependencies]
+dbt = ["phlo-dbt>=0.1.0"]
 dev = [
     "pytest>=7.0",
     "ruff>=0.1.0",
 ]
 dlt = ["phlo-dlt>=0.1.0"]
+iceberg = ["phlo-iceberg>=0.1.0"]
+nessie = ["phlo-nessie>=0.1.0"]
 trino = ["phlo-trino>=0.1.0"]
 
 [project.readme]

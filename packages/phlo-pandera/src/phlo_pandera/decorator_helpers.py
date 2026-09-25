@@ -190,9 +190,11 @@ def _resolve_trino_resource(context: RuntimeContext) -> Any:
     if trino is None:
         try:
             from phlo_trino.resource import TrinoResource
-        except Exception as exc:  # noqa: BLE001 - surface missing backend cleanly
-            raise ValueError(
-                "Trino resource not found in context and phlo_trino is not available"
+        except ModuleNotFoundError as exc:
+            if exc.name != "phlo_trino":
+                raise
+            raise ImportError(
+                "Trino resource not found in context; install 'phlo-pandera[trino]'"
             ) from exc
         trino = TrinoResource()
     return trino

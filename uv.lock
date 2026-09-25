@@ -3107,6 +3107,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dagster = [
+    { name = "phlo-dagster" },
+]
 dev = [
     { name = "pytest" },
     { name = "ruff" },
@@ -3121,6 +3124,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.127.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "phlo", editable = "." },
+    { name = "phlo-dagster", marker = "extra == 'dagster'", editable = "packages/phlo-dagster" },
     { name = "phlo-lineage", marker = "extra == 'lineage'", editable = "packages/phlo-lineage" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pydantic", specifier = ">=2.0" },
@@ -3129,7 +3133,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
-provides-extras = ["dev", "lineage"]
+provides-extras = ["dagster", "dev", "lineage"]
 
 [[package]]
 name = "phlo-clickhouse"
@@ -3868,6 +3872,9 @@ dev = [
 observatory = [
     { name = "phlo-observatory" },
 ]
+trino = [
+    { name = "phlo-trino" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -3876,11 +3883,12 @@ requires-dist = [
     { name = "pandera", specifier = ">=0.26.1" },
     { name = "phlo", editable = "." },
     { name = "phlo-observatory", marker = "extra == 'observatory'", editable = "packages/phlo-observatory" },
+    { name = "phlo-trino", marker = "extra == 'trino'", editable = "packages/phlo-trino" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "rich", specifier = ">=14.2.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
-provides-extras = ["dev", "observatory"]
+provides-extras = ["dev", "observatory", "trino"]
 
 [[package]]
 name = "phlo-pgweb"
@@ -4135,12 +4143,21 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dbt = [
+    { name = "phlo-dbt" },
+]
 dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
 dlt = [
     { name = "phlo-dlt" },
+]
+iceberg = [
+    { name = "phlo-iceberg" },
+]
+nessie = [
+    { name = "phlo-nessie" },
 ]
 trino = [
     { name = "phlo-trino" },
@@ -4155,7 +4172,10 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "pandera", specifier = ">=0.26.1" },
     { name = "phlo", editable = "." },
+    { name = "phlo-dbt", marker = "extra == 'dbt'", editable = "packages/phlo-dbt" },
     { name = "phlo-dlt", marker = "extra == 'dlt'", editable = "packages/phlo-dlt" },
+    { name = "phlo-iceberg", marker = "extra == 'iceberg'", editable = "packages/phlo-iceberg" },
+    { name = "phlo-nessie", marker = "extra == 'nessie'", editable = "packages/phlo-nessie" },
     { name = "phlo-postgres", editable = "packages/phlo-postgres" },
     { name = "phlo-trino", marker = "extra == 'trino'", editable = "packages/phlo-trino" },
     { name = "pyarrow", specifier = ">=21.0.0" },
@@ -4164,7 +4184,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32.5" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
-provides-extras = ["dev", "dlt", "trino"]
+provides-extras = ["dbt", "dev", "dlt", "iceberg", "nessie", "trino"]
 
 [[package]]
 name = "phlo-traefik"
