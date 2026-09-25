@@ -33,9 +33,11 @@ from uuid import uuid4
 import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from phlo.logging import bind_context, clear_context, get_logger
 from phlo.capabilities.discovery import discover_capabilities
+from phlo_api.errors import PhloApiError, error_envelope
 from phlo_api.regulated_surface_adapter import get_adapter
 from phlo_api.security_manifest import install_manifest_enforcement
 from phlo.security.validation import require_regulated_validation
@@ -131,6 +133,13 @@ def _register_observatory_routers() -> None:
 
 
 _register_observatory_routers()
+
+
+@app.exception_handler(PhloApiError)
+async def _phlo_api_error_handler(request: Request, exc: PhloApiError) -> JSONResponse:
+    """Serialize typed API errors into the shared envelope and status."""
+    del request
+    return JSONResponse(status_code=exc.status_code, content=error_envelope(exc))
 
 
 @app.middleware("http")

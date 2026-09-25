@@ -51,6 +51,7 @@ from pydantic import BaseModel
 from phlo.capabilities import MaintenanceReadModel, list_capabilities, resolve_capability
 from phlo.capabilities.discovery import discover_capabilities
 from phlo.logging import get_logger
+from phlo_api.errors import BackendUnavailableError
 
 logger = get_logger(__name__)
 
@@ -108,8 +109,8 @@ class MaintenanceStatusSnapshot(BaseModel):
     operations: list[MaintenanceOperationStatus]
 
 
-@router.get("/status", response_model=MaintenanceStatusSnapshot | dict)
-def get_maintenance_status() -> MaintenanceStatusSnapshot | dict[str, str]:
+@router.get("/status", response_model=MaintenanceStatusSnapshot)
+def get_maintenance_status() -> MaintenanceStatusSnapshot:
     """Get maintenance status snapshot from the read model."""
     try:
         snapshot = _resolve_maintenance_read_model().load_maintenance_status()
@@ -117,7 +118,7 @@ def get_maintenance_status() -> MaintenanceStatusSnapshot | dict[str, str]:
         return _serialize_snapshot(snapshot)
     except Exception as exc:
         logger.exception("maintenance_status_load_failed")
-        return {"error": str(exc)}
+        raise BackendUnavailableError("Maintenance read model is unavailable.") from exc
 
 
 @router.get("/metrics", response_class=PlainTextResponse)
@@ -129,7 +130,7 @@ def get_maintenance_metrics() -> PlainTextResponse:
         return PlainTextResponse(metrics_payload)
     except Exception as exc:
         logger.exception("maintenance_metrics_render_failed")
-        return PlainTextResponse(f"# error: {exc}\n", status_code=500)
+        raise BackendUnavailableError("Maintenance read model is unavailable.") from exc
 
 
 def _serialize_snapshot(snapshot: Any) -> MaintenanceStatusSnapshot:

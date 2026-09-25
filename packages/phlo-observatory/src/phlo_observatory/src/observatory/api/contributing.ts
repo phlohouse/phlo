@@ -8,6 +8,7 @@ import { createServerFn } from '@tanstack/react-start'
 
 import type { DataRow } from '@/observatory/api/trino'
 import { authMiddleware } from '@/observatory/api/auth'
+import { describePhloApiError } from '@/observatory/api/errors'
 import { apiPost } from '@/server/phlo-api'
 import { camelizeKeys } from '@/utils/caseTransform'
 
@@ -84,8 +85,8 @@ export async function fetchContributingRowsQueryFromApi(data: {
   trinoUrl?: string
   timeoutMs?: number
   catalog?: string
-}): Promise<ApiContributingRowsQueryResult | { error: string }> {
-  return apiPost<ApiContributingRowsQueryResult | { error: string }>(
+}): Promise<ApiContributingRowsQueryResult> {
+  return apiPost<ApiContributingRowsQueryResult>(
     '/api/observatory/contributing-rows/query',
     {
       downstream_asset_key: data.downstreamAssetKey,
@@ -108,8 +109,8 @@ export async function fetchContributingRowsPageFromApi(data: {
   trinoUrl?: string
   timeoutMs?: number
   catalog?: string
-}): Promise<ApiContributingRowsPageResult | { error: string }> {
-  return apiPost<ApiContributingRowsPageResult | { error: string }>(
+}): Promise<ApiContributingRowsPageResult> {
+  return apiPost<ApiContributingRowsPageResult>(
     '/api/observatory/contributing-rows/page',
     {
       downstream_asset_key: data.downstreamAssetKey,
@@ -139,11 +140,11 @@ export const getContributingRowsQuery = createServerFn()
   )
   .handler(async ({ data }): Promise<ContributingRowsQueryResult> => {
     try {
-      const result = await fetchContributingRowsQueryFromApi(data)
-      if ('error' in result) return result
-      return transformContributingRowsQueryResult(result)
+      return transformContributingRowsQueryResult(
+        await fetchContributingRowsQueryFromApi(data),
+      )
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' }
+      return { error: describePhloApiError(error).message }
     }
   })
 
@@ -163,10 +164,10 @@ export const getContributingRowsPage = createServerFn()
   )
   .handler(async ({ data }): Promise<ContributingRowsPageResult> => {
     try {
-      const result = await fetchContributingRowsPageFromApi(data)
-      if ('error' in result) return result
-      return transformContributingRowsPageResult(result)
+      return transformContributingRowsPageResult(
+        await fetchContributingRowsPageFromApi(data),
+      )
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' }
+      return { error: describePhloApiError(error).message }
     }
   })
