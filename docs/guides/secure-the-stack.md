@@ -67,7 +67,9 @@ OBSERVATORY_AUTH_ENABLED=true
 OBSERVATORY_AUTH_TOKEN=replace-me
 ```
 
-Callers present the token with each guarded request. When `PHLO_ENVIRONMENT` is `prod`, `production`, `staging`, or `regulated` — or `PHLO_REGULATED` is enabled — authentication is mandatory rather than opt-in: Observatory refuses to start until `OBSERVATORY_AUTH_TOKEN` is configured. `OBSERVATORY_AUTH_ENABLED` only opts environments in ahead of that; it cannot opt a production-like deployment out.
+The guarded server functions expect `authToken` in the request data. Service start, stop and restart also forward the caller's `Authorization: Bearer <credential>` header to phlo-api, which checks the required scope. The Observatory token does not grant phlo-api access. No current browser route calls these server functions; do not put the shared Observatory token in browser code.
+
+When `PHLO_ENVIRONMENT` is `prod`, `production`, `staging`, or `regulated` — or `PHLO_REGULATED` is enabled — authentication is mandatory rather than opt-in: Observatory refuses to start until `OBSERVATORY_AUTH_TOKEN` is configured. `OBSERVATORY_AUTH_ENABLED` only opts environments in ahead of that; it cannot opt a production-like deployment out.
 
 ## 5. Define and validate RBAC policy
 
