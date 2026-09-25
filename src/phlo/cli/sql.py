@@ -69,20 +69,14 @@ def strip_sql_literals_and_comments(sql: str) -> str:
                 out.append(ch)
             else:
                 out.append(" ")
-            i += 1
-            continue
-
-        if in_block_comment:
+        elif in_block_comment:
             if ch == "*" and nxt == "/":
                 out.extend([" ", " "])
                 in_block_comment = False
                 i += 2
                 continue
             out.append(" ")
-            i += 1
-            continue
-
-        if in_single:
+        elif in_single:
             if ch == "'":
                 if nxt == "'":
                     out.extend([" ", " "])
@@ -90,10 +84,7 @@ def strip_sql_literals_and_comments(sql: str) -> str:
                     continue
                 in_single = False
             out.append(" ")
-            i += 1
-            continue
-
-        if in_double:
+        elif in_double:
             if ch == '"':
                 if nxt == '"':
                     out.extend([" ", " "])
@@ -101,34 +92,20 @@ def strip_sql_literals_and_comments(sql: str) -> str:
                     continue
                 in_double = False
             out.append(" ")
-            i += 1
-            continue
-
-        if ch == "-" and nxt == "-":
-            in_line_comment = True
+        elif (ch, nxt) in {("-", "-"), ("/", "*")}:
+            in_line_comment = ch == "-"
+            in_block_comment = ch == "/"
             out.extend([" ", " "])
             i += 2
             continue
-
-        if ch == "/" and nxt == "*":
-            in_block_comment = True
-            out.extend([" ", " "])
-            i += 2
-            continue
-
-        if ch == "'":
+        elif ch == "'":
             in_single = True
             out.append(" ")
-            i += 1
-            continue
-
-        if ch == '"':
+        elif ch == '"':
             in_double = True
             out.append(" ")
-            i += 1
-            continue
-
-        out.append(ch)
+        else:
+            out.append(ch)
         i += 1
 
     return "".join(out)

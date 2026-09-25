@@ -44,10 +44,10 @@ from phlo_api.errors import (
 from phlo_api.observatory_api.trino import (
     QueryExecutionError,
     execute_trino_query,
+    quote_identifier,
     resolve_default_catalog,
     resolve_default_ref,
 )
-from phlo_api.observatory_api.trino_sql import quote_identifier
 
 router = APIRouter(tags=["contributing"])
 
@@ -386,11 +386,10 @@ async def _execute_trino_or_raise(
     query: str,
     catalog: str,
     schema: str,
-    trino_url: str | None,
     timeout_ms: int | None,
 ) -> dict[str, Any]:
     """Run a Trino query, raising the typed API error for its failure."""
-    result = await execute_trino_query(query, catalog, schema, trino_url, timeout_ms or 30000)
+    result = await execute_trino_query(query, catalog, schema, timeout_ms or 30000)
     if isinstance(result, QueryExecutionError):
         if result.kind == "timeout":
             raise BackendUnavailableError("The Trino query timed out.")
@@ -401,7 +400,6 @@ async def _execute_trino_or_raise(
 async def resolve_iceberg_table(
     table_name: str,
     *,
-    trino_url: str | None,
     timeout_ms: int | None,
     catalog: str,
 ) -> ResolveTableResult | None:
@@ -420,9 +418,7 @@ async def resolve_iceberg_table(
         f"select table_schema from {quote_identifier(catalog)}.information_schema.tables "
         f"where table_name = '{safe_name}'"
     )
-    schemas_result = await _execute_trino_or_raise(
-        schema_query, catalog, default_ref, trino_url, timeout_ms
-    )
+    schemas_result = await _execute_trino_or_raise(schema_query, catalog, default_ref, timeout_ms)
 
     schema_rows = _result_rows(schemas_result)
     schemas = [
@@ -450,7 +446,6 @@ async def resolve_iceberg_table(
         columns_query,
         catalog,
         default_ref,
-        trino_url,
         timeout_ms,
     )
 
@@ -496,7 +491,6 @@ async def get_contributing_rows_query(
 
     upstream = await resolve_iceberg_table(
         upstream_table_name,
-        trino_url=None,
         timeout_ms=request.timeout_ms,
         catalog=catalog,
     )
@@ -551,7 +545,6 @@ async def get_contributing_rows_page(
 
     upstream = await resolve_iceberg_table(
         upstream_table_name,
-        trino_url=None,
         timeout_ms=request.timeout_ms,
         catalog=catalog,
     )
@@ -572,9 +565,7 @@ async def get_contributing_rows_page(
     if not ok or mode is None:
         raise UnprocessableInputError(query_or_error)
 
-    result = await _execute_trino_or_raise(
-        query_or_error, catalog, default_ref, None, request.timeout_ms
-    )
+    result = await _execute_trino_or_raise(query_or_error, catalog, default_ref, request.timeout_ms)
 
     rows = _result_rows(result)
     columns = _result_columns(result)

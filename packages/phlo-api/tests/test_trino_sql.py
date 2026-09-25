@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from phlo_api.observatory_api.trino_sql import (
-    is_probably_qualified_table,
+from phlo_api.observatory_api.trino import (
     qualify_table_name,
     quote_identifier,
+    quote_qualified_table,
     sql_literal,
     strip_sql_literals_and_comments,
     validate_read_only_query,
@@ -34,10 +34,30 @@ def test_qualify_table_name_quotes_all_parts() -> None:
 
 @pytest.mark.parametrize(
     ("table_name", "expected"),
-    [("iceberg.main.events", True), ('"iceberg"."main"."events"', True), ("events", False)],
+    [
+        ("iceberg.main.events", '"iceberg"."main"."events"'),
+        ('"ice.berg"."ma""in"."events"', '"ice.berg"."ma""in"."events"'),
+    ],
 )
-def test_is_probably_qualified_table(table_name: str, expected: bool) -> None:
-    assert is_probably_qualified_table(table_name) is expected
+def test_quote_qualified_table(table_name: str, expected: str) -> None:
+    assert quote_qualified_table(table_name) == expected
+
+
+@pytest.mark.parametrize(
+    "table_name",
+    [
+        "catalog.schema.table; DROP TABLE users",
+        '"a"."b"."c" --',
+        "catalog.schema",
+        "catalog.schema.table.more",
+        '"unterminated.schema.table',
+        '"a"b.c.d',
+        "a..c",
+    ],
+)
+def test_quote_qualified_table_rejects_sql_fragments(table_name: str) -> None:
+    with pytest.raises(ValueError):
+        quote_qualified_table(table_name)
 
 
 @pytest.mark.parametrize(
