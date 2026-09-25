@@ -34,7 +34,7 @@ import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from phlo.logging import bind_context, clear_context, get_logger
 from phlo.capabilities.discovery import discover_capabilities
@@ -161,7 +161,7 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
 
 
 @app.exception_handler(HTTPException)
-async def _http_error_handler(request: Request, exc: HTTPException) -> JSONResponse:
+async def _http_error_handler(request: Request, exc: HTTPException) -> Response:
     if request.url.path.startswith("/api/v1/"):
         return JSONResponse(
             status_code=exc.status_code,

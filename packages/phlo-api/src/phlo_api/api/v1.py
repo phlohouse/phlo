@@ -35,6 +35,7 @@ from phlo_api.v1_contract import (
     EnvironmentTarget,
     EnvironmentsResponse,
     MeResponse,
+    ReadPermission,
     RunStatusEvent,
     ServiceSnapshot,
     ServicesResponse,
@@ -231,17 +232,20 @@ def _canonical(request: Request, principal: AuthPrincipal) -> Principal:
     return canonical
 
 
-def _permissions(request: Request) -> dict[str, list[str]]:
+def _permissions(request: Request) -> dict[Environment, list[ReadPermission]]:
     principal = get_request_principal(request)
     assert principal is not None  # Enforced by the v1 manifest boundary.
     canonical = _canonical(request, principal)
-    permissions: dict[str, list[str]] = {}
+    permissions: dict[Environment, list[ReadPermission]] = {}
     backend = None if is_regulated() else get_authorization_backend()
-    if not is_regulated() and backend is None:
-        raise BackendUnavailableError("Authorization is unavailable.")
-    for env in ("prod", "staging"):
+    environments: tuple[Environment, ...] = ("prod", "staging")
+    actions: tuple[tuple[ReadPermission, str], ...] = (
+        ("service.read", "service"),
+        ("run.read", "run"),
+    )
+    for env in environments:
         permissions[env] = []
-        for action, resource_type in (("service.read", "service"), ("run.read", "run")):
+        for action, resource_type in actions:
             resource = ResourceRef(resource_type=resource_type, resource_id=f"env={env}")
             context = create_decision_context(request, env)
             if is_regulated():
@@ -261,6 +265,8 @@ def _permissions(request: Request) -> dict[str, list[str]]:
                     raise BackendUnavailableError("Authorization is unavailable.")
                 allowed = decision.allowed
             else:
+                if backend is None:
+                    raise BackendUnavailableError("Authorization is unavailable.")
                 try:
                     decision = backend.explain_decision(canonical, action, resource, context)
                 except Exception as exc:
@@ -278,12 +284,14 @@ def v1_me(request: Request) -> MeResponse:
     principal = get_request_principal(request)
     assert principal is not None
     canonical = _canonical(request, principal)
-    return MeResponse(
-        subject=principal.subject,
-        principal_type=principal.principal_type,
-        email=principal.email,
-        roles=list(canonical.roles),
-        permissions=_permissions(request),
+    return MeResponse.model_validate(
+        {
+            "subject": principal.subject,
+            "principal_type": principal.principal_type,
+            "email": principal.email,
+            "roles": list(canonical.roles),
+            "permissions": _permissions(request),
+        }
     )
 
 
