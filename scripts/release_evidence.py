@@ -203,7 +203,7 @@ def finalize_bundle(bundle: dict[str, object]) -> dict[str, object]:
     return bundle
 
 
-def validate_bundle(bundle: object, bom: dict[str, object] | None = None) -> dict[str, object]:
+def validate_bundle(bundle: object, bom: dict[str, object] | None = None) -> dict[str, object]:  # noqa: C901
     """Re-derive every bundle invariant; optionally bind it to a BOM document.
 
     Returns the validated bundle. Raises :class:`EvidenceError` when the bundle

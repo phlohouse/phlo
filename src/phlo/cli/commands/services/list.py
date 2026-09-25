@@ -79,7 +79,7 @@ def _external_port_for_container(
     default=None,
     help="Container backend for runtime status.",
 )
-def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):
+def list_cmd(show_all: bool, output_json: bool, backend_name: str | None):  # noqa: C901
     """List available services with status and configuration.
 
     Examples:

@@ -441,7 +441,7 @@ def _extract_decorator_params(func: Any) -> dict:
     return {}
 
 
-def _validate_workflow_function(
+def _validate_workflow_function(  # noqa: C901
     func_name: str,
     func_obj: Any,
     decorator_params: dict,

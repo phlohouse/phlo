@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 
-def publication_matrix(
+def publication_matrix(  # noqa: C901
     compose: dict[str, Any],
     project_root: Path,
     source_root: Path | None = None,

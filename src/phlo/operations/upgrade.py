@@ -313,7 +313,7 @@ def plan_upgrade(
     )
 
 
-def upgrade_apply(
+def upgrade_apply(  # noqa: C901
     *,
     plan: UpgradePlan,
     confirmation_token: str,

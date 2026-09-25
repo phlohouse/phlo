@@ -89,7 +89,7 @@ class SchemaConversionError(Exception):
     """
 
 
-def pandera_to_iceberg(
+def pandera_to_iceberg(  # noqa: C901
     pandera_schema: type[DataFrameModel],
     start_field_id: int = 1,
     add_dlt_metadata: bool = True,

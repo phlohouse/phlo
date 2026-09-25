@@ -102,7 +102,7 @@ class LineageExtractor:
         )
 
     @log_extraction_errors("dbt")
-    def extract_from_dbt_manifest(self, manifest: dict[str, Any]) -> None:
+    def extract_from_dbt_manifest(self, manifest: dict[str, Any]) -> None:  # noqa: C901
         """Extract assets and model dependencies from a parsed dbt manifest."""
         for unique_id, node in manifest.get("nodes", {}).items():
             if unique_id.startswith("model."):

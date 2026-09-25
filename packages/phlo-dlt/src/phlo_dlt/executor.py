@@ -232,7 +232,7 @@ class DltIngester(BaseIngester):
         self.merge_config = merge_config or {}
         self.quality_checks = tuple(quality_checks or ())
 
-    def run_ingestion(
+    def run_ingestion(  # noqa: C901
         self,
         partition_key: str | None,
         parameters: Dict[str, Any] | None = None,

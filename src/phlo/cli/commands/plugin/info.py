@@ -50,7 +50,7 @@ def _plugin_name_key(value: str) -> str:
     default=False,
     help="Output as JSON",
 )
-def info_cmd(plugin_name: str, plugin_type: str | None, output_json: bool) -> None:
+def info_cmd(plugin_name: str, plugin_type: str | None, output_json: bool) -> None:  # noqa: C901
     """Show detailed plugin information.
 
     Examples:

@@ -85,6 +85,16 @@ Reference suites for each pattern: `tests/observability/test_run_reconciliation.
 `packages/phlo-dagster/tests/test_oidc_identity.py`,
 `packages/phlo-postgres/tests/test_postgres_cli.py`.
 
+## Complexity
+
+Keep new Python and Observatory TypeScript functions at cyclomatic complexity
+15 or below. Existing Python exceptions have `# noqa: C901` on their definitions;
+existing Observatory exceptions are listed in `eslint-suppressions.json`. When
+refactoring an exception, remove its marker or suppression entry and include a
+radon before-and-after complexity table in the pull request. Run
+`uv run --locked ruff check --config pyproject.toml --select C901 .` for the
+repository-wide Python gate; packages have separate Ruff configurations.
+
 ## Maintainer interface
 
 The root `Makefile` is a dev-tooling interface only: `make check`, `make lint`,

@@ -44,7 +44,7 @@ def _load_libcst() -> Any:
     return cst
 
 
-def _decorators_202605_transformer(cst: Any) -> Any:
+def _decorators_202605_transformer(cst: Any) -> Any:  # noqa: C901
     class Decorators202605Transformer(cst.CSTTransformer):
         """Rewrite legacy Phlo decorator references.
 

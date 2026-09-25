@@ -131,7 +131,7 @@ def wait_for_dagster_runtime(
 )
 @click.option("--dry-run", is_flag=True, help="Show command without executing")
 @click.option("--json", "output_json", is_flag=True, help="Emit a structured result.")
-def materialize(
+def materialize(  # noqa: C901
     asset_name: str | None,
     partition: Optional[str],
     no_default_partition: bool,

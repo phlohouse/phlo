@@ -49,7 +49,7 @@ _MUTATING_SQL_VERBS = frozenset(
 _MUTATING_SQL_PATTERN = re.compile(rf"\b({'|'.join(sorted(_MUTATING_SQL_VERBS))})\b")
 
 
-def strip_sql_literals_and_comments(sql: str) -> str:
+def strip_sql_literals_and_comments(sql: str) -> str:  # noqa: C901
     """Return SQL with string literals, quoted identifiers, and comments blanked."""
     out: list[str] = []
     i = 0

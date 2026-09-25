@@ -158,7 +158,7 @@ def _read_dbt_asset_checks(
     ]
 
 
-def _build_project_asset_specs(
+def _build_project_asset_specs(  # noqa: C901
     *,
     project_path: Path,
     project_name: str,

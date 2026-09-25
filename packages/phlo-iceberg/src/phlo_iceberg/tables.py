@@ -906,7 +906,7 @@ def expire_snapshots(
     )
 
 
-def remove_orphan_files(
+def remove_orphan_files(  # noqa: C901
     table_name: str,
     older_than_days: int | None = None,
     dry_run: bool = True,

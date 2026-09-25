@@ -189,11 +189,19 @@ select = [
     "SIM",
     "RET",
     "C4",
+    "C90",
     "PIE",
     "B",
     "DTZ",
     "PTH",
 ]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["C901"]
+"packages/*/tests/**" = ["C901"]
 
 [tool.ty.environment]
 extra-paths = [

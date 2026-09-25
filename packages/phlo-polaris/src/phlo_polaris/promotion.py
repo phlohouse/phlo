@@ -417,7 +417,7 @@ class PolarisSnapshotPromotionCatalog:
                 tables=tables,
             )
 
-    def _promote_candidates(
+    def _promote_candidates(  # noqa: C901
         self,
         *,
         namespace: str,

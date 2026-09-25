@@ -356,7 +356,7 @@ def _build_distributions_from_tree(
         return staged
 
 
-def build_bom_artifacts(
+def build_bom_artifacts(  # noqa: C901
     tree: ReleaseTree,
     *,
     distributions_dir: Path | None = None,
@@ -497,7 +497,7 @@ def make_bom(
     return bom
 
 
-def validate_bom(bom: object) -> dict[str, object]:
+def validate_bom(bom: object) -> dict[str, object]:  # noqa: C901
     """Enforce every structural and identity invariant on a BOM document."""
     if not isinstance(bom, dict):
         raise BomError("BOM must be a JSON object")

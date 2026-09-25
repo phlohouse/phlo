@@ -735,7 +735,7 @@ class MultiAggregateConsistencyCheck(QualityCheck):
     where_clause: str | None = None
     """Optional WHERE clause to filter source data."""
 
-    def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
+    def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:  # noqa: C901
         """Execute multi-aggregate consistency check."""
         if not self.aggregates:
             return QualityCheckResult(

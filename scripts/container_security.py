@@ -820,7 +820,7 @@ def apply_policy(
     return errors, warnings
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     """Dispatch the container-security subcommands; return the process exit code."""
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)

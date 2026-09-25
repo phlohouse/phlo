@@ -563,7 +563,7 @@ def _check_remote_service_images(
     return service_results
 
 
-def check_generated_containers(
+def check_generated_containers(  # noqa: C901
     *,
     project_parent: Path | None = None,
     service_files: dict[str, str] | None = None,
@@ -1138,7 +1138,7 @@ def check_generated_containers(
     metavar="SERVICE=IMAGE=EVIDENCE_SHA256=REASON",
     help="Waive one exact HIGH/CRITICAL finding set for one generated service image.",
 )
-def check_cmd(
+def check_cmd(  # noqa: C901
     output_json: bool,
     containers: bool,
     remote_images: bool,

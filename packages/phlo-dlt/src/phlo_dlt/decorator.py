@@ -314,7 +314,7 @@ def _resolve_table_store_capability(context: RuntimeContext) -> tuple[Any, str]:
     )
 
 
-def phlo_ingestion(
+def phlo_ingestion(  # noqa: C901
     table_name: str,
     unique_key: str,
     group: str,
@@ -499,7 +499,7 @@ def phlo_ingestion(
     )
     normalized_consumers = normalize_consumers(consumers)
 
-    def decorator(func: Callable[..., Any]) -> Any:
+    def decorator(func: Callable[..., Any]) -> Any:  # noqa: C901
         """Wrap an ingestion source function as a Phlo asset definition.
 
         This inner function is the actual decorator that processes the user's
@@ -534,7 +534,7 @@ def phlo_ingestion(
                 )
             )
 
-        def run(runtime: RuntimeContext) -> Iterator[RunResult]:
+        def run(runtime: RuntimeContext) -> Iterator[RunResult]:  # noqa: C901
             """Execute one partitioned ingestion run for the wrapped source function.
 
             This inner function is the actual asset execution logic called by the

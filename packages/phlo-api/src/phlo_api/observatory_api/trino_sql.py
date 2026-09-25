@@ -95,7 +95,7 @@ def sql_literal(value: object) -> str:
     raise ValueError(f"Unsupported filter value type: {type(value).__name__}")
 
 
-def strip_sql_literals_and_comments(query: str) -> str:
+def strip_sql_literals_and_comments(query: str) -> str:  # noqa: C901
     """Return query with string literals, identifiers, and comments removed.
 
     This is used to prepare a query for keyword analysis by removing

@@ -142,7 +142,7 @@ class ObservatoryWorkflowActionResult(BaseModel):
     files: list[str] = Field(default_factory=list)
 
 
-def list_workflow_wizard_contributions() -> list[dict[str, Any]]:
+def list_workflow_wizard_contributions() -> list[dict[str, Any]]:  # noqa: C901
     """Return package-provided workflow wizard contributions."""
 
     from phlo.plugins.discovery import discover_plugins, get_global_registry
@@ -793,7 +793,7 @@ def _write_text_atomically_at(directory_fd: int, filename: str, content: str) ->
             os.close(temporary_fd)
 
 
-def _apply_workflow_file(
+def _apply_workflow_file(  # noqa: C901
     project_root: Path,
     preview: WorkflowFilePreview,
     *,
@@ -916,7 +916,7 @@ def _is_contained(path: Path, root: Path) -> bool:
     return True
 
 
-def _proposal_from_request(request: WorkflowProposalRequest) -> WorkflowProposal:
+def _proposal_from_request(request: WorkflowProposalRequest) -> WorkflowProposal:  # noqa: C901
     source = request.selection_for("source")
     if source is None:
         raise RuntimeError("Missing source selection in workflow proposal request.")

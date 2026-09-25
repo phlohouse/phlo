@@ -54,7 +54,7 @@ from golden_path_common import (  # noqa: E402
 )
 
 
-def preflight_check(*, auto_cleanup: bool = False) -> bool:
+def preflight_check(*, auto_cleanup: bool = False) -> bool:  # noqa: C901
     """
     Run preflight checks before starting the golden path test.
 
@@ -177,7 +177,7 @@ def preflight_check(*, auto_cleanup: bool = False) -> bool:
     return all_ok
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     """Run the full golden path workflow and return its exit code."""
     parser = argparse.ArgumentParser(
         description="Run Golden Path E2E Workflow",

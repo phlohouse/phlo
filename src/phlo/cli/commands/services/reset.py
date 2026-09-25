@@ -51,7 +51,7 @@ logger = get_logger(__name__)
 @click.option("--json", "output_json", is_flag=True, help="Output a structured result.")
 @click.option("--non-interactive", is_flag=True, help="Never prompt; require --yes to reset.")
 @require_mutation_authorization("services.reset")
-def reset_cmd(
+def reset_cmd(  # noqa: C901
     service: tuple[str, ...],
     yes: bool,
     backend_name: str | None,

@@ -3957,7 +3957,7 @@ def _execute_action(request: ObservatoryActionRequest) -> ObservatoryActionResul
     )
 
 
-def _execute_branch_action(request: ObservatoryActionRequest) -> ObservatoryActionResult:
+def _execute_branch_action(request: ObservatoryActionRequest) -> ObservatoryActionResult:  # noqa: C901
     parts = request.action_id.split(":", 2)
     if len(parts) != 3 or parts[0] != "branch":
         raise HTTPException(status_code=400, detail="Invalid branch action id.")

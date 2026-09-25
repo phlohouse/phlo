@@ -263,7 +263,7 @@ async def dagster_query(
         return None
 
 
-async def fetch_quality_snapshot(dagster_url: str, recent_limit: int = 50) -> dict[str, Any] | None:
+async def fetch_quality_snapshot(dagster_url: str, recent_limit: int = 50) -> dict[str, Any] | None:  # noqa: C901
     """Fetch assets and check executions from Dagster and aggregate them; None on fetch failure."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         # Step 1: Get all assets with their checks
