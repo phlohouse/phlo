@@ -30,6 +30,28 @@ def test_workspace_distributions_covers_root_and_packages():
     assert all(value for value in distributions.values())
 
 
+def test_workspace_requirement_range_rejects_incompatible_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname = 'phlo'\nversion = '0.17.0'\n"
+        "[dependency-groups]\ndev = ['phlo-api>=0.18']\n",
+        encoding="utf-8",
+    )
+    package = tmp_path / "packages/phlo-api"
+    package.mkdir(parents=True)
+    (package / "pyproject.toml").write_text(
+        "[project]\nname = 'phlo-api'\nversion = '0.17.0'\ndependencies = ['phlo>=0.17,<0.18']\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(check_version_drift, "ROOT", tmp_path)
+    distributions = check_version_drift.workspace_distributions()
+
+    assert check_version_drift.workspace_requirement_errors(distributions) == [
+        "pyproject.toml [dev]: 'phlo-api>=0.18' excludes workspace phlo-api==0.17.0"
+    ]
+
+
 def test_version_literal_detection_distinguishes_dynamic_from_literal():
     dynamic = check_version_drift.DYNAMIC_VERSION_RE
     literal = '__version__ = "0.14.0"'

@@ -40,6 +40,7 @@ dev = [
     "ruff>=0.1.0",
 ]
 observatory = ["phlo-observatory>=0.1.0"]
+trino = ["phlo-trino>=0.1.0"]
 
 [project.readme]
 content-type = "text/plain"

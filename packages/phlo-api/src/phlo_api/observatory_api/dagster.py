@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import ModuleType
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -21,6 +22,18 @@ from phlo_api.observatory_api.http_client import backend_client
 logger = get_logger(__name__)
 
 DEFAULT_DAGSTER_URL = "http://dagster:3000/graphql"
+
+
+def _dagster_operations() -> ModuleType:
+    try:
+        from phlo_dagster import operations
+    except ModuleNotFoundError as exc:
+        if exc.name != "phlo_dagster":
+            raise
+        raise ImportError(
+            "Dagster operations require 'phlo-api[dagster]'; install that extra"
+        ) from exc
+    return operations
 
 
 def resolve_dagster_url() -> str:
@@ -514,9 +527,7 @@ async def materialize_asset(
                 details={"op_names": op_names},
             )
 
-        from phlo_dagster.operations import launch_materialize
-
-        result = await launch_materialize(
+        result = await _dagster_operations().launch_materialize(
             dagster_url=resolve_dagster_url(),
             asset_key_path=asset_key_path,
             job_name=payload.job_name,
@@ -549,10 +560,9 @@ async def list_partitions(
     asset_key_path: str,
 ) -> list[DagsterPartitionStatus] | dict[str, str]:
     """List partition keys for an asset."""
+    operations = _dagster_operations()
     try:
-        from phlo_dagster.operations import list_partitions as list_dagster_partitions
-
-        partitions = await list_dagster_partitions(
+        partitions = await operations.list_partitions(
             dagster_url=resolve_dagster_url(),
             asset_key_path=asset_key_path,
         )
@@ -743,9 +753,7 @@ async def retry_run(
                 details={"run_status": run_status},
             )
 
-        from phlo_dagster.operations import launch_retry
-
-        result = await launch_retry(
+        result = await _dagster_operations().launch_retry(
             dagster_url=resolve_dagster_url(),
             run_id=run_id,
             strategy=payload.strategy,
@@ -774,9 +782,7 @@ async def cancel_run(
     payload: CancelRunRequest,
 ) -> DagsterOperationResponse | dict[str, str]:
     """Request cancellation for a Dagster run."""
-    from phlo_dagster.operations import terminate
-
-    result = await terminate(
+    result = await _dagster_operations().terminate(
         dagster_url=resolve_dagster_url(),
         run_id=run_id,
         reason=payload.reason,
@@ -824,9 +830,7 @@ async def backfill_asset(
             details={"partitions": partition_keys, "partition_count": len(partition_keys)},
         )
 
-    from phlo_dagster.operations import launch_backfill
-
-    result = await launch_backfill(
+    result = await _dagster_operations().launch_backfill(
         dagster_url=resolve_dagster_url(),
         asset_key_path=asset_key_path,
         partition_set_name=payload.partition_set_name,
