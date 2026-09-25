@@ -8,7 +8,7 @@ import re
 from enum import Enum
 
 _KEY_VALUE_SENSITIVE_PATTERN = re.compile(
-    r"\b(password|passwd|token|secret|api_key|apikey|credential)\b\s*[:=]\s*[^\s,;]+",
+    r"(?<![?&])\b(password|passwd|token|secret|api_key|apikey|credential)\b\s*[:=]\s*[^\s,;&]+",
     re.IGNORECASE,
 )
 _AUTHORIZATION_SENSITIVE_PATTERN = re.compile(r"\b(authorization|bearer)\b\s+\S+", re.IGNORECASE)
@@ -20,22 +20,20 @@ _KEY_MATERIAL_SENSITIVE_PATTERN = re.compile(
     r"\b(private_key|signing_key|encryption_key)\b(?:\s*[:=]\s*|\s+).+?(?=(?:[,;]\s+\w+\s*[:=])|\n|$)",
     re.IGNORECASE,
 )
-_URL_CREDENTIALS_SENSITIVE_PATTERN = re.compile(
-    r"\b([a-z][a-z0-9+.-]*://[^:\s/@]+:)[^@\s]+@",
-    re.IGNORECASE,
-)
-_URL_TOKEN_USERINFO_SENSITIVE_PATTERN = re.compile(
-    r"\b([a-z][a-z0-9+.-]*://)[^:\s/@]+@",
+_URL_USERINFO_PATTERN = re.compile(r"([a-z][a-z0-9+.-]*://)[^/?#\s]*@", re.IGNORECASE)
+_URL_SECRET_QUERY_PATTERN = re.compile(
+    r"([?&](?:token|access_token|key|signature|password|passwd|secret|sig|api_key|apikey|"
+    r"client_secret|credential|x-amz-[a-z0-9_-]+)=)[^&#\s]*",
     re.IGNORECASE,
 )
 
 
 def redact_sensitive_text(s: str) -> str:
     """Redact sensitive patterns from a string for safe output."""
+    s = _URL_USERINFO_PATTERN.sub(r"\1", s)
+    s = _URL_SECRET_QUERY_PATTERN.sub(r"\1<redacted>", s)
     result = _KEY_MATERIAL_SENSITIVE_PATTERN.sub(r"\1=<redacted>", s)
     result = _CONNECTION_STRING_SENSITIVE_PATTERN.sub(r"\1=<redacted>", result)
-    result = _URL_CREDENTIALS_SENSITIVE_PATTERN.sub(r"\1<redacted>@", result)
-    result = _URL_TOKEN_USERINFO_SENSITIVE_PATTERN.sub(r"\1<redacted>@", result)
     result = _KEY_VALUE_SENSITIVE_PATTERN.sub(
         lambda m: f"{m.group(1)}=<redacted>",
         result,
