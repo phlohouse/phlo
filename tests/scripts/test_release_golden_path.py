@@ -431,7 +431,7 @@ def test_wap_wait_requires_success_then_promotion_tag(tmp_path: Path, monkeypatc
         ]
     )
     monkeypatch.setattr(release_golden_path, "graphql", lambda *_: next(payloads))
-    monkeypatch.setattr(release_golden_path.time, "sleep", lambda _: None)
+    monkeypatch.setattr(release_golden_path, "_sleep", lambda _: None)
 
     release_golden_path.wait_for_wap_promotion(
         config, release_golden_path.WapRun("logical", "dagster-1")
@@ -497,7 +497,7 @@ def test_rejected_wap_report_waits_for_rejection_projection(tmp_path: Path, monk
         )
     )
     monkeypatch.setattr(release_golden_path, "fetch_run_report", lambda *_: next(reports))
-    monkeypatch.setattr(release_golden_path.time, "sleep", lambda _: None)
+    monkeypatch.setattr(release_golden_path, "_sleep", lambda _: None)
     monkeypatch.setattr(release_golden_path, "service_url", lambda *_: "http://dagster/graphql")
     monkeypatch.setattr(release_golden_path, "service_token", lambda *_: "service-token")
     monkeypatch.setattr(release_golden_path, "wap_service_secret", lambda _: "secret")

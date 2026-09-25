@@ -15,6 +15,7 @@ import signal
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from subprocess import CompletedProcess
 from types import SimpleNamespace
@@ -94,9 +95,9 @@ def test_services_start_waits_for_declared_healthcheck(
     from phlo.cli.commands.services import start as start_module
 
     sleeps: list[float] = []
-    monkeypatch.setattr(start_module.time, "sleep", sleeps.append)
+    monkeypatch.setattr(start_module, "_readiness_sleep", sleeps.append)
     moments = iter([0.0, 0.1, 0.2])
-    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments))
+    monkeypatch.setattr(start_module, "_readiness_monotonic", lambda: next(moments))
     result = _invoke_services_start_with_statuses(
         monkeypatch,
         tmp_path,
@@ -147,8 +148,8 @@ def test_services_start_default_accepts_successful_minio_setup_service(
 
     sleeps: list[float] = []
     moments = iter([0.0, 0.1, 0.2])
-    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
-    monkeypatch.setattr(start_module.time, "sleep", sleeps.append)
+    monkeypatch.setattr(start_module, "_readiness_monotonic", lambda: next(moments))
+    monkeypatch.setattr(start_module, "_readiness_sleep", sleeps.append)
     result = _invoke_services_start_with_statuses(
         monkeypatch,
         tmp_path,
@@ -203,7 +204,7 @@ def test_services_start_rejects_incomplete_or_failed_setup_service(
     from phlo.cli.commands.services import start as start_module
 
     moments = iter([0.0, 60.0])
-    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
+    monkeypatch.setattr(start_module, "_readiness_monotonic", lambda: next(moments))
     result = _invoke_services_start_with_statuses(
         monkeypatch,
         tmp_path,
@@ -240,7 +241,7 @@ def test_services_start_rejects_exited_long_lived_service_even_when_successful(
     from phlo.cli.commands.services import start as start_module
 
     moments = iter([0.0, 60.0])
-    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
+    monkeypatch.setattr(start_module, "_readiness_monotonic", lambda: next(moments))
     result = _invoke_services_start_with_statuses(
         monkeypatch,
         tmp_path,
@@ -250,6 +251,40 @@ def test_services_start_rejects_exited_long_lived_service_even_when_successful(
 
     assert result.exit_code == 1
     assert "database (state=exited" in result.output
+
+
+def test_services_start_readiness_clock_isolated_from_background_thread(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from phlo.cli.commands.services import start as start_module
+
+    moments = iter([0.0, 60.0])
+    monkeypatch.setattr(start_module, "_readiness_monotonic", lambda: next(moments))
+    snapshots = [[ServiceStatus(service="database", state="exited", health=None)]]
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+
+        class ThreadedBackend(_ReadinessBackend):
+            def project_service_statuses(
+                self, project_name: str, *, deadline: float
+            ) -> list[ServiceStatus]:
+                readings = pool.submit(lambda: [time.monotonic() for _ in range(1000)]).result(
+                    timeout=5
+                )
+                assert readings[-1] >= readings[0]
+                return super().project_service_statuses(project_name, deadline=deadline)
+
+        result = _invoke_services_start_with_statuses(
+            monkeypatch,
+            tmp_path,
+            compose="services:\n  database: {}\n",
+            snapshots=snapshots,
+            backend=ThreadedBackend(snapshots),
+        )
+
+    assert result.exit_code == 1
+    assert "services did not become ready within 60s: database (state=exited)" in result.output
+    assert next(moments, None) is None
 
 
 @pytest.mark.parametrize(
@@ -268,7 +303,7 @@ def test_services_start_readiness_timeout_reports_each_service_state(
     from phlo.cli.commands.services import start as start_module
 
     moments = iter([0.0, 60.0])
-    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
+    monkeypatch.setattr(start_module, "_readiness_monotonic", lambda: next(moments))
     result = _invoke_services_start_with_statuses(
         monkeypatch,
         tmp_path,
@@ -307,8 +342,8 @@ def test_services_start_timeout_preserves_last_observed_unhealthy_state(
 
     backend = DeadlineBackend()
     moments = iter([0.0, 59.9, 60.0])
-    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments))
-    monkeypatch.setattr(start_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(start_module, "_readiness_monotonic", lambda: next(moments))
+    monkeypatch.setattr(start_module, "_readiness_sleep", lambda _seconds: None)
     result = _invoke_services_start_with_statuses(
         monkeypatch,
         tmp_path,
@@ -349,8 +384,8 @@ def test_services_start_timeout_does_not_reinspect_empty_observation(
 
     backend = EmptyDeadlineBackend()
     moments = iter([0.0, 59.9, 60.0])
-    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments))
-    monkeypatch.setattr(start_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(start_module, "_readiness_monotonic", lambda: next(moments))
+    monkeypatch.setattr(start_module, "_readiness_sleep", lambda _seconds: None)
     result = _invoke_services_start_with_statuses(
         monkeypatch,
         tmp_path,
@@ -378,7 +413,7 @@ def test_services_start_times_out_when_backend_status_call_hangs(
             raise subprocess.TimeoutExpired(["docker", "ps"], timeout=60)
 
     moments = iter([0.0, 60.0])
-    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
+    monkeypatch.setattr(start_module, "_readiness_monotonic", lambda: next(moments))
     result = _invoke_services_start_with_statuses(
         monkeypatch,
         tmp_path,
@@ -913,7 +948,7 @@ def test_services_start_includes_setup_companions_for_explicit_targets(
     )
     monkeypatch.setattr(start_module, "_run_service_hooks", lambda *args, **kwargs: None)
     moments = iter([0.0, 60.0])
-    monkeypatch.setattr(start_module.time, "monotonic", lambda: next(moments, 60.0))
+    monkeypatch.setattr(start_module, "_readiness_monotonic", lambda: next(moments))
 
     result = CliRunner().invoke(start_module.start_cmd, ["--service", "rustfs"])
 

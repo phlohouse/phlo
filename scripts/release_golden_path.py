@@ -30,6 +30,7 @@ import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import sleep as _sleep
 
 # The candidate-mode modules live beside this script; running as a script puts
 # this directory on sys.path already, but importlib-based test loads do not.
@@ -744,7 +745,7 @@ def wait_for_wap_promotion(config: RunConfig, wap_run: WapRun) -> None:
             raise RuntimeError(f"WAP Dagster run finished with {status}")
         if status == "SUCCESS":
             break
-        time.sleep(1)
+        _sleep(1)
     else:
         raise TimeoutError(f"WAP Dagster run did not finish: {wap_run.dagster_run_id}")
 
@@ -767,7 +768,7 @@ def wait_for_wap_promotion(config: RunConfig, wap_run: WapRun) -> None:
         )
         if tags.get("phlo/wap_promoted") == "true":
             return
-        time.sleep(1)
+        _sleep(1)
     raise TimeoutError(f"WAP run was not promoted: {wap_run.dagster_run_id}")
 
 
@@ -794,7 +795,7 @@ def fetch_run_report(config: RunConfig, wap_run: WapRun, token: str) -> dict[str
             raise RuntimeError(f"run report returned the wrong run: {payload!r}")
         except (urllib.error.HTTPError, urllib.error.URLError, RuntimeError) as exc:
             last_error = exc
-            time.sleep(1)
+            _sleep(1)
     else:
         raise RuntimeError(
             f"run report was not available for {wap_run.logical_run_id}: {last_error}"
@@ -842,7 +843,7 @@ def verify_rejected_wap_report(config: RunConfig, wap_run: WapRun) -> None:
             break
         if time.monotonic() >= deadline:
             break
-        time.sleep(1)
+        _sleep(1)
         payload = fetch_run_report(config, wap_run, config.rejection_report_token)
 
     quality = payload.get("quality")

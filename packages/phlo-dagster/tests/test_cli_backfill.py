@@ -282,7 +282,7 @@ def test_wap_lifecycle_retries_transient_poll_failure(monkeypatch):
     monkeypatch.setattr(
         "phlo_dagster.cli_backfill.read_wap_report", lambda _logical_run_id: {"status": "promoted"}
     )
-    monkeypatch.setattr("phlo_dagster.cli_backfill.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("phlo_dagster.cli_backfill._sleep", lambda _seconds: None)
 
     _wait_for_wap_lifecycle(
         logical_run_id="logical-1",

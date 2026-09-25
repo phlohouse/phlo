@@ -227,7 +227,7 @@ def test_fetch_registry_respects_cache_ttl_and_avoids_extra_http(monkeypatch):
 
     registry_client.clear_registry_cache()
     monkeypatch.setattr(registry_client, "get_settings", lambda: DummySettings())
-    monkeypatch.setattr(registry_client.time, "time", lambda: next(timestamps))
+    monkeypatch.setattr(registry_client, "_time", lambda: next(timestamps))
     monkeypatch.setattr(registry_client.httpx, "get", fake_get)
 
     first_fetch = registry_client.fetch_registry()
