@@ -312,17 +312,16 @@ async def fetch_connection_status() -> LokiConnectionStatus:
     """Check whether the configured Loki endpoint is reachable, returning the
     connection state and Loki version information.
     """
-    url = resolve_loki_url()
-
     try:
+        url = resolve_loki_url()
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(f"{url}/ready")
-
+            response.raise_for_status()
             if response.status_code != 200:
-                return LokiConnectionStatus(
-                    connected=False,
-                    error=f"HTTP {response.status_code}: {response.reason_phrase}",
+                logger.warning(
+                    "Loki readiness check returned unexpected status", status=response.status_code
                 )
+                raise BadGatewayError("Loki returned an error response.")
 
             try:
                 build_response = await client.get(f"{url}/loki/api/v1/status/buildinfo")
@@ -335,8 +334,14 @@ async def fetch_connection_status() -> LokiConnectionStatus:
                 version = "unknown"
 
             return LokiConnectionStatus(connected=True, version=version)
-    except Exception as e:
-        return LokiConnectionStatus(connected=False, error=str(e))
+    except httpx.HTTPStatusError as exc:
+        logger.exception("Loki readiness check failed")
+        raise BadGatewayError("Loki returned an error response.") from exc
+    except PhloApiError:
+        raise
+    except Exception as exc:
+        logger.exception("Loki connection check failed")
+        raise BackendUnavailableError("Loki backend is unavailable.") from exc
 
 
 async def fetch_log_entries(
@@ -610,8 +615,11 @@ async def stream_run_logs(
     """Stream bounded Server-Sent Events for run logs.
 
     Raises: HTTPException with status 422 when ``loki_url`` is supplied.
+    Initial backend failures use HTTP status; later failures use SSE because
+    headers have already been sent.
     """
     reject_request_loki_url(loki_url)
+    first_result = await fetch_run_log_entries(run_id=run_id, limit=limit)
 
     async def events():  # noqa: ANN202
         """Yield log events until the deadline, then a done event."""
@@ -620,12 +628,8 @@ async def stream_run_logs(
         # cursor, so entries are deduped by content identity (timestamp, level,
         # message) to emit each record exactly once per stream.
         seen: set[str] = set()
+        result = first_result
         while datetime.now() < deadline:
-            try:
-                result = await fetch_run_log_entries(run_id=run_id, limit=limit)
-            except PhloApiError as exc:
-                yield f"event: error\ndata: {json.dumps(error_envelope(exc))}\n\n"
-                return
             for entry in result.entries:
                 entry_id = f"{entry.timestamp}:{entry.level}:{entry.message}"
                 if entry_id in seen:
@@ -633,6 +637,12 @@ async def stream_run_logs(
                 seen.add(entry_id)
                 yield f"event: log\ndata: {entry.model_dump_json()}\n\n"
             await asyncio.sleep(interval_seconds)
+            if datetime.now() < deadline:
+                try:
+                    result = await fetch_run_log_entries(run_id=run_id, limit=limit)
+                except PhloApiError as exc:
+                    yield f"event: error\ndata: {json.dumps(error_envelope(exc))}\n\n"
+                    return
         yield f"event: done\ndata: {json.dumps({'run_id': run_id})}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")

@@ -9,9 +9,11 @@ unions and pin per-route failure behavior for the sites converted away from
 
 from __future__ import annotations
 
+import json
 import types
 import typing
 
+import httpx
 import pytest
 from fastapi.routing import APIRoute
 
@@ -102,6 +104,77 @@ def test_loki_backend_failure_returns_typed_503(path: str, monkeypatch) -> None:
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "backend_unavailable"
+    assert _SECRET not in response.text
+
+
+def test_loki_connection_failure_returns_typed_503(monkeypatch) -> None:
+    monkeypatch.setattr(loki, "resolve_loki_url", _raises_runtime)
+
+    response = authenticated_client("admin").get("/api/loki/connection")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "backend_unavailable"
+    assert _SECRET not in response.text
+
+
+def test_loki_connection_upstream_error_returns_typed_502(monkeypatch) -> None:
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(loki, "resolve_loki_url", lambda: "http://loki.internal:3100")
+    monkeypatch.setattr(
+        loki.httpx,
+        "AsyncClient",
+        lambda **kwargs: async_client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(503, text=_SECRET, request=request)
+            ),
+            **kwargs,
+        ),
+    )
+
+    response = authenticated_client("admin").get("/api/loki/connection")
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "bad_gateway"
+    assert _SECRET not in response.text
+
+
+def test_loki_stream_initial_failure_returns_typed_503(monkeypatch) -> None:
+    async def fail_query(**kwargs: object) -> typing.NoReturn:
+        raise BackendUnavailableError("Loki backend is unavailable.")
+
+    monkeypatch.setattr(loki, "fetch_run_log_entries", fail_query)
+
+    response = authenticated_client("admin").get("/api/loki/runs/run-1/stream")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "backend_unavailable"
+
+
+def test_loki_stream_later_failure_uses_safe_sse_error(monkeypatch) -> None:
+    calls = 0
+
+    async def query(**kwargs: object) -> loki.LogQueryResult:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise BackendUnavailableError("Loki backend is unavailable.") from RuntimeError(_SECRET)
+        return loki.LogQueryResult(
+            entries=[loki.LogEntry(timestamp="1", level="info", message="first", metadata={})],
+            has_more=False,
+        )
+
+    monkeypatch.setattr(loki, "fetch_run_log_entries", query)
+
+    response = authenticated_client("admin").get(
+        "/api/loki/runs/run-1/stream", params={"interval_seconds": "0.25"}
+    )
+
+    assert response.status_code == 200
+    assert calls == 2
+    assert "event: log\n" in response.text
+    assert "event: error\n" in response.text
+    error_event = response.text.split("event: error\ndata: ", 1)[1].split("\n", 1)[0]
+    assert json.loads(error_event)["error"]["code"] == "backend_unavailable"
     assert _SECRET not in response.text
 
 
