@@ -758,6 +758,28 @@ def _requires_durable_audit(action: str) -> bool:
     return not action.endswith(_READ_ONLY_ACTION_SUFFIXES)
 
 
+def _validate_v1_principal_and_selection(
+    request: Request, spec: OperationSpec, principal: Any
+) -> None:
+    """Reject scoped tokens and ambiguous selectors before policy resolution."""
+    if not spec.operation_name.startswith("v1_"):
+        return
+    if (
+        principal.principal_type == "service"
+        and RUN_REPORT_RESOURCE_ID_ATTRIBUTE in principal.attributes
+    ):
+        raise HTTPException(
+            status_code=403, detail={"error": "forbidden", "reason": "run_report_scope_mismatch"}
+        )
+    if spec.operation_name in {"v1_services", "v1_events"}:
+        selections = request.query_params.getlist("env")
+        if len(selections) != 1 or selections[0] not in {"prod", "staging"}:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "unprocessable_input", "reason": "Invalid env selector."},
+            )
+
+
 async def enforce_http_operation(
     request: Request,
     spec: OperationSpec,
@@ -790,21 +812,7 @@ async def enforce_http_operation(
     auth_principal = get_request_principal(request)
     if auth_principal is None:
         _raise_unauthorized()
-    if (
-        spec.operation_name.startswith("v1_")
-        and auth_principal.principal_type == "service"
-        and RUN_REPORT_RESOURCE_ID_ATTRIBUTE in auth_principal.attributes
-    ):
-        raise HTTPException(
-            status_code=403, detail={"error": "forbidden", "reason": "run_report_scope_mismatch"}
-        )
-    if spec.operation_name in {"v1_services", "v1_events"}:
-        selections = request.query_params.getlist("env")
-        if len(selections) != 1 or selections[0] not in {"prod", "staging"}:
-            raise HTTPException(
-                status_code=422,
-                detail={"error": "unprocessable_input", "reason": "Invalid env selector."},
-            )
+    _validate_v1_principal_and_selection(request, spec, auth_principal)
 
     spec = await _specialize_operation(request, spec)
     await _validate_request_payload(request, spec)
