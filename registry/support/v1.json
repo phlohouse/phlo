@@ -5,30 +5,30 @@
   "release_line": "1.x",
   "artifact_pinning": "not_yet_published",
   "current_release": {
-    "version": "0.17.0",
+    "version": "0.17.1",
     "maturity": "alpha",
     "production_ready": false
   },
   "release_set": {
     "packages": [
-      {"name": "phlo", "version": "0.17.0"},
-      {"name": "phlo-api", "version": "0.17.0"},
-      {"name": "phlo-core-plugins", "version": "0.16.0"},
-      {"name": "phlo-dagster", "version": "0.17.0"},
-      {"name": "phlo-dbt", "version": "0.16.0"},
-      {"name": "phlo-dlt", "version": "0.16.0"},
-      {"name": "phlo-iceberg", "version": "0.16.0"},
-      {"name": "phlo-minio", "version": "0.16.0"},
-      {"name": "phlo-nessie", "version": "0.16.0"},
-      {"name": "phlo-observatory", "version": "0.17.0"},
-      {"name": "phlo-observe-plugin", "version": "0.2.0"},
-      {"name": "phlo-pandera", "version": "0.16.0"},
-      {"name": "phlo-postgres", "version": "0.16.0"},
-      {"name": "phlo-trino", "version": "0.16.0"}
+      {"name": "phlo", "version": "0.17.1"},
+      {"name": "phlo-api", "version": "0.17.1"},
+      {"name": "phlo-core-plugins", "version": "0.16.1"},
+      {"name": "phlo-dagster", "version": "0.17.1"},
+      {"name": "phlo-dbt", "version": "0.16.1"},
+      {"name": "phlo-dlt", "version": "0.16.1"},
+      {"name": "phlo-iceberg", "version": "0.16.1"},
+      {"name": "phlo-minio", "version": "0.16.1"},
+      {"name": "phlo-nessie", "version": "0.16.1"},
+      {"name": "phlo-observatory", "version": "0.17.1"},
+      {"name": "phlo-observe-plugin", "version": "0.2.1"},
+      {"name": "phlo-pandera", "version": "0.16.1"},
+      {"name": "phlo-postgres", "version": "0.16.1"},
+      {"name": "phlo-trino", "version": "0.16.1"}
     ],
     "services": [
-      {"name": "dagster", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.17.0"},
-      {"name": "dagster-daemon", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.17.0"},
+      {"name": "dagster", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.17.1"},
+      {"name": "dagster-daemon", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.17.1"},
       {"name": "postgres", "image_reference": "postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"},
       {"name": "postgres-volume-setup", "image_reference": "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"},
       {"name": "minio", "image_reference": "bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20"},
@@ -36,8 +36,8 @@
       {"name": "minio-setup", "image_reference": "bitnamilegacy/minio-client:2025.7.21-debian-12-r3@sha256:73bd39f7899a0cef12b8dd5df13aa93a3ed1aaa44236542442e9ac76819ac158"},
       {"name": "nessie", "image_reference": "ghcr.io/projectnessie/nessie:0.108.3@sha256:219709df809fcfac7abe0491b2070c8d56178ed29828fb30968a4365b62bcc8a"},
       {"name": "trino", "image_reference": "trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534"},
-      {"name": "phlo-api", "image_reference": "ghcr.io/phlohouse/phlo-api:0.17.0"},
-      {"name": "observatory", "image_reference": "ghcr.io/phlohouse/phlo-observatory:0.17.0"}
+      {"name": "phlo-api", "image_reference": "ghcr.io/phlohouse/phlo-api:0.17.1"},
+      {"name": "observatory", "image_reference": "ghcr.io/phlohouse/phlo-observatory:0.17.1"}
     ],
     "schemas": {
       "configuration": {
