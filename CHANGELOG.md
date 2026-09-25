@@ -1,5 +1,43 @@
 ## 0.15.1 (2026-09-06)
 
+## [phlo 0.17.1 + 38 packages] - 2026-09-25
+
+### Changed
+- phlo: remove unmounted Observatory routers and bound Trino queries (#1034)
+- phlo-api: remove unmounted Observatory routers and bound Trino queries (#1034)
+
+### Fixed
+- phlo: audit frozen Python locks (#969)
+- phlo: enable verified release recovery (#972)
+- phlo: retry transient PyPI metadata failures (#973)
+- phlo: regenerate support docs in release PRs (#974)
+- phlo: keep transformer workspace clean (#975)
+- phlo: resolve nightly integration test failures (#978)
+- phlo: report route failures as typed HTTP errors, not 200 error dicts (#1024)
+- phlo: record actor, reason and time on break-glass deny/revoke (#1026)
+- phlo: replace forked Loki regex worker with a spawned interpreter (#1028)
+- phlo: default Observatory auth on in production-like environments (#1025)
+- phlo: enforce scoped authorization on every phlo-api mutation (#1023)
+- phlo: bind generated ports to loopback and reject exposed MCP (#1031)
+- phlo: redact credentials from logged URLs (#1041)
+- phlo: restore release candidate evidence on main (#1043)
+- phlo-api: report route failures as typed HTTP errors, not 200 error dicts (#1024)
+- phlo-api: replace forked Loki regex worker with a spawned interpreter (#1028)
+- phlo-api: enforce scoped authorization on every phlo-api mutation (#1023)
+- phlo-api: bind generated ports to loopback and reject exposed MCP (#1031)
+- phlo-dagster: report route failures as typed HTTP errors, not 200 error dicts (#1024)
+- phlo-iceberg: restore release candidate evidence on main (#1043)
+- phlo-mcp: report route failures as typed HTTP errors, not 200 error dicts (#1024)
+- phlo-mcp: bind generated ports to loopback and reject exposed MCP (#1031)
+- phlo-minio: resolve nightly integration test failures (#978)
+- phlo-observatory: report route failures as typed HTTP errors, not 200 error dicts (#1024)
+- phlo-observatory: default Observatory auth on in production-like environments (#1025)
+- phlo-postgres: report route failures as typed HTTP errors, not 200 error dicts (#1024)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (72 commits)
+
 ## [phlo 0.17.0 + 38 packages] - 2026-09-22
 
 ### Added

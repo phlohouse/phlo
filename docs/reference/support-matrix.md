@@ -2,7 +2,7 @@
 
 > Generated from `registry/support/v1.json` by `scripts/generate_reference_docs.py`. Do not edit this page directly.
 
-Release `0.17.0` has `alpha` maturity. Production readiness is `false`.
+Release `0.17.1` has `alpha` maturity. Production readiness is `false`.
 
 A target profile states the intended support boundary. Maturity and readiness state what is available now. Gates and blockers state what must pass before release.
 

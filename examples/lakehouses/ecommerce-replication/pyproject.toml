@@ -7,10 +7,10 @@ name = "phlo-ecommerce-replication-example"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "phlo[defaults]==0.17.0",
-    "phlo-dagster==0.17.0",
-    "phlo-dbt==0.16.0",
-    "phlo-sling==0.16.0",
+    "phlo[defaults]==0.17.1",
+    "phlo-dagster==0.17.1",
+    "phlo-dbt==0.16.1",
+    "phlo-sling==0.16.1",
     "psycopg2-binary>=2.9,<3.1",
     "pandas>=2.3,<3.1",
 ]
@@ -19,7 +19,7 @@ dependencies = [
 dev = [
     "dbt-duckdb>=1.10,<1.12",
     "duckdb>=1.4,<1.6",
-    "phlo-pandera==0.16.0",
+    "phlo-pandera==0.16.1",
     "pytest",
     "ruff",
 ]

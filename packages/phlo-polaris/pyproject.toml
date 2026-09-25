@@ -7,14 +7,14 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.17.0,<0.18",
-    "phlo-postgres>=0.16.0,<0.17",
+    "phlo>=0.17.1,<0.18",
+    "phlo-postgres>=0.16.1,<0.17",
     "requests>=2.32.5",
 ]
 description = "Apache Polaris catalog service plugin for Phlo"
 name = "phlo-polaris"
 requires-python = ">=3.12"
-version = "0.16.0"
+version = "0.16.1"
 
 [[project.authors]]
 email = "team@phlo.dev"
