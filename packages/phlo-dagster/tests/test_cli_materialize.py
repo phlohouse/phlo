@@ -98,7 +98,7 @@ def test_wait_for_dagster_runtime_times_out(monkeypatch) -> None:
         return Result()
 
     monkeypatch.setattr("phlo_dagster.cli_materialize.subprocess.run", fake_run)
-    monkeypatch.setattr("phlo_dagster.cli_materialize.time.sleep", lambda seconds: None)
+    monkeypatch.setattr("phlo_dagster.cli_materialize._sleep", lambda seconds: None)
 
     try:
         wait_for_dagster_runtime("dagster-1", timeout_seconds=0)

@@ -12,9 +12,9 @@ import os
 import platform
 import shutil
 import subprocess
-import time
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic as _monotonic
 from typing import Literal, Protocol, cast
 
 import click
@@ -212,7 +212,7 @@ def _podman_service_label(labels: dict[str, str]) -> str:
 
 def _remaining_timeout(deadline: float) -> float | None:
     """Return a subprocess timeout that cannot outlive the readiness deadline."""
-    remaining = deadline - time.monotonic()
+    remaining = deadline - _monotonic()
     return remaining if remaining > 0 else None
 
 

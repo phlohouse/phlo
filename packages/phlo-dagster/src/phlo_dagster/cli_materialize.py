@@ -50,6 +50,7 @@ import time
 import uuid
 from collections import deque
 from datetime import UTC, datetime
+from time import sleep as _sleep
 from typing import Optional
 
 import click
@@ -105,7 +106,7 @@ def wait_for_dagster_runtime(
         )
         if result.returncode == 0:
             return
-        time.sleep(1)
+        _sleep(1)
 
     raise RuntimeError(
         "Dagster container is still finishing runtime setup. "
