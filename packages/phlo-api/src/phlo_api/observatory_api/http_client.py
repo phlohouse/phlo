@@ -23,10 +23,10 @@ async def lifespan_client() -> AsyncIterator[None]:
 
 
 @asynccontextmanager
-async def backend_client(timeout: float) -> AsyncIterator[httpx.AsyncClient]:
+async def backend_client() -> AsyncIterator[httpx.AsyncClient]:
     """Borrow the shared client, or create one for standalone helper calls."""
     if _client is not None:
         yield _client
     else:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient() as client:
             yield client

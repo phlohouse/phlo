@@ -84,8 +84,15 @@ async def test_query_reads_initial_page_and_rejects_invalid_bounds(monkeypatch) 
 @pytest.mark.anyio
 async def test_lifespan_reuses_one_http_client() -> None:
     async with http_client.lifespan_client():
-        async with http_client.backend_client(5.0) as first:
-            async with http_client.backend_client(10.0) as second:
+        async with http_client.backend_client() as first:
+            async with http_client.backend_client() as second:
                 assert first is second
                 assert not first.is_closed
     assert first.is_closed
+
+
+@pytest.mark.anyio
+async def test_standalone_backend_client_closes_after_use() -> None:
+    async with http_client.backend_client() as client:
+        assert not client.is_closed
+    assert client.is_closed

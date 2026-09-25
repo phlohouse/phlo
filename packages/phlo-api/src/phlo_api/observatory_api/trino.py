@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
-from math import isfinite
 from time import monotonic
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -15,7 +13,6 @@ from pydantic import BaseModel
 
 from phlo.capabilities import resolve_capability
 from phlo.capabilities.discovery import discover_capabilities
-from phlo.cli.sql import strip_sql_literals_and_comments
 from phlo.config.env import project_env_value
 from phlo.config.network import resolve_url
 from phlo.logging import get_bound_correlation_context, get_logger
@@ -28,20 +25,6 @@ _DEFAULT_TRINO_CAPABILITY_NAME = "trino"
 _QUERY_ENGINE_URL_ENV = "PHLO_QUERY_ENGINE_URL"
 _TRINO_USER_ENV = "TRINO_USER"
 _TRINO_ROLE_ENV = "TRINO_ROLE"
-_FORBIDDEN_READ_ONLY_KEYWORDS = (
-    "INSERT",
-    "UPDATE",
-    "DELETE",
-    "DROP",
-    "CREATE",
-    "ALTER",
-    "TRUNCATE",
-    "MERGE",
-    "CALL",
-    "GRANT",
-    "REVOKE",
-)
-_FORBIDDEN_READ_ONLY_PATTERN = re.compile(rf"\b({'|'.join(_FORBIDDEN_READ_ONLY_KEYWORDS)})\b")
 
 
 def quote_identifier(identifier: str) -> str:
@@ -101,52 +84,6 @@ def quote_qualified_table(table: str) -> str:
     if len(parts) != 3:
         raise ValueError("Expected catalog.schema.table")
     return qualify_table_name(*parts)
-
-
-def sql_literal(value: object) -> str:
-    """Convert a Python value to a safe SQL literal.
-
-    Raises: ValueError if value is None, non-finite float, or unsupported type.
-    """
-    if value is None:
-        raise ValueError("Use IS NULL for null filters")
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        if not isfinite(value):
-            raise ValueError("Non-finite float values are not supported")
-        return str(value)
-    if isinstance(value, str):
-        escaped = value.replace("'", "''")
-        return f"'{escaped}'"
-    raise ValueError(f"Unsupported filter value type: {type(value).__name__}")
-
-
-def validate_read_only_query(query: str) -> str | None:
-    """Validate a query is read-only and a single statement.
-
-    Checks for forbidden keywords (INSERT, UPDATE, DELETE, etc.) and
-    ensures only a single statement is present.
-
-    No exceptions raised directly.
-    """
-    cleaned = strip_sql_literals_and_comments(query)
-    trimmed = cleaned.strip()
-    if not trimmed:
-        return "Query cannot be empty"
-
-    while trimmed.endswith(";"):
-        trimmed = trimmed[:-1].rstrip()
-    if ";" in trimmed:
-        return "Multiple statements are not allowed in read-only mode"
-
-    match = _FORBIDDEN_READ_ONLY_PATTERN.search(trimmed.upper())
-    if match:
-        return f"{match.group(1)} statements are not allowed in read-only mode"
-
-    return None
 
 
 def _externalize_trino_uri(uri: str, base_url: str) -> str:
@@ -301,7 +238,7 @@ async def execute_trino_query(
         effective_catalog = catalog or resolve_default_catalog()
         effective_schema = schema or resolve_default_ref()
         start_time = monotonic()
-        async with backend_client(timeout) as client:
+        async with backend_client() as client:
             # Submit query
             response = await client.post(
                 f"{url}/v1/statement",

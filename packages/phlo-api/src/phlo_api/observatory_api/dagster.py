@@ -359,7 +359,7 @@ async def graphql_request(
         except RuntimeError:
             logger.debug("dagster_graphql_service_auth_unavailable")
 
-    async with backend_client(timeout) as client:
+    async with backend_client() as client:
         response = await client.post(
             url,
             json={"query": query, "variables": variables or {}},

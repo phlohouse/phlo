@@ -2572,11 +2572,12 @@ def _table_rows(
 def _relation_from_metadata(table: ObservatoryTable) -> str | None:
     relation = table.metadata.get("relation")
     if isinstance(relation, str) and relation.strip():
-        parts = [part.strip().strip('"') for part in relation.split(".")]
-        if len(parts) == 3 and all(parts):
-            from phlo_api.observatory_api.trino import qualify_table_name
+        from phlo_api.observatory_api.trino import quote_qualified_table
 
-            return qualify_table_name(*parts)
+        try:
+            return quote_qualified_table(relation.strip())
+        except ValueError:
+            return None
 
     catalog = table.metadata.get("catalog") or table.metadata.get("database")
     schema = table.metadata.get("schema") or table.schema_name or table.namespace
