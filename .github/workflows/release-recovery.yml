@@ -18,6 +18,7 @@ permissions:
 jobs:
   recover-tag:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment: release
     concurrency:
       group: release-tag-${{ github.repository }}

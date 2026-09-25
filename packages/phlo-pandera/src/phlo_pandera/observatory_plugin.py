@@ -29,7 +29,7 @@ See Also:
 from __future__ import annotations
 
 from importlib import resources
-from importlib.abc import Traversable
+from importlib.resources.abc import Traversable
 
 from phlo.plugins import PluginMetadata
 from phlo.plugins.observatory import (

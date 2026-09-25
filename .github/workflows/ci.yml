@@ -3,6 +3,12 @@ name: CI
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      selection:
+        description: JSON selection from the PR change detector; empty means full CI
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -11,6 +17,12 @@ jobs:
   ci-config:
     name: ci / config
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      groups: ${{ steps.groups.outputs.groups }}
+      python: ${{ steps.groups.outputs.python }}
+      frontend: ${{ steps.groups.outputs.frontend }}
+      writer: ${{ steps.groups.outputs.writer }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -27,14 +39,59 @@ jobs:
       - name: Check package test groups
         run: python3 scripts/check_ci_package_groups.py
 
+      - name: Require workflow job deadlines
+        run: python3 scripts/check_workflow_timeouts.py
+
+      - name: Select package matrix
+        id: groups
+        env:
+          SELECTION: ${{ inputs.selection }}
+        run: |
+          if [ -z "$SELECTION" ]; then
+            SELECTION="$(python3 scripts/select_ci.py --base HEAD --head HEAD)"
+          fi
+          for key in groups python frontend writer; do
+            echo "$key=$(jq -c ".$key" <<< "$SELECTION")" >> "$GITHUB_OUTPUT"
+          done
+
       - name: Validate v1 support boundary
         run: python3 scripts/validate_support_manifest.py
 
       - name: Lint workflows with actionlint
         run: make actionlint
 
+  pre-commit:
+    name: ci / pre-commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Check private-key hook with a non-allow-listed fixture
+        run: |
+          fixture=ci-private-key-sentinel.pem
+          trap 'rm -f "$fixture"' EXIT
+          printf '%s%s\n' '-----BEGIN ' 'RSA PRIVATE KEY-----' > "$fixture"
+          printf '%s\n' fixture >> "$fixture"
+          printf '%s%s\n' '-----END ' 'RSA PRIVATE KEY-----' >> "$fixture"
+          if uvx --from prek==0.5.3 prek run detect-private-key --files "$fixture"; then
+            echo '::error::Private-key hook did not reject the fixture'
+            exit 1
+          fi
+      - name: Run remaining file hooks
+        env:
+          SKIP: ruff,ruff-complexity,ruff-format,generated-reference-docs,prettier-observatory,zizmor,sqlfluff-dbt
+        run: uvx --from prek==0.5.3 prek run --all-files
+
   provider-wheelhouse:
     name: python / provider wheelhouse
+    needs: ci-config
+    if: needs.ci-config.outputs.python == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -103,23 +160,16 @@ jobs:
 
   python-quality:
     name: python / quality
+    needs: ci-config
+    if: needs.ci-config.outputs.python == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
           fetch-depth: 0
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Install dependencies
-        run: uv sync --dev --locked
+      - uses: ./.github/actions/python-workspace
 
       - name: Validate fresh release package versions
         run: |
@@ -151,6 +201,8 @@ jobs:
 
   python-core-tests:
     name: python / core tests (${{ matrix.python-version }}, shard ${{ matrix.shard }})
+    needs: ci-config
+    if: needs.ci-config.outputs.python == 'true'
     timeout-minutes: 20
     runs-on: ubuntu-latest
     env:
@@ -164,17 +216,10 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+          fetch-depth: 0
+      - uses: ./.github/actions/python-workspace
         with:
-          version: "0.12.1"
-
-      - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: uv sync --dev --locked
+          python-version: ${{ matrix.python-version }}
 
       - name: Run core regression suite
         if: matrix.shard == 0
@@ -200,7 +245,10 @@ jobs:
 
   postgres-concurrency-gates:
     name: python / postgres concurrency gates
+    needs: ci-config
+    if: needs.ci-config.outputs.python == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16-alpine
@@ -222,17 +270,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-
-      - name: Set up Python 3.12
-        run: uv python install 3.12
-
-      - name: Install dependencies
-        run: uv sync --dev --locked
+      - uses: ./.github/actions/python-workspace
 
       - name: Preflight PostgreSQL gate dependencies
         shell: bash
@@ -306,22 +344,15 @@ jobs:
 
   quickstart-smoke:
     name: python / quickstart smoke
+    needs: ci-config
+    if: needs.ci-config.outputs.python == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Install dependencies
-        run: uv sync --dev --locked
+      - uses: ./.github/actions/python-workspace
 
       - name: Run quickstart smoke test
         shell: bash
@@ -341,6 +372,8 @@ jobs:
 
   recovery-continuity-drill:
     name: python / recovery continuity drill
+    needs: ci-config
+    if: needs.ci-config.outputs.python == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -391,7 +424,10 @@ jobs:
 
   windows-release-contract:
     name: windows / release golden path contract
+    needs: ci-config
+    if: needs.ci-config.outputs.python == 'true'
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -416,22 +452,14 @@ jobs:
 
   python-package-tests:
     name: python / package tests (${{ matrix.group }}, ${{ matrix.python-version }})
+    needs: ci-config
+    if: needs.ci-config.outputs.groups != '[]'
     timeout-minutes: 20
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12"]
-        group: [platform, data, runtime, interfaces]
-        include:
-          - group: platform
-            packages: phlo-alerting phlo-clickstack phlo-delta phlo-iceberg phlo-minio phlo-observatory-example phlo-pgweb phlo-rustfs phlo-traefik
-          - group: data
-            packages: phlo-alloy phlo-core-plugins phlo-dlt phlo-lineage phlo-nessie phlo-openmetadata phlo-polaris phlo-postgres phlo-sling phlo-trino
-          - group: runtime
-            packages: phlo-airbyte phlo-api phlo-dagster phlo-grafana phlo-kafka phlo-loki phlo-observe-plugin phlo-oauth2-proxy phlo-otel phlo-postgrest phlo-superset
-          - group: interfaces
-            packages: phlo-clickhouse phlo-dbt phlo-hasura phlo-mcp phlo-observatory phlo-pandera phlo-prometheus phlo-testing
+        include: ${{ fromJSON(needs.ci-config.outputs.groups) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -483,7 +511,10 @@ jobs:
 
   frontend:
     name: frontend / observatory
+    needs: ci-config
+    if: needs.ci-config.outputs.frontend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: packages/phlo-observatory/src/phlo_observatory
@@ -506,7 +537,7 @@ jobs:
         run: npx prettier --check .
 
       - name: Lint with ESLint
-        run: npx eslint src --ext .ts,.tsx
+        run: npx eslint src --ext .ts,.tsx --max-warnings 0
 
       - name: Type check with TypeScript
         run: npx tsc --noEmit
@@ -519,7 +550,10 @@ jobs:
 
   phlo-github-writer:
     name: agent / GitHub writer
+    needs: ci-config
+    if: needs.ci-config.outputs.writer == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/phlo-github-writer
@@ -551,8 +585,10 @@ jobs:
     name: ci / status
     runs-on: ubuntu-latest
     if: always()
+    timeout-minutes: 5
     needs:
       - ci-config
+      - pre-commit
       - installed-provider-artifacts
       - python-quality
       - python-core-tests
@@ -568,6 +604,7 @@ jobs:
         shell: bash
         env:
           CI_CONFIG: ${{ needs.ci-config.result }}
+          PRE_COMMIT: ${{ needs.pre-commit.result }}
           INSTALLED_PROVIDER_ARTIFACTS: ${{ needs.installed-provider-artifacts.result }}
           PYTHON_QUALITY: ${{ needs.python-quality.result }}
           PYTHON_CORE_TESTS: ${{ needs.python-core-tests.result }}
@@ -578,6 +615,10 @@ jobs:
           PYTHON_PACKAGE_TESTS: ${{ needs.python-package-tests.result }}
           FRONTEND: ${{ needs.frontend.result }}
           PHLO_GITHUB_WRITER: ${{ needs.phlo-github-writer.result }}
+          SELECT_PYTHON: ${{ needs.ci-config.outputs.python }}
+          SELECT_GROUPS: ${{ needs.ci-config.outputs.groups }}
+          SELECT_FRONTEND: ${{ needs.ci-config.outputs.frontend }}
+          SELECT_WRITER: ${{ needs.ci-config.outputs.writer }}
         run: |
           set -euo pipefail
 
@@ -587,6 +628,7 @@ jobs:
             echo "| Lane | Result |"
             echo "|---|---|"
             echo "| ci / config | ${CI_CONFIG} |"
+            echo "| ci / pre-commit | ${PRE_COMMIT} |"
             echo "| python / installed provider artifacts | ${INSTALLED_PROVIDER_ARTIFACTS} |"
             echo "| python / quality | ${PYTHON_QUALITY} |"
             echo "| python / core tests | ${PYTHON_CORE_TESTS} |"
@@ -599,19 +641,21 @@ jobs:
             echo "| agent / GitHub writer | ${PHLO_GITHUB_WRITER} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          for result in \
-            "${CI_CONFIG}" \
-            "${INSTALLED_PROVIDER_ARTIFACTS}" \
-            "${PYTHON_QUALITY}" \
-            "${PYTHON_CORE_TESTS}" \
-            "${QUICKSTART_SMOKE}" \
-            "${POSTGRES_CONCURRENCY_GATES}" \
-            "${RECOVERY_CONTINUITY_DRILL}" \
-            "${WINDOWS_RELEASE_CONTRACT}" \
-            "${PYTHON_PACKAGE_TESTS}" \
-            "${FRONTEND}" \
-            "${PHLO_GITHUB_WRITER}"; do
-            if [ "${result}" != "success" ]; then
-              exit 1
-            fi
+          test "$CI_CONFIG" = success
+          test "$PRE_COMMIT" = success
+          expected_python=skipped
+          expected_groups=skipped
+          expected_frontend=skipped
+          expected_writer=skipped
+          if [ "$SELECT_PYTHON" = true ]; then expected_python=success; fi
+          if [ "$SELECT_GROUPS" != '[]' ]; then expected_groups=success; fi
+          if [ "$SELECT_FRONTEND" = true ]; then expected_frontend=success; fi
+          if [ "$SELECT_WRITER" = true ]; then expected_writer=success; fi
+          for result in "$INSTALLED_PROVIDER_ARTIFACTS" "$PYTHON_QUALITY" "$PYTHON_CORE_TESTS" \
+            "$QUICKSTART_SMOKE" "${POSTGRES_CONCURRENCY_GATES}" "$RECOVERY_CONTINUITY_DRILL" \
+            "$WINDOWS_RELEASE_CONTRACT"; do
+            test "$result" = "$expected_python"
           done
+          test "$PYTHON_PACKAGE_TESTS" = "$expected_groups"
+          test "$FRONTEND" = "$expected_frontend"
+          test "$PHLO_GITHUB_WRITER" = "$expected_writer"

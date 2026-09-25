@@ -479,13 +479,13 @@ export const getObservatoryRunReport = createServerFn()
     const { attempt, projectId, runId } = data
 
     try {
-      const data = await apiGet<ObservatoryRunReport>(
+      const report = await apiGet<ObservatoryRunReport>(
         `${Observatory_API_PREFIX}/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/attempts/${attempt}/report`,
         undefined,
         8000,
         context.authorization,
       )
-      return { data, error: null }
+      return { data: report, error: null }
     } catch (error) {
       // phlo-api failures arrive as plain Errors whose message embeds the HTTP
       // status ("phlo-api error: 404 ...", produced by @/server/phlo-api), so

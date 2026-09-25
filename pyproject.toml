@@ -157,7 +157,17 @@ packages = ["src/phlo"]
 
 [tool.pytest.ini_options]
 addopts = "--ignore=src --continue-on-collection-errors --import-mode=importlib --strict-markers -m 'not integration'"
-filterwarnings = ["ignore:Using `@model_validator` with mode='after' on a classmethod is deprecated:DeprecationWarning"]
+filterwarnings = [
+    "error",
+    # Legacy test helpers intentionally exercise the deprecated transformation SDK.
+    "ignore:TransformationPlugin is deprecated and will be removed:DeprecationWarning",
+    # This warning comes from the installed Pydantic version, not project code.
+    "ignore:Using `@model_validator` with mode='after' on a classmethod is deprecated:DeprecationWarning",
+    # Starlette's httpx fallback warns at its caller (stacklevel=2), which varies by test.
+    # Its warning inherits UserWarning; the built-in category avoids importing Starlette
+    # in isolated Windows tests, which do not install it.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning",
+]
 markers = [
     "integration: marks tests as requiring external services or dbt manifest (run with '-m integration')",
     "unit: marks fast tests that do not require external services (run with '-m unit')",

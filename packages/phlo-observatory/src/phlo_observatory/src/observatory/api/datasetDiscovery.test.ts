@@ -42,11 +42,13 @@ describe('walkDatasetPages', () => {
     ]
     const seen: Array<string | null> = []
     const walk = await walkDatasetPages({
-      fetchPage: async ({ cursor, filters, limit }) => {
+      fetchPage: ({ cursor, filters, limit }) => {
         seen.push(cursor)
         expect(filters).toEqual(defaultDatasetFilters)
         expect(limit).toBe(100)
-        return pages[seen.length - 1] ?? { items: [], nextCursor: null }
+        return Promise.resolve(
+          pages[seen.length - 1] ?? { items: [], nextCursor: null },
+        )
       },
       filters: defaultDatasetFilters,
     })
@@ -62,12 +64,12 @@ describe('walkDatasetPages', () => {
   it('stops at the page cap while preserving the remaining cursor', async () => {
     const cursors: Array<string | null> = []
     const walk = await walkDatasetPages({
-      fetchPage: async ({ cursor }) => {
+      fetchPage: ({ cursor }) => {
         cursors.push(cursor)
-        return {
+        return Promise.resolve({
           items: [dataset(`page-${cursors.length}`)],
           nextCursor: `next-${cursors.length}`,
-        }
+        })
       },
       filters: defaultDatasetFilters,
       maxPages: 2,
@@ -81,10 +83,12 @@ describe('walkDatasetPages', () => {
 
   it('does not claim exhaustion when a page fails', async () => {
     const walk = await walkDatasetPages({
-      fetchPage: async ({ cursor }) =>
-        cursor === null
-          ? { items: [dataset('a')], nextCursor: 'c2' }
-          : { items: [], nextCursor: null, error: 'phlo-api error: 503' },
+      fetchPage: ({ cursor }) =>
+        Promise.resolve(
+          cursor === null
+            ? { items: [dataset('a')], nextCursor: 'c2' }
+            : { items: [], nextCursor: null, error: 'phlo-api error: 503' },
+        ),
       filters: defaultDatasetFilters,
       maxPages: 3,
     })
@@ -102,9 +106,9 @@ describe('walkSearchPages', () => {
     const filters = { query: 'orders', kind: 'dataset', owner: 'all' }
     const seenFilters: Array<typeof filters> = []
     const walk = await walkSearchPages({
-      fetchPage: async ({ filters: pageFilters }) => {
+      fetchPage: ({ filters: pageFilters }) => {
         seenFilters.push(pageFilters)
-        return { items: [], nextCursor: null }
+        return Promise.resolve({ items: [], nextCursor: null })
       },
       filters,
       maxPages: 1,

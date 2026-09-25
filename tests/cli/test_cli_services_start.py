@@ -1428,6 +1428,7 @@ def test_native_start_sigterm_reaps_only_current_processes(
     finally:
         with suppress(ProcessLookupError):
             os.killpg(prior.pid, signal.SIGKILL)
+        prior.wait(timeout=5)
 
 
 def test_native_start_sigterm_fallback_kills_stubborn_current_descendant(
@@ -1517,6 +1518,7 @@ def test_native_start_sigterm_fallback_kills_stubborn_current_descendant(
     finally:
         with suppress(ProcessLookupError):
             os.killpg(prior.pid, signal.SIGKILL)
+        prior.wait(timeout=5)
 
 
 def _wait_for_process_exit(pids: list[int]) -> bool:

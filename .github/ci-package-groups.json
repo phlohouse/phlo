@@ -1,0 +1,6 @@
+{
+  "platform": "phlo-alerting phlo-clickstack phlo-delta phlo-iceberg phlo-minio phlo-observatory-example phlo-pgweb phlo-rustfs phlo-traefik",
+  "data": "phlo-alloy phlo-core-plugins phlo-dlt phlo-lineage phlo-nessie phlo-openmetadata phlo-polaris phlo-postgres phlo-sling phlo-trino",
+  "runtime": "phlo-airbyte phlo-api phlo-dagster phlo-grafana phlo-kafka phlo-loki phlo-observe-plugin phlo-oauth2-proxy phlo-otel phlo-postgrest phlo-superset",
+  "interfaces": "phlo-clickhouse phlo-dbt phlo-hasura phlo-mcp phlo-observatory phlo-pandera phlo-prometheus phlo-testing"
+}

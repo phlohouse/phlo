@@ -1025,6 +1025,12 @@ def start_cmd(  # noqa: C901
                         )
                     finally:
                         _stop_native_processes(project_root, sorted(tracked_names))
+                        # Fallback cleanup kills by PID; reap the manager's handles and close logs.
+                        for name in tracked_names:
+                            native_process = dev_manager.get_process(name)
+                            if native_process is not None and not native_process.is_running:
+                                native_process.process.wait()
+                                native_process.close_log_file()
                     raise click.ClickException(
                         "Native startup interrupted; current invocation services were stopped."
                     ) from None

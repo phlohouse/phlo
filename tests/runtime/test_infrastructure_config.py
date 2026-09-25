@@ -548,7 +548,8 @@ def test_get_regulated_config_falls_back_to_regulated_mode_key(tmp_path: Path) -
     config_path = tmp_path / "phlo.yaml"
     _write_phlo_yaml(config_path, {"regulated_mode": True})
 
-    result = get_regulated_config(tmp_path)
+    with pytest.warns(DeprecationWarning, match="'regulated_mode' is deprecated"):
+        result = get_regulated_config(tmp_path)
 
     assert result is True
 

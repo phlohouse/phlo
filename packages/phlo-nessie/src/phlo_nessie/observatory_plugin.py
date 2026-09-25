@@ -19,7 +19,7 @@ Contributes a branches UI extension to phlo.plugins.observatory.
 from __future__ import annotations
 
 from importlib import resources
-from importlib.abc import Traversable
+from importlib.resources.abc import Traversable
 
 from phlo.plugins import PluginMetadata
 from phlo.plugins.observatory import (

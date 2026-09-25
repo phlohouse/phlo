@@ -1,4 +1,4 @@
-"""Extended quality check classes: SchemaCheck, CustomSQLCheck, PatternCheck.
+r"""Extended quality check classes: SchemaCheck, CustomSQLCheck, PatternCheck.
 
 This module provides additional quality check types that extend the core checks
 from ``checks.py``. These checks support more advanced validation scenarios
@@ -267,7 +267,7 @@ class CustomSQLCheck(QualityCheck):
 
 @dataclass
 class PatternCheck(QualityCheck):
-    """Check that non-null values in a string column match a regular
+    r"""Check that non-null values in a string column match a regular
     expression — format validation for emails, postal codes, IDs, and the
     like. A configurable fraction of non-matches can be tolerated.
 

@@ -1207,10 +1207,9 @@ function operationLabel(profile: ObservatoryDatasetProfile): string {
   const failedOperation = profile.operations.find(
     (item) => item.status === 'failed',
   )
-  const operationLabel =
-    failedOperation?.name ?? profile.pipeline.last_run?.label
-  return operationLabel
-    ? `${operationLabel} · ${profile.pipeline.freshness_state}`
+  const label = failedOperation?.name ?? profile.pipeline.last_run?.label
+  return label
+    ? `${label} · ${profile.pipeline.freshness_state}`
     : profile.pipeline.freshness_state
 }
 

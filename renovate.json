@@ -5,6 +5,10 @@
   "prHourlyLimit": 2,
   "prConcurrentLimit": 4,
   "labels": ["dependencies"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 3am on monday"]
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -114,6 +118,21 @@
       "matchPackageNames": ["python"],
       "matchDatasources": ["docker"],
       "enabled": false
+    },
+    {
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "matchFileNames": ["pyproject.toml", "uv.lock"],
+      "groupName": "root workspace lockfile"
+    },
+    {
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "matchFileNames": ["examples/**"],
+      "groupName": "example lockfiles"
+    },
+    {
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "matchManagers": ["npm"],
+      "groupName": "npm app lockfiles"
     }
   ]
 }

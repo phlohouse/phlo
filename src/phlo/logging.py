@@ -709,3 +709,4 @@ def _remove_phlo_handlers(root: logging.Logger) -> None:
     for handler in list(root.handlers):
         if getattr(handler, "_phlo_handler", False):
             root.removeHandler(handler)
+            handler.close()

@@ -17,10 +17,42 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: pr / changed lanes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      selection: ${{ steps.select.outputs.selection }}
+      integration: ${{ steps.select.outputs.integration }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select affected lanes
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            selection="$(python3 scripts/select_ci.py --base "$BASE_SHA" --head "$HEAD_SHA")"
+          else
+            selection="$(python3 scripts/select_ci.py --base HEAD --head HEAD)"
+          fi
+          echo "selection=$selection" >> "$GITHUB_OUTPUT"
+          echo "integration=$(jq -r .integration <<< "$selection")" >> "$GITHUB_OUTPUT"
+
   ci:
+    needs: changes
     uses: ./.github/workflows/ci.yml
+    with:
+      selection: ${{ needs.changes.outputs.selection }}
 
   integration:
+    needs: changes
+    if: needs.changes.outputs.integration == 'true'
     uses: ./.github/workflows/integration.yml
 
   containers:
@@ -40,6 +72,11 @@ jobs:
           version: "0.12.1"
       - name: Audit workflow hardening
         run: make zizmor
+      - name: Inventory new suppressions and skips
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: python3 scripts/check_new_suppressions.py --base "$BASE_SHA" --head "$HEAD_SHA"
       - name: Compare locked dependencies with the tested base
         env:
           BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
@@ -58,21 +95,28 @@ jobs:
   required:
     name: pr / required
     if: always()
-    needs: [ci, integration, containers, security]
+    needs: [changes, ci, integration, containers, security]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require all correctness and introduced-risk checks
         env:
           CI: ${{ needs.ci.result }}
+          CHANGES: ${{ needs.changes.result }}
           INTEGRATION: ${{ needs.integration.result }}
+          INTEGRATION_SELECTED: ${{ needs.changes.outputs.integration }}
           CONTAINERS: ${{ needs.containers.result }}
           SECURITY: ${{ needs.security.result }}
         run: |
           set -euo pipefail
-          for result in "$CI" "$INTEGRATION" "$CONTAINERS" "$SECURITY"; do
+          for result in "$CHANGES" "$CI" "$CONTAINERS" "$SECURITY"; do
             if [ "$result" != success ]; then
               echo "::error::Required PR lane did not succeed: $result"
               exit 1
             fi
           done
+          if [ "$INTEGRATION_SELECTED" = true ]; then
+            test "$INTEGRATION" = success
+          else
+            test "$INTEGRATION" = skipped
+          fi
