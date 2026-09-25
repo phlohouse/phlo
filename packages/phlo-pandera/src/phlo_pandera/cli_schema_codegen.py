@@ -264,7 +264,7 @@ def _ensure_imports_in_module(content: str, import_lines: list[str]) -> str:
     is_flag=True,
     help="Overwrite the entire output module if it exists (destructive).",
 )
-def generate(
+def generate(  # noqa: C901
     from_ref: str,
     dry_run: bool,
     domain: str,

@@ -43,7 +43,7 @@ class SchemaConversionError(Exception):
     pass
 
 
-def pandera_to_delta(
+def pandera_to_delta(  # noqa: C901
     pandera_schema: type[DataFrameModel],
     add_dlt_metadata: bool = True,
     add_phlo_metadata: bool = True,

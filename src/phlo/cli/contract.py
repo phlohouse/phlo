@@ -133,7 +133,7 @@ def _configure(command: click.Command) -> None:
 class _InvocationBoundary(click.Command):
     """Own machine serialization once, at the outermost invoked command."""
 
-    def main(self, args=None, prog_name=None, complete_var=None, standalone_mode=True, **extra):
+    def main(self, args=None, prog_name=None, complete_var=None, standalone_mode=True, **extra):  # noqa: C901
         args = list(sys.argv[1:] if args is None else args)
         if not _requests_json(self, args):
             return super().main(

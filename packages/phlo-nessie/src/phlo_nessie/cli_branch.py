@@ -444,7 +444,7 @@ def delete(branch_name: str, force: bool):
     is_flag=True,
     help="Keep source branch after merge",
 )
-def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_source: bool):
+def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_source: bool):  # noqa: C901
     """Merge source branch into target branch.
 
     Detects conflicts and shows merge preview in dry-run mode.
@@ -640,7 +640,7 @@ def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_sourc
     default="table",
     help="Output format",
 )
-def diff(source_branch: str, target_branch: str, format: str):
+def diff(source_branch: str, target_branch: str, format: str):  # noqa: C901
     """Show differences between branches.
 
     Lists tables that were added, modified, or deleted.

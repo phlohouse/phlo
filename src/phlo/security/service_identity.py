@@ -284,7 +284,7 @@ def _unb64url(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
-def load_service_identity_credentials() -> ServiceIdentityCredentials:
+def load_service_identity_credentials() -> ServiceIdentityCredentials:  # noqa: C901
     """Load caller/audience key rings from the referenced mode-0600 secret file.
 
     The file is a JSON object keyed by caller then audience; each pair holds

@@ -127,7 +127,9 @@ jobs:
           uv run --locked python scripts/release_identity.py candidate --base-ref "$baseline"
 
       - name: Lint with ruff
-        run: uv run --locked ruff check .
+        run: |
+          uv run --locked ruff check .
+          uv run --locked ruff check --config pyproject.toml --select C901 .
 
       - name: Check Python formatting
         run: uv run --locked ruff format --check .

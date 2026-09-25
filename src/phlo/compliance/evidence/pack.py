@@ -234,7 +234,7 @@ def create_evidence_pack(
     return EvidencePack(manifest=pack_manifest, files=files, hmac_key=hmac_key)
 
 
-def verify_evidence_pack(
+def verify_evidence_pack(  # noqa: C901
     zip_path: Path,
     hmac_key: bytes | None = None,
 ) -> dict[str, Any]:

@@ -286,7 +286,7 @@ def _get_env_overrides(config: dict) -> dict[str, object]:
     return env_overrides if isinstance(env_overrides, dict) else {}
 
 
-def get_enabled_disabled_service_names(config: dict | None) -> tuple[set[str], set[str]]:
+def get_enabled_disabled_service_names(config: dict | None) -> tuple[set[str], set[str]]:  # noqa: C901
     """Return enabled/disabled service names from top-level service config.
 
     Supports both state formats:
@@ -625,7 +625,7 @@ def _save_native_state(project_root: Path, state: dict[str, dict]) -> None:
     tmp.replace(path)
 
 
-def _stop_native_processes(project_root: Path, service_names: list[str] | None = None) -> None:
+def _stop_native_processes(project_root: Path, service_names: list[str] | None = None) -> None:  # noqa: C901
     """Stop tracked native service processes and update persisted state."""
     state = _load_native_state(project_root)
     if not state:

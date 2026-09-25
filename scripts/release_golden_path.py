@@ -1251,7 +1251,7 @@ def compose_config_json(config: RunConfig) -> dict[str, object]:
     return dict(json.loads(result.stdout))
 
 
-def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dict[str, object]]]:
+def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dict[str, object]]]:  # noqa: C901
     """Rewrite every generated image reference to its exact BOM digest."""
     bom = config.bom
     assert bom is not None
@@ -1722,7 +1722,7 @@ class EvidenceRecorder:
         )
 
 
-def main_candidate(args: argparse.Namespace) -> int:
+def main_candidate(args: argparse.Namespace) -> int:  # noqa: C901
     """Run the artifact-bound candidate journey and emit its evidence bundle."""
     repo_root = args.repo_root.resolve()
     bom_path = args.candidate_bom.resolve()

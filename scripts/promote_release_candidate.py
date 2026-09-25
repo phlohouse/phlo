@@ -293,7 +293,7 @@ class Qualification:
         return {bundle_checksum(bundle) for bundle in self.qualifying}
 
 
-def qualify_evidence_set(
+def qualify_evidence_set(  # noqa: C901
     bundles: list[dict[str, object]],
     bom: dict[str, object],
     *,
@@ -561,7 +561,7 @@ def _verify_staged_bytes(bom: dict[str, object], staging_dir: Path) -> list[Path
         ) from exc
 
 
-def promote(
+def promote(  # noqa: C901
     bom: dict[str, object],
     bom_path: Path,
     staging_dir: Path,

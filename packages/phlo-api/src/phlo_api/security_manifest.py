@@ -823,7 +823,7 @@ async def enforce_http_operation(
         )
 
 
-async def _specialize_operation(request: Request, spec: OperationSpec) -> OperationSpec:
+async def _specialize_operation(request: Request, spec: OperationSpec) -> OperationSpec:  # noqa: C901
     """Resolve the action/resource pair for payload-dispatched operations."""
     if spec.operation_name not in {
         "post_observatory_action",

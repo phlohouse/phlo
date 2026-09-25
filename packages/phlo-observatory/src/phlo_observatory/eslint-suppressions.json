@@ -1,0 +1,187 @@
+{
+  "src/components/data/ObservatoryTable.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/data/RowJourney.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/components/hub/ServiceCard.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/observatory/api/continuityVerification.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/observatory/api/errors.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/observatory/api/resources.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/observatory/api/runActionVerification.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/observatory/components/RunReportView.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/observatory/platformMetadata.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/observatory/routes/OverviewRoute.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/observatory/routes/liveResource.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/observatory/shell/ObservatoryCommandPalette.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/observatory/shell/ObservatoryShell.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/apis.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/bi.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/branches.tsx": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/routes/datasets.$datasetId.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/datasets.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/extensions.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/extensions/$extensionId.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/lineage.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/logs.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/observability.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/operations.tsx": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/routes/pipelines.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/routes/publishing.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/quality.tsx": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/routes/runs.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/services.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/routes/settings.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/routes/storage.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/routes/tables.tsx": {
+    "complexity": {
+      "count": 5
+    }
+  },
+  "src/routes/workflows/new.tsx": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/server/quality.dagster.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/server/queryGuardrails.ts": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/server/services.server.ts": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/utils/sqlParser.ts": {
+    "complexity": {
+      "count": 1
+    }
+  }
+}

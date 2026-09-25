@@ -240,7 +240,7 @@ def _s3_inventory_client() -> object:
     )
 
 
-def inventory_owned_s3_prefix(
+def inventory_owned_s3_prefix(  # noqa: C901
     *,
     location: str,
     retention_cutoff: datetime,
@@ -1653,7 +1653,7 @@ class IcebergResource:
             retry_safe=retry_safe,
         ).to_dict()
 
-    def _validate_retention_execute(
+    def _validate_retention_execute(  # noqa: C901
         self,
         *,
         operation: str,

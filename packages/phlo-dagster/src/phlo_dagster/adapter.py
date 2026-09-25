@@ -335,7 +335,7 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             resources=resources_map,
         )
 
-    def _build_asset(self, spec: AssetSpec) -> dg.AssetsDefinition:
+    def _build_asset(self, spec: AssetSpec) -> dg.AssetsDefinition:  # noqa: C901
         """Create a Dagster asset definition from a capability asset spec."""
         # Declarative checks (no callable) attach to the asset as check specs;
         # checks with a fn become standalone definitions via _build_check.

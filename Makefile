@@ -11,6 +11,7 @@ CHECK_CMD := scripts/run-parallel \
 	"version drift" "python3 scripts/check_version_drift.py" \
 	"reference docs" "uv run --locked python scripts/generate_reference_docs.py --check" \
 	"py lint" "uv run --locked ruff check ." \
+	"py complexity" "uv run --locked ruff check --config pyproject.toml --select C901 ." \
 	"py format" "uv run --locked ruff format --check ." \
 	"py typecheck" "uv run --locked ty check --error-on-warning $(TY_CHECK_SCOPE)" \
 	"py test" "uv run --locked pytest -m 'not integration'" \
@@ -118,6 +119,7 @@ lint: lint-python lint-sql
 
 lint-python:
 	uv run --locked ruff check .
+	uv run --locked ruff check --config pyproject.toml --select C901 .
 
 format-python:
 	uv run --locked ruff format --check .

@@ -280,7 +280,7 @@ def _latest_heartbeat(observation: RunObservation, events: list[dict[str, Any]])
     return observation.heartbeat_at
 
 
-def evaluate_reconciliation(
+def evaluate_reconciliation(  # noqa: C901
     *,
     observation: RunObservation,
     profile: RequiredEvidenceProfile,

@@ -230,7 +230,7 @@ def create_backup_set(
     return result
 
 
-def verify_backup_set(
+def verify_backup_set(  # noqa: C901
     set_dir: Path,
     *,
     expected_deployment_id: str | None = None,

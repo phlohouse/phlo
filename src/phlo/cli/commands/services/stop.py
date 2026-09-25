@@ -70,7 +70,7 @@ def _remaining_project_containers(project_name: str, backend_name: str | None) -
     help="Container backend for this command.",
 )
 @require_mutation_authorization("services.stop")
-def stop_cmd(
+def stop_cmd(  # noqa: C901
     volumes: bool,
     stop_native: bool,
     profile: tuple[str, ...],

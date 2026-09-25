@@ -29,7 +29,7 @@ from phlo.plugins.base import (
 from phlo.plugins.hooks import HookPlugin
 
 
-def validate_plugin_interface(plugin: Plugin, logger: Any) -> bool:
+def validate_plugin_interface(plugin: Plugin, logger: Any) -> bool:  # noqa: C901
     """Validate plugin interface compliance."""
     if not hasattr(plugin, "metadata"):
         return False

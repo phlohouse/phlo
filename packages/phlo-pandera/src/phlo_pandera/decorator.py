@@ -35,7 +35,7 @@ from phlo_pandera.partitioning import PartitionScope, apply_partition_scope, get
 from phlo_pandera.severity import severity_for_pandera_contract, severity_for_quality_check
 
 
-def phlo_pandera(
+def phlo_pandera(  # noqa: C901
     table: str,
     checks: List[QualityCheck],
     asset_key: Optional[str] = None,
@@ -73,7 +73,7 @@ def phlo_pandera(
     if serialized_sla:
         contract_tags["contract_sla"] = json.dumps(serialized_sla, sort_keys=True)
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable) -> Callable:  # noqa: C901
         """Register the declared checks for this asset function and return it unchanged."""
         nonlocal asset_key, description, full_table
 

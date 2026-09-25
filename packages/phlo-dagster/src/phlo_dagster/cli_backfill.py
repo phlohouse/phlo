@@ -119,7 +119,7 @@ BACKFILL_STATE_FILE = Path(".phlo/backfill_state.json")
     help="Delay between parallel executions in seconds (rate limiting)",
 )
 @click.option("--json", "output_json", is_flag=True, help="Emit a structured result.")
-def backfill(
+def backfill(  # noqa: C901
     asset_name: str | None,
     start_date: str | None,
     end_date: str | None,

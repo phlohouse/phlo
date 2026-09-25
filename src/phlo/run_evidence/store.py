@@ -557,7 +557,7 @@ class _SqlRunEvidenceStore:
                 tuple(values),
             )
 
-    def reconcile_observation(
+    def reconcile_observation(  # noqa: C901
         self,
         observation: RunObservation,
         profile: RequiredEvidenceProfile,
@@ -1653,7 +1653,7 @@ class _SqlRunEvidenceStore:
             )
 
     @staticmethod
-    def _row_dict(cursor: Any, row: Any, *, table: str | None = None) -> dict[str, Any]:
+    def _row_dict(cursor: Any, row: Any, *, table: str | None = None) -> dict[str, Any]:  # noqa: C901
         if hasattr(row, "keys"):
             result = dict(row)
         else:

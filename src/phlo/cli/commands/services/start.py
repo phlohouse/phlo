@@ -356,7 +356,7 @@ def _is_host_port_available(port: int) -> bool:
     return True
 
 
-def _preflight_requested_host_ports(
+def _preflight_requested_host_ports(  # noqa: C901
     *,
     plan: StartPreflightPlan,
 ) -> None:
@@ -585,7 +585,7 @@ def _run_production_preflight(plan: StartPreflightPlan) -> None:
     help="Container backend for this command.",
 )
 @require_mutation_authorization("services.start")
-def start_cmd(
+def start_cmd(  # noqa: C901
     detach: bool,
     build: bool,
     profile: tuple[str, ...],

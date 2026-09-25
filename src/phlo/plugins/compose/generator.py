@@ -243,7 +243,7 @@ class ComposeGenerator:
 
         return source
 
-    def _build_service_config(
+    def _build_service_config(  # noqa: C901
         self,
         service: ServiceDefinition,
         output_dir: Path,

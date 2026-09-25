@@ -1071,7 +1071,7 @@ def _finalize_wap_promotion(
     minimum_interval_seconds=DEFAULT_PROMOTION_INTERVAL_SECONDS,
     default_status=dg.DefaultSensorStatus.RUNNING,
 )
-def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
+def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):  # noqa: C901
     """Merge pipeline branches whose runs succeeded with all checks passing.
 
     Scans terminal runs tagged with a WAP branch. Failed and cancelled runs

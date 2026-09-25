@@ -23,7 +23,7 @@ from phlo_api.observatory_api.observatory_models import (
 )
 
 
-def search_results(
+def search_results(  # noqa: C901
     *,
     query: str,
     services: Sequence[ObservatoryService],

@@ -98,7 +98,7 @@ def _rewrite_compose(content: str, *, shared: bool = True) -> str:
     help="Additional shared Dockerfile/config path relative to .phlo (repeatable).",
 )
 @require_mutation_authorization("services.migrate", when=lambda kwargs: not kwargs.get("dry_run"))
-def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:
+def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:  # noqa: C901
     """Move personal files aside and make existing .phlo configuration shareable.
 
     Shared files remain in .phlo. Secrets and overrides remain ignored. Review

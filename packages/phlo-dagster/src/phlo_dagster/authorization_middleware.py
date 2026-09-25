@@ -268,7 +268,7 @@ class DagsterGraphQLAuthorizationMiddleware:
         spec = resolve_graphql_operation("mutation", mutation_field_name)
         return spec.resource_type, None
 
-    def _extract_principal(self, info: Any) -> AuthPrincipal | None:
+    def _extract_principal(self, info: Any) -> AuthPrincipal | None:  # noqa: C901
         """Extract the authenticated principal from request headers or websocket auth.
 
         Prefers the middleware-authenticated ASGI scope principal, then the

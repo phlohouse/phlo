@@ -101,7 +101,7 @@ class NativeProcessManager:
 
         return pattern.sub(repl, value)
 
-    async def start_service(
+    async def start_service(  # noqa: C901
         self,
         service: ServiceDefinition,
         env_overrides: dict[str, str] | None = None,

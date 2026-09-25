@@ -230,7 +230,7 @@ class DagsterRunEvidenceSource:
                 "Dagster event-log lookup was unavailable; reconciliation did not change the run"
             ) from exc
 
-    def observe_run(self, project_id: str, run_id: str) -> RunObservation:
+    def observe_run(self, project_id: str, run_id: str) -> RunObservation:  # noqa: C901
         """Observe one Dagster run; unknown projects raise, absent runs report MISSING evidence."""
         if project_id != self.project_id:
             raise ValueError("Dagster event source is configured for another project")

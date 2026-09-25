@@ -143,7 +143,7 @@ def _type_matches(value: object, expected: str) -> bool:
 # Implements exactly the JSON Schema keywords schema/v1.json uses. Unknown
 # keywords pass through unchecked; extend here before adding them to the
 # schema file.
-def _schema_errors(
+def _schema_errors(  # noqa: C901
     value: Any, schema: dict[str, Any], path: str = "$", root: dict[str, Any] | None = None
 ) -> list[str]:
     root = root or schema
@@ -445,7 +445,7 @@ def _validate_named_claim_bindings(
     return errors
 
 
-def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> list[str]:
+def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> list[str]:  # noqa: C901
     """Return all manifest and repository consistency errors."""
     schema_path = repo_root / "registry/support/schema/v1.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))

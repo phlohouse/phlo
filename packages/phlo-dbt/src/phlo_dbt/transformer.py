@@ -374,7 +374,7 @@ class DbtTransformer(BaseTransformer):
             check=False,
         )
 
-    def run_transform(
+    def run_transform(  # noqa: C901
         self, partition_key: str | None = None, parameters: dict[str, Any] | None = None
     ) -> TransformationResult:
         """Execute dbt build/docs flow and emit transform telemetry events."""

@@ -51,7 +51,7 @@ def _read_package_doc(package_name: str) -> str:
     return f"# {package_name}\n\nPackage documentation not found.\n"
 
 
-def create_server(config: McpConfig | None = None) -> FastMCP:
+def create_server(config: McpConfig | None = None) -> FastMCP:  # noqa: C901
     """Create a configured FastMCP server instance."""
     resolved = config or config_from_env()
     if resolved.transport in {"sse", "streamable-http"}:

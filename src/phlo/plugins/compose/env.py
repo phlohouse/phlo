@@ -55,7 +55,7 @@ def generate_local_secret(var_name: str | None = None) -> str:
     return f"phlo_{secrets.token_urlsafe(32)}"
 
 
-def render_env(
+def render_env(  # noqa: C901
     services: list[ServiceDefinition],
     *,
     env_overrides: dict[str, Any] | None,

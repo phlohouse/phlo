@@ -68,7 +68,7 @@ def validate_schema_file(schema_path: Path) -> None:
         raise ValueError(f"Schema validation failed for {schema_path}: {', '.join(failed)}")
 
 
-def discover_pandera_schemas(
+def discover_pandera_schemas(  # noqa: C901
     search_paths: Optional[list[str]] = None,
 ) -> dict[str, type]:
     """Discover DataFrameModel subclasses under the search paths, mapping name to class."""

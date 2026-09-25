@@ -143,7 +143,7 @@ def _digest(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def compose_evidence_profile(
+def compose_evidence_profile(  # noqa: C901
     profile_id: str,
     profile_version: str,
     required_contribution_ids: Iterable[str],

@@ -54,6 +54,11 @@ repos:
         entry: uv run --locked ruff check --fix
         language: system
         types_or: [python, pyi, jupyter]
+      - id: ruff-complexity
+        name: ruff complexity (repository baseline)
+        entry: uv run --locked ruff check --config pyproject.toml --select C901
+        language: system
+        types_or: [python, pyi, jupyter]
       - id: ruff-format
         name: ruff format (locked project tool)
         entry: uv run --locked ruff format

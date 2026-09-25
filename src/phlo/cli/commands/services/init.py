@@ -203,7 +203,7 @@ def _validate_production_credentials(
     help="Enable optional profile services (e.g., --profile observability --profile api)",
 )
 @require_mutation_authorization("services.init")
-def init_cmd(
+def init_cmd(  # noqa: C901
     force: bool,
     project_name: str | None,
     dev: bool,

@@ -463,7 +463,7 @@ def stage_to_parquet(
     return parquet_paths, elapsed
 
 
-def merge_to_table_store(
+def merge_to_table_store(  # noqa: C901
     context,
     table_store: TableStore,
     table_config: TableConfig,
