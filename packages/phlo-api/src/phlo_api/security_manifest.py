@@ -153,6 +153,13 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"), ("incident_id", "path")),
     ),
     *_specs(
+        ("list_asset_incident_policies",),
+        action=CanonicalAction.ASSET_READ.value,
+        resource_type="asset",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
         ("get_asset_incident_policy",),
         action=CanonicalAction.ASSET_READ.value,
         resource_type="asset",
@@ -819,6 +826,7 @@ _INCIDENT_ROUTE_NAMES = frozenset(
         "create_follow_up",
         "update_follow_up",
         "get_asset_incident_policy",
+        "list_asset_incident_policies",
         "put_asset_incident_policy",
     }
 )

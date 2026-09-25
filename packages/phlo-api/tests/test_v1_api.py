@@ -166,6 +166,7 @@ def test_incident_routes_are_enforced_even_when_legacy_authorization_is_optional
     )
     denied = http.get("/api/v1/incidents?env=prod")
     assert denied.status_code == 403
+    assert http.get("/api/v1/incident-policies?env=prod").status_code == 403
 
     backend.explain_decision = lambda principal, action, resource, context: (
         decisions.append((action, resource.resource_id, context.environment))
@@ -174,6 +175,41 @@ def test_incident_routes_are_enforced_even_when_legacy_authorization_is_optional
     unavailable = http.get("/api/v1/assets/orders/incident-policy?env=staging")
     assert unavailable.status_code == 503
     assert ("asset.read", "env=staging|asset_id=orders", "staging") in decisions
+    unavailable_policies = http.get("/api/v1/incident-policies?env=prod")
+    assert unavailable_policies.status_code == 503
+    assert ("asset.read", "env=prod", "prod") in decisions
+
+
+def test_incident_signal_write_requires_asset_policy_for_selected_environment(client):
+    http, decisions, _, _, backend = client
+    payload = {
+        "asset_id": "warehouse.orders",
+        "kind": "failed_check",
+        "title": "Orders check failed",
+        "evidence": {"check_name": "orders.pk", "dagster_run_id": "run-1"},
+        "evidence_id": "dagster-check:prod-location:73",
+    }
+    backend.explain_decision = lambda principal, action, resource, context: AuthorizationDecision(
+        allowed=False, reason_code="explicit_deny"
+    )
+    denied = http.post(
+        "/api/v1/incidents?env=prod",
+        json=payload,
+        headers={"Idempotency-Key": payload["evidence_id"]},
+    )
+    assert denied.status_code == 403
+
+    backend.explain_decision = lambda principal, action, resource, context: (
+        decisions.append((action, resource.resource_id, context.environment))
+        or AuthorizationDecision(allowed=True, reason_code="explicit_allow")
+    )
+    unavailable = http.post(
+        "/api/v1/incidents?env=staging",
+        json=payload,
+        headers={"Idempotency-Key": payload["evidence_id"]},
+    )
+    assert unavailable.status_code == 503
+    assert ("asset.manage", "env=staging|asset_id=warehouse.orders", "staging") in decisions
 
 
 def test_invalid_selection_missing_identity_policy_and_mapping_fail_closed(client):

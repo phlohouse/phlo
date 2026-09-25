@@ -49,6 +49,7 @@ from phlo_dagster.framework.discovery import (
 )
 from phlo_dagster.framework.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
 from phlo_dagster.framework.schema_contracts import maybe_refresh_contracts
+from phlo_dagster.incident_sensor import phlo_incident_signal_sensor
 from phlo_dagster.settings import get_settings
 from phlo.logging import get_logger, setup_logging
 
@@ -206,6 +207,7 @@ def build_definitions(
         user_defs = dg.Definitions()
     dagster_defs = _collect_dagster_extension_definitions()
     definitions_to_merge = [user_defs]
+    definitions_to_merge.append(dg.Definitions(sensors=[phlo_incident_signal_sensor]))
     if dagster_defs is not None:
         definitions_to_merge.append(dagster_defs)
     wap_defs = _collect_wap_definitions()

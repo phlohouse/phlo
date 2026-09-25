@@ -11,7 +11,12 @@ import pytest
 from pydantic import ValidationError
 from fastapi import HTTPException
 
-from phlo_api.incidents import _decode_cursor, _encode_cursor
+from phlo_api.incidents import (
+    _decode_cursor,
+    _decode_policy_cursor,
+    _encode_cursor,
+    _encode_policy_cursor,
+)
 from phlo_api.main import app
 from phlo_api.v1_contract import EnvironmentSelection, EnvironmentTarget, ServicesResponse
 
@@ -44,6 +49,14 @@ def test_incident_cursor_binds_environment_and_collection():
         with pytest.raises(HTTPException) as error:
             _decode_cursor(malformed, env, kind)
         assert error.value.status_code == 400
+
+
+def test_asset_policy_cursor_binds_environment() -> None:
+    cursor = _encode_policy_cursor("prod", "warehouse.orders")
+    assert _decode_policy_cursor(cursor, "prod") == "warehouse.orders"
+    with pytest.raises(HTTPException) as error:
+        _decode_policy_cursor(cursor, "staging")
+    assert error.value.status_code == 400
 
 
 def test_service_wire_values_reject_display_labels_missing_evidence_and_bad_metrics() -> None:
@@ -118,6 +131,7 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/incidents/{incident_id}/follow-ups",
         "/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}",
         "/api/v1/assets/{asset_id}/incident-policy",
+        "/api/v1/incident-policies",
         "/api/v1/activity",
     }
     legacy = {(method, path) for method, path in documented if not path.startswith("/api/v1/")}
