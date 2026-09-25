@@ -184,7 +184,7 @@ def test_non_dev_api_profile_compose_is_reachable_without_dev_mounts(tmp_path) -
     for arg in ("PHLO_VERSION", "PHLO_API_VERSION", "PHLO_WHEELHOUSE"):
         assert build["args"].get(arg) == f"${{{arg}:-}}"
 
-    assert "${PHLO_API_PORT:-4000}:4000" in service["ports"]
+    assert "127.0.0.1:${PHLO_API_PORT:-4000}:4000" in service["ports"]
     assert service["environment"]["PHLO_RUN_EVIDENCE_DB_URL"].endswith(
         "@postgres:5432/${POSTGRES_DB:-phlo}"
     )
