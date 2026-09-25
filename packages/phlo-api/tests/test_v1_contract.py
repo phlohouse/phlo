@@ -9,7 +9,9 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from fastapi import HTTPException
 
+from phlo_api.incidents import _decode_cursor, _encode_cursor
 from phlo_api.main import app
 from phlo_api.v1_contract import EnvironmentSelection, EnvironmentTarget, ServicesResponse
 
@@ -27,6 +29,21 @@ def test_selection_rejects_missing_invalid_and_caller_supplied_target() -> None:
     assert EnvironmentSelection.model_validate_json('{"env":"staging"}').env == "staging"
     with pytest.raises(ValidationError):
         EnvironmentTarget(dagster_location="", nessie_ref="staging")
+
+
+def test_incident_cursor_binds_environment_and_collection():
+    from datetime import UTC, datetime
+
+    cursor = _encode_cursor("prod", "incidents", datetime.now(UTC), "incident-1")
+    assert _decode_cursor(cursor, "prod", "incidents")[1] == "incident-1"
+    for env, kind, malformed in (
+        ("staging", "incidents", cursor),
+        ("prod", "activity", cursor),
+        ("prod", "incidents", "not-a-cursor"),
+    ):
+        with pytest.raises(HTTPException) as error:
+            _decode_cursor(malformed, env, kind)
+        assert error.value.status_code == 400
 
 
 def test_service_wire_values_reject_display_labels_missing_evidence_and_bad_metrics() -> None:
@@ -93,6 +110,15 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/environments",
         "/api/v1/services",
         "/api/v1/events",
+        "/api/v1/incidents",
+        "/api/v1/incidents/stats",
+        "/api/v1/incidents/{incident_id}",
+        "/api/v1/incidents/{incident_id}/timeline",
+        "/api/v1/incidents/{incident_id}/subscriptions",
+        "/api/v1/incidents/{incident_id}/follow-ups",
+        "/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}",
+        "/api/v1/assets/{asset_id}/incident-policy",
+        "/api/v1/activity",
     }
     legacy = {(method, path) for method, path in documented if not path.startswith("/api/v1/")}
 
