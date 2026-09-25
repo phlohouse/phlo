@@ -46,6 +46,12 @@ text = "Phlo API backend for Observatory."
 line-length = 100
 target-version = "py312"
 
+[tool.mutmut]
+source_paths = ["src/"]
+only_mutate = ["src/phlo_api/observatory_api/trino.py"]
+pytest_add_cli_args = ["--confcutdir=.", "--import-mode=importlib"]
+pytest_add_cli_args_test_selection = ["tests/test_trino_sql.py"]
+
 [tool.setuptools]
 include-package-data = true
 

@@ -175,6 +175,20 @@ testpaths = [
     "packages/*/tests",
 ]
 
+[tool.mutmut]
+source_paths = ["src/"]
+only_mutate = [
+    "src/phlo/security/mode.py",
+    "src/phlo/quality_rules.py",
+    "src/phlo/cli/commands/services/utils.py",
+]
+pytest_add_cli_args_test_selection = [
+    "tests/security/test_mode.py",
+    "tests/plugins/test_provider_neutral_quality_api.py",
+    "tests/cli/test_cli_services_utils.py",
+]
+also_copy = ["conftest.py"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

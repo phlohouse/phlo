@@ -33,6 +33,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .pytype/
+mutants/
 *.pyc
 .cache/
 

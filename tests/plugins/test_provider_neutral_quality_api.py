@@ -51,6 +51,23 @@ def test_quality_rule_factories_reject_invalid_unbounded_rules() -> None:
         phlo.accepted_values("status", [])
 
 
+@pytest.mark.parametrize(
+    ("bounds", "parameters"),
+    [
+        ({"min_value": 0}, {"min_value": 0, "max_value": None}),
+        ({"max_value": 100}, {"min_value": None, "max_value": 100}),
+    ],
+)
+def test_range_between_accepts_one_sided_bounds(bounds: dict, parameters: dict) -> None:
+    import phlo
+
+    rule = phlo.range_between("score", **bounds)
+
+    assert rule.kind == "range"
+    assert rule.columns == ["score"]
+    assert rule.parameters == parameters
+
+
 def test_pandera_quality_provider_builds_checks_from_neutral_rules() -> None:
     """Pandera provider should translate supported neutral rules into Pandera checks."""
     from phlo_pandera.checks import FreshnessCheck, NullCheck, RangeCheck, UniqueCheck
