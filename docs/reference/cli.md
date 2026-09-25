@@ -1725,6 +1725,7 @@ Capabilities: `json=false`, `dry_run=false`, `confirmation_flag=false`
 | `phlo_source` | option | `--phlo-source` | `path` | false | `Sentinel.UNSET` | none |
 | `service_dev` | option | `--service-dev` | `boolean` | false | `false` | flag |
 | `production` | option | `--production` | `boolean` | false | `false` | flag |
+| `publish_all_interfaces` | option | `--publish-all-interfaces` | `boolean` | false | `false` | flag |
 | `allow_insecure` | option | `--allow-insecure` | `boolean` | false | `false` | flag |
 | `profiles` | option | `--profile` | `text` | false | `Sentinel.UNSET` | multiple |
 

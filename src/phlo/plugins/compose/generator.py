@@ -47,6 +47,16 @@ UV_LOCK_METADATA_FILES = ("pyproject.toml", "uv.lock")
 _EMPTY_DEFAULT_ENVIRONMENT_EXPRESSION = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*):-\}$")
 
 
+def _loopback_port(port: str) -> str:
+    """Bind an implicit host port to loopback without changing explicit host IPs."""
+    separators = re.sub(r"\$\{[^}]+\}", "PORT", port).count(":")
+    if separators == 0:
+        return f"127.0.0.1::{port}"
+    if separators == 1:
+        return f"127.0.0.1:{port}"
+    return port
+
+
 class ComposeGenerator:
     """Generates docker-compose.yml from service definitions."""
 
@@ -64,6 +74,7 @@ class ComposeGenerator:
         user_overrides: dict[str, Any] | None = None,
         env_values: Mapping[str, Any] | None = None,
         deployment_profile: Literal["development", "production"] = "development",
+        publish_all_interfaces: bool = False,
     ) -> str:
         """Generate docker-compose.yml content for the given services.
         dev_mode adds Phlo source mounts for dev services and
@@ -95,6 +106,9 @@ class ComposeGenerator:
                 user_override=service_override,
                 env_values=env_values,
             )
+            if not publish_all_interfaces and "ports" in compose["services"][service.name]:
+                config = compose["services"][service.name]
+                config["ports"] = [_loopback_port(port) for port in config["ports"]]
             if deployment_profile == "production":
                 self._apply_production_profile(service.name, compose["services"][service.name])
 

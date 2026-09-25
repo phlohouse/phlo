@@ -8020,6 +8020,22 @@
         {
           "default": false,
           "envvar": null,
+          "help": "Publish generated host ports on all interfaces instead of loopback (LAN exposure).",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "publish_all_interfaces",
+          "nargs": 1,
+          "options": [
+            "--publish-all-interfaces"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
           "help": "Allow generated local secrets on platforms that cannot enforce 0600 permissions.",
           "is_flag": true,
           "kind": "option",

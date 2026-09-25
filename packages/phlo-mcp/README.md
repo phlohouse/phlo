@@ -112,6 +112,11 @@ token. Write tools return structured `audit_context` metadata and default to
 rate limits, and API-side audit logging before dispatching live Dagster
 operations through the `phlo-dagster` capability adapter.
 
+HTTP and SSE transports accept loopback binds only (`127.0.0.1` or `::1`).
+`PHLO_MCP_API_TOKEN` authenticates outbound requests to phlo-api, not inbound
+MCP clients. For remote access, keep MCP bound to loopback and put an
+authenticated reverse proxy in front of it.
+
 Required scopes:
 
 | Tool | Scope |

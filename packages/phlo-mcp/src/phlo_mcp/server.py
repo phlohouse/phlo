@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+
 from phlo_mcp.api_client import PhloApiClient
 from phlo_mcp.config import McpConfig, config_from_env
 from phlo_mcp.models import ToolContract
 from phlo_mcp.run_analysis import (
     render_run_trace_tree as render_log_trace_tree_text,
+)
+from phlo_mcp.run_analysis import (
     render_span_tree,
     summarize_run_logs,
 )
@@ -50,6 +54,18 @@ def _read_package_doc(package_name: str) -> str:
 def create_server(config: McpConfig | None = None) -> FastMCP:  # noqa: C901
     """Create a configured FastMCP server instance."""
     resolved = config or config_from_env()
+    if resolved.transport in {"sse", "streamable-http"}:
+        try:
+            loopback = ipaddress.ip_address(resolved.host).is_loopback
+        except ValueError:
+            loopback = False
+        if not loopback:
+            raise ValueError(
+                "MCP HTTP/SSE cannot bind to a non-loopback host without inbound authentication. "
+                "Phlo MCP has no inbound authentication; PHLO_MCP_API_TOKEN only authenticates "
+                "outbound API requests. Bind to 127.0.0.1 (or ::1) and use an authenticated "
+                "reverse proxy for remote access."
+            )
     configure_tracing(trace_file=resolved.trace_file)
 
     mcp = FastMCP("phlo", json_response=True)

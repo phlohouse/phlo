@@ -4193,3 +4193,38 @@ def test_preview_with_missing_relation_does_not_discover_catalog() -> None:
     table = ObservatoryTable(id="orders", name="orders", metadata={})
 
     assert observatory._query_relation_for_table(table) is None
+
+
+@pytest.mark.parametrize(
+    ("relation", "expected"),
+    [
+        ('"ice.berg"."ma""in"."events"', '"ice.berg"."ma""in"."events"'),
+        ("hive.raw.orders; DROP TABLE users", None),
+        ('"hive"."raw"."orders" --', None),
+    ],
+)
+def test_preview_relation_metadata_requires_three_safe_identifiers(
+    relation: str, expected: str | None
+) -> None:
+    table = ObservatoryTable(
+        id="raw.orders",
+        name="orders",
+        namespace="raw",
+        metadata={"relation": relation, "catalog": "hive", "schema": "raw", "table": "orders"},
+    )
+
+    assert observatory._query_relation_for_table(table) == expected
+    assert observatory._select_sql_for_table(table, limit=7) == (
+        f"select * from {expected} limit 7" if expected else None
+    )
+
+
+def test_preview_relation_uses_separate_metadata_when_relation_absent() -> None:
+    table = ObservatoryTable(
+        id="raw.orders",
+        name="orders",
+        namespace="raw",
+        metadata={"catalog": "hive", "schema": "raw", "table": "orders"},
+    )
+
+    assert observatory._query_relation_for_table(table) == '"hive"."raw"."orders"'

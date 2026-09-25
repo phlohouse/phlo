@@ -56,6 +56,7 @@ from phlo_api.errors import (
     PhloApiError,
     error_envelope,
 )
+from phlo_api.observatory_api.http_client import backend_client
 from phlo_api.pagination import decode_cursor, paginate_items
 
 logger = get_logger(__name__)
@@ -374,8 +375,8 @@ async def fetch_connection_status() -> LokiConnectionStatus:
     """
     try:
         url = resolve_loki_url()
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{url}/ready")
+        async with backend_client() as client:
+            response = await client.get(f"{url}/ready", timeout=5.0)
             response.raise_for_status()
             if response.status_code != 200:
                 logger.warning(
@@ -384,7 +385,9 @@ async def fetch_connection_status() -> LokiConnectionStatus:
                 raise BadGatewayError("Loki returned an error response.")
 
             try:
-                build_response = await client.get(f"{url}/loki/api/v1/status/buildinfo")
+                build_response = await client.get(
+                    f"{url}/loki/api/v1/status/buildinfo", timeout=5.0
+                )
                 version = (
                     build_response.json().get("version", "unknown")
                     if build_response.status_code == 200
@@ -439,7 +442,7 @@ async def fetch_log_entries(
     query = build_log_query(run_id, asset_key, job, partition_key, check_name, level, service)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with backend_client() as client:
             response = await client.get(
                 f"{url}/loki/api/v1/query_range",
                 params={
@@ -449,6 +452,7 @@ async def fetch_log_entries(
                     "limit": str(limit),
                     "direction": "backward",
                 },
+                timeout=10.0,
             )
             response.raise_for_status()
     except httpx.HTTPStatusError as exc:
@@ -564,8 +568,8 @@ async def fetch_log_labels() -> LogLabelsResponse:
         raise BackendUnavailableError("Loki endpoint is not configured.") from exc
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{url}/loki/api/v1/labels")
+        async with backend_client() as client:
+            response = await client.get(f"{url}/loki/api/v1/labels", timeout=5.0)
             response.raise_for_status()
             result = response.json()
     except httpx.HTTPStatusError as exc:
