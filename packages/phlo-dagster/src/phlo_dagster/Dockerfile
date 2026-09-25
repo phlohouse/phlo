@@ -82,8 +82,12 @@ RUN if [ "$PHLO_UV_LOCKED" = "true" ]; then \
 # templates/dagster.yaml), not a project dependency: install it explicitly,
 # mirroring the non-lock path below. Without it the webserver fails to start
 # with "Couldn't import module dagster_postgres".
+# SQLAlchemy <2.1 is pinned here and below: 2.1 switched the postgresql://
+# dialect from psycopg2 to psycopg3, whose `with conn:` closes the connection,
+# breaking dagster-postgres's set_pg_statement_timeout hook (every pooled
+# connection is returned closed and the webserver dies on its first query).
 RUN if [ "$PHLO_UV_LOCKED" = "true" ]; then \
-        uv pip install --python /opt/phlo-project-venv/bin/python dagster-postgres "psycopg[binary]"; \
+        uv pip install --python /opt/phlo-project-venv/bin/python dagster-postgres "psycopg[binary]" "sqlalchemy>=2.0,<2.1"; \
     fi
 
 ENV PATH="/opt/phlo-project-venv/bin:${PATH}"
@@ -111,18 +115,18 @@ RUN if [ "$PHLO_UV_LOCKED" != "true" ]; then \
     python -c 'import importlib.metadata as md; print("\n".join(r.split(";", 1)[0].strip() for r in (md.metadata("phlo").get_all("Requires-Dist") or []) if " @ " in r))' > /tmp/phlo-url-requirements.txt; \
     if [ -n "$PHLO_VERSION" ]; then \
         if [ -n "$PHLO_WHEELHOUSE" ]; then \
-            uv pip install --system --prerelease explicit --find-links /opt/phlo-wheelhouse --requirement /tmp/phlo-url-requirements.txt "phlo[defaults]==$PHLO_VERSION" "$PHLO_DBT_REQUIREMENT" dagster-webserver dagster-postgres "psycopg[binary]"; \
+            uv pip install --system --prerelease explicit --find-links /opt/phlo-wheelhouse --requirement /tmp/phlo-url-requirements.txt "phlo[defaults]==$PHLO_VERSION" "$PHLO_DBT_REQUIREMENT" dagster-webserver dagster-postgres "psycopg[binary]" "sqlalchemy>=2.0,<2.1"; \
             uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "phlo==$PHLO_VERSION"; \
             if [ -n "$PHLO_DBT_VERSION" ]; then uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "$PHLO_DBT_REQUIREMENT"; fi; \
             uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "$PHLO_DAGSTER_REQUIREMENT"; \
         else \
             PHLO_PRERELEASE_REQUIREMENTS="$(python -c 'import importlib.metadata as md, re; print(" ".join(req.split(";")[0].strip() for req in (md.metadata("phlo").get_all("Requires-Dist") or []) if "extra == '\''defaults'\''" in req and re.search(r"(a|b|rc|dev)[0-9]+", req)))')"; \
-            base_requirements=("phlo[defaults]==$PHLO_VERSION" "$PHLO_DBT_REQUIREMENT" "dbt-core<1.12" dagster-webserver dagster-postgres "psycopg[binary]"); \
+            base_requirements=("phlo[defaults]==$PHLO_VERSION" "$PHLO_DBT_REQUIREMENT" "dbt-core<1.12" dagster-webserver dagster-postgres "psycopg[binary]" "sqlalchemy>=2.0,<2.1"); \
             if [ -n "$PHLO_PRERELEASE_REQUIREMENTS" ]; then read -r -a prerelease_requirements <<< "$PHLO_PRERELEASE_REQUIREMENTS"; base_requirements+=("${prerelease_requirements[@]}"); fi; \
             uv pip install --system --prerelease explicit --requirement /tmp/phlo-url-requirements.txt "${base_requirements[@]}"; \
         fi; \
     else \
-        uv pip install --system --requirement /tmp/phlo-url-requirements.txt "phlo[defaults]" "$PHLO_DBT_REQUIREMENT" "dbt-core<1.12" dagster-webserver dagster-postgres "psycopg[binary]"; \
+        uv pip install --system --requirement /tmp/phlo-url-requirements.txt "phlo[defaults]" "$PHLO_DBT_REQUIREMENT" "dbt-core<1.12" dagster-webserver dagster-postgres "psycopg[binary]" "sqlalchemy>=2.0,<2.1"; \
     fi \
     && uv pip install --system --requirement /tmp/phlo-url-requirements.txt "$PHLO_DAGSTER_REQUIREMENT" "PyJWT[crypto]>=2.13.0" "cryptography>=48.0.1" \
     && if [ -n "$PHLO_WHEELHOUSE" ]; then \

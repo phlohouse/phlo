@@ -12,6 +12,7 @@
  */
 import { createMiddleware, createServerFn } from '@tanstack/react-start'
 
+import { describePhloApiError, readPhloApiErrorBody } from './errors'
 import type {
   ObservatoryActionResult,
   ObservatoryAsset,
@@ -100,8 +101,7 @@ declare global {
 function apiUnavailable<T>(error: unknown): ObservatoryResourceResult<T> {
   return {
     data: null,
-    error:
-      error instanceof Error ? error.message : 'Lakehouse API is unavailable',
+    error: describePhloApiError(error).message,
   }
 }
 
@@ -135,7 +135,16 @@ async function browserApiGet<T>(endpoint: string): Promise<T> {
     window.clearTimeout(timeout)
   }
   if (!response.ok) {
-    throw new Error(`phlo-api error: ${response.status} ${response.statusText}`)
+    const text = await response.text()
+    let detail: string | null = null
+    try {
+      detail = readPhloApiErrorBody(JSON.parse(text))?.message ?? null
+    } catch {
+      // Body is not JSON — report the status text instead.
+    }
+    throw new Error(
+      `phlo-api error: ${response.status} ${detail ?? response.statusText}`,
+    )
   }
   return response.json()
 }
@@ -174,11 +183,8 @@ async function browserApiPost<T>(
   }
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
-    const detail =
-      payload && typeof payload === 'object' && 'detail' in payload
-        ? String(payload.detail)
-        : `${response.status} ${response.statusText}`
-    throw new Error(`phlo-api error: ${detail}`)
+    const detail = readPhloApiErrorBody(payload)?.message ?? response.statusText
+    throw new Error(`phlo-api error: ${response.status} ${detail}`)
   }
   return response.json()
 }
@@ -217,11 +223,8 @@ async function browserApiPut<T>(
   }
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
-    const detail =
-      payload && typeof payload === 'object' && 'detail' in payload
-        ? String(payload.detail)
-        : `${response.status} ${response.statusText}`
-    throw new Error(`phlo-api error: ${detail}`)
+    const detail = readPhloApiErrorBody(payload)?.message ?? response.statusText
+    throw new Error(`phlo-api error: ${response.status} ${detail}`)
   }
   return response.json()
 }
