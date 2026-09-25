@@ -29,6 +29,9 @@ compose:
         PYTHONUNBUFFERED: "1"
         PHLO_AUTHORIZATION_MODE: ${PHLO_AUTHORIZATION_MODE:-required}
         PHLO_SERVICE_CREDENTIALS_FILE: ${PHLO_SERVICE_CREDENTIALS_FILE:-}
+        PHLO_V1_ENVIRONMENTS: ${PHLO_V1_ENVIRONMENTS:-}
+        DAGSTER_GRAPHQL_URL: ${DAGSTER_GRAPHQL_URL:-http://dagster:3000/graphql}
+        NESSIE_URL: ${NESSIE_URL:-http://nessie:19120/api/v2}
         CLICKSTACK_QUERY_URL: ${CLICKSTACK_QUERY_URL:-}
         CLICKSTACK_QUERY_USER: ${CLICKSTACK_QUERY_USER:-}
         CLICKSTACK_QUERY_PASSWORD: ${CLICKSTACK_QUERY_PASSWORD:-}
@@ -68,6 +71,9 @@ env_vars:
     PHLO_API_PORT:
         default: 4000
         description: Phlo API port
+    PHLO_V1_ENVIRONMENTS:
+        default: ""
+        description: JSON allowlist of distinct prod and staging Dagster locations and Nessie refs
 
 files:
     - source: Dockerfile
@@ -93,6 +99,7 @@ dev:
         PHLO_DEV_MODE: "true"
         DAGSTER_GRAPHQL_URL: "http://127.0.0.1:${DAGSTER_PORT:-10006}/graphql"
         NESSIE_URL: "http://127.0.0.1:${NESSIE_PORT:-10003}/api/v2"
+        PHLO_V1_ENVIRONMENTS: ${PHLO_V1_ENVIRONMENTS:-}
         TRINO_URL: "http://127.0.0.1:${TRINO_PORT:-10005}"
         TRINO_USER: ${PHLO_API_TRINO_USER:-phlo-api}
         TRINO_ROLE: ${PHLO_API_TRINO_ROLE:-}

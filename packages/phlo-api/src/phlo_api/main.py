@@ -32,8 +32,9 @@ from uuid import uuid4
 
 import yaml
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from phlo.logging import bind_context, clear_context, get_logger
 from phlo.capabilities.discovery import discover_capabilities
@@ -89,6 +90,7 @@ app.add_middleware(
 
 # Auto-discover and register API routers
 _ROUTERS = [
+    ("phlo_api.api.v1", "/api/v1"),
     ("phlo_api.api.authoring", "/api/authoring"),
     ("phlo_api.api.continuity", "/api/continuity"),
     ("phlo_api.api.maintenance", "/api/maintenance"),
@@ -142,6 +144,38 @@ async def _phlo_api_error_handler(request: Request, exc: PhloApiError) -> JSONRe
     """Serialize typed API errors into the shared envelope and status."""
     del request
     return JSONResponse(status_code=exc.status_code, content=error_envelope(exc))
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    if request.url.path.startswith("/api/v1/"):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {"code": "unprocessable_input", "message": "Invalid request parameters."}
+            },
+        )
+    from fastapi.exception_handlers import request_validation_exception_handler
+
+    return await request_validation_exception_handler(request, exc)
+
+
+@app.exception_handler(HTTPException)
+async def _http_error_handler(request: Request, exc: HTTPException) -> Response:
+    if request.url.path.startswith("/api/v1/"):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": "forbidden" if exc.status_code == 403 else "bad_input",
+                    "message": str(exc.detail),
+                }
+            },
+            headers=exc.headers,
+        )
+    from fastapi.exception_handlers import http_exception_handler
+
+    return await http_exception_handler(request, exc)
 
 
 @app.middleware("http")

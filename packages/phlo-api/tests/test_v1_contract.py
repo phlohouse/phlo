@@ -88,7 +88,13 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         if method.lower() in {"get", "post", "put", "patch", "delete"}
     }
     assert documented == mounted
-    assert not any(path.startswith("/api/v1/") for _, path in mounted)
+    assert {path for _, path in mounted if path.startswith("/api/v1/")} == {
+        "/api/v1/me",
+        "/api/v1/environments",
+        "/api/v1/services",
+        "/api/v1/events",
+    }
+    legacy = {(method, path) for method, path in documented if not path.startswith("/api/v1/")}
 
     text = (root / "docs/architecture/unified-api-phase-0.md").read_text(encoding="utf-8")
     family_table = text.split("| Mounted path family", 1)[1].split(
@@ -99,9 +105,9 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         for pattern, count in re.findall(r"`(/[^`]+)` \((\d+)\)", family_table)
     ]
     for pattern, count in families:
-        assert sum(fnmatchcase(path, pattern) for _, path in documented) == count, pattern
+        assert sum(fnmatchcase(path, pattern) for _, path in legacy) == count, pattern
     assert all(
-        sum(fnmatchcase(path, pattern) for pattern, _ in families) == 1 for _, path in documented
+        sum(fnmatchcase(path, pattern) for pattern, _ in families) == 1 for _, path in legacy
     )
 
     detail_table = text.split("| Old suffixes after `/api/observatory/`", 1)[1].split(
@@ -114,7 +120,7 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
             groups.append((re.findall(r"`([^`]+)`", match[1]), int(match[2])))
     suffixes = [
         path.removeprefix("/api/observatory/")
-        for _, path in documented
+        for _, path in legacy
         if path.startswith("/api/observatory/")
     ]
     assert len(groups) == 7
