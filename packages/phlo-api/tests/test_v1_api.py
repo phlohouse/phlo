@@ -36,6 +36,9 @@ def client(monkeypatch):
     )
     monkeypatch.setattr(security_manifest, "get_request_principal", lambda request: auth)
     monkeypatch.setattr(v1, "get_request_principal", lambda request: auth)
+    from phlo_api import incidents
+
+    monkeypatch.setattr(incidents, "get_request_principal", lambda request: auth)
     monkeypatch.setattr(
         security_manifest,
         "resolve_request_principal",
@@ -154,6 +157,23 @@ def test_identity_and_environment_scoped_services(client):
         }
         assert urls[-1] == f"http://nessie:19120/api/v2/trees/{ref}"
         assert ("service.read", f"env={env}", env) in decisions
+
+
+def test_incident_routes_are_enforced_even_when_legacy_authorization_is_optional(client):
+    http, decisions, _, _, backend = client
+    backend.explain_decision = lambda principal, action, resource, context: AuthorizationDecision(
+        allowed=False, reason_code="explicit_deny"
+    )
+    denied = http.get("/api/v1/incidents?env=prod")
+    assert denied.status_code == 403
+
+    backend.explain_decision = lambda principal, action, resource, context: (
+        decisions.append((action, resource.resource_id, context.environment))
+        or AuthorizationDecision(allowed=True, reason_code="explicit_allow")
+    )
+    unavailable = http.get("/api/v1/assets/orders/incident-policy?env=staging")
+    assert unavailable.status_code == 503
+    assert ("asset.read", "env=staging|asset_id=orders", "staging") in decisions
 
 
 def test_invalid_selection_missing_identity_policy_and_mapping_fail_closed(client):
