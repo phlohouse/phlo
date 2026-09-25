@@ -27,8 +27,9 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 
-from phlo.security import is_regulated
+from phlo.security.mode import requires_http_authorization
 from phlo_api.api.authentication import get_request_principal
+from phlo_api.api.authorization import get_authorization_mode
 
 _TOKEN_CONFIG_ENV = "PHLO_API_TOKENS"
 _DEFAULT_IDEMPOTENCY_RETENTION_HOURS = 24
@@ -75,9 +76,11 @@ def project_root() -> Path:
 
 def require_scope(request: Request, required_scope: str) -> dict[str, Any]:
     """Require a bearer token with the requested scope or admin."""
-    # Outside regulated mode there is no token infrastructure; development
-    # callers act with full admin scopes.
-    if not is_regulated():
+    # The development principal applies only when authorization stays fully
+    # opt-in: no production or regulated HTTP authorization requirement
+    # (ADR 0047 decision 2) and a resolved ``optional`` mode. Every other
+    # combination resolves the request principal and enforces the scope.
+    if not requires_http_authorization() and get_authorization_mode() == "optional":
         return {"subject": "development:anonymous", "scopes": ["admin"]}
 
     principal = get_request_principal(request)

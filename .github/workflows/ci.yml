@@ -184,6 +184,7 @@ jobs:
         run: >-
           uv run --locked python -m pytest tests -m "not integration and not core_regression"
           -p scripts.ci_shard --ci-shard-index=${{ matrix.shard }} --ci-shard-count=3
+          -o faulthandler_timeout=60 -o faulthandler_exit_on_timeout=true
           --tb=short --durations=25 --junitxml=test-results/core.xml
           --cov=phlo --cov-report=xml:test-results/coverage.xml
 

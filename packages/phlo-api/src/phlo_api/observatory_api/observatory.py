@@ -4887,8 +4887,12 @@ def get_observatory_saved_queries() -> ObservatorySavedQueryList:
 
 
 @router.post("/saved-queries", response_model=ObservatorySavedQuery)
-def post_observatory_saved_query(request: ObservatorySavedQueryRequest) -> ObservatorySavedQuery:
+def post_observatory_saved_query(
+    request: ObservatorySavedQueryRequest,
+    http_request: Request,
+) -> ObservatorySavedQuery:
     """Persist a saved Observatory query."""
+    require_scope(http_request, "project:write")
     try:
         return _save_query(request)
     except RuntimeError as exc:
@@ -5000,8 +5004,11 @@ def get_observatory_branches() -> ObservatoryBranchList:
 
 
 @router.post("/branches/actions", response_model=ObservatoryActionResult)
-def post_observatory_branch_action(request: ObservatoryActionRequest) -> ObservatoryActionResult:
+def post_observatory_branch_action(
+    request: ObservatoryActionRequest, http_request: Request
+) -> ObservatoryActionResult:
     """Execute a guarded branch workflow action."""
+    require_scope(http_request, "lakehouse:operate")
     result = _execute_branch_action(request)
     recorded = record_action_result(_project_root(), result)
     _clear_read_model_cache()
@@ -5051,8 +5058,11 @@ async def get_observatory_extension_settings(name: str) -> Any:
 
 
 @router.put("/extensions/{name}/settings")
-async def put_observatory_extension_settings(name: str, payload: Any = Body(...)) -> Any:
+async def put_observatory_extension_settings(
+    name: str, http_request: Request, payload: Any = Body(...)
+) -> Any:
     """Persist settings for an extension from the canonical Observatory API."""
+    require_scope(http_request, "admin")
     from phlo_api.observatory_api.extension_settings import (
         ExtensionSettingsPayload,
         put_extension_settings,
@@ -5186,6 +5196,7 @@ def post_observatory_action(
     request: ObservatoryActionRequest, http_request: Request
 ) -> ObservatoryActionResult:
     """Execute a guarded Observatory action."""
+    require_scope(http_request, "lakehouse:operate")
     dispatch_request = request
     if request.action_id.startswith("service:"):
         dispatch_request = request.model_copy(
