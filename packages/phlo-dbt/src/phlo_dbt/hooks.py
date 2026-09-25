@@ -22,8 +22,8 @@ by other phlo modules; drives compilation through phlo.cli.infrastructure.
 from __future__ import annotations
 
 import argparse
-import time
 from pathlib import Path
+from time import sleep as _sleep
 
 from phlo.cli.infrastructure.command import CommandError, run_command
 from phlo.cli.infrastructure.utils import get_project_name
@@ -90,7 +90,7 @@ def compile_dbt() -> int:
         )
         return 0
 
-    time.sleep(5)
+    _sleep(5)
 
     project_name = get_project_name()
     container_name = _find_dagster_container(project_name)

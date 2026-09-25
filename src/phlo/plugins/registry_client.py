@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from importlib import metadata as importlib_metadata
 from importlib import resources
 from pathlib import Path
+from time import time as _time
 from typing import Any
 
 import httpx
@@ -135,7 +136,7 @@ def fetch_registry(force_refresh: bool = False) -> dict[str, Any]:
     """
     settings = get_settings()
     ttl_seconds = settings.plugin_registry_cache_ttl_seconds
-    now = time.time()
+    now = _time()
     started = time.perf_counter()
     registry_url = settings.plugin_registry_url
 

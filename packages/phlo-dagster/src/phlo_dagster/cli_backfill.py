@@ -45,6 +45,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from time import sleep as _sleep
 from typing import Any
 
 import click
@@ -520,7 +521,7 @@ def _wait_for_wap_lifecycle(
                     f"WAP lifecycle polling failed {poll_failures} times for logical run "
                     f"{logical_run_id}: {exc}"
                 ) from exc
-            time.sleep(min(poll_seconds * (2**poll_failures), 30))
+            _sleep(min(poll_seconds * (2**poll_failures), 30))
             continue
         poll_failures = 0
         if status in terminal_run_failures:
@@ -535,7 +536,7 @@ def _wait_for_wap_lifecycle(
             raise WapLifecycleTerminalError(
                 f"WAP promotion failed for logical run {logical_run_id}: {reason}"
             )
-        time.sleep(poll_seconds)
+        _sleep(poll_seconds)
     raise click.ClickException(
         f"Timed out waiting for WAP lifecycle of logical run {logical_run_id}; "
         "run phlo backfill --resume to retry the partition."
