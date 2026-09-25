@@ -1,5 +1,6 @@
 """Unit tests that merge_to_table applies batch-local deduplication before appending."""
 
+import warnings
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -105,3 +106,21 @@ def test_merge_appends_all_rows_when_duplicates_absent(tmp_path) -> None:
 
     assert result["rows_inserted"] == 2
     assert len(fake_table.appended[0]) == 2
+
+
+def test_merge_tolerates_empty_delete_but_not_other_warnings(tmp_path, monkeypatch) -> None:
+    def empty_delete(self, expression):
+        warnings.warn("Delete operation did not match any records", UserWarning, stacklevel=2)
+
+    monkeypatch.setattr(FakeIcebergTable, "delete", empty_delete)
+    rows = [{"event_id": "e1", "updated_at": "2024-01-01", "status": "queued"}]
+    table, result = _merge(tmp_path, rows)
+    assert result["rows_inserted"] == 1
+    assert len(table.appended) == 1
+
+    def other_warning(self, expression):
+        warnings.warn("Delete failed for a different reason", UserWarning, stacklevel=2)
+
+    monkeypatch.setattr(FakeIcebergTable, "delete", other_warning)
+    with pytest.raises(UserWarning, match="different reason"):
+        _merge(tmp_path, rows)

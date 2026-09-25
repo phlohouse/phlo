@@ -55,13 +55,6 @@ from phlo.logging import get_logger
 import phlo.telemetry as phlo_observe
 from phlo_iceberg.catalog import create_namespace, get_catalog
 
-# Suppress expected pyiceberg warning on first run (no rows to delete during merge)
-warnings.filterwarnings(
-    "ignore",
-    message="Delete operation did not match any records",
-    category=UserWarning,
-)
-
 logger = get_logger(__name__)
 
 
@@ -546,7 +539,14 @@ def merge_to_table(
             for i in range(0, len(unique_values_list), batch_size):
                 batch = unique_values_list[i : i + batch_size]
                 delete_expr = In(term=Reference(unique_key), values=set(batch))
-                table.delete(delete_expr)
+                # A first insert has no existing rows; PyIceberg warns on that no-op.
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=r"^Delete operation did not match any records$",
+                        category=UserWarning,
+                    )
+                    table.delete(delete_expr)
                 rows_deleted += len(batch)  # Approximation
 
             table.append(arrow_table)

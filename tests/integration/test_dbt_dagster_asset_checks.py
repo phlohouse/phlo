@@ -17,7 +17,15 @@ from phlo_dbt.assets import build_dbt_asset_specs
 
 from phlo.operations.transformation import TransformationResult
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    # Dagster 1.13.7 uses deprecated datetime.utcfromtimestamp when persisting
+    # asset-check evaluations; this warning is external to the tested adapter.
+    pytest.mark.filterwarnings(
+        r"ignore:datetime.datetime.utcfromtimestamp\(\) is deprecated:"
+        r"DeprecationWarning:dagster\._core\.storage\.event_log\.sql_event_log"
+    ),
+]
 
 
 @pytest.mark.parametrize(
