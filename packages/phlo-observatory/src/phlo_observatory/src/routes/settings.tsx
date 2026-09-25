@@ -145,7 +145,7 @@ function useSettingsRoute() {
   }, [settings])
 
   useEffect(() => {
-    void fetchStats()
+    fetchStats()
     void getObservatoryDatasetWorkflowConfigDirect().then((next) => {
       if (next.data) {
         setWorkflowConfig(next.data)
@@ -174,7 +174,7 @@ function useSettingsRoute() {
     ).then(setRuntimeSettings)
   }, [])
 
-  async function fetchStats() {
+  function fetchStats() {
     dispatch({ type: 'statsLoading', loading: true })
     try {
       dispatch({ type: 'stats', stats: readBrowserCacheStats() })
@@ -185,11 +185,11 @@ function useSettingsRoute() {
     }
   }
 
-  async function clearCache() {
+  function clearCache() {
     dispatch({ type: 'statsLoading', loading: true })
     try {
       clearBrowserCache()
-      await fetchStats()
+      fetchStats()
     } catch {
       dispatch({ type: 'statsLoading', loading: false })
     }
@@ -611,7 +611,7 @@ function useSettingsRoute() {
             <div className="phlo-observatory-action-row">
               <button
                 disabled={statsLoading}
-                onClick={() => void fetchStats()}
+                onClick={() => fetchStats()}
                 type="button"
               >
                 <RefreshCw className="size-3.5" />
@@ -619,7 +619,7 @@ function useSettingsRoute() {
               </button>
               <button
                 disabled={statsLoading}
-                onClick={() => void clearCache()}
+                onClick={() => clearCache()}
                 type="button"
               >
                 Clear cache

@@ -17,6 +17,8 @@ on:
   release:
     types: [published]
 
+permissions: {}
+
 concurrency:
   group: generated-service-images-${{ github.ref }}
   cancel-in-progress: false
@@ -25,6 +27,7 @@ jobs:
   prepare:
     name: Prepare generated build contexts
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     outputs:
@@ -350,6 +353,7 @@ jobs:
     needs: [prepare, merge]
     if: always() && needs.merge.result == 'success' && needs.prepare.outputs.has_targets == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:

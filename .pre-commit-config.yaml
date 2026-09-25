@@ -7,10 +7,13 @@ repos:
       - id: trailing-whitespace
       - id: check-ast
       - id: check-docstring-first
+        # Existing misplaced string literals in these five files predate this gate.
+        exclude: ^(src/phlo/dataset/service\.py|src/phlo/dataset/models\.py|src/phlo/dataset_projection\.py|tests/unit/phlo/dataset/conftest\.py|packages/phlo-postgres/src/phlo_postgres/dataset_state_store\.py)$
       - id: check-yaml
       - id: check-toml
       - id: check-json
-        exclude: (^|/)tsconfig(\..+)?\.json$
+        # Deliberately malformed input fixture, not a JSON document.
+        exclude: (^|/)tsconfig(\..+)?\.json$|^examples/lakehouses/retail-files/src/phlo_retail_files/resources/retail_files/data/failures/products_malformed\.json$
       - id: debug-statements
       - id: detect-private-key
       - id: check-added-large-files

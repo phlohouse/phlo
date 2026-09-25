@@ -9,9 +9,9 @@ import { resolveObservatoryExtensions } from '@/observatory/api/extensions'
 describe('extensions.server resolveObservatoryExtensions', () => {
   it('returns no extensions when phlo-api extension discovery is unavailable', async () => {
     await expect(
-      resolveObservatoryExtensions(async () => {
-        throw new Error('phlo-api unavailable')
-      }),
+      resolveObservatoryExtensions(() =>
+        Promise.reject(new Error('phlo-api unavailable')),
+      ),
     ).resolves.toEqual([])
   })
 })

@@ -43,6 +43,7 @@ jobs:
   full-integration:
     name: nightly / full integration
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -203,6 +204,7 @@ jobs:
       - release-artifact-acceptance
       - operations-evidence
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require every nightly check to succeed
         env:

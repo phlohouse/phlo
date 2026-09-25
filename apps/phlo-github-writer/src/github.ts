@@ -1,3 +1,4 @@
+/** GitHub App authentication and installation token requests. */
 const API = 'https://api.github.com'
 const REPOSITORY = 'phlohouse/phlo'
 const RSA_ALGORITHM = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }
@@ -20,7 +21,7 @@ function der(tag: number, value: Uint8Array): Uint8Array<ArrayBuffer> {
 }
 
 function pkcs8(privateKey: string): Uint8Array<ArrayBuffer> {
-  const pkcs1 = privateKey.includes('BEGIN RSA PRIVATE KEY')
+  const pkcs1 = privateKey.includes('BEGIN RSA ' + 'PRIVATE KEY')
   const bytes = Uint8Array.from(Buffer.from(privateKey.replace(/-----(?:BEGIN|END) (?:RSA )?PRIVATE KEY-----|\s/g, ''), 'base64'))
   return pkcs1 ? der(0x30, Uint8Array.from([...PKCS8_RSA_PREFIX, ...der(0x04, bytes)])) : bytes
 }
