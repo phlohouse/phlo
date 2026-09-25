@@ -16,7 +16,7 @@ import yaml
 
 from phlo.plugins.compose import ComposeGenerator
 from phlo.plugins.discovery import ServiceDefinition
-from phlo_api.observatory_api import dagster, loki, nessie, quality, trino
+from phlo_api.observatory_api import dagster, loki, trino
 from phlo_api.observatory_api.observatory_models import ObservatoryExternalLink
 from phlo_api.observatory_api.observatory_models import ObservatoryHealth
 from phlo_api.observatory_api.observatory_services import (
@@ -39,7 +39,7 @@ def _raise_unresolvable(_host: str) -> str:
 
 @pytest.fixture(autouse=True)
 def _scrub_ambient_service_ports(monkeypatch):
-    for port_key in ("DAGSTER_PORT", "NESSIE_PORT", "LOKI_PORT", "TRINO_PORT"):
+    for port_key in ("DAGSTER_PORT", "LOKI_PORT", "TRINO_PORT"):
         monkeypatch.delenv(port_key, raising=False)
 
 
@@ -49,19 +49,16 @@ def test_observatory_api_urls_use_project_port_overrides(tmp_path, monkeypatch) 
         "\n".join(
             [
                 "DAGSTER_PORT=3300",
-                "NESSIE_PORT=29120",
                 "LOKI_PORT=13100",
             ]
         ),
     )
     monkeypatch.chdir(tmp_path)
-    for key in ("DAGSTER_GRAPHQL_URL", "NESSIE_URL", "LOKI_URL"):
+    for key in ("DAGSTER_GRAPHQL_URL", "LOKI_URL"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr("phlo.config.network.socket.gethostbyname", _raise_unresolvable)
 
     assert dagster.resolve_dagster_url() == "http://localhost:3300/graphql"
-    assert quality.resolve_dagster_url() == "http://localhost:3300/graphql"
-    assert nessie.resolve_nessie_url() == "http://localhost:29120/api/v2"
     assert loki.resolve_loki_url() == "http://localhost:13100"
 
 

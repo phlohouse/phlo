@@ -38,6 +38,7 @@ from fastapi.responses import JSONResponse
 from phlo.logging import bind_context, clear_context, get_logger
 from phlo.capabilities.discovery import discover_capabilities
 from phlo_api.errors import PhloApiError, error_envelope
+from phlo_api.observatory_api.http_client import lifespan_client
 from phlo_api.regulated_surface_adapter import get_adapter
 from phlo_api.security_manifest import install_manifest_enforcement
 from phlo.security.validation import require_regulated_validation
@@ -54,7 +55,8 @@ async def _lifespan(application: FastAPI):
     store.initialize()
     application.state.run_evidence_store = store
     try:
-        yield
+        async with lifespan_client():
+            yield
     finally:
         store.close()
         del application.state.run_evidence_store

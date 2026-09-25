@@ -1,9 +1,4 @@
-"""Tests the Observatory legacy API proxy routes against stubbed HTTPX clients.
-
-A scripted _AsyncClient stands in for outbound requests so loki, nessie,
-trino, iceberg, search, and settings endpoints can be exercised without live
-services; authentication comes from security_test_support.
-"""
+"""Tests the mounted Observatory legacy APIs against stubbed dependencies."""
 
 from __future__ import annotations
 
@@ -15,13 +10,9 @@ from fastapi import HTTPException
 from phlo_api.observatory_api import (
     extension_settings,
     extensions,
-    iceberg,
     loki,
-    nessie,
-    search,
     settings,
 )
-from phlo_api.observatory_api.trino import QueryExecutionError
 from security_test_support import authenticated_client
 
 
@@ -53,7 +44,10 @@ class _AsyncClient:
     async def __aexit__(self, *_args: object) -> None:
         return None
 
-    async def get(self, url: str, params: object | None = None) -> _Response:
+    async def get(
+        self, url: str, params: object | None = None, timeout: float | None = None
+    ) -> _Response:
+        del timeout
         self.calls.append(("GET", url, params))
         return self.responses.pop(0)
 
@@ -72,124 +66,6 @@ class _AsyncClient:
 def clear_state() -> None:
     _AsyncClient.calls = []
     _AsyncClient.responses = []
-    iceberg._cache.clear()
-
-
-@pytest.mark.anyio
-async def test_nessie_proxy_handlers_translate_rest_payloads(monkeypatch) -> None:
-    monkeypatch.setattr(nessie.httpx, "AsyncClient", _AsyncClient)
-    monkeypatch.setattr(nessie, "resolve_nessie_url", lambda override=None: "http://nessie/api/v2")
-
-    _AsyncClient.responses = [
-        _Response(200, {"defaultBranch": "main"}),
-        _Response(200, {"references": [{"type": "BRANCH", "name": "main", "hash": "h1"}]}),
-        _Response(200, {"type": "BRANCH", "name": "feature", "hash": "h2"}),
-        _Response(
-            200,
-            {
-                "logEntries": [
-                    {
-                        "commitMeta": {
-                            "hash": "c1",
-                            "message": "commit",
-                            "authors": ["dev"],
-                        }
-                    }
-                ]
-            },
-        ),
-        _Response(200, {"entries": [{"name": {"elements": ["silver", "orders"]}}]}),
-        _Response(200, {"diffs": [{"key": "orders"}]}),
-        _Response(200, {"type": "BRANCH", "name": "main", "hash": "h1"}),
-        _Response(201, {"name": "feature", "hash": "h2"}),
-        _Response(200, {}),
-        _Response(200, {"type": "BRANCH", "name": "feature", "hash": "h2"}),
-        _Response(200, {"type": "BRANCH", "name": "main", "hash": "h1"}),
-        _Response(200, {"resultantTargetHash": "h3"}),
-    ]
-
-    assert (await nessie.check_connection()).default_branch == "main"
-    assert (await nessie.get_branches())[0].name == "main"
-    assert (await nessie.get_branch("feature")).hash == "h2"
-    assert (await nessie.get_commits("feature"))[0].commit_meta.hash == "c1"
-    assert (await nessie.get_contents("feature"))[0]["name"]["elements"] == ["silver", "orders"]
-    assert (await nessie.compare_branches("feature", "main"))["diffs"][0]["key"] == "orders"
-    assert (await nessie.create_branch("feature", "main")).hash == "h2"
-    assert await nessie.delete_branch("feature", "h2") == {"success": True}
-    assert (await nessie.merge_branch("feature", "main")).hash == "h3"
-
-
-@pytest.mark.anyio
-async def test_iceberg_table_handlers_return_schema_counts_and_metadata(monkeypatch) -> None:
-    monkeypatch.setattr(iceberg, "resolve_default_catalog", lambda: "warehouse")
-    monkeypatch.setattr(iceberg, "resolve_default_ref", lambda: "silver")
-    monkeypatch.setattr(iceberg, "resolve_table_discovery_schemas", lambda *_args: ["silver"])
-
-    async def fake_fetch_tables(*_args: object) -> list[iceberg.IcebergTable]:
-        return [
-            iceberg.IcebergTable(
-                catalog="warehouse",
-                schema_name="silver",
-                name="orders",
-                full_name="warehouse.silver.orders",
-                layer="silver",
-            )
-        ]
-
-    async def fake_fetch_schema(*_args: object) -> list[iceberg.TableColumn]:
-        return [iceberg.TableColumn(name="id", type="varchar", nullable=True)]
-
-    async def fake_execute(*_args: object) -> dict[str, object] | QueryExecutionError:
-        return {"columns": [{"name": "cnt", "type": "bigint"}], "rows": [{"cnt": 3}]}
-
-    monkeypatch.setattr(iceberg, "fetch_tables", fake_fetch_tables)
-    monkeypatch.setattr(iceberg, "fetch_table_schema", fake_fetch_schema)
-    monkeypatch.setattr(iceberg, "execute_trino_query", fake_execute)
-
-    assert (await iceberg.get_tables())[0].name == "orders"
-    assert (await iceberg.get_table_schema("orders"))[0].name == "id"
-    assert await iceberg.get_table_row_count("orders") == 3
-    metadata = await iceberg.get_table_metadata("orders")
-    assert metadata.row_count == 3
-    assert metadata.columns[0].name == "id"
-
-
-@pytest.mark.anyio
-async def test_search_index_aggregates_assets_tables_and_columns(monkeypatch) -> None:
-    monkeypatch.setattr(search, "resolve_default_catalog", lambda: "warehouse")
-
-    async def fake_assets(*_args: object) -> list[object]:
-        return [
-            SimpleNamespace(
-                id="asset-1",
-                key_path="silver/orders",
-                group_name="silver",
-                compute_kind="python",
-            )
-        ]
-
-    async def fake_tables(*_args: object) -> list[object]:
-        return [
-            SimpleNamespace(
-                catalog="warehouse",
-                schema_name="silver",
-                name="orders",
-                full_name="warehouse.silver.orders",
-                layer="silver",
-            )
-        ]
-
-    async def fake_schema(*_args: object) -> list[object]:
-        return [SimpleNamespace(name="id", type="varchar")]
-
-    monkeypatch.setattr(search, "get_assets", fake_assets)
-    monkeypatch.setattr(search, "get_tables", fake_tables)
-    monkeypatch.setattr(search, "get_table_schema", fake_schema)
-
-    result = await search.get_search_index(include_columns=True)
-    assert result.assets[0].id == "asset-1"
-    assert result.tables[0].name == "orders"
-    assert result.columns[0].name == "id"
 
 
 def test_extension_handlers_list_details_and_reject_missing_assets(monkeypatch) -> None:

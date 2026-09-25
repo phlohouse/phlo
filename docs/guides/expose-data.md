@@ -44,17 +44,17 @@ phlo services init
 phlo services start --service phlo-api
 ```
 
-The service listens on host port `4000` by default. Its source-backed routes include `/api/config`, `/api/services`, `/api/observability/health`, and `/api/trino/preview/{table}`.
+The service listens on host port `4000` by default. Its routes include `/api/config`, `/api/services`, `/api/observability/health`, and `/api/observatory/table-preview/{table_id}`.
 
-## 3. Query a table through phlo-api
+## 3. Inspect a table through phlo-api
 
-Use the real Trino preview route for a read-only table preview:
+List Observatory tables to find a table ID:
 
 ```bash
-curl "http://localhost:4000/api/trino/preview/raw.events?limit=10"
+curl "http://localhost:4000/api/observatory/tables"
 ```
 
-The response is JSON containing the selected table preview, and the API resolves the configured query-engine capability rather than requiring your client to open a Trino shell.
+For a table returned in `items`, request `/api/observatory/table-preview/{table_id}?limit=10`, replacing `{table_id}` with its URL-encoded `id`. This route uses the configured query-engine capability when the table has an unambiguous relation. Otherwise, it can return stored preview rows or metadata-derived samples; inspect `state` and `message` before treating rows as live table contents. A publish declaration alone does not guarantee that the table appears in Observatory.
 
 ## 4. Add REST, GraphQL, or BI services
 
