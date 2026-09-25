@@ -54,7 +54,10 @@ def parse_args() -> McpConfig:
 def main() -> None:
     """Create and run the MCP server from the parsed configuration."""
     config = parse_args()
-    server = create_server(config)
+    try:
+        server = create_server(config)
+    except ValueError as exc:
+        raise SystemExit(f"Error: {exc}") from exc
     server.run(transport=config.transport)
 
 

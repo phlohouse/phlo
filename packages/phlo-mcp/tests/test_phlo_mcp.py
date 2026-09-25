@@ -12,8 +12,10 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from phlo_mcp.api_client import PhloApiClient
-from phlo_mcp.cli import parse_args
+from phlo_mcp.cli import main, parse_args
 from phlo_mcp.config import McpConfig, config_from_env
 from phlo_mcp.run_analysis import (
     render_run_trace_tree as render_run_trace_tree_text,
@@ -21,6 +23,27 @@ from phlo_mcp.run_analysis import (
 )
 from phlo_mcp.server import create_server
 from phlo_mcp.tracing import configure_tracing, load_spans, render_trace_tree, get_tracer
+
+
+@pytest.mark.parametrize("transport", ["streamable-http", "sse"])
+@pytest.mark.parametrize("host", ["0.0.0.0", "::", "192.0.2.1", "localhost"])
+def test_mcp_rejects_non_loopback_http_even_with_outbound_token(transport, host) -> None:
+    with pytest.raises(ValueError, match="no inbound authentication.*PHLO_MCP_API_TOKEN"):
+        create_server(McpConfig(transport=transport, host=host, api_token="outbound-only"))
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1"])
+def test_mcp_allows_loopback_http_and_stdio(host) -> None:
+    assert create_server(McpConfig(transport="streamable-http", host=host)).settings.host == host
+    assert create_server(McpConfig(transport="stdio", host="0.0.0.0"))
+
+
+def test_mcp_cli_fails_before_listening_on_non_loopback(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sys, "argv", ["phlo-mcp", "--transport", "streamable-http", "--host", "0.0.0.0"]
+    )
+    with pytest.raises(SystemExit, match="Bind to 127.0.0.1.*authenticated reverse proxy"):
+        main()
 
 
 class _FakeResponse:

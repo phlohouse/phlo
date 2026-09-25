@@ -79,7 +79,11 @@ def serve_cmd(
         port=port if port is not None else env.port,
         streamable_http_path=streamable_http_path or env.streamable_http_path,
     )
-    create_server(config).run(transport=config.transport)
+    try:
+        server = create_server(config)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    server.run(transport=config.transport)
 
 
 @mcp_group.command("config")

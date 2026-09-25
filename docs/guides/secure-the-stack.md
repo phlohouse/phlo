@@ -9,6 +9,12 @@ This guide keeps deployment secrets out of source control, enables API authorisa
 - You know whether the API should fail open for development (`optional`) or fail closed (`required`).
 - You have reviewed the regulated-surface boundary in [Auth and access](../reference/auth-and-access.md).
 
+`phlo services init` publishes host ports on `127.0.0.1` by default. To expose
+them on all interfaces, regenerate with `phlo services init --publish-all-interfaces`
+and protect every exposed service with appropriate network controls and authentication.
+This flag affects host publishing only; services continue to listen on their
+container networks. Reapply the flag when regenerating with `services init`.
+
 ## 1. Keep secrets in local configuration
 
 Put credentials in `.phlo/secrets/.env`, which is the highest-precedence project environment file and should be mode `0600`:

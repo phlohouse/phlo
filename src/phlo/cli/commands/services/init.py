@@ -187,6 +187,11 @@ def _validate_production_credentials(
     help="Render the production deployment profile without core host ports.",
 )
 @click.option(
+    "--publish-all-interfaces",
+    is_flag=True,
+    help="Publish generated host ports on all interfaces instead of loopback (LAN exposure).",
+)
+@click.option(
     "--allow-insecure",
     is_flag=True,
     help="Allow generated local secrets on platforms that cannot enforce 0600 permissions.",
@@ -206,6 +211,7 @@ def init_cmd(
     phlo_source: str | None,
     service_dev: bool,
     production: bool,
+    publish_all_interfaces: bool,
     allow_insecure: bool,
     profiles: tuple[str, ...],
 ):
@@ -236,6 +242,7 @@ def init_cmd(
         phlo services init --dev --service-dev
         phlo services init --no-dev --force  # Regenerate without dev mode
         phlo services init --production --no-dev
+        phlo services init --publish-all-interfaces  # Expose host ports to the LAN
     """
     phlo_dir = get_phlo_dir()
     config_file = Path.cwd() / PHLO_CONFIG_FILE
@@ -417,6 +424,7 @@ def init_cmd(
         user_overrides=user_overrides,
         env_values={**os.environ, **env_overrides, **existing_env_local},
         deployment_profile="production" if production else "development",
+        publish_all_interfaces=publish_all_interfaces,
     )
 
     portable_content = None
@@ -426,6 +434,7 @@ def init_cmd(
             phlo_dir,
             user_overrides=user_overrides,
             env_values={**os.environ, **env_overrides, **existing_env_local},
+            publish_all_interfaces=publish_all_interfaces,
         )
     compose_file = phlo_dir / "docker-compose.yml"
     write_compose_layers(
