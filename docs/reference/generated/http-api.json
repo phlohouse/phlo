@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 124,
+  "endpoint_count": 125,
   "endpoints": [
     {
       "method": "GET",
@@ -981,6 +981,15 @@
       "summary": "V1 Events",
       "tags": [
         "v1"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "list_asset_incident_policies_api_v1_incident_policies_get",
+      "path": "/api/v1/incident-policies",
+      "summary": "List Asset Incident Policies",
+      "tags": [
+        "v1 incidents"
       ]
     },
     {

@@ -143,3 +143,21 @@ def test_incident_transactions_group_concurrent_signals_and_isolate_environments
                 "0",
             )
         assert policy_conflict.value.status_code == 409
+        incidents.put_asset_incident_policy(
+            request,
+            "warehouse/invoices",
+            incidents.AssetIncidentPolicyInput(owner="finance", freshness_sla_seconds=7200),
+            "policy-3",
+            "prod",
+            "0",
+        )
+        policy_page = incidents.list_asset_incident_policies(request, "prod", 1)
+        policy_page_2 = incidents.list_asset_incident_policies(
+            request, "prod", 1, policy_page.next_cursor
+        )
+        assert policy_page.next_cursor is not None
+        assert policy_page.items[0]["asset_id"] == "warehouse/invoices"
+        assert policy_page_2.items[0]["asset_id"] == "warehouse/orders"
+        with pytest.raises(HTTPException) as cross_environment:
+            incidents.list_asset_incident_policies(request, "staging", 1, policy_page.next_cursor)
+        assert cross_environment.value.status_code == 400

@@ -78,6 +78,12 @@ class ActivityPage(WireModel):
     next_cursor: str | None
 
 
+class AssetIncidentPolicyPage(WireModel):
+    env: Environment
+    items: list[dict[str, Any]]
+    next_cursor: str | None
+
+
 def _connection():
     dsn = os.environ.get("PHLO_RUN_EVIDENCE_DB_URL")
     if not dsn:
@@ -141,6 +147,33 @@ def _decode_cursor(cursor: str | None, env: Environment, kind: str) -> tuple[dat
         if timestamp.tzinfo is None or not isinstance(identity, str) or not identity:
             raise ValueError
         return timestamp, identity
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid or cross-environment cursor.") from exc
+
+
+def _encode_policy_cursor(env: Environment, asset_id: str) -> str:
+    payload = json.dumps({"env": env, "kind": "incident-policies", "asset_id": asset_id}).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_policy_cursor(cursor: str | None, env: Environment) -> str | None:
+    if cursor is None:
+        return None
+    if len(cursor) > 1024:
+        raise HTTPException(status_code=400, detail="Invalid or cross-environment cursor.")
+    try:
+        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
+        payload = json.loads(raw)
+        if (
+            not isinstance(payload, dict)
+            or payload["env"] != env
+            or payload["kind"] != "incident-policies"
+        ):
+            raise ValueError
+        asset_id = payload["asset_id"]
+        if not isinstance(asset_id, str) or not asset_id:
+            raise ValueError
+        return asset_id
     except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail="Invalid or cross-environment cursor.") from exc
 
@@ -600,6 +633,44 @@ def get_asset_incident_policy(
         "freshness_sla_seconds": row[2],
         "version": row[3],
     }
+
+
+@router.get("/incident-policies", response_model=AssetIncidentPolicyPage)
+def list_asset_incident_policies(
+    request: Request,
+    env: Environment = Query(),
+    limit: PageLimit = 100,
+    cursor: str | None = None,
+) -> AssetIncidentPolicyPage:
+    _actor(request)
+    after_asset_id = _decode_policy_cursor(cursor, env)
+    with _transaction() as connection, connection.cursor() as cur:
+        if after_asset_id is None:
+            cur.execute(
+                "SELECT asset_id,owner,freshness_sla_seconds,version FROM phlo.asset_incident_policy WHERE env=%s ORDER BY asset_id LIMIT %s",
+                (env, limit + 1),
+            )
+        else:
+            cur.execute(
+                "SELECT asset_id,owner,freshness_sla_seconds,version FROM phlo.asset_incident_policy WHERE env=%s AND asset_id>%s ORDER BY asset_id LIMIT %s",
+                (env, after_asset_id, limit + 1),
+            )
+        rows = cur.fetchall()
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    return AssetIncidentPolicyPage(
+        env=env,
+        items=[
+            {
+                "asset_id": row[0],
+                "owner": row[1],
+                "freshness_sla_seconds": row[2],
+                "version": row[3],
+            }
+            for row in page
+        ],
+        next_cursor=_encode_policy_cursor(env, page[-1][0]) if has_more else None,
+    )
 
 
 @router.put("/assets/{asset_id:path}/incident-policy")

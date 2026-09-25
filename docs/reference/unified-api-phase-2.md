@@ -23,13 +23,22 @@ Every route requires exactly one `env=prod|staging` selector. Read requests requ
 | `POST /api/v1/incidents/{incident_id}/follow-ups?env=...` | Create a follow-up with a required `Idempotency-Key`. |
 | `PATCH /api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}?env=...` | Mark a follow-up complete or reopen it, with a required `Idempotency-Key`. |
 | `GET /api/v1/assets/{asset_id}/incident-policy?env=...` | Read explicit per-environment asset ownership and freshness SLA overrides. |
+| `GET /api/v1/incident-policies?env=...&limit=...` | Page through explicit per-environment asset policies; cursors are environment-bound. |
 | `PUT /api/v1/assets/{asset_id}/incident-policy?env=...` | Replace ownership and freshness SLA overrides, with required `Idempotency-Key` and numeric `If-Match`. An absent policy has version 0; successful writes increment the version. A null SLA means no override. |
 | `GET /api/v1/activity?env=...&limit=...` | Read environment-scoped incident events. |
 
 The stats endpoint counts records only. An empty result means no persisted incident records, not that upstream systems are healthy. Type-specific upstream detail is not synthesized by these routes.
 
-## Phase-2 gaps
+## Dagster detector
 
-This slice does not yet provide the Dagster detector/sensor or connect signal producers for failed checks, dlt contract violations, and Nessie merge conflicts. A safe freshness detector can use Dagster's asset freshness policy and latest materialization only after confirming that the asset repository location and the successful materialization run belong to the selected environment; partitioned assets need explicit partition freshness semantics. Runtime abnormality is unsupported unless an explicit policy can be compared to a like-for-like run; raw duration alone is not a breach. These gaps prevent phase-2 acceptance and must be closed before the phase can be marked complete.
+`phlo_incident_signal_sensor` is included in framework-built Dagster definitions. Configure `PHLO_INCIDENT_API_URL` and `PHLO_DAGSTER_INCIDENT_LOCATION_ENV_MAP`, a JSON object mapping each Dagster code-location name to exactly `prod` or `staging`. The sensor reads real `ASSET_CHECK_EVALUATION` event-log records, resolves the linked run's repository code location, and sends failed checks to the authenticated incident API using the existing `phlo-orchestration` / `api:orchestrate` service identity. It identifies dlt contract violations only when the asset key starts with `dlt_` and the recorded check metadata source is `domain` or `pandera`; other failed checks are grouped as `failed_check`. The location mapping is mandatory: missing, unknown, or unmapped origin data stops processing rather than guessing an environment. The sensor uses stable event-storage identities as `evidence_id` and `Idempotency-Key`; a delivery failure leaves the cursor unchanged for retry. On first activation it starts check-event monitoring at the current event-log head and does not backfill historical check failures.
+
+For freshness, the sensor pages only explicit per-environment asset policies with a positive SLA override. It considers only unpartitioned assets present in its Dagster repository definition, reads materialization evidence for the exact asset key, and requires a linked Dagster run with status `SUCCESS` and a repository location explicitly mapped to the same environment. Materializations from another environment are ignored; no incident is emitted unless a matching successful run is found within the bounded event scan. The signal identity includes the successful materialization event ID, so detector retries replay the same write and a later successful materialization creates a distinct breach identity if the asset becomes stale again.
+
+## Remaining phase-2 gaps
+
+Partitioned freshness remains unsupported because this phase does not define partition-specific SLA semantics. The detector uses Dagster's repository asset graph to exclude partitioned assets rather than treating a missing partition marker as evidence of an unpartitioned asset.
+
+Nessie conflict detection remains unsupported: the current merge interface returns only a boolean, so a false result cannot distinguish a conflict from other merge failures. Abnormal runtime remains unsupported: the known Dagster `dagster/max_runtime` tag applies to an op, not a whole run, and no accepted same-job/environment baseline or run-level threshold policy exists. This detector slice does not cover all audit aggregate records outside Dagster asset-check events. These gaps prevent phase-2 acceptance and must be closed before the phase can be marked complete.
 
 Overview aggregation remains phase 3. Phase 3 should read `/api/v1/incidents/stats` per environment and combine the returned persisted counts with its independently sourced asset, run, and audit evidence; this phase does not mount `/overview`.
