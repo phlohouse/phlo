@@ -271,6 +271,44 @@ def test_record_to_event_extracts_tags_and_metadata() -> None:
     assert "tags" not in event.metadata
 
 
+def test_record_to_event_redacts_urls_in_fields_message_and_exception() -> None:
+    url = "https://u:p@host/x?token=abc&ok=1"
+    try:
+        raise RuntimeError(f"request failed for {url}")
+    except RuntimeError:
+        exception = sys.exc_info()
+        record = _make_record(msg=f"request failed for {url}")
+        record.url = url
+        record.presigned_url = "https://host/x?X-Amz-Signature=sig&ok=1"
+        record.exc_info = exception
+
+    event = _record_to_event(record, "phlo-default")
+
+    assert event is not None
+    expected = "https://host/x?token=REDACTED&ok=1"
+    assert event.message == f"request failed for {expected}"
+    assert event.metadata["url"] == expected
+    assert event.metadata["presigned_url"] == "https://host/x?X-Amz-Signature=REDACTED&ok=1"
+    assert "password" not in event.metadata["exception"]
+    assert "abc" not in event.metadata["exception"]
+    assert expected in event.metadata["exception"]
+
+
+def test_record_to_event_preserves_benign_urls_and_query_params() -> None:
+    record = _make_record(
+        msg="https://host/path?region=west&version=2 Not a URL?token=visible "
+        "https:///broken?token=visible"
+    )
+
+    event = _record_to_event(record, "phlo-default")
+
+    assert event is not None
+    assert event.message == (
+        "https://host/path?region=west&version=2 Not a URL?token=visible "
+        "https:///broken?token=visible"
+    )
+
+
 def test_get_bound_correlation_context_reads_structlog_contextvars() -> None:
     bind_context(run_id="run-99", asset_key="silver.orders", trace_id="abc123")
 
@@ -345,20 +383,23 @@ def test_log_router_handler_emit_routes_and_reports_errors(
 
     routed = _make_record(
         msg={
-            "event": "routed",
+            "event": "routed https://u:p@host/x?token=secret&ok=1",
             "run_id": "run-1",
             "asset_key": "raw.users",
             "tags": {"source": "test"},
             "rows": 12,
+            "url": "https://u:p@host/x?token=secret&ok=1",
         }
     )
     handler.emit(routed)
 
     assert len(bus.events) == 1
-    assert bus.events[0].message == "routed"
+    assert bus.events[0].message == "routed https://host/x?token=REDACTED&ok=1"
+    assert bus.events[0].metadata["url"] == "https://host/x?token=REDACTED&ok=1"
     assert bus.events[0].tags["source"] == "test"
     assert observed[0]["name"] == "application.log"
-    assert observed[0]["attributes"]["message"] == "routed"
+    assert observed[0]["attributes"]["message"] == bus.events[0].message
+    assert observed[0]["attributes"]["url"] == bus.events[0].metadata["url"]
     assert observed[0]["attributes"]["rows"] == 12
     assert observed[0]["correlation"] == {
         "run_id": "run-1",

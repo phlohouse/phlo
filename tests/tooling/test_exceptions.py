@@ -128,5 +128,5 @@ def test_redact_sensitive_removes_token_only_url_userinfo() -> None:
     """URL userinfo without a colon is still a credential."""
     redacted = _redact_sensitive("clone https://ghp_secret123@github.com/org/repo.git")
 
-    assert redacted == "clone https://<redacted>@github.com/org/repo.git"
+    assert redacted == "clone https://github.com/org/repo.git"
     assert "ghp_secret123" not in redacted

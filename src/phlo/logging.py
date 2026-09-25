@@ -86,6 +86,7 @@ from typing import Any
 import structlog
 
 from phlo.config import get_settings
+from phlo.exceptions import redact_sensitive_text
 from phlo.hooks.events import HookCorrelation, LogEvent
 
 _STANDARD_LOG_RECORD_FIELDS = set(
@@ -519,7 +520,7 @@ def _extract_message_and_extra(
     else:
         message = record.getMessage()
 
-    message = message.strip()
+    message = redact_sensitive_text(message.strip())
     if not message:
         return None, extra
     extra.pop("event", None)
@@ -543,7 +544,9 @@ def _build_metadata(record: logging.LogRecord, extra: dict[str, Any]) -> dict[st
         "thread": record.thread,
     }
     if record.exc_info:
-        metadata["exception"] = "".join(traceback.format_exception(*record.exc_info))
+        metadata["exception"] = redact_sensitive_text(
+            "".join(traceback.format_exception(*record.exc_info))
+        )
     redact_sensitive_fields(metadata)
     return metadata
 
@@ -557,18 +560,31 @@ def _redact_sensitive_processor(
 
 
 def redact_sensitive_fields(data: MutableMapping[str, Any]) -> None:
-    """Redact sensitive keys in-place within a mapping."""
+    """Redact sensitive keys and URL credentials in-place within a mapping."""
     for key, value in list(data.items()):
         lowered = key.lower()
         if any(token in lowered for token in _SENSITIVE_FIELD_TOKENS):
             data[key] = "<redacted>"
             continue
-        if isinstance(value, MutableMapping):
+        if key == "exc_info" and value:
+            exc_info = value if isinstance(value, tuple) else sys.exc_info()
+            if exc_info[0] is not None:
+                data["exception"] = redact_sensitive_text(
+                    "".join(traceback.format_exception(*exc_info))
+                )
+            data[key] = None
+        elif isinstance(value, str):
+            data[key] = redact_sensitive_text(value)
+        elif isinstance(value, MutableMapping):
             redact_sensitive_fields(value)
-        elif isinstance(value, list):
-            for item in value:
+        elif isinstance(value, (list, tuple)):
+            sanitized_items = list(value)
+            for index, item in enumerate(sanitized_items):
                 if isinstance(item, MutableMapping):
                     redact_sensitive_fields(item)
+                elif isinstance(item, str):
+                    sanitized_items[index] = redact_sensitive_text(item)
+            data[key] = tuple(sanitized_items) if isinstance(value, tuple) else sanitized_items
 
 
 def _build_file_handler(

@@ -6,9 +6,10 @@ Structured error classes with error codes, contextual messages, and suggestions.
 
 import re
 from enum import Enum
+from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
 _KEY_VALUE_SENSITIVE_PATTERN = re.compile(
-    r"\b(password|passwd|token|secret|api_key|apikey|credential)\b\s*[:=]\s*[^\s,;]+",
+    r"(?<![?&])\b(password|passwd|token|secret|api_key|apikey|credential)\b\s*[:=]\s*[^\s,;&]+",
     re.IGNORECASE,
 )
 _AUTHORIZATION_SENSITIVE_PATTERN = re.compile(r"\b(authorization|bearer)\b\s+\S+", re.IGNORECASE)
@@ -20,27 +21,57 @@ _KEY_MATERIAL_SENSITIVE_PATTERN = re.compile(
     r"\b(private_key|signing_key|encryption_key)\b(?:\s*[:=]\s*|\s+).+?(?=(?:[,;]\s+\w+\s*[:=])|\n|$)",
     re.IGNORECASE,
 )
-_URL_CREDENTIALS_SENSITIVE_PATTERN = re.compile(
-    r"\b([a-z][a-z0-9+.-]*://[^:\s/@]+:)[^@\s]+@",
-    re.IGNORECASE,
-)
-_URL_TOKEN_USERINFO_SENSITIVE_PATTERN = re.compile(
-    r"\b([a-z][a-z0-9+.-]*://)[^:\s/@]+@",
-    re.IGNORECASE,
-)
+_URL_PATTERN = re.compile(r"[a-z][a-z0-9+.-]*://[^\s<>\"']+", re.IGNORECASE)
+_URL_TRAILING_PUNCTUATION = ".,;:!?)]}"
+_URL_SECRET_QUERY_KEYS = {
+    "token",
+    "access_token",
+    "key",
+    "signature",
+    "password",
+    "passwd",
+    "secret",
+    "sig",
+    "api_key",
+    "apikey",
+    "client_secret",
+    "credential",
+}
 
 
 def redact_sensitive_text(s: str) -> str:
     """Redact sensitive patterns from a string for safe output."""
+    s = _URL_PATTERN.sub(_redact_url, s)
     result = _KEY_MATERIAL_SENSITIVE_PATTERN.sub(r"\1=<redacted>", s)
     result = _CONNECTION_STRING_SENSITIVE_PATTERN.sub(r"\1=<redacted>", result)
-    result = _URL_CREDENTIALS_SENSITIVE_PATTERN.sub(r"\1<redacted>@", result)
-    result = _URL_TOKEN_USERINFO_SENSITIVE_PATTERN.sub(r"\1<redacted>@", result)
     result = _KEY_VALUE_SENSITIVE_PATTERN.sub(
         lambda m: f"{m.group(1)}=<redacted>",
         result,
     )
     return _AUTHORIZATION_SENSITIVE_PATTERN.sub(r"\1 <redacted>", result)
+
+
+def _redact_url(match: re.Match[str]) -> str:
+    """Redact credentials only within a URL's parsed authority and query."""
+    candidate = match.group()
+    url = candidate.rstrip(_URL_TRAILING_PUNCTUATION)
+    suffix = candidate[len(url) :]
+    try:
+        parsed = urlsplit(url)
+        if not parsed.netloc or not parsed.hostname:
+            return candidate
+    except ValueError:
+        return candidate
+
+    netloc = parsed.netloc.rsplit("@", maxsplit=1)[-1]
+    query: list[str] = []
+    for parameter in parsed.query.split("&"):
+        name, separator, value = parameter.partition("=")
+        key = unquote_plus(name).lower()
+        if separator and (key in _URL_SECRET_QUERY_KEYS or key.startswith("x-amz-")):
+            value = "REDACTED"
+        query.append(f"{name}{separator}{value}")
+    return urlunsplit(parsed._replace(netloc=netloc, query="&".join(query))) + suffix
 
 
 def _redact_sensitive(s: str) -> str:

@@ -37,7 +37,7 @@ def test_command_error_redacts_sensitive_output() -> None:
 
     assert error.stdout == "token=<redacted>\n"
     assert "password=<redacted>" in error.stderr
-    assert "postgres://user:<redacted>@localhost/db" in error.stderr
+    assert "postgres://localhost/db" in error.stderr
     assert "secret" not in rendered
     assert "hunter2" not in rendered
     assert all("secret" not in part for part in error.cmd)
