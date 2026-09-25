@@ -19,6 +19,47 @@ from phlo.plugins.discovery import ServiceDefinition
 from tests.helpers import FakeDiscovery, RecordingBus, _service
 
 
+@pytest.mark.parametrize(
+    ("config", "enabled", "disabled"),
+    [
+        (
+            {"services": {"enabled": [" postgres ", "minio"], "disabled": ["trino"]}},
+            {"postgres", "minio"},
+            {"trino"},
+        ),
+        (
+            {"services": {"postgres": {"enabled": True}, "minio": {"enabled": False}}},
+            {"postgres"},
+            {"minio"},
+        ),
+        ({"services": {"enabled": ["trino"], "trino": {"enabled": False}}}, {"trino"}, set()),
+        ({"services": {"disabled": ["trino"], "trino": {"enabled": True}}}, {"trino"}, set()),
+        (
+            {
+                "services": {
+                    "enabled": ["  ", 12, None, " trino "],
+                    "disabled": [False, " ", " minio "],
+                }
+            },
+            {"trino"},
+            {"minio"},
+        ),
+        (
+            {"services": {" ": {"enabled": True}, " postgres ": {"enabled": True}}},
+            {"postgres"},
+            set(),
+        ),
+        ({"services": ["postgres"]}, set(), set()),
+        ({"services": {"enabled": "postgres", "disabled": None}}, set(), set()),
+        (None, set(), set()),
+    ],
+)
+def test_enabled_disabled_service_names(
+    config: dict | None, enabled: set[str], disabled: set[str]
+) -> None:
+    assert service_utils.get_enabled_disabled_service_names(config) == (enabled, disabled)
+
+
 def test_emit_service_lifecycle_events_preserves_request_correlation(
     monkeypatch,
     tmp_path: Path,

@@ -1,0 +1,79 @@
+name: Mutation tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/mutation.yml"
+      - "pyproject.toml"
+      - "packages/phlo-api/pyproject.toml"
+      - "src/phlo/security/mode.py"
+      - "src/phlo/quality_rules.py"
+      - "src/phlo/cli/commands/services/utils.py"
+      - "packages/phlo-api/src/phlo_api/observatory_api/trino.py"
+      - "tests/security/test_mode.py"
+      - "tests/plugins/test_provider_neutral_quality_api.py"
+      - "tests/cli/test_cli_services_utils.py"
+      - "packages/phlo-api/tests/test_trino_sql.py"
+  workflow_dispatch:
+  schedule:
+    - cron: "37 2 * * 6"
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+
+      - name: Install workspace
+        run: |
+          uv python install 3.12
+          uv sync --python 3.12 --all-packages --locked
+
+      - name: Mutate security, quality, and service parsing
+        run: |
+          uv run --locked --with mutmut==3.8.0 mutmut run \
+            'phlo.security.mode.x_is_regulated*' \
+            'phlo.security.mode.x_requires_http_authorization*' \
+            'phlo.quality_rules.x_range_between*' \
+            'phlo.cli.commands.services.utils.x_get_enabled_disabled_service_names*' \
+            --max-children 2
+
+      - name: Mutate Trino identifier quoting
+        working-directory: packages/phlo-api
+        run: >-
+          uv run --locked --with mutmut==3.8.0 mutmut run
+          'phlo_api.observatory_api.trino.x_quote_identifier*'
+          --max-children 2
+
+      - name: Collect mutation reports
+        if: always()
+        run: |
+          mkdir -p mutation-reports
+          if [ -d mutants ]; then
+            uv run --locked --with mutmut==3.8.0 mutmut results --all true | \
+              grep -E 'phlo.security.mode.x_(is_regulated__|requires_http_authorization__)|phlo.quality_rules.x_range_between__|phlo.cli.commands.services.utils.x_get_enabled_disabled_service_names__' \
+              > mutation-reports/policy.txt
+          fi
+          if [ -d packages/phlo-api/mutants ]; then
+            (cd packages/phlo-api && uv run --locked --with mutmut==3.8.0 mutmut results --all true) | \
+              grep 'phlo_api.observatory_api.trino.x_quote_identifier__' \
+              > mutation-reports/trino.txt
+          fi
+
+      - name: Upload mutation reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: mutation-reports
+          path: mutation-reports/
+          if-no-files-found: warn

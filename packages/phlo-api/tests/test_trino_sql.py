@@ -15,10 +15,14 @@ def test_quote_identifier_escapes_double_quotes() -> None:
     assert quote_identifier('col"umn') == '"col""umn"'
 
 
-@pytest.mark.parametrize("identifier", ["", "abc\x00def"])
-def test_quote_identifier_rejects_invalid_identifiers(identifier: str) -> None:
-    with pytest.raises(ValueError):
+@pytest.mark.parametrize(
+    ("identifier", "error"),
+    [("", "Identifier cannot be empty"), ("abc\x00def", "Identifier cannot contain NUL bytes")],
+)
+def test_quote_identifier_rejects_invalid_identifiers(identifier: str, error: str) -> None:
+    with pytest.raises(ValueError) as exc_info:
         quote_identifier(identifier)
+    assert str(exc_info.value) == error
 
 
 def test_qualify_table_name_quotes_all_parts() -> None:
