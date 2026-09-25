@@ -406,3 +406,21 @@ async def test_extension_settings_put_returns_503_when_storage_unavailable(monke
         await extension_settings.put_extension_settings("demo", payload)
     assert exc.value.status_code == 503
     assert "unavailable" in exc.value.detail.lower()
+
+
+class _UndecodableResponse(_Response):
+    def json(self) -> object:
+        raise ValueError("body is not JSON")
+
+
+@pytest.mark.anyio
+async def test_loki_log_query_unreadable_response_is_bad_gateway(monkeypatch) -> None:
+    """A 200 body that does not decode maps to BadGateway, not BackendUnavailable."""
+    from phlo_api.errors import BadGatewayError
+
+    monkeypatch.setattr(loki.httpx, "AsyncClient", _AsyncClient)
+    monkeypatch.setattr(loki, "resolve_loki_url", lambda: "http://configured-loki:3100")
+    _AsyncClient.responses = [_UndecodableResponse(200, None)]
+
+    with pytest.raises(BadGatewayError):
+        await loki.fetch_log_entries("2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")

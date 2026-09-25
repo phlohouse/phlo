@@ -29,12 +29,16 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import atexit
+import contextlib
 import json
-import multiprocessing
-import re
+import os
+import subprocess
+import sys
+import threading
 from datetime import datetime, timedelta
 from multiprocessing.connection import Connection
-from time import monotonic
+from pathlib import Path
 from typing import Any, Literal
 
 import httpx
@@ -45,6 +49,13 @@ from pydantic import BaseModel
 from phlo.config.env import project_env_value
 from phlo.config.network import resolve_url
 from phlo.logging import get_logger
+from phlo_api.errors import (
+    BackendUnavailableError,
+    BadGatewayError,
+    BadInputError,
+    PhloApiError,
+    error_envelope,
+)
 from phlo_api.pagination import decode_cursor, paginate_items
 
 logger = get_logger(__name__)
@@ -73,56 +84,112 @@ class _RegexEvaluationTimeoutError(Exception):
     """Raised when message-filter regex evaluation exceeds its budget."""
 
 
-def _regex_filter_worker(
-    result_connection: Connection, pattern_text: str, messages: list[str]
-) -> None:
-    """Evaluate a regex filter in an isolated process.
+_REGEX_WORKER_PATH = Path(__file__).resolve().with_name("_loki_regex_worker.py")
 
-    The parent enforces the deadline and terminates this process if Python's
-    backtracking engine takes too long. Only matching indexes cross the process
-    boundary so worker failures can never include log contents in an error.
+_regex_filter_lock = threading.Lock()
+_regex_filter_process: subprocess.Popen[bytes] | None = None
+_regex_filter_reader: Connection | None = None
+_regex_filter_writer: Connection | None = None
+
+
+def _start_regex_filter_worker() -> tuple[subprocess.Popen[bytes], Connection, Connection]:
+    """Spawn the long-lived regex filter worker as a clean interpreter.
+
+    ``python -I`` execs a fresh interpreter carrying no shared state from this
+    multi-threaded process, unlike ``fork()`` which can copy a thread-held
+    lock and deadlock the child.
     """
+    to_worker_read, to_worker_write = os.pipe()
+    from_worker_read, from_worker_write = os.pipe()
     try:
-        pattern = re.compile(pattern_text)
-    except re.error:
-        result_connection.send(("invalid", []))
-    else:
-        result_connection.send(
-            (
-                "matches",
-                [index for index, message in enumerate(messages) if pattern.search(message)],
-            )
+        process = subprocess.Popen(
+            [sys.executable or "python3", "-I", str(_REGEX_WORKER_PATH)],
+            stdin=to_worker_read,
+            stdout=from_worker_write,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
         )
     finally:
-        result_connection.close()
+        os.close(to_worker_read)
+        os.close(from_worker_write)
+    return process, Connection(from_worker_read), Connection(to_worker_write)
+
+
+def _drop_regex_filter_worker() -> None:
+    """Kill the current worker if any, close its pipes, and reap it."""
+    global _regex_filter_process, _regex_filter_reader, _regex_filter_writer
+    reader, writer, process = (
+        _regex_filter_reader,
+        _regex_filter_writer,
+        _regex_filter_process,
+    )
+    _regex_filter_process = None
+    _regex_filter_reader = None
+    _regex_filter_writer = None
+    for connection in (reader, writer):
+        if connection is not None:
+            with contextlib.suppress(OSError):
+                connection.close()
+    if process is None:
+        return
+    if process.poll() is None:
+        with contextlib.suppress(OSError):
+            process.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=2)
+
+
+def _ensure_regex_filter_worker() -> tuple[Connection, Connection]:
+    """Return live worker pipes, respawning the worker when it has died."""
+    global _regex_filter_process, _regex_filter_reader, _regex_filter_writer
+    if _regex_filter_process is not None and _regex_filter_process.poll() is not None:
+        _drop_regex_filter_worker()
+    if _regex_filter_process is None:
+        _regex_filter_process, _regex_filter_reader, _regex_filter_writer = (
+            _start_regex_filter_worker()
+        )
+    reader = _regex_filter_reader
+    writer = _regex_filter_writer
+    if reader is None or writer is None:  # pragma: no cover - worker always owns its pipes
+        raise RuntimeError("regex filter worker pipes not initialised")
+    return reader, writer
 
 
 def _filter_entries_with_regex(entries: list[LogEntry], pattern_text: str) -> list[LogEntry]:
-    """Filter entries with a hard total evaluation deadline outside the API process."""
-    receive_connection, send_connection = multiprocessing.Pipe(duplex=False)
-    process = multiprocessing.get_context("fork").Process(
-        target=_regex_filter_worker,
-        args=(send_connection, pattern_text, [entry.message for entry in entries]),
-    )
-    deadline = monotonic() + REGEX_EVALUATION_TIMEOUT_SECONDS
-    try:
-        process.start()
-        send_connection.close()
-        remaining = deadline - monotonic()
-        if remaining <= 0 or not receive_connection.poll(remaining):
-            raise _RegexEvaluationTimeoutError
-        status, matching_indexes = receive_connection.recv()
-    except EOFError as exc:
-        raise _InvalidRegexError from exc
-    finally:
-        receive_connection.close()
-        if process.is_alive():
-            process.terminate()
-        process.join()
+    """Filter entries with a hard evaluation deadline inside a spawned worker.
+
+    The worker enforces the deadline and is hard-killed and lazily respawned on
+    timeout so a stuck evaluation can never stall the API process. Only
+    matching indexes cross the process boundary, so errors can never include
+    log contents.
+    """
+    with _regex_filter_lock:
+        reader, writer = _ensure_regex_filter_worker()
+        try:
+            writer.send((pattern_text, [entry.message for entry in entries]))
+            if not reader.poll(REGEX_EVALUATION_TIMEOUT_SECONDS):
+                raise _RegexEvaluationTimeoutError
+            status, matching_indexes = reader.recv()
+        except _RegexEvaluationTimeoutError:
+            _drop_regex_filter_worker()
+            raise
+        except (EOFError, OSError) as exc:
+            _drop_regex_filter_worker()
+            raise _RegexEvaluationTimeoutError from exc
 
     if status == "invalid":
         raise _InvalidRegexError
+    if status != "matches":
+        raise _RegexEvaluationTimeoutError
     return [entries[index] for index in matching_indexes]
+
+
+def _shutdown_regex_filter_worker() -> None:
+    with contextlib.suppress(Exception):
+        _drop_regex_filter_worker()
+
+
+atexit.register(_shutdown_regex_filter_worker)
 
 
 def resolve_loki_url() -> str:
@@ -176,6 +243,12 @@ class LokiConnectionStatus(BaseModel):
     connected: bool
     error: str | None = None
     version: str | None = None
+
+
+class LogLabelsResponse(BaseModel):
+    """Available Loki label keys."""
+
+    labels: list[str]
 
 
 # --- Helper Functions ---
@@ -299,17 +372,16 @@ async def fetch_connection_status() -> LokiConnectionStatus:
     """Check whether the configured Loki endpoint is reachable, returning the
     connection state and Loki version information.
     """
-    url = resolve_loki_url()
-
     try:
+        url = resolve_loki_url()
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(f"{url}/ready")
-
+            response.raise_for_status()
             if response.status_code != 200:
-                return LokiConnectionStatus(
-                    connected=False,
-                    error=f"HTTP {response.status_code}: {response.reason_phrase}",
+                logger.warning(
+                    "Loki readiness check returned unexpected status", status=response.status_code
                 )
+                raise BadGatewayError("Loki returned an error response.")
 
             try:
                 build_response = await client.get(f"{url}/loki/api/v1/status/buildinfo")
@@ -322,8 +394,14 @@ async def fetch_connection_status() -> LokiConnectionStatus:
                 version = "unknown"
 
             return LokiConnectionStatus(connected=True, version=version)
-    except Exception as e:
-        return LokiConnectionStatus(connected=False, error=str(e))
+    except httpx.HTTPStatusError as exc:
+        logger.exception("Loki readiness check failed")
+        raise BadGatewayError("Loki returned an error response.") from exc
+    except PhloApiError:
+        raise
+    except Exception as exc:
+        logger.exception("Loki connection check failed")
+        raise BackendUnavailableError("Loki backend is unavailable.") from exc
 
 
 async def fetch_log_entries(
@@ -337,20 +415,30 @@ async def fetch_log_entries(
     level: LogLevel | None = None,
     service: str | None = None,
     limit: int = 100,
-) -> LogQueryResult | dict[str, str]:
+) -> LogQueryResult:
     """Query the configured Loki endpoint with correlation filters, returning a
-    result with entries and a has_more flag, or an error dictionary on failure.
+    result with entries and a has_more flag.
+
+    Raises: BadInputError for unparsable start/end timestamps, BadGatewayError
+    when Loki answers with an error or unreadable response, and
+    BackendUnavailableError when Loki cannot be reached.
     """
-    url = resolve_loki_url()
+    try:
+        url = resolve_loki_url()
+    except Exception as exc:
+        raise BackendUnavailableError("Loki endpoint is not configured.") from exc
 
     try:
-        query = build_log_query(run_id, asset_key, job, partition_key, check_name, level, service)
-
         start_ns = int(
             datetime.fromisoformat(start.replace("Z", "+00:00")).timestamp() * 1_000_000_000
         )
         end_ns = int(datetime.fromisoformat(end.replace("Z", "+00:00")).timestamp() * 1_000_000_000)
+    except ValueError as exc:
+        raise BadInputError("Invalid start or end timestamp.") from exc
 
+    query = build_log_query(run_id, asset_key, job, partition_key, check_name, level, service)
+
+    try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
                 f"{url}/loki/api/v1/query_range",
@@ -363,13 +451,25 @@ async def fetch_log_entries(
                 },
             )
             response.raise_for_status()
-            result = response.json()
-
-            entries = parse_loki_response(result)
-            return LogQueryResult(entries=entries, has_more=len(entries) == limit)
-    except Exception as e:
+    except httpx.HTTPStatusError as exc:
         logger.exception("Failed to query logs")
-        return {"error": str(e)}
+        raise BadGatewayError("Loki returned an error response.") from exc
+    except Exception as exc:
+        logger.exception("Failed to query logs")
+        raise BackendUnavailableError("Loki backend is unavailable.") from exc
+
+    try:
+        result = response.json()
+    except ValueError as exc:
+        logger.exception("Failed to decode Loki response")
+        raise BadGatewayError("Loki returned an unreadable response.") from exc
+
+    try:
+        entries = parse_loki_response(result)
+    except Exception as exc:
+        logger.exception("Failed to parse Loki response")
+        raise BadGatewayError("Loki returned an unreadable response.") from exc
+    return LogQueryResult(entries=entries, has_more=len(entries) == limit)
 
 
 async def fetch_run_log_entries(
@@ -381,10 +481,10 @@ async def fetch_run_log_entries(
     since: str | None = None,
     until: str | None = None,
     cursor: str | None = None,
-) -> LogQueryResult | dict[str, str]:
+) -> LogQueryResult:
     """Query configured Loki for logs belonging to a Dagster run, returning
-    paginated entries or an error dictionary. Applies optional case-insensitive
-    and regular-expression message filters after fetching.
+    paginated entries. Applies optional case-insensitive and regular-expression
+    message filters after fetching.
 
     Raises: HTTPException with status 400 for an over-long or invalid regex,
     and 422 when regex evaluation exceeds its time budget.
@@ -392,10 +492,15 @@ async def fetch_run_log_entries(
     if regex is not None and len(regex) > MAX_REGEX_PATTERN_LENGTH:
         raise HTTPException(status_code=400, detail=_INVALID_REGEX_ERROR)
 
-    end = datetime.fromisoformat(until.replace("Z", "+00:00")) if until else datetime.now()
-    start = (
-        datetime.fromisoformat(since.replace("Z", "+00:00")) if since else end - timedelta(hours=24)
-    )
+    try:
+        end = datetime.fromisoformat(until.replace("Z", "+00:00")) if until else datetime.now()
+        start = (
+            datetime.fromisoformat(since.replace("Z", "+00:00"))
+            if since
+            else end - timedelta(hours=24)
+        )
+    except ValueError as exc:
+        raise BadInputError("Invalid since or until timestamp.") from exc
 
     offset = decode_cursor(cursor)
     query_limit = min(offset + limit, 2000)
@@ -406,8 +511,6 @@ async def fetch_run_log_entries(
         level=level,
         limit=query_limit,
     )
-    if isinstance(result, dict):
-        return result
     entries = result.entries
     if query:
         entries = [entry for entry in entries if query.lower() in entry.message.lower()]
@@ -432,9 +535,9 @@ async def fetch_asset_log_entries(
     level: LogLevel | None = None,
     hours_back: int = 24,
     limit: int = 200,
-) -> LogQueryResult | dict[str, str]:
+) -> LogQueryResult:
     """Query configured Loki for logs belonging to an asset over a lookback
-    window ending now, returning entries or an error dictionary.
+    window ending now.
     """
     end = datetime.now()
     start = end - timedelta(hours=hours_back)
@@ -449,20 +552,31 @@ async def fetch_asset_log_entries(
     )
 
 
-async def fetch_log_labels() -> dict[str, Any]:
-    """Fetch available label keys from the configured Loki endpoint, returning
-    the label payload or an error dictionary.
+async def fetch_log_labels() -> LogLabelsResponse:
+    """Fetch available label keys from the configured Loki endpoint.
+
+    Raises: BadGatewayError when Loki answers with an error, and
+    BackendUnavailableError when Loki cannot be reached.
     """
-    url = resolve_loki_url()
+    try:
+        url = resolve_loki_url()
+    except Exception as exc:
+        raise BackendUnavailableError("Loki endpoint is not configured.") from exc
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(f"{url}/loki/api/v1/labels")
             response.raise_for_status()
             result = response.json()
-            return {"labels": result.get("data", [])}
-    except Exception as e:
-        return {"error": str(e)}
+    except httpx.HTTPStatusError as exc:
+        logger.exception("Failed to fetch Loki labels")
+        raise BadGatewayError("Loki returned an error response.") from exc
+    except Exception as exc:
+        logger.exception("Failed to fetch Loki labels")
+        raise BackendUnavailableError("Loki backend is unavailable.") from exc
+
+    labels = result.get("data", []) if isinstance(result, dict) else []
+    return LogLabelsResponse(labels=[str(label) for label in labels])
 
 
 # --- API Endpoints ---
@@ -480,7 +594,7 @@ async def check_connection(loki_url: str | None = None) -> LokiConnectionStatus:
     return await fetch_connection_status()
 
 
-@router.get("/query", response_model=LogQueryResult | dict)
+@router.get("/query", response_model=LogQueryResult)
 async def query_logs(
     start: str,
     end: str,
@@ -493,12 +607,12 @@ async def query_logs(
     service: str | None = None,
     limit: int = Query(default=100, le=1000),
     loki_url: str | None = None,
-) -> LogQueryResult | dict[str, str]:
+) -> LogQueryResult:
     """Query logs with correlation filters.
 
     Executes a LogQL query against Loki with optional filters for run_id,
     asset_key, job, partition_key, check_name, level, and service, returning a
-    result with entries and a has_more flag or an error dictionary.
+    result with entries and a has_more flag.
 
     Raises: HTTPException with status 422 when a ``loki_url`` query parameter is
     supplied; it is never honored and exists only for explicit request
@@ -519,7 +633,7 @@ async def query_logs(
     )
 
 
-@router.get("/runs/{run_id}", response_model=LogQueryResult | dict)
+@router.get("/runs/{run_id}", response_model=LogQueryResult)
 async def query_run_logs(
     run_id: str,
     level: LogLevel | None = None,
@@ -530,9 +644,8 @@ async def query_run_logs(
     until: str | None = None,
     cursor: str | None = None,
     loki_url: str | None = None,
-) -> LogQueryResult | dict[str, str]:
-    """Query logs for a Dagster run, returning the paginated result or an error
-    dictionary.
+) -> LogQueryResult:
+    """Query logs for a Dagster run, returning the paginated result.
 
     Raises: HTTPException with status 422 when a ``loki_url`` query parameter is
     supplied; it is never honored and exists only for explicit request
@@ -562,8 +675,11 @@ async def stream_run_logs(
     """Stream bounded Server-Sent Events for run logs.
 
     Raises: HTTPException with status 422 when ``loki_url`` is supplied.
+    Initial backend failures use HTTP status; later failures use SSE because
+    headers have already been sent.
     """
     reject_request_loki_url(loki_url)
+    first_result = await fetch_run_log_entries(run_id=run_id, limit=limit)
 
     async def events():  # noqa: ANN202
         """Yield log events until the deadline, then a done event."""
@@ -572,25 +688,27 @@ async def stream_run_logs(
         # cursor, so entries are deduped by content identity (timestamp, level,
         # message) to emit each record exactly once per stream.
         seen: set[str] = set()
+        result = first_result
         while datetime.now() < deadline:
-            result = await fetch_run_log_entries(run_id=run_id, limit=limit)
-            if isinstance(result, LogQueryResult):
-                for entry in result.entries:
-                    entry_id = f"{entry.timestamp}:{entry.level}:{entry.message}"
-                    if entry_id in seen:
-                        continue
-                    seen.add(entry_id)
-                    yield f"event: log\ndata: {entry.model_dump_json()}\n\n"
-            else:
-                yield f"event: error\ndata: {json.dumps(result)}\n\n"
-                return
+            for entry in result.entries:
+                entry_id = f"{entry.timestamp}:{entry.level}:{entry.message}"
+                if entry_id in seen:
+                    continue
+                seen.add(entry_id)
+                yield f"event: log\ndata: {entry.model_dump_json()}\n\n"
             await asyncio.sleep(interval_seconds)
+            if datetime.now() < deadline:
+                try:
+                    result = await fetch_run_log_entries(run_id=run_id, limit=limit)
+                except PhloApiError as exc:
+                    yield f"event: error\ndata: {json.dumps(error_envelope(exc))}\n\n"
+                    return
         yield f"event: done\ndata: {json.dumps({'run_id': run_id})}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")
 
 
-@router.get("/assets/{asset_key:path}", response_model=LogQueryResult | dict)
+@router.get("/assets/{asset_key:path}", response_model=LogQueryResult)
 async def query_asset_logs(
     asset_key: str,
     partition_key: str | None = None,
@@ -598,9 +716,8 @@ async def query_asset_logs(
     hours_back: int = Query(default=24, le=168),
     limit: int = Query(default=200, le=1000),
     loki_url: str | None = None,
-) -> LogQueryResult | dict[str, str]:
-    """Query logs for an asset over a lookback window ending now, returning the
-    result or an error dictionary.
+) -> LogQueryResult:
+    """Query logs for an asset over a lookback window ending now.
 
     Raises: HTTPException with status 422 when a ``loki_url`` query parameter is
     supplied; it is never honored and exists only for explicit request
@@ -616,10 +733,9 @@ async def query_asset_logs(
     )
 
 
-@router.get("/labels", response_model=dict)
-async def get_log_labels(loki_url: str | None = None) -> dict[str, Any]:
-    """Get available Loki label keys, returning the label payload or an error
-    dictionary.
+@router.get("/labels", response_model=LogLabelsResponse)
+async def get_log_labels(loki_url: str | None = None) -> LogLabelsResponse:
+    """Get available Loki label keys.
 
     Raises: HTTPException with status 422 when ``loki_url`` is supplied; it is
     never honored and exists only for explicit request compatibility.

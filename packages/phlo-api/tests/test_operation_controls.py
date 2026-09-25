@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 import multiprocessing
-import os
 import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
@@ -30,32 +29,7 @@ from phlo_api.api.operation_controls import (
     resolve_idempotency_claim,
 )
 
-
-def _process_audit_writer(project_path: str, barrier: Any, index: int) -> None:
-    """Write one distinct record after all independent processes are ready."""
-    os.environ["PHLO_PROJECT_PATH"] = project_path
-    barrier.wait()
-    audit_operation(
-        operation="process_write",
-        target=str(index),
-        dry_run=False,
-        auth={"subject": "test", "scopes": []},
-        result={"index": index},
-    )
-
-
-def _process_idempotency_resolution(project_path: str, barrier: Any) -> None:
-    """Resolve the same durable claim from an independent process."""
-    os.environ["PHLO_PROJECT_PATH"] = project_path
-    barrier.wait()
-    resolve_idempotency_claim(
-        idempotency_key="process-resolution",
-        operation="cancel_run",
-        target="run-process",
-        resolution="safe_to_retry",
-        resolved_by="operator@example.test",
-        evidence={"provider_lookup": "request was not applied"},
-    )
+from process_test_support import process_audit_writer, process_idempotency_resolution
 
 
 def _audit_records(audit_dir: Path) -> list[dict[str, Any]]:
@@ -432,10 +406,10 @@ def test_resolution_is_idempotent_across_processes(monkeypatch, tmp_path: Path) 
             execute=lambda: (_ for _ in ()).throw(RuntimeError("provider unavailable")),
         )
 
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     barrier = context.Barrier(2)
     processes = [
-        context.Process(target=_process_idempotency_resolution, args=(str(tmp_path), barrier))
+        context.Process(target=process_idempotency_resolution, args=(str(tmp_path), barrier))
         for _ in range(2)
     ]
     for process in processes:
@@ -671,10 +645,10 @@ def test_audit_rotation_preserves_barrier_synchronised_process_writes(
         auth={"subject": "test", "scopes": []},
         result={"padding": "x" * 500},
     )
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     barrier = context.Barrier(4)
     processes = [
-        context.Process(target=_process_audit_writer, args=(str(tmp_path), barrier, index))
+        context.Process(target=process_audit_writer, args=(str(tmp_path), barrier, index))
         for index in range(4)
     ]
     for process in processes:

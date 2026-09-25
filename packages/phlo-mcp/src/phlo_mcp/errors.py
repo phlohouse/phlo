@@ -89,7 +89,12 @@ def _http_error_detail(response: httpx.Response) -> dict[str, str]:
         payload = response.json()
     except ValueError:
         return {}
-    detail = payload.get("detail") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        return {}
+    envelope = payload.get("error")
+    if isinstance(envelope, dict):
+        return {key: str(value) for key, value in envelope.items() if value is not None}
+    detail = payload.get("detail")
     if isinstance(detail, dict):
         return {key: str(value) for key, value in detail.items() if value is not None}
     if isinstance(detail, str):

@@ -49,6 +49,10 @@ class BreakGlassRequest:
     approved_at: str | None = None
     approved_by: str | None = None
     expires_at: str | None = None
+    denied_by: str | None = None
+    denied_at: str | None = None
+    denial_reason: str | None = None
+    revoked_by: str | None = None
     revoked_at: str | None = None
     revocation_reason: str | None = None
 
@@ -146,8 +150,14 @@ class BreakGlassManager:
     def deny(self, request_id: str, denied_by: str, reason: str) -> None:
         """Deny a break-glass request on behalf of denied_by with a reason.
 
-        Raises ValueError when the request is not found or not pending.
+        Records the denying principal, the denial timestamp and the reason
+        on the request. Raises ValueError when denied_by or reason is empty,
+        or when the request is not found or not pending.
         """
+        if not denied_by:
+            raise ValueError("denied_by must not be empty")
+        if not reason:
+            raise ValueError("reason must not be empty")
         if request_id not in self._requests:
             raise ValueError(f"Request not found: {request_id}")
 
@@ -156,6 +166,9 @@ class BreakGlassManager:
             raise ValueError(f"Request not pending: {request.status}")
 
         object.__setattr__(request, "status", BreakGlassStatus.DENIED)
+        object.__setattr__(request, "denied_by", denied_by)
+        object.__setattr__(request, "denied_at", datetime.now(UTC).isoformat())
+        object.__setattr__(request, "denial_reason", reason)
 
     def revoke(
         self,
@@ -166,8 +179,14 @@ class BreakGlassManager:
         """Revoke an approved break-glass request on behalf of revoked_by
         with a reason.
 
-        Raises ValueError when the request is not found or not approved.
+        Records the revoking principal, the revocation timestamp and the
+        reason on the request. Raises ValueError when revoked_by or reason
+        is empty, or when the request is not found or not approved.
         """
+        if not revoked_by:
+            raise ValueError("revoked_by must not be empty")
+        if not reason:
+            raise ValueError("reason must not be empty")
         if request_id not in self._requests:
             raise ValueError(f"Request not found: {request_id}")
 
@@ -176,6 +195,7 @@ class BreakGlassManager:
             raise ValueError(f"Request not approved: {request.status}")
 
         object.__setattr__(request, "status", BreakGlassStatus.REVOKED)
+        object.__setattr__(request, "revoked_by", revoked_by)
         object.__setattr__(request, "revoked_at", datetime.now(UTC).isoformat())
         object.__setattr__(request, "revocation_reason", reason)
 

@@ -6,6 +6,7 @@ and resets it around each test.
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -15,6 +16,27 @@ import pytest
 TEST_DIR = str(Path(__file__).parent)
 if TEST_DIR not in sys.path:
     sys.path.insert(0, TEST_DIR)
+
+
+@pytest.fixture(autouse=True)
+def fail_on_fork_from_multithreaded_process(monkeypatch) -> None:
+    """Error any phlo-api test that forks a child process.
+
+    Equivalent to ``-W error::DeprecationWarning:multiprocessing.popen_fork``
+    plus the "no fork context anywhere in phlo-api" acceptance criterion; the
+    CPython warning cannot be raised as an error (it is emitted through a C
+    path that ignores the ``error`` action), so this guards ``os.fork``
+    directly. Spawn/forkserver workers use ``_posixsubprocess``/posix_spawn and
+    are unaffected.
+    """
+
+    def guarded_fork() -> int:
+        raise RuntimeError(
+            "os.fork() called during a phlo-api test; spawn a clean interpreter instead"
+        )
+
+    monkeypatch.setattr(os, "fork", guarded_fork)
+    yield
 
 
 @pytest.fixture(autouse=True)

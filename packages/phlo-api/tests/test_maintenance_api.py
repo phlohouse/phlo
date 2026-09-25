@@ -17,6 +17,7 @@ from phlo.capabilities import (
     register_capability,
 )
 from phlo_api.api import maintenance
+from phlo_api.errors import BackendUnavailableError
 
 
 class _OptimizeOperation:
@@ -142,25 +143,22 @@ def test_get_maintenance_metrics_returns_provider_payload_verbatim(monkeypatch) 
     assert response.body.decode() == _METRICS_PAYLOAD
 
 
-def test_get_maintenance_status_fails_soft_when_the_read_model_raises(monkeypatch) -> None:
+def test_get_maintenance_status_raises_when_the_read_model_raises(monkeypatch) -> None:
     monkeypatch.setattr(
         maintenance, "_resolve_maintenance_read_model", lambda: _ExplodingReadModel()
     )
 
-    payload = maintenance.get_maintenance_status()
+    with pytest.raises(BackendUnavailableError):
+        maintenance.get_maintenance_status()
 
-    assert payload == {"error": "read model unavailable"}
 
-
-def test_get_maintenance_metrics_fails_soft_when_the_read_model_raises(monkeypatch) -> None:
+def test_get_maintenance_metrics_raises_when_the_read_model_raises(monkeypatch) -> None:
     monkeypatch.setattr(
         maintenance, "_resolve_maintenance_read_model", lambda: _ExplodingReadModel()
     )
 
-    response = maintenance.get_maintenance_metrics()
-
-    assert response.status_code == 500
-    assert response.body.decode() == "# error: read model unavailable\n"
+    with pytest.raises(BackendUnavailableError):
+        maintenance.get_maintenance_metrics()
 
 
 def test_resolve_maintenance_read_model_uses_env_selection(monkeypatch) -> None:

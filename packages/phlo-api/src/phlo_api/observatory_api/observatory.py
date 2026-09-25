@@ -3109,21 +3109,15 @@ def _run_read_query(request: ObservatoryQueryRequest) -> ObservatoryQueryResult:
 
 async def _contributing_rows_query(
     request: ObservatoryContributingRowsQueryRequest,
-) -> ObservatoryContributingRowsQueryResponse | dict[str, str]:
+) -> ObservatoryContributingRowsQueryResponse:
     from phlo_api.observatory_api.contributing import (
         ContributingRowsQueryRequest,
-        ContributingRowsQueryResponse,
         get_contributing_rows_query,
     )
 
     result = await get_contributing_rows_query(
         ContributingRowsQueryRequest.model_validate(request.model_dump())
     )
-    if not isinstance(result, ContributingRowsQueryResponse):
-        error = result.get("error")
-        if isinstance(error, str):
-            return {"error": error}
-        return {"error": "Unable to build contributing rows query."}
     return ObservatoryContributingRowsQueryResponse(
         query=result.query,
         upstream=ObservatoryUpstreamTableRef(
@@ -3135,21 +3129,15 @@ async def _contributing_rows_query(
 
 async def _contributing_rows_page(
     request: ObservatoryContributingRowsPageRequest,
-) -> ObservatoryContributingRowsPageResponse | dict[str, str]:
+) -> ObservatoryContributingRowsPageResponse:
     from phlo_api.observatory_api.contributing import (
         ContributingRowsPageRequest,
-        ContributingRowsPageResponse,
         get_contributing_rows_page,
     )
 
     result = await get_contributing_rows_page(
         ContributingRowsPageRequest.model_validate(request.model_dump())
     )
-    if not isinstance(result, ContributingRowsPageResponse):
-        error = result.get("error")
-        if isinstance(error, str):
-            return {"error": error}
-        return {"error": "Unable to build contributing rows page."}
     return ObservatoryContributingRowsPageResponse(
         mode=result.mode,
         page=result.page,
@@ -4949,22 +4937,22 @@ def get_observatory_row_journey(table_id: str, row_id: str) -> ObservatoryRowJou
 
 @router.post(
     "/contributing-rows/query",
-    response_model=ObservatoryContributingRowsQueryResponse | dict[str, str],
+    response_model=ObservatoryContributingRowsQueryResponse,
 )
 async def post_observatory_contributing_rows_query(
     request: ObservatoryContributingRowsQueryRequest,
-) -> ObservatoryContributingRowsQueryResponse | dict[str, str]:
+) -> ObservatoryContributingRowsQueryResponse:
     """Build a query for rows that contributed to a selected downstream row."""
     return await _contributing_rows_query(request)
 
 
 @router.post(
     "/contributing-rows/page",
-    response_model=ObservatoryContributingRowsPageResponse | dict[str, str],
+    response_model=ObservatoryContributingRowsPageResponse,
 )
 async def post_observatory_contributing_rows_page(
     request: ObservatoryContributingRowsPageRequest,
-) -> ObservatoryContributingRowsPageResponse | dict[str, str]:
+) -> ObservatoryContributingRowsPageResponse:
     """Return a page of rows that contributed to a selected downstream row."""
     return await _contributing_rows_page(request)
 

@@ -15,6 +15,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { parse as parseYaml } from 'yaml'
 
 import { authMiddleware } from '@/observatory/api/auth'
+import { mutationAuthorization } from '@/server/authenticated-mutation'
 import {
   getComposeLabelValue,
   matchesComposeProject,
@@ -760,37 +761,40 @@ export async function loadEnvValues(
   return values
 }
 
+async function fetchDockerStatus(): Promise<Array<DockerContainerStatus>> {
+  const startedAt = performance.now()
+  try {
+    const composeProject = await getComposeProjectName()
+    // Use docker ps to get ALL running containers (not compose-specific)
+    const { stdout } = await execAsync('docker ps -a --format json')
+    const statuses = parseDockerStatusLines(stdout, composeProject)
+    servicesLog.info(
+      {
+        composeProject,
+        count: statuses.length,
+        durationMs: Math.round(performance.now() - startedAt),
+      },
+      'services_docker_status_completed',
+    )
+    return statuses
+  } catch (error) {
+    servicesLog.error({ err: error }, 'services_docker_status_failed')
+    return []
+  }
+}
+
 /**
  * Get Docker container status for all services
  */
-const getDockerStatus = createServerFn().handler(
-  async (): Promise<Array<DockerContainerStatus>> => {
-    const startedAt = performance.now()
-    try {
-      const composeProject = await getComposeProjectName()
-      // Use docker ps to get ALL running containers (not compose-specific)
-      const { stdout } = await execAsync('docker ps -a --format json')
-      const statuses = parseDockerStatusLines(stdout, composeProject)
-      servicesLog.info(
-        {
-          composeProject,
-          count: statuses.length,
-          durationMs: Math.round(performance.now() - startedAt),
-        },
-        'services_docker_status_completed',
-      )
-      return statuses
-    } catch (error) {
-      servicesLog.error({ err: error }, 'services_docker_status_failed')
-      return []
-    }
-  },
-)
+export const getDockerStatus = createServerFn()
+  .middleware([authMiddleware])
+  .handler(fetchDockerStatus)
 
 /**
  * Get all services with their definitions and Docker status
  */
 export const getServices = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator((input: Record<string, never> = {}) => input)
   .handler(async (): Promise<Array<ServiceWithStatus>> => {
     const now = Date.now()
@@ -802,7 +806,7 @@ export const getServices = createServerFn()
     const [services, containers, envValues, nativeProcesses] =
       await Promise.all([
         discoverServices(),
-        getDockerStatus(),
+        fetchDockerStatus(),
         loadEnvValues(),
         loadNativeProcesses(),
       ])
@@ -876,11 +880,13 @@ export function serviceActionId(
 async function runServiceActionViaApi(
   serviceName: string,
   action: ServiceControlAction,
+  authorization?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const result = await apiPost<ServiceActionResult>(
     '/api/observatory/actions',
     { action_id: serviceActionId(serviceName, action) },
     130000,
+    authorization,
   )
   if (result.status === 'succeeded') {
     return { success: true }
@@ -894,11 +900,16 @@ async function runServiceActionViaApi(
 async function controlService(
   serviceName: string,
   action: ServiceControlAction,
+  authorization?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const startedAt = performance.now()
   servicesLog.info({ serviceName, action }, 'services_control_started')
   try {
-    const result = await runServiceActionViaApi(serviceName, action)
+    const result = await runServiceActionViaApi(
+      serviceName,
+      action,
+      authorization,
+    )
     if (result.success) {
       servicesCache = null
       servicesLog.info(
@@ -940,13 +951,14 @@ async function controlService(
  * Start a service
  */
 export const startService = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([mutationAuthorization, authMiddleware])
   .inputValidator((input: { serviceName: string }) => input)
   .handler(
     async ({
       data: { serviceName },
+      context,
     }): Promise<{ success: boolean; error?: string }> => {
-      return controlService(serviceName, 'start')
+      return controlService(serviceName, 'start', context.authorization)
     },
   )
 
@@ -954,13 +966,14 @@ export const startService = createServerFn()
  * Stop a service
  */
 export const stopService = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([mutationAuthorization, authMiddleware])
   .inputValidator((input: { serviceName: string }) => input)
   .handler(
     async ({
       data: { serviceName },
+      context,
     }): Promise<{ success: boolean; error?: string }> => {
-      return controlService(serviceName, 'stop')
+      return controlService(serviceName, 'stop', context.authorization)
     },
   )
 
@@ -968,12 +981,13 @@ export const stopService = createServerFn()
  * Restart a service
  */
 export const restartService = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([mutationAuthorization, authMiddleware])
   .inputValidator((input: { serviceName: string }) => input)
   .handler(
     async ({
       data: { serviceName },
+      context,
     }): Promise<{ success: boolean; error?: string }> => {
-      return controlService(serviceName, 'restart')
+      return controlService(serviceName, 'restart', context.authorization)
     },
   )

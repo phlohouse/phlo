@@ -17,6 +17,7 @@ from phlo.capabilities import (
     register_capability,
 )
 from phlo_api.api import observability
+from phlo_api.errors import BackendUnavailableError
 
 
 class _FakeObservabilityBackend:
@@ -288,18 +289,19 @@ def test_get_metrics_query_link_returns_backend_url_unchanged(monkeypatch) -> No
     _ENDPOINT_CALLS,
     ids=["health", "services", "metrics", "alerts", "dashboards", "log-link", "metric-link"],
 )
-def test_endpoints_fail_soft_when_the_backend_raises(call, monkeypatch) -> None:
-    """A broken backend degrades to an error payload instead of a 500."""
+def test_endpoints_raise_typed_errors_when_the_backend_raises(call, monkeypatch) -> None:
+    """A broken backend surfaces as a typed 503 error instead of a 200 payload."""
     monkeypatch.setattr(
         observability,
         "_resolve_observability_backend",
         lambda backend=None: _ExplodingObservabilityBackend(),
     )
 
-    payload = call(None)
+    with pytest.raises(BackendUnavailableError) as excinfo:
+        call(None)
 
-    assert set(payload.keys()) == {"error"}
-    assert "backend unavailable" in payload["error"]
+    assert excinfo.value.status_code == 503
+    assert "backend unavailable" not in excinfo.value.message
 
 
 def test_resolve_observability_backend_uses_explicit_backend_name(monkeypatch) -> None:
