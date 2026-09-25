@@ -6,11 +6,18 @@ import { createServerFn } from '@tanstack/react-start'
 
 import { clearCache, getCacheStats } from './cache'
 
-export const getCacheStatsEndpoint = createServerFn().handler(() => {
-  return Promise.resolve(getCacheStats())
-})
+import { authMiddleware } from '@/observatory/api/auth'
+import { mutationAuthorization } from '@/server/authenticated-mutation'
 
-export const clearCacheEndpoint = createServerFn().handler(() => {
-  clearCache()
-  return Promise.resolve({ cleared: true })
-})
+export const getCacheStatsEndpoint = createServerFn()
+  .middleware([authMiddleware])
+  .handler(() => {
+    return Promise.resolve(getCacheStats())
+  })
+
+export const clearCacheEndpoint = createServerFn()
+  .middleware([mutationAuthorization, authMiddleware])
+  .handler(() => {
+    clearCache()
+    return Promise.resolve({ cleared: true })
+  })
