@@ -53,14 +53,15 @@ async def _lifespan(application: FastAPI):
     from phlo.run_evidence.store import default_run_evidence_store
 
     store = default_run_evidence_store()
-    store.initialize()
-    application.state.run_evidence_store = store
     try:
+        store.initialize()
+        application.state.run_evidence_store = store
         async with lifespan_client():
             yield
     finally:
         store.close()
-        del application.state.run_evidence_store
+        if hasattr(application.state, "run_evidence_store"):
+            del application.state.run_evidence_store
 
 
 app = FastAPI(
@@ -91,6 +92,7 @@ app.add_middleware(
 # Auto-discover and register API routers
 _ROUTERS = [
     ("phlo_api.api.v1", "/api/v1"),
+    ("phlo_api.incidents", "/api/v1"),
     ("phlo_api.api.authoring", "/api/authoring"),
     ("phlo_api.api.continuity", "/api/continuity"),
     ("phlo_api.api.maintenance", "/api/maintenance"),

@@ -55,6 +55,7 @@ phlo_api = [
     "Dockerfile",
     "entrypoint.sh",
     "observatory_api/**/*.py",
+    "sql/*.sql",
 ]
 
 [tool.setuptools.package-dir]

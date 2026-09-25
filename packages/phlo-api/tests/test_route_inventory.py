@@ -39,6 +39,12 @@ _GUARDED_NON_GET_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/observatory/actions"): "lakehouse:operate",
     ("PUT", "/api/observatory/extensions/{name}/settings"): "admin",
     ("PUT", "/api/observatory/preferences"): "check_admin_manage",
+    ("POST", "/api/v1/incidents"): "v1_manifest",
+    ("PATCH", "/api/v1/incidents/{incident_id}"): "v1_manifest",
+    ("PUT", "/api/v1/incidents/{incident_id}/subscriptions"): "v1_manifest",
+    ("POST", "/api/v1/incidents/{incident_id}/follow-ups"): "v1_manifest",
+    ("PATCH", "/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}"): "v1_manifest",
+    ("PUT", "/api/v1/assets/{asset_id:path}/incident-policy"): "v1_manifest",
     ("POST", "/api/observatory/saved-queries"): "project:write",
     ("POST", "/api/observatory/workflow-wizard/proposals"): "project:write",
     ("POST", "/api/observatory/workflow-wizard/actions"): "project:write",
@@ -150,6 +156,11 @@ def _endpoint_dispatch_source(path: str, method: str) -> str:
 )
 def test_guarded_route_handlers_contain_a_guard(method: str, path: str, guard: str) -> None:
     """Every declared guarded route really calls a guard in its dispatch path."""
+    if guard == "v1_manifest":
+        from phlo_api.security_manifest import HTTP_ROUTE_KEY_MANIFEST
+
+        assert (method, path) in HTTP_ROUTE_KEY_MANIFEST
+        return
     source = _endpoint_dispatch_source(path, method)
     if guard.startswith("check_"):
         assert f"{guard}(" in source or f"{guard} (" in source, (
