@@ -72,8 +72,8 @@ def _parse_compose_port(port_str: str) -> tuple[str | None, str]:
 def _parse_compose_port_spec(port_str: str) -> ComposePortSpec:
     """Parse a compose port string into its env/literal host and container parts."""
     normalized = port_str.strip().strip("\"'")
-    match = PORT_PATTERN.match(normalized)
-    if match:
+    match = PORT_PATTERN.search(normalized)
+    if match and (match.start() == 0 or normalized[match.start() - 1] == ":"):
         return ComposePortSpec(
             env_var=match.group(1),
             host_port=match.group(2),

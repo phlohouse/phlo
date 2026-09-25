@@ -776,6 +776,47 @@ def test_services_start_preflights_env_local_port_collisions(
     assert "dagster -> 3300 (DAGSTER_PORT)" in str(exc_info.value)
 
 
+def test_services_start_preflights_loopback_env_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from phlo.cli.commands.services import start as start_module
+
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    compose_file = phlo_dir / "docker-compose.yml"
+    compose_file.write_text(
+        "services:\n  postgres:\n    ports:\n      - 127.0.0.1:${POSTGRES_PORT:-10000}:5432\n"
+    )
+
+    class FakeBackend:
+        def list_project_containers(self, project_name: str):
+            return []
+
+    monkeypatch.delenv("POSTGRES_PORT", raising=False)
+    monkeypatch.setattr(
+        start_module, "select_project_container_backend", lambda **_kwargs: FakeBackend()
+    )
+    seen: list[int] = []
+    monkeypatch.setattr(
+        start_module, "_is_host_port_available", lambda port: seen.append(port) or True
+    )
+
+    plan = StartPreflightPlan(
+        phlo_dir=phlo_dir,
+        compose_file=compose_file,
+        project_root=tmp_path,
+        project_name="demo",
+        service_names=["postgres"],
+        backend_name=None,
+    )
+    start_module._preflight_requested_host_ports(plan=plan)
+    assert seen == [10000]
+
+    monkeypatch.setenv("POSTGRES_PORT", "11000")
+    start_module._preflight_requested_host_ports(plan=plan)
+    assert seen == [10000, 11000]
+
+
 def test_services_start_preflights_invalid_env_port_values(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
