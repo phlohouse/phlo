@@ -216,6 +216,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: ./.github/actions/python-workspace
         with:
           python-version: ${{ matrix.python-version }}
@@ -458,7 +459,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12"]
         include: ${{ fromJSON(needs.ci-config.outputs.groups) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -652,7 +652,7 @@ jobs:
           if [ "$SELECT_FRONTEND" = true ]; then expected_frontend=success; fi
           if [ "$SELECT_WRITER" = true ]; then expected_writer=success; fi
           for result in "$INSTALLED_PROVIDER_ARTIFACTS" "$PYTHON_QUALITY" "$PYTHON_CORE_TESTS" \
-            "$QUICKSTART_SMOKE" "$POSTGRES_CONCURRENCY_GATES" "$RECOVERY_CONTINUITY_DRILL" \
+            "$QUICKSTART_SMOKE" "${POSTGRES_CONCURRENCY_GATES}" "$RECOVERY_CONTINUITY_DRILL" \
             "$WINDOWS_RELEASE_CONTRACT"; do
             test "$result" = "$expected_python"
           done

@@ -24,7 +24,13 @@ def workflow(name):
 def test_one_pr_orchestrator_and_no_candidate_duplication() -> None:
     pr = workflow("pr.yml")
     assert set(pr.get("on") or pr[True]) == {"pull_request", "merge_group"}
-    assert pr["jobs"]["required"]["needs"] == ["ci", "integration", "containers", "security"]
+    assert pr["jobs"]["required"]["needs"] == [
+        "changes",
+        "ci",
+        "integration",
+        "containers",
+        "security",
+    ]
     for name in (
         "ci.yml",
         "integration.yml",
@@ -40,11 +46,17 @@ def test_one_pr_orchestrator_and_no_candidate_duplication() -> None:
 @pytest.mark.parametrize("bad_result", ["failure", "cancelled", "skipped", "", "success"])
 def test_required_gate_executes_fail_closed(bad_result) -> None:
     step = workflow("pr.yml")["jobs"]["required"]["steps"][0]
-    for lane in step["env"]:
+    for lane in ("CHANGES", "CI", "CONTAINERS", "SECURITY", "INTEGRATION"):
         env = dict(os.environ, **dict.fromkeys(step["env"], "success"))
+        env["INTEGRATION_SELECTED"] = "true"
         env[lane] = bad_result
         result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
         assert (result.returncode == 0) == (bad_result == "success")
+    env["INTEGRATION_SELECTED"] = "false"
+    env["INTEGRATION"] = "skipped"
+    assert subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True).returncode == 0
+    env["INTEGRATION"] = "success"
+    assert subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True).returncode != 0
 
 
 def test_shards_are_disjoint_complete_and_keep_module_fixtures_together() -> None:
@@ -59,8 +71,17 @@ def test_shards_are_disjoint_complete_and_keep_module_fixtures_together() -> Non
 
 def test_supported_python_version_runs_before_merge() -> None:
     ci = workflow("ci.yml")["jobs"]
-    for job in ("python-core-tests", "python-package-tests"):
-        assert ci[job]["strategy"]["matrix"]["python-version"] == ["3.12"]
+    assert ci["python-core-tests"]["strategy"]["matrix"]["python-version"] == ["3.12"]
+    assert ci["python-package-tests"]["strategy"]["matrix"] == {
+        "include": "${{ fromJSON(needs.ci-config.outputs.groups) }}"
+    }
+    selection_spec = importlib.util.spec_from_file_location(
+        "select_ci", ROOT / "scripts/select_ci.py"
+    )
+    assert selection_spec and selection_spec.loader
+    selector = importlib.util.module_from_spec(selection_spec)
+    selection_spec.loader.exec_module(selector)
+    assert {entry["python-version"] for entry in selector.select(set())["groups"]} == {"3.12"}
     assert ci["python-core-tests"]["env"]["UV_PYTHON"] == "${{ matrix.python-version }}"
 
 

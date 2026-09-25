@@ -163,8 +163,10 @@ filterwarnings = [
     "ignore:TransformationPlugin is deprecated and will be removed:DeprecationWarning",
     # This warning comes from the installed Pydantic version, not project code.
     "ignore:Using `@model_validator` with mode='after' on a classmethod is deprecated:DeprecationWarning",
-    # Starlette's test client warns while importing its installed httpx compatibility fallback.
-    "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
+    # Starlette's httpx fallback warns at its caller (stacklevel=2), which varies by test.
+    # Its warning inherits UserWarning; the built-in category avoids importing Starlette
+    # in isolated Windows tests, which do not install it.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning",
 ]
 markers = [
     "integration: marks tests as requiring external services or dbt manifest (run with '-m integration')",

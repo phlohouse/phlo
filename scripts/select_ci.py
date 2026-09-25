@@ -52,7 +52,7 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
     if broad:
         return {
             "groups": [
-                {"group": group, "packages": " ".join(packages)}
+                {"group": group, "packages": " ".join(packages), "python-version": "3.12"}
                 for group, packages in groups.items()
             ],
             "python": True,
@@ -81,7 +81,7 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
             affected.add(dependent)
             pending.append(dependent)
     selected = [
-        {"group": group, "packages": " ".join(packages)}
+        {"group": group, "packages": " ".join(packages), "python-version": "3.12"}
         for group, packages in groups.items()
         if affected.intersection(packages)
     ]

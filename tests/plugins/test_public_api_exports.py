@@ -33,9 +33,12 @@ def test_phlo_ingestion_module_is_dlt_compatibility_alias(
     monkeypatch.setattr(phlo.ingest, "assets", lambda provider_name=None: ["dlt_asset"])
 
     assert callable(phlo.ingestion)
-    assert phlo.ingestion(table_name="events") == "decorator"
-    assert phlo.ingestion.phlo_ingestion(table_name="events") == "decorator"
-    assert phlo.ingestion.get_ingestion_assets() == ["dlt_asset"]
+    with pytest.warns(DeprecationWarning, match="phlo.ingestion is deprecated"):
+        assert phlo.ingestion(table_name="events") == "decorator"
+    with pytest.warns(DeprecationWarning, match="phlo.ingestion is deprecated"):
+        assert phlo.ingestion.phlo_ingestion(table_name="events") == "decorator"
+    with pytest.warns(DeprecationWarning, match="phlo.ingestion is deprecated"):
+        assert phlo.ingestion.get_ingestion_assets() == ["dlt_asset"]
     assert calls == [{"table_name": "events"}, {"table_name": "events"}]
 
 
