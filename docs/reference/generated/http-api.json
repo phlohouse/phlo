@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 107,
+  "endpoint_count": 111,
   "endpoints": [
     {
       "method": "GET",
@@ -937,6 +937,42 @@
       "path": "/api/services/{name}",
       "summary": "Get Service Info",
       "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_environments_api_v1_environments_get",
+      "path": "/api/v1/environments",
+      "summary": "V1 Environments",
+      "tags": [
+        "v1"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_events_api_v1_events_get",
+      "path": "/api/v1/events",
+      "summary": "V1 Events",
+      "tags": [
+        "v1"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_me_api_v1_me_get",
+      "path": "/api/v1/me",
+      "summary": "V1 Me",
+      "tags": [
+        "v1"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_services_api_v1_services_get",
+      "path": "/api/v1/services",
+      "summary": "V1 Services",
+      "tags": [
+        "v1"
+      ]
     },
     {
       "method": "GET",

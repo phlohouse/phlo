@@ -1,4 +1,4 @@
-"""Representative /api/v1 wire models; no v1 routes are mounted yet."""
+"""Typed /api/v1 phase-1 wire contracts."""
 
 from __future__ import annotations
 
@@ -9,6 +9,18 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 Environment = Literal["prod", "staging"]
 ServiceStatus = Literal["healthy", "degraded", "unhealthy", "unknown", "unavailable"]
+RunStatus = Literal[
+    "NOT_STARTED",
+    "MANAGED",
+    "QUEUED",
+    "STARTING",
+    "STARTED",
+    "SUCCESS",
+    "FAILURE",
+    "CANCELING",
+    "CANCELED",
+]
+ReadPermission = Literal["service.read", "run.read"]
 
 
 class WireModel(BaseModel):
@@ -28,6 +40,23 @@ class EnvironmentTarget(WireModel):
     nessie_ref: str = Field(min_length=1)
 
 
+class MeResponse(WireModel):
+    subject: str = Field(min_length=1)
+    principal_type: Literal["user", "service", "platform"]
+    email: str | None
+    roles: list[str]
+    permissions: dict[Environment, list[ReadPermission]]
+
+
+class EnvironmentAvailability(WireModel):
+    env: Environment
+    status: Literal["available", "unavailable"]
+
+
+class EnvironmentsResponse(WireModel):
+    items: list[EnvironmentAvailability]
+
+
 class ServiceSnapshot(WireModel):
     id: str = Field(min_length=1)
     status: ServiceStatus
@@ -45,3 +74,10 @@ class ServicesResponse(WireModel):
     env: Environment
     items: list[ServiceSnapshot]
     next_cursor: str | None
+
+
+class RunStatusEvent(WireModel):
+    env: Environment
+    run_id: str = Field(min_length=1)
+    status: RunStatus
+    observed_at: AwareDatetime
