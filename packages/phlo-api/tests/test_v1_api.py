@@ -607,6 +607,38 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
     ]
 
     async def graphql(url, query, *args, **kwargs):
+        if "V1AssetRuns" in query:
+            return {
+                "data": {
+                    "runsFeedOrError": {
+                        "__typename": "RunsFeedConnection",
+                        "results": [
+                            {
+                                "__typename": "Run",
+                                "runId": "prod-run",
+                                "status": "SUCCESS",
+                                "creationTime": 1780000000,
+                                "startTime": None,
+                                "endTime": None,
+                                "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                                "assetSelection": [{"path": ["orders"]}],
+                            },
+                            {
+                                "__typename": "Run",
+                                "runId": "staging-run",
+                                "status": "SUCCESS",
+                                "creationTime": 1780000000,
+                                "startTime": None,
+                                "endTime": None,
+                                "repositoryOrigin": {"repositoryLocationName": "testing_jobs"},
+                                "assetSelection": [{"path": ["orders"]}],
+                            },
+                        ],
+                        "cursor": "",
+                        "hasMore": False,
+                    }
+                }
+            }
         return {"data": {"assetNodes": nodes}}
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
@@ -616,7 +648,9 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
     assert item["history_scoped"] is False
     assert item["last_materialization_at"] is None
     assert item["last_run_id"] is None
-    assert http.get("/api/v1/assets/orders/runs?env=prod").status_code == 503
+    run_history = http.get("/api/v1/assets/orders/runs?env=prod")
+    assert run_history.status_code == 200
+    assert [item["run_id"] for item in run_history.json()["items"]] == ["prod-run"]
     assert http.get("/api/v1/assets/orders?env=prod").status_code == 503
 
 
@@ -977,10 +1011,17 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
             "timestamp": 1780000000,
             "checkName": f"quality_{env}",
             "evaluation": {
+                "success": env == "prod",
                 "severity": "ERROR",
                 "metadataEntries": [
                     {"__typename": "IntMetadataEntry", "label": "rows", "intValue": count}
                 ],
+            },
+            "run": {
+                "runId": run_id,
+                "repositoryOrigin": {
+                    "repositoryLocationName": "production_jobs" if env == "prod" else "testing_jobs"
+                },
             },
         }
         for env, run_id, count in (("prod", "p-run", 9), ("staging", "s-run", 2))
@@ -988,28 +1029,45 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
     executions.append(
         {
             "status": "SUCCEEDED",
-            "runId": None,
+            "runId": "",
             "timestamp": 1780000000,
-            "checkName": "runless-ambiguous",
-            "evaluation": {"severity": "ERROR", "metadataEntries": []},
+            "checkName": "quality_prod",
+            "evaluation": {"success": True, "severity": "ERROR", "metadataEntries": []},
+            "run": None,
         }
     )
-    locations = {"p-run": "production_jobs", "s-run": "testing_jobs"}
 
     async def graphql(url, query, variables=None):
+        if "V1Assets" in query:
+            return {
+                "data": {
+                    "assetNodes": [
+                        {
+                            "id": env,
+                            "assetKey": {"path": ["warehouse", "orders"]},
+                            "description": env,
+                            "computeKind": None,
+                            "groupName": None,
+                            "isSource": False,
+                            "repository": {"name": "repo", "location": {"name": location}},
+                            "dependencyKeys": [],
+                            "assetMaterializations": [],
+                        }
+                        for env, location in (
+                            ("prod", "production_jobs"),
+                            ("staging", "testing_jobs"),
+                        )
+                    ]
+                }
+            }
         if "V1AssetChecks" in query:
             return {"data": {"assetNodes": nodes}}
         if "V1AssetCheckExecutions" in query:
-            return {"data": {"assetCheckExecutions": executions}}
-        if "V1AssetCheckRunLocation" in query:
-            run_id = variables["runId"]
             return {
                 "data": {
-                    "runOrError": {
-                        "__typename": "Run",
-                        "runId": run_id,
-                        "repositoryOrigin": {"repositoryLocationName": locations[run_id]},
-                    }
+                    "assetCheckExecutions": [
+                        row for row in executions if row["checkName"] == variables["checkName"]
+                    ]
                 }
             }
         raise AssertionError("unexpected Dagster query")
@@ -1022,12 +1080,89 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
     assert staging.json()["definitions"] == [{"name": "quality_staging", "description": "staging"}]
     assert [item["run_id"] for item in prod.json()["executions"]] == ["p-run"]
     assert [item["run_id"] for item in staging.json()["executions"]] == ["s-run"]
-    assert all(
-        item["check_name"] != "runless-ambiguous"
-        for response in (prod, staging)
-        for item in response.json()["executions"]
-    )
+    assert prod.json()["executions"][0]["passed"] is True
+    assert staging.json()["executions"][0]["passed"] is False
     assert prod.json()["executions"][0]["metadata"] == [{"label": "rows", "value": 9}]
+
+
+def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client, monkeypatch):
+    http, *_ = client
+    feed_cursors = []
+    asset_nodes = [
+        {
+            "id": env,
+            "assetKey": {"path": ["warehouse", "orders"]},
+            "description": env,
+            "computeKind": None,
+            "groupName": None,
+            "isSource": False,
+            "repository": {"name": "repo", "location": {"name": location}},
+            "dependencyKeys": [],
+            "assetMaterializations": [],
+        }
+        for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
+    ]
+
+    def run(run_id, location, selection, status="SUCCESS"):
+        return {
+            "__typename": "Run",
+            "runId": run_id,
+            "status": status,
+            "creationTime": 1780000000,
+            "startTime": 1780000001,
+            "endTime": 1780000002,
+            "repositoryOrigin": {"repositoryLocationName": location},
+            "assetSelection": [{"path": selection}],
+        }
+
+    async def graphql(url, query, variables=None):
+        if "V1Assets" in query:
+            return {"data": {"assetNodes": asset_nodes}}
+        if "V1AssetRuns" in query:
+            feed_cursors.append(variables["cursor"])
+            results = (
+                [
+                    run("prod-success", "production_jobs", ["warehouse", "orders"]),
+                    run("staging-leak", "testing_jobs", ["warehouse", "orders"]),
+                ]
+                if variables["cursor"] is None
+                else [
+                    run(
+                        "prod-failure",
+                        "production_jobs",
+                        ["warehouse", "orders"],
+                        "FAILURE",
+                    )
+                ]
+            )
+            next_cursor = "dagster-page-1" if variables["cursor"] is None else "dagster-page-2"
+            return {
+                "data": {
+                    "runsFeedOrError": {
+                        "__typename": "RunsFeedConnection",
+                        "results": results,
+                        "cursor": next_cursor,
+                        "hasMore": variables["cursor"] is None,
+                    }
+                }
+            }
+        raise AssertionError("unexpected Dagster query")
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    first = http.get("/api/v1/assets/warehouse/orders/runs?env=prod&limit=2")
+    assert first.status_code == 200, first.text
+    assert [item["run_id"] for item in first.json()["items"]] == ["prod-success"]
+    cursor = first.json()["next_cursor"]
+    second = http.get(f"/api/v1/assets/warehouse/orders/runs?env=prod&limit=2&cursor={cursor}")
+    assert second.status_code == 200, second.text
+    assert [item["run_id"] for item in second.json()["items"]] == ["prod-failure"]
+    assert second.json()["items"][0]["status"] == "FAILURE"
+    assert second.json()["next_cursor"] is None
+    assert feed_cursors == [None, "dagster-page-1"]
+    assert (
+        http.get(f"/api/v1/assets/warehouse/orders/runs?env=staging&cursor={cursor}").status_code
+        == 400
+    )
 
 
 def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
@@ -1076,4 +1211,104 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
     assert body["freshness_counts"] == {"fresh": 0, "stale": 1, "unknown": 1}
     assert body["run_status_counts"] == {"STARTED": 1}
     assert body["run_history_truncated"] is False
+    assert body["quality_checks"] == {
+        "status": "unknown",
+        "counts": None,
+        "reason": "source_unavailable",
+    }
     assert body["audit_counts"] is None
+
+
+def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, monkeypatch):
+    from types import SimpleNamespace
+
+    http, *_ = client
+    nodes = [
+        {
+            "id": env,
+            "assetKey": {"path": ["warehouse", "orders"]},
+            "description": env,
+            "computeKind": None,
+            "groupName": "warehouse",
+            "isSource": False,
+            "repository": {"name": "repo", "location": {"name": location}},
+            "dependencyKeys": [],
+            "assetMaterializations": [],
+        }
+        for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
+    ]
+    runless = {
+        "status": "SUCCEEDED",
+        "runId": "",
+        "timestamp": 1780000300,
+        "evaluation": {"success": True, "severity": "ERROR", "metadataEntries": []},
+        "run": None,
+    }
+
+    async def graphql(url, query, variables=None):
+        if "V1Assets" in query:
+            return {"data": {"assetNodes": nodes}}
+        if "V1AssetChecks" in query:
+            return {
+                "data": {
+                    "assetNodes": [
+                        {
+                            "assetKey": {"path": ["warehouse", "orders"]},
+                            "repository": {"location": {"name": location}},
+                            "assetChecksOrError": {
+                                "__typename": "AssetChecks",
+                                "checks": [{"name": "freshness", "description": None}],
+                            },
+                        }
+                        for location in ("production_jobs", "testing_jobs")
+                    ]
+                }
+            }
+        if "V1AssetCheckExecutions" in query:
+            return {
+                "data": {
+                    "assetCheckExecutions": [
+                        {
+                            "status": "SUCCEEDED",
+                            "runId": run_id,
+                            "timestamp": timestamp,
+                            "evaluation": {
+                                "success": passed,
+                                "severity": "ERROR",
+                                "metadataEntries": [],
+                            },
+                            "run": {"repositoryOrigin": {"repositoryLocationName": location}},
+                        }
+                        for run_id, timestamp, passed, location in (
+                            ("prod-pass", 1780000200, True, "production_jobs"),
+                            ("stage-fail", 1780000250, False, "testing_jobs"),
+                        )
+                    ]
+                    + [runless]
+                }
+            }
+        raise AssertionError("unexpected Dagster query")
+
+    from phlo_api import incidents
+    from phlo_api.api import v1
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(v1, "_runs", lambda location: asyncio.sleep(0, result={}))
+    monkeypatch.setattr(
+        incidents,
+        "incident_stats",
+        lambda request, env: {"env": env, "counts": {"open": 0}},
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda request, env, limit, cursor: SimpleNamespace(items=[], next_cursor=None),
+    )
+
+    response = http.get("/api/v1/overview?env=prod")
+    assert response.status_code == 200, response.text
+    assert response.json()["quality_checks"] == {
+        "status": "available",
+        "counts": {"passing": 1, "total": 1, "unevaluated": 0},
+        "reason": None,
+    }
