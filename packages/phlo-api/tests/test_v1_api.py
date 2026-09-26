@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from phlo.capabilities import AuthPrincipal, AuthorizationDecision, Principal
 from phlo_api.api import v1
 from phlo_api.api import v1_assets
+from phlo_api.api.v1_audit_proposals import AssetAuditProposalRequest, generate_check_file
 from phlo_api.main import app
 from phlo_api import security_manifest
 
@@ -1598,3 +1599,127 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
         "counts": {"passing": 1, "total": 1, "unevaluated": 0},
         "reason": None,
     }
+
+
+def test_audit_proposal_generator_emits_only_validated_declarative_checks():
+    payload = AssetAuditProposalRequest.model_validate(
+        {
+            "check_name": "orders_quality",
+            "rules": [
+                {"kind": "unique", "column": "order_id"},
+                {"kind": "range", "column": "total", "minimum": 0, "maximum": 1000},
+            ],
+            "idempotency_key": "proposal-1",
+        }
+    )
+
+    path, source = generate_check_file(["warehouse", "orders"], payload.check_name, payload.rules)
+
+    assert path == "workflows/quality/warehouse_orders_orders_quality.py"
+    assert 'table="warehouse.orders"' in source
+    assert 'UniqueCheck(columns=["order_id"])' in source
+    assert 'RangeCheck(column="total", min_value=0.0, max_value=1000.0)' in source
+    assert "exec(" not in source
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "check_name": "unsafe-name",
+            "rules": [{"kind": "unique", "column": "id"}],
+            "idempotency_key": "proposal-1",
+        },
+        {
+            "check_name": "valid",
+            "rules": [{"kind": "range", "column": "id", "minimum": 10, "maximum": 1}],
+            "idempotency_key": "proposal-1",
+        },
+        {
+            "check_name": "valid",
+            "rules": [{"kind": "custom_sql", "sql": "drop table orders"}],
+            "idempotency_key": "proposal-1",
+        },
+    ],
+)
+def test_audit_proposal_rejects_unsafe_declarations(payload):
+    with pytest.raises(ValueError):
+        AssetAuditProposalRequest.model_validate(payload)
+
+
+def test_audit_proposal_is_audited_idempotent_and_fails_closed_without_git_review(
+    client, tmp_path, monkeypatch
+):
+    http, *_ = client
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_AUTHORIZATION_MODE", "required")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_PROCESS", "1")
+    monkeypatch.setenv(
+        "PHLO_API_TOKENS",
+        '{"writer":{"subject":"alice","scopes":["project:write"]},'
+        '"reader":{"subject":"reader","scopes":["project:read"]}}',
+    )
+
+    async def assets(*args, **kwargs):
+        return [
+            v1_assets.AssetView(
+                id="warehouse/orders",
+                key=["warehouse", "orders"],
+                description=None,
+                compute_kind="sql",
+                group_name="warehouse",
+                is_source=False,
+                dependencies=[],
+                last_materialization_at=None,
+                last_run_id=None,
+            )
+        ]
+
+    async def detail(*args, **kwargs):
+        return v1_assets.AssetDetail(
+            id="warehouse/orders",
+            key=["warehouse", "orders"],
+            description=None,
+            compute_kind="sql",
+            group_name="warehouse",
+            is_source=False,
+            dependencies=[],
+            last_materialization_at=None,
+            last_run_id=None,
+            columns=[v1_assets.AssetColumn(name="order_id", type="string", description=None)],
+            schema_observed_at=None,
+        )
+
+    monkeypatch.setattr(v1_assets, "_assets", assets)
+    monkeypatch.setattr(v1_assets, "v1_asset_detail", detail)
+    body = {
+        "check_name": "orders_quality",
+        "rules": [{"kind": "unique", "column": "order_id"}],
+        "idempotency_key": "review-1",
+    }
+    headers = {"Authorization": "Bearer writer"}
+    url = "/api/v1/assets/warehouse/orders/audits?env=prod"
+
+    denied = http.post(
+        url,
+        json=body,
+        headers={"Authorization": "Bearer reader"},
+    )
+    assert denied.status_code == 403
+
+    first = http.post(url, json=body, headers=headers)
+    replay = http.post(url, json=body, headers=headers)
+
+    assert first.status_code == replay.status_code == 503
+    assert first.json()["error"]["code"] == "backend_unavailable"
+    assert "Project Git review is not configured" in first.json()["error"]["message"]
+    audit_path = tmp_path / ".phlo" / "audit" / "operations.jsonl"
+    records = audit_path.read_text(encoding="utf-8").splitlines()
+    assert len(records) == 1
+    assert '"reason": "project_git_review_not_configured"' in records[0]
+    assert not (tmp_path / "workflows").exists()
+
+    changed = {**body, "check_name": "another_quality"}
+    conflict = http.post(url, json=changed, headers=headers)
+    assert conflict.status_code == 409

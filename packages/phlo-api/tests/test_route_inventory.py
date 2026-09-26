@@ -47,6 +47,7 @@ _GUARDED_NON_GET_ROUTES: dict[tuple[str, str], str] = {
     ("PUT", "/api/v1/assets/{asset_id:path}/incident-policy"): "v1_manifest",
     ("POST", "/api/v1/assets/{asset_id:path}/materialize"): "v1_manifest",
     ("POST", "/api/v1/assets/{asset_id:path}/backfill"): "v1_manifest",
+    ("POST", "/api/v1/assets/{asset_id:path}/audits"): "v1_manifest",
     ("POST", "/api/observatory/saved-queries"): "project:write",
     ("POST", "/api/observatory/workflow-wizard/proposals"): "project:write",
     ("POST", "/api/observatory/workflow-wizard/actions"): "project:write",
