@@ -93,6 +93,7 @@ app.add_middleware(
 _ROUTERS = [
     ("phlo_api.api.v1", "/api/v1"),
     ("phlo_api.incidents", "/api/v1"),
+    ("phlo_api.api.v1_assets", "/api/v1"),
     ("phlo_api.api.authoring", "/api/authoring"),
     ("phlo_api.api.continuity", "/api/continuity"),
     ("phlo_api.api.maintenance", "/api/maintenance"),

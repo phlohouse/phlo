@@ -27,7 +27,13 @@ from phlo_api.api.authorization import (
     get_authorization_backend,
     resolve_request_principal,
 )
-from phlo_api.errors import BadGatewayError, BackendUnavailableError, BadInputError, error_envelope
+from phlo_api.errors import (
+    BadGatewayError,
+    BackendUnavailableError,
+    BadInputError,
+    UnprocessableInputError,
+    error_envelope,
+)
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
 from phlo_api.observatory_api.http_client import backend_client
 from phlo_api.v1_contract import (
@@ -93,9 +99,13 @@ def _targets() -> dict[str, EnvironmentTarget]:
         raise BackendUnavailableError("Environment mapping is unavailable.") from exc
 
 
-def _target(request: Request, env: Environment) -> EnvironmentTarget:
-    if set(request.query_params) != {"env"}:
+def _target(
+    request: Request, env: Environment, *, allowed_query: frozenset[str] = frozenset({"env"})
+) -> EnvironmentTarget:
+    if not set(request.query_params) <= allowed_query:
         raise BadInputError("Only the env selector is accepted.")
+    if request.query_params.getlist("env") != [env]:
+        raise UnprocessableInputError("Provide exactly one environment selector.")
     return _targets()[env]
 
 
