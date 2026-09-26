@@ -32,6 +32,15 @@ from phlo_api.api.v1_audit_proposals import (
     get_audit_proposal,
     generate_check_file,
 )
+from phlo_api.api.v1_git_review import (
+    AssetAuditDraftPullRequest,
+    AssetAuditPublishRequest,
+    GitReviewConflict,
+    GitReviewUnavailable,
+    project_git_review_client,
+    project_git_review_config,
+    publish_project_draft_pr,
+)
 from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
 
 router = APIRouter(tags=["v1 assets"])
@@ -847,6 +856,111 @@ async def v1_asset_audit_proposal_detail(
     ):
         raise NotFoundError("Audit proposal was not found.")
     return proposal
+
+
+@router.post(
+    "/assets/{asset_id:path}/audits/{proposal_id}/pull-request",
+    response_model=AssetAuditDraftPullRequest,
+    status_code=202,
+)
+async def v1_asset_audit_proposal_pull_request(
+    request: Request,
+    asset_id: str,
+    proposal_id: str,
+    payload: AssetAuditPublishRequest,
+    env: Environment = Query(),
+) -> AssetAuditDraftPullRequest:
+    """Publish the stored check source as a draft PR in this project repository."""
+    from phlo_api.api.operation_controls import (
+        IdempotencyConflict,
+        audit_operation,
+        enforce_rate_limit,
+        idempotency_key_target,
+        project_root,
+        replay_or_execute_async,
+        require_scope,
+    )
+    from phlo_api.observatory_api.run_action_contract import require_idempotency_key
+
+    auth = require_scope(request, "project:write")
+    enforce_rate_limit(auth["subject"], "publish_asset_audit_proposal")
+    require_idempotency_key(payload.idempotency_key)
+    if (
+        os.environ.get("PHLO_V1_ACTIONS_SINGLE_REPLICA") != "1"
+        or os.environ.get("PHLO_V1_ACTIONS_SINGLE_PROCESS") != "1"
+    ):
+        raise BackendUnavailableError(
+            "Project Git publishing requires the verified single-replica idempotency store."
+        )
+    target = _target(request, env)
+    asset_id = asset_id.strip("/")
+    try:
+        proposal = get_audit_proposal(project_root(), proposal_id)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise BackendUnavailableError("Audit proposal storage is unavailable.") from exc
+    if (
+        proposal is None
+        or proposal.env != env
+        or proposal.asset_id != asset_id
+        or proposal.nessie_ref != target.nessie_ref
+    ):
+        raise NotFoundError("Audit proposal was not found.")
+    try:
+        config = project_git_review_config()
+    except GitReviewUnavailable as exc:
+        raise BackendUnavailableError("Project Git review is not configured.") from exc
+
+    action_target = (
+        f"{env}:{asset_id}@{target.nessie_ref}:audit-draft-pr:{proposal.source_digest}:"
+        f"{config.repository}:{config.base_branch}"
+    )
+    bound_target = idempotency_key_target(
+        payload.idempotency_key,
+        "v1_publish_asset_audit_proposal",
+    )
+    if bound_target is not None and bound_target != action_target:
+        raise IdempotencyConflict({"error": "idempotency_key_conflict"})
+
+    async def execute() -> dict[str, Any]:
+        try:
+            async with project_git_review_client(config) as client:
+                result = await publish_project_draft_pr(client, config, proposal)
+        except GitReviewConflict as exc:
+            raise HTTPException(
+                status_code=409, detail={"error": "audit_proposal_branch_conflict"}
+            ) from exc
+        except (GitReviewUnavailable, httpx.HTTPError) as exc:
+            raise BackendUnavailableError("Project Git review is unavailable.") from exc
+        return result.model_dump(mode="json")
+
+    try:
+        outcome = await replay_or_execute_async(
+            idempotency_key=payload.idempotency_key,
+            operation="v1_publish_asset_audit_proposal",
+            target=action_target,
+            execute=execute,
+            audit=lambda result: audit_operation(
+                operation="v1_publish_asset_audit_proposal",
+                target=action_target,
+                dry_run=False,
+                auth=auth,
+                payload={"proposal_id": proposal_id, "source_digest": proposal.source_digest},
+                result={
+                    "status": result.get("status"),
+                    "repository": result.get("repository"),
+                    "pull_request_number": result.get("pull_request_number"),
+                    "pull_request_url": result.get("pull_request_url"),
+                },
+            ),
+        )
+    except ValueError as exc:
+        raise BackendUnavailableError(
+            "Project Git review operation could not be completed."
+        ) from exc
+    try:
+        return AssetAuditDraftPullRequest.model_validate(outcome)
+    except (TypeError, ValueError) as exc:
+        raise BackendUnavailableError("Stored project Git review result is invalid.") from exc
 
 
 async def _action_context(

@@ -20,9 +20,6 @@ from phlo_api.observatory_api.trino import resolve_trino_url
 _MAX_ROWS = 100
 _MAX_RESPONSE_BYTES = 1_048_576
 _MAX_TRINO_PAGE_BYTES = 8_388_608
-_MAX_SCAN_BYTES = 268_435_456
-_MAX_RUNTIME = "20s"
-_MAX_PLANNING = "5s"
 _ADMISSION = asyncio.Semaphore(2)
 
 
@@ -146,13 +143,6 @@ def _preview_headers(catalog: str) -> dict[str, str]:
         "Content-Type": "text/plain",
         **_preview_auth_headers(),
         "X-Trino-Catalog": catalog,
-        "X-Trino-Session": ",".join(
-            (
-                f"query_max_run_time={_MAX_RUNTIME}",
-                f"query_max_planning_time={_MAX_PLANNING}",
-                f"query_max_scan_physical_bytes={_MAX_SCAN_BYTES}B",
-            )
-        ),
     }
 
 

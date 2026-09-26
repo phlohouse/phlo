@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 140,
+  "endpoint_count": 141,
   "endpoints": [
     {
       "method": "GET",
@@ -979,6 +979,15 @@
       "operation_id": "v1_asset_audit_proposal_detail_api_v1_assets__asset_id__audits__proposal_id__get",
       "path": "/api/v1/assets/{asset_id}/audits/{proposal_id}",
       "summary": "V1 Asset Audit Proposal Detail",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_asset_audit_proposal_pull_request_api_v1_assets__asset_id__audits__proposal_id__pull_request_post",
+      "path": "/api/v1/assets/{asset_id}/audits/{proposal_id}/pull-request",
+      "summary": "V1 Asset Audit Proposal Pull Request",
       "tags": [
         "v1 assets"
       ]

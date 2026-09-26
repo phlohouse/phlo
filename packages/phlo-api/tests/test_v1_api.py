@@ -15,6 +15,7 @@ from phlo.capabilities import AuthPrincipal, AuthorizationDecision, Principal
 from phlo_api.api import v1
 from phlo_api.api import v1_assets
 from phlo_api.api.v1_audit_proposals import AssetAuditProposalRequest, generate_check_file
+from phlo_api.api.v1_git_review import AssetAuditDraftPullRequest
 from phlo_api.main import app
 from phlo_api import security_manifest
 
@@ -1751,6 +1752,57 @@ def test_audit_proposal_is_audited_idempotent_and_reviewable_without_git_integra
         headers=headers,
     )
     assert wrong_env.status_code == 404
+
+    publish_url = (
+        f"/api/v1/assets/warehouse/orders/audits/{proposal['proposal_id']}/pull-request?env=prod"
+    )
+    for name in (
+        "PHLO_V1_GIT_REVIEW_REPOSITORY",
+        "PHLO_V1_GIT_REVIEW_BASE_BRANCH",
+        "PHLO_V1_GIT_REVIEW_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    unconfigured = http.post(
+        publish_url,
+        json={"idempotency_key": "draft-pr-unconfigured"},
+        headers=headers,
+    )
+    assert unconfigured.status_code == 503
+    assert "not configured" in unconfigured.json()["error"]["message"]
+
+    monkeypatch.setenv("PHLO_V1_GIT_REVIEW_REPOSITORY", "project-data/orders")
+    monkeypatch.setenv("PHLO_V1_GIT_REVIEW_BASE_BRANCH", "main")
+    monkeypatch.setenv("PHLO_V1_GIT_REVIEW_TOKEN", "test-only-token")
+
+    async def publish_pr(client, config, audit_proposal):
+        assert config.repository == "project-data/orders"
+        assert audit_proposal.proposal_id == proposal["proposal_id"]
+        return AssetAuditDraftPullRequest(
+            proposal_id=audit_proposal.proposal_id,
+            repository=config.repository,
+            base_branch=config.base_branch,
+            head_branch=f"phlo/asset-check-{audit_proposal.proposal_id}",
+            pull_request_number=42,
+            pull_request_url="https://github.com/project-data/orders/pull/42",
+        )
+
+    monkeypatch.setattr(v1_assets, "publish_project_draft_pr", publish_pr)
+    published = http.post(
+        publish_url,
+        json={"idempotency_key": "draft-pr-1"},
+        headers=headers,
+    )
+    published_replay = http.post(
+        publish_url,
+        json={"idempotency_key": "draft-pr-1"},
+        headers=headers,
+    )
+    assert published.status_code == published_replay.status_code == 202
+    assert published.json() == published_replay.json()
+    assert published.json()["status"] == "pending_review"
+    assert published.json()["pull_request_url"] == "https://github.com/project-data/orders/pull/42"
+    records = audit_path.read_text(encoding="utf-8").splitlines()
+    assert len(records) == 2
 
     changed = {**body, "check_name": "another_quality"}
     conflict = http.post(url, json=changed, headers=headers)
