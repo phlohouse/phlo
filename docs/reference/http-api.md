@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (134)
+## Endpoints (135)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -121,6 +121,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/activity` | Activity | `v1 incidents` |
 | `GET` | `/api/v1/assets` | V1 Assets | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}` | V1 Asset Detail | `v1 assets` |
+| `GET` | `/api/v1/assets/{asset_id}/checks` | V1 Asset Checks | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/incident-policy` | Get Asset Incident Policy | `v1 incidents` |
 | `PUT` | `/api/v1/assets/{asset_id}/incident-policy` | Put Asset Incident Policy | `v1 incidents` |
 | `GET` | `/api/v1/assets/{asset_id}/materialization-estimate` | V1 Materialization Estimate | `v1 assets` |
