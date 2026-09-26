@@ -40,6 +40,7 @@ def client(monkeypatch):
         subject="alice", principal_type="user", email="alice@example.org", groups=("operator",)
     )
     monkeypatch.setattr(security_manifest, "get_request_principal", lambda request: auth)
+    monkeypatch.setattr(v1_assets, "get_request_principal", lambda request: auth)
     monkeypatch.setattr(v1, "get_request_principal", lambda request: auth)
     from phlo_api import incidents
 
@@ -991,9 +992,12 @@ def test_materialization_estimate_reports_cost_unavailable_not_fabricated(client
     assert "no workload source" in response.json()["workload_status"]
 
 
-def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatch):
+def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatch, tmp_path):
+    from phlo_api.api import operation_controls
+
     http, *_ = client
     calls = []
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
 
     async def graphql(query, variables=None):
         return {
@@ -1044,6 +1048,118 @@ def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatc
     assert prod.json()["nessie_ref"] == "main"
     assert calls[0][1] == "iceberg_prod"
     assert calls[0][0] == 'SELECT * FROM "iceberg_prod"."warehouse"."orders" LIMIT 2'
+    record = json.loads((tmp_path / ".phlo" / "audit" / "operations.jsonl").read_text())
+    assert record["operation"] == "v1_asset_preview"
+    assert record["payload"] == {
+        "env": "prod",
+        "asset_id": "warehouse/orders",
+        "nessie_ref": "main",
+    }
+    assert record["result"] == {"returned_row_count": 1, "has_more": False}
+    assert "rows" not in record and "secret" not in json.dumps(record)
+    usage = http.get("/api/v1/assets/warehouse/orders/usage?env=prod")
+    assert usage.status_code == 200, usage.text
+    assert usage.json()["source"] == "api_preview"
+    assert usage.json()["status"] == "partial"
+    assert usage.json()["items"][0]["returned_row_count"] == 1
+
+    def unavailable_audit(**kwargs):
+        raise OSError("test sink unavailable")
+
+    monkeypatch.setattr(operation_controls, "audit_operation", unavailable_audit)
+    assert http.get("/api/v1/assets/warehouse/orders/preview?env=prod").status_code == 503
+    assert len(calls) == 2  # Trino finished; the API refuses to return unrecorded data.
+    assert len((tmp_path / ".phlo" / "audit" / "operations.jsonl").read_text().splitlines()) == 1
+
+
+def test_preview_usage_is_ref_scoped_authorized_paginated_and_fail_closed(
+    client, monkeypatch, tmp_path
+):
+    from phlo_api.api.operation_controls import audit_operation
+
+    http, decisions, _, _, backend = client
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_API_AUDIT_MAX_BYTES", "1")
+
+    async def assets(*args, **kwargs):
+        return [
+            v1_assets.AssetView(
+                id="warehouse/orders",
+                key=["warehouse", "orders"],
+                description=None,
+                compute_kind=None,
+                group_name=None,
+                is_source=False,
+                dependencies=[],
+                last_materialization_at=None,
+                last_run_id=None,
+            )
+        ]
+
+    monkeypatch.setattr(v1_assets, "_assets", assets)
+    url = "/api/v1/assets/warehouse/orders/usage"
+    empty = http.get(f"{url}?env=prod")
+    assert empty.status_code == 200
+    assert empty.json()["status"] == "unavailable" and empty.json()["items"] == []
+    assert empty.json()["reason"] == "no_retained_preview_evidence"
+
+    def access(env, asset, ref, count):
+        audit_operation(
+            operation="v1_asset_preview",
+            target=f"{env}:{asset}@{ref}",
+            dry_run=False,
+            auth={"subject": "alice", "scopes": []},
+            payload={"env": env, "asset_id": asset, "nessie_ref": ref},
+            result={"returned_row_count": count, "has_more": False},
+        )
+
+    access("prod", "warehouse/orders", "main", 7)
+    access("staging", "warehouse/orders", "candidate", 2)
+    access("prod", "warehouse/orders", "old-ref", 40)
+    access("prod", "warehouse/other", "main", 60)
+    access("prod", "warehouse/orders", "main", 9)
+    assert (tmp_path / ".phlo" / "audit" / "operations.jsonl.4").exists()
+    first = http.get(f"{url}?env=prod&limit=1")
+    assert first.status_code == 200, first.text
+    assert [item["returned_row_count"] for item in first.json()["items"]] == [9]
+    cursor = first.json()["next_cursor"]
+    assert cursor
+    second = http.get(f"{url}?env=prod&limit=1&cursor={cursor}")
+    assert [item["returned_row_count"] for item in second.json()["items"]] == [7]
+    assert second.json()["next_cursor"] is None
+    assert http.get(f"{url}?env=staging&cursor={cursor}").status_code == 400
+    staging = http.get(f"{url}?env=staging")
+    assert [item["returned_row_count"] for item in staging.json()["items"]] == [2]
+    assert ("asset.read", "env=prod|asset_id=warehouse/orders", "prod") in decisions
+
+    backend.explain_decision = lambda principal, action, resource, context: AuthorizationDecision(
+        allowed=False, reason_code="explicit_deny"
+    )
+    assert http.get(f"{url}?env=prod").status_code == 403
+    backend.explain_decision = lambda principal, action, resource, context: AuthorizationDecision(
+        allowed=True, reason_code="explicit_allow"
+    )
+    access("prod", "warehouse/orders", "main", 11)
+    assert http.get(f"{url}?env=prod&cursor={cursor}").status_code == 400
+    audit_path = tmp_path / ".phlo" / "audit" / "operations.jsonl"
+    audit_path.write_text("not-json\n")
+    assert http.get(f"{url}?env=prod").status_code == 503
+    audit_path.write_text(
+        json.dumps(
+            {
+                "operation": "v1_asset_preview",
+                "surface": "phlo-api",
+                "payload": [],
+                "result": {"returned_row_count": 999, "has_more": False},
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+        + "\n"
+    )
+    assert http.get(f"{url}?env=prod").status_code == 503
+    audit_path.write_text(json.dumps({"operation": "unrelated"}) + "\n")
+    (tmp_path / ".phlo" / "audit" / "operations.jsonl.1").write_text("invalid-archive\n")
+    assert http.get(f"{url}?env=prod").status_code == 503
 
 
 def test_asset_preview_refuses_same_key_from_multiple_locations(client, monkeypatch):

@@ -111,7 +111,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"),),
     ),
     *_specs(
-        ("v1_asset_detail",),
+        ("v1_asset_detail", "v1_asset_usage"),
         action=CanonicalAction.ASSET_READ.value,
         resource_type="asset",
         resource_keys=("env", "asset_id"),

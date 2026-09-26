@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 141,
+  "endpoint_count": 142,
   "endpoints": [
     {
       "method": "GET",
@@ -1060,6 +1060,15 @@
       "operation_id": "v1_asset_runs_api_v1_assets__asset_id__runs_get",
       "path": "/api/v1/assets/{asset_id}/runs",
       "summary": "V1 Asset Runs",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_asset_usage_api_v1_assets__asset_id__usage_get",
+      "path": "/api/v1/assets/{asset_id}/usage",
+      "summary": "V1 Asset Usage",
       "tags": [
         "v1 assets"
       ]
