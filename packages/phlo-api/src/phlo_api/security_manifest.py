@@ -104,6 +104,27 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"),),
     ),
     *_specs(
+        ("v1_assets", "v1_sources", "v1_layers", "v1_overview"),
+        action=CanonicalAction.ASSET_READ.value,
+        resource_type="asset",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
+        ("v1_asset_detail",),
+        action=CanonicalAction.ASSET_READ.value,
+        resource_type="asset",
+        resource_keys=("env", "asset_id"),
+        resource_sources=(("env", "query"), ("asset_id", "path")),
+    ),
+    *_specs(
+        ("v1_asset_runs",),
+        action=CanonicalAction.RUN_READ.value,
+        resource_type="run",
+        resource_keys=("env", "asset_id"),
+        resource_sources=(("env", "query"), ("asset_id", "path")),
+    ),
+    *_specs(
         ("v1_events",),
         action=CanonicalAction.RUN_READ.value,
         resource_type="run",

@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (125)
+## Endpoints (131)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -119,8 +119,11 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/services` | Get Services | none |
 | `GET` | `/api/services/{name}` | Get Service Info | none |
 | `GET` | `/api/v1/activity` | Activity | `v1 incidents` |
+| `GET` | `/api/v1/assets` | V1 Assets | `v1 assets` |
+| `GET` | `/api/v1/assets/{asset_id}` | V1 Asset Detail | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/incident-policy` | Get Asset Incident Policy | `v1 incidents` |
 | `PUT` | `/api/v1/assets/{asset_id}/incident-policy` | Put Asset Incident Policy | `v1 incidents` |
+| `GET` | `/api/v1/assets/{asset_id}/runs` | V1 Asset Runs | `v1 assets` |
 | `GET` | `/api/v1/environments` | V1 Environments | `v1` |
 | `GET` | `/api/v1/events` | V1 Events | `v1` |
 | `GET` | `/api/v1/incident-policies` | List Asset Incident Policies | `v1 incidents` |
@@ -134,6 +137,9 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `PATCH` | `/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}` | Update Follow Up | `v1 incidents` |
 | `PUT` | `/api/v1/incidents/{incident_id}/subscriptions` | Subscribe Incident | `v1 incidents` |
 | `GET` | `/api/v1/incidents/{incident_id}/timeline` | Incident Timeline | `v1 incidents` |
+| `GET` | `/api/v1/layers` | V1 Layers | `v1 assets` |
 | `GET` | `/api/v1/me` | V1 Me | `v1` |
+| `GET` | `/api/v1/overview` | V1 Overview | `v1 assets` |
 | `GET` | `/api/v1/services` | V1 Services | `v1` |
+| `GET` | `/api/v1/sources` | V1 Sources | `v1 assets` |
 | `GET` | `/health` | Health | none |

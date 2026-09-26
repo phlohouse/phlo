@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 125,
+  "endpoint_count": 131,
   "endpoints": [
     {
       "method": "GET",
@@ -949,6 +949,24 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_assets_api_v1_assets_get",
+      "path": "/api/v1/assets",
+      "summary": "V1 Assets",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_asset_detail_api_v1_assets__asset_id__get",
+      "path": "/api/v1/assets/{asset_id}",
+      "summary": "V1 Asset Detail",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "get_asset_incident_policy_api_v1_assets__asset_id__incident_policy_get",
       "path": "/api/v1/assets/{asset_id}/incident-policy",
       "summary": "Get Asset Incident Policy",
@@ -963,6 +981,15 @@
       "summary": "Put Asset Incident Policy",
       "tags": [
         "v1 incidents"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_asset_runs_api_v1_assets__asset_id__runs_get",
+      "path": "/api/v1/assets/{asset_id}/runs",
+      "summary": "V1 Asset Runs",
+      "tags": [
+        "v1 assets"
       ]
     },
     {
@@ -1084,6 +1111,15 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_layers_api_v1_layers_get",
+      "path": "/api/v1/layers",
+      "summary": "V1 Layers",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "v1_me_api_v1_me_get",
       "path": "/api/v1/me",
       "summary": "V1 Me",
@@ -1093,11 +1129,29 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_overview_api_v1_overview_get",
+      "path": "/api/v1/overview",
+      "summary": "V1 Overview",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "v1_services_api_v1_services_get",
       "path": "/api/v1/services",
       "summary": "V1 Services",
       "tags": [
         "v1"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_sources_api_v1_sources_get",
+      "path": "/api/v1/sources",
+      "summary": "V1 Sources",
+      "tags": [
+        "v1 assets"
       ]
     },
     {
