@@ -49,6 +49,7 @@ def test_quote_table_quotes_every_asset_key_segment() -> None:
 @pytest.mark.anyio
 async def test_preview_cancels_latest_continuation_after_row_limit(monkeypatch) -> None:
     requests: list[tuple[str, str, str, str]] = []
+    statement = 'SELECT * FROM "iceberg_prod"."warehouse"."orders" LIMIT 3'
 
     async def respond(request: httpx.Request) -> httpx.Response:
         requests.append(
@@ -60,6 +61,7 @@ async def test_preview_cancels_latest_continuation_after_row_limit(monkeypatch) 
             )
         )
         if request.method == "POST":
+            assert request.content == statement.encode("utf-8")
             return httpx.Response(
                 200,
                 json={
@@ -78,7 +80,7 @@ async def test_preview_cancels_latest_continuation_after_row_limit(monkeypatch) 
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         monkeypatch.setattr(http_client, "_client", client)
         result = await preview.execute_preview(
-            'SELECT * FROM "iceberg_prod"."warehouse"."orders" LIMIT 3',
+            statement,
             catalog="iceberg_prod",
             disconnected=lambda: _not_disconnected(),
             limit=2,

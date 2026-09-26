@@ -88,9 +88,12 @@ async def _read_result(
     url: str,
     headers: dict[str, str],
     timeout: httpx.Timeout,
+    statement: str | None,
 ) -> dict[str, Any]:
     content = bytearray()
-    async with client.stream(method, url, headers=headers, timeout=timeout) as response:
+    async with client.stream(
+        method, url, headers=headers, timeout=timeout, content=statement
+    ) as response:
         if response.status_code != 200:
             raise PreviewUnavailable("Trino preview query failed.")
         async for chunk in response.aiter_bytes():
@@ -120,8 +123,9 @@ async def _read_or_disconnect(
     headers: dict[str, str],
     timeout: httpx.Timeout,
     disconnected: Callable[[], Awaitable[bool]],
+    content: str | None = None,
 ) -> dict[str, Any]:
-    query = asyncio.create_task(_read_result(client, method, url, headers, timeout))
+    query = asyncio.create_task(_read_result(client, method, url, headers, timeout, content))
     try:
         while not query.done():
             if await disconnected():
@@ -168,7 +172,7 @@ async def _collect_pages(
     active_uri: str | None = None
     try:
         result = await _read_or_disconnect(
-            client, "POST", f"{base_url}/v1/statement", headers, timeout, disconnected
+            client, "POST", f"{base_url}/v1/statement", headers, timeout, disconnected, sql
         )
         columns: list[dict[str, Any]] = []
         rows: list[list[Any]] = []
