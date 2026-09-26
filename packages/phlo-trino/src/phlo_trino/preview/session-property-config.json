@@ -1,0 +1,10 @@
+[
+  {
+    "group": "^global\\.preview\\.api$",
+    "sessionProperties": {
+      "query_max_run_time": "20s",
+      "query_max_planning_time": "5s",
+      "query_max_scan_physical_bytes": "256MB"
+    }
+  }
+]

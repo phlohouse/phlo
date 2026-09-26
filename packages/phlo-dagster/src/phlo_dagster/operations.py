@@ -314,32 +314,40 @@ async def launch_backfill(
     asset_key_path: str,
     partition_set_name: str,
     partition_keys: list[str],
+    all_partitions: bool = False,
+    job_name: str | None = None,
     repository_location_name: str | None = None,
     repository_name: str | None = None,
     idempotency_key: str | None = None,
     tags: dict[str, str] | None = None,
 ) -> DagsterOperationResult:
-    """Launch a partition backfill for an asset across the given partition keys."""
+    """Launch an explicit-key or Dagster-native all-partitions backfill."""
+    if all_partitions == bool(partition_keys):
+        raise ValueError("Specify either partition keys or all_partitions, but not both.")
     execution_tags = {"phlo/operation": "backfill_asset", "phlo/asset_key": asset_key_path}
+    if job_name:
+        execution_tags["phlo/job"] = job_name
     if idempotency_key:
         execution_tags["phlo/idempotency_key"] = idempotency_key
     execution_tags.update(tags or {})
+    backfill_params: dict[str, Any] = {
+        "selector": {
+            "partitionSetName": partition_set_name,
+            "repositorySelector": {
+                "repositoryLocationName": repository_location_name,
+                "repositoryName": repository_name,
+            },
+        },
+        "assetSelection": [{"path": asset_key_path.split("/")}],
+        "allPartitions": all_partitions,
+        "tags": _tags_for_execution(execution_tags),
+    }
+    if not all_partitions:
+        backfill_params["partitionNames"] = partition_keys
     result = await _graphql(
         dagster_url,
         LAUNCH_PARTITION_BACKFILL_MUTATION,
-        {
-            "backfillParams": {
-                "selector": {
-                    "partitionSetName": partition_set_name,
-                    "repositorySelector": {
-                        "repositoryLocationName": repository_location_name,
-                        "repositoryName": repository_name,
-                    },
-                },
-                "partitionNames": partition_keys,
-                "tags": _tags_for_execution(execution_tags),
-            }
-        },
+        {"backfillParams": backfill_params},
     )
     payload = result.get("data", {}).get("launchPartitionBackfill", {})
     typename = str(payload.get("__typename") or "LaunchBackfillResult")
@@ -353,7 +361,11 @@ async def launch_backfill(
         asset_key_path=asset_key_path,
         status=typename,
         message="Dagster accepted partition backfill." if accepted else _error_message(payload),
-        details={"partitions": partition_keys, "partition_count": len(partition_keys)},
+        details={
+            "partitions": partition_keys,
+            "partition_count": None if all_partitions else len(partition_keys),
+            "all_partitions": all_partitions,
+        },
     )
 
 

@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 125,
+  "endpoint_count": 141,
   "endpoints": [
     {
       "method": "GET",
@@ -949,6 +949,69 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_assets_api_v1_assets_get",
+      "path": "/api/v1/assets",
+      "summary": "V1 Assets",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_asset_detail_api_v1_assets__asset_id__get",
+      "path": "/api/v1/assets/{asset_id}",
+      "summary": "V1 Asset Detail",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_asset_audit_proposal_api_v1_assets__asset_id__audits_post",
+      "path": "/api/v1/assets/{asset_id}/audits",
+      "summary": "V1 Asset Audit Proposal",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_asset_audit_proposal_detail_api_v1_assets__asset_id__audits__proposal_id__get",
+      "path": "/api/v1/assets/{asset_id}/audits/{proposal_id}",
+      "summary": "V1 Asset Audit Proposal Detail",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_asset_audit_proposal_pull_request_api_v1_assets__asset_id__audits__proposal_id__pull_request_post",
+      "path": "/api/v1/assets/{asset_id}/audits/{proposal_id}/pull-request",
+      "summary": "V1 Asset Audit Proposal Pull Request",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_asset_backfill_api_v1_assets__asset_id__backfill_post",
+      "path": "/api/v1/assets/{asset_id}/backfill",
+      "summary": "V1 Asset Backfill",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_asset_checks_api_v1_assets__asset_id__checks_get",
+      "path": "/api/v1/assets/{asset_id}/checks",
+      "summary": "V1 Asset Checks",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "get_asset_incident_policy_api_v1_assets__asset_id__incident_policy_get",
       "path": "/api/v1/assets/{asset_id}/incident-policy",
       "summary": "Get Asset Incident Policy",
@@ -963,6 +1026,42 @@
       "summary": "Put Asset Incident Policy",
       "tags": [
         "v1 incidents"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_materialization_estimate_api_v1_assets__asset_id__materialization_estimate_get",
+      "path": "/api/v1/assets/{asset_id}/materialization-estimate",
+      "summary": "V1 Materialization Estimate",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_asset_materialize_api_v1_assets__asset_id__materialize_post",
+      "path": "/api/v1/assets/{asset_id}/materialize",
+      "summary": "V1 Asset Materialize",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_asset_preview_api_v1_assets__asset_id__preview_get",
+      "path": "/api/v1/assets/{asset_id}/preview",
+      "summary": "V1 Asset Preview",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_asset_runs_api_v1_assets__asset_id__runs_get",
+      "path": "/api/v1/assets/{asset_id}/runs",
+      "summary": "V1 Asset Runs",
+      "tags": [
+        "v1 assets"
       ]
     },
     {
@@ -1084,6 +1183,15 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_layers_api_v1_layers_get",
+      "path": "/api/v1/layers",
+      "summary": "V1 Layers",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "v1_me_api_v1_me_get",
       "path": "/api/v1/me",
       "summary": "V1 Me",
@@ -1093,11 +1201,47 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_overview_api_v1_overview_get",
+      "path": "/api/v1/overview",
+      "summary": "V1 Overview",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "v1_services_api_v1_services_get",
       "path": "/api/v1/services",
       "summary": "V1 Services",
       "tags": [
         "v1"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_sources_api_v1_sources_get",
+      "path": "/api/v1/sources",
+      "summary": "V1 Sources",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_table_schema_history_api_v1_tables__table_name__schema_history_get",
+      "path": "/api/v1/tables/{table_name}/schema-history",
+      "summary": "V1 Table Schema History",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_table_snapshots_api_v1_tables__table_name__snapshots_get",
+      "path": "/api/v1/tables/{table_name}/snapshots",
+      "summary": "V1 Table Snapshots",
+      "tags": [
+        "v1 assets"
       ]
     },
     {
