@@ -126,6 +126,7 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/assets",
         "/api/v1/assets/{asset_id}",
         "/api/v1/assets/{asset_id}/runs",
+        "/api/v1/assets/{asset_id}/checks",
         "/api/v1/assets/{asset_id}/materialization-estimate",
         "/api/v1/tables/{table_name}/snapshots",
         "/api/v1/tables/{table_name}/schema-history",

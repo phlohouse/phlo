@@ -778,6 +778,65 @@ def test_materialization_estimate_reports_cost_unavailable_not_fabricated(client
     assert "no cost source" in response.json()["cost_status"]
 
 
+def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monkeypatch):
+    http, _, _, _, _ = client
+    nodes = [
+        {
+            "assetKey": {"path": ["warehouse", "orders"]},
+            "repository": {"location": {"name": location}},
+            "assetChecksOrError": {
+                "__typename": "AssetChecks",
+                "checks": [{"name": f"quality_{env}", "description": env}],
+            },
+        }
+        for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
+    ]
+    executions = [
+        {
+            "status": "SUCCEEDED",
+            "runId": run_id,
+            "timestamp": 1780000000,
+            "checkName": f"quality_{env}",
+            "evaluation": {
+                "severity": "ERROR",
+                "metadataEntries": [
+                    {"__typename": "IntMetadataEntry", "label": "rows", "intValue": count}
+                ],
+            },
+        }
+        for env, run_id, count in (("prod", "p-run", 9), ("staging", "s-run", 2))
+    ]
+    locations = {"p-run": "production_jobs", "s-run": "testing_jobs"}
+
+    async def graphql(url, query, variables=None):
+        if "V1AssetChecks" in query:
+            return {"data": {"assetNodes": nodes}}
+        if "V1AssetCheckExecutions" in query:
+            return {"data": {"assetCheckExecutions": executions}}
+        if "V1AssetCheckRunLocation" in query:
+            run_id = variables["runId"]
+            return {
+                "data": {
+                    "runOrError": {
+                        "__typename": "Run",
+                        "runId": run_id,
+                        "repositoryOrigin": {"repositoryLocationName": locations[run_id]},
+                    }
+                }
+            }
+        raise AssertionError("unexpected Dagster query")
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    prod = http.get("/api/v1/assets/warehouse/orders/checks?env=prod")
+    staging = http.get("/api/v1/assets/warehouse/orders/checks?env=staging")
+    assert prod.status_code == staging.status_code == 200
+    assert prod.json()["definitions"] == [{"name": "quality_prod", "description": "prod"}]
+    assert staging.json()["definitions"] == [{"name": "quality_staging", "description": "staging"}]
+    assert [item["run_id"] for item in prod.json()["executions"]] == ["p-run"]
+    assert [item["run_id"] for item in staging.json()["executions"]] == ["s-run"]
+    assert prod.json()["executions"][0]["metadata"] == [{"label": "rows", "value": 9}]
+
+
 def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
     from types import SimpleNamespace
 

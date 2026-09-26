@@ -20,6 +20,7 @@ from phlo_api.v1_contract import Environment, WireModel
 
 router = APIRouter(tags=["v1 assets"])
 Limit = Annotated[int, Query(ge=1, le=500)]
+CheckLimit = Annotated[int, Query(ge=1, le=100)]
 
 ASSET_QUERY = """query V1Assets {
   assetNodes {
@@ -62,6 +63,41 @@ ASSET_RUNS_QUERY = """query V1AssetRuns($assetKey: AssetKeyInput!, $limit: Int!)
     __typename
     ... on Asset { assetMaterializations(limit: $limit) { timestamp runId stepKey } }
     ... on AssetNotFoundError { message }
+  }
+}"""
+ASSET_CHECKS_QUERY = """query V1AssetChecks {
+  assetNodes {
+    assetKey { path }
+    repository { location { name } }
+    assetChecksOrError {
+      __typename
+      ... on AssetChecks { checks { name description } }
+      ... on AssetCheckNeedsMigrationError { message }
+    }
+  }
+}"""
+ASSET_CHECK_EXECUTIONS_QUERY = """query V1AssetCheckExecutions($assetKey: AssetKeyInput!, $limit: Int!) {
+  assetCheckExecutions(assetKey: $assetKey, limit: $limit) {
+    status runId timestamp checkName
+    evaluation {
+      severity
+      metadataEntries {
+        __typename label
+        ... on TextMetadataEntry { text }
+        ... on IntMetadataEntry { intValue }
+        ... on FloatMetadataEntry { floatValue }
+        ... on BoolMetadataEntry { boolValue }
+        ... on JsonMetadataEntry { jsonString }
+      }
+    }
+  }
+}"""
+ASSET_CHECK_RUN_QUERY = """query V1AssetCheckRunLocation($runId: ID!) {
+  runOrError(runId: $runId) {
+    __typename
+    ... on Run { runId repositoryOrigin { repositoryLocationName } }
+    ... on RunNotFoundError { message }
+    ... on PythonError { message }
   }
 }"""
 
@@ -112,6 +148,32 @@ class AssetRuns(WireModel):
     env: Environment
     asset_id: str
     items: list[Materialization]
+
+
+class CheckDefinition(WireModel):
+    name: str
+    description: str | None = None
+
+
+class CheckMetadata(WireModel):
+    label: str
+    value: str | int | float | bool | dict[str, Any] | None
+
+
+class CheckExecution(WireModel):
+    status: str
+    run_id: str
+    timestamp: AwareDatetime
+    check_name: str
+    severity: str | None
+    metadata: list[CheckMetadata]
+
+
+class AssetChecks(WireModel):
+    env: Environment
+    asset_id: str
+    definitions: list[CheckDefinition]
+    executions: list[CheckExecution]
 
 
 class IcebergSnapshot(WireModel):
@@ -475,6 +537,165 @@ async def v1_asset_runs(
     except (KeyError, TypeError, ValueError, OSError) as exc:
         raise BadGatewayError("Dagster returned invalid asset history.") from exc
     return AssetRuns(env=env, asset_id=asset_id, items=items)
+
+
+def _check_timestamp(value: Any) -> datetime:
+    try:
+        timestamp = float(value)
+        if timestamp > 1_000_000_000_000:
+            timestamp /= 1000
+        return datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError, OSError) as exc:
+        raise BadGatewayError("Dagster returned an invalid asset-check timestamp.") from exc
+
+
+def _check_metadata_value(
+    entry: dict[str, Any],
+) -> str | int | float | bool | dict[str, Any] | None:
+    field_by_type = {
+        "TextMetadataEntry": "text",
+        "IntMetadataEntry": "intValue",
+        "FloatMetadataEntry": "floatValue",
+        "BoolMetadataEntry": "boolValue",
+        "JsonMetadataEntry": "jsonString",
+    }
+    typename = entry.get("__typename")
+    if not isinstance(typename, str):
+        return None
+    field = field_by_type.get(typename)
+    if field is None:
+        return None
+    value = entry.get(field)
+    if typename == "JsonMetadataEntry" and isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise BadGatewayError("Dagster returned invalid JSON check metadata.") from exc
+        if isinstance(decoded, dict):
+            return decoded
+        return {"value": decoded} if decoded is not None else None
+    if typename == "TextMetadataEntry" and isinstance(value, str):
+        return value
+    if typename == "IntMetadataEntry" and type(value) is int:
+        return value
+    if typename == "FloatMetadataEntry" and isinstance(value, (int, float)):
+        return float(value)
+    if typename == "BoolMetadataEntry" and type(value) is bool:
+        return value
+    raise BadGatewayError("Dagster returned invalid typed asset-check metadata.")
+
+
+async def _check_run_location(run_id: str) -> str:
+    result = await _graphql(ASSET_CHECK_RUN_QUERY, {"runId": run_id})
+    payload = _response_field(result, "runOrError")
+    origin = payload.get("repositoryOrigin")
+    location = origin.get("repositoryLocationName") if isinstance(origin, dict) else None
+    if payload.get("__typename") != "Run" or payload.get("runId") != run_id:
+        raise BadGatewayError("Dagster could not resolve an asset-check run.")
+    if not isinstance(location, str):
+        raise BadGatewayError("Dagster asset-check run has no repository location.")
+    return location
+
+
+@router.get("/assets/{asset_id:path}/checks", response_model=AssetChecks)
+async def v1_asset_checks(
+    request: Request, asset_id: str, env: Environment = Query(), limit: CheckLimit = 100
+) -> AssetChecks:
+    target = _target(request, env, allowed_query=frozenset({"env", "limit"}))
+    asset_id = asset_id.strip("/")
+    key = asset_id.split("/")
+    definitions_result = await _graphql(ASSET_CHECKS_QUERY)
+    data = definitions_result.get("data")
+    nodes = data.get("assetNodes") if isinstance(data, dict) else None
+    if definitions_result.get("errors") or not isinstance(nodes, list):
+        raise BadGatewayError("Dagster returned invalid asset-check definitions.")
+    scoped_nodes = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            raise BadGatewayError("Dagster returned invalid asset-check definitions.")
+        repository = node.get("repository")
+        location = repository.get("location") if isinstance(repository, dict) else None
+        if _key_path(node.get("assetKey")) == key and isinstance(location, dict):
+            if location.get("name") == target.dagster_location:
+                scoped_nodes.append(node)
+    if not scoped_nodes:
+        raise NotFoundError("Asset was not found.")
+
+    checks: list[CheckDefinition] = []
+    for node in scoped_nodes:
+        response = node.get("assetChecksOrError")
+        if not isinstance(response, dict) or response.get("__typename") != "AssetChecks":
+            raise BackendUnavailableError("Dagster asset-check definitions are unavailable.")
+        raw_checks = response.get("checks")
+        if not isinstance(raw_checks, list):
+            raise BadGatewayError("Dagster returned invalid asset-check definitions.")
+        try:
+            checks.extend(CheckDefinition.model_validate(item) for item in raw_checks)
+        except (TypeError, ValueError) as exc:
+            raise BadGatewayError("Dagster returned invalid asset-check definitions.") from exc
+
+    execution_result = await _graphql(
+        ASSET_CHECK_EXECUTIONS_QUERY,
+        {"assetKey": {"path": key}, "limit": limit},
+    )
+    data = execution_result.get("data")
+    executions = data.get("assetCheckExecutions") if isinstance(data, dict) else None
+    if execution_result.get("errors") or not isinstance(executions, list):
+        raise BadGatewayError("Dagster returned invalid asset-check history.")
+    raw_executions = executions[:limit]
+    run_ids = list(
+        dict.fromkeys(
+            execution.get("runId")
+            for execution in raw_executions
+            if isinstance(execution, dict) and isinstance(execution.get("runId"), str)
+        )
+    )
+    semaphore = asyncio.Semaphore(8)
+
+    async def get_run_location(run_id: str) -> tuple[str, str]:
+        async with semaphore:
+            return run_id, await _check_run_location(run_id)
+
+    run_locations = dict(await asyncio.gather(*(get_run_location(run_id) for run_id in run_ids)))
+    scoped_executions: list[CheckExecution] = []
+    for execution in raw_executions:
+        if not isinstance(execution, dict):
+            raise BadGatewayError("Dagster returned invalid asset-check history.")
+        run_id = execution.get("runId")
+        # Runless evaluations have no repository identity; omit rather than risk
+        # disclosing another location's same-key check evaluation.
+        if not isinstance(run_id, str) or run_locations.get(run_id) != target.dagster_location:
+            continue
+        evaluation = execution.get("evaluation")
+        evaluation = evaluation if isinstance(evaluation, dict) else {}
+        metadata_entries = evaluation.get("metadataEntries") or []
+        if not isinstance(metadata_entries, list):
+            raise BadGatewayError("Dagster returned invalid asset-check metadata.")
+        metadata = []
+        for entry in metadata_entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("label"), str):
+                raise BadGatewayError("Dagster returned invalid asset-check metadata.")
+            metadata.append(CheckMetadata(label=entry["label"], value=_check_metadata_value(entry)))
+        if not isinstance(execution.get("checkName"), str) or not isinstance(
+            execution.get("status"), str
+        ):
+            raise BadGatewayError("Dagster returned invalid asset-check history.")
+        scoped_executions.append(
+            CheckExecution(
+                status=execution["status"],
+                run_id=run_id,
+                timestamp=_check_timestamp(execution.get("timestamp")),
+                check_name=execution["checkName"],
+                severity=evaluation.get("severity"),
+                metadata=metadata,
+            )
+        )
+    return AssetChecks(
+        env=env,
+        asset_id=asset_id,
+        definitions=checks,
+        executions=scoped_executions,
+    )
 
 
 @router.get("/assets/{asset_id:path}", response_model=AssetDetail)
