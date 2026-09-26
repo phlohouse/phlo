@@ -609,6 +609,16 @@ async def v1_asset_checks(
     nodes = data.get("assetNodes") if isinstance(data, dict) else None
     if definitions_result.get("errors") or not isinstance(nodes, list):
         raise BadGatewayError("Dagster returned invalid asset-check definitions.")
+    definitions, asset_found = _check_definitions(nodes, key, target.dagster_location)
+    if not asset_found:
+        raise NotFoundError("Asset was not found.")
+    executions = await _asset_check_executions(key, target.dagster_location, limit)
+    return AssetChecks(env=env, asset_id=asset_id, definitions=definitions, executions=executions)
+
+
+def _check_definitions(
+    nodes: list[Any], key: list[str], repository_location: str
+) -> tuple[list[CheckDefinition], bool]:
     scoped_nodes = []
     for node in nodes:
         if not isinstance(node, dict):
@@ -616,10 +626,10 @@ async def v1_asset_checks(
         repository = node.get("repository")
         location = repository.get("location") if isinstance(repository, dict) else None
         if _key_path(node.get("assetKey")) == key and isinstance(location, dict):
-            if location.get("name") == target.dagster_location:
+            if location.get("name") == repository_location:
                 scoped_nodes.append(node)
     if not scoped_nodes:
-        raise NotFoundError("Asset was not found.")
+        return [], False
 
     checks: list[CheckDefinition] = []
     for node in scoped_nodes:
@@ -633,7 +643,12 @@ async def v1_asset_checks(
             checks.extend(CheckDefinition.model_validate(item) for item in raw_checks)
         except (TypeError, ValueError) as exc:
             raise BadGatewayError("Dagster returned invalid asset-check definitions.") from exc
+    return checks, True
 
+
+async def _asset_check_executions(
+    key: list[str], repository_location: str, limit: int
+) -> list[CheckExecution]:
     execution_result = await _graphql(
         ASSET_CHECK_EXECUTIONS_QUERY,
         {"assetKey": {"path": key}, "limit": limit},
@@ -657,6 +672,12 @@ async def v1_asset_checks(
             return run_id, await _check_run_location(run_id)
 
     run_locations = dict(await asyncio.gather(*(get_run_location(run_id) for run_id in run_ids)))
+    return _normalize_check_executions(raw_executions, run_locations, repository_location)
+
+
+def _normalize_check_executions(
+    raw_executions: list[Any], run_locations: dict[str, str], repository_location: str
+) -> list[CheckExecution]:
     scoped_executions: list[CheckExecution] = []
     for execution in raw_executions:
         if not isinstance(execution, dict):
@@ -664,7 +685,7 @@ async def v1_asset_checks(
         run_id = execution.get("runId")
         # Runless evaluations have no repository identity; omit rather than risk
         # disclosing another location's same-key check evaluation.
-        if not isinstance(run_id, str) or run_locations.get(run_id) != target.dagster_location:
+        if not isinstance(run_id, str) or run_locations.get(run_id) != repository_location:
             continue
         evaluation = execution.get("evaluation")
         evaluation = evaluation if isinstance(evaluation, dict) else {}
@@ -690,12 +711,36 @@ async def v1_asset_checks(
                 metadata=metadata,
             )
         )
-    return AssetChecks(
-        env=env,
-        asset_id=asset_id,
-        definitions=checks,
-        executions=scoped_executions,
-    )
+    return scoped_executions
+
+
+def _column_lineage(entries: list[Any]) -> dict[str, list[ColumnLineageDependency]] | None:
+    for entry in entries:
+        lineage = entry.get("lineage") if isinstance(entry, dict) else None
+        if not isinstance(lineage, list):
+            continue
+        result: dict[str, list[ColumnLineageDependency]] = {}
+        try:
+            for item in lineage:
+                if not isinstance(item, dict) or not isinstance(item.get("columnDeps"), list):
+                    raise ValueError
+                dependencies = []
+                for dependency in item["columnDeps"]:
+                    if not isinstance(dependency, dict) or not isinstance(
+                        dependency.get("columnName"), str
+                    ):
+                        raise ValueError
+                    dependencies.append(
+                        ColumnLineageDependency(
+                            asset_key=_key_path(dependency.get("assetKey")),
+                            column_name=dependency["columnName"],
+                        )
+                    )
+                result[item["columnName"]] = dependencies
+            return result
+        except (KeyError, TypeError, ValueError) as exc:
+            raise BadGatewayError("Dagster returned invalid column-lineage metadata.") from exc
+    return None
 
 
 @router.get("/assets/{asset_id:path}", response_model=AssetDetail)
@@ -743,35 +788,9 @@ async def v1_asset_detail(
     latest_schema = schema_columns(materialization_entries)
     columns = latest_schema or schema_columns(definition_entries)
 
-    def column_lineage(entries: list[Any]) -> dict[str, list[ColumnLineageDependency]] | None:
-        for entry in entries:
-            lineage = entry.get("lineage") if isinstance(entry, dict) else None
-            if not isinstance(lineage, list):
-                continue
-            result: dict[str, list[ColumnLineageDependency]] = {}
-            try:
-                for item in lineage:
-                    if not isinstance(item, dict) or not isinstance(item.get("columnDeps"), list):
-                        raise ValueError
-                    dependencies = []
-                    for dependency in item["columnDeps"]:
-                        if not isinstance(dependency, dict) or not isinstance(
-                            dependency.get("columnName"), str
-                        ):
-                            raise ValueError
-                        dependencies.append(
-                            ColumnLineageDependency(
-                                asset_key=_key_path(dependency.get("assetKey")),
-                                column_name=dependency["columnName"],
-                            )
-                        )
-                    result[item["columnName"]] = dependencies
-                return result
-            except (KeyError, TypeError, ValueError) as exc:
-                raise BadGatewayError("Dagster returned invalid column-lineage metadata.") from exc
-        return None
-
-    observed_lineage = column_lineage(materialization_entries) or column_lineage(definition_entries)
+    observed_lineage = _column_lineage(materialization_entries) or _column_lineage(
+        definition_entries
+    )
     return AssetDetail(
         **detail.model_dump(),
         columns=columns,
