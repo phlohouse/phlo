@@ -855,6 +855,7 @@ def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatc
     monkeypatch.setattr(v1_assets, "execute_preview", preview)
     monkeypatch.setenv("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "1")
     monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_preview")
+    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD", "secret")
     monkeypatch.setenv(
         "PHLO_V1_PREVIEW_CATALOGS",
         json.dumps(
