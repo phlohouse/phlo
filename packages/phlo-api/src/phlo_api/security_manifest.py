@@ -132,7 +132,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"), ("asset_id", "path")),
     ),
     *_specs(
-        ("v1_asset_audit_proposal",),
+        ("v1_asset_audit_proposal", "v1_asset_audit_proposal_detail"),
         action=CanonicalAction.ASSET_MANAGE.value,
         resource_type="asset",
         resource_keys=("env", "asset_id"),

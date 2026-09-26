@@ -26,7 +26,10 @@ from phlo_api.observatory_api.v1_preview import (
     quote_table,
 )
 from phlo_api.api.v1_audit_proposals import (
+    AssetAuditProposal,
     AssetAuditProposalRequest,
+    create_audit_proposal,
+    get_audit_proposal,
     generate_check_file,
 )
 from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
@@ -718,19 +721,20 @@ async def v1_asset_preview(
     )
 
 
-@router.post("/assets/{asset_id:path}/audits")
+@router.post("/assets/{asset_id:path}/audits", response_model=AssetAuditProposal, status_code=202)
 async def v1_asset_audit_proposal(
     request: Request,
     asset_id: str,
     payload: AssetAuditProposalRequest,
     env: Environment = Query(),
-) -> dict[str, Any]:
-    """Validate a declarative check proposal and fail closed without Git review."""
+) -> AssetAuditProposal:
+    """Create an idempotent, reviewable Git patch without activating project code."""
     from phlo_api.api.operation_controls import (
         IdempotencyConflict,
         audit_operation,
         enforce_rate_limit,
         idempotency_key_target,
+        project_root,
         replay_or_execute_async,
         require_scope,
     )
@@ -768,17 +772,28 @@ async def v1_asset_audit_proposal(
         os.environ.get("PHLO_V1_ACTIONS_SINGLE_REPLICA") == "1"
         and os.environ.get("PHLO_V1_ACTIONS_SINGLE_PROCESS") == "1"
     )
+    if not idempotency_store_ready:
+        raise BackendUnavailableError(
+            "Audit proposal creation requires the verified single-replica idempotency store."
+        )
     bound_target = idempotency_key_target(payload.idempotency_key, "v1_create_asset_audit_proposal")
     if bound_target is not None and bound_target != action_target:
         raise IdempotencyConflict({"error": "idempotency_key_conflict"})
 
     async def execute() -> dict[str, Any]:
-        reason = (
-            "project_git_review_not_configured"
-            if idempotency_store_ready
-            else "single_replica_idempotency_gate_not_enabled"
-        )
-        return _blocked_audit_proposal_result(file_path, source_digest, reason)
+        try:
+            proposal = create_audit_proposal(
+                project_root=project_root(),
+                env=env,
+                asset_id=asset_id,
+                nessie_ref=target.nessie_ref,
+                check_name=payload.check_name,
+                file_path=file_path,
+                source=source,
+            )
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise BackendUnavailableError("Audit proposal storage is unavailable.") from exc
+        return proposal.model_dump(mode="json")
 
     outcome = await replay_or_execute_async(
         idempotency_key=payload.idempotency_key,
@@ -794,26 +809,44 @@ async def v1_asset_audit_proposal(
                 "check_name": payload.check_name,
                 "rules": [rule.model_dump(mode="json") for rule in payload.rules],
             },
-            result=outcome,
+            result={
+                "proposal_id": outcome.get("proposal_id"),
+                "status": outcome.get("status"),
+                "file_path": outcome.get("file_path"),
+                "source_digest": outcome.get("source_digest"),
+            },
         ),
     )
-    reason = {
-        "project_git_review_not_configured": "Project Git review is not configured",
-        "single_replica_idempotency_gate_not_enabled": "Single-replica idempotency is not enabled",
-    }.get(str(outcome.get("reason")), "The proposal could not be created")
-    raise BackendUnavailableError(f"{reason}; no proposal was created or check activated.")
+    try:
+        return AssetAuditProposal.model_validate_json(json.dumps(outcome))
+    except (TypeError, ValueError) as exc:
+        raise BackendUnavailableError("Persisted audit proposal is invalid.") from exc
 
 
-def _blocked_audit_proposal_result(
-    file_path: str, source_digest: str, reason: str
-) -> dict[str, Any]:
-    """Record an idempotent blocked attempt without writing generated code."""
-    return {
-        "file_path": file_path,
-        "source_digest": source_digest,
-        "status": "blocked",
-        "reason": reason,
-    }
+@router.get("/assets/{asset_id:path}/audits/{proposal_id}", response_model=AssetAuditProposal)
+async def v1_asset_audit_proposal_detail(
+    request: Request,
+    asset_id: str,
+    proposal_id: str,
+    env: Environment = Query(),
+) -> AssetAuditProposal:
+    """Read a stored, source-only review proposal in its original environment/ref."""
+    from phlo_api.api.operation_controls import project_root, require_scope
+
+    require_scope(request, "project:write")
+    target = _target(request, env)
+    try:
+        proposal = get_audit_proposal(project_root(), proposal_id)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise BackendUnavailableError("Audit proposal storage is unavailable.") from exc
+    if (
+        proposal is None
+        or proposal.env != env
+        or proposal.asset_id != asset_id.strip("/")
+        or proposal.nessie_ref != target.nessie_ref
+    ):
+        raise NotFoundError("Audit proposal was not found.")
+    return proposal
 
 
 async def _action_context(
