@@ -34,6 +34,9 @@ compose:
         PHLO_V1_PREVIEW_TRINO_USER: ${PHLO_V1_PREVIEW_TRINO_USER:-}
         PHLO_V1_PREVIEW_TRINO_PASSWORD: ${PHLO_V1_PREVIEW_TRINO_PASSWORD:-}
         PHLO_V1_PREVIEW_CATALOGS: ${PHLO_V1_PREVIEW_CATALOGS:-}
+        PHLO_V1_GIT_REVIEW_REPOSITORY: ${PHLO_V1_GIT_REVIEW_REPOSITORY:-}
+        PHLO_V1_GIT_REVIEW_BASE_BRANCH: ${PHLO_V1_GIT_REVIEW_BASE_BRANCH:-}
+        PHLO_V1_GIT_REVIEW_TOKEN: ${PHLO_V1_GIT_REVIEW_TOKEN:-}
         PHLO_V1_ACTIONS_SINGLE_REPLICA: ${PHLO_V1_ACTIONS_SINGLE_REPLICA:-}
         PHLO_V1_ACTIONS_SINGLE_PROCESS: ${PHLO_V1_ACTIONS_SINGLE_PROCESS:-}
         PHLO_V1_ACTIONS_REF_TAG_CONTRACT: ${PHLO_V1_ACTIONS_REF_TAG_CONTRACT:-}
@@ -95,6 +98,16 @@ env_vars:
     PHLO_V1_PREVIEW_CATALOGS:
         default: ""
         description: JSON allowlist mapping prod and staging to distinct pre-provisioned Nessie-ref-pinned Trino catalogs
+    PHLO_V1_GIT_REVIEW_REPOSITORY:
+        default: ""
+        description: Explicit customer project repository in owner/repo form for source-only check draft PRs
+    PHLO_V1_GIT_REVIEW_BASE_BRANCH:
+        default: ""
+        description: Explicit base branch for source-only check draft PRs in the configured project repository
+    PHLO_V1_GIT_REVIEW_TOKEN:
+        default: ""
+        description: Repository-scoped credential with contents write and pull request write permissions for draft check proposals
+        secret: true
     PHLO_V1_ACTIONS_SINGLE_REPLICA:
         default: ""
         description: Operator assertion that the API is deployed as one replica
@@ -134,6 +147,9 @@ dev:
         PHLO_V1_PREVIEW_TRINO_USER: ${PHLO_V1_PREVIEW_TRINO_USER:-}
         PHLO_V1_PREVIEW_TRINO_PASSWORD: ${PHLO_V1_PREVIEW_TRINO_PASSWORD:-}
         PHLO_V1_PREVIEW_CATALOGS: ${PHLO_V1_PREVIEW_CATALOGS:-}
+        PHLO_V1_GIT_REVIEW_REPOSITORY: ${PHLO_V1_GIT_REVIEW_REPOSITORY:-}
+        PHLO_V1_GIT_REVIEW_BASE_BRANCH: ${PHLO_V1_GIT_REVIEW_BASE_BRANCH:-}
+        PHLO_V1_GIT_REVIEW_TOKEN: ${PHLO_V1_GIT_REVIEW_TOKEN:-}
         PHLO_V1_ACTIONS_SINGLE_REPLICA: ${PHLO_V1_ACTIONS_SINGLE_REPLICA:-}
         PHLO_V1_ACTIONS_SINGLE_PROCESS: ${PHLO_V1_ACTIONS_SINGLE_PROCESS:-}
         PHLO_V1_ACTIONS_REF_TAG_CONTRACT: ${PHLO_V1_ACTIONS_REF_TAG_CONTRACT:-}

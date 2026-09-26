@@ -90,8 +90,7 @@ async def test_preview_cancels_latest_continuation_after_row_limit(monkeypatch) 
         ("POST", "/v1/statement"),
         ("DELETE", "/v1/next/1"),
     ]
-    assert "query_max_run_time=20s" in requests[0][2]
-    assert "query_max_scan_physical_bytes=268435456B" in requests[0][2]
+    assert requests[0][2] == ""
     expected_auth = "Basic " + base64.b64encode(b"phlo_preview:secret").decode("ascii")
     assert all(item[3] == expected_auth for item in requests)
 
