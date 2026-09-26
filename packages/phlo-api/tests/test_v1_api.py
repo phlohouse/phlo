@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -521,9 +522,22 @@ def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch
             "computeKind": "dbt",
             "groupName": "warehouse",
             "isMaterializable": True,
+            "isPartitioned": False,
             "repository": {"name": "repo", "location": {"name": "production_jobs"}},
             "dependencyKeys": [],
-            "assetMaterializations": [{"timestamp": "1780000000", "runId": "p-run"}],
+            "assetMaterializations": [
+                {
+                    "timestamp": "1780000000",
+                    "runId": "p-run",
+                    "partition": None,
+                    "runOrError": {
+                        "__typename": "Run",
+                        "runId": "p-run",
+                        "status": "SUCCESS",
+                        "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                    },
+                }
+            ],
         },
         {
             "id": "s-orders",
@@ -532,9 +546,22 @@ def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch
             "computeKind": "dbt",
             "groupName": "warehouse",
             "isMaterializable": False,
+            "isPartitioned": False,
             "repository": {"name": "repo", "location": {"name": "testing_jobs"}},
             "dependencyKeys": [],
-            "assetMaterializations": [{"timestamp": "1781000000", "runId": "s-run"}],
+            "assetMaterializations": [
+                {
+                    "timestamp": "1781000000",
+                    "runId": "s-run",
+                    "partition": None,
+                    "runOrError": {
+                        "__typename": "Run",
+                        "runId": "s-run",
+                        "status": "SUCCESS",
+                        "repositoryOrigin": {"repositoryLocationName": "testing_jobs"},
+                    },
+                }
+            ],
         },
     ]
 
@@ -592,6 +619,10 @@ def test_asset_cursor_is_environment_bound_and_sources_filter_before_page(client
 
 
 def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from phlo_api import incidents
+
     http, _, _, _, _ = client
     nodes = [
         {
@@ -601,9 +632,22 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
             "computeKind": None,
             "groupName": None,
             "isMaterializable": True,
+            "isPartitioned": False,
             "repository": {"name": "repo", "location": {"name": location}},
             "dependencyKeys": [],
-            "assetMaterializations": [{"timestamp": "1780000000", "runId": env}],
+            "assetMaterializations": [
+                {
+                    "timestamp": "1780000000",
+                    "runId": env,
+                    "partition": None,
+                    "runOrError": {
+                        "__typename": "Run",
+                        "runId": env,
+                        "status": "SUCCESS",
+                        "repositoryOrigin": {"repositoryLocationName": location},
+                    },
+                }
+            ],
         }
         for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
     ]
@@ -644,6 +688,16 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
         return {"data": {"assetNodes": nodes}}
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(
+        incidents, "incident_stats", lambda request, env: {"env": env, "counts": {}}
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda request, env, limit, cursor: SimpleNamespace(
+            items=[{"asset_id": "orders", "freshness_sla_seconds": 60}], next_cursor=None
+        ),
+    )
     response = http.get("/api/v1/assets?env=prod")
     assert response.status_code == 200
     item = response.json()["items"][0]
@@ -654,6 +708,105 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
     assert run_history.status_code == 200
     assert [item["run_id"] for item in run_history.json()["items"]] == ["prod-run"]
     assert http.get("/api/v1/assets/orders?env=prod").status_code == 503
+    for env in ("prod", "staging"):
+        item = http.get(f"/api/v1/assets?env={env}").json()["items"][0]
+        assert item["history_scoped"] is False
+        assert item["last_materialization_at"] is None
+        overview = http.get(f"/api/v1/overview?env={env}")
+        assert overview.status_code == 200
+        assert overview.json()["freshness_counts"] == {
+            "fresh": 0,
+            "stale": 0,
+            "unknown": 1,
+        }
+
+
+@pytest.mark.parametrize(
+    ("env", "run_location", "status", "partitioned", "event_partition", "trusted"),
+    [
+        ("prod", "production_jobs", "SUCCESS", False, None, True),
+        ("prod", "testing_jobs", "SUCCESS", False, None, False),
+        ("staging", "production_jobs", "SUCCESS", False, None, False),
+        ("prod", "production_jobs", "FAILURE", False, None, False),
+        ("prod", "production_jobs", "SUCCESS", True, "2026-09-25", False),
+        ("prod", "production_jobs", "SUCCESS", False, "2026-09-25", False),
+    ],
+)
+def test_asset_and_overview_require_location_success_and_unpartitioned_evidence(
+    client, monkeypatch, env, run_location, status, partitioned, event_partition, trusted
+):
+    from types import SimpleNamespace
+
+    from phlo_api import incidents
+
+    http, *_ = client
+    current_location = "production_jobs" if env == "prod" else "testing_jobs"
+    materialization = {
+        "timestamp": str(datetime.now(UTC).timestamp()),
+        "runId": "historical-run",
+        "partition": event_partition,
+        "runOrError": {
+            "__typename": "Run",
+            "runId": "historical-run",
+            "status": status,
+            "repositoryOrigin": {"repositoryLocationName": run_location},
+        },
+        "metadataEntries": [
+            {"schema": {"columns": [{"name": "from_event", "type": "INT", "description": None}]}}
+        ],
+    }
+    node = {
+        "id": "current-definition",
+        "assetKey": {"path": ["orders"]},
+        "description": None,
+        "computeKind": None,
+        "groupName": "warehouse",
+        "isMaterializable": True,
+        "isPartitioned": partitioned,
+        "repository": {"name": "repo", "location": {"name": current_location}},
+        "dependencyKeys": [],
+        "assetMaterializations": [materialization],
+        "metadataEntries": [
+            {
+                "schema": {
+                    "columns": [{"name": "from_definition", "type": "BIGINT", "description": None}]
+                }
+            }
+        ],
+    }
+
+    async def graphql(url, query, variables=None):
+        if "V1AssetDetail" in query:
+            return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **node}}}
+        return {"data": {"assetNodes": [node]}}
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(
+        incidents, "incident_stats", lambda request, selected: {"env": selected, "counts": {}}
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda request, selected, limit, cursor: SimpleNamespace(
+            items=[{"asset_id": "orders", "freshness_sla_seconds": 60}], next_cursor=None
+        ),
+    )
+
+    listed = http.get(f"/api/v1/assets?env={env}")
+    detail = http.get(f"/api/v1/assets/orders?env={env}")
+    layers = http.get(f"/api/v1/layers?env={env}")
+    overview = http.get(f"/api/v1/overview?env={env}")
+    for response in (listed, detail, layers, overview):
+        assert response.status_code == 200, response.text
+    assert (listed.json()["items"][0]["last_run_id"] is not None) is trusted
+    assert (detail.json()["schema_observed_at"] is not None) is trusted
+    assert detail.json()["columns"][0]["name"] == ("from_event" if trusted else "from_definition")
+    assert (layers.json()["items"][0]["latest_materialization_at"] is not None) is trusted
+    assert overview.json()["freshness_counts"] == (
+        {"fresh": 1, "stale": 0, "unknown": 0}
+        if trusted
+        else {"fresh": 0, "stale": 0, "unknown": 1}
+    )
 
 
 def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client, monkeypatch):
@@ -665,9 +818,22 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
         "computeKind": "dbt",
         "groupName": "warehouse",
         "isMaterializable": True,
+        "isPartitioned": False,
         "repository": {"name": "repo", "location": {"name": "production_jobs"}},
         "dependencyKeys": [],
-        "assetMaterializations": [{"timestamp": "1780000000", "runId": "p-run"}],
+        "assetMaterializations": [
+            {
+                "timestamp": "1780000000",
+                "runId": "p-run",
+                "partition": None,
+                "runOrError": {
+                    "__typename": "Run",
+                    "runId": "p-run",
+                    "status": "SUCCESS",
+                    "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                },
+            }
+        ],
         "metadataEntries": [],
     }
     detail = {
@@ -676,6 +842,13 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
             {
                 "timestamp": "1780000000",
                 "runId": "p-run",
+                "partition": None,
+                "runOrError": {
+                    "__typename": "Run",
+                    "runId": "p-run",
+                    "status": "SUCCESS",
+                    "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                },
                 "metadataEntries": [
                     {
                         "schema": {
@@ -855,7 +1028,7 @@ def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatc
     monkeypatch.setattr(v1_assets, "_graphql", graphql)
     monkeypatch.setattr(v1_assets, "execute_preview", preview)
     monkeypatch.setenv("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "1")
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_preview")
+    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_api_preview")
     monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD", "secret")
     monkeypatch.setenv(
         "PHLO_V1_PREVIEW_CATALOGS",
@@ -975,6 +1148,34 @@ def test_materialize_action_pins_location_ref_and_replay_key(client, monkeypatch
     assert action["idempotency_key"] == "req-1"
     audit_log = tmp_path / ".phlo" / "audit" / "operations.jsonl"
     assert len(audit_log.read_text().splitlines()) == 1
+
+    endpoint = "/api/v1/assets/warehouse/orders/materialize?env=prod"
+    for change in (
+        {"dry_run": False},
+        {"partition_key": "2026-09-25"},
+        {"run_config": {"ops": {"warehouse_job": {"config": {"size": 2}}}}},
+    ):
+        conflict = http.post(
+            endpoint,
+            json={"job_name": "warehouse_job", "idempotency_key": "req-1", **change},
+        )
+        assert conflict.status_code == 409
+    assert len(calls) == 1
+
+    live = http.post(
+        endpoint,
+        json={"job_name": "warehouse_job", "idempotency_key": "req-live", "dry_run": False},
+    )
+    assert live.status_code == 200
+    assert (
+        http.post(
+            endpoint,
+            json={"job_name": "warehouse_job", "idempotency_key": "req-live"},
+        ).status_code
+        == 409
+    )
+    assert len(calls) == 2
+    assert len(audit_log.read_text().splitlines()) == 2
 
 
 def test_backfill_action_requires_bounded_explicit_partitions(client, monkeypatch):
@@ -1161,6 +1362,19 @@ def test_latest_and_all_backfills_are_environment_pinned_and_bounded(client, mon
         {"assetKey": {"path": ["warehouse", "prod_orders"]}, "limit": 1, "ascending": False},
     ]
     assert "partitionKeysByDimension" not in v1_assets.ASSET_LATEST_PARTITION_QUERY
+
+    endpoint = "/api/v1/assets/warehouse/prod_orders/backfill?env=prod"
+    dry_request = {
+        "job_name": "orders_job",
+        "partition_set_name": "orders_daily",
+        "selection": "all",
+        "idempotency_key": "prod-full",
+    }
+    assert http.post(endpoint, json={**dry_request, "dry_run": False}).status_code == 409
+    live_request = {**dry_request, "idempotency_key": "prod-live", "dry_run": False}
+    assert http.post(endpoint, json=live_request).status_code == 200
+    assert http.post(endpoint, json={**live_request, "dry_run": True}).status_code == 409
+    assert len(provider_calls) == 4
 
 
 @pytest.mark.parametrize(
@@ -1466,9 +1680,22 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
             "computeKind": None,
             "groupName": "warehouse",
             "isMaterializable": True,
+            "isPartitioned": False,
             "repository": {"name": "repo", "location": {"name": "production_jobs"}},
             "dependencyKeys": [],
-            "assetMaterializations": [{"timestamp": "1780000000", "runId": "run-1"}]
+            "assetMaterializations": [
+                {
+                    "timestamp": "1780000000",
+                    "runId": "run-1",
+                    "partition": None,
+                    "runOrError": {
+                        "__typename": "Run",
+                        "runId": "run-1",
+                        "status": "SUCCESS",
+                        "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                    },
+                }
+            ]
             if key == "orders"
             else [],
         }

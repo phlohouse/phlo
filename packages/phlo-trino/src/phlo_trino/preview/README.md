@@ -1,10 +1,9 @@
 # Optional Observatory preview security bundle
 
-This directory is an opt-in deployment overlay. The Trino service definition does
-not install or activate it. Do not copy it into a shared deployment until the
-operator has confirmed the real prod/staging Nessie refs, provisioned TLS and
-password files, and reviewed the effects of enabling Trino's file access-control
-and resource-group managers.
+This directory contains an optional example for a Phlo installation. The Trino
+service definition does not install or activate it. The repository does not
+identify a running Trino service. An installation must configure its own
+Nessie refs, storage, TLS, credentials, and policy before enabling API preview.
 
 The examples follow this repository's existing catalog convention only:
 
@@ -13,40 +12,37 @@ The examples follow this repository's existing catalog convention only:
 | `prod` | `iceberg_preview_prod` | `main` |
 | `staging` | `iceberg_preview_staging` | `dev` |
 
-Those are **not** asserted to be the deployed environment mapping. The API must
-be configured with the exact same catalog mapping; requests fail closed if it is
-absent or mismatched. Never change a ref by supplying a schema name, SQL value,
-or session property.
+These catalog names and refs are examples, not required API names or a deployed
+mapping. Replace them consistently in the catalog files, access rules, and API
+settings for each installation. The API requires `phlo_api_preview` because the
+sample access, resource-group, and session policies bind that identity. An API
+identity that differs from those policies fails closed. The API requires two
+distinct catalog names and an exact match to its configured environment refs.
+Never select a ref with SQL or a session property.
 
 ## Install only after review
 
-1. Render `config.properties.template` with deployment-specific HTTPS keystore
-   path/password and a cryptographically random internal communication secret.
-   Keep the rendered file and keystore in the deployment secret store. Trino
-   authentication disables plaintext HTTP, so the service health check must
-   also switch from `http://127.0.0.1:8080` to an authenticated HTTPS check that
-   validates the installed CA; do not use `curl -k`.
-2. Provision a separate Trino password file containing only the API preview
-   identity (`phlo_api_preview`). Mount it at the path in
-   `password-authenticator.properties`; do not reuse an operator account.
-3. Copy `password-authenticator.properties` to
-   `/etc/trino/password-authenticator.properties`, `access-control.properties`
-   to `/etc/trino/access-control.properties`, and
-   `resource-groups.properties` to `/etc/trino/resource-groups.properties`.
-   Copy `session-property-config.properties` to
-   `/etc/trino/session-property-config.properties`. Copy the access-control,
-   resource-group, and session-property JSON files to `/etc/trino/preview/`,
-   and the two catalog files to `/etc/trino/catalog/`.
-   The `iceberg.security=READ_ONLY` connector setting and system access-control
-   rules both prohibit writes through the preview identity. Verify the catalog
-   refs against the actual Nessie deployment first.
+1. Review the installation's existing Trino configuration and clients. Merge
+   the HTTPS and password-authentication settings from `config.properties.template`
+   into its existing config. Do not replace other settings such as dynamic catalog
+   management or existing client access. Supply a keystore password and random
+   internal communication secret through the installation's secret store. Update
+   the health check to authenticated HTTPS with a trusted CA; do not use `curl -k`.
+2. Provision a dedicated preview identity (`phlo_api_preview` in the example).
+   If other clients use the same Trino service, retain their authentication
+   paths and credentials. Do not reuse an operator account for previews.
+3. Integrate the sample password authenticator, access-control, resource-group,
+   and session-property policies with the installation's existing policies.
+   Trino uses one configuration manager of each type; copying these sample
+   files over existing ones can block other clients. Adapt the catalog names
+   while retaining the policy-bound identity. The preview catalogs set
+   `iceberg.security=READ_ONLY`. Confirm their Nessie refs and storage mapping.
 4. Configure the API with the HTTPS endpoint, API identity credentials, and
    exact `prod`/`staging` -> catalog/ref mapping. The API enforces small request
    limits and cancels Trino queries when it times out, is disconnected, or
    exceeds response caps.
-5. Restart the **Trino service** after installing the overlay; restart the
-   **phlo-api service** after setting its endpoint/credentials/ref mapping. Do
-   not run either restart from this PR.
+5. Apply configuration and restart services through the installation's own
+   deployment process. This PR starts and restarts no services.
 
 The session-property manager fixes `query.max-scan-physical-bytes` and max
 run/planning times for the preview resource group. System access control denies

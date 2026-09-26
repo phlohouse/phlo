@@ -13,6 +13,14 @@ import tomllib
 from phlo_trino.plugin import TrinoServicePlugin
 
 
+def _properties(path: Path) -> dict[str, str]:
+    return dict(
+        line.split("=", 1)
+        for raw in path.read_text(encoding="utf-8").splitlines()
+        if (line := raw.strip()) and not line.startswith("#")
+    )
+
+
 def test_trino_service_definition():
     """Validate Trino service definition fields."""
 
@@ -55,12 +63,17 @@ def test_optional_preview_bundle_pins_distinct_read_only_refs_with_budgets():
     project_root = Path(__file__).parents[1]
     preview = project_root / "src" / "phlo_trino" / "preview"
     catalogs = {
-        "prod": (preview / "catalog" / "iceberg_preview_prod.properties").read_text(),
-        "staging": (preview / "catalog" / "iceberg_preview_staging.properties").read_text(),
+        "prod": _properties(preview / "catalog" / "iceberg_preview_prod.properties"),
+        "staging": _properties(preview / "catalog" / "iceberg_preview_staging.properties"),
     }
-    assert "iceberg.rest-catalog.prefix=main" in catalogs["prod"]
-    assert "iceberg.rest-catalog.prefix=dev" in catalogs["staging"]
-    assert all("iceberg.security=READ_ONLY" in text for text in catalogs.values())
+    assert (
+        catalogs["prod"]["iceberg.rest-catalog.prefix"]
+        != catalogs["staging"]["iceberg.rest-catalog.prefix"]
+    )
+    assert all(
+        catalog["iceberg.security"] == "READ_ONLY" and catalog["iceberg.catalog.type"] == "rest"
+        for catalog in catalogs.values()
+    )
 
     access = json.loads((preview / "access-control.json").read_text())
     assert access["catalogs"][0] == {
@@ -94,13 +107,15 @@ def test_optional_preview_bundle_pins_distinct_read_only_refs_with_budgets():
         }
     ]
 
-    config = (preview / "config.properties.template").read_text()
-    assert "http-server.https.enabled=true" in config
-    assert "http-server.authentication.type=PASSWORD" in config
-    assert "http-server.https.port=8443" in config
-    session_config = (preview / "session-property-config.properties").read_text()
-    assert "session-property-config.configuration-manager=file" in session_config
-    assert "session-property-manager.config-file=" in session_config
+    config = _properties(preview / "config.properties.template")
+    assert config["http-server.https.enabled"] == "true"
+    assert config["http-server.authentication.type"] == "PASSWORD"
+    assert config["http-server.https.port"] == "8443"
+    session_config = _properties(preview / "session-property-config.properties")
+    assert session_config["session-property-config.configuration-manager"] == "file"
+    assert session_config["session-property-manager.config-file"] == (
+        "/etc/trino/preview/session-property-config.json"
+    )
 
 
 def test_optional_preview_bundle_is_not_activated_by_the_trino_service():
