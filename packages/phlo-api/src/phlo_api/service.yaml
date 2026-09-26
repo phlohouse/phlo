@@ -30,6 +30,13 @@ compose:
         PHLO_AUTHORIZATION_MODE: ${PHLO_AUTHORIZATION_MODE:-required}
         PHLO_SERVICE_CREDENTIALS_FILE: ${PHLO_SERVICE_CREDENTIALS_FILE:-}
         PHLO_V1_ENVIRONMENTS: ${PHLO_V1_ENVIRONMENTS:-}
+        PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED: ${PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED:-}
+        PHLO_V1_PREVIEW_TRINO_USER: ${PHLO_V1_PREVIEW_TRINO_USER:-}
+        PHLO_V1_PREVIEW_CATALOGS: ${PHLO_V1_PREVIEW_CATALOGS:-}
+        PHLO_V1_ACTIONS_SINGLE_REPLICA: ${PHLO_V1_ACTIONS_SINGLE_REPLICA:-}
+        PHLO_V1_ACTIONS_SINGLE_PROCESS: ${PHLO_V1_ACTIONS_SINGLE_PROCESS:-}
+        PHLO_V1_ACTIONS_REF_TAG_CONTRACT: ${PHLO_V1_ACTIONS_REF_TAG_CONTRACT:-}
+        TRINO_URL: ${TRINO_URL:-http://trino:8080}
         DAGSTER_GRAPHQL_URL: ${DAGSTER_GRAPHQL_URL:-http://dagster:3000/graphql}
         NESSIE_URL: ${NESSIE_URL:-http://nessie:19120/api/v2}
         CLICKSTACK_QUERY_URL: ${CLICKSTACK_QUERY_URL:-}
@@ -74,6 +81,24 @@ env_vars:
     PHLO_V1_ENVIRONMENTS:
         default: ""
         description: JSON allowlist of distinct prod and staging Dagster locations and Nessie refs
+    PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED:
+        default: ""
+        description: Explicit assertion that Trino preview authentication and server-side limits are deployed and verified
+    PHLO_V1_PREVIEW_TRINO_USER:
+        default: ""
+        description: Dedicated Trino identity for read-only bounded asset preview
+    PHLO_V1_PREVIEW_CATALOGS:
+        default: ""
+        description: JSON allowlist mapping prod and staging to distinct pre-provisioned Nessie-ref-pinned Trino catalogs
+    PHLO_V1_ACTIONS_SINGLE_REPLICA:
+        default: ""
+        description: Operator assertion that the API is deployed as one replica
+    PHLO_V1_ACTIONS_SINGLE_PROCESS:
+        default: ""
+        description: Operator assertion that the API runs as one worker process
+    PHLO_V1_ACTIONS_REF_TAG_CONTRACT:
+        default: ""
+        description: Operator assertion that Dagster locations enforce environment and Nessie-ref run tags
 
 files:
     - source: Dockerfile
@@ -100,6 +125,12 @@ dev:
         DAGSTER_GRAPHQL_URL: "http://127.0.0.1:${DAGSTER_PORT:-10006}/graphql"
         NESSIE_URL: "http://127.0.0.1:${NESSIE_PORT:-10003}/api/v2"
         PHLO_V1_ENVIRONMENTS: ${PHLO_V1_ENVIRONMENTS:-}
+        PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED: ${PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED:-}
+        PHLO_V1_PREVIEW_TRINO_USER: ${PHLO_V1_PREVIEW_TRINO_USER:-}
+        PHLO_V1_PREVIEW_CATALOGS: ${PHLO_V1_PREVIEW_CATALOGS:-}
+        PHLO_V1_ACTIONS_SINGLE_REPLICA: ${PHLO_V1_ACTIONS_SINGLE_REPLICA:-}
+        PHLO_V1_ACTIONS_SINGLE_PROCESS: ${PHLO_V1_ACTIONS_SINGLE_PROCESS:-}
+        PHLO_V1_ACTIONS_REF_TAG_CONTRACT: ${PHLO_V1_ACTIONS_REF_TAG_CONTRACT:-}
         TRINO_URL: "http://127.0.0.1:${TRINO_PORT:-10005}"
         TRINO_USER: ${PHLO_API_TRINO_USER:-phlo-api}
         TRINO_ROLE: ${PHLO_API_TRINO_ROLE:-}
