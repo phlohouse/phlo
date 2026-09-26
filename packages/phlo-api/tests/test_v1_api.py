@@ -1501,9 +1501,9 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
     assert body["quality_checks"] == {
         "status": "unknown",
         "counts": None,
+        "failing_assets": None,
         "reason": "source_unavailable",
     }
-    assert body["audit_counts"] is None
 
 
 def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, monkeypatch):
@@ -1544,7 +1544,10 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
                             "repository": {"location": {"name": location}},
                             "assetChecksOrError": {
                                 "__typename": "AssetChecks",
-                                "checks": [{"name": "freshness", "description": None}],
+                                "checks": [
+                                    {"name": "freshness", "description": None},
+                                    {"name": "volume", "description": None},
+                                ],
                             },
                         }
                         for location in ("production_jobs", "testing_jobs")
@@ -1552,6 +1555,17 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
                 }
             }
         if "V1AssetCheckExecutions" in query:
+            check_name = variables["checkName"]
+            check_executions = {
+                "freshness": (
+                    ("prod-pass", 1780000200, True, "production_jobs"),
+                    ("stage-fail", 1780000250, False, "testing_jobs"),
+                ),
+                "volume": (
+                    ("prod-fail", 1780000260, False, "production_jobs"),
+                    ("stage-pass", 1780000270, True, "testing_jobs"),
+                ),
+            }[check_name]
             return {
                 "data": {
                     "assetCheckExecutions": [
@@ -1566,10 +1580,7 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
                             },
                             "run": {"repositoryOrigin": {"repositoryLocationName": location}},
                         }
-                        for run_id, timestamp, passed, location in (
-                            ("prod-pass", 1780000200, True, "production_jobs"),
-                            ("stage-fail", 1780000250, False, "testing_jobs"),
-                        )
+                        for run_id, timestamp, passed, location in check_executions
                     ]
                     + [runless]
                 }
@@ -1596,7 +1607,8 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
     assert response.status_code == 200, response.text
     assert response.json()["quality_checks"] == {
         "status": "available",
-        "counts": {"passing": 1, "total": 1, "unevaluated": 0},
+        "counts": {"passing": 1, "total": 2, "unevaluated": 0},
+        "failing_assets": ["warehouse/orders"],
         "reason": None,
     }
 
