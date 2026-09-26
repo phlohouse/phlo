@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+from typing import Any
 
 import httpx
 import pytest
@@ -791,7 +792,7 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
         }
         for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
     ]
-    executions = [
+    executions: list[dict[str, Any]] = [
         {
             "status": "SUCCEEDED",
             "runId": run_id,
@@ -806,6 +807,15 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
         }
         for env, run_id, count in (("prod", "p-run", 9), ("staging", "s-run", 2))
     ]
+    executions.append(
+        {
+            "status": "SUCCEEDED",
+            "runId": None,
+            "timestamp": 1780000000,
+            "checkName": "runless-ambiguous",
+            "evaluation": {"severity": "ERROR", "metadataEntries": []},
+        }
+    )
     locations = {"p-run": "production_jobs", "s-run": "testing_jobs"}
 
     async def graphql(url, query, variables=None):
@@ -834,6 +844,11 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
     assert staging.json()["definitions"] == [{"name": "quality_staging", "description": "staging"}]
     assert [item["run_id"] for item in prod.json()["executions"]] == ["p-run"]
     assert [item["run_id"] for item in staging.json()["executions"]] == ["s-run"]
+    assert all(
+        item["check_name"] != "runless-ambiguous"
+        for response in (prod, staging)
+        for item in response.json()["executions"]
+    )
     assert prod.json()["executions"][0]["metadata"] == [{"label": "rows", "value": 9}]
 
 
