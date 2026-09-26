@@ -335,6 +335,7 @@ class QualityCheckCounts(WireModel):
 class QualityCheckEvidence(WireModel):
     status: Literal["available", "unknown"]
     counts: QualityCheckCounts | None
+    failing_assets: list[str] | None = None
     reason: str | None
 
 
@@ -348,7 +349,6 @@ class OverviewResponse(WireModel):
     run_status_counts: dict[str, int]
     run_history_truncated: bool
     quality_checks: QualityCheckEvidence
-    audit_counts: None = None
 
 
 def _cursor(env: Environment, kind: str, offset: int) -> str:
@@ -1368,6 +1368,7 @@ async def _overview_quality_checks(
     passing = 0
     total = 0
     unevaluated = 0
+    failing_assets: list[str] = []
     for key, definitions in definitions_by_asset:
         names = [definition.name for definition in definitions]
         if not names:
@@ -1393,10 +1394,16 @@ async def _overview_quality_checks(
                 unevaluated += 1
                 continue
             total += 1
-            passing += latest_evaluation.passed is True
+            if latest_evaluation.passed:
+                passing += 1
+            else:
+                asset_id = "/".join(key)
+                if asset_id not in failing_assets:
+                    failing_assets.append(asset_id)
     return QualityCheckEvidence(
         status="available",
         counts=QualityCheckCounts(passing=passing, total=total, unevaluated=unevaluated),
+        failing_assets=failing_assets,
         reason=None,
     )
 
