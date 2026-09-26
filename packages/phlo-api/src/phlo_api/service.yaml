@@ -57,6 +57,7 @@ compose:
         # itself stays immutable inside a release container.
         - ../.phlo/observatory:/app/.phlo/observatory
         - ../.phlo/state:/app/.phlo/state
+        - ../.phlo/audit:/app/.phlo/audit
     healthcheck:
         test:
             [
@@ -90,7 +91,7 @@ env_vars:
         description: Explicit assertion that Trino preview authentication and server-side limits are deployed and verified
     PHLO_V1_PREVIEW_TRINO_USER:
         default: ""
-        description: Dedicated Trino identity for read-only bounded asset preview
+        description: Policy-bound Trino preview identity phlo_api_preview; other identities fail closed
     PHLO_V1_PREVIEW_TRINO_PASSWORD:
         default: ""
         description: Password for the dedicated Trino preview identity

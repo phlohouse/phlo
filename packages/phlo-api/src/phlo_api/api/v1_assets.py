@@ -53,17 +53,23 @@ _OVERVIEW_CHECK_LIMIT = 100
 
 ASSET_QUERY = """query V1Assets {
   assetNodes {
-    id assetKey { path } description computeKind groupName isMaterializable isObservable
+    id assetKey { path } description computeKind groupName isMaterializable isObservable isPartitioned
     repository { name location { name } }
     dependencyKeys { path }
-    assetMaterializations(limit: 1) { timestamp runId }
+    assetMaterializations(limit: 1) {
+      timestamp runId partition
+      runOrError {
+        __typename
+        ... on Run { runId status repositoryOrigin { repositoryLocationName } }
+      }
+    }
   }
 }"""
 ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
   assetNodeOrError(assetKey: $assetKey) {
     __typename
     ... on AssetNode {
-      id assetKey { path } description computeKind groupName isMaterializable isObservable
+      id assetKey { path } description computeKind groupName isMaterializable isObservable isPartitioned
       repository { name location { name } }
       jobNames
       dependencyKeys { path }
@@ -75,7 +81,11 @@ ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
         }
       }
       assetMaterializations(limit: 1) {
-        timestamp runId
+        timestamp runId partition
+        runOrError {
+          __typename
+          ... on Run { runId status repositoryOrigin { repositoryLocationName } }
+        }
         metadataEntries {
           label
           ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
@@ -478,7 +488,7 @@ def _repository_location(node: dict[str, Any]) -> str:
 
 
 def _asset_view(node: dict[str, Any]) -> AssetView:
-    _repository_location(node)
+    location = _repository_location(node)
     materializable = node.get("isMaterializable")
     if type(materializable) is not bool:
         raise BadGatewayError("Dagster returned invalid asset materializability evidence.")
@@ -487,9 +497,29 @@ def _asset_view(node: dict[str, Any]) -> AssetView:
     if not isinstance(materials, list) or not isinstance(dependencies, list):
         raise BadGatewayError("Dagster returned invalid asset evidence.")
     latest = materials[0] if materials else None
+    run = latest.get("runOrError") if isinstance(latest, dict) else None
+    origin = run.get("repositoryOrigin") if isinstance(run, dict) else None
+    verified = (
+        node.get("isPartitioned") is False
+        and isinstance(latest, dict)
+        and "partition" in latest
+        and latest["partition"] is None
+        and isinstance(run, dict)
+        and run.get("__typename") == "Run"
+        and run.get("status") == "SUCCESS"
+        and isinstance(latest.get("runId"), str)
+        and latest["runId"]
+        and run.get("runId") == latest["runId"]
+        and isinstance(origin, dict)
+        and origin.get("repositoryLocationName") == location
+    )
     try:
-        observed = datetime.fromtimestamp(float(latest["timestamp"]), UTC) if latest else None
-        run_id = latest.get("runId") if latest else None
+        observed = (
+            datetime.fromtimestamp(float(latest["timestamp"]), UTC)
+            if verified and isinstance(latest, dict)
+            else None
+        )
+        run_id = latest["runId"] if verified and isinstance(latest, dict) else None
     except (KeyError, TypeError, ValueError, OSError) as exc:
         raise BadGatewayError("Dagster returned invalid materialization evidence.") from exc
     key = _key_path(node.get("assetKey"))
@@ -1078,8 +1108,10 @@ async def v1_asset_materialize(
     env: Environment = Query(),
 ) -> AssetActionResponse:
     from phlo_api.api.operation_controls import (
+        IdempotencyConflict,
         audit_operation,
         enforce_rate_limit,
+        idempotency_key_target,
         replay_or_execute_async,
         require_scope,
     )
@@ -1108,7 +1140,14 @@ async def v1_asset_materialize(
         )
         return _action_result(result)
 
-    action_target = f"{env}:{asset_id}@{target.nessie_ref}"
+    intent = payload.model_dump(exclude={"idempotency_key"})
+    intent_digest = hashlib.sha256(
+        json.dumps(intent, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    action_target = f"{env}:{asset_id}@{target.nessie_ref}:materialize:{intent_digest}"
+    bound_target = idempotency_key_target(payload.idempotency_key, "v1_materialize_asset")
+    if bound_target is not None and bound_target != action_target:
+        raise IdempotencyConflict({"error": "idempotency_key_conflict"})
     result = await replay_or_execute_async(
         idempotency_key=payload.idempotency_key,
         operation="v1_materialize_asset",
@@ -1136,8 +1175,10 @@ async def v1_asset_backfill(
     env: Environment = Query(),
 ) -> AssetActionResponse:
     from phlo_api.api.operation_controls import (
+        IdempotencyConflict,
         audit_operation,
         enforce_rate_limit,
+        idempotency_key_target,
         replay_or_execute_async,
         require_scope,
     )
@@ -1204,12 +1245,16 @@ async def v1_asset_backfill(
             "partition_set_name": payload.partition_set_name,
             "selection": payload.selection,
             "partitions": payload.partitions if payload.selection == "explicit" else [],
+            "dry_run": payload.dry_run,
         },
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
     intent_digest = hashlib.sha256(intent).hexdigest()
     action_target = f"{env}:{asset_id}@{target.nessie_ref}:backfill:{intent_digest}"
+    bound_target = idempotency_key_target(payload.idempotency_key, "v1_backfill_asset")
+    if bound_target is not None and bound_target != action_target:
+        raise IdempotencyConflict({"error": "idempotency_key_conflict"})
     result = await replay_or_execute_async(
         idempotency_key=payload.idempotency_key,
         operation="v1_backfill_asset",
@@ -1612,7 +1657,11 @@ async def v1_asset_detail(
     detail = _asset_view(payload)
     definition_entries = payload.get("metadataEntries") or []
     materials = payload.get("assetMaterializations") or []
-    materialization_entries = materials[0].get("metadataEntries") or [] if materials else []
+    materialization_entries = (
+        materials[0].get("metadataEntries") or []
+        if materials and detail.last_run_id is not None
+        else []
+    )
 
     def schema_columns(entries: list[Any]) -> list[AssetColumn]:
         for entry in entries:

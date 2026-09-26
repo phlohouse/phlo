@@ -190,6 +190,14 @@ def test_phlo_api_service_does_not_mount_docker_socket_by_default() -> None:
     assert not any("/var/run/docker.sock" in str(mount) for mount in mounts)
 
 
+def test_phlo_api_service_persists_operation_audit_beside_idempotency_state() -> None:
+    volumes = _load_packaged_definition("service.yaml")["compose"]["volumes"]
+
+    assert "../:/app:ro" in volumes
+    assert "../.phlo/state:/app/.phlo/state" in volumes
+    assert "../.phlo/audit:/app/.phlo/audit" in volumes
+
+
 def test_phlo_api_service_build_context_is_package_portable() -> None:
     service_defn = _load_packaged_definition("service.yaml")
 

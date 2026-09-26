@@ -21,6 +21,7 @@ _MAX_ROWS = 100
 _MAX_RESPONSE_BYTES = 1_048_576
 _MAX_TRINO_PAGE_BYTES = 8_388_608
 _ADMISSION = asyncio.Semaphore(2)
+_PREVIEW_USER = "phlo_api_preview"
 
 
 class PreviewUnavailable(RuntimeError):
@@ -38,7 +39,7 @@ def preview_catalog(env: str, nessie_ref: str) -> str:
             raise ValueError
         user = os.environ.get("PHLO_V1_PREVIEW_TRINO_USER")
         password = os.environ.get("PHLO_V1_PREVIEW_TRINO_PASSWORD")
-        if not user or not password:
+        if user != _PREVIEW_USER or not password:
             raise ValueError
         mapping = json.loads(os.environ["PHLO_V1_PREVIEW_CATALOGS"])
         if not isinstance(mapping, dict) or set(mapping) != {"prod", "staging"}:
@@ -151,11 +152,13 @@ def _preview_headers(catalog: str) -> dict[str, str]:
 
 
 def _preview_auth_headers() -> dict[str, str]:
-    credentials = (
-        f"{os.environ['PHLO_V1_PREVIEW_TRINO_USER']}:{os.environ['PHLO_V1_PREVIEW_TRINO_PASSWORD']}"
-    ).encode("utf-8")
+    user = os.environ.get("PHLO_V1_PREVIEW_TRINO_USER")
+    password = os.environ.get("PHLO_V1_PREVIEW_TRINO_PASSWORD")
+    if user != _PREVIEW_USER or not password:
+        raise PreviewUnavailable("Preview identity is not configured for the read-only policy.")
+    credentials = f"{user}:{password}".encode("utf-8")
     return {
-        "X-Trino-User": os.environ["PHLO_V1_PREVIEW_TRINO_USER"],
+        "X-Trino-User": user,
         "Authorization": f"Basic {base64.b64encode(credentials).decode('ascii')}",
     }
 
