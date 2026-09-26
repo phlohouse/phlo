@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, Field
 
 from phlo_api.api.v1 import _target
+from phlo_api.api.authentication import get_request_principal
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, NotFoundError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
 from phlo_api.observatory_api.v1_preview import (
@@ -303,6 +304,23 @@ class AssetPreview(WireModel):
     columns: list[PreviewColumn]
     rows: list[dict[str, Any]]
     has_more: bool
+
+
+class PreviewAccess(WireModel):
+    observed_at: AwareDatetime
+    returned_row_count: int = Field(ge=0)
+    has_more: bool
+
+
+class AssetUsage(WireModel):
+    env: Environment
+    asset_id: str
+    nessie_ref: str
+    status: Literal["partial", "unavailable"]
+    source: Literal["api_preview"] = "api_preview"
+    reason: Literal["no_retained_preview_evidence"] | None = None
+    items: list[PreviewAccess]
+    next_cursor: str | None
 
 
 class MaterializeAssetAction(WireModel):
@@ -750,14 +768,34 @@ async def v1_asset_preview(
         raise BackendUnavailableError(str(exc)) from exc
     except (TypeError, ValueError, KeyError) as exc:
         raise BadGatewayError("Trino returned invalid preview data.") from exc
-    return AssetPreview(
-        env=env,
-        asset_id=asset_id,
-        nessie_ref=target.nessie_ref,
-        columns=columns,
-        rows=result["rows"],
-        has_more=result["has_more"],
-    )
+    try:
+        preview = AssetPreview(
+            env=env,
+            asset_id=asset_id,
+            nessie_ref=target.nessie_ref,
+            columns=columns,
+            rows=result["rows"],
+            has_more=result["has_more"],
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise BadGatewayError("Trino returned invalid preview data.") from exc
+    from phlo_api.api.operation_controls import audit_operation
+
+    principal = get_request_principal(request)
+    assert principal is not None  # The v1 security manifest authenticated this request.
+    try:
+        await asyncio.to_thread(
+            audit_operation,
+            operation="v1_asset_preview",
+            target=f"{env}:{asset_id}@{target.nessie_ref}",
+            dry_run=False,
+            auth={"subject": principal.subject, "scopes": []},
+            payload={"env": env, "asset_id": asset_id, "nessie_ref": target.nessie_ref},
+            result={"returned_row_count": len(preview.rows), "has_more": preview.has_more},
+        )
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise BackendUnavailableError("Preview access could not be recorded.") from exc
+    return preview
 
 
 @router.post("/assets/{asset_id:path}/audits", response_model=AssetAuditProposal, status_code=202)
@@ -1338,6 +1376,67 @@ async def v1_asset_runs(
         asset_id=asset_id,
         items=items,
         next_cursor=_asset_run_cursor(env, asset_id, next_dagster_cursor) if has_more else None,
+    )
+
+
+@router.get("/assets/{asset_id:path}/usage", response_model=AssetUsage)
+async def v1_asset_usage(
+    request: Request,
+    asset_id: str,
+    env: Environment = Query(),
+    limit: Limit = 100,
+    cursor: str | None = None,
+) -> AssetUsage:
+    """Expose only this API's retained preview reads, never inferred query usage."""
+    from phlo_api.api.operation_controls import read_operation_audit
+
+    target = _target(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
+    asset_id = asset_id.strip("/")
+    assets = await _assets(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
+    if not any(asset.id == asset_id for asset in assets):
+        raise NotFoundError("Asset was not found.")
+    try:
+        records = await asyncio.to_thread(read_operation_audit, "v1_asset_preview")
+        if any(
+            record.get("surface") != "phlo-api"
+            or not isinstance(record.get("payload"), dict)
+            or not all(
+                isinstance(record["payload"].get(field), str) and record["payload"][field]
+                for field in ("env", "asset_id", "nessie_ref")
+            )
+            or record.get("target")
+            != f"{record['payload']['env']}:{record['payload']['asset_id']}@{record['payload']['nessie_ref']}"
+            for record in records
+        ):
+            raise ValueError("Preview access record has no resource identity.")
+        items = [
+            PreviewAccess.model_validate_json(
+                json.dumps({"observed_at": record["timestamp"], **record["result"]})
+            )
+            for record in records
+            if record["payload"].get("env") == env
+            and record["payload"].get("asset_id") == asset_id
+            and record["payload"].get("nessie_ref") == target.nessie_ref
+        ]
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise BackendUnavailableError("Preview access history is unavailable.") from exc
+    items.reverse()
+    identity = f"usage:{asset_id}@{target.nessie_ref}"
+    digest = hashlib.sha256(
+        json.dumps([item.model_dump(mode="json") for item in items], separators=(",", ":")).encode()
+    ).hexdigest()[:16]
+    kind = f"{identity}:{digest}"
+    offset = _offset(cursor, env, kind)
+    if cursor is not None and offset >= len(items):
+        raise HTTPException(status_code=400, detail="Invalid or stale usage cursor.")
+    return AssetUsage(
+        env=env,
+        asset_id=asset_id,
+        nessie_ref=target.nessie_ref,
+        status="partial" if items else "unavailable",
+        reason=None if items else "no_retained_preview_evidence",
+        items=items[offset : offset + limit],
+        next_cursor=_cursor(env, kind, offset + limit) if offset + limit < len(items) else None,
     )
 
 
