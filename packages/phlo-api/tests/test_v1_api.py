@@ -948,7 +948,11 @@ def test_backfill_action_requires_bounded_explicit_partitions(client, monkeypatc
     monkeypatch.setattr(v1_assets, "_graphql", unexpected_graphql)
     disabled = http.post(
         "/api/v1/assets/warehouse/orders/backfill?env=prod",
-        json={"partition_set_name": "daily", "partitions": ["2026-09-25"], "idempotency_key": "req-2"},
+        json={
+            "partition_set_name": "daily",
+            "partitions": ["2026-09-25"],
+            "idempotency_key": "req-2",
+        },
     )
     assert disabled.status_code == 503
 
