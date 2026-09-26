@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -36,7 +37,7 @@ _OVERVIEW_CHECK_LIMIT = 100
 
 ASSET_QUERY = """query V1Assets {
   assetNodes {
-    id assetKey { path } description computeKind groupName isSource
+    id assetKey { path } description computeKind groupName isMaterializable isObservable
     repository { name location { name } }
     dependencyKeys { path }
     assetMaterializations(limit: 1) { timestamp runId }
@@ -46,8 +47,9 @@ ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
   assetNodeOrError(assetKey: $assetKey) {
     __typename
     ... on AssetNode {
-      id assetKey { path } description computeKind groupName isSource
+      id assetKey { path } description computeKind groupName isMaterializable isObservable
       repository { name location { name } }
+      jobNames
       dependencyKeys { path }
       metadataEntries {
         label description
@@ -68,6 +70,28 @@ ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
       }
     }
     ... on AssetNotFoundError { message }
+  }
+}"""
+ASSET_LATEST_PARTITION_QUERY = """query V1AssetLatestPartition($assetKey: AssetKeyInput!, $limit: Int!, $ascending: Boolean!) {
+  assetNodeOrError(assetKey: $assetKey) {
+    __typename
+    ... on AssetNode {
+      repository { location { name } }
+      partitionKeyConnection(limit: $limit, ascending: $ascending) {
+        results cursor hasMore
+      }
+    }
+    ... on AssetNotFoundError { message }
+  }
+}"""
+BACKFILL_PARTITION_SET_QUERY = """query V1BackfillPartitionSet($repositorySelector: RepositorySelector!, $partitionSetName: String!) {
+  partitionSetOrError(repositorySelector: $repositorySelector, partitionSetName: $partitionSetName) {
+    __typename
+    ... on PartitionSet {
+      pipelineName
+      repositoryOrigin { repositoryLocationName repositoryName }
+    }
+    ... on PartitionSetNotFoundError { message }
   }
 }"""
 ASSET_RUNS_QUERY = """query V1AssetRuns($limit: Int!, $cursor: String) {
@@ -264,8 +288,10 @@ class MaterializeAssetAction(WireModel):
 
 
 class BackfillAssetAction(WireModel):
+    job_name: str = Field(min_length=1)
     partition_set_name: str = Field(min_length=1)
-    partitions: list[str] = Field(min_length=1, max_length=500)
+    selection: Literal["explicit", "latest", "all"] = "explicit"
+    partitions: list[str] = Field(default_factory=list, max_length=500)
     dry_run: bool = True
     idempotency_key: str = Field(min_length=1, max_length=128)
 
@@ -437,6 +463,9 @@ def _repository_location(node: dict[str, Any]) -> str:
 
 def _asset_view(node: dict[str, Any]) -> AssetView:
     _repository_location(node)
+    materializable = node.get("isMaterializable")
+    if type(materializable) is not bool:
+        raise BadGatewayError("Dagster returned invalid asset materializability evidence.")
     materials = node.get("assetMaterializations")
     dependencies = node.get("dependencyKeys")
     if not isinstance(materials, list) or not isinstance(dependencies, list):
@@ -454,7 +483,7 @@ def _asset_view(node: dict[str, Any]) -> AssetView:
         description=node.get("description"),
         compute_kind=node.get("computeKind"),
         group_name=node.get("groupName"),
-        is_source=node.get("isSource") is True,
+        is_source=not materializable,
         dependencies=[_key_path(item) for item in dependencies],
         last_materialization_at=observed,
         last_run_id=run_id,
@@ -687,7 +716,7 @@ async def v1_asset_preview(
 
 async def _action_context(
     request: Request, env: Environment, asset_id: str
-) -> tuple[EnvironmentTarget, str]:
+) -> tuple[EnvironmentTarget, str, list[str]]:
     if (
         os.environ.get("PHLO_V1_ACTIONS_SINGLE_REPLICA") != "1"
         or os.environ.get("PHLO_V1_ACTIONS_SINGLE_PROCESS") != "1"
@@ -708,13 +737,80 @@ async def _action_context(
         raise NotFoundError("Asset was not found.")
     location = repository.get("location")
     repository_name = repository.get("name")
+    job_names = node.get("jobNames")
     if (
         not isinstance(location, dict)
         or location.get("name") != target.dagster_location
         or not isinstance(repository_name, str)
+        or not isinstance(job_names, list)
+        or any(not isinstance(name, str) for name in job_names)
     ):
         raise NotFoundError("Asset was not found.")
-    return target, repository_name
+    return target, repository_name, job_names
+
+
+async def _latest_asset_partition(asset_id: str, repository_location: str) -> str:
+    result = await _graphql(
+        ASSET_LATEST_PARTITION_QUERY,
+        {
+            "assetKey": {"path": asset_id.split("/")},
+            "limit": 1,
+            "ascending": False,
+        },
+    )
+    node = _response_field(result, "assetNodeOrError")
+    if node.get("__typename") != "AssetNode":
+        raise BackendUnavailableError("Dagster could not resolve the asset partition definition.")
+    repository = node.get("repository")
+    location = repository.get("location") if isinstance(repository, dict) else None
+    if not isinstance(location, dict) or location.get("name") != repository_location:
+        raise NotFoundError("Asset was not found.")
+    connection = node.get("partitionKeyConnection")
+    if connection is None:
+        raise BackendUnavailableError("Asset has no partition-key connection.")
+    if not isinstance(connection, dict):
+        raise BadGatewayError("Dagster returned invalid asset partition keys.")
+    keys = connection.get("results")
+    if (
+        not isinstance(keys, list)
+        or any(not isinstance(key, str) for key in keys)
+        or not isinstance(connection.get("cursor"), str)
+        or not isinstance(connection.get("hasMore"), bool)
+    ):
+        raise BadGatewayError("Dagster returned invalid asset partition keys.")
+    if not keys:
+        raise BackendUnavailableError("No latest asset partition is available.")
+    if len(keys) != 1 or not keys[0].strip():
+        raise BadGatewayError("Dagster returned invalid latest asset partition.")
+    return keys[0]
+
+
+async def _validate_backfill_partition_set(
+    partition_set_name: str,
+    job_name: str,
+    repository_location: str,
+    repository_name: str,
+) -> None:
+    result = await _graphql(
+        BACKFILL_PARTITION_SET_QUERY,
+        {
+            "repositorySelector": {
+                "repositoryLocationName": repository_location,
+                "repositoryName": repository_name,
+            },
+            "partitionSetName": partition_set_name,
+        },
+    )
+    partition_set = _response_field(result, "partitionSetOrError")
+    origin = partition_set.get("repositoryOrigin")
+    if (
+        partition_set.get("__typename") != "PartitionSet"
+        or partition_set.get("pipelineName") != job_name
+        or not isinstance(origin, dict)
+        or origin.get("repositoryLocationName") != repository_location
+        or origin.get("repositoryName") != repository_name
+    ):
+        raise NotFoundError("Partition set was not found for this asset job.")
 
 
 def _action_result(result: Any) -> dict[str, Any]:
@@ -742,8 +838,10 @@ async def v1_asset_materialize(
     from phlo_api.observatory_api.orchestrator_operations import resolve_orchestrator_operations
 
     asset_id = asset_id.strip("/")
-    target, repository_name = await _action_context(request, env, asset_id)
+    target, repository_name, job_names = await _action_context(request, env, asset_id)
     auth = require_scope(request, "lakehouse:operate")
+    if payload.job_name not in job_names:
+        raise NotFoundError("Job was not found for this asset.")
     enforce_rate_limit(auth["subject"], "materialize_asset")
     require_idempotency_key(payload.idempotency_key)
     provider = resolve_orchestrator_operations()
@@ -798,18 +896,52 @@ async def v1_asset_backfill(
     from phlo_api.observatory_api.orchestrator_operations import resolve_orchestrator_operations
 
     asset_id = asset_id.strip("/")
-    target, repository_name = await _action_context(request, env, asset_id)
+    target, repository_name, job_names = await _action_context(request, env, asset_id)
     auth = require_scope(request, "lakehouse:operate")
+    if payload.job_name not in job_names:
+        raise NotFoundError("Job was not found for this asset.")
+    if payload.selection == "explicit" and (
+        not payload.partitions
+        or any(not key.strip() for key in payload.partitions)
+        or len(set(payload.partitions)) != len(payload.partitions)
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Explicit backfill requires unique, non-empty partition keys.",
+        )
+    if payload.selection != "explicit" and payload.partitions:
+        raise HTTPException(
+            status_code=422,
+            detail="Partition keys are only accepted for explicit backfill selection.",
+        )
+    await _validate_backfill_partition_set(
+        payload.partition_set_name,
+        payload.job_name,
+        target.dagster_location,
+        repository_name,
+    )
+    partition_keys = (
+        [await _latest_asset_partition(asset_id, target.dagster_location)]
+        if payload.selection == "latest"
+        else payload.partitions
+    )
     enforce_rate_limit(auth["subject"], "backfill_asset")
     require_idempotency_key(payload.idempotency_key)
     provider = resolve_orchestrator_operations()
-    tags = {"environment": env, "phlo/ref": target.nessie_ref}
+    tags = {
+        "environment": env,
+        "phlo/ref": target.nessie_ref,
+        "phlo/job": payload.job_name,
+        "phlo/selection": payload.selection,
+    }
 
     async def execute() -> dict[str, Any]:
         result = await provider.backfill_asset(
             asset_id,
             {
-                **payload.model_dump(),
+                **payload.model_dump(exclude={"selection"}),
+                "partitions": partition_keys,
+                "all_partitions": payload.selection == "all",
                 "repository_location_name": target.dagster_location,
                 "repository_name": repository_name,
                 "tags": tags,
@@ -817,7 +949,18 @@ async def v1_asset_backfill(
         )
         return _action_result(result)
 
-    action_target = f"{env}:{asset_id}@{target.nessie_ref}"
+    intent = json.dumps(
+        {
+            "job_name": payload.job_name,
+            "partition_set_name": payload.partition_set_name,
+            "selection": payload.selection,
+            "partitions": payload.partitions if payload.selection == "explicit" else [],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    intent_digest = hashlib.sha256(intent).hexdigest()
+    action_target = f"{env}:{asset_id}@{target.nessie_ref}:backfill:{intent_digest}"
     result = await replay_or_execute_async(
         idempotency_key=payload.idempotency_key,
         operation="v1_backfill_asset",
@@ -829,8 +972,11 @@ async def v1_asset_backfill(
             dry_run=payload.dry_run,
             auth=auth,
             payload={
+                "job_name": payload.job_name,
                 "partition_set_name": payload.partition_set_name,
-                "partitions": payload.partitions,
+                "selection": payload.selection,
+                "partitions": partition_keys,
+                "all_partitions": payload.selection == "all",
             },
             result=value,
         ),

@@ -518,7 +518,7 @@ def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch
             "description": "prod orders",
             "computeKind": "dbt",
             "groupName": "warehouse",
-            "isSource": False,
+            "isMaterializable": True,
             "repository": {"name": "repo", "location": {"name": "production_jobs"}},
             "dependencyKeys": [],
             "assetMaterializations": [{"timestamp": "1780000000", "runId": "p-run"}],
@@ -529,7 +529,7 @@ def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch
             "description": "staging orders",
             "computeKind": "dbt",
             "groupName": "warehouse",
-            "isSource": True,
+            "isMaterializable": False,
             "repository": {"name": "repo", "location": {"name": "testing_jobs"}},
             "dependencyKeys": [],
             "assetMaterializations": [{"timestamp": "1781000000", "runId": "s-run"}],
@@ -566,7 +566,7 @@ def test_asset_cursor_is_environment_bound_and_sources_filter_before_page(client
             "description": key,
             "computeKind": None,
             "groupName": None,
-            "isSource": source,
+            "isMaterializable": not source,
             "repository": {"name": "repo", "location": {"name": "production_jobs"}},
             "dependencyKeys": [],
             "assetMaterializations": [],
@@ -598,7 +598,7 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
             "description": env,
             "computeKind": None,
             "groupName": None,
-            "isSource": False,
+            "isMaterializable": True,
             "repository": {"name": "repo", "location": {"name": location}},
             "dependencyKeys": [],
             "assetMaterializations": [{"timestamp": "1780000000", "runId": env}],
@@ -662,7 +662,7 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
         "description": "orders",
         "computeKind": "dbt",
         "groupName": "warehouse",
-        "isSource": False,
+        "isMaterializable": True,
         "repository": {"name": "repo", "location": {"name": "production_jobs"}},
         "dependencyKeys": [],
         "assetMaterializations": [{"timestamp": "1780000000", "runId": "p-run"}],
@@ -830,7 +830,7 @@ def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatc
                         "description": None,
                         "computeKind": "python",
                         "groupName": "warehouse",
-                        "isSource": False,
+                        "isMaterializable": True,
                         "repository": {
                             "name": "repo",
                             "location": {"name": "production_jobs"},
@@ -883,7 +883,7 @@ def test_asset_preview_refuses_same_key_from_multiple_locations(client, monkeypa
                         "description": None,
                         "computeKind": "python",
                         "groupName": "warehouse",
-                        "isSource": False,
+                        "isMaterializable": True,
                         "repository": {"name": "repo", "location": {"name": location}},
                         "dependencyKeys": [],
                         "assetMaterializations": [],
@@ -915,8 +915,9 @@ def test_materialize_action_pins_location_ref_and_replay_key(client, monkeypatch
         "description": None,
         "computeKind": "python",
         "groupName": "warehouse",
-        "isSource": False,
+        "isMaterializable": True,
         "repository": {"name": "prod_repo", "location": {"name": "production_jobs"}},
+        "jobNames": ["warehouse_job"],
         "dependencyKeys": [],
         "assetMaterializations": [],
     }
@@ -983,12 +984,297 @@ def test_backfill_action_requires_bounded_explicit_partitions(client, monkeypatc
     disabled = http.post(
         "/api/v1/assets/warehouse/orders/backfill?env=prod",
         json={
+            "job_name": "orders_job",
             "partition_set_name": "daily",
             "partitions": ["2026-09-25"],
             "idempotency_key": "req-2",
         },
     )
     assert disabled.status_code == 503
+
+
+def test_latest_and_all_backfills_are_environment_pinned_and_bounded(client, monkeypatch, tmp_path):
+    http, *_ = client
+    from phlo_api.api import operation_controls
+    from phlo_api.observatory_api import orchestrator_operations, run_action_contract
+
+    locations = {
+        "prod_orders": ("production_jobs", "prod_repo"),
+        "stage_orders": ("testing_jobs", "stage_repo"),
+    }
+    assets = [
+        {
+            "id": key,
+            "assetKey": {"path": ["warehouse", key]},
+            "description": None,
+            "computeKind": "python",
+            "groupName": "warehouse",
+            "isMaterializable": True,
+            "repository": {"name": repository, "location": {"name": location}},
+            "dependencyKeys": [],
+            "assetMaterializations": [],
+        }
+        for key, (location, repository) in locations.items()
+    ]
+    latest_query_variables = []
+    provider_calls = []
+
+    async def graphql(query, variables=None):
+        if "V1Assets" in query:
+            return {"data": {"assetNodes": assets}}
+        key = variables["assetKey"]["path"][-1] if "assetKey" in variables else None
+        if "V1AssetDetail" in query:
+            location, repository = locations[key]
+            return {
+                "data": {
+                    "assetNodeOrError": {
+                        "__typename": "AssetNode",
+                        **next(asset for asset in assets if asset["id"] == key),
+                        "jobNames": ["orders_job"],
+                    }
+                }
+            }
+        if "V1BackfillPartitionSet" in query:
+            selector = variables["repositorySelector"]
+            return {
+                "data": {
+                    "partitionSetOrError": {
+                        "__typename": "PartitionSet",
+                        "pipelineName": "orders_job",
+                        "repositoryOrigin": {
+                            "repositoryLocationName": selector["repositoryLocationName"],
+                            "repositoryName": selector["repositoryName"],
+                        },
+                    }
+                }
+            }
+        if "V1AssetLatestPartition" in query:
+            latest_query_variables.append(variables)
+            location, _ = locations[key]
+            prod_selection_count = sum(
+                item["assetKey"]["path"][-1] == "prod_orders" for item in latest_query_variables
+            )
+            partition_key = "2026-09-26" if prod_selection_count > 1 else "2026-09-25"
+            return {
+                "data": {
+                    "assetNodeOrError": {
+                        "__typename": "AssetNode",
+                        "repository": {"location": {"name": location}},
+                        "partitionKeyConnection": {
+                            "results": [partition_key if key == "prod_orders" else "2026-09-24"],
+                            "cursor": "",
+                            "hasMore": True,
+                        },
+                    }
+                }
+            }
+        raise AssertionError("unexpected Dagster query")
+
+    class Provider:
+        async def backfill_asset(self, asset_id, request):
+            provider_calls.append((asset_id, request))
+            return {"accepted": True, "all_partitions": request["all_partitions"]}
+
+    monkeypatch.setattr(v1_assets, "_graphql", graphql)
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_PROCESS", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_REF_TAG_CONTRACT", "1")
+    monkeypatch.setattr(
+        operation_controls,
+        "require_scope",
+        lambda *_: {"subject": "alice", "scopes": ["lakehouse:operate"]},
+    )
+    monkeypatch.setattr(operation_controls, "enforce_rate_limit", lambda *_: None)
+    monkeypatch.setattr(run_action_contract, "require_idempotency_key", lambda key: key)
+    monkeypatch.setattr(
+        orchestrator_operations, "resolve_orchestrator_operations", lambda: Provider()
+    )
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+
+    prod_latest = http.post(
+        "/api/v1/assets/warehouse/prod_orders/backfill?env=prod",
+        json={
+            "job_name": "orders_job",
+            "partition_set_name": "orders_daily",
+            "selection": "latest",
+            "idempotency_key": "prod-latest",
+        },
+    )
+    stage_latest = http.post(
+        "/api/v1/assets/warehouse/stage_orders/backfill?env=staging",
+        json={
+            "job_name": "orders_job",
+            "partition_set_name": "orders_daily",
+            "selection": "latest",
+            "idempotency_key": "stage-latest",
+        },
+    )
+    prod_latest_replay = http.post(
+        "/api/v1/assets/warehouse/prod_orders/backfill?env=prod",
+        json={
+            "job_name": "orders_job",
+            "partition_set_name": "orders_daily",
+            "selection": "latest",
+            "idempotency_key": "prod-latest",
+        },
+    )
+    full = http.post(
+        "/api/v1/assets/warehouse/prod_orders/backfill?env=prod",
+        json={
+            "job_name": "orders_job",
+            "partition_set_name": "orders_daily",
+            "selection": "all",
+            "idempotency_key": "prod-full",
+        },
+    )
+
+    assert (
+        prod_latest.status_code
+        == stage_latest.status_code
+        == prod_latest_replay.status_code
+        == full.status_code
+        == 200
+    )
+    assert prod_latest_replay.json() == prod_latest.json()
+    assert [call[1]["partitions"] for call in provider_calls] == [
+        ["2026-09-25"],
+        ["2026-09-24"],
+        [],
+    ]
+    assert provider_calls[0][1]["repository_location_name"] == "production_jobs"
+    assert provider_calls[0][1]["tags"] == {
+        "environment": "prod",
+        "phlo/ref": "main",
+        "phlo/job": "orders_job",
+        "phlo/selection": "latest",
+    }
+    assert provider_calls[1][1]["repository_location_name"] == "testing_jobs"
+    assert provider_calls[1][1]["tags"]["phlo/ref"] == "candidate"
+    assert provider_calls[2][1]["all_partitions"] is True
+    assert provider_calls[2][1]["repository_location_name"] == "production_jobs"
+    assert latest_query_variables == [
+        {"assetKey": {"path": ["warehouse", "prod_orders"]}, "limit": 1, "ascending": False},
+        {"assetKey": {"path": ["warehouse", "stage_orders"]}, "limit": 1, "ascending": False},
+        {"assetKey": {"path": ["warehouse", "prod_orders"]}, "limit": 1, "ascending": False},
+    ]
+    assert "partitionKeysByDimension" not in v1_assets.ASSET_LATEST_PARTITION_QUERY
+
+
+@pytest.mark.parametrize(
+    ("partition_response", "expected_status"),
+    [
+        ({"results": [], "cursor": "", "hasMore": False}, 503),
+        ({"results": ["p1", "p2"], "cursor": "next", "hasMore": True}, 502),
+        ({"wrong_location": True, "results": ["p1"], "cursor": "", "hasMore": False}, 404),
+        ({"wrong_partition_location": True}, 404),
+        ({"wrong_job": True}, 404),
+        ({"upstream_failure": True}, 502),
+    ],
+)
+def test_latest_backfill_fails_closed_on_empty_oversized_or_wrong_location(
+    client, monkeypatch, tmp_path, partition_response, expected_status
+):
+    http, *_ = client
+    from phlo_api.api import operation_controls
+    from phlo_api.observatory_api import orchestrator_operations, run_action_contract
+
+    node = {
+        "id": "orders",
+        "assetKey": {"path": ["warehouse", "orders"]},
+        "description": None,
+        "computeKind": "python",
+        "groupName": "warehouse",
+        "isMaterializable": True,
+        "repository": {"name": "prod_repo", "location": {"name": "production_jobs"}},
+        "dependencyKeys": [],
+        "assetMaterializations": [],
+    }
+    provider_calls = []
+
+    async def graphql(query, variables=None):
+        if "V1Assets" in query:
+            return {"data": {"assetNodes": [node]}}
+        if "V1AssetDetail" in query:
+            return {
+                "data": {
+                    "assetNodeOrError": {
+                        "__typename": "AssetNode",
+                        **node,
+                        "jobNames": ["orders_job"],
+                    }
+                }
+            }
+        if "V1BackfillPartitionSet" in query:
+            selector = variables["repositorySelector"]
+            if partition_response.get("wrong_partition_location"):
+                selector = {**selector, "repositoryLocationName": "testing_jobs"}
+            return {
+                "data": {
+                    "partitionSetOrError": {
+                        "__typename": "PartitionSet",
+                        "pipelineName": (
+                            "other_job" if partition_response.get("wrong_job") else "orders_job"
+                        ),
+                        "repositoryOrigin": selector,
+                    }
+                }
+            }
+        if "V1AssetLatestPartition" in query:
+            if partition_response.get("upstream_failure"):
+                return {"errors": [{"message": "Dagster unavailable"}]}
+            return {
+                "data": {
+                    "assetNodeOrError": {
+                        "__typename": "AssetNode",
+                        "repository": {
+                            "location": {
+                                "name": "testing_jobs"
+                                if partition_response.get("wrong_location")
+                                else "production_jobs"
+                            }
+                        },
+                        "partitionKeyConnection": {
+                            key: value
+                            for key, value in partition_response.items()
+                            if key not in {"wrong_location", "upstream_failure"}
+                        },
+                    }
+                }
+            }
+        raise AssertionError("unexpected Dagster query")
+
+    class Provider:
+        async def backfill_asset(self, asset_id, request):
+            provider_calls.append(request)
+            return {"accepted": True}
+
+    monkeypatch.setattr(v1_assets, "_graphql", graphql)
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_PROCESS", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_REF_TAG_CONTRACT", "1")
+    monkeypatch.setattr(
+        operation_controls,
+        "require_scope",
+        lambda *_: {"subject": "alice", "scopes": ["lakehouse:operate"]},
+    )
+    monkeypatch.setattr(operation_controls, "enforce_rate_limit", lambda *_: None)
+    monkeypatch.setattr(run_action_contract, "require_idempotency_key", lambda key: key)
+    monkeypatch.setattr(
+        orchestrator_operations, "resolve_orchestrator_operations", lambda: Provider()
+    )
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+
+    response = http.post(
+        "/api/v1/assets/warehouse/orders/backfill?env=prod",
+        json={
+            "job_name": "orders_job",
+            "partition_set_name": "orders_daily",
+            "selection": "latest",
+            "idempotency_key": "latest-test",
+        },
+    )
+    assert response.status_code == expected_status, response.text
+    assert provider_calls == []
 
 
 def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monkeypatch):
@@ -1048,7 +1334,7 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
                             "description": env,
                             "computeKind": None,
                             "groupName": None,
-                            "isSource": False,
+                            "isMaterializable": True,
                             "repository": {"name": "repo", "location": {"name": location}},
                             "dependencyKeys": [],
                             "assetMaterializations": [],
@@ -1095,7 +1381,7 @@ def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client,
             "description": env,
             "computeKind": None,
             "groupName": None,
-            "isSource": False,
+            "isMaterializable": True,
             "repository": {"name": "repo", "location": {"name": location}},
             "dependencyKeys": [],
             "assetMaterializations": [],
@@ -1176,7 +1462,7 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
             "description": key,
             "computeKind": None,
             "groupName": "warehouse",
-            "isSource": False,
+            "isMaterializable": True,
             "repository": {"name": "repo", "location": {"name": "production_jobs"}},
             "dependencyKeys": [],
             "assetMaterializations": [{"timestamp": "1780000000", "runId": "run-1"}]
@@ -1230,7 +1516,7 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
             "description": env,
             "computeKind": None,
             "groupName": "warehouse",
-            "isSource": False,
+            "isMaterializable": True,
             "repository": {"name": "repo", "location": {"name": location}},
             "dependencyKeys": [],
             "assetMaterializations": [],
