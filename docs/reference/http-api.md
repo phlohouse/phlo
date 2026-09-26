@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (131)
+## Endpoints (134)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -123,6 +123,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/assets/{asset_id}` | V1 Asset Detail | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/incident-policy` | Get Asset Incident Policy | `v1 incidents` |
 | `PUT` | `/api/v1/assets/{asset_id}/incident-policy` | Put Asset Incident Policy | `v1 incidents` |
+| `GET` | `/api/v1/assets/{asset_id}/materialization-estimate` | V1 Materialization Estimate | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/runs` | V1 Asset Runs | `v1 assets` |
 | `GET` | `/api/v1/environments` | V1 Environments | `v1` |
 | `GET` | `/api/v1/events` | V1 Events | `v1` |
@@ -142,4 +143,6 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/overview` | V1 Overview | `v1 assets` |
 | `GET` | `/api/v1/services` | V1 Services | `v1` |
 | `GET` | `/api/v1/sources` | V1 Sources | `v1 assets` |
+| `GET` | `/api/v1/tables/{table_name}/schema-history` | V1 Table Schema History | `v1 assets` |
+| `GET` | `/api/v1/tables/{table_name}/snapshots` | V1 Table Snapshots | `v1 assets` |
 | `GET` | `/health` | Health | none |

@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 131,
+  "endpoint_count": 134,
   "endpoints": [
     {
       "method": "GET",
@@ -985,6 +985,15 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_materialization_estimate_api_v1_assets__asset_id__materialization_estimate_get",
+      "path": "/api/v1/assets/{asset_id}/materialization-estimate",
+      "summary": "V1 Materialization Estimate",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "v1_asset_runs_api_v1_assets__asset_id__runs_get",
       "path": "/api/v1/assets/{asset_id}/runs",
       "summary": "V1 Asset Runs",
@@ -1150,6 +1159,24 @@
       "operation_id": "v1_sources_api_v1_sources_get",
       "path": "/api/v1/sources",
       "summary": "V1 Sources",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_table_schema_history_api_v1_tables__table_name__schema_history_get",
+      "path": "/api/v1/tables/{table_name}/schema-history",
+      "summary": "V1 Table Schema History",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_table_snapshots_api_v1_tables__table_name__snapshots_get",
+      "path": "/api/v1/tables/{table_name}/snapshots",
+      "summary": "V1 Table Snapshots",
       "tags": [
         "v1 assets"
       ]

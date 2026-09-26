@@ -640,7 +640,21 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
                 "timestamp": "1780000000",
                 "runId": "p-run",
                 "metadataEntries": [
-                    {"schema": {"columns": [{"name": "id", "type": "BIGINT", "description": None}]}}
+                    {
+                        "schema": {
+                            "columns": [{"name": "id", "type": "BIGINT", "description": None}]
+                        }
+                    },
+                    {
+                        "lineage": [
+                            {
+                                "columnName": "id",
+                                "columnDeps": [
+                                    {"assetKey": {"path": ["raw", "orders"]}, "columnName": "id"}
+                                ],
+                            }
+                        ]
+                    },
                 ],
             }
         ],
@@ -657,6 +671,9 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
     payload = response.json()
     assert payload["columns"] == [{"name": "id", "type": "BIGINT", "description": None}]
     assert payload["schema_observed_at"] is not None
+    assert payload["column_lineage"] == {
+        "id": [{"asset_key": ["raw", "orders"], "column_name": "id"}]
+    }
 
 
 def test_asset_routes_report_dagster_outage_without_empty_success(client, monkeypatch):
@@ -669,6 +686,96 @@ def test_asset_routes_report_dagster_outage_without_empty_success(client, monkey
     response = http.get("/api/v1/assets?env=prod")
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "backend_unavailable"
+
+
+def test_iceberg_history_is_bound_to_configured_environment_ref(client, monkeypatch):
+    http, _, _, _, _ = client
+    refs = []
+
+    def history(table_name, ref, limit):
+        refs.append((table_name, ref, limit))
+        return [
+            {
+                "snapshot_id": 91 if ref == "main" else 17,
+                "timestamp_ms": 1780000000000,
+                "operation": "append",
+                "summary": {"added-records": "3"},
+                "parent_id": None,
+            }
+        ]
+
+    monkeypatch.setattr(v1_assets, "_iceberg_history", history)
+    prod = http.get("/api/v1/tables/warehouse.orders/snapshots?env=prod&limit=5")
+    staging = http.get("/api/v1/tables/warehouse.orders/snapshots?env=staging&limit=5")
+    assert prod.status_code == staging.status_code == 200
+    assert prod.json()["nessie_ref"] == "main"
+    assert staging.json()["nessie_ref"] == "candidate"
+    assert prod.json()["items"][0]["snapshot_id"] == 91
+    assert staging.json()["items"][0]["snapshot_id"] == 17
+    assert refs == [
+        ("warehouse.orders", "main", 5),
+        ("warehouse.orders", "candidate", 5),
+    ]
+
+
+def test_iceberg_history_rejects_invalid_table_and_propagates_unavailable(client, monkeypatch):
+    http, _, _, _, _ = client
+    assert http.get("/api/v1/tables/warehouse.orders;drop/snapshots?env=prod").status_code == 400
+
+    def unavailable(*args):
+        raise OSError("catalog unavailable")
+
+    monkeypatch.setattr(v1_assets, "_iceberg_history", unavailable)
+    response = http.get("/api/v1/tables/warehouse.orders/snapshots?env=prod")
+    assert response.status_code == 503
+
+
+def test_schema_history_uses_environment_ref_and_limits_versions(client, monkeypatch):
+    http, _, _, _, _ = client
+    refs = []
+
+    def schema(table_name, ref):
+        refs.append((table_name, ref))
+        return 3, [{"schema_id": index, "fields": []} for index in range(4)]
+
+    monkeypatch.setattr(v1_assets, "_iceberg_schema", schema)
+    response = http.get("/api/v1/tables/warehouse.orders/schema-history?env=staging&limit=2")
+    assert response.status_code == 200, response.text
+    assert response.json()["nessie_ref"] == "candidate"
+    assert response.json()["current_schema_id"] == 3
+    assert [version["schema_id"] for version in response.json()["items"]] == [2, 3]
+    assert refs == [("warehouse.orders", "candidate")]
+
+
+def test_materialization_estimate_reports_cost_unavailable_not_fabricated(client, monkeypatch):
+    http, _, _, _, _ = client
+    monkeypatch.setattr(
+        v1_assets,
+        "_assets",
+        lambda *args, **kwargs: asyncio.sleep(
+            0,
+            result=[
+                v1_assets.AssetView(
+                    id="warehouse/orders",
+                    key=["warehouse", "orders"],
+                    description=None,
+                    compute_kind=None,
+                    group_name=None,
+                    is_source=False,
+                    dependencies=[],
+                    last_materialization_at=None,
+                    last_run_id=None,
+                )
+            ],
+        ),
+    )
+    response = http.get(
+        "/api/v1/assets/warehouse/orders/materialization-estimate?env=prod&partition_count=3"
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["partition_count"] == 3
+    assert response.json()["estimated_cost"] is None
+    assert "no cost source" in response.json()["cost_status"]
 
 
 def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
@@ -715,4 +822,6 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
     assert body["materialized_asset_count"] == 1
     assert body["incident_counts"] == {"open": 2}
     assert body["freshness_counts"] == {"fresh": 0, "stale": 1, "unknown": 1}
+    assert body["run_status_counts"] == {"STARTED": 1}
+    assert body["run_history_truncated"] is False
     assert body["audit_counts"] is None

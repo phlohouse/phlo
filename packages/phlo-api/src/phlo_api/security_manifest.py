@@ -125,6 +125,20 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"), ("asset_id", "path")),
     ),
     *_specs(
+        ("v1_table_snapshots", "v1_table_schema_history"),
+        action=CanonicalAction.ASSET_READ.value,
+        resource_type="asset",
+        resource_keys=("env", "table_name"),
+        resource_sources=(("env", "query"), ("table_name", "path")),
+    ),
+    *_specs(
+        ("v1_materialization_estimate",),
+        action=CanonicalAction.ASSET_READ.value,
+        resource_type="asset",
+        resource_keys=("env", "asset_id"),
+        resource_sources=(("env", "query"), ("asset_id", "path")),
+    ),
+    *_specs(
         ("v1_events",),
         action=CanonicalAction.RUN_READ.value,
         resource_type="run",
