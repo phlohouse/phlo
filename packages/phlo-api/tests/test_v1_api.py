@@ -1659,7 +1659,7 @@ def test_audit_proposal_rejects_unsafe_declarations(payload):
         AssetAuditProposalRequest.model_validate(payload)
 
 
-def test_audit_proposal_is_audited_idempotent_and_fails_closed_without_git_review(
+def test_audit_proposal_is_audited_idempotent_and_reviewable_without_git_integration(
     client, tmp_path, monkeypatch
 ):
     http, *_ = client
@@ -1723,15 +1723,47 @@ def test_audit_proposal_is_audited_idempotent_and_fails_closed_without_git_revie
     first = http.post(url, json=body, headers=headers)
     replay = http.post(url, json=body, headers=headers)
 
-    assert first.status_code == replay.status_code == 503
-    assert first.json()["error"]["code"] == "backend_unavailable"
-    assert "Project Git review is not configured" in first.json()["error"]["message"]
+    assert first.status_code == replay.status_code == 202
+    assert first.json() == replay.json()
+    proposal = first.json()
+    assert proposal["status"] == "pending_review"
+    assert proposal["env"] == "prod"
+    assert proposal["nessie_ref"] == "main"
+    assert proposal["file_path"] == "workflows/quality/warehouse_orders_orders_quality.py"
+    assert proposal["source_digest"]
+    assert proposal["patch"].startswith("--- /dev/null\n+++ b/workflows/quality/")
+    assert 'UniqueCheck(columns=["order_id"])' in proposal["patch"]
     audit_path = tmp_path / ".phlo" / "audit" / "operations.jsonl"
     records = audit_path.read_text(encoding="utf-8").splitlines()
     assert len(records) == 1
-    assert '"reason": "project_git_review_not_configured"' in records[0]
+    assert '"status": "pending_review"' in records[0]
     assert not (tmp_path / "workflows").exists()
+
+    retrieved = http.get(
+        f"/api/v1/assets/warehouse/orders/audits/{proposal['proposal_id']}?env=prod",
+        headers=headers,
+    )
+    assert retrieved.status_code == 200
+    assert retrieved.json() == proposal
+    wrong_env = http.get(
+        f"/api/v1/assets/warehouse/orders/audits/{proposal['proposal_id']}?env=staging",
+        headers=headers,
+    )
+    assert wrong_env.status_code == 404
 
     changed = {**body, "check_name": "another_quality"}
     conflict = http.post(url, json=changed, headers=headers)
     assert conflict.status_code == 409
+
+    def fail_storage(**kwargs):
+        raise RuntimeError("storage backend details must not reach clients")
+
+    monkeypatch.setattr(v1_assets, "create_audit_proposal", fail_storage)
+    storage_failure = http.post(
+        url,
+        json={**body, "idempotency_key": "review-storage-failure"},
+        headers=headers,
+    )
+    assert storage_failure.status_code == 503
+    assert storage_failure.json()["error"]["message"] == "Audit proposal storage is unavailable."
+    assert "storage backend details" not in storage_failure.text
