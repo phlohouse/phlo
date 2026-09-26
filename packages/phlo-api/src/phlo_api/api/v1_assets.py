@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import json
+import re
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -34,10 +36,22 @@ ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
       id assetKey { path } description computeKind groupName isSource
       repository { name location { name } }
       dependencyKeys { path }
-      metadataEntries { label description ... on TableSchemaMetadataEntry { schema { columns { name type description } } } }
+      metadataEntries {
+        label description
+        ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
+        ... on TableColumnLineageMetadataEntry {
+          lineage { columnName columnDeps { assetKey { path } columnName } }
+        }
+      }
       assetMaterializations(limit: 1) {
         timestamp runId
-        metadataEntries { label ... on TableSchemaMetadataEntry { schema { columns { name type description } } } }
+        metadataEntries {
+          label
+          ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
+          ... on TableColumnLineageMetadataEntry {
+            lineage { columnName columnDeps { assetKey { path } columnName } }
+          }
+        }
       }
     }
     ... on AssetNotFoundError { message }
@@ -74,12 +88,18 @@ class AssetPage(WireModel):
 class AssetDetail(AssetView):
     columns: list["AssetColumn"]
     schema_observed_at: datetime | None
+    column_lineage: dict[str, list["ColumnLineageDependency"]] | None = None
 
 
 class AssetColumn(WireModel):
     name: str
     type: str | None
     description: str | None
+
+
+class ColumnLineageDependency(WireModel):
+    asset_key: list[str]
+    column_name: str
 
 
 class Materialization(WireModel):
@@ -92,6 +112,49 @@ class AssetRuns(WireModel):
     env: Environment
     asset_id: str
     items: list[Materialization]
+
+
+class IcebergSnapshot(WireModel):
+    snapshot_id: int
+    timestamp_ms: int
+    operation: str | None
+    summary: dict[str, str]
+    parent_id: int | None = None
+
+
+class TableHistory(WireModel):
+    env: Environment
+    table_name: str
+    nessie_ref: str
+    items: list[IcebergSnapshot]
+
+
+class IcebergField(WireModel):
+    field_id: int
+    name: str
+    type: str
+    required: bool
+
+
+class IcebergSchemaVersion(WireModel):
+    schema_id: int
+    fields: list[IcebergField]
+
+
+class SchemaHistory(WireModel):
+    env: Environment
+    table_name: str
+    nessie_ref: str
+    current_schema_id: int
+    items: list[IcebergSchemaVersion]
+
+
+class MaterializationEstimate(WireModel):
+    env: Environment
+    asset_id: str
+    partition_count: int
+    estimated_cost: None = None
+    cost_status: str = "unavailable: no cost source is configured"
 
 
 class LayerView(WireModel):
@@ -120,6 +183,8 @@ class OverviewResponse(WireModel):
     latest_materialization_at: AwareDatetime | None
     incident_counts: dict[str, int]
     freshness_counts: FreshnessCounts
+    run_status_counts: dict[str, int]
+    run_history_truncated: bool
     audit_counts: None = None
 
 
@@ -195,6 +260,57 @@ async def _graphql(query: str, variables: dict[str, Any] | None = None) -> dict[
     return result
 
 
+def _table_name(value: str) -> str:
+    """Accept a single Iceberg namespace/table identifier, never a query fragment."""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*", value):
+        raise HTTPException(status_code=400, detail="table_name must be namespace.table.")
+    return value
+
+
+def _iceberg_history(table_name: str, ref: str, limit: int) -> list[dict[str, Any]]:
+    from phlo_iceberg.catalog import get_catalog
+
+    table = get_catalog(ref=ref).load_table(table_name)
+    snapshots = sorted(table.snapshots(), key=lambda snapshot: snapshot.timestamp_ms, reverse=True)
+    return [
+        {
+            "snapshot_id": int(snapshot.snapshot_id),
+            "timestamp_ms": int(snapshot.timestamp_ms),
+            "operation": snapshot.summary.operation.value if snapshot.summary else None,
+            "summary": {
+                str(key): str(value)
+                for key, value in (
+                    snapshot.summary.additional_properties.items() if snapshot.summary else []
+                )
+            },
+            "parent_id": snapshot.parent_snapshot_id,
+        }
+        for snapshot in snapshots[:limit]
+    ]
+
+
+def _iceberg_schema(table_name: str, ref: str) -> tuple[int, list[dict[str, Any]]]:
+    from phlo_iceberg.catalog import get_catalog
+
+    table = get_catalog(ref=ref).load_table(table_name)
+    metadata = table.metadata
+    return metadata.current_schema_id, [
+        {
+            "schema_id": schema.schema_id,
+            "fields": [
+                {
+                    "field_id": field.field_id,
+                    "name": field.name,
+                    "type": str(field.field_type),
+                    "required": field.required,
+                }
+                for field in schema.fields
+            ],
+        }
+        for schema in metadata.schemas
+    ]
+
+
 def _response_field(result: dict[str, Any], name: str) -> dict[str, Any]:
     data = result.get("data")
     value = data.get(name) if isinstance(data, dict) else None
@@ -249,6 +365,67 @@ def _page(
     selected = items[offset : offset + limit]
     next_cursor = _cursor(env, kind, offset + limit) if offset + limit < len(items) else None
     return AssetPage(env=env, items=selected, next_cursor=next_cursor)
+
+
+@router.get("/tables/{table_name}/snapshots", response_model=TableHistory)
+async def v1_table_snapshots(
+    request: Request, table_name: str, env: Environment = Query(), limit: Limit = 100
+) -> TableHistory:
+    target = _target(request, env, allowed_query=frozenset({"env", "limit"}))
+    name = _table_name(table_name)
+    try:
+        raw_items = await asyncio.wait_for(
+            asyncio.to_thread(_iceberg_history, name, target.nessie_ref, limit), timeout=5
+        )
+        items = [IcebergSnapshot.model_validate(item) for item in raw_items]
+    except TimeoutError as exc:
+        raise BackendUnavailableError("Iceberg history exceeded the read time budget.") from exc
+    except Exception as exc:
+        raise BackendUnavailableError("Ref-scoped Iceberg history is unavailable.") from exc
+    return TableHistory(env=env, table_name=name, nessie_ref=target.nessie_ref, items=items)
+
+
+@router.get("/tables/{table_name}/schema-history", response_model=SchemaHistory)
+async def v1_table_schema_history(
+    request: Request, table_name: str, env: Environment = Query(), limit: Limit = 100
+) -> SchemaHistory:
+    target = _target(request, env, allowed_query=frozenset({"env", "limit"}))
+    name = _table_name(table_name)
+    try:
+        current_schema_id, raw = await asyncio.wait_for(
+            asyncio.to_thread(_iceberg_schema, name, target.nessie_ref), timeout=5
+        )
+        items = [IcebergSchemaVersion.model_validate(item) for item in raw[-limit:]]
+    except TimeoutError as exc:
+        raise BackendUnavailableError(
+            "Iceberg schema history exceeded the read time budget."
+        ) from exc
+    except Exception as exc:
+        raise BackendUnavailableError("Ref-scoped Iceberg schema history is unavailable.") from exc
+    return SchemaHistory(
+        env=env,
+        table_name=name,
+        nessie_ref=target.nessie_ref,
+        current_schema_id=current_schema_id,
+        items=items,
+    )
+
+
+@router.get(
+    "/assets/{asset_id:path}/materialization-estimate", response_model=MaterializationEstimate
+)
+async def v1_materialization_estimate(
+    request: Request,
+    asset_id: str,
+    env: Environment = Query(),
+    partition_count: Annotated[int, Query(ge=1, le=5000)] = 1,
+) -> MaterializationEstimate:
+    _target(request, env, allowed_query=frozenset({"env", "partition_count"}))
+    asset_id = asset_id.strip("/")
+    assets = await _assets(request, env)
+    if not any(asset.id == asset_id for asset in assets):
+        raise NotFoundError("Asset was not found.")
+    return MaterializationEstimate(env=env, asset_id=asset_id, partition_count=partition_count)
 
 
 @router.get("/assets", response_model=AssetPage)
@@ -344,10 +521,41 @@ async def v1_asset_detail(
 
     latest_schema = schema_columns(materialization_entries)
     columns = latest_schema or schema_columns(definition_entries)
+
+    def column_lineage(entries: list[Any]) -> dict[str, list[ColumnLineageDependency]] | None:
+        for entry in entries:
+            lineage = entry.get("lineage") if isinstance(entry, dict) else None
+            if not isinstance(lineage, list):
+                continue
+            result: dict[str, list[ColumnLineageDependency]] = {}
+            try:
+                for item in lineage:
+                    if not isinstance(item, dict) or not isinstance(item.get("columnDeps"), list):
+                        raise ValueError
+                    dependencies = []
+                    for dependency in item["columnDeps"]:
+                        if not isinstance(dependency, dict) or not isinstance(
+                            dependency.get("columnName"), str
+                        ):
+                            raise ValueError
+                        dependencies.append(
+                            ColumnLineageDependency(
+                                asset_key=_key_path(dependency.get("assetKey")),
+                                column_name=dependency["columnName"],
+                            )
+                        )
+                    result[item["columnName"]] = dependencies
+                return result
+            except (KeyError, TypeError, ValueError) as exc:
+                raise BadGatewayError("Dagster returned invalid column-lineage metadata.") from exc
+        return None
+
+    observed_lineage = column_lineage(materialization_entries) or column_lineage(definition_entries)
     return AssetDetail(
         **detail.model_dump(),
         columns=columns,
         schema_observed_at=detail.last_materialization_at if latest_schema else None,
+        column_lineage=observed_lineage,
     )
 
 
@@ -390,8 +598,11 @@ async def v1_layers(
 @router.get("/overview", response_model=OverviewResponse)
 async def v1_overview(request: Request, env: Environment = Query()) -> OverviewResponse:
     assets = await _assets(request, env)
+    from phlo_api.api.v1 import _runs
     from phlo_api.incidents import incident_stats, list_asset_incident_policies
 
+    target = _target(request, env)
+    runs = await _runs(target.dagster_location)
     stats = incident_stats(request, env)
     policies: dict[str, int] = {}
     cursor = None
@@ -422,6 +633,9 @@ async def v1_overview(request: Request, env: Environment = Query()) -> OverviewR
         (asset.last_materialization_at for asset in assets if asset.last_materialization_at),
         default=None,
     )
+    run_status_counts: dict[str, int] = {}
+    for status in runs.values():
+        run_status_counts[status] = run_status_counts.get(status, 0) + 1
     return OverviewResponse(
         env=env,
         asset_count=len(assets),
@@ -429,4 +643,6 @@ async def v1_overview(request: Request, env: Environment = Query()) -> OverviewR
         latest_materialization_at=latest,
         incident_counts=stats["counts"],
         freshness_counts=FreshnessCounts(**freshness),
+        run_status_counts=run_status_counts,
+        run_history_truncated=len(runs) == 100,
     )
