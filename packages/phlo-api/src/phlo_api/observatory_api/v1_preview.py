@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import re
@@ -38,7 +39,9 @@ def preview_catalog(env: str, nessie_ref: str) -> str:
     try:
         if os.environ.get("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED") != "1":
             raise ValueError
-        if not os.environ.get("PHLO_V1_PREVIEW_TRINO_USER"):
+        user = os.environ.get("PHLO_V1_PREVIEW_TRINO_USER")
+        password = os.environ.get("PHLO_V1_PREVIEW_TRINO_PASSWORD")
+        if not user or not password:
             raise ValueError
         mapping = json.loads(os.environ["PHLO_V1_PREVIEW_CATALOGS"])
         if not isinstance(mapping, dict) or set(mapping) != {"prod", "staging"}:
@@ -141,7 +144,7 @@ async def _read_or_disconnect(
 def _preview_headers(catalog: str) -> dict[str, str]:
     return {
         "Content-Type": "text/plain",
-        "X-Trino-User": os.environ["PHLO_V1_PREVIEW_TRINO_USER"],
+        **_preview_auth_headers(),
         "X-Trino-Catalog": catalog,
         "X-Trino-Session": ",".join(
             (
@@ -150,6 +153,16 @@ def _preview_headers(catalog: str) -> dict[str, str]:
                 f"query_max_scan_physical_bytes={_MAX_SCAN_BYTES}B",
             )
         ),
+    }
+
+
+def _preview_auth_headers() -> dict[str, str]:
+    credentials = (
+        f"{os.environ['PHLO_V1_PREVIEW_TRINO_USER']}:{os.environ['PHLO_V1_PREVIEW_TRINO_PASSWORD']}"
+    ).encode("utf-8")
+    return {
+        "X-Trino-User": os.environ["PHLO_V1_PREVIEW_TRINO_USER"],
+        "Authorization": f"Basic {base64.b64encode(credentials).decode('ascii')}",
     }
 
 
@@ -184,10 +197,12 @@ async def _collect_pages(
                 raise asyncio.CancelledError
             if len(rows) > limit or active_uri is None:
                 return columns, rows, active_uri
-            result = await _read_or_disconnect(client, "GET", active_uri, {}, timeout, disconnected)
+            result = await _read_or_disconnect(
+                client, "GET", active_uri, _preview_auth_headers(), timeout, disconnected
+            )
     except BaseException:
         if active_uri is not None:
-            await asyncio.shield(_cancel(client, active_uri, {}))
+            await asyncio.shield(_cancel(client, active_uri, _preview_auth_headers()))
         raise
 
 
@@ -213,17 +228,19 @@ async def _run_query(
     limit: int,
 ) -> dict[str, Any]:
     base_url = resolve_trino_url().rstrip("/")
+    if urlsplit(base_url).scheme != "https":
+        raise PreviewUnavailable("Preview requires an HTTPS Trino connection.")
     columns, rows, active_uri = await _collect_pages(
         client, sql, base_url, _preview_headers(catalog), disconnected, limit
     )
     try:
         payload = _preview_payload(columns, rows, limit)
         if active_uri is not None:
-            await _cancel(client, active_uri, {})
+            await _cancel(client, active_uri, _preview_auth_headers())
         return payload
     except BaseException:
         if active_uri is not None:
-            await asyncio.shield(_cancel(client, active_uri, {}))
+            await asyncio.shield(_cancel(client, active_uri, _preview_auth_headers()))
         raise
 
 
