@@ -776,7 +776,181 @@ def test_materialization_estimate_reports_cost_unavailable_not_fabricated(client
     assert response.status_code == 200, response.text
     assert response.json()["partition_count"] == 3
     assert response.json()["estimated_cost"] is None
+    assert response.json()["estimated_bytes"] is None
+    assert response.json()["estimated_duration_seconds"] is None
     assert "no cost source" in response.json()["cost_status"]
+    assert "no workload source" in response.json()["workload_status"]
+
+
+def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatch):
+    http, *_ = client
+    calls = []
+
+    async def graphql(query, variables=None):
+        return {
+            "data": {
+                "assetNodes": [
+                    {
+                        "id": "orders-id",
+                        "assetKey": {"path": ["warehouse", "orders"]},
+                        "description": None,
+                        "computeKind": "python",
+                        "groupName": "warehouse",
+                        "isSource": False,
+                        "repository": {
+                            "name": "repo",
+                            "location": {"name": "production_jobs"},
+                        },
+                        "dependencyKeys": [],
+                        "assetMaterializations": [],
+                    }
+                ]
+            }
+        }
+
+    async def preview(sql, *, catalog, disconnected, limit):
+        calls.append((sql, catalog, limit))
+        return {
+            "columns": [{"name": "id", "type": "bigint"}],
+            "rows": [{"id": 7}],
+            "has_more": False,
+        }
+
+    monkeypatch.setattr(v1_assets, "_graphql", graphql)
+    monkeypatch.setattr(v1_assets, "execute_preview", preview)
+    monkeypatch.setenv("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "1")
+    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_preview")
+    monkeypatch.setenv(
+        "PHLO_V1_PREVIEW_CATALOGS",
+        json.dumps(
+            {
+                "prod": {"catalog": "iceberg_prod", "nessie_ref": "main"},
+                "staging": {"catalog": "iceberg_stage", "nessie_ref": "candidate"},
+            }
+        ),
+    )
+    prod = http.get("/api/v1/assets/warehouse/orders/preview?env=prod&limit=1")
+    assert prod.status_code == 200, prod.text
+    assert prod.json()["nessie_ref"] == "main"
+    assert calls[0][1] == "iceberg_prod"
+    assert calls[0][0] == 'SELECT * FROM "iceberg_prod"."warehouse"."orders" LIMIT 2'
+
+
+def test_asset_preview_refuses_same_key_from_multiple_locations(client, monkeypatch):
+    http, *_ = client
+
+    async def graphql(query, variables=None):
+        return {
+            "data": {
+                "assetNodes": [
+                    {
+                        "id": f"{location}-orders",
+                        "assetKey": {"path": ["warehouse", "orders"]},
+                        "description": None,
+                        "computeKind": "python",
+                        "groupName": "warehouse",
+                        "isSource": False,
+                        "repository": {"name": "repo", "location": {"name": location}},
+                        "dependencyKeys": [],
+                        "assetMaterializations": [],
+                    }
+                    for location in ("production_jobs", "testing_jobs")
+                ]
+            }
+        }
+
+    async def unexpected_preview(*args, **kwargs):
+        raise AssertionError("ambiguous cross-location asset must not reach Trino")
+
+    monkeypatch.setattr(v1_assets, "_graphql", graphql)
+    monkeypatch.setattr(v1_assets, "execute_preview", unexpected_preview)
+    response = http.get("/api/v1/assets/warehouse/orders/preview?env=prod")
+
+    assert response.status_code == 503
+
+
+def test_materialize_action_pins_location_ref_and_replay_key(client, monkeypatch, tmp_path):
+    http, *_ = client
+    from phlo_api.api import operation_controls
+    from phlo_api.observatory_api import orchestrator_operations
+    from phlo_api.observatory_api import run_action_contract
+
+    node = {
+        "id": "orders-id",
+        "assetKey": {"path": ["warehouse", "orders"]},
+        "description": None,
+        "computeKind": "python",
+        "groupName": "warehouse",
+        "isSource": False,
+        "repository": {"name": "prod_repo", "location": {"name": "production_jobs"}},
+        "dependencyKeys": [],
+        "assetMaterializations": [],
+    }
+
+    async def graphql(query, variables=None):
+        if "V1Assets" in query:
+            return {"data": {"assetNodes": [node]}}
+        return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **node}}}
+
+    calls = []
+
+    class Provider:
+        async def materialize_asset(self, asset_id, request):
+            calls.append((asset_id, request))
+            return {"accepted": True, "dry_run": request["dry_run"]}
+
+    monkeypatch.setattr(v1_assets, "_graphql", graphql)
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_PROCESS", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_REF_TAG_CONTRACT", "1")
+    monkeypatch.setattr(
+        operation_controls,
+        "require_scope",
+        lambda *_: {"subject": "alice", "scopes": ["lakehouse:operate"]},
+    )
+    monkeypatch.setattr(operation_controls, "enforce_rate_limit", lambda *_: None)
+    monkeypatch.setattr(run_action_contract, "require_idempotency_key", lambda key: key)
+    monkeypatch.setattr(
+        orchestrator_operations, "resolve_orchestrator_operations", lambda: Provider()
+    )
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+
+    response = http.post(
+        "/api/v1/assets/warehouse/orders/materialize?env=prod",
+        json={"job_name": "warehouse_job", "idempotency_key": "req-1"},
+    )
+    replayed = http.post(
+        "/api/v1/assets/warehouse/orders/materialize?env=prod",
+        json={"job_name": "warehouse_job", "idempotency_key": "req-1"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json() == response.json()
+    assert len(calls) == 1
+    assert response.json()["nessie_ref"] == "main"
+    asset_id, action = calls[0]
+    assert asset_id == "warehouse/orders"
+    assert action["repository_location_name"] == "production_jobs"
+    assert action["repository_name"] == "prod_repo"
+    assert action["tags"] == {"environment": "prod", "phlo/ref": "main"}
+    assert action["idempotency_key"] == "req-1"
+    audit_log = tmp_path / ".phlo" / "audit" / "operations.jsonl"
+    assert len(audit_log.read_text().splitlines()) == 1
+
+
+def test_backfill_action_requires_bounded_explicit_partitions(client, monkeypatch):
+    http, *_ = client
+
+    async def unexpected_graphql(*args, **kwargs):
+        raise AssertionError("the single-replica gate must fail before provider discovery")
+
+    monkeypatch.setattr(v1_assets, "_graphql", unexpected_graphql)
+    disabled = http.post(
+        "/api/v1/assets/warehouse/orders/backfill?env=prod",
+        json={"partition_set_name": "daily", "partitions": ["2026-09-25"], "idempotency_key": "req-2"},
+    )
+    assert disabled.status_code == 503
 
 
 def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monkeypatch):

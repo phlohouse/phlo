@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import asyncio
 import json
+import os
 import re
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -16,7 +17,14 @@ from pydantic import AwareDatetime, Field
 from phlo_api.api.v1 import _target
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, NotFoundError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
-from phlo_api.v1_contract import Environment, WireModel
+from phlo_api.observatory_api.v1_preview import (
+    PreviewLimitExceeded,
+    PreviewUnavailable,
+    execute_preview,
+    preview_catalog,
+    quote_table,
+)
+from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
 
 router = APIRouter(tags=["v1 assets"])
 Limit = Annotated[int, Query(ge=1, le=500)]
@@ -216,7 +224,46 @@ class MaterializationEstimate(WireModel):
     asset_id: str
     partition_count: int
     estimated_cost: None = None
+    estimated_bytes: None = None
+    estimated_duration_seconds: None = None
     cost_status: str = "unavailable: no cost source is configured"
+    workload_status: str = "unavailable: no workload source is configured"
+
+
+class PreviewColumn(WireModel):
+    name: str
+    type: str | None = None
+
+
+class AssetPreview(WireModel):
+    env: Environment
+    asset_id: str
+    nessie_ref: str
+    columns: list[PreviewColumn]
+    rows: list[dict[str, Any]]
+    has_more: bool
+
+
+class MaterializeAssetAction(WireModel):
+    job_name: str = Field(min_length=1)
+    partition_key: str | None = None
+    dry_run: bool = True
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    run_config: dict[str, Any] | None = None
+
+
+class BackfillAssetAction(WireModel):
+    partition_set_name: str = Field(min_length=1)
+    partitions: list[str] = Field(min_length=1, max_length=500)
+    dry_run: bool = True
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+class AssetActionResponse(WireModel):
+    env: Environment
+    asset_id: str
+    nessie_ref: str
+    result: dict[str, Any]
 
 
 class LayerView(WireModel):
@@ -488,6 +535,205 @@ async def v1_materialization_estimate(
     if not any(asset.id == asset_id for asset in assets):
         raise NotFoundError("Asset was not found.")
     return MaterializationEstimate(env=env, asset_id=asset_id, partition_count=partition_count)
+
+
+@router.get("/assets/{asset_id:path}/preview", response_model=AssetPreview)
+async def v1_asset_preview(
+    request: Request,
+    asset_id: str,
+    env: Environment = Query(),
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> AssetPreview:
+    target = _target(request, env, allowed_query=frozenset({"env", "limit"}))
+    asset_id = asset_id.strip("/")
+    matches = [
+        asset
+        for asset in await _assets(request, env, allowed_query=frozenset({"env", "limit"}))
+        if asset.id == asset_id
+    ]
+    if not matches:
+        raise NotFoundError("Asset was not found.")
+    if not matches[0].history_scoped:
+        raise BackendUnavailableError("Asset preview cannot be scoped to this environment.")
+    try:
+        catalog = preview_catalog(env, target.nessie_ref)
+        relation = quote_table(catalog, asset_id)
+        result = await execute_preview(
+            f"SELECT * FROM {relation} LIMIT {limit + 1}",
+            catalog=catalog,
+            disconnected=request.is_disconnected,
+            limit=limit,
+        )
+        columns = [PreviewColumn.model_validate(item) for item in result["columns"]]
+    except PreviewLimitExceeded as exc:
+        raise BackendUnavailableError(str(exc)) from exc
+    except PreviewUnavailable as exc:
+        raise BackendUnavailableError(str(exc)) from exc
+    except (TypeError, ValueError, KeyError) as exc:
+        raise BadGatewayError("Trino returned invalid preview data.") from exc
+    return AssetPreview(
+        env=env,
+        asset_id=asset_id,
+        nessie_ref=target.nessie_ref,
+        columns=columns,
+        rows=result["rows"],
+        has_more=result["has_more"],
+    )
+
+
+async def _action_context(
+    request: Request, env: Environment, asset_id: str
+) -> tuple[EnvironmentTarget, str]:
+    if (
+        os.environ.get("PHLO_V1_ACTIONS_SINGLE_REPLICA") != "1"
+        or os.environ.get("PHLO_V1_ACTIONS_SINGLE_PROCESS") != "1"
+        or os.environ.get("PHLO_V1_ACTIONS_REF_TAG_CONTRACT") != "1"
+    ):
+        raise BackendUnavailableError("Environment-pinned actions are not enabled.")
+    target = _target(request, env)
+    assets = await _assets(request, env)
+    matches = [asset for asset in assets if asset.id == asset_id]
+    if not matches:
+        raise NotFoundError("Asset was not found.")
+    if not matches[0].history_scoped:
+        raise BackendUnavailableError("Asset actions cannot be scoped to this environment.")
+    detail = await _graphql(ASSET_DETAIL_QUERY, {"assetKey": {"path": asset_id.split("/")}})
+    node = _response_field(detail, "assetNodeOrError")
+    repository = node.get("repository")
+    if not isinstance(repository, dict):
+        raise NotFoundError("Asset was not found.")
+    location = repository.get("location")
+    repository_name = repository.get("name")
+    if (
+        not isinstance(location, dict)
+        or location.get("name") != target.dagster_location
+        or not isinstance(repository_name, str)
+    ):
+        raise NotFoundError("Asset was not found.")
+    return target, repository_name
+
+
+def _action_result(result: Any) -> dict[str, Any]:
+    if isinstance(result, dict):
+        return result
+    if hasattr(result, "model_dump"):
+        return result.model_dump(mode="json")
+    raise BadGatewayError("Dagster returned an invalid action response.")
+
+
+@router.post("/assets/{asset_id:path}/materialize", response_model=AssetActionResponse)
+async def v1_asset_materialize(
+    request: Request,
+    asset_id: str,
+    payload: MaterializeAssetAction,
+    env: Environment = Query(),
+) -> AssetActionResponse:
+    from phlo_api.api.operation_controls import (
+        audit_operation,
+        enforce_rate_limit,
+        replay_or_execute_async,
+        require_scope,
+    )
+    from phlo_api.observatory_api.run_action_contract import require_idempotency_key
+    from phlo_api.observatory_api.orchestrator_operations import resolve_orchestrator_operations
+
+    asset_id = asset_id.strip("/")
+    target, repository_name = await _action_context(request, env, asset_id)
+    auth = require_scope(request, "lakehouse:operate")
+    enforce_rate_limit(auth["subject"], "materialize_asset")
+    require_idempotency_key(payload.idempotency_key)
+    provider = resolve_orchestrator_operations()
+    tags = {"environment": env, "phlo/ref": target.nessie_ref}
+
+    async def execute() -> dict[str, Any]:
+        result = await provider.materialize_asset(
+            asset_id,
+            {
+                **payload.model_dump(),
+                "repository_location_name": target.dagster_location,
+                "repository_name": repository_name,
+                "tags": tags,
+            },
+        )
+        return _action_result(result)
+
+    action_target = f"{env}:{asset_id}@{target.nessie_ref}"
+    result = await replay_or_execute_async(
+        idempotency_key=payload.idempotency_key,
+        operation="v1_materialize_asset",
+        target=action_target,
+        execute=execute,
+        audit=lambda value: audit_operation(
+            operation="v1_materialize_asset",
+            target=action_target,
+            dry_run=payload.dry_run,
+            auth=auth,
+            payload={"job_name": payload.job_name, "partition_key": payload.partition_key},
+            result=value,
+        ),
+    )
+    return AssetActionResponse(
+        env=env, asset_id=asset_id, nessie_ref=target.nessie_ref, result=result
+    )
+
+
+@router.post("/assets/{asset_id:path}/backfill", response_model=AssetActionResponse)
+async def v1_asset_backfill(
+    request: Request,
+    asset_id: str,
+    payload: BackfillAssetAction,
+    env: Environment = Query(),
+) -> AssetActionResponse:
+    from phlo_api.api.operation_controls import (
+        audit_operation,
+        enforce_rate_limit,
+        replay_or_execute_async,
+        require_scope,
+    )
+    from phlo_api.observatory_api.run_action_contract import require_idempotency_key
+    from phlo_api.observatory_api.orchestrator_operations import resolve_orchestrator_operations
+
+    asset_id = asset_id.strip("/")
+    target, repository_name = await _action_context(request, env, asset_id)
+    auth = require_scope(request, "lakehouse:operate")
+    enforce_rate_limit(auth["subject"], "backfill_asset")
+    require_idempotency_key(payload.idempotency_key)
+    provider = resolve_orchestrator_operations()
+    tags = {"environment": env, "phlo/ref": target.nessie_ref}
+
+    async def execute() -> dict[str, Any]:
+        result = await provider.backfill_asset(
+            asset_id,
+            {
+                **payload.model_dump(),
+                "repository_location_name": target.dagster_location,
+                "repository_name": repository_name,
+                "tags": tags,
+            },
+        )
+        return _action_result(result)
+
+    action_target = f"{env}:{asset_id}@{target.nessie_ref}"
+    result = await replay_or_execute_async(
+        idempotency_key=payload.idempotency_key,
+        operation="v1_backfill_asset",
+        target=action_target,
+        execute=execute,
+        audit=lambda value: audit_operation(
+            operation="v1_backfill_asset",
+            target=action_target,
+            dry_run=payload.dry_run,
+            auth=auth,
+            payload={
+                "partition_set_name": payload.partition_set_name,
+                "partitions": payload.partitions,
+            },
+            result=value,
+        ),
+    )
+    return AssetActionResponse(
+        env=env, asset_id=asset_id, nessie_ref=target.nessie_ref, result=result
+    )
 
 
 @router.get("/assets", response_model=AssetPage)
