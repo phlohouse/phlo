@@ -42,6 +42,7 @@ from phlo_api.api.v1_git_review import (
     project_git_review_config,
     publish_project_draft_pr,
 )
+from phlo_api.security_manifest import HTTP_ROUTE_MANIFEST, enforce_http_operation
 from phlo_api.usage import QueryUsagePage, read_query_usage
 from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
 
@@ -1449,12 +1450,16 @@ async def v1_asset_query_usage(
             items=[],
             next_cursor=None,
         )
+    relation = matches[0].relation
+    await enforce_http_operation(
+        request, HTTP_ROUTE_MANIFEST["v1_table_snapshots"], {"table_name": relation}
+    )
     return await asyncio.to_thread(
         read_query_usage,
         env,
         target.nessie_ref,
         asset_id,
-        matches[0].relation.replace(".", "/"),
+        relation.replace(".", "/"),
         limit,
         cursor,
     )

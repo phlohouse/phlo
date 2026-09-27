@@ -47,9 +47,14 @@ relation in text metadata under `phlo/relation` or the existing `target_table`
 key. Conflicting declarations are rejected; the asset key is never treated as
 a table name. The response names the declared table. It associates observed
 inputs with the **current** asset declaration and cannot prove that a past
-version of the asset referred to the same table. Without a declaration it
-returns `unavailable`, not a fabricated match. The API removes older rows on
-the next successful ingest.
+version of the asset referred to the same table. Both `asset.read` decisions
+must allow the request: one for `env=<env>|asset_id=<asset_id>` and another for
+`env=<env>|table_name=<schema.table>` (as on `/tables/{table_name}/snapshots`).
+This is physical-table history, including observations from before the current
+asset declared the table; it is not historical asset usage. A denied or
+unavailable table decision prevents the PostgreSQL read. Without a declaration
+it returns `unavailable`, not a fabricated match. The API removes older rows
+on the next successful ingest.
 
 This is **observed partial usage**. HTTP delivery has no durable Trino spool;
 even with retries, listener outages can lose events. Query inputs show tables
