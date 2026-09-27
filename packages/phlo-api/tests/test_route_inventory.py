@@ -48,6 +48,10 @@ _GUARDED_NON_GET_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/assets/{asset_id:path}/materialize"): "v1_manifest",
     ("POST", "/api/v1/assets/{asset_id:path}/backfill"): "v1_manifest",
     ("POST", "/api/v1/assets/{asset_id:path}/audits"): "v1_manifest",
+    ("POST", "/api/v1/jobs/{job_id}/launch"): "v1_manifest",
+    ("POST", "/api/v1/schedules/{schedule_id}/{action}"): "v1_manifest",
+    ("POST", "/api/v1/runs/{run_id}/cancel"): "v1_manifest",
+    ("POST", "/api/v1/runs/{run_id}/retry"): "v1_manifest",
     ("POST", "/api/v1/trino/query-completed"): "v1_manifest",
     (
         "POST",
