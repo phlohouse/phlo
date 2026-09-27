@@ -21,7 +21,7 @@ _MAX_ROWS = 100
 _MAX_RESPONSE_BYTES = 1_048_576
 _MAX_TRINO_PAGE_BYTES = 8_388_608
 _ADMISSION = asyncio.Semaphore(2)
-_PREVIEW_USER = "phlo_api_preview"
+_PREVIEW_USERS = {"prod": "phlo_api_preview_prod", "staging": "phlo_api_preview_staging"}
 
 
 class PreviewUnavailable(RuntimeError):
@@ -32,35 +32,48 @@ class PreviewLimitExceeded(RuntimeError):
     """The preview exceeded its response or execution budget."""
 
 
-def preview_catalog(env: str, nessie_ref: str) -> str:
-    """Resolve a catalog only from an operator map bound to the current target ref."""
+def _preview_configuration() -> dict[str, dict[str, str]]:
     try:
         if os.environ.get("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED") != "1":
-            raise ValueError
-        user = os.environ.get("PHLO_V1_PREVIEW_TRINO_USER")
-        password = os.environ.get("PHLO_V1_PREVIEW_TRINO_PASSWORD")
-        if user != _PREVIEW_USER or not password:
             raise ValueError
         mapping = json.loads(os.environ["PHLO_V1_PREVIEW_CATALOGS"])
         if not isinstance(mapping, dict) or set(mapping) != {"prod", "staging"}:
             raise ValueError
         catalogs: set[str] = set()
-        for target in mapping.values():
+        validated: dict[str, dict[str, str]] = {}
+        for env, target in mapping.items():
             if not isinstance(target, dict) or set(target) != {"catalog", "nessie_ref"}:
                 raise ValueError
             name = target["catalog"]
-            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", name):
+            ref = target["nessie_ref"]
+            password = os.environ.get(f"PHLO_V1_PREVIEW_TRINO_PASSWORD_{env.upper()}")
+            if (
+                not isinstance(name, str)
+                or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", name)
+                or not isinstance(ref, str)
+                or not ref
+                or not password
+            ):
                 raise ValueError
             catalogs.add(name)
+            validated[env] = {"catalog": name, "nessie_ref": ref}
         if len(catalogs) != 2:
             raise ValueError
-        item = mapping[env]
+        return validated
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise PreviewUnavailable("Preview catalog and server limits are not configured.") from exc
+
+
+def preview_catalog(env: str, nessie_ref: str) -> str:
+    """Resolve a catalog only from an operator map bound to the current target ref."""
+    try:
+        item = _preview_configuration()[env]
         catalog = item["catalog"]
         mapped_ref = item["nessie_ref"]
-        if mapped_ref != nessie_ref or not isinstance(catalog, str):
+        if mapped_ref != nessie_ref:
             raise ValueError
         return catalog
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+    except (KeyError, ValueError) as exc:
         raise PreviewUnavailable("Preview catalog and server limits are not configured.") from exc
 
 
@@ -146,16 +159,26 @@ async def _read_or_disconnect(
 def _preview_headers(catalog: str) -> dict[str, str]:
     return {
         "Content-Type": "text/plain",
-        **_preview_auth_headers(),
+        **_preview_auth_headers(catalog),
         "X-Trino-Catalog": catalog,
     }
 
 
-def _preview_auth_headers() -> dict[str, str]:
-    user = os.environ.get("PHLO_V1_PREVIEW_TRINO_USER")
-    password = os.environ.get("PHLO_V1_PREVIEW_TRINO_PASSWORD")
-    if user != _PREVIEW_USER or not password:
-        raise PreviewUnavailable("Preview identity is not configured for the read-only policy.")
+def _preview_auth_headers(catalog: str) -> dict[str, str]:
+    identity = next(
+        (
+            (env, _PREVIEW_USERS[env])
+            for env, item in _preview_configuration().items()
+            if item["catalog"] == catalog
+        ),
+        None,
+    )
+    if identity is None:
+        raise PreviewUnavailable("Preview catalog has no environment-scoped server identity.")
+    env, user = identity
+    password = os.environ.get(f"PHLO_V1_PREVIEW_TRINO_PASSWORD_{env.upper()}")
+    if not password:
+        raise PreviewUnavailable("Environment-scoped preview identity is not configured.")
     credentials = f"{user}:{password}".encode("utf-8")
     return {
         "X-Trino-User": user,
@@ -170,6 +193,8 @@ async def _collect_pages(
     headers: dict[str, str],
     disconnected: Callable[[], Awaitable[bool]],
     limit: int,
+    on_progress: Callable[[str | None, str | None], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[list[dict[str, Any]], list[list[Any]], str | None]:
     timeout = httpx.Timeout(22)
     active_uri: str | None = None
@@ -190,16 +215,28 @@ async def _collect_pages(
             rows.extend(data)
             next_uri = result.get("nextUri")
             active_uri = _assert_next_uri(next_uri, base_url) if isinstance(next_uri, str) else None
+            query_id = result.get("id")
+            if on_progress is not None:
+                on_progress(query_id if isinstance(query_id, str) else None, active_uri)
+            if should_cancel is not None and should_cancel():
+                raise asyncio.CancelledError
             if await disconnected():
                 raise asyncio.CancelledError
             if len(rows) > limit or active_uri is None:
                 return columns, rows, active_uri
             result = await _read_or_disconnect(
-                client, "GET", active_uri, _preview_auth_headers(), timeout, disconnected
+                client,
+                "GET",
+                active_uri,
+                _preview_auth_headers(headers["X-Trino-Catalog"]),
+                timeout,
+                disconnected,
             )
     except BaseException:
         if active_uri is not None:
-            await asyncio.shield(_cancel(client, active_uri, _preview_auth_headers()))
+            await asyncio.shield(
+                _cancel(client, active_uri, _preview_auth_headers(headers["X-Trino-Catalog"]))
+            )
         raise
 
 
@@ -223,21 +260,30 @@ async def _run_query(
     catalog: str,
     disconnected: Callable[[], Awaitable[bool]],
     limit: int,
+    on_progress: Callable[[str | None, str | None], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     base_url = resolve_trino_url().rstrip("/")
     if urlsplit(base_url).scheme != "https":
         raise PreviewUnavailable("Preview requires an HTTPS Trino connection.")
     columns, rows, active_uri = await _collect_pages(
-        client, sql, base_url, _preview_headers(catalog), disconnected, limit
+        client,
+        sql,
+        base_url,
+        _preview_headers(catalog),
+        disconnected,
+        limit,
+        on_progress,
+        should_cancel,
     )
     try:
         payload = _preview_payload(columns, rows, limit)
         if active_uri is not None:
-            await _cancel(client, active_uri, _preview_auth_headers())
+            await _cancel(client, active_uri, _preview_auth_headers(catalog))
         return payload
     except BaseException:
         if active_uri is not None:
-            await asyncio.shield(_cancel(client, active_uri, _preview_auth_headers()))
+            await asyncio.shield(_cancel(client, active_uri, _preview_auth_headers(catalog)))
         raise
 
 
@@ -247,6 +293,8 @@ async def execute_preview(
     catalog: str,
     disconnected: Callable[[], Awaitable[bool]],
     limit: int,
+    on_progress: Callable[[str | None, str | None], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Run a mapped read-only preview under cluster, process, time and output budgets."""
     if not 1 <= limit <= _MAX_ROWS:
@@ -257,7 +305,9 @@ async def execute_preview(
         raise PreviewUnavailable("Preview capacity is busy; retry later.") from exc
     try:
         async with backend_client() as client, asyncio.timeout(22):
-            result = await _run_query(client, sql, catalog, disconnected, limit)
+            result = await _run_query(
+                client, sql, catalog, disconnected, limit, on_progress, should_cancel
+            )
             return result
     except httpx.TimeoutException as exc:
         raise PreviewLimitExceeded("Preview exceeded its execution time budget.") from exc

@@ -32,7 +32,7 @@
   ],
   "selectors": [
     {
-      "user": "phlo_api_preview",
+      "user": "phlo_api_preview_(prod|staging)",
       "group": "global.preview.api"
     },
     {

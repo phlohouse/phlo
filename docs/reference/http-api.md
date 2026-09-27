@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (159)
+## Endpoints (171)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -157,6 +157,18 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/maintenance-windows` | V1 Maintenance Windows | `v1 jobs and runs` |
 | `GET` | `/api/v1/me` | V1 Me | `v1` |
 | `GET` | `/api/v1/overview` | V1 Overview | `v1 assets` |
+| `POST` | `/api/v1/queries` | V1 Query Submit | `v1 query workspace` |
+| `POST` | `/api/v1/queries/explain` | V1 Query Explain | `v1 query workspace` |
+| `GET` | `/api/v1/queries/saved` | V1 Saved Queries | `v1 query workspace` |
+| `POST` | `/api/v1/queries/saved` | V1 Saved Query Create | `v1 query workspace` |
+| `DELETE` | `/api/v1/queries/saved/{query_id}` | V1 Saved Query Delete | `v1 query workspace` |
+| `PUT` | `/api/v1/queries/saved/{query_id}` | V1 Saved Query Update | `v1 query workspace` |
+| `GET` | `/api/v1/queries/{query_id}` | V1 Query Result | `v1 query workspace` |
+| `POST` | `/api/v1/queries/{query_id}/cancel` | V1 Query Cancel | `v1 query workspace` |
+| `GET` | `/api/v1/queries/{query_id}/csv` | V1 Query Csv | `v1 query workspace` |
+| `GET` | `/api/v1/query/catalog` | V1 Query Catalog | `v1 query workspace` |
+| `GET` | `/api/v1/query/engines` | V1 Query Engines | `v1 query workspace` |
+| `GET` | `/api/v1/query/refs` | V1 Query Refs | `v1 query workspace` |
 | `GET` | `/api/v1/runs` | V1 Runs | `v1 jobs and runs` |
 | `GET` | `/api/v1/runs/{run_id}` | V1 Run | `v1 jobs and runs` |
 | `POST` | `/api/v1/runs/{run_id}/cancel` | V1 Run Cancel | `v1 jobs and runs` |

@@ -15,6 +15,7 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.core.network import Network
 from trino.dbapi import connect
 
+from phlo_api.api.v1_query_sql import bound_workspace_query
 from phlo_api.usage import _completed_event, catalog_version
 
 
@@ -153,6 +154,11 @@ def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(tmp_path:
                             )
                             cursor.fetchall()
                             cursor.execute(f"SELECT id FROM usage_{env}.warehouse.orders")
+                            assert cursor.fetchall() == [[expected]]
+                            bounded = bound_workspace_query(
+                                f"SELECT id FROM usage_{env}.warehouse.orders ORDER BY id", 1
+                            )
+                            cursor.execute(bounded)
                             assert cursor.fetchall() == [[expected]]
                             query_ids[env] = cursor.query_id
                         for _ in range(50):
