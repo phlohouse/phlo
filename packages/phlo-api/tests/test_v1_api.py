@@ -1245,6 +1245,110 @@ def test_preview_usage_is_ref_scoped_authorized_paginated_and_fail_closed(
     assert http.get(f"{url}?env=prod").status_code == 503
 
 
+def test_query_usage_requires_asset_and_physical_table_read_after_reassignment(client, monkeypatch):
+    from phlo.security.adapters import EnforcementResult
+    from phlo_api.usage import ObservedQuery, QueryUsagePage
+
+    http, decisions, _, _, backend = client
+
+    async def assets(*args, **kwargs):
+        return [
+            v1_assets.AssetView(
+                id=asset_id,
+                key=[asset_id],
+                description=None,
+                compute_kind=None,
+                group_name=None,
+                is_source=False,
+                dependencies=[],
+                relation=relation,
+                last_materialization_at=None,
+                last_run_id=None,
+            )
+            for asset_id, relation in (
+                ("asset_a", "warehouse.orders"),
+                ("asset_b", "warehouse.other"),
+            )
+        ]
+
+    reads = []
+
+    def read(env, ref, asset_id, table_id, limit, cursor):
+        reads.append((env, ref, asset_id, table_id))
+        return QueryUsagePage(
+            env=env,
+            asset_id=asset_id,
+            table_name="warehouse.orders",
+            nessie_ref=ref,
+            status="partial",
+            items=[
+                ObservedQuery(
+                    query_id="b_era_query",
+                    source_id="trino",
+                    occurred_at=datetime.now(UTC),
+                    query_state="FINISHED",
+                )
+            ],
+            next_cursor=None,
+        )
+
+    monkeypatch.setattr(v1_assets, "_assets", assets)
+    monkeypatch.setattr(v1_assets, "read_query_usage", read)
+    table_allowed = False
+
+    def decision(principal, action, resource, context):
+        decisions.append((action, resource.resource_id, context.environment))
+        allowed = resource.resource_id == "env=prod|asset_id=asset_a" or (
+            table_allowed and resource.resource_id == "env=prod|table_name=warehouse.orders"
+        )
+        return AuthorizationDecision(
+            allowed=allowed, reason_code="explicit_allow" if allowed else "explicit_deny"
+        )
+
+    backend.explain_decision = decision
+    assert http.get("/api/v1/assets/asset_b/query-usage?env=prod").status_code == 403
+    url = "/api/v1/assets/asset_a/query-usage?env=prod"
+    assert http.get(url).status_code == 403
+    assert reads == []
+    assert ("asset.read", "env=prod|asset_id=asset_a", "prod") in decisions
+    assert ("asset.read", "env=prod|table_name=warehouse.orders", "prod") in decisions
+    backend.explain_decision = lambda principal, action, resource, context: (
+        AuthorizationDecision(allowed=False, reason_code="backend_unavailable")
+        if resource.resource_id == "env=prod|table_name=warehouse.orders"
+        else AuthorizationDecision(allowed=True, reason_code="explicit_allow")
+    )
+    assert http.get(url).status_code == 503
+    assert reads == []
+    backend.explain_decision = decision
+    table_allowed = True
+    allowed = http.get(url)
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["table_name"] == "warehouse.orders"
+    assert allowed.json()["items"][0]["query_id"] == "b_era_query"
+    assert reads == [("prod", "main", "asset_a", "warehouse/orders")]
+    monkeypatch.setattr(security_manifest, "is_regulated", lambda: True)
+
+    def enforce_call(**kwargs):
+        if kwargs["resource"].resource_id == "env=prod|table_name=warehouse.orders":
+            return EnforcementResult.deny(reason_code="explicit_deny")
+        return EnforcementResult.allow()
+
+    monkeypatch.setattr(security_manifest, "enforce", enforce_call)
+    assert http.get(url).status_code == 403
+    assert len(reads) == 1
+    monkeypatch.setattr(
+        security_manifest,
+        "enforce",
+        lambda **kwargs: (
+            EnforcementResult.error(reason_code="backend_unavailable")
+            if kwargs["resource"].resource_id == "env=prod|table_name=warehouse.orders"
+            else EnforcementResult.allow()
+        ),
+    )
+    assert http.get(url).status_code == 503
+    assert len(reads) == 1
+
+
 def test_asset_preview_refuses_same_key_from_multiple_locations(client, monkeypatch):
     http, *_ = client
 
