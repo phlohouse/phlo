@@ -501,9 +501,7 @@ def load_schema_decisions(
         return [_schema_decision_row(row) for row in cur.fetchall()]
 
 
-@router.get(
-    "/incidents/{incident_id}/schema-decisions", response_model=SchemaDecisionPage
-)
+@router.get("/incidents/{incident_id}/schema-decisions", response_model=SchemaDecisionPage)
 def list_schema_decisions(
     request: Request, incident_id: str, env: Environment = Query()
 ) -> SchemaDecisionPage:
@@ -587,9 +585,7 @@ def create_schema_decision(
         )
         result_json = result.model_dump(mode="json")
         _event(cur, incident_id, env, actor, "schema_decision", result_json)
-        _store_idempotent_result(
-            cur, env, actor, action_target, idempotency_key, result_json
-        )
+        _store_idempotent_result(cur, env, actor, action_target, idempotency_key, result_json)
         return result
 
 

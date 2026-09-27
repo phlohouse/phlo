@@ -162,14 +162,10 @@ def install_catalogs(monkeypatch: pytest.MonkeyPatch) -> None:
         assert ref.startswith("phlo-schema-resolution-")
         return FakeCatalog(next(tables))
 
-    monkeypatch.setattr(
-        "phlo_iceberg.catalog.get_catalog", get_catalog
-    )
+    monkeypatch.setattr("phlo_iceberg.catalog.get_catalog", get_catalog)
 
 
-async def prepare(
-    nessie: FakeNessie, decisions: list[SimpleNamespace]
-):
+async def prepare(nessie: FakeNessie, decisions: list[SimpleNamespace]):
     return await prepare_schema_resolutions(
         env="staging",
         source_ref="staging-source",
@@ -206,7 +202,10 @@ async def test_rejects_missing_or_extraneous_field_choices(
 
 @pytest.mark.parametrize(
     ("source", "target"),
-    [(content(content_id="one"), content(content_id="two")), (content(snapshot=7), content(snapshot=8))],
+    [
+        (content(content_id="one"), content(content_id="two")),
+        (content(snapshot=7), content(snapshot=8)),
+    ],
     ids=["content-id", "snapshot"],
 )
 async def test_rejects_mismatched_ids_or_snapshots(
@@ -241,7 +240,9 @@ async def test_generates_exact_key_merge_mode_content(monkeypatch: pytest.Monkey
     await prepared.cleanup(nessie)
     deletes = [call for call in nessie.calls if call[0] == "DELETE"]
     assert len(deletes) == 2
-    assert all("staging-source" not in call[1] and "staging-target" not in call[1] for call in deletes)
+    assert all(
+        "staging-source" not in call[1] and "staging-target" not in call[1] for call in deletes
+    )
 
 
 async def test_verifies_the_resulting_ref_contains_the_resolved_table(

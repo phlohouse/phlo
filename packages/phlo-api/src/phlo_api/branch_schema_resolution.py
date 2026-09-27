@@ -84,9 +84,7 @@ async def _content(
     return _object(content, "Nessie returned invalid table content.")
 
 
-def _validate_content_pair(
-    key: str, source: dict[str, Any], target: dict[str, Any]
-) -> None:
+def _validate_content_pair(key: str, source: dict[str, Any], target: dict[str, Any]) -> None:
     if source.get("type") != "ICEBERG_TABLE" or target.get("type") != "ICEBERG_TABLE":
         raise ConflictError(f"Schema resolution is only supported for Iceberg tables: {key}.")
     source_id, target_id = source.get("id"), target.get("id")
@@ -146,7 +144,9 @@ def _validate_field_identities(
         field_id in target_names and target_names[field_id] != name
         for field_id, name in source_names.items()
     ):
-        raise UnprocessableInputError("Changed or duplicate Iceberg field identities are unsupported.")
+        raise UnprocessableInputError(
+            "Changed or duplicate Iceberg field identities are unsupported."
+        )
 
 
 def _decision_for_key(
@@ -322,7 +322,10 @@ async def prepare_schema_resolutions(
         )
         desired: dict[str, dict[str, dict[str, Any]]] = {}
         for key in keys:
-            source_fields, target_fields = _fields(source_tables[key]), _fields(temporary_tables[key])
+            source_fields, target_fields = (
+                _fields(source_tables[key]),
+                _fields(temporary_tables[key]),
+            )
             _validate_field_identities(source_fields, target_fields)
             differing = _different_fields(source_fields, target_fields)
             choices = selected[key]

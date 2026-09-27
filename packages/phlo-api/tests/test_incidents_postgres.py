@@ -203,14 +203,17 @@ def test_incident_transactions_group_concurrent_signals_and_isolate_environments
             )
             == []
         )
-        assert incidents.load_schema_decisions(
-            staging.id,
-            "staging",
-            "feature/orders",
-            "main",
-            "source-abc",
-            "target-def",
-        ) == []
+        assert (
+            incidents.load_schema_decisions(
+                staging.id,
+                "staging",
+                "feature/orders",
+                "main",
+                "source-abc",
+                "target-def",
+            )
+            == []
+        )
 
         with pytest.raises(HTTPException) as decision_replay_conflict:
             incidents.create_schema_decision(
