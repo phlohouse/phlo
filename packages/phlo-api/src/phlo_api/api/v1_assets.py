@@ -42,6 +42,7 @@ from phlo_api.api.v1_git_review import (
     project_git_review_config,
     publish_project_draft_pr,
 )
+from phlo_api.usage import QueryUsagePage, read_query_usage
 from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
 
 router = APIRouter(tags=["v1 assets"])
@@ -1376,6 +1377,25 @@ async def v1_asset_runs(
         asset_id=asset_id,
         items=items,
         next_cursor=_asset_run_cursor(env, asset_id, next_dagster_cursor) if has_more else None,
+    )
+
+
+@router.get("/assets/{asset_id:path}/query-usage", response_model=QueryUsagePage)
+async def v1_asset_query_usage(
+    request: Request,
+    asset_id: str,
+    env: Environment = Query(),
+    limit: Limit = 100,
+    cursor: str | None = None,
+) -> QueryUsagePage:
+    """Return retained verified Trino table inputs, not a complete access ledger."""
+    target = _target(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
+    asset_id = asset_id.strip("/")
+    assets = await _assets(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
+    if not any(asset.id == asset_id for asset in assets):
+        raise NotFoundError("Asset was not found.")
+    return await asyncio.to_thread(
+        read_query_usage, env, target.nessie_ref, asset_id, limit, cursor
     )
 
 

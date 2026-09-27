@@ -1,0 +1,8 @@
+# Optional Trino 483 HTTP QueryCompletedEvent listener. Do not install this file
+# unchanged: set the API URL, source ID, and a secret service credential from
+# the installation's secret store. Protect the file from other users.
+event-listener.name=http
+http-event-listener.log-completed=true
+http-event-listener.connect-ingest-uri=https://<api-host>/api/v1/trino/query-completed?source_id=<source-id>
+http-event-listener.connect-http-headers=Authorization:Bearer <service-token>
+http-event-listener.connect-retry-count=3

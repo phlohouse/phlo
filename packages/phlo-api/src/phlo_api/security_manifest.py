@@ -111,11 +111,18 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"),),
     ),
     *_specs(
-        ("v1_asset_detail", "v1_asset_usage"),
+        ("v1_asset_detail", "v1_asset_usage", "v1_asset_query_usage"),
         action=CanonicalAction.ASSET_READ.value,
         resource_type="asset",
         resource_keys=("env", "asset_id"),
         resource_sources=(("env", "query"), ("asset_id", "path")),
+    ),
+    *_specs(
+        ("v1_trino_query_completed",),
+        action=CanonicalAction.SERVICE_MANAGE.value,
+        resource_type="service",
+        resource_keys=("source_id",),
+        resource_sources=(("source_id", "query"),),
     ),
     *_specs(
         ("v1_asset_preview",),
