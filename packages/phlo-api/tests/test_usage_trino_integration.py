@@ -14,6 +14,7 @@ import pytest
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.network import Network
 from trino.dbapi import connect
+from trino.exceptions import TrinoQueryError
 
 from phlo_api.api.v1_query_sql import bound_workspace_query
 from phlo_api.usage import _completed_event, catalog_version
@@ -98,6 +99,49 @@ def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(tmp_path:
                         f"http-event-listener.connect-ingest-uri=http://host.docker.internal:{server.server_port}/events\n",
                         encoding="utf-8",
                     )
+                    access_control = tmp_path / "access-control.json"
+                    access_control.write_text(
+                        json.dumps(
+                            {
+                                "catalogs": [
+                                    {
+                                        "user": "phlo_api_preview_prod",
+                                        "catalog": "usage_prod",
+                                        "allow": "read-only",
+                                    },
+                                    {
+                                        "user": "phlo_api_preview_staging",
+                                        "catalog": "usage_stage",
+                                        "allow": "read-only",
+                                    },
+                                    {
+                                        "user": "phlo_api_preview_(prod|staging)",
+                                        "catalog": ".*",
+                                        "allow": "none",
+                                    },
+                                    {"catalog": ".*", "allow": "all"},
+                                ],
+                                "system_session_properties": [
+                                    {"user": "phlo_api_preview_(prod|staging)", "allow": False},
+                                    {"allow": True},
+                                ],
+                                "queries": [
+                                    {
+                                        "user": "phlo_api_preview_(prod|staging)",
+                                        "allow": ["execute"],
+                                    },
+                                    {"allow": ["execute"]},
+                                ],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    access_properties = tmp_path / "access-control.properties"
+                    access_properties.write_text(
+                        "access-control.name=file\n"
+                        "security.config-file=/etc/trino/preview/access-control.json\n",
+                        encoding="utf-8",
+                    )
                     descriptors = {}
                     for env, ref in (("prod", "main"), ("stage", "candidate")):
                         descriptor = {
@@ -126,6 +170,12 @@ def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(tmp_path:
                         .with_env("AWS_REGION", "us-east-1")
                         .with_volume_mapping(config, "/etc/trino/config.properties")
                         .with_volume_mapping(listener, "/etc/trino/listener.properties")
+                        .with_volume_mapping(
+                            access_properties, "/etc/trino/access-control.properties"
+                        )
+                        .with_volume_mapping(
+                            access_control, "/etc/trino/preview/access-control.json"
+                        )
                         .with_volume_mapping(
                             tmp_path / "catalog" / "usage_prod.properties",
                             "/etc/trino/catalog/usage_prod.properties",
@@ -161,6 +211,26 @@ def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(tmp_path:
                             cursor.execute(bounded)
                             assert cursor.fetchall() == [[expected]]
                             query_ids[env] = cursor.query_id
+                        for env, own_catalog, other_catalog, expected in (
+                            ("prod", "usage_prod", "usage_stage", 3),
+                            ("staging", "usage_stage", "usage_prod", 7),
+                        ):
+                            protected = connect(
+                                host="localhost",
+                                port=int(port),
+                                user=f"phlo_api_preview_{env}",
+                            )
+                            cursor = protected.cursor()
+                            cursor.execute(f"SELECT id FROM {own_catalog}.warehouse.orders")
+                            assert cursor.fetchall() == [[expected]]
+                            with pytest.raises(TrinoQueryError):
+                                cursor.execute(f"SELECT id FROM {other_catalog}.warehouse.orders")
+                            with pytest.raises(TrinoQueryError):
+                                cursor.execute(
+                                    f"INSERT INTO {own_catalog}.warehouse.orders VALUES (99)"
+                                )
+                            cursor.execute(f"SELECT id FROM {own_catalog}.warehouse.orders")
+                            assert cursor.fetchall() == [[expected]]
                         for _ in range(50):
                             if all(
                                 any(e["metadata"]["queryId"] == q for e in events)
