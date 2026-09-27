@@ -14,11 +14,11 @@ The examples follow this repository's existing catalog convention only:
 
 These catalog names and refs are examples, not required API names or a deployed
 mapping. Replace them consistently in the catalog files, access rules, and API
-settings for each installation. The API requires `phlo_api_preview` because the
-sample access, resource-group, and session policies bind that identity. An API
-identity that differs from those policies fails closed. The API requires two
-distinct catalog names and an exact match to its configured environment refs.
-Never select a ref with SQL or a session property.
+settings for each installation. The API uses separate fixed identities,
+`phlo_api_preview_prod` and `phlo_api_preview_staging`; each can read only its
+matching catalog. Configure their separate passwords in the API environment.
+The API requires two distinct catalog names and an exact match to its
+configured environment refs. Never select a ref with SQL or a session property.
 
 ## Install only after review
 
@@ -28,16 +28,18 @@ Never select a ref with SQL or a session property.
    management or existing client access. Supply a keystore password and random
    internal communication secret through the installation's secret store. Update
    the health check to authenticated HTTPS with a trusted CA; do not use `curl -k`.
-2. Provision a dedicated preview identity (`phlo_api_preview` in the example).
-   If other clients use the same Trino service, retain their authentication
-   paths and credentials. Do not reuse an operator account for previews.
+2. Provision the two dedicated identities shown in the example, with different
+   strong passwords. If other clients use the same Trino service, retain their
+   authentication paths and credentials. Do not reuse an operator account for
+   previews.
 3. Integrate the sample password authenticator, access-control, resource-group,
    and session-property policies with the installation's existing policies.
    Trino uses one configuration manager of each type; copying these sample
-   files over existing ones can block other clients. Adapt the catalog names
-   while retaining the policy-bound identity. The preview catalogs set
+   files over existing ones can block other clients. Adapt catalog names and
+   the matching user-specific catalog rules together; do not grant either
+   preview user access to the other environment. The preview catalogs set
    `iceberg.security=READ_ONLY`. Confirm their Nessie refs and storage mapping.
-4. Configure the API with the HTTPS endpoint, API identity credentials, and
+4. Configure the API with the HTTPS endpoint, the two API identity passwords, and
    exact `prod`/`staging` -> catalog/ref mapping. The API enforces small request
    limits and cancels Trino queries when it times out, is disconnected, or
    exceeds response caps.

@@ -14,14 +14,28 @@ from phlo_api.observatory_api import http_client
 from phlo_api.observatory_api import v1_preview as preview
 
 
+@pytest.fixture(autouse=True)
+def preview_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "1")
+    monkeypatch.setenv(
+        "PHLO_V1_PREVIEW_CATALOGS",
+        json.dumps(
+            {
+                "prod": {"catalog": "iceberg_prod", "nessie_ref": "main"},
+                "staging": {"catalog": "iceberg_staging", "nessie_ref": "dev"},
+            }
+        ),
+    )
+    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD", "secret")
+    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING", "staging-secret")
+
+
 def test_catalog_requires_exact_environment_ref_mapping(monkeypatch) -> None:
     monkeypatch.delenv("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", raising=False)
     with pytest.raises(preview.PreviewUnavailable):
         preview.preview_catalog("prod", "release_a")
 
     monkeypatch.setenv("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "1")
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_api_preview")
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD", "secret")
     monkeypatch.setenv(
         "PHLO_V1_PREVIEW_CATALOGS",
         json.dumps(
@@ -37,22 +51,27 @@ def test_catalog_requires_exact_environment_ref_mapping(monkeypatch) -> None:
     with pytest.raises(preview.PreviewUnavailable):
         preview.preview_catalog("prod", "review_b")
 
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "unrestricted_client")
     access = json.loads(
         (files("phlo_trino") / "preview" / "access-control.json").read_text(encoding="utf-8")
     )
     groups = json.loads(
         (files("phlo_trino") / "preview" / "resource-groups.json").read_text(encoding="utf-8")
     )
-    assert access["catalogs"][0]["user"] == preview._PREVIEW_USER
+    assert access["catalogs"][0] == {
+        "user": "phlo_api_preview_prod",
+        "catalog": "iceberg_preview_prod",
+        "allow": "read-only",
+    }
+    assert access["catalogs"][1] == {
+        "user": "phlo_api_preview_staging",
+        "catalog": "iceberg_preview_staging",
+        "allow": "read-only",
+    }
     assert access["catalogs"][-1]["allow"] == "all"
-    assert groups["selectors"][0]["user"] == preview._PREVIEW_USER
+    assert groups["selectors"][0]["user"] == "phlo_api_preview_(prod|staging)"
     assert groups["selectors"][-1]["group"] == "global.default"
-    with pytest.raises(preview.PreviewUnavailable):
-        preview.preview_catalog("prod", "release_a")
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_api_preview")
 
-    monkeypatch.delenv("PHLO_V1_PREVIEW_TRINO_PASSWORD")
+    monkeypatch.delenv("PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD")
     with pytest.raises(preview.PreviewUnavailable):
         preview.preview_catalog("prod", "release_a")
 
@@ -64,6 +83,22 @@ def test_quote_table_quotes_every_asset_key_segment() -> None:
     assert preview.quote_table("iceberg_prod", 'warehouse/orders"; DROP TABLE x') == (
         '"iceberg_prod"."warehouse"."orders""; DROP TABLE x"'
     )
+
+
+def test_preview_uses_an_environment_specific_trino_identity() -> None:
+    prod = preview._preview_auth_headers("iceberg_prod")
+    staging = preview._preview_auth_headers("iceberg_staging")
+
+    assert prod["X-Trino-User"] == "phlo_api_preview_prod"
+    assert prod["Authorization"] == "Basic " + base64.b64encode(
+        b"phlo_api_preview_prod:secret"
+    ).decode("ascii")
+    assert staging["X-Trino-User"] == "phlo_api_preview_staging"
+    assert staging["Authorization"] == "Basic " + base64.b64encode(
+        b"phlo_api_preview_staging:staging-secret"
+    ).decode("ascii")
+    with pytest.raises(preview.PreviewUnavailable, match="no environment-scoped server identity"):
+        preview._preview_auth_headers("iceberg_other")
 
 
 @pytest.mark.anyio
@@ -94,8 +129,6 @@ async def test_preview_cancels_latest_continuation_after_row_limit(monkeypatch) 
             return httpx.Response(204)
         raise AssertionError("preview must not fetch another result page after limit + 1")
 
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_api_preview")
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD", "secret")
     monkeypatch.setattr(preview, "resolve_trino_url", lambda: "https://trino:8443")
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         monkeypatch.setattr(http_client, "_client", client)
@@ -113,7 +146,7 @@ async def test_preview_cancels_latest_continuation_after_row_limit(monkeypatch) 
         ("DELETE", "/v1/next/1"),
     ]
     assert requests[0][2] == ""
-    expected_auth = "Basic " + base64.b64encode(b"phlo_api_preview:secret").decode("ascii")
+    expected_auth = "Basic " + base64.b64encode(b"phlo_api_preview_prod:secret").decode("ascii")
     assert all(item[3] == expected_auth for item in requests)
 
 
@@ -137,8 +170,6 @@ async def test_preview_cancels_query_when_result_poll_times_out(monkeypatch) -> 
             return httpx.Response(204)
         raise AssertionError(f"unexpected request {request.method}")
 
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_api_preview")
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD", "secret")
     monkeypatch.setattr(preview, "resolve_trino_url", lambda: "https://trino:8443")
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         monkeypatch.setattr(http_client, "_client", client)
@@ -176,8 +207,6 @@ async def test_preview_cancels_query_when_output_exceeds_byte_budget(monkeypatch
             return httpx.Response(204)
         raise AssertionError("overflow must cancel without fetching another page")
 
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_api_preview")
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD", "secret")
     monkeypatch.setattr(preview, "resolve_trino_url", lambda: "https://trino:8443")
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         monkeypatch.setattr(http_client, "_client", client)
@@ -190,6 +219,44 @@ async def test_preview_cancels_query_when_output_exceeds_byte_budget(monkeypatch
             )
 
     assert calls == [("POST", "/v1/statement"), ("DELETE", "/v1/next/3")]
+
+
+@pytest.mark.anyio
+async def test_preview_cancels_when_workspace_requests_cancellation(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+    cancel_requested = False
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.method == "POST":
+            return httpx.Response(
+                200,
+                json={"id": "trino-1", "columns": [], "nextUri": "https://trino:8443/v1/next/5"},
+            )
+        if request.method == "DELETE":
+            return httpx.Response(204)
+        raise AssertionError("cancelled query must not fetch another page")
+
+    def on_progress(query_id: str | None, next_uri: str | None) -> None:
+        nonlocal cancel_requested
+        assert query_id == "trino-1"
+        assert next_uri == "https://trino:8443/v1/next/5"
+        cancel_requested = True
+
+    monkeypatch.setattr(preview, "resolve_trino_url", lambda: "https://trino:8443")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        monkeypatch.setattr(http_client, "_client", client)
+        with pytest.raises(asyncio.CancelledError):
+            await preview.execute_preview(
+                "SELECT 1",
+                catalog="iceberg_prod",
+                disconnected=lambda: _not_disconnected(),
+                limit=1,
+                on_progress=on_progress,
+                should_cancel=lambda: cancel_requested,
+            )
+
+    assert calls == [("POST", "/v1/statement"), ("DELETE", "/v1/next/5")]
 
 
 @pytest.mark.anyio
@@ -213,8 +280,6 @@ async def test_preview_cancels_query_when_client_disconnects(monkeypatch) -> Non
         disconnect_checks += 1
         return disconnect_checks > 1
 
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_api_preview")
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD", "secret")
     monkeypatch.setattr(preview, "resolve_trino_url", lambda: "https://trino:8443")
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         monkeypatch.setattr(http_client, "_client", client)
@@ -231,8 +296,6 @@ async def test_preview_cancels_query_when_client_disconnects(monkeypatch) -> Non
 
 @pytest.mark.anyio
 async def test_preview_rejects_unencrypted_trino_connection(monkeypatch) -> None:
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_api_preview")
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD", "secret")
     monkeypatch.setattr(preview, "resolve_trino_url", lambda: "http://trino:8080")
 
     with pytest.raises(preview.PreviewUnavailable, match="requires an HTTPS Trino connection"):
