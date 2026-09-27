@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from phlo_dagster.operations import (
+    launch_backfill,
     get_run_status,
     launch_materialize,
     launch_retry,
@@ -62,6 +63,72 @@ def test_launch_materialize_posts_asset_selection(monkeypatch) -> None:
     assert selector["assetSelection"] == [{"path": ["silver", "orders"]}]
     assert "repositoryLocationName" not in selector
     assert "repositoryName" not in selector
+
+
+def test_launch_backfill_uses_native_all_partitions_and_pins_repository(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_post(self, url, json=None, headers=None):  # noqa: ANN001, ANN202, ARG001
+        captured["json"] = json
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "data": {
+                    "launchPartitionBackfill": {
+                        "__typename": "LaunchBackfillSuccess",
+                        "backfillId": "backfill-1",
+                        "launchedRunIds": [],
+                    }
+                }
+            },
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    result = asyncio.run(
+        launch_backfill(
+            dagster_url="http://dagster.test/graphql",
+            asset_key_path="silver/orders",
+            partition_set_name="orders_daily",
+            partition_keys=[],
+            all_partitions=True,
+            job_name="orders_job",
+            repository_location_name="production_jobs",
+            repository_name="warehouse_repo",
+            tags={"environment": "prod", "phlo/ref": "main"},
+        )
+    )
+
+    assert result.accepted is True
+    assert result.details == {"partitions": [], "partition_count": None, "all_partitions": True}
+    params = captured["json"]["variables"]["backfillParams"]  # type: ignore[index]
+    assert params["selector"] == {
+        "partitionSetName": "orders_daily",
+        "repositorySelector": {
+            "repositoryLocationName": "production_jobs",
+            "repositoryName": "warehouse_repo",
+        },
+    }
+    assert params["allPartitions"] is True
+    assert "partitionNames" not in params
+    assert params["assetSelection"] == [{"path": ["silver", "orders"]}]
+    tags = {tag["key"]: tag["value"] for tag in params["tags"]}
+    assert tags["phlo/asset_key"] == "silver/orders"
+    assert tags["phlo/job"] == "orders_job"
+    assert tags["environment"] == "prod"
+    assert tags["phlo/ref"] == "main"
+
+
+def test_launch_backfill_rejects_unbounded_or_ambiguous_selection() -> None:
+    with pytest.raises(ValueError, match="Specify either"):
+        asyncio.run(
+            launch_backfill(
+                dagster_url="http://dagster.test/graphql",
+                asset_key_path="silver/orders",
+                partition_set_name="orders_daily",
+                partition_keys=[],
+            )
+        )
 
 
 def test_get_run_status_reads_dagster_run(monkeypatch) -> None:

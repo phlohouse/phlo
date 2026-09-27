@@ -280,6 +280,8 @@ class BackfillAssetRequest(BaseModel):
     partitions: list[str] = Field(default_factory=list)
     partition_range: dict[str, str] | None = None
     partition_set_name: str | None = None
+    all_partitions: bool = False
+    job_name: str | None = None
     repository_location_name: str | None = None
     repository_name: str | None = None
     idempotency_key: str | None = None
@@ -791,14 +793,14 @@ async def backfill_asset(
 ) -> DagsterOperationResponse | dict[str, str]:
     """Validate or request a partition backfill for one asset."""
     partition_keys = _backfill_partition_keys(payload)
-    if not partition_keys:
+    if not partition_keys and not payload.all_partitions:
         return DagsterOperationResponse(
             operation="backfill_asset",
             dry_run=payload.dry_run,
             accepted=False,
             asset_key_path=asset_key_path,
             status="MISSING_PARTITIONS",
-            message="Backfill requires explicit partitions or a partition_range with start and end.",
+            message="Backfill requires explicit partitions or native all_partitions selection.",
             details={},
         )
 
@@ -810,7 +812,11 @@ async def backfill_asset(
             asset_key_path=asset_key_path,
             status="DRY_RUN",
             message="Backfill request is valid.",
-            details={"partitions": partition_keys, "partition_count": len(partition_keys)},
+            details={
+                "partitions": partition_keys,
+                "partition_count": None if payload.all_partitions else len(partition_keys),
+                "all_partitions": payload.all_partitions,
+            },
         )
 
     if not payload.partition_set_name:
@@ -831,6 +837,8 @@ async def backfill_asset(
         asset_key_path=asset_key_path,
         partition_set_name=payload.partition_set_name,
         partition_keys=partition_keys,
+        all_partitions=payload.all_partitions,
+        job_name=payload.job_name,
         repository_location_name=payload.repository_location_name,
         repository_name=payload.repository_name,
         idempotency_key=payload.idempotency_key,

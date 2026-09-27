@@ -27,7 +27,13 @@ from phlo_api.api.authorization import (
     get_authorization_backend,
     resolve_request_principal,
 )
-from phlo_api.errors import BadGatewayError, BackendUnavailableError, BadInputError, error_envelope
+from phlo_api.errors import (
+    BadGatewayError,
+    BackendUnavailableError,
+    BadInputError,
+    UnprocessableInputError,
+    error_envelope,
+)
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
 from phlo_api.observatory_api.http_client import backend_client
 from phlo_api.v1_contract import (
@@ -53,7 +59,7 @@ _RUN_QUERY = """query RecentRuns {
   runsOrError(limit: 100) {
     __typename
     ... on Runs {
-      results { runId status repositoryOrigin { repositoryLocationName } }
+      results { runId status tags { key value } repositoryOrigin { repositoryLocationName } }
     }
   }
 }"""
@@ -93,9 +99,13 @@ def _targets() -> dict[str, EnvironmentTarget]:
         raise BackendUnavailableError("Environment mapping is unavailable.") from exc
 
 
-def _target(request: Request, env: Environment) -> EnvironmentTarget:
-    if set(request.query_params) != {"env"}:
+def _target(
+    request: Request, env: Environment, *, allowed_query: frozenset[str] = frozenset({"env"})
+) -> EnvironmentTarget:
+    if not set(request.query_params) <= allowed_query:
         raise BadInputError("Only the env selector is accepted.")
+    if request.query_params.getlist("env") != [env]:
+        raise UnprocessableInputError("Provide exactly one environment selector.")
     return _targets()[env]
 
 
@@ -126,7 +136,25 @@ async def _locations() -> set[str]:
     return {node["location"]["name"] for node in nodes}
 
 
-async def _runs(location: str) -> dict[str, str]:
+def _run_on_ref(run: dict[str, Any], ref: str, *, required: bool = False) -> bool:
+    tags = run.get("tags")
+    matches = (
+        [tag["value"] for tag in tags if tag["key"] == "phlo/ref"]
+        if isinstance(tags, list)
+        and all(
+            isinstance(tag, dict)
+            and isinstance(tag.get("key"), str)
+            and isinstance(tag.get("value"), str)
+            for tag in tags
+        )
+        else []
+    )
+    if len(matches) != 1 and required:
+        raise BackendUnavailableError("Dagster run has no verified ref identity.")
+    return len(matches) == 1 and matches[0] == ref
+
+
+async def _runs(location: str, ref: str) -> dict[str, str]:
     try:
         payload = await graphql_request(resolve_dagster_url(), _RUN_QUERY)
     except (httpx.HTTPError, OSError, RuntimeError) as exc:
@@ -146,7 +174,7 @@ async def _runs(location: str) -> dict[str, str]:
             or row.get("status") not in _RUN_STATUSES
         ):
             raise BadGatewayError("Dagster returned an invalid run.")
-        if origin == location:
+        if origin == location and _run_on_ref(row, ref, required=True):
             runs[row["runId"]] = row["status"]
     return runs
 
@@ -344,7 +372,7 @@ async def v1_events(request: Request, env: Annotated[Environment, Query()]) -> S
     services = await _service_snapshots(target)
     if any(item.id in {"dagster", "nessie"} and item.status != "healthy" for item in services):
         raise BackendUnavailableError("Environment sources are unavailable.")
-    runs = await _runs(target.dagster_location)
+    runs = await _runs(target.dagster_location, target.nessie_ref)
     connection = uuid4().hex
 
     async def stream():
@@ -379,7 +407,7 @@ async def v1_events(request: Request, env: Annotated[Environment, Query()]) -> S
                 )
                 return
             try:
-                current_runs = await _runs(target.dagster_location)
+                current_runs = await _runs(target.dagster_location, target.nessie_ref)
             except (BackendUnavailableError, BadGatewayError) as exc:
                 yield _frame("error", error_envelope(exc))
                 return
