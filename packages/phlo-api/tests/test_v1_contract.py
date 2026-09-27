@@ -132,6 +132,8 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/assets/{asset_id}/audits/{proposal_id}/pull-request",
         "/api/v1/assets/{asset_id}/preview",
         "/api/v1/assets/{asset_id}/usage",
+        "/api/v1/assets/{asset_id}/query-usage",
+        "/api/v1/trino/query-completed",
         "/api/v1/assets/{asset_id}/materialize",
         "/api/v1/assets/{asset_id}/backfill",
         "/api/v1/assets/{asset_id}/materialization-estimate",
