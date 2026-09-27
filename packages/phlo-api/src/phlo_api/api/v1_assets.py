@@ -15,7 +15,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, Field
 
-from phlo_api.api.v1 import _target
+from phlo_api.api.v1 import _run_on_ref, _target
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, NotFoundError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
@@ -58,11 +58,12 @@ ASSET_QUERY = """query V1Assets {
     id assetKey { path } description computeKind groupName isMaterializable isObservable isPartitioned
     repository { name location { name } }
     dependencyKeys { path }
+    metadataEntries { label ... on TextMetadataEntry { text } }
     assetMaterializations(limit: 1) {
       timestamp runId partition
       runOrError {
         __typename
-        ... on Run { runId status repositoryOrigin { repositoryLocationName } }
+        ... on Run { runId status tags { key value } repositoryOrigin { repositoryLocationName } }
       }
     }
   }
@@ -77,6 +78,7 @@ ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
       dependencyKeys { path }
       metadataEntries {
         label description
+        ... on TextMetadataEntry { text }
         ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
         ... on TableColumnLineageMetadataEntry {
           lineage { columnName columnDeps { assetKey { path } columnName } }
@@ -86,7 +88,7 @@ ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
         timestamp runId partition
         runOrError {
           __typename
-          ... on Run { runId status repositoryOrigin { repositoryLocationName } }
+          ... on Run { runId status tags { key value } repositoryOrigin { repositoryLocationName } }
         }
         metadataEntries {
           label
@@ -130,6 +132,7 @@ ASSET_RUNS_QUERY = """query V1AssetRuns($limit: Int!, $cursor: String) {
         ... on Run {
           __typename runId status creationTime startTime endTime
           repositoryOrigin { repositoryLocationName }
+          tags { key value }
           assetSelection { path }
         }
       }
@@ -164,7 +167,7 @@ ASSET_CHECK_EXECUTIONS_QUERY = """query V1AssetCheckExecutions($assetKey: AssetK
         ... on JsonMetadataEntry { jsonString }
       }
     }
-    run { runId repositoryOrigin { repositoryLocationName } }
+    run { runId tags { key value } repositoryOrigin { repositoryLocationName } }
   }
 }"""
 
@@ -179,6 +182,7 @@ class AssetView(WireModel):
     dependencies: list[list[str]]
     last_materialization_at: datetime | None
     last_run_id: str | None
+    relation: str | None = None
     history_scoped: bool = True
 
 
@@ -439,7 +443,9 @@ def _decode_asset_run_cursor(cursor: str | None, env: Environment, asset_id: str
         raise HTTPException(status_code=400, detail="Invalid or cross-environment cursor.") from exc
 
 
-def _asset_run_view(row: Any, asset_path: list[str], repository_location: str) -> AssetRun | None:
+def _asset_run_view(
+    row: Any, asset_path: list[str], repository_location: str, ref: str
+) -> AssetRun | None:
     if not isinstance(row, dict) or row.get("__typename") != "Run":
         raise ValueError
     selection = row.get("assetSelection")
@@ -454,6 +460,8 @@ def _asset_run_view(row: Any, asset_path: list[str], repository_location: str) -
     if not isinstance(location, str):
         raise ValueError
     if location != repository_location:
+        return None
+    if not _run_on_ref(row, ref, required=True):
         return None
     status = row.get("status")
     run_id = row.get("runId")
@@ -506,7 +514,31 @@ def _repository_location(node: dict[str, Any]) -> str:
     return location["name"]
 
 
-def _asset_view(node: dict[str, Any]) -> AssetView:
+def _declared_relation(entries: Any) -> str | None:
+    if not isinstance(entries, list):
+        raise BadGatewayError("Dagster returned invalid asset relation metadata.")
+    values = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("label") in {"phlo/relation", "target_table"}
+    ]
+    if not values:
+        return None
+    if (
+        len(values) > 2
+        or len({value["label"] for value in values}) != len(values)
+        or any(
+            not isinstance(value.get("text"), str)
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*", value["text"])
+            for value in values
+        )
+        or len({value["text"] for value in values}) != 1
+    ):
+        raise BackendUnavailableError("Asset has no valid declared physical relation.")
+    return values[0]["text"]
+
+
+def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
     location = _repository_location(node)
     materializable = node.get("isMaterializable")
     if type(materializable) is not bool:
@@ -531,6 +563,7 @@ def _asset_view(node: dict[str, Any]) -> AssetView:
         and run.get("runId") == latest["runId"]
         and isinstance(origin, dict)
         and origin.get("repositoryLocationName") == location
+        and _run_on_ref(run, ref)
     )
     try:
         observed = (
@@ -550,6 +583,7 @@ def _asset_view(node: dict[str, Any]) -> AssetView:
         group_name=node.get("groupName"),
         is_source=not materializable,
         dependencies=[_key_path(item) for item in dependencies],
+        relation=_declared_relation(node.get("metadataEntries") or []),
         last_materialization_at=observed,
         last_run_id=run_id,
     )
@@ -632,7 +666,8 @@ async def _assets(
     *,
     allowed_query: frozenset[str] = frozenset({"env"}),
 ) -> list[AssetView]:
-    location = _target(request, env, allowed_query=allowed_query).dagster_location
+    target = _target(request, env, allowed_query=allowed_query)
+    location = target.dagster_location
     result = await _graphql(ASSET_QUERY)
     data = result.get("data") if isinstance(result, dict) else None
     nodes = data.get("assetNodes") if isinstance(data, dict) else None
@@ -641,7 +676,7 @@ async def _assets(
     raw_nodes = [node for node in nodes if isinstance(node, dict)]
     if len(raw_nodes) != len(nodes):
         raise BadGatewayError("Dagster returned an invalid asset inventory.")
-    assets = [_asset_view(node) for node in raw_nodes]
+    assets = [_asset_view(node, target.nessie_ref) for node in raw_nodes]
     locations = [_repository_location(node) for node in raw_nodes]
     locations_by_key: dict[str, set[str]] = {}
     for asset, node_location in zip(assets, locations, strict=True):
@@ -753,9 +788,11 @@ async def v1_asset_preview(
         raise NotFoundError("Asset was not found.")
     if not matches[0].history_scoped:
         raise BackendUnavailableError("Asset preview cannot be scoped to this environment.")
+    if not matches[0].relation:
+        raise BackendUnavailableError("Asset has no declared physical relation for preview.")
     try:
         catalog = preview_catalog(env, target.nessie_ref)
-        relation = quote_table(catalog, asset_id)
+        relation = quote_table(catalog, matches[0].relation.replace(".", "/"))
         result = await execute_preview(
             f"SELECT * FROM {relation} LIMIT {limit + 1}",
             catalog=catalog,
@@ -1367,7 +1404,11 @@ async def v1_asset_runs(
         items = [
             item
             for row in rows
-            if (item := _asset_run_view(row, asset_id.split("/"), target.dagster_location))
+            if (
+                item := _asset_run_view(
+                    row, asset_id.split("/"), target.dagster_location, target.nessie_ref
+                )
+            )
             is not None
         ]
     except (KeyError, TypeError, ValueError, OSError) as exc:
@@ -1392,10 +1433,30 @@ async def v1_asset_query_usage(
     target = _target(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
     asset_id = asset_id.strip("/")
     assets = await _assets(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
-    if not any(asset.id == asset_id for asset in assets):
+    matches = [asset for asset in assets if asset.id == asset_id]
+    if not matches:
         raise NotFoundError("Asset was not found.")
+    if not matches[0].history_scoped or not matches[0].relation:
+        if cursor is not None:
+            raise HTTPException(status_code=400, detail="Asset relation changed; cursor is stale.")
+        return QueryUsagePage(
+            env=env,
+            asset_id=asset_id,
+            table_name=None,
+            nessie_ref=target.nessie_ref,
+            status="unavailable",
+            reason="no_asset_relation",
+            items=[],
+            next_cursor=None,
+        )
     return await asyncio.to_thread(
-        read_query_usage, env, target.nessie_ref, asset_id, limit, cursor
+        read_query_usage,
+        env,
+        target.nessie_ref,
+        asset_id,
+        matches[0].relation.replace(".", "/"),
+        limit,
+        cursor,
     )
 
 
@@ -1522,7 +1583,11 @@ async def v1_asset_checks(
         raise NotFoundError("Asset was not found.")
     definitions = await _asset_check_definitions(key, target.dagster_location)
     executions = await _asset_check_executions(
-        key, [definition.name for definition in definitions], target.dagster_location, limit
+        key,
+        [definition.name for definition in definitions],
+        target.dagster_location,
+        target.nessie_ref,
+        limit,
     )
     return AssetChecks(env=env, asset_id=asset_id, definitions=definitions, executions=executions)
 
@@ -1568,16 +1633,18 @@ def _check_nodes_for_location(
 
 
 async def _asset_check_executions(
-    key: list[str], check_names: list[str], repository_location: str, limit: int
+    key: list[str], check_names: list[str], repository_location: str, ref: str, limit: int
 ) -> list[CheckExecution]:
-    groups, _ = await _asset_check_execution_groups(key, check_names, repository_location, limit)
+    groups, _ = await _asset_check_execution_groups(
+        key, check_names, repository_location, ref, limit
+    )
     executions = [item for group in groups.values() for item in group]
     executions.sort(key=lambda item: (item.timestamp, item.check_name, item.run_id), reverse=True)
     return executions[:limit]
 
 
 async def _asset_check_execution_groups(
-    key: list[str], check_names: list[str], repository_location: str, limit: int
+    key: list[str], check_names: list[str], repository_location: str, ref: str, limit: int
 ) -> tuple[dict[str, list[CheckExecution]], dict[str, int]]:
     semaphore = asyncio.Semaphore(8)
 
@@ -1596,7 +1663,7 @@ async def _asset_check_execution_groups(
         return (
             check_name,
             len(rows),
-            _normalize_check_executions(rows, repository_location, check_name),
+            _normalize_check_executions(rows, repository_location, ref, check_name),
         )
 
     groups = await asyncio.gather(*(executions_for_check(name) for name in check_names))
@@ -1607,17 +1674,17 @@ async def _asset_check_execution_groups(
 
 
 def _normalize_check_executions(
-    raw_executions: list[Any], repository_location: str, check_name: str
+    raw_executions: list[Any], repository_location: str, ref: str, check_name: str
 ) -> list[CheckExecution]:
     scoped = [
-        _normalize_check_execution(execution, repository_location, check_name)
+        _normalize_check_execution(execution, repository_location, ref, check_name)
         for execution in raw_executions
     ]
     return [execution for execution in scoped if execution is not None]
 
 
 def _normalize_check_execution(
-    execution: Any, repository_location: str, check_name: str
+    execution: Any, repository_location: str, ref: str, check_name: str
 ) -> CheckExecution | None:
     if not isinstance(execution, dict):
         raise BadGatewayError("Dagster returned invalid asset-check history.")
@@ -1632,6 +1699,10 @@ def _normalize_check_execution(
     if not isinstance(location, str):
         raise BadGatewayError("Dagster could not verify an asset-check run location.")
     if location != repository_location:
+        return None
+    if run.get("runId") != run_id:
+        raise BadGatewayError("Dagster returned an asset-check run with mismatched identity.")
+    if not _run_on_ref(run, ref, required=True):
         return None
     evaluation = execution.get("evaluation")
     evaluation = evaluation if isinstance(evaluation, dict) else None
@@ -1660,7 +1731,7 @@ def _normalize_check_execution(
 
 
 async def _overview_quality_checks(
-    assets: list[AssetView], repository_location: str
+    assets: list[AssetView], repository_location: str, ref: str
 ) -> QualityCheckEvidence:
     if len(assets) > _OVERVIEW_CHECK_ASSET_LIMIT:
         return QualityCheckEvidence(status="unknown", counts=None, reason="asset_limit_exceeded")
@@ -1685,7 +1756,7 @@ async def _overview_quality_checks(
         if not names:
             continue
         histories, raw_counts = await _asset_check_execution_groups(
-            key, names, repository_location, _CHECK_EXECUTION_SCAN_LIMIT
+            key, names, repository_location, ref, _CHECK_EXECUTION_SCAN_LIMIT
         )
         for name in names:
             latest_evaluation = max(
@@ -1773,7 +1844,7 @@ async def v1_asset_detail(
         or location.get("name") != _target(request, env).dagster_location
     ):
         raise NotFoundError("Asset was not found.")
-    detail = _asset_view(payload)
+    detail = _asset_view(payload, _target(request, env).nessie_ref)
     definition_entries = payload.get("metadataEntries") or []
     materials = payload.get("assetMaterializations") or []
     materialization_entries = (
@@ -1851,9 +1922,11 @@ async def v1_overview(request: Request, env: Environment = Query()) -> OverviewR
     from phlo_api.incidents import incident_stats, list_asset_incident_policies
 
     target = _target(request, env)
-    runs = await _runs(target.dagster_location)
+    runs = await _runs(target.dagster_location, target.nessie_ref)
     try:
-        quality_checks = await _overview_quality_checks(assets, target.dagster_location)
+        quality_checks = await _overview_quality_checks(
+            assets, target.dagster_location, target.nessie_ref
+        )
     except (BackendUnavailableError, BadGatewayError, NotFoundError):
         quality_checks = QualityCheckEvidence(
             status="unknown", counts=None, reason="source_unavailable"

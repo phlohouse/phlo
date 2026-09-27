@@ -15,12 +15,12 @@ CREATE TABLE IF NOT EXISTS phlo.asset_query_usage (
     catalog_version text NOT NULL,
     env text NOT NULL CHECK (env IN ('prod', 'staging')),
     nessie_ref text NOT NULL,
-    asset_id text NOT NULL,
+    table_id text NOT NULL,
     occurred_at timestamptz NOT NULL,
     query_state text NOT NULL CHECK (query_state IN ('FINISHED', 'FAILED')),
-    PRIMARY KEY (source_id, query_id, catalog_version, env, asset_id),
+    PRIMARY KEY (source_id, query_id, catalog_version, env, table_id),
     FOREIGN KEY (source_id, query_id) REFERENCES phlo.query_usage_event (source_id, query_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_asset_query_usage_page
-    ON phlo.asset_query_usage (env, nessie_ref, asset_id, occurred_at DESC, query_id DESC, source_id DESC, catalog_version DESC);
+    ON phlo.asset_query_usage (env, nessie_ref, table_id, occurred_at DESC, query_id DESC, source_id DESC, catalog_version DESC);

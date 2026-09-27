@@ -42,10 +42,11 @@ class ObservedQuery(WireModel):
 class QueryUsagePage(WireModel):
     env: Environment
     asset_id: str
+    table_name: str | None
     nessie_ref: str
     status: Literal["partial", "unavailable"]
     source: Literal["trino_query_completed"] = "trino_query_completed"
-    reason: Literal["no_verified_query_evidence"] | None = None
+    reason: Literal["no_verified_query_evidence", "no_asset_relation"] | None = None
     items: list[ObservedQuery]
     next_cursor: str | None
 
@@ -251,12 +252,12 @@ def _save_event(
                 raise HTTPException(status_code=409, detail="Conflicting Trino query event replay.")
             return 0
         if stored:
-            for _name, version, env, ref, asset_id in matches:
+            for _name, version, env, ref, table_id in matches:
                 cursor.execute(
                     "INSERT INTO phlo.asset_query_usage "
-                    "(source_id,query_id,catalog_version,env,nessie_ref,asset_id,occurred_at,query_state) "
+                    "(source_id,query_id,catalog_version,env,nessie_ref,table_id,occurred_at,query_state) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,'FINISHED')",
-                    (source_id, query_id, version, env, ref, asset_id, occurred_at),
+                    (source_id, query_id, version, env, ref, table_id, occurred_at),
                 )
         cursor.execute(
             "DELETE FROM phlo.asset_query_usage WHERE occurred_at < now() - interval '30 days'"
@@ -299,10 +300,12 @@ async def v1_trino_query_completed(request: Request) -> dict[str, int]:
     return {"observed_inputs": count}
 
 
-def _cursor(env: Environment, ref: str, asset_id: str, key: list[Any]) -> str:
+def _cursor(env: Environment, ref: str, asset_id: str, table_id: str, key: list[Any]) -> str:
     return (
         base64.urlsafe_b64encode(
-            json.dumps([env, ref, asset_id, *key], default=str, separators=(",", ":")).encode()
+            json.dumps(
+                [env, ref, asset_id, table_id, *key], default=str, separators=(",", ":")
+            ).encode()
         )
         .decode()
         .rstrip("=")
@@ -310,7 +313,7 @@ def _cursor(env: Environment, ref: str, asset_id: str, key: list[Any]) -> str:
 
 
 def read_query_usage(
-    env: Environment, ref: str, asset_id: str, limit: int, cursor: str | None
+    env: Environment, ref: str, asset_id: str, table_id: str, limit: int, cursor: str | None
 ) -> QueryUsagePage:
     """Read at most one page from the installation's retained observed inputs."""
     if cursor and len(cursor) > 1024:
@@ -321,11 +324,11 @@ def read_query_usage(
             values = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
             if (
                 not isinstance(values, list)
-                or len(values) != 7
-                or values[:3] != [env, ref, asset_id]
+                or len(values) != 8
+                or values[:4] != [env, ref, asset_id, table_id]
             ):
                 raise ValueError
-            key = (datetime.fromisoformat(values[3]), *values[4:])
+            key = (datetime.fromisoformat(values[4]), *values[5:])
             if key[0].tzinfo is None or any(not isinstance(v, str) or not v for v in key[1:]):
                 raise ValueError
         except (ValueError, TypeError, UnicodeDecodeError, binascii.Error) as exc:
@@ -333,18 +336,19 @@ def read_query_usage(
     with _transaction() as connection, connection.cursor() as db:
         db.execute(
             "SELECT occurred_at,query_id,source_id,catalog_version FROM phlo.asset_query_usage "
-            "WHERE env=%s AND nessie_ref=%s AND asset_id=%s "
+            "WHERE env=%s AND nessie_ref=%s AND table_id=%s "
             "AND occurred_at >= now() - interval '30 days' "
             "AND (%s::timestamptz IS NULL OR (occurred_at,query_id,source_id,catalog_version) "
             "< (%s,%s,%s,%s)) "
             "ORDER BY occurred_at DESC,query_id DESC,source_id DESC,catalog_version DESC LIMIT %s",
-            (env, ref, asset_id, key[0] if key else None, *(key or (None,) * 4), limit + 1),
+            (env, ref, table_id, key[0] if key else None, *(key or (None,) * 4), limit + 1),
         )
         rows = db.fetchall()
     page = rows[:limit]
     return QueryUsagePage(
         env=env,
         asset_id=asset_id,
+        table_name=table_id.replace("/", "."),
         nessie_ref=ref,
         status="partial" if page else "unavailable",
         reason=None if page else "no_verified_query_evidence",
@@ -354,5 +358,7 @@ def read_query_usage(
             )
             for row in page
         ],
-        next_cursor=_cursor(env, ref, asset_id, list(page[-1])) if len(rows) > limit else None,
+        next_cursor=_cursor(env, ref, asset_id, table_id, list(page[-1]))
+        if len(rows) > limit
+        else None,
     )
