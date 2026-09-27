@@ -42,7 +42,14 @@ PostgreSQL database. It discards SQL, user, session, connector details, and the
 raw event. Failed queries are not counted as completed table reads. The
 `/assets/{asset_id}/query-usage` read checks the selected Dagster asset and
 environment/ref, limits pages to 500, and shows retained observations from
-the last 30 days. The API removes older rows on the next successful ingest.
+the last 30 days. The asset definition must declare a `schema.table` physical
+relation in text metadata under `phlo/relation` or the existing `target_table`
+key. Conflicting declarations are rejected; the asset key is never treated as
+a table name. The response names the declared table. It associates observed
+inputs with the **current** asset declaration and cannot prove that a past
+version of the asset referred to the same table. Without a declaration it
+returns `unavailable`, not a fabricated match. The API removes older rows on
+the next successful ingest.
 
 This is **observed partial usage**. HTTP delivery has no durable Trino spool;
 even with retries, listener outages can lose events. Query inputs show tables
@@ -50,6 +57,7 @@ in a completed plan, not how many rows a client saw. Direct storage access,
 REST catalogs, unregistered direct catalogs, dynamic WAP catalogs without a
 registered version, failed queries, and other query engines are not covered.
 The existing `/assets/{asset_id}/usage` still reports only successful API
-preview reads from its separate operation journal. A qualifying preview can
-appear in both routes, so do not sum their counts to estimate total access.
+preview reads from its separate operation journal. The two routes have
+independent sources, retention, and cursors. A qualifying preview can appear
+in both routes, so do not sum their counts to estimate total access.
 Neither route is the phase-6 compliance audit chain.

@@ -163,14 +163,22 @@ def test_verified_query_usage_postgres_http_contract(monkeypatch: pytest.MonkeyP
         monkeypatch.setattr(security_manifest, "get_authorization_backend", lambda: backend)
 
         async def assets(_request, _env, *, allowed_query):
-            return [SimpleNamespace(id="warehouse/orders")]
+            return [
+                SimpleNamespace(
+                    id="order_current_state", relation="warehouse.orders", history_scoped=True
+                ),
+                SimpleNamespace(
+                    id="warehouse/orders", relation="warehouse.other", history_scoped=True
+                ),
+                SimpleNamespace(id="raw_input", relation=None, history_scoped=True),
+            ]
 
         monkeypatch.setattr(v1_assets, "_assets", assets)
         prod_hash = usage.catalog_version("lake_prod", _properties("main"))
         stage_hash = usage.catalog_version("lake_stage", _properties("candidate"))
         event_url = "/api/v1/trino/query-completed?source_id=cluster"
-        prod_url = "/api/v1/assets/warehouse/orders/query-usage?env=prod&limit=1"
-        stage_url = "/api/v1/assets/warehouse/orders/query-usage?env=staging"
+        prod_url = "/api/v1/assets/order_current_state/query-usage?env=prod&limit=1"
+        stage_url = "/api/v1/assets/order_current_state/query-usage?env=staging"
         with TestClient(app) as http:
             assert http.post(event_url, json=_event("q_prod_a", "lake_prod", prod_hash)).json() == {
                 "observed_inputs": 1
@@ -203,6 +211,13 @@ def test_verified_query_usage_postgres_http_contract(monkeypatch: pytest.MonkeyP
             prod = http.get(prod_url)
             assert prod.status_code == 200
             assert prod.json()["status"] == "partial"
+            assert prod.json()["table_name"] == "warehouse.orders"
+            assert (
+                http.get("/api/v1/assets/warehouse/orders/query-usage?env=prod").json()["items"]
+                == []
+            )
+            missing = http.get("/api/v1/assets/raw_input/query-usage?env=prod").json()
+            assert missing["status"] == "unavailable" and missing["reason"] == "no_asset_relation"
             page_2 = http.get(prod_url + "&cursor=" + prod.json()["next_cursor"])
             assert page_2.status_code == 200
             assert {row["query_id"] for row in prod.json()["items"] + page_2.json()["items"]} == {
@@ -210,7 +225,7 @@ def test_verified_query_usage_postgres_http_contract(monkeypatch: pytest.MonkeyP
                 "q_prod_b",
             }
             assert http.get(stage_url + "&cursor=" + prod.json()["next_cursor"]).status_code == 400
-            assert http.get(prod_url.replace("orders", "other")).status_code == 404
+            assert http.get(prod_url.replace("order_current_state", "unknown")).status_code == 404
             assert http.post(event_url, content=b"x" * 262_145).status_code == 413
             old_map = os.environ["PHLO_V1_ENVIRONMENTS"]
             new_map = json.loads(old_map)
@@ -232,7 +247,7 @@ def test_verified_query_usage_postgres_http_contract(monkeypatch: pytest.MonkeyP
             )
             assert http.post(event_url, json=extra).status_code == 403
             assert ("service.manage", "source_id=cluster") in decisions
-            assert ("asset.read", "env=prod|asset_id=warehouse/orders") in decisions
+            assert ("asset.read", "env=prod|asset_id=order_current_state") in decisions
         with usage._transaction() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT * FROM phlo.asset_query_usage ORDER BY query_id")
             rows = cursor.fetchall()

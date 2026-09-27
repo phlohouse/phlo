@@ -93,11 +93,13 @@ def client(monkeypatch):
                         {
                             "runId": "p-run",
                             "status": "STARTED",
+                            "tags": [{"key": "phlo/ref", "value": "main"}],
                             "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
                         },
                         {
                             "runId": "s-run",
                             "status": "FAILURE",
+                            "tags": [{"key": "phlo/ref", "value": "candidate"}],
                             "repositoryOrigin": {"repositoryLocationName": "testing_jobs"},
                         },
                     ],
@@ -390,8 +392,35 @@ def test_run_location_validation_never_returns_an_empty_success(client):
 
 
 def test_run_source_filters_asymmetric_locations(client):
-    assert asyncio.run(v1._runs("production_jobs")) == {"p-run": "STARTED"}
-    assert asyncio.run(v1._runs("testing_jobs")) == {"s-run": "FAILURE"}
+    assert asyncio.run(v1._runs("production_jobs", "main")) == {"p-run": "STARTED"}
+    assert asyncio.run(v1._runs("testing_jobs", "candidate")) == {"s-run": "FAILURE"}
+
+
+def test_recent_runs_require_ref_even_with_matching_location(client, monkeypatch):
+    http, *_ = client
+    rows = [
+        {
+            "runId": "other-ref",
+            "status": "FAILURE",
+            "tags": [{"key": "phlo/ref", "value": "candidate"}],
+            "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+        },
+        {
+            "runId": "main-ref",
+            "status": "STARTED",
+            "tags": [{"key": "phlo/ref", "value": "main"}],
+            "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+        },
+    ]
+
+    async def graphql(url, query):
+        return {"data": {"runsOrError": {"__typename": "Runs", "results": rows}}}
+
+    monkeypatch.setattr(v1, "graphql_request", graphql)
+    assert asyncio.run(v1._runs("production_jobs", "main")) == {"main-ref": "STARTED"}
+    rows[1]["tags"] = []
+    monkeypatch.setattr(v1_assets, "_assets", lambda *args, **kwargs: asyncio.sleep(0, result=[]))
+    assert http.get("/api/v1/overview?env=prod").status_code == 503
 
 
 def test_events_openapi_advertises_sse():
@@ -440,8 +469,9 @@ def test_events_emit_real_scoped_changes_and_reject_resume(client):
 
     runs_seen = itertools.count()
 
-    async def runs(location):
+    async def runs(location, ref):
         n = next(runs_seen)
+        assert ref == ("main" if location == "production_jobs" else "candidate")
         return {
             "p-run" if location == "production_jobs" else "s-run": "STARTED"
             if n == 0
@@ -494,7 +524,8 @@ def test_events_emit_service_down_before_error(client):
                 )
             ]
 
-        async def runs(location):
+        async def runs(location, ref):
+            assert location == "production_jobs" and ref == "main"
             return {"p-run": "STARTED"}
 
         async def immediate(_):
@@ -535,6 +566,7 @@ def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch
                         "__typename": "Run",
                         "runId": "p-run",
                         "status": "SUCCESS",
+                        "tags": [{"key": "phlo/ref", "value": "main"}],
                         "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
                     },
                 }
@@ -559,6 +591,7 @@ def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch
                         "__typename": "Run",
                         "runId": "s-run",
                         "status": "SUCCESS",
+                        "tags": [{"key": "phlo/ref", "value": "candidate"}],
                         "repositoryOrigin": {"repositoryLocationName": "testing_jobs"},
                     },
                 }
@@ -645,6 +678,9 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
                         "__typename": "Run",
                         "runId": env,
                         "status": "SUCCESS",
+                        "tags": [
+                            {"key": "phlo/ref", "value": "main" if env == "prod" else "candidate"}
+                        ],
                         "repositoryOrigin": {"repositoryLocationName": location},
                     },
                 }
@@ -664,6 +700,7 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
                                 "__typename": "Run",
                                 "runId": "prod-run",
                                 "status": "SUCCESS",
+                                "tags": [{"key": "phlo/ref", "value": "main"}],
                                 "creationTime": 1780000000,
                                 "startTime": None,
                                 "endTime": None,
@@ -674,6 +711,7 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
                                 "__typename": "Run",
                                 "runId": "staging-run",
                                 "status": "SUCCESS",
+                                "tags": [{"key": "phlo/ref", "value": "candidate"}],
                                 "creationTime": 1780000000,
                                 "startTime": None,
                                 "endTime": None,
@@ -723,18 +761,20 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("env", "run_location", "status", "partitioned", "event_partition", "trusted"),
+    ("env", "run_location", "status", "partitioned", "event_partition", "trusted", "run_ref"),
     [
-        ("prod", "production_jobs", "SUCCESS", False, None, True),
-        ("prod", "testing_jobs", "SUCCESS", False, None, False),
-        ("staging", "production_jobs", "SUCCESS", False, None, False),
-        ("prod", "production_jobs", "FAILURE", False, None, False),
-        ("prod", "production_jobs", "SUCCESS", True, "2026-09-25", False),
-        ("prod", "production_jobs", "SUCCESS", False, "2026-09-25", False),
+        ("prod", "production_jobs", "SUCCESS", False, None, True, "main"),
+        ("prod", "testing_jobs", "SUCCESS", False, None, False, "main"),
+        ("staging", "production_jobs", "SUCCESS", False, None, False, "candidate"),
+        ("prod", "production_jobs", "FAILURE", False, None, False, "main"),
+        ("prod", "production_jobs", "SUCCESS", True, "2026-09-25", False, "main"),
+        ("prod", "production_jobs", "SUCCESS", False, "2026-09-25", False, "main"),
+        ("prod", "production_jobs", "SUCCESS", False, None, False, "candidate"),
+        ("prod", "production_jobs", "SUCCESS", False, None, False, None),
     ],
 )
 def test_asset_and_overview_require_location_success_and_unpartitioned_evidence(
-    client, monkeypatch, env, run_location, status, partitioned, event_partition, trusted
+    client, monkeypatch, env, run_location, status, partitioned, event_partition, trusted, run_ref
 ):
     from types import SimpleNamespace
 
@@ -750,6 +790,7 @@ def test_asset_and_overview_require_location_success_and_unpartitioned_evidence(
             "__typename": "Run",
             "runId": "historical-run",
             "status": status,
+            "tags": [{"key": "phlo/ref", "value": run_ref}] if run_ref else [],
             "repositoryOrigin": {"repositoryLocationName": run_location},
         },
         "metadataEntries": [
@@ -831,6 +872,7 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
                     "__typename": "Run",
                     "runId": "p-run",
                     "status": "SUCCESS",
+                    "tags": [{"key": "phlo/ref", "value": "main"}],
                     "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
                 },
             }
@@ -848,6 +890,7 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
                     "__typename": "Run",
                     "runId": "p-run",
                     "status": "SUCCESS",
+                    "tags": [{"key": "phlo/ref", "value": "main"}],
                     "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
                 },
                 "metadataEntries": [
@@ -998,6 +1041,7 @@ def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatc
     http, *_ = client
     calls = []
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    relation = "warehouse.orders"
 
     async def graphql(query, variables=None):
         return {
@@ -1005,7 +1049,7 @@ def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatc
                 "assetNodes": [
                     {
                         "id": "orders-id",
-                        "assetKey": {"path": ["warehouse", "orders"]},
+                        "assetKey": {"path": ["order_current_state"]},
                         "description": None,
                         "computeKind": "python",
                         "groupName": "warehouse",
@@ -1015,6 +1059,9 @@ def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatc
                             "location": {"name": "production_jobs"},
                         },
                         "dependencyKeys": [],
+                        "metadataEntries": (
+                            [{"label": "target_table", "text": relation}] if relation else []
+                        ),
                         "assetMaterializations": [],
                     }
                 ]
@@ -1043,7 +1090,7 @@ def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatc
             }
         ),
     )
-    prod = http.get("/api/v1/assets/warehouse/orders/preview?env=prod&limit=1")
+    prod = http.get("/api/v1/assets/order_current_state/preview?env=prod&limit=1")
     assert prod.status_code == 200, prod.text
     assert prod.json()["nessie_ref"] == "main"
     assert calls[0][1] == "iceberg_prod"
@@ -1052,12 +1099,12 @@ def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatc
     assert record["operation"] == "v1_asset_preview"
     assert record["payload"] == {
         "env": "prod",
-        "asset_id": "warehouse/orders",
+        "asset_id": "order_current_state",
         "nessie_ref": "main",
     }
     assert record["result"] == {"returned_row_count": 1, "has_more": False}
     assert "rows" not in record and "secret" not in json.dumps(record)
-    usage = http.get("/api/v1/assets/warehouse/orders/usage?env=prod")
+    usage = http.get("/api/v1/assets/order_current_state/usage?env=prod")
     assert usage.status_code == 200, usage.text
     assert usage.json()["source"] == "api_preview"
     assert usage.json()["status"] == "partial"
@@ -1067,9 +1114,45 @@ def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatc
         raise OSError("test sink unavailable")
 
     monkeypatch.setattr(operation_controls, "audit_operation", unavailable_audit)
-    assert http.get("/api/v1/assets/warehouse/orders/preview?env=prod").status_code == 503
+    assert http.get("/api/v1/assets/order_current_state/preview?env=prod").status_code == 503
     assert len(calls) == 2  # Trino finished; the API refuses to return unrecorded data.
     assert len((tmp_path / ".phlo" / "audit" / "operations.jsonl").read_text().splitlines()) == 1
+    relation = ""
+    assert http.get("/api/v1/assets/order_current_state/preview?env=prod").status_code == 503
+    relation = "warehouse.orders;DELETE"
+    assert http.get("/api/v1/assets/order_current_state/preview?env=prod").status_code == 503
+    assert len(calls) == 2
+
+
+def test_asset_relation_declarations_reject_conflicts():
+    from phlo_api.errors import BackendUnavailableError
+
+    assert (
+        v1_assets._declared_relation([{"label": "target_table", "text": "raw.orders"}])
+        == "raw.orders"
+    )
+    assert (
+        v1_assets._declared_relation(
+            [
+                {"label": "target_table", "text": "raw.orders"},
+                {"label": "phlo/relation", "text": "raw.orders"},
+            ]
+        )
+        == "raw.orders"
+    )
+    for entries in (
+        [
+            {"label": "target_table", "text": "raw.orders"},
+            {"label": "phlo/relation", "text": "raw.other"},
+        ],
+        [{"label": "target_table", "text": "raw.orders;DROP TABLE raw.orders"}],
+        [
+            {"label": "target_table", "text": "raw.orders"},
+            {"label": "target_table", "text": "raw.other"},
+        ],
+    ):
+        with pytest.raises(BackendUnavailableError):
+            v1_assets._declared_relation(entries)
 
 
 def test_preview_usage_is_ref_scoped_authorized_paginated_and_fail_closed(
@@ -1638,6 +1721,7 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
             },
             "run": {
                 "runId": run_id,
+                "tags": [{"key": "phlo/ref", "value": "main" if env == "prod" else "candidate"}],
                 "repositoryOrigin": {
                     "repositoryLocationName": "production_jobs" if env == "prod" else "testing_jobs"
                 },
@@ -1645,6 +1729,17 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
         }
         for env, run_id, count in (("prod", "p-run", 9), ("staging", "s-run", 2))
     ]
+    executions.append(
+        {
+            **executions[0],
+            "runId": "wrong-ref",
+            "run": {
+                **executions[0]["run"],
+                "runId": "wrong-ref",
+                "tags": [{"key": "phlo/ref", "value": "candidate"}],
+            },
+        }
+    )
     executions.append(
         {
             "status": "SUCCEEDED",
@@ -1702,11 +1797,14 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
     assert prod.json()["executions"][0]["passed"] is True
     assert staging.json()["executions"][0]["passed"] is False
     assert prod.json()["executions"][0]["metadata"] == [{"label": "rows", "value": 9}]
+    executions[0]["run"]["tags"] = []
+    assert http.get("/api/v1/assets/warehouse/orders/checks?env=prod").status_code == 503
 
 
 def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client, monkeypatch):
     http, *_ = client
     feed_cursors = []
+    missing_ref = False
     asset_nodes = [
         {
             "id": env,
@@ -1722,11 +1820,17 @@ def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client,
         for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
     ]
 
-    def run(run_id, location, selection, status="SUCCESS"):
+    def run(run_id, location, selection, status="SUCCESS", ref=None):
         return {
             "__typename": "Run",
             "runId": run_id,
             "status": status,
+            "tags": [
+                {
+                    "key": "phlo/ref",
+                    "value": ref or ("main" if location == "production_jobs" else "candidate"),
+                }
+            ],
             "creationTime": 1780000000,
             "startTime": 1780000001,
             "endTime": 1780000002,
@@ -1742,7 +1846,7 @@ def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client,
             results = (
                 [
                     run("prod-success", "production_jobs", ["warehouse", "orders"]),
-                    run("staging-leak", "testing_jobs", ["warehouse", "orders"]),
+                    run("wrong-ref", "production_jobs", ["warehouse", "orders"], ref="candidate"),
                 ]
                 if variables["cursor"] is None
                 else [
@@ -1754,6 +1858,8 @@ def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client,
                     )
                 ]
             )
+            if missing_ref:
+                results[0]["tags"] = []
             next_cursor = "dagster-page-1" if variables["cursor"] is None else "dagster-page-2"
             return {
                 "data": {
@@ -1782,6 +1888,8 @@ def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client,
         http.get(f"/api/v1/assets/warehouse/orders/runs?env=staging&cursor={cursor}").status_code
         == 400
     )
+    missing_ref = True
+    assert http.get("/api/v1/assets/warehouse/orders/runs?env=prod").status_code == 503
 
 
 def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
@@ -1808,6 +1916,7 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
                         "__typename": "Run",
                         "runId": "run-1",
                         "status": "SUCCESS",
+                        "tags": [{"key": "phlo/ref", "value": "main"}],
                         "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
                     },
                 }
@@ -1876,6 +1985,7 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
         "evaluation": {"success": True, "severity": "ERROR", "metadataEntries": []},
         "run": None,
     }
+    missing_ref = False
 
     async def graphql(url, query, variables=None):
         if "V1Assets" in query:
@@ -1923,7 +2033,22 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
                                 "severity": "ERROR",
                                 "metadataEntries": [],
                             },
-                            "run": {"repositoryOrigin": {"repositoryLocationName": location}},
+                            "run": {
+                                "runId": run_id,
+                                "tags": (
+                                    []
+                                    if missing_ref and run_id == "prod-pass"
+                                    else [
+                                        {
+                                            "key": "phlo/ref",
+                                            "value": "main"
+                                            if location == "production_jobs"
+                                            else "candidate",
+                                        }
+                                    ]
+                                ),
+                                "repositoryOrigin": {"repositoryLocationName": location},
+                            },
                         }
                         for run_id, timestamp, passed, location in check_executions
                     ]
@@ -1936,7 +2061,7 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
     from phlo_api.api import v1
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
-    monkeypatch.setattr(v1, "_runs", lambda location: asyncio.sleep(0, result={}))
+    monkeypatch.setattr(v1, "_runs", lambda location, ref: asyncio.sleep(0, result={}))
     monkeypatch.setattr(
         incidents,
         "incident_stats",
@@ -1956,6 +2081,11 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
         "failing_assets": ["warehouse/orders"],
         "reason": None,
     }
+    missing_ref = True
+    unknown = http.get("/api/v1/overview?env=prod")
+    assert unknown.status_code == 200
+    assert unknown.json()["quality_checks"]["status"] == "unknown"
+    assert unknown.json()["quality_checks"]["counts"] is None
 
 
 def test_audit_proposal_generator_emits_only_validated_declarative_checks():
