@@ -12,6 +12,7 @@ from phlo.compliance.signatures.service import (
     SignatureServiceConfig,
 )
 from phlo.compliance.signatures.step_up import (
+    RecentMfaClaimsChallenge,
     SessionConfirmChallenge,
     StepUpAuthChallenge,
     StepUpResult,
@@ -24,6 +25,7 @@ from phlo.compliance.signatures.types import (
 
 __all__ = [
     "DEFAULT_CRITICAL_ACTIONS",
+    "RecentMfaClaimsChallenge",
     "SessionConfirmChallenge",
     "SignatureMeaning",
     "SignatureRecord",

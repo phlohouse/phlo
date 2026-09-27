@@ -29,6 +29,8 @@ compose:
         PYTHONUNBUFFERED: "1"
         PHLO_AUTHORIZATION_MODE: ${PHLO_AUTHORIZATION_MODE:-required}
         PHLO_SERVICE_CREDENTIALS_FILE: ${PHLO_SERVICE_CREDENTIALS_FILE:-}
+        PHLO_IDENTITY_AUTHORITY_ENABLED: ${PHLO_IDENTITY_AUTHORITY_ENABLED:-1}
+        PHLO_SIGNATURE_HMAC_KEY: ${PHLO_SIGNATURE_HMAC_KEY:-}
         PHLO_V1_ENVIRONMENTS: ${PHLO_V1_ENVIRONMENTS:-}
         PHLO_V1_MAINTENANCE_WINDOWS: ${PHLO_V1_MAINTENANCE_WINDOWS:-}
         PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED: ${PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED:-}
@@ -86,6 +88,13 @@ env_vars:
     PHLO_API_PORT:
         default: 4000
         description: Phlo API port
+    PHLO_IDENTITY_AUTHORITY_ENABLED:
+        default: "1"
+        description: Use Phlo's durable shared identity authority for managed role assignments and service accounts
+    PHLO_SIGNATURE_HMAC_KEY:
+        default: ""
+        description: Secret HMAC key for action-bound signature records
+        secret: true
     PHLO_V1_ENVIRONMENTS:
         default: ""
         description: JSON allowlist of distinct prod and staging Dagster locations and Nessie refs
@@ -151,6 +160,7 @@ dev:
     environment:
         PYTHONUNBUFFERED: "1"
         PHLO_DEV_MODE: "true"
+        PHLO_IDENTITY_AUTHORITY_ENABLED: ${PHLO_IDENTITY_AUTHORITY_ENABLED:-1}
         DAGSTER_GRAPHQL_URL: "http://127.0.0.1:${DAGSTER_PORT:-10006}/graphql"
         NESSIE_URL: "http://127.0.0.1:${NESSIE_PORT:-10003}/api/v2"
         PHLO_V1_ENVIRONMENTS: ${PHLO_V1_ENVIRONMENTS:-}

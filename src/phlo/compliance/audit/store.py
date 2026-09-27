@@ -9,14 +9,22 @@ import json
 import threading
 from typing import TYPE_CHECKING, Any
 
+from phlo.compliance.audit.sealed import AuditStore
+
 if TYPE_CHECKING:
+    from phlo.audit.events import CanonicalAuditEvent
     from phlo.compliance.audit.sealed import (
         ChainVerificationResult,
         SealedAuditRecord,
     )
 
 
-class InMemoryAuditStore:
+def _decode_event_data(data: Any) -> dict[str, Any]:
+    """Decode JSON returned by psycopg across text and JSONB adapters."""
+    return data if isinstance(data, dict) else json.loads(data)
+
+
+class InMemoryAuditStore(AuditStore):
     """In-memory audit store for testing.
 
     Not suitable for production use.
@@ -115,7 +123,7 @@ class InMemoryAuditStore:
             )
 
 
-class PostgresAuditStore:
+class PostgresAuditStore(AuditStore):
     """PostgreSQL-based audit store.
 
     Uses the metadata Postgres database for storage.
@@ -154,6 +162,56 @@ class PostgresAuditStore:
                 """,
             )
             self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        finally:
+            cursor.close()
+
+    def append_event(self, event: CanonicalAuditEvent, hmac_key: bytes) -> SealedAuditRecord:
+        """Seal and append one event under a PostgreSQL cross-process lock."""
+        from phlo.compliance.audit.sealed import GENESIS_HASH, SealedAuditRecord
+
+        surface = event.surface or "unknown"
+        cursor = self._conn.cursor()
+        try:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"audit:{surface}",))
+            cursor.execute(
+                """
+                SELECT sequence_number, record_hash
+                FROM compliance_audit_log
+                WHERE surface = %s
+                ORDER BY sequence_number DESC
+                LIMIT 1
+                """,
+                (surface,),
+            )
+            last = cursor.fetchone()
+            sequence_number = last[0] + 1 if last else 1
+            previous_hash = last[1] if last else GENESIS_HASH
+            record = SealedAuditRecord.seal(
+                event,
+                sequence_number,
+                previous_hash,
+                hmac_key=hmac_key,
+            )
+            cursor.execute(
+                """
+                INSERT INTO compliance_audit_log
+                (surface, sequence_number, sealed_at, previous_hash, record_hash, event_data)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    surface,
+                    record.sequence_number,
+                    record.sealed_at,
+                    record.previous_hash,
+                    record.record_hash,
+                    json.dumps(event.to_dict()),
+                ),
+            )
+            self._conn.commit()
+            return record
         except Exception:
             self._conn.rollback()
             raise
@@ -215,7 +273,7 @@ class PostgresAuditStore:
 
         from phlo.compliance.audit.sealed import SealedAuditRecord
 
-        event = CanonicalAuditEvent(**json.loads(row[4]))
+        event = CanonicalAuditEvent(**_decode_event_data(row[4]))
         return SealedAuditRecord(
             sequence_number=row[0],
             sealed_at=row[1].isoformat() if hasattr(row[1], "isoformat") else str(row[1]),
@@ -265,7 +323,7 @@ class PostgresAuditStore:
 
         results = []
         for row in rows:
-            event = CanonicalAuditEvent(**json.loads(row[4]))
+            event = CanonicalAuditEvent(**_decode_event_data(row[4]))
             results.append(
                 SealedAuditRecord(
                     sequence_number=row[0],
