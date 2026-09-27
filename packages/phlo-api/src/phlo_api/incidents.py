@@ -16,6 +16,8 @@ import psycopg2
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import Field
 
+from phlo.audit.events import AuditEventType, CanonicalAuditEvent
+from phlo.compliance.signatures.types import SignatureMeaning, SignatureRequest
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.errors import BackendUnavailableError
 from phlo_api.v1_contract import Environment, WireModel
@@ -35,9 +37,10 @@ class IncidentInput(WireModel):
 
 
 class IncidentUpdate(WireModel):
-    status: Literal["open", "acknowledged"] | None = None
+    status: IncidentStatus | None = None
     owner: str | None = Field(default=None, max_length=512)
     comment: str | None = Field(default=None, max_length=10000)
+    signature_id: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class FollowUpInput(WireModel):
@@ -416,6 +419,13 @@ def update_incident(
         raise HTTPException(status_code=422, detail="At least one incident field is required.")
     if "status" in body.model_fields_set and body.status is None:
         raise HTTPException(status_code=422, detail="Incident status cannot be null.")
+    if body.signature_id is not None and body.status != "resolved":
+        raise HTTPException(status_code=422, detail="Signatures are only accepted for resolution.")
+    if body.status == "resolved" and (not body.signature_id or not body.comment):
+        raise HTTPException(
+            status_code=422,
+            detail="Resolution requires a signature and a non-empty resolution comment.",
+        )
     if if_match is None or not if_match.isdecimal():
         raise HTTPException(status_code=428, detail="A numeric If-Match version is required.")
     expected_version = int(if_match)
@@ -444,6 +454,70 @@ def update_incident(
             raise HTTPException(status_code=404, detail="Incident not found.")
         if expected_version != old[2]:
             raise HTTPException(status_code=409, detail="Incident version is stale.")
+        if body.status == "resolved":
+            signature_id = body.signature_id
+            comment = body.comment
+            if signature_id is None or comment is None or not comment.strip():
+                raise HTTPException(
+                    status_code=422,
+                    detail="Resolution requires a signature and a non-empty resolution comment.",
+                )
+            if old[0] != "acknowledged":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Only acknowledged incidents can be resolved.",
+                )
+            from phlo.identity.authority import IdentityAuthority
+            from phlo_api.api import v1_admin_identity
+
+            signature_request = SignatureRequest(
+                signer_subject=actor,
+                meaning=SignatureMeaning.APPROVED,
+                action="incident.resolve",
+                record_type="incident",
+                record_id=f"{env}:{incident_id}",
+                record_version=str(expected_version),
+                justification=comment,
+            )
+            v1_admin_identity._audit(
+                CanonicalAuditEvent(
+                    event_type=AuditEventType.MUTATION,
+                    surface="phlo-api",
+                    actor_subject=actor,
+                    action="incident.resolve",
+                    resource_type="incident",
+                    resource_id=f"{env}:{incident_id}",
+                    decision="skip",
+                    reason_code="signed_resolution_attempt",
+                    outcome="attempted",
+                    attributes={
+                        "signature_id": signature_id,
+                        "expected_version": expected_version,
+                        "env": env,
+                    },
+                )
+            )
+            if not v1_admin_identity._identity_call(
+                lambda: IdentityAuthority().consume_signature(signature_id, signature_request)
+            ):
+                v1_admin_identity._audit(
+                    CanonicalAuditEvent(
+                        event_type=AuditEventType.AUTHORIZATION,
+                        surface="phlo-api",
+                        actor_subject=actor,
+                        action="incident.resolve",
+                        resource_type="incident",
+                        resource_id=f"{env}:{incident_id}",
+                        decision="deny",
+                        reason_code="signature_missing_stale_reused_or_mismatched",
+                        outcome="failure",
+                        attributes={"signature_id": signature_id},
+                    )
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="Signature is missing, stale, reused, or mismatched.",
+                )
         cur.execute(
             """UPDATE phlo.incident SET status=%s,owner=%s,version=version+1,updated_at=now()
                WHERE incident_id=%s AND env=%s""",
@@ -455,7 +529,14 @@ def update_incident(
             ),
         )
         if body.comment is not None:
-            _event(cur, incident_id, env, actor, "comment", {"text": body.comment})
+            _event(
+                cur,
+                incident_id,
+                env,
+                actor,
+                "resolution_comment" if body.status == "resolved" else "comment",
+                {"text": body.comment},
+            )
         if body.status is not None or body.owner is not None:
             _event(
                 cur,

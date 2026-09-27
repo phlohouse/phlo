@@ -177,6 +177,17 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/assets/{asset_id}/incident-policy",
         "/api/v1/incident-policies",
         "/api/v1/activity",
+        "/api/v1/admin/settings",
+        "/api/v1/admin/members",
+        "/api/v1/admin/members/{subject}/roles",
+        "/api/v1/admin/invitations",
+        "/api/v1/invitations/accept",
+        "/api/v1/admin/service-accounts",
+        "/api/v1/admin/service-accounts/{subject}",
+        "/api/v1/signatures",
+        "/api/v1/admin/audit/records",
+        "/api/v1/admin/audit/verify",
+        "/api/v1/admin/audit/export",
     }
     legacy = {(method, path) for method, path in documented if not path.startswith("/api/v1/")}
 

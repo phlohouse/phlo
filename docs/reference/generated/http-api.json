@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 171,
+  "endpoint_count": 186,
   "endpoints": [
     {
       "method": "GET",
@@ -949,6 +949,114 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_admin_audit_export_api_v1_admin_audit_export_get",
+      "path": "/api/v1/admin/audit/export",
+      "summary": "V1 Admin Audit Export",
+      "tags": [
+        "v1 admin audit"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_admin_audit_records_api_v1_admin_audit_records_get",
+      "path": "/api/v1/admin/audit/records",
+      "summary": "V1 Admin Audit Records",
+      "tags": [
+        "v1 admin audit"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_admin_audit_verify_api_v1_admin_audit_verify_get",
+      "path": "/api/v1/admin/audit/verify",
+      "summary": "V1 Admin Audit Verify",
+      "tags": [
+        "v1 admin audit"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_admin_invitations_api_v1_admin_invitations_get",
+      "path": "/api/v1/admin/invitations",
+      "summary": "V1 Admin Invitations",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_admin_invitation_create_api_v1_admin_invitations_post",
+      "path": "/api/v1/admin/invitations",
+      "summary": "V1 Admin Invitation Create",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_admin_members_api_v1_admin_members_get",
+      "path": "/api/v1/admin/members",
+      "summary": "V1 Admin Members",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "operation_id": "v1_admin_member_roles_api_v1_admin_members__subject__roles_patch",
+      "path": "/api/v1/admin/members/{subject}/roles",
+      "summary": "V1 Admin Member Roles",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_admin_service_accounts_api_v1_admin_service_accounts_get",
+      "path": "/api/v1/admin/service-accounts",
+      "summary": "V1 Admin Service Accounts",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_admin_service_account_create_api_v1_admin_service_accounts_post",
+      "path": "/api/v1/admin/service-accounts",
+      "summary": "V1 Admin Service Account Create",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "operation_id": "v1_admin_service_account_revoke_api_v1_admin_service_accounts__subject__delete",
+      "path": "/api/v1/admin/service-accounts/{subject}",
+      "summary": "V1 Admin Service Account Revoke",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_admin_settings_get_api_v1_admin_settings_get",
+      "path": "/api/v1/admin/settings",
+      "summary": "V1 Admin Settings Get",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "PUT",
+      "operation_id": "v1_admin_settings_put_api_v1_admin_settings_put",
+      "path": "/api/v1/admin/settings",
+      "summary": "V1 Admin Settings Put",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "v1_assets_api_v1_assets_get",
       "path": "/api/v1/assets",
       "summary": "V1 Assets",
@@ -1197,6 +1305,15 @@
       "summary": "Incident Timeline",
       "tags": [
         "v1 incidents"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_invitation_accept_api_v1_invitations_accept_post",
+      "path": "/api/v1/invitations/accept",
+      "summary": "V1 Invitation Accept",
+      "tags": [
+        "v1 admin identity"
       ]
     },
     {
@@ -1476,6 +1593,24 @@
       "summary": "V1 Services",
       "tags": [
         "v1"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_signatures_api_v1_signatures_get",
+      "path": "/api/v1/signatures",
+      "summary": "V1 Signatures",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_signature_create_api_v1_signatures_post",
+      "path": "/api/v1/signatures",
+      "summary": "V1 Signature Create",
+      "tags": [
+        "v1 admin identity"
       ]
     },
     {

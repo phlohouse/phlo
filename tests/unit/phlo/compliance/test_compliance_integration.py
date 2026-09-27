@@ -154,12 +154,22 @@ class TestSignatureIntegration:
         request = SignatureRequest(
             signer_subject="alice@example.com",
             meaning=SignatureMeaning.APPROVED,
+            action="dataset.publish",
             record_type="dataset",
             record_id="dataset-123",
             record_version="v1",
             justification="Approved for release",
         )
 
+        class SignatureRepository:
+            def save_signature(self, record) -> None:
+                del record
+
+            def consume_signature(self, signature_id, expected) -> bool:
+                del signature_id, expected
+                return False
+
+        service._signature_repository = SignatureRepository()
         record = service.sign(request, session)
         assert record.signature_hash != ""
 

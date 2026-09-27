@@ -40,6 +40,7 @@ from fastapi import HTTPException, Request
 from phlo.capabilities import (
     AuthPrincipal,
     AuthResult,
+    AuthenticatedSession,
     AuthenticationProvider,
     RequestContext,
     list_capabilities,
@@ -134,6 +135,12 @@ def authenticate_request(request: Request) -> AuthResult:
     if hasattr(request.state, _AUTH_RESULT_CACHE_KEY):
         return request.state[_AUTH_RESULT_CACHE_KEY]
 
+    managed_account = _authenticate_managed_service_account(request)
+    if managed_account is not None:
+        request.state[_AUTH_RESULT_CACHE_KEY] = managed_account
+        request.state[_AUTH_PRINCIPAL_CACHE_KEY] = managed_account.principal
+        return managed_account
+
     provider = get_authentication_provider()
     if provider is None:
         result = AuthResult(
@@ -158,6 +165,12 @@ def get_request_principal(request: Request) -> AuthPrincipal | None:
     if hasattr(request.state, _AUTH_PRINCIPAL_CACHE_KEY):
         return request.state[_AUTH_PRINCIPAL_CACHE_KEY]
 
+    managed_account = _authenticate_managed_service_account(request)
+    if managed_account is not None:
+        request.state[_AUTH_RESULT_CACHE_KEY] = managed_account
+        request.state[_AUTH_PRINCIPAL_CACHE_KEY] = managed_account.principal
+        return managed_account.principal
+
     provider = get_authentication_provider()
     if provider is None:
         request.state[_AUTH_PRINCIPAL_CACHE_KEY] = None
@@ -167,6 +180,46 @@ def get_request_principal(request: Request) -> AuthPrincipal | None:
     principal = provider.current_principal(request_context)
     request.state[_AUTH_PRINCIPAL_CACHE_KEY] = principal
     return principal
+
+
+def _authenticate_managed_service_account(request: Request) -> AuthResult | None:
+    """Authenticate a Phlo-issued service secret against its stored hash."""
+    if os.environ.get("PHLO_IDENTITY_AUTHORITY_ENABLED") != "1":
+        return None
+    authorization = request.headers.get("authorization", "")
+    if not authorization.startswith("Bearer "):
+        return None
+
+    from phlo.identity.authority import IdentityAuthority
+    from phlo.plugins.observatory_settings import StorageUnavailableError
+
+    try:
+        matched = IdentityAuthority().authenticate_service_token(authorization[7:])
+    except StorageUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "reason": "identity_authority_unavailable"},
+        ) from exc
+    if matched is None:
+        return None
+
+    subject, name = matched
+    principal = AuthPrincipal(
+        subject=subject,
+        principal_type="service",
+        issuer="phlo-identity-authority",
+        attributes={"name": name, "authentication_source": "phlo-service-account"},
+    )
+    return AuthResult(
+        authenticated=True,
+        principal=principal,
+        session=AuthenticatedSession(
+            principal=principal,
+            auth_method="bearer_token",
+            provider_name="phlo_identity_authority",
+        ),
+        reason_code="authenticated",
+    )
 
 
 def require_principal(request: Request) -> AuthPrincipal:
@@ -184,19 +237,7 @@ def require_principal(request: Request) -> AuthPrincipal:
                 detail={"error": "unauthorized", "reason": "no_auth_result"},
             )
 
-    if hasattr(request.state, _AUTH_RESULT_CACHE_KEY):
-        result = request.state[_AUTH_RESULT_CACHE_KEY]
-    else:
-        provider = get_authentication_provider()
-        if provider is None:
-            logger.warning("authentication_provider_not_configured")
-            raise HTTPException(
-                status_code=401,
-                detail={"error": "unauthorized", "reason": "provider_unavailable"},
-            )
-        request_context = create_request_context(request)
-        result = provider.authenticate(request_context)
-        request.state[_AUTH_RESULT_CACHE_KEY] = result
+    result = authenticate_request(request)
 
     if not result.authenticated:
         logger.warning(

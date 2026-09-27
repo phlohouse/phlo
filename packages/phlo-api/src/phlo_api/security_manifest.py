@@ -98,6 +98,57 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_type="platform_metadata",
     ),
     *_specs(
+        (
+            "v1_admin_audit_records",
+            "v1_admin_audit_verify",
+            "v1_admin_audit_export",
+        ),
+        action=CanonicalAction.ADMIN_READ.value,
+        resource_type="admin",
+        resource_keys=("surface",),
+        resource_sources=(("surface", "query"),),
+    ),
+    *_specs(
+        (
+            "v1_admin_settings_get",
+            "v1_admin_members",
+            "v1_admin_invitations",
+            "v1_admin_service_accounts",
+            "v1_signatures",
+        ),
+        action=CanonicalAction.ADMIN_READ.value,
+        resource_type="admin",
+    ),
+    *_specs(
+        (
+            "v1_admin_settings_put",
+            "v1_admin_invitation_create",
+            "v1_admin_service_account_create",
+            "v1_signature_create",
+        ),
+        action=CanonicalAction.ADMIN_MANAGE.value,
+        resource_type="admin",
+    ),
+    *_specs(
+        ("v1_admin_member_roles",),
+        action=CanonicalAction.ADMIN_MANAGE.value,
+        resource_type="member",
+        resource_keys=("subject",),
+        resource_sources=(("subject", "path"),),
+    ),
+    *_specs(
+        ("v1_admin_service_account_revoke",),
+        action=CanonicalAction.ADMIN_MANAGE.value,
+        resource_type="service_account",
+        resource_keys=("subject",),
+        resource_sources=(("subject", "path"),),
+    ),
+    *_specs(
+        ("v1_invitation_accept",),
+        action=CanonicalAction.OBJECT_WRITE.value,
+        resource_type="invitation",
+    ),
+    *_specs(
         ("v1_services",),
         action=CanonicalAction.SERVICE_READ.value,
         resource_type="service",

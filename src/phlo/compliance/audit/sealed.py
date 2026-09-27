@@ -157,6 +157,11 @@ class TamperEvidentAuditSink:
 
     def write(self, event: CanonicalAuditEvent) -> None:
         """Seal and write an audit event under its surface lock."""
+        append_event = getattr(self._store, "append_event", None)
+        if callable(append_event):
+            append_event(event, self._hmac_key)
+            return
+
         surface = event.surface or "unknown"
         lock = self._get_surface_lock(surface)
 
