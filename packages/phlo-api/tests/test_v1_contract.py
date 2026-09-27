@@ -171,6 +171,7 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/incidents/stats",
         "/api/v1/incidents/{incident_id}",
         "/api/v1/incidents/{incident_id}/timeline",
+        "/api/v1/incidents/{incident_id}/schema-decisions",
         "/api/v1/incidents/{incident_id}/subscriptions",
         "/api/v1/incidents/{incident_id}/follow-ups",
         "/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}",
@@ -188,6 +189,16 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/admin/audit/records",
         "/api/v1/admin/audit/verify",
         "/api/v1/admin/audit/export",
+        "/api/v1/branches",
+        "/api/v1/branches/refs",
+        "/api/v1/branches/{branch_name}",
+        "/api/v1/branches/{branch_name}/checks",
+        "/api/v1/branches/{branch_name}/commits",
+        "/api/v1/branches/{branch_name}/compare",
+        "/api/v1/branches/{branch_name}/diff",
+        "/api/v1/branches/{branch_name}/merge",
+        "/api/v1/branches/{branch_name}/rebase",
+        "/api/v1/branches/{branch_name}/trial-merge",
     }
     legacy = {(method, path) for method, path in documented if not path.startswith("/api/v1/")}
 

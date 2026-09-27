@@ -94,6 +94,7 @@ _ROUTERS = [
     ("phlo_api.api.v1", "/api/v1"),
     ("phlo_api.api.v1_admin_audit", "/api/v1"),
     ("phlo_api.api.v1_admin_identity", "/api/v1"),
+    ("phlo_api.api.v1_branch_workflows", "/api/v1"),
     ("phlo_api.api.v1_jobs", "/api/v1"),
     ("phlo_api.api.v1_query", "/api/v1"),
     ("phlo_api.incidents", "/api/v1"),
