@@ -170,6 +170,7 @@ def test_phlo_api_service_passes_v1_operator_gates_without_enabling_them() -> No
         "PHLO_V1_ACTIONS_SINGLE_REPLICA",
         "PHLO_V1_ACTIONS_SINGLE_PROCESS",
         "PHLO_V1_ACTIONS_REF_TAG_CONTRACT",
+        "PHLO_V1_BRANCH_CHECK_JOBS",
     )
 
     for environment in (
@@ -182,6 +183,7 @@ def test_phlo_api_service_passes_v1_operator_gates_without_enabling_them() -> No
     assert service_defn["compose"]["environment"]["TRINO_URL"] == "${TRINO_URL:-http://trino:8080}"
     assert service_defn["env_vars"]["PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD"]["secret"] is True
     assert service_defn["env_vars"]["PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING"]["secret"] is True
+    assert service_defn["env_vars"]["PHLO_V1_BRANCH_CHECK_JOBS"]["default"] == ""
 
 
 def test_phlo_api_service_does_not_mount_docker_socket_by_default() -> None:
