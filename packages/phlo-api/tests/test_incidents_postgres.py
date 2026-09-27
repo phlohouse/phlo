@@ -161,3 +161,80 @@ def test_incident_transactions_group_concurrent_signals_and_isolate_environments
         with pytest.raises(HTTPException) as cross_environment:
             incidents.list_asset_incident_policies(request, "staging", 1, policy_page.next_cursor)
         assert cross_environment.value.status_code == 400
+
+        decision_input = incidents.SchemaDecisionInput(
+            source_ref="feature/orders",
+            target_ref="main",
+            source_hash="source-abc",
+            target_hash="target-def",
+            table_key="warehouse.orders",
+            columns={"customer_id": "source", "status": "target"},
+            justification="Keep the widened identifier and canonical status.",
+        )
+        decision = incidents.create_schema_decision(
+            request, first.id, decision_input, "decision-1", "prod"
+        )
+        replayed_decision = incidents.create_schema_decision(
+            request, first.id, decision_input, "decision-1", "prod"
+        )
+        assert replayed_decision == decision
+        assert decision.actor == "operator"
+
+        # Reapplying the additive migration simulates a new process using the durable records.
+        incidents.initialize_incidents()
+        page = incidents.list_schema_decisions(request, first.id, "prod")
+        assert page.items == [decision]
+        assert incidents.load_schema_decisions(
+            first.id,
+            "prod",
+            "feature/orders",
+            "main",
+            "source-abc",
+            "target-def",
+        ) == [decision]
+        assert (
+            incidents.load_schema_decisions(
+                first.id,
+                "prod",
+                "feature/orders",
+                "main",
+                "stale-source",
+                "target-def",
+            )
+            == []
+        )
+        assert incidents.load_schema_decisions(
+            staging.id,
+            "staging",
+            "feature/orders",
+            "main",
+            "source-abc",
+            "target-def",
+        ) == []
+
+        with pytest.raises(HTTPException) as decision_replay_conflict:
+            incidents.create_schema_decision(
+                request,
+                first.id,
+                decision_input.model_copy(update={"justification": "Different choice."}),
+                "decision-1",
+                "prod",
+            )
+        assert decision_replay_conflict.value.status_code == 409
+        with pytest.raises(HTTPException) as immutable_conflict:
+            incidents.create_schema_decision(
+                request, first.id, decision_input, "decision-2", "prod"
+            )
+        assert immutable_conflict.value.status_code == 409
+        with pytest.raises(HTTPException) as wrong_environment:
+            incidents.create_schema_decision(
+                request, first.id, decision_input, "decision-staging", "staging"
+            )
+        assert wrong_environment.value.status_code == 404
+
+        timeline = incidents.incident_timeline(request, first.id, "prod")
+        decision_events = [
+            event for event in timeline["items"] if event["kind"] == "schema_decision"
+        ]
+        assert len(decision_events) == 1
+        assert decision_events[0]["payload"]["id"] == decision.id
