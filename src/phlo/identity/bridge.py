@@ -14,6 +14,7 @@ role mapping behavior is unsupported.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -115,15 +116,20 @@ class IdentityBridge:
                 f"for regulated mode. Approved types: {APPROVED_PRINCIPAL_TYPES}"
             )
 
-        # Map groups to canonical roles
-        roles = set(self._map_groups_to_roles(auth_principal.groups))
-        if self.config.canonical_rbac is not None:
-            roles.update(
-                self.config.canonical_rbac.effective_roles_for_subject(
-                    auth_principal.subject,
-                    auth_principal.principal_type,
+        managed_roles = _managed_roles_for(auth_principal)
+        if managed_roles is None:
+            roles = set(self._map_groups_to_roles(auth_principal.groups))
+            if self.config.canonical_rbac is not None:
+                roles.update(
+                    self.config.canonical_rbac.effective_roles_for_subject(
+                        auth_principal.subject,
+                        auth_principal.principal_type,
+                    )
                 )
-            )
+        else:
+            # A Phlo-managed assignment replaces IdP group-derived roles so a
+            # durable role change can also revoke stale upstream group access.
+            roles = set(managed_roles)
 
         # Apply principal-type default roles
         roles = self._apply_principal_type_roles(
@@ -238,3 +244,16 @@ def canonicalize_principal(
     """
     bridge = create_regulated_bridge() if regulated else IdentityBridge()
     return bridge.canonicalize(auth_principal, context)
+
+
+def _managed_roles_for(auth_principal: AuthPrincipal) -> tuple[str, ...] | None:
+    """Use the shared Phlo identity authority when explicitly enabled."""
+    if os.environ.get("PHLO_IDENTITY_AUTHORITY_ENABLED") != "1":
+        return None
+
+    from phlo.identity.authority import IdentityAuthority
+
+    return IdentityAuthority().managed_roles(
+        auth_principal.subject,
+        auth_principal.principal_type,
+    )

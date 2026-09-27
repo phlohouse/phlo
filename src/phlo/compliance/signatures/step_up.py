@@ -6,7 +6,9 @@ that may be required for electronic signatures in regulated deployments.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -60,3 +62,53 @@ class SessionConfirmChallenge(StepUpAuthChallenge):
             assurance_level="none",
             message="No step-up verification mechanism is configured",
         )
+
+
+class RecentMfaClaimsChallenge(StepUpAuthChallenge):
+    """Accept only a recently authenticated user session with verified MFA claims.
+
+    Claims are trusted here only because they are supplied by the configured
+    JWT provider after signature and expiry validation (and issuer/audience
+    validation when configured). A normal session, service token, or
+    client-provided request field is not a step-up proof.
+    """
+
+    def __init__(self, max_age_seconds: int = 300) -> None:
+        if max_age_seconds <= 0:
+            raise ValueError("max_age_seconds must be positive")
+        self._max_age_seconds = max_age_seconds
+
+    def challenge(self, session: AuthenticatedSession) -> StepUpResult:
+        """Verify a recent ``auth_time`` and an IdP-asserted ``mfa`` method."""
+        if (
+            session.provider_name != "jwt"
+            or session.auth_method != "bearer_token"
+            or session.principal.principal_type != "user"
+            or not session.attributes.get("jwt_issuer")
+            or not session.attributes.get("jwt_audience")
+            or session.attributes.get("jwt_issuer_validated") != "true"
+            or session.attributes.get("jwt_audience_validated") != "true"
+        ):
+            return StepUpResult(
+                False,
+                "none",
+                "A human JWT with configured issuer and audience validation is required",
+            )
+
+        claims = session.principal.claims
+        auth_time = claims.get("auth_time")
+        amr = claims.get("amr")
+        if (
+            isinstance(auth_time, bool)
+            or not isinstance(auth_time, (int, float))
+            or not math.isfinite(auth_time)
+            or not isinstance(amr, list)
+            or "mfa" not in amr
+        ):
+            return StepUpResult(False, "none", "Recent MFA authentication is required")
+
+        age = datetime.now(UTC).timestamp() - auth_time
+        if age < 0 or age > self._max_age_seconds:
+            return StepUpResult(False, "none", "MFA authentication is stale")
+
+        return StepUpResult(True, "mfa")

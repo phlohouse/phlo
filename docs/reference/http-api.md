@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (171)
+## Endpoints (186)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -119,6 +119,18 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/services` | Get Services | none |
 | `GET` | `/api/services/{name}` | Get Service Info | none |
 | `GET` | `/api/v1/activity` | Activity | `v1 incidents` |
+| `GET` | `/api/v1/admin/audit/export` | V1 Admin Audit Export | `v1 admin audit` |
+| `GET` | `/api/v1/admin/audit/records` | V1 Admin Audit Records | `v1 admin audit` |
+| `GET` | `/api/v1/admin/audit/verify` | V1 Admin Audit Verify | `v1 admin audit` |
+| `GET` | `/api/v1/admin/invitations` | V1 Admin Invitations | `v1 admin identity` |
+| `POST` | `/api/v1/admin/invitations` | V1 Admin Invitation Create | `v1 admin identity` |
+| `GET` | `/api/v1/admin/members` | V1 Admin Members | `v1 admin identity` |
+| `PATCH` | `/api/v1/admin/members/{subject}/roles` | V1 Admin Member Roles | `v1 admin identity` |
+| `GET` | `/api/v1/admin/service-accounts` | V1 Admin Service Accounts | `v1 admin identity` |
+| `POST` | `/api/v1/admin/service-accounts` | V1 Admin Service Account Create | `v1 admin identity` |
+| `DELETE` | `/api/v1/admin/service-accounts/{subject}` | V1 Admin Service Account Revoke | `v1 admin identity` |
+| `GET` | `/api/v1/admin/settings` | V1 Admin Settings Get | `v1 admin identity` |
+| `PUT` | `/api/v1/admin/settings` | V1 Admin Settings Put | `v1 admin identity` |
 | `GET` | `/api/v1/assets` | V1 Assets | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}` | V1 Asset Detail | `v1 assets` |
 | `POST` | `/api/v1/assets/{asset_id}/audits` | V1 Asset Audit Proposal | `v1 assets` |
@@ -147,6 +159,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `PATCH` | `/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}` | Update Follow Up | `v1 incidents` |
 | `PUT` | `/api/v1/incidents/{incident_id}/subscriptions` | Subscribe Incident | `v1 incidents` |
 | `GET` | `/api/v1/incidents/{incident_id}/timeline` | Incident Timeline | `v1 incidents` |
+| `POST` | `/api/v1/invitations/accept` | V1 Invitation Accept | `v1 admin identity` |
 | `GET` | `/api/v1/jobs` | V1 Jobs | `v1 jobs and runs` |
 | `GET` | `/api/v1/jobs/{job_id}` | V1 Job | `v1 jobs and runs` |
 | `POST` | `/api/v1/jobs/{job_id}/launch` | V1 Job Launch | `v1 jobs and runs` |
@@ -178,6 +191,8 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/schedules` | V1 Schedules | `v1 jobs and runs` |
 | `POST` | `/api/v1/schedules/{schedule_id}/{action}` | V1 Schedule Action | `v1 jobs and runs` |
 | `GET` | `/api/v1/services` | V1 Services | `v1` |
+| `GET` | `/api/v1/signatures` | V1 Signatures | `v1 admin identity` |
+| `POST` | `/api/v1/signatures` | V1 Signature Create | `v1 admin identity` |
 | `GET` | `/api/v1/sources` | V1 Sources | `v1 assets` |
 | `GET` | `/api/v1/tables/{table_name}/schema-history` | V1 Table Schema History | `v1 assets` |
 | `GET` | `/api/v1/tables/{table_name}/snapshots` | V1 Table Snapshots | `v1 assets` |
