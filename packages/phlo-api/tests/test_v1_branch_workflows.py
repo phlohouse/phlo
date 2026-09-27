@@ -590,12 +590,16 @@ def test_signed_schema_merge_binds_the_signature_to_durable_decisions(
     )
 
     bound = [{"id": "decision-1", "table_key": "sales.orders", "columns": {"status": "source"}}]
-    digest = hashlib.sha256(json.dumps(bound, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    digest = hashlib.sha256(
+        json.dumps(bound, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     assert response.status_code == 200
     assert response.json()["details"]["signature_target_version"] == f"p2:p3:schema:{digest}"
     assert consumed == [f"p2:p3:schema:{digest}"]
     applied_request = [
-        call for call in calls["requests"] if call[0] == "POST" and call[1].endswith("/history/merge")
+        call
+        for call in calls["requests"]
+        if call[0] == "POST" and call[1].endswith("/history/merge")
     ][-1]
     assert applied_request[3]["isDryRun"] is False
     assert "dryRun" not in applied_request[3]
