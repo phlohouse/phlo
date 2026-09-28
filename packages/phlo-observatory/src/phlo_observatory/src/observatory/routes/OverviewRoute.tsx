@@ -370,7 +370,8 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
             <div className="phlo-observatory-kicker">Home</div>
             <h1 className="phlo-observatory-title">Overview unavailable</h1>
             <p className="phlo-observatory-subtitle" role="status">
-              {apiError ?? 'No overview evidence is available for this environment.'}
+              {apiError ??
+                'No overview evidence is available for this environment.'}
             </p>
           </div>
         </header>

@@ -176,7 +176,11 @@ export interface ObservatoryPublishingReadinessItem {
 }
 
 export type ObservatoryControlStatus =
-  'pass' | 'fail' | 'warning' | 'unknown' | 'not_applicable'
+  | 'pass'
+  | 'fail'
+  | 'warning'
+  | 'unknown'
+  | 'not_applicable'
 
 export interface ObservatoryControlEvidence {
   kind: string
@@ -442,7 +446,12 @@ export interface ObservatoryOperationDetail {
 }
 
 type ObservatoryRunStatus =
-  'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown'
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'unknown'
 
 export interface ObservatoryRunReportIdentity {
   project_id: string

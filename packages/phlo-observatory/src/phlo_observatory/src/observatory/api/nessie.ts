@@ -103,22 +103,26 @@ export const checkNessieConnection = createServerFn()
 export const getBranches = createServerFn()
   .middleware([authMiddleware, nessieReadAuthorization])
   .inputValidator((input: BranchRequest) => input)
-  .handler(async ({ context, data }): Promise<Array<Branch> | { error: string }> => {
-    try {
-      const endpoint = v1Endpoint('/api/v1/branches', data.env)
-      const result = await withCache(
-        () =>
-          apiGet<ApiBranchList>(
-            endpoint,
-            undefined,
-            30000,
-            context.authorization,
-          ),
-        `${cacheKeys.nessieBranches()}:${endpoint}`,
-        cacheTTL.nessieBranches,
-      )
-      return result.items.map(transformBranch)
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' }
-    }
-  })
+  .handler(
+    async ({ context, data }): Promise<Array<Branch> | { error: string }> => {
+      try {
+        const endpoint = v1Endpoint('/api/v1/branches', data.env)
+        const result = await withCache(
+          () =>
+            apiGet<ApiBranchList>(
+              endpoint,
+              undefined,
+              30000,
+              context.authorization,
+            ),
+          `${cacheKeys.nessieBranches()}:${endpoint}`,
+          cacheTTL.nessieBranches,
+        )
+        return result.items.map(transformBranch)
+      } catch (error) {
+        return {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }
+      }
+    },
+  )

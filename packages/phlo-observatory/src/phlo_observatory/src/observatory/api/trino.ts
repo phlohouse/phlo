@@ -43,7 +43,12 @@ export type QueryExecutionResult = DataPreviewResult & {
 }
 
 export type QueryStatus =
-  'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
+  | 'queued'
+  | 'running'
+  | 'cancelling'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
 
 export interface QuerySessionView {
   id: string
