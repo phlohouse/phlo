@@ -61,17 +61,10 @@ describe('Observatory workflow deep links', () => {
   it('keeps Dataset profile links on query-selected workflow pages', () => {
     const source = routeSource('datasets.$datasetId.tsx')
 
-    expect(source).toContain(
-      '`/tables?tableId=${encodeURIComponent(resource.id)}`',
-    )
-    expect(source).toContain(
-      '`/lineage?assetId=${encodeURIComponent(resource.id)}`',
-    )
-    expect(source).not.toContain('`/tables/${encodeURIComponent(resource.id)}`')
-    expect(source).not.toContain(
-      '`/lineage/${encodeURIComponent(resource.id)}`',
-    )
-    expect(source).not.toContain('`/tables/${encodeURIComponent(table.id)}`')
+    expect(source).toContain("datasetV1Unavailable('detail')")
+    expect(source).toContain('Dagster asset data as Dataset evidence')
+    expect(source).not.toContain('getObservatoryDatasetProfile')
+    expect(source).not.toContain('getObservatoryAssetRecords')
   })
 
   it('keeps Tables workflow links on query-selected workflow pages', () => {
@@ -90,15 +83,18 @@ describe('Observatory workflow deep links', () => {
       'utf8',
     )
 
-    expect(source).toContain(
-      '`/lineage?assetId=${encodeURIComponent(selected.asset_id)}`',
-    )
-    expect(source).toContain('search={{ assetId: selected.asset_id }}')
+    expect(source).toContain('getV1AssetDetail')
+    expect(source).toContain('getV1AssetPreview')
+    expect(source).toContain('to="/lineage" search={{ assetId: asset.id }}')
+    expect(source).toContain('detail.data.dependencies.map')
     expect(lineageSource).toContain(
       '`/tables?tableId=${encodeURIComponent(firstTable.id)}`',
     )
     expect(lineageSource).toContain('search={{ tableId: table.id }}')
-    expect(branchesSource).toContain('search={{ tableId: table.id }}')
+    expect(branchesSource).toContain(
+      "URLSearchParams(window.location.search).get('tableId')",
+    )
+    expect(branchesSource).toContain('search={{ tableId }}')
     expect(logsSource).toContain(
       'return `/lineage?assetId=${encodeURIComponent(resource.id)}`',
     )
@@ -154,42 +150,25 @@ describe('Observatory workflow deep links', () => {
 
   it('refreshes selected table previews from the live API instead of trusting persisted cache', () => {
     const source = routeSource('tables.tsx')
-    const liveResourceSource = readFileSync(
-      resolve(import.meta.dirname, './liveResource.ts'),
-      'utf8',
-    )
 
-    expect(source).toContain('void loadPreview(true).then((next) => {')
-    expect(source).not.toContain(
-      'void loadPreview(previewRefreshKey > 0).then((next) => {',
-    )
-    expect(liveResourceSource).toContain(
-      "const cacheVersion = '2026-07-10-observatory-runtime-v11'",
-    )
-    expect(liveResourceSource).toContain(
-      "const tablePreviewPrefix = 'observatory:table-preview:'",
-    )
-    expect(liveResourceSource).toContain(
-      'return `${prefix}/table-preview/${encodeURIComponent(tableId)}?${searchParams}`',
-    )
-    expect(routeSource('runs.tsx')).toContain("'observatory:operations'")
+    expect(source).toContain('getV1AssetPreview({')
+    expect(source).toContain('data: { environment, assetId: selectedId }')
+    expect(source).not.toContain('loadCachedResource')
+    expect(source).not.toContain('readMetric')
+    expect(routeSource('runs.tsx')).toContain("'observatory:runs'")
+    expect(routeSource('runs.tsx')).not.toContain("'observatory:operations'")
   })
 
-  it('keeps Quality triage connected to Dataset readiness context', () => {
+  it('keeps Quality evidence environment-scoped and URL-backed', () => {
     const source = routeSource('quality.tsx')
 
-    expect(source).toContain('getObservatoryDatasetProfileDirect')
-    expect(source).toContain(
-      'observatory:dataset-profile:${selectedDatasetTarget.id}',
-    )
-    expect(source).toContain('<DatasetReadinessContext')
-    expect(source).toContain('Dataset readiness context is unavailable')
-    expect(source).toContain('<QualityHistory')
-    expect(source).toContain('<QualityNextActions')
-    expect(source).toContain('Open related run')
-    expect(source).toContain('Open affected Dataset')
-    expect(source).toContain('to="/datasets/$datasetId"')
-    expect(source).toContain('selectCheck(initial.id)')
+    expect(source).toContain('getV1QualitySnapshot')
+    expect(source).toContain('selectedEnvironment')
+    expect(source).toContain('environmentChangeEvent')
+    expect(source).toContain("url.searchParams.set('checkId', row.id)")
+    expect(source).toContain('/lineage?assetId=')
+    expect(source).toContain('/runs?runId=')
+    expect(source).toContain('It is not counted as passing.')
   })
 
   it('keeps Runs evidence aligned to Dataset terminology', () => {
@@ -238,9 +217,8 @@ describe('Observatory workflow deep links', () => {
     expect(source).toContain('missing evidence')
     expect(source).toContain("data-state={readiness?.state ?? 'unknown'}")
     expect(source).not.toContain("'owner missing'")
-    expect(datasetSource).toContain('datasetPublishingIssues(profile)')
-    expect(datasetSource).toContain('profile.publishing.missing_evidence')
-    expect(datasetSource).toContain('evidence gap')
-    expect(datasetSource).toContain('Release controls clear')
+    expect(datasetSource).toContain('Dataset detail unavailable')
+    expect(datasetSource).not.toContain('Release controls clear')
+    expect(datasetSource).not.toContain('datasetPublishingIssues(profile)')
   })
 })

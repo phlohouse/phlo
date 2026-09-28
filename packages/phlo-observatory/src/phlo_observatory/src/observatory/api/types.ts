@@ -9,13 +9,22 @@
 export type ObservatoryHealthState = 'ok' | 'warning' | 'error' | 'unknown'
 
 export type ObservatoryMetadata = Record<string, NonNullable<unknown>>
-type ObservatoryRecord = Record<string, NonNullable<unknown>>
+type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | Array<JsonValue>
+  | { [key: string]: JsonValue }
+type ObservatoryRecord = Record<string, JsonValue>
 
 export type ObservatoryServiceStatus =
   | 'running'
   | 'stopped'
   | 'unhealthy'
   | 'starting'
+  | 'degraded'
+  | 'unavailable'
   | 'unknown'
 
 interface ObservatoryHealth {
@@ -167,11 +176,7 @@ export interface ObservatoryPublishingReadinessItem {
 }
 
 export type ObservatoryControlStatus =
-  | 'pass'
-  | 'fail'
-  | 'warning'
-  | 'unknown'
-  | 'not_applicable'
+  'pass' | 'fail' | 'warning' | 'unknown' | 'not_applicable'
 
 export interface ObservatoryControlEvidence {
   kind: string
@@ -389,9 +394,10 @@ export interface ObservatoryOverviewRow {
 export interface ObservatoryOverview {
   health: ObservatoryHealth
   counters: Record<string, number>
-  attention: Array<ObservatoryOverviewRow>
-  events: Array<ObservatoryOverviewRow>
-  recent: Array<ObservatoryResourceRef>
+  /** Omitted when the selected API contract exposes no event feed. */
+  attention?: Array<ObservatoryOverviewRow>
+  events?: Array<ObservatoryOverviewRow>
+  recent?: Array<ObservatoryResourceRef>
 }
 
 export interface ObservatoryResourceItem {
@@ -436,12 +442,7 @@ export interface ObservatoryOperationDetail {
 }
 
 type ObservatoryRunStatus =
-  | 'queued'
-  | 'running'
-  | 'succeeded'
-  | 'failed'
-  | 'cancelled'
-  | 'unknown'
+  'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown'
 
 export interface ObservatoryRunReportIdentity {
   project_id: string
@@ -457,7 +458,7 @@ export interface ObservatoryRun {
   completed_at?: string | null
   duration_seconds?: number | null
   assets: Array<ObservatoryResourceRef>
-  checks: Array<ObservatoryResourceRef>
+  checks?: Array<ObservatoryResourceRef>
   logs: Array<ObservatoryResourceRef>
   metadata: ObservatoryMetadata
   report_identity?: ObservatoryRunReportIdentity | null
@@ -662,7 +663,7 @@ export interface ObservatorySavedQuery {
   branch?: string | null
   created_at: string
   updated_at: string
-  metadata: ObservatoryMetadata
+  metadata: Record<string, unknown>
 }
 
 export interface ObservatoryRowJourney {

@@ -76,16 +76,6 @@
   },
   "src/routes/branches.tsx": {
     "complexity": {
-      "count": 3
-    }
-  },
-  "src/routes/datasets.$datasetId.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/routes/datasets.tsx": {
-    "complexity": {
       "count": 1
     }
   },
@@ -119,19 +109,9 @@
       "count": 3
     }
   },
-  "src/routes/pipelines.tsx": {
-    "complexity": {
-      "count": 2
-    }
-  },
   "src/routes/publishing.tsx": {
     "complexity": {
       "count": 1
-    }
-  },
-  "src/routes/quality.tsx": {
-    "complexity": {
-      "count": 3
     }
   },
   "src/routes/runs.tsx": {
@@ -144,11 +124,6 @@
       "count": 2
     }
   },
-  "src/routes/settings.tsx": {
-    "complexity": {
-      "count": 2
-    }
-  },
   "src/routes/storage.tsx": {
     "complexity": {
       "count": 1
@@ -156,7 +131,7 @@
   },
   "src/routes/tables.tsx": {
     "complexity": {
-      "count": 5
+      "count": 1
     }
   },
   "src/routes/workflows/new.tsx": {

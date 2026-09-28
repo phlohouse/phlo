@@ -1,9 +1,4 @@
-/**
- * Source-level regression tests: the Observatory
- * Dataset surfaces render one canonical projection from phlo-api and keep no
- * local eligibility inference, no second canonical store, and no optimistic
- * transition success.
- */
+/** Dataset screens must not invent governed data while v1 lacks a contract. */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -14,19 +9,14 @@ const routesDir = resolve(import.meta.dirname, '../../routes')
 const readRoute = (name: string) =>
   readFileSync(resolve(routesDir, name), 'utf8')
 
-describe('Catalog dataset route purity', () => {
+describe('Replacement Dataset list route', () => {
   const route = readRoute('datasets.tsx')
 
-  it('loads canonical readiness from the bulk phlo-api endpoint', () => {
-    expect(route).toContain('getObservatoryPublishingReadinessDirect()')
-  })
-
-  it('keeps no owner or classification eligibility inference', () => {
-    expect(route).not.toContain('datasetQueueReason(dataset)')
-    expect(route).not.toContain("'Ownership is missing.'")
-    expect(route).not.toContain("'Classification is missing.'")
-    expect(route).not.toContain("'assign owner'")
-    expect(route).not.toContain("'declare classification'")
+  it('shows a contract gap rather than using legacy Dataset reads or assets', () => {
+    expect(route).toContain("datasetV1Unavailable('list')")
+    expect(route).toContain('not shown here as substitutes')
+    expect(route).not.toContain('getObservatoryDataset')
+    expect(route).not.toContain('runObservatoryAction')
   })
 })
 
@@ -77,23 +67,14 @@ describe('Governance route purity', () => {
   })
 })
 
-describe('Dataset profile route purity', () => {
+describe('Replacement Dataset profile route', () => {
   const route = readRoute('datasets.$datasetId.tsx')
 
-  it('renders the shared canonical projection panel', () => {
-    expect(route).toContain('DatasetProjectionPanel')
-    expect(route).toContain('profileProjection(')
-  })
-
-  it('derives blockers from the canonical verdict, not dataset fields', () => {
-    const blocker = route.slice(
-      route.indexOf('function datasetBlocker'),
-      route.indexOf('function datasetNextAction'),
-    )
-    expect(blocker).toContain('profile.publishing.blockers[0]')
-    expect(blocker).not.toContain('Owner missing')
-    expect(blocker).not.toContain('Classification missing')
-    expect(blocker).not.toContain('profile.quality.find')
-    expect(blocker).not.toContain('profile.dataset.owner')
+  it('preserves the requested identifier without inventing a profile', () => {
+    expect(route).toContain('title={datasetId}')
+    expect(route).toContain("datasetV1Unavailable('detail')")
+    expect(route).toContain('use Dagster asset data as Dataset evidence')
+    expect(route).not.toContain('getObservatoryDatasetProfile')
+    expect(route).not.toContain('runObservatoryAction')
   })
 })

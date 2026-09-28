@@ -362,6 +362,22 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
     derivedHealth?.state ??
     (apiError ? ('warning' as const) : ('unknown' as const))
 
+  if (!hasLakehouseEvidence && overview.data === null) {
+    return (
+      <section aria-live="polite" className="phlo-observatory-content">
+        <header className="phlo-observatory-section-header">
+          <div>
+            <div className="phlo-observatory-kicker">Home</div>
+            <h1 className="phlo-observatory-title">Overview unavailable</h1>
+            <p className="phlo-observatory-subtitle" role="status">
+              {apiError ?? 'No overview evidence is available for this environment.'}
+            </p>
+          </div>
+        </header>
+      </section>
+    )
+  }
+
   return (
     <div className="phlo-observatory-content">
       <header className="phlo-observatory-section-header">

@@ -28,9 +28,13 @@ const apiGet = vi.fn()
 const apiPost = vi.fn()
 
 vi.mock('@tanstack/react-start', () => ({
-  createMiddleware: () => ({
-    server: <THandler>(handler: THandler): THandler => handler,
-  }),
+  createMiddleware: () => {
+    const middleware = {
+      inputValidator: () => middleware,
+      server: <THandler>(handler: THandler): THandler => handler,
+    }
+    return middleware
+  },
   createServerFn: () => {
     const middlewares: Array<RequestMiddleware> = []
     let validateInput = (input: unknown): unknown => input
@@ -40,7 +44,13 @@ vi.mock('@tanstack/react-start', () => ({
         return builder
       },
       inputValidator: (validator) => {
-        validateInput = validator as (input: unknown) => unknown
+        validateInput =
+          typeof validator === 'function'
+            ? (validator as (input: unknown) => unknown)
+            : (input) =>
+                (validator as { parse: (value: unknown) => unknown }).parse(
+                  input,
+                )
         return builder
       },
       handler: (handler) =>
@@ -185,6 +195,164 @@ describe('observatory dataset resources', () => {
       '/api/observatory/datasets/facets',
       undefined,
       8000,
+    )
+  })
+
+  it('reads saved queries from the environment-scoped v1 API', async () => {
+    vi.stubGlobal('window', {
+      localStorage: { getItem: () => 'staging' },
+    })
+    apiGet.mockResolvedValue({
+      items: [
+        {
+          id: 'saved-1',
+          env: 'staging',
+          nessie_ref: 'staging-ref',
+          name: 'Orders',
+          sql: 'SELECT id FROM analytics.orders',
+          version: 1,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+          metadata: {},
+        },
+      ],
+    })
+
+    const { getObservatorySavedQueries } = await import('./resources')
+    const result = await getObservatorySavedQueries()
+
+    expect(result).toMatchObject({
+      data: [
+        {
+          id: 'saved-1',
+          name: 'Orders',
+          branch: 'staging-ref',
+        },
+      ],
+      error: null,
+    })
+    expect(apiGet).toHaveBeenCalledWith(
+      '/api/v1/queries/saved?env=staging',
+      undefined,
+      30000,
+      undefined,
+    )
+  })
+
+  it('loads the query workspace catalog from the selected v1 ref', async () => {
+    vi.stubGlobal('window', {
+      localStorage: { getItem: () => 'prod' },
+    })
+    apiGet.mockResolvedValue({
+      env: 'prod',
+      nessie_ref: 'production-main',
+      engine: 'trino',
+      catalogs: [
+        {
+          name: 'warehouse',
+          truncated: false,
+          schemas: [{ name: 'analytics', tables: ['orders'] }],
+        },
+      ],
+    })
+
+    const { getObservatoryQueryCatalogTables } = await import('./resources')
+    const result = await getObservatoryQueryCatalogTables()
+
+    expect(result).toMatchObject({
+      data: [
+        {
+          id: 'warehouse.analytics.orders',
+          name: 'orders',
+          branch: 'production-main',
+          metadata: { catalog_name: 'warehouse' },
+        },
+      ],
+      error: null,
+    })
+    expect(apiGet).toHaveBeenCalledWith(
+      '/api/v1/query/catalog?env=prod',
+      undefined,
+      30000,
+      undefined,
+    )
+  })
+
+  it('loads and maps every environment-scoped v1 asset page', async () => {
+    vi.stubGlobal('window', {
+      localStorage: { getItem: () => 'staging' },
+    })
+    apiGet
+      .mockResolvedValueOnce({
+        env: 'staging',
+        items: [
+          {
+            id: 'warehouse/orders',
+            key: ['warehouse', 'orders'],
+            description: 'Orders',
+            compute_kind: 'dbt',
+            group_name: 'warehouse',
+            is_source: false,
+            dependencies: [['raw', 'orders']],
+            last_materialization_at: '2026-01-01T00:00:00Z',
+            last_run_id: 'run-1',
+            relation: 'warehouse.orders',
+            history_scoped: true,
+          },
+        ],
+        next_cursor: 'assets-page-2',
+      })
+      .mockResolvedValueOnce({
+        env: 'staging',
+        items: [
+          {
+            id: 'warehouse/customers',
+            key: ['warehouse', 'customers'],
+            description: null,
+            compute_kind: null,
+            group_name: null,
+            is_source: true,
+            dependencies: [],
+            last_materialization_at: null,
+            last_run_id: null,
+            relation: null,
+            history_scoped: true,
+          },
+        ],
+        next_cursor: null,
+      })
+
+    const { getObservatoryAssetRecords } = await import('./resources')
+    const result = await getObservatoryAssetRecords()
+
+    expect(result).toMatchObject({
+      data: [
+        {
+          id: 'warehouse/orders',
+          dependencies: ['raw/orders'],
+          kinds: ['dbt'],
+          metadata: { last_run_id: 'run-1' },
+        },
+        {
+          id: 'warehouse/customers',
+          metadata: { source: true },
+        },
+      ],
+      error: null,
+    })
+    expect(apiGet).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/assets?limit=500&env=staging',
+      undefined,
+      8000,
+      undefined,
+    )
+    expect(apiGet).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/assets?limit=500&cursor=assets-page-2&env=staging',
+      undefined,
+      8000,
+      undefined,
     )
   })
 
