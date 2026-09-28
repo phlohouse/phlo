@@ -119,11 +119,6 @@
       "count": 1
     }
   },
-  "src/routes/services.tsx": {
-    "complexity": {
-      "count": 2
-    }
-  },
   "src/routes/storage.tsx": {
     "complexity": {
       "count": 1
