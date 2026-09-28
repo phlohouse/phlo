@@ -11,31 +11,31 @@ import type {
   ObservatorySavedQuery,
 } from '@/observatory/api/types'
 import type { ObservatoryQueryWorkspace } from '@/observatory/shell/localActivity'
+import { selectedEnvironment } from '@/observatory/api/environment'
 import {
+  getObservatoryQueryCatalogTables,
   getObservatorySavedQueries,
-  getObservatoryTableRecords,
-  runObservatoryQuery,
   saveObservatoryQuery,
 } from '@/observatory/api/resources'
+import { executeQuery } from '@/observatory/api/trino'
 import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { useLiveResource } from '@/observatory/routes/liveResource'
 import {
   readQueryWorkspace,
-  recordQueryExecution,
   writeQueryWorkspace,
 } from '@/observatory/shell/localActivity'
+import { quoteIdentifier } from '@/utils/sqlIdentifiers'
 
 export const Route = createFileRoute('/queries')({ component: Queries })
 
 export function Queries() {
   const tables = useLiveResource(
-    getObservatoryTableRecords,
+    getObservatoryQueryCatalogTables,
     60_000,
-    'observatory:tables',
+    'observatory:query-catalog',
   )
-  const [savedQueries, setSavedQueries] = useState<
-    Array<ObservatorySavedQuery>
-  >([])
+  const [savedQueries, setSavedQueries] =
+    useState<Array<ObservatorySavedQuery> | null>(null)
   const [workspace, setWorkspace] = useState<ObservatoryQueryWorkspace>({
     activeId: 'scratch-1',
     tabs: [{ id: 'scratch-1', name: 'Untitled query', sql: '' }],
@@ -53,14 +53,15 @@ export function Queries() {
   const hasAppliedSuggestedSql = useRef(false)
   const suggestedSql = useMemo(() => {
     const table = tables.data?.[0]
-    return table ? `SELECT * FROM ${table.id} LIMIT 100` : ''
+    const catalog = table?.metadata.catalog_name
+    const schema = table?.schema_name
+    if (!table || typeof catalog !== 'string' || !schema) return ''
+    return `SELECT * FROM ${quoteIdentifier(catalog)}.${quoteIdentifier(schema)}.${quoteIdentifier(table.name)} LIMIT 100`
   }, [tables.data])
 
   useEffect(() => {
     setWorkspace(readQueryWorkspace())
-    void getObservatorySavedQueries().then((next) =>
-      setSavedQueries(next.data ?? []),
-    )
+    void getObservatorySavedQueries().then((next) => setSavedQueries(next.data))
   }, [])
   useEffect(() => {
     if (!suggestedSql || hasAppliedSuggestedSql.current) return
@@ -134,23 +135,40 @@ export function Queries() {
 
   const runQuery = async () => {
     if (!sql.trim() || running) return
-    const started = Date.now()
+    const environment = selectedEnvironment()
+    if (!environment) {
+      setMessage('Select Production or Staging before running a query.')
+      return
+    }
     setRunning(true)
     setMessage('Running read-only query…')
-    const next = await runObservatoryQuery({ data: { sql, limit: 100 } })
-    const durationMs = Date.now() - started
-    setRunning(false)
-    setResult(next.data)
-    setMessage(next.error ?? `${next.data?.rows.length ?? 0} rows returned`)
-    recordQueryExecution({
-      id: `query-run-${started}`,
-      sql: sql.trim(),
-      status: next.data ? 'succeeded' : 'failed',
-      startedAt: new Date(started).toISOString(),
-      durationMs,
-      rowCount: next.data?.rows.length ?? 0,
-      error: next.error ?? undefined,
-    })
+    try {
+      const next = await executeQuery({
+        data: { query: sql, defaultLimit: 100, environment },
+      })
+      if ('error' in next) {
+        setResult(null)
+        setMessage(next.error)
+        return
+      }
+      const queryResult: ObservatoryQueryResult = {
+        columns: next.columns,
+        rows: next.rows,
+        effective_sql: next.effectiveQuery,
+        limit: 100,
+        offset: 0,
+        warnings: [],
+      }
+      setResult(queryResult)
+      setMessage(`${next.rows.length} rows returned`)
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Query failed'
+      setResult(null)
+      setMessage(errorMessage)
+    } finally {
+      setRunning(false)
+    }
   }
 
   const saveQuery = async () => {
@@ -161,7 +179,7 @@ export function Queries() {
     if (next.data) {
       setSavedQueries((current) => [
         next.data!,
-        ...current.filter((item) => item.id !== next.data?.id),
+        ...(current ?? []).filter((item) => item.id !== next.data?.id),
       ])
       setName('')
       updateActiveTab({ name: next.data.name })
@@ -178,7 +196,9 @@ export function Queries() {
       description="A read-only SQL workspace backed by the active query provider, with project-persisted saved queries."
       action={
         <span className="phlo-observatory-pill">
-          {savedQueries.length} saved
+          {savedQueries === null
+            ? 'Saved queries unavailable'
+            : `${savedQueries.length} saved`}
         </span>
       }
     >
@@ -195,7 +215,7 @@ export function Queries() {
             </button>
           </div>
           <div className="phlo-observatory-detail-list">
-            {savedQueries.map((query) => (
+            {savedQueries?.map((query) => (
               <button
                 className="phlo-observatory-mini-row"
                 key={query.id}
@@ -206,10 +226,16 @@ export function Queries() {
                 <small>{query.branch ?? 'main'}</small>
               </button>
             ))}
-            {!savedQueries.length && (
+            {savedQueries?.length === 0 && (
               <div className="phlo-observatory-mini-row">
                 <span>No saved queries</span>
-                <small>Save the editor contents to create one</small>
+                <small>Save a query here</small>
+              </div>
+            )}
+            {savedQueries === null && (
+              <div className="phlo-observatory-mini-row">
+                <span>Unavailable</span>
+                <small>Check API connection</small>
               </div>
             )}
           </div>

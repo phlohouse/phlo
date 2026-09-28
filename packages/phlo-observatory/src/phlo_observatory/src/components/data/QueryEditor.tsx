@@ -18,6 +18,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { useObservatorySettings } from '@/hooks/useObservatorySettings'
 import { useSavedQueries } from '@/hooks/useSavedQueries'
+import { selectedEnvironment } from '@/observatory/api/environment'
 import { executeQuery } from '@/observatory/api/trino'
 import { quoteIdentifier } from '@/utils/sqlIdentifiers'
 
@@ -68,6 +69,12 @@ export function QueryEditor({
   const runQueryInternal = async (queryToRun: string) => {
     if (!queryToRun.trim()) return
 
+    const environment = selectedEnvironment()
+    if (!environment) {
+      setError('Select Production or Staging before running a query.')
+      return
+    }
+
     setLoading(true)
     setError(null)
     setEffectiveQuery(null)
@@ -77,6 +84,7 @@ export function QueryEditor({
       const result = await executeQuery({
         data: {
           query: queryToRun,
+          environment,
           branch,
           catalog: settings.defaults.catalog,
           trinoUrl: settings.connections.trinoUrl,

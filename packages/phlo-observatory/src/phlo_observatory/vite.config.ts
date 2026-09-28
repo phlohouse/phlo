@@ -62,6 +62,9 @@ const config = defineConfig({
         '/api/observatory/**': {
           proxy: `${phloApiUrl}/api/observatory/**`,
         },
+        '/api/v1/**': {
+          proxy: `${phloApiUrl}/api/v1/**`,
+        },
       },
     }),
     // this is the plugin that enables path aliases

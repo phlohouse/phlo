@@ -1,6 +1,5 @@
 /**
- * /runs route. Run list sorted by status and recency; when the API returns
- * no native runs it falls back to runs recovered from operation records.
+ * /runs route. Run list sorted by status and recency from the canonical API.
  */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
@@ -14,15 +13,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type {
-  ObservatoryMetadata,
-  ObservatoryOperation,
   ObservatoryRun,
   ObservatoryRunReportIdentity,
 } from '@/observatory/api/types'
-import {
-  getObservatoryOperationRecords,
-  getObservatoryRunRecords,
-} from '@/observatory/api/resources'
+import { getObservatoryRunRecords } from '@/observatory/api/resources'
 import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { ObservatoryIndexTable } from '@/observatory/components/ObservatoryTable'
 import { useLiveResource } from '@/observatory/routes/liveResource'
@@ -37,31 +31,21 @@ export function Runs() {
     60_000,
     'observatory:runs',
   )
-  const operationResult = useLiveResource(
-    getObservatoryOperationRecords,
-    60_000,
-    'observatory:operations',
-  )
-  const fallbackRuns = useMemo(
-    () => operationsAsRecoveredRuns(operationResult.data ?? []),
-    [operationResult.data],
-  )
-  const nativeRuns = result.data ?? []
-  const usingRecoveredRuns = nativeRuns.length === 0 && fallbackRuns.length > 0
   const runs = useMemo(
-    () =>
-      [...(usingRecoveredRuns ? fallbackRuns : nativeRuns)].sort(compareRuns),
-    [fallbackRuns, nativeRuns, usingRecoveredRuns],
+    () => [...(result.data ?? [])].sort(compareRuns),
+    [result.data],
   )
-  const isLoading =
-    runs.length === 0 && (result.isLoading || operationResult.isLoading)
+  const isLoading = runs.length === 0 && result.isLoading
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selected =
     runs.find((run) => run.id === selectedId) ??
     runs.find((run) => run.status === 'failed') ??
     runs[0] ??
     null
-  const counts = useMemo(() => countRuns(runs), [runs])
+  const counts = useMemo(
+    () => (result.data === null ? null : countRuns(runs)),
+    [result.data, runs],
+  )
   const selectRun = useCallback((runId: string) => {
     setSelectedId(runId)
     if (typeof window === 'undefined') return
@@ -92,14 +76,14 @@ export function Runs() {
     <ObservatoryPage
       kicker="Operations"
       title="Runs"
-      description={
-        usingRecoveredRuns
-          ? 'Recovered run evidence from live operations while dedicated run history is unavailable.'
-          : 'Run history, affected scope, and handoff to recovery evidence.'
-      }
+      description="Run history, affected scope, and handoff to recovery evidence."
       action={
         <span className="phlo-observatory-pill">
-          {isLoading ? 'Loading' : `${runs.length} runs`}
+          {isLoading
+            ? 'Loading'
+            : counts === null
+              ? 'Unavailable'
+              : `${runs.length} runs`}
         </span>
       }
     >
@@ -109,22 +93,28 @@ export function Runs() {
             <Metric
               icon={<CheckCircle2 className="size-4" />}
               label="Succeeded"
-              value={counts.succeeded}
+              value={counts?.succeeded ?? 'Unknown'}
             />
             <Metric
               icon={<AlertCircle className="size-4" />}
               label="Failed"
-              value={counts.failed}
+              value={counts?.failed ?? 'Unknown'}
             />
             <Metric
               icon={<Clock3 className="size-4" />}
               label="Running"
-              value={counts.running}
+              value={counts?.running ?? 'Unknown'}
             />
             <Metric
               icon={<ListChecks className="size-4" />}
               label="Visible"
-              value={isLoading ? 'Loading' : runs.length}
+              value={
+                isLoading
+                  ? 'Loading'
+                  : counts === null
+                    ? 'Unknown'
+                    : runs.length
+              }
             />
           </div>
 
@@ -132,12 +122,6 @@ export function Runs() {
             <RunProviderEmpty loading />
           ) : runs.length > 0 ? (
             <>
-              {usingRecoveredRuns && (
-                <div className="phlo-observatory-panel-note">
-                  Dedicated run history has no rows; showing recovered operation
-                  runs with the same recovery evidence.
-                </div>
-              )}
               <ObservatoryIndexTable
                 columnTemplate="10px minmax(220px, 1.25fr) minmax(86px, 0.45fr) minmax(176px, 0.75fr) minmax(86px, 0.35fr) minmax(190px, 0.8fr)"
                 columns={[
@@ -162,13 +146,13 @@ export function Runs() {
                     <span className="phlo-observatory-pill">{run.status}</span>,
                     run.started_at ?? 'not timestamped',
                     formatDuration(run.duration_seconds),
-                    `${run.assets.length} affected Datasets · ${run.checks.length} checks · ${run.logs.length} logs`,
+                    `${run.assets.length} affected Datasets · ${run.checks?.length ?? 'checks not reported'} · ${run.logs.length} logs`,
                   ],
                 }))}
               />
             </>
           ) : (
-            <RunProviderEmpty error={result.error ?? operationResult.error} />
+            <RunProviderEmpty error={result.error} />
           )}
         </div>
 
@@ -177,15 +161,10 @@ export function Runs() {
           {selected ? (
             <SelectedRun run={selected} />
           ) : (
-            <RunProviderInspector
-              error={result.error ?? operationResult.error}
-              loading={isLoading}
-            />
+            <RunProviderInspector error={result.error} loading={isLoading} />
           )}
-          {(result.error || operationResult.error) && (
-            <div className="phlo-observatory-panel-footer">
-              {result.error ?? operationResult.error}
-            </div>
+          {result.error && (
+            <div className="phlo-observatory-panel-footer">{result.error}</div>
           )}
         </aside>
       </section>
@@ -234,7 +213,7 @@ function SelectedRun({ run }: { run: ObservatoryRun }) {
         <Fact label="Completed" value={run.completed_at ?? 'not completed'} />
         <Fact label="Duration" value={formatDuration(run.duration_seconds)} />
         <Fact label="Affected Datasets" value={run.assets.length} />
-        <Fact label="Checks" value={run.checks.length} />
+        <Fact label="Checks" value={run.checks?.length ?? 'Not reported'} />
         <Fact label="Logs" value={run.logs.length} />
       </dl>
       {runFailureReason(run) && (
@@ -246,7 +225,7 @@ function SelectedRun({ run }: { run: ObservatoryRun }) {
         </div>
       )}
       <RelatedList title="Affected Datasets" refs={run.assets} />
-      <RelatedList title="Checks" refs={run.checks} />
+      {run.checks && <RelatedList title="Checks" refs={run.checks} />}
       <RelatedList title="Logs" refs={run.logs} />
       {typeof run.metadata.operation_id === 'string' && (
         <div className="phlo-observatory-detail-list">
@@ -489,7 +468,9 @@ function runScore(run: ObservatoryRun): number {
 
 function runNarrative(run: ObservatoryRun): string {
   const resourceCount = `${run.assets.length} Dataset link${run.assets.length === 1 ? '' : 's'}`
-  const checkCount = `${run.checks.length} check${run.checks.length === 1 ? '' : 's'}`
+  const checkCount = run.checks
+    ? `${run.checks.length} check${run.checks.length === 1 ? '' : 's'}`
+    : 'checks not reported'
   if (run.status === 'failed') {
     return `Failed run with ${resourceCount}, ${checkCount}, and ${run.logs.length} linked logs.`
   }
@@ -502,42 +483,4 @@ function runNarrative(run: ObservatoryRun): string {
 function runFailureReason(run: ObservatoryRun): string | null {
   const reason = run.metadata.failure_reason ?? run.metadata.error
   return typeof reason === 'string' && reason ? reason : null
-}
-
-function operationsAsRecoveredRuns(
-  operations: Array<ObservatoryOperation>,
-): Array<ObservatoryRun> {
-  return operations.map((operation) => {
-    const target = operation.target ? [operation.target] : []
-    const metadata: ObservatoryMetadata = {
-      ...operation.metadata,
-      operation_id: operation.id,
-      recovered_from: 'operation',
-    }
-    if (operation.status === 'failed' && operation.health.message) {
-      metadata.failure_reason = operation.health.message
-    }
-    return {
-      id: operation.id,
-      name: operation.name,
-      status: runStatusFromOperation(operation.status),
-      started_at: operation.started_at,
-      completed_at: operation.completed_at,
-      duration_seconds: operation.duration_seconds,
-      assets: target,
-      checks: [],
-      logs: [],
-      metadata,
-    }
-  })
-}
-
-function runStatusFromOperation(
-  status: ObservatoryOperation['status'],
-): ObservatoryRun['status'] {
-  if (status === 'queued') return 'queued'
-  if (status === 'running') return 'running'
-  if (status === 'succeeded') return 'succeeded'
-  if (status === 'failed') return 'failed'
-  return 'unknown'
 }

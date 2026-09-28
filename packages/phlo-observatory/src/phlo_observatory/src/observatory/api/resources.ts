@@ -11,6 +11,7 @@
  * failing the request.
  */
 import { createMiddleware, createServerFn } from '@tanstack/react-start'
+import { z } from 'zod'
 
 import { describePhloApiError, readPhloApiErrorBody } from './errors'
 import type {
@@ -67,12 +68,20 @@ import type {
 } from '@/observatory/api/datasetDiscovery'
 import { apiGet, apiPost } from '@/server/phlo-api'
 import { mutationAuthorization } from '@/server/authenticated-mutation'
+import { selectedEnvironment, v1Endpoint } from '@/observatory/api/environment'
+import {
+  createSavedQuery,
+  getQueryCatalog,
+  getQueryRefs,
+  getSavedQueries,
+} from '@/observatory/api/trino'
 import {
   datasetPageQuery,
   searchPageQuery,
 } from '@/observatory/api/datasetDiscovery'
 
 const Observatory_API_PREFIX = '/api/observatory'
+const V1_API_PREFIX = '/api/v1'
 
 // Only forward well-formed Bearer headers to phlo-api; anything else is
 // dropped (undefined) rather than rejected, so unauthenticated report views
@@ -241,10 +250,52 @@ export async function getObservatoryOverview(): Promise<
   ObservatoryResourceResult<ObservatoryOverview>
 > {
   try {
-    const data = await observatoryApiGet<ObservatoryOverview>(
-      `${Observatory_API_PREFIX}/overview`,
-    )
-    return { data, error: null }
+    const response = await observatoryApiGet<{
+      asset_count: number
+      env: string
+      latest_materialization_at: string | null
+      quality_checks: {
+        counts: {
+          passing: number
+          total: number
+          unevaluated: number
+        } | null
+        reason: string | null
+        status: 'available' | 'unknown'
+      }
+      run_status_counts: Record<string, number>
+    }>(v1Endpoint(`${V1_API_PREFIX}/overview`))
+    const failedChecks = response.quality_checks.counts
+      ? response.quality_checks.counts.total -
+        response.quality_checks.counts.passing -
+        response.quality_checks.counts.unevaluated
+      : null
+    const failedRuns = response.run_status_counts.FAILURE
+    const runningRuns = [
+      response.run_status_counts.STARTED,
+      response.run_status_counts.STARTING,
+      response.run_status_counts.QUEUED,
+    ].some((count) => count !== undefined)
+      ? (response.run_status_counts.STARTED ?? 0) +
+        (response.run_status_counts.STARTING ?? 0) +
+        (response.run_status_counts.QUEUED ?? 0)
+      : null
+    return {
+      data: {
+        health: {
+          state: 'unknown',
+          message:
+            'The v1 overview provides aggregate counts, not an overall health state.',
+        },
+        counters: {
+          assets: response.asset_count,
+          ...(failedChecks === null ? {} : { failed_checks: failedChecks }),
+          ...(failedRuns === undefined ? {} : { failed_runs: failedRuns }),
+          ...(runningRuns === null ? {} : { running_runs: runningRuns }),
+        },
+      },
+      error: null,
+    }
   } catch (error) {
     return apiUnavailable<ObservatoryOverview>(error)
   }
@@ -268,9 +319,14 @@ export async function getObservatoryServices(): Promise<
 > {
   try {
     const response = await observatoryApiGet<{
-      items: Array<ObservatoryService>
-    }>(`${Observatory_API_PREFIX}/services`)
-    return { data: response.items, error: null }
+      items: Array<{
+        id: string
+        observed_at: string | null
+        response_time_seconds: number | null
+        status: string
+      }>
+    }>(v1Endpoint(`${V1_API_PREFIX}/services`))
+    return { data: response.items.map(v1Service), error: null }
   } catch (error) {
     return apiUnavailable<Array<ObservatoryService>>(error)
   }
@@ -280,10 +336,15 @@ export async function getObservatoryServicesDirect(): Promise<
   ObservatoryResourceResult<Array<ObservatoryService>>
 > {
   try {
-    const response = await browserApiGet<{ items: Array<ObservatoryService> }>(
-      `${Observatory_API_PREFIX}/services`,
-    )
-    return { data: response.items, error: null }
+    const response = await browserApiGet<{
+      items: Array<{
+        id: string
+        observed_at: string | null
+        response_time_seconds: number | null
+        status: string
+      }>
+    }>(v1Endpoint(`${V1_API_PREFIX}/services`))
+    return { data: response.items.map(v1Service), error: null }
   } catch (error) {
     return apiUnavailable<Array<ObservatoryService>>(error)
   }
@@ -417,14 +478,132 @@ export async function getObservatoryOperationDetailDirect({
 }
 
 export function getObservatoryRunRecords() {
-  return getRawCollection<ObservatoryRun>('runs')
+  return getV1Runs()
+}
+
+async function getV1Runs(): Promise<
+  ObservatoryResourceResult<Array<ObservatoryRun>>
+> {
+  try {
+    const response = await observatoryApiGet<{
+      items: Array<{
+        created_at: string
+        duration_seconds: number | null
+        ended_at: string | null
+        job_id: string
+        run_id: string
+        selected_assets: Array<Array<string>>
+        started_at: string | null
+        status: string
+      }>
+    }>(v1Endpoint(`${V1_API_PREFIX}/runs?limit=100`))
+    return { data: response.items.map(v1Run), error: null }
+  } catch (error) {
+    return apiUnavailable<Array<ObservatoryRun>>(error)
+  }
+}
+
+function v1Service(service: {
+  id: string
+  observed_at: string | null
+  response_time_seconds: number | null
+  status: string
+}): ObservatoryService {
+  const status = v1ServiceStatus(service.status)
+  return {
+    id: service.id,
+    name: service.id,
+    kind: 'service',
+    status,
+    health: {
+      state: v1ServiceHealth(service.status),
+    },
+    depends_on: [],
+    impacts: [],
+    links: [],
+    metadata: {
+      ...(service.observed_at === null
+        ? {}
+        : { observed_at: service.observed_at }),
+      ...(service.response_time_seconds === null
+        ? {}
+        : { response_time_seconds: service.response_time_seconds }),
+    },
+  }
+}
+
+function v1ServiceStatus(status: string): ObservatoryService['status'] {
+  switch (status) {
+    case 'healthy':
+      return 'running'
+    case 'degraded':
+    case 'unhealthy':
+    case 'unavailable':
+    case 'unknown':
+      return status
+    default:
+      return 'unknown'
+  }
+}
+
+function v1ServiceHealth(
+  status: string,
+): ObservatoryService['health']['state'] {
+  switch (status) {
+    case 'healthy':
+      return 'ok'
+    case 'degraded':
+      return 'warning'
+    case 'unhealthy':
+      return 'error'
+    case 'unknown':
+    case 'unavailable':
+      return 'unknown'
+    default:
+      return 'unknown'
+  }
+}
+
+function v1Run(run: {
+  created_at: string
+  duration_seconds: number | null
+  ended_at: string | null
+  job_id: string
+  run_id: string
+  selected_assets: Array<Array<string>>
+  started_at: string | null
+  status: string
+}): ObservatoryRun {
+  const statusByV1Status: Record<string, ObservatoryRun['status']> = {
+    SUCCESS: 'succeeded',
+    FAILURE: 'failed',
+    CANCELED: 'cancelled',
+    STARTED: 'running',
+    STARTING: 'running',
+    QUEUED: 'queued',
+    NOT_STARTED: 'queued',
+    MANAGED: 'running',
+    CANCELING: 'running',
+  }
+  return {
+    id: run.run_id,
+    name: run.job_id,
+    status: statusByV1Status[run.status] ?? 'unknown',
+    started_at: run.started_at,
+    completed_at: run.ended_at,
+    duration_seconds: run.duration_seconds,
+    assets: run.selected_assets.map((path) => ({
+      kind: 'asset',
+      id: path.join('/'),
+      label: path.join('/'),
+    })),
+    logs: [{ kind: 'logs', id: run.run_id, label: 'Run logs' }],
+    metadata: { created_at: run.created_at, job_id: run.job_id },
+  }
 }
 
 export type ObservatoryRunReportErrorCode =
-  | 'access_denied'
-  | 'not_found'
-  | 'request_failed'
-  | 'invalid_request'
+  'access_denied' | 'not_found' | 'request_failed' | 'invalid_request'
 
 export type ObservatoryRunReportResult =
   ObservatoryResourceResult<ObservatoryRunReport> & {
@@ -479,13 +658,13 @@ export const getObservatoryRunReport = createServerFn()
     const { attempt, projectId, runId } = data
 
     try {
-      const data = await apiGet<ObservatoryRunReport>(
+      const report = await apiGet<ObservatoryRunReport>(
         `${Observatory_API_PREFIX}/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/attempts/${attempt}/report`,
         undefined,
         8000,
         context.authorization,
       )
-      return { data, error: null }
+      return { data: report, error: null }
     } catch (error) {
       // phlo-api failures arrive as plain Errors whose message embeds the HTTP
       // status ("phlo-api error: 404 ...", produced by @/server/phlo-api), so
@@ -540,7 +719,98 @@ export function getObservatoryBiItems() {
 }
 
 export function getObservatoryAssetRecords() {
-  return getRawCollection<ObservatoryAsset>('assets')
+  const environment = selectedEnvironment()
+  if (!environment) {
+    return Promise.resolve(
+      apiUnavailable<Array<ObservatoryAsset>>(
+        new Error('Select prod or staging before loading assets.'),
+      ),
+    )
+  }
+  return getV1AssetRecords({ data: { environment } })
+}
+
+const v1AssetPageSchema = z.object({
+  env: z.enum(['prod', 'staging']),
+  items: z.array(
+    z.object({
+      id: z.string(),
+      key: z.array(z.string()),
+      description: z.string().nullable(),
+      compute_kind: z.string().nullable(),
+      group_name: z.string().nullable(),
+      is_source: z.boolean(),
+      dependencies: z.array(z.array(z.string())),
+      last_materialization_at: z.string().nullable(),
+      last_run_id: z.string().nullable(),
+      relation: z.string().nullable(),
+      history_scoped: z.boolean(),
+    }),
+  ),
+  next_cursor: z.string().nullable(),
+})
+
+const ASSET_PAGE_SIZE = 500
+const ASSET_PAGE_LIMIT = 10
+
+const getV1AssetRecords = createServerFn()
+  .middleware([observatoryReportAuthorization])
+  .inputValidator(z.object({ environment: z.enum(['prod', 'staging']) }))
+  .handler(
+    async ({
+      data,
+      context,
+    }): Promise<ObservatoryResourceResult<Array<ObservatoryAsset>>> => {
+      try {
+        const items: Array<ObservatoryAsset> = []
+        let cursor: string | null = null
+        for (let page = 0; page < ASSET_PAGE_LIMIT; page += 1) {
+          const params = new URLSearchParams({ limit: String(ASSET_PAGE_SIZE) })
+          if (cursor) params.set('cursor', cursor)
+          const response = v1AssetPageSchema.parse(
+            await apiGet<unknown>(
+              v1Endpoint(`/api/v1/assets?${params}`, data.environment),
+              undefined,
+              8000,
+              context.authorization,
+            ),
+          )
+          items.push(...response.items.map(v1Asset))
+          if (response.next_cursor === null) {
+            return { data: items, error: null }
+          }
+          cursor = response.next_cursor
+        }
+        throw new Error('Asset inventory exceeds the supported v1 page limit.')
+      } catch (error) {
+        return apiUnavailable<Array<ObservatoryAsset>>(error)
+      }
+    },
+  )
+
+function v1Asset(
+  asset: z.infer<typeof v1AssetPageSchema>['items'][number],
+): ObservatoryAsset {
+  const name = asset.key.at(-1) ?? asset.id
+  return {
+    id: asset.key.join('/'),
+    name,
+    group: asset.group_name,
+    description: asset.description,
+    kinds: asset.compute_kind ? [asset.compute_kind] : [],
+    dependencies: asset.dependencies.map((key) => key.join('/')),
+    resources: [],
+    checks: [],
+    metadata: {
+      ...(asset.is_source ? { source: true } : {}),
+      ...(asset.last_materialization_at
+        ? { last_materialization_at: asset.last_materialization_at }
+        : {}),
+      ...(asset.last_run_id ? { last_run_id: asset.last_run_id } : {}),
+      ...(asset.relation ? { relation: asset.relation } : {}),
+      history_scoped: asset.history_scoped,
+    },
+  }
 }
 
 export function getObservatoryDatasetRecords() {
@@ -700,6 +970,41 @@ export function getObservatoryTableRecords() {
   return getRawCollection<ObservatoryTable>('tables')
 }
 
+export async function getObservatoryQueryCatalogTables(): Promise<
+  ObservatoryResourceResult<Array<ObservatoryTable>>
+> {
+  const environment = selectedEnvironment()
+  if (!environment) {
+    return apiUnavailable<Array<ObservatoryTable>>(
+      new Error('Select prod or staging before loading the query catalog.'),
+    )
+  }
+  try {
+    const catalog = await getQueryCatalog({ data: { environment } })
+    return {
+      data: catalog.catalogs.flatMap((item) =>
+        item.schemas.flatMap((schema) =>
+          schema.tables.map((name) => ({
+            id: `${item.name}.${schema.name}.${name}`,
+            name,
+            namespace: schema.name,
+            branch: catalog.nessie_ref,
+            schema_name: schema.name,
+            metadata: {
+              catalog_name: item.name,
+              schema_name: schema.name,
+              ref: catalog.nessie_ref,
+            },
+          })),
+        ),
+      ),
+      error: null,
+    }
+  } catch (error) {
+    return apiUnavailable<Array<ObservatoryTable>>(error)
+  }
+}
+
 export async function getObservatoryTablePreview({
   data: { tableId, limit = 50, offset = 0 },
 }: {
@@ -762,11 +1067,26 @@ export async function runObservatoryQuery({
 export async function getObservatorySavedQueries(): Promise<
   ObservatoryResourceResult<Array<ObservatorySavedQuery>>
 > {
+  const environment = selectedEnvironment()
+  if (!environment) {
+    return apiUnavailable<Array<ObservatorySavedQuery>>(
+      new Error('Select prod or staging before loading saved queries.'),
+    )
+  }
   try {
-    const response = await observatoryApiGet<{
-      items: Array<ObservatorySavedQuery>
-    }>(`${Observatory_API_PREFIX}/saved-queries`)
-    return { data: response.items, error: null }
+    const items = await getSavedQueries({ data: { environment } })
+    return {
+      data: items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        sql: item.sql,
+        branch: item.nessie_ref,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+        metadata: item.metadata,
+      })),
+      error: null,
+    }
   } catch (error) {
     return apiUnavailable<Array<ObservatorySavedQuery>>(error)
   }
@@ -782,24 +1102,42 @@ export async function saveObservatoryQuery({
     metadata?: Record<string, unknown>
   }
 }): Promise<ObservatoryResourceResult<ObservatorySavedQuery>> {
+  const environment = selectedEnvironment()
+  if (!environment) {
+    return apiUnavailable<ObservatorySavedQuery>(
+      new Error('Select prod or staging before saving a query.'),
+    )
+  }
   try {
-    const data =
-      browserApiBase() !== null
-        ? await browserApiPost<ObservatorySavedQuery>(
-            `${Observatory_API_PREFIX}/saved-queries`,
-            {
-              name,
-              sql,
-              branch,
-              metadata,
-            },
-          )
-        : await apiPost<ObservatorySavedQuery>(
-            `${Observatory_API_PREFIX}/saved-queries`,
-            { name, sql, branch, metadata },
-            8000,
-          )
-    return { data, error: null }
+    if (branch) {
+      const refs = await getQueryRefs({ data: { environment } })
+      if (!refs.some((ref) => ref.name === branch)) {
+        throw new Error(
+          `The selected API ref does not match branch "${branch}".`,
+        )
+      }
+    }
+    const data = await createSavedQuery({
+      data: {
+        environment,
+        idempotencyKey: `saved-query-${crypto.randomUUID()}`,
+        name,
+        sql,
+        metadata,
+      },
+    })
+    return {
+      data: {
+        id: data.id,
+        name: data.name,
+        sql: data.sql,
+        branch: data.nessie_ref,
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        metadata: data.metadata,
+      },
+      error: null,
+    }
   } catch (error) {
     return apiUnavailable<ObservatorySavedQuery>(error)
   }

@@ -6151,7 +6151,7 @@ button.phlo-observatory-mini-row {
 
 .phlo-observatory-panel-note {
   border-bottom: 1px solid var(--v2-sheet-border);
-  background: var(--v2-ink-50);
+  background: var(--v2-sheet);
   color: var(--v2-muted);
   font-size: var(--v2-font-sm);
   line-height: 1.35;
