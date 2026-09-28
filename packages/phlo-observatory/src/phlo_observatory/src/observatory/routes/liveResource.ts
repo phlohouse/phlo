@@ -89,7 +89,10 @@ export function useLiveResource<T>(
     }, intervalMs)
     window.addEventListener('focus', refreshActiveTab)
     document.addEventListener('visibilitychange', refreshActiveTab)
-    window.addEventListener(environmentChangeEvent(), refreshForEnvironmentChange)
+    window.addEventListener(
+      environmentChangeEvent(),
+      refreshForEnvironmentChange,
+    )
 
     return () => {
       cancelled = true
@@ -114,7 +117,8 @@ export function clearCachedResources(): void {
   if (typeof window === 'undefined') return
   for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
     const key = window.sessionStorage.key(index)
-    if (key?.startsWith(persistentCachePrefix)) window.sessionStorage.removeItem(key)
+    if (key?.startsWith(persistentCachePrefix))
+      window.sessionStorage.removeItem(key)
   }
 }
 

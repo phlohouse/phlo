@@ -167,12 +167,7 @@ export const getBranchComparison = createServerFn()
         data.env,
       )
       const comparison = comparisonSchema.parse(
-        await apiGet<unknown>(
-          endpoint,
-          undefined,
-          8000,
-          context.authorization,
-        ),
+        await apiGet<unknown>(endpoint, undefined, 8000, context.authorization),
       )
       if (
         comparison.env !== data.env ||
@@ -205,12 +200,7 @@ export const getBranchDiff = createServerFn()
         data.env,
       )
       const diff = diffSchema.parse(
-        await apiGet<unknown>(
-          endpoint,
-          undefined,
-          8000,
-          context.authorization,
-        ),
+        await apiGet<unknown>(endpoint, undefined, 8000, context.authorization),
       )
       if (
         diff.env !== data.env ||
