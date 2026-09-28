@@ -23,7 +23,6 @@ const queryAddressableRoutes = [
   ['publishing.tsx', 'datasetId'],
   ['quality.tsx', 'checkId'],
   ['runs.tsx', 'runId'],
-  ['services.tsx', 'serviceId'],
   ['storage.tsx', 'providerId'],
   ['tables.tsx', 'tableId'],
 ] as const
@@ -56,6 +55,16 @@ describe('Observatory workflow deep links', () => {
       /on(?:Click|Select)=\{(?:\(\) => )?setSelectedId/,
     )
     expect(routeSources).not.toContain('onSelect={setSelectedId}')
+  })
+
+  it('reads service health from v1 without exposing legacy mutations', () => {
+    const source = routeSource('services.tsx')
+
+    expect(source).toContain('getObservatoryServices')
+    expect(source).toContain("'observatory:v1:services'")
+    expect(source).toContain('service detail, start,')
+    expect(source).not.toContain('runObservatoryAction')
+    expect(source).not.toContain('getObservatoryServiceDetail')
   })
 
   it('keeps Dataset profile links on query-selected workflow pages', () => {

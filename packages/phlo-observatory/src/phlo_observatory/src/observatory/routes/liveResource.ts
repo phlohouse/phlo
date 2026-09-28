@@ -256,7 +256,6 @@ function fallbackEndpoint(key: string): string | null {
   const endpoints: Record<string, string> = {
     'observatory:overview': `${prefix}/overview`,
     'observatory:capabilities': `${prefix}/surface-capabilities`,
-    'observatory:services': `${prefix}/services`,
     'observatory:operations': `${prefix}/operations`,
     'observatory:runs': `${prefix}/runs`,
     'observatory:pipelines': `${prefix}/pipelines`,
