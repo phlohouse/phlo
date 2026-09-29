@@ -1974,7 +1974,7 @@ async def v1_overview(request: Request, env: Environment = Query()) -> OverviewR
         asset_count=len(assets),
         materialized_asset_count=sum(asset.last_materialization_at is not None for asset in assets),
         latest_materialization_at=latest,
-        incident_counts=stats["counts"],
+        incident_counts=stats.counts,
         freshness_counts=FreshnessCounts(**freshness),
         run_status_counts=run_status_counts,
         run_history_truncated=len(runs) == 100,
