@@ -1,7 +1,7 @@
 /**
  * /lineage route. Asset-level lineage rendered on the flow canvas, plus
- * table previews, quality checks, and recent operations for the selected
- * asset.
+ * ref-aware catalog tables, quality checks, and recent operations for the
+ * selected asset.
  */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
@@ -32,8 +32,8 @@ import {
   getObservatoryAssetRecords,
   getObservatoryOperationRecords,
   getObservatoryQualityRecords,
+  getObservatoryQueryCatalogTables,
   getObservatoryTablePreview,
-  getObservatoryTableRecords,
 } from '@/observatory/api/resources'
 import { getSelectedV1RunLogRecords } from '@/observatory/api/logsV1'
 import { ObservatoryFlowCanvas } from '@/observatory/components/ObservatoryFlowCanvas'
@@ -56,9 +56,9 @@ function LineageIndex() {
     'observatory:assets',
   )
   const tablesResult = useLiveResource(
-    getObservatoryTableRecords,
+    getObservatoryQueryCatalogTables,
     120_000,
-    'observatory:tables',
+    'observatory:query-catalog-tables',
   )
   const qualityResult = useLiveResource(
     getObservatoryQualityRecords,
