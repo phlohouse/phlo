@@ -17,6 +17,7 @@ from phlo_api.api import v1
 from phlo_api.api import v1_assets
 from phlo_api.api.v1_audit_proposals import AssetAuditProposalRequest, generate_check_file
 from phlo_api.api.v1_git_review import AssetAuditDraftPullRequest
+from phlo_api.incidents import IncidentStatsResponse
 from phlo_api.main import app
 from phlo_api import security_manifest
 
@@ -728,7 +729,7 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     monkeypatch.setattr(
-        incidents, "incident_stats", lambda request, env: {"env": env, "counts": {}}
+        incidents, "incident_stats", lambda request, env: IncidentStatsResponse(env=env, counts={})
     )
     monkeypatch.setattr(
         incidents,
@@ -824,7 +825,9 @@ def test_asset_and_overview_require_location_success_and_unpartitioned_evidence(
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     monkeypatch.setattr(
-        incidents, "incident_stats", lambda request, selected: {"env": selected, "counts": {}}
+        incidents,
+        "incident_stats",
+        lambda request, selected: IncidentStatsResponse(env=selected, counts={}),
     )
     monkeypatch.setattr(
         incidents,
@@ -2038,7 +2041,9 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     monkeypatch.setattr(
-        incidents, "incident_stats", lambda request, env: {"env": env, "counts": {"open": 2}}
+        incidents,
+        "incident_stats",
+        lambda request, env: IncidentStatsResponse(env=env, counts={"open": 2}),
     )
     monkeypatch.setattr(
         incidents,
@@ -2169,7 +2174,7 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
     monkeypatch.setattr(
         incidents,
         "incident_stats",
-        lambda request, env: {"env": env, "counts": {"open": 0}},
+        lambda request, env: IncidentStatsResponse(env=env, counts={"open": 0}),
     )
     monkeypatch.setattr(
         incidents,
