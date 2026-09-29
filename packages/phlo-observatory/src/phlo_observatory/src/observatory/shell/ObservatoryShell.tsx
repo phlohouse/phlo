@@ -56,12 +56,12 @@ import {
   getObservatoryCapabilities,
   getObservatoryDatasetRecords,
   getObservatoryGovernanceItems,
-  getObservatoryLogRecords,
   getObservatoryPipelineRecords,
   getObservatoryQualityRecords,
   getObservatoryRunRecords,
   getObservatoryServices,
 } from '@/observatory/api/resources'
+import { getSelectedV1RunLogRecords } from '@/observatory/api/logsV1'
 import {
   selectEnvironment,
   selectedEnvironment,
@@ -790,9 +790,11 @@ function warmRouteResources(capabilities: ObservatoryCapabilities | null) {
     )
   }
   if (features.logs) {
-    void loadCachedResource('observatory:logs', getObservatoryLogRecords, {
-      staleMs: 120_000,
-    })
+    void loadCachedResource(
+      'observatory:run-logs',
+      getSelectedV1RunLogRecords,
+      { staleMs: 120_000 },
+    )
   }
   if (features.datasets || features.publishing) {
     void loadCachedResource(
