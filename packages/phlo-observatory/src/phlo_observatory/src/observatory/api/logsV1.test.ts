@@ -87,4 +87,73 @@ describe('v1 run log client', () => {
       error: 'phlo-api returned logs for another run or environment.',
     })
   })
+
+  it('keeps production evidence distinct and forwards the actor authorization', async () => {
+    apiGet
+      .mockResolvedValueOnce({ env: 'prod', items: [{ run_id: 'prod-run' }] })
+      .mockResolvedValueOnce({
+        env: 'prod',
+        run_id: 'prod-run',
+        items: [
+          {
+            event_type: 'RUN_SUCCESS',
+            message: 'production completed',
+            timestamp: '2026-09-29T12:00:00Z',
+            step_key: null,
+          },
+        ],
+      })
+    const { getV1RunLogRecordsData } = await import('./logsV1')
+
+    await expect(
+      getV1RunLogRecordsData('prod', 'Bearer test-token'),
+    ).resolves.toMatchObject({
+      data: [
+        expect.objectContaining({
+          message: 'production completed',
+          resource: { kind: 'run', id: 'prod-run', label: 'prod-run' },
+        }),
+      ],
+      error: null,
+    })
+    expect(apiGet).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/runs?limit=100&env=prod',
+      undefined,
+      8000,
+      'Bearer test-token',
+    )
+    expect(apiGet).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/runs/prod-run/logs?limit=50&env=prod',
+      undefined,
+      8000,
+      'Bearer test-token',
+    )
+  })
+
+  it('surfaces outages and succeeds when the resource is retried', async () => {
+    apiGet
+      .mockRejectedValueOnce(new Error('503 Service Unavailable'))
+      .mockResolvedValueOnce({
+        env: 'staging',
+        items: [{ run_id: 'retry-run' }],
+      })
+      .mockResolvedValueOnce({
+        env: 'staging',
+        run_id: 'retry-run',
+        items: [],
+      })
+    const { getV1RunLogRecordsData } = await import('./logsV1')
+
+    await expect(getV1RunLogRecordsData('staging')).resolves.toEqual({
+      data: null,
+      error: '503 Service Unavailable',
+    })
+    await expect(getV1RunLogRecordsData('staging')).resolves.toEqual({
+      data: [],
+      error: null,
+    })
+    expect(apiGet).toHaveBeenCalledTimes(3)
+  })
 })

@@ -715,12 +715,6 @@ export interface ObservatoryLogEvent {
   metadata: ObservatoryMetadata
 }
 
-export interface ObservatoryLogFacets {
-  sources: Array<string>
-  levels: Array<string>
-  resources: Array<ObservatoryResourceRef>
-}
-
 export interface ObservatoryBranch {
   id: string
   name: string

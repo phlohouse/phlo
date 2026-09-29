@@ -58,6 +58,8 @@ describe('phase 9 v1 client contracts', () => {
   it('reads log evidence from the mounted v1 run-logs route, not legacy global logs', () => {
     expect(logsRoute).toContain('getSelectedV1RunLogRecords')
     expect(logsRoute).not.toContain('getObservatoryLogRecords')
+    expect(resources).not.toContain('getObservatoryLogRecords')
+    expect(resources).not.toContain('getObservatoryLogFacets')
     expect(logsClient).toContain(
       '/api/v1/runs/${encodeURIComponent(run_id)}/logs',
     )
