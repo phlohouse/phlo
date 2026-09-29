@@ -31,8 +31,6 @@ import type {
   ObservatoryExtension,
   ObservatoryExtensionDetail,
   ObservatoryGovernanceMatrix,
-  ObservatoryLogEvent,
-  ObservatoryLogFacets,
   ObservatoryMetadata,
   ObservatoryOperation,
   ObservatoryOperationDetail,
@@ -1203,25 +1201,8 @@ export async function getObservatoryQualityDetailDirect({
   }
 }
 
-export function getObservatoryLogRecords() {
-  return getRawCollection<ObservatoryLogEvent>('logs')
-}
-
 export function getObservatoryRuntimeSettings() {
   return getRawResource<ObservatoryRuntimeSettings>('settings')
-}
-
-export async function getObservatoryLogFacets(): Promise<
-  ObservatoryResourceResult<ObservatoryLogFacets>
-> {
-  try {
-    const data = await observatoryApiGet<ObservatoryLogFacets>(
-      `${Observatory_API_PREFIX}/logs/facets`,
-    )
-    return { data, error: null }
-  } catch (error) {
-    return apiUnavailable<ObservatoryLogFacets>(error)
-  }
 }
 
 export function getObservatoryBranches() {
