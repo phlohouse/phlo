@@ -31,11 +31,11 @@ import type {
   ObservatoryResourceResult,
   ObservatoryService,
 } from '@/observatory/api/types'
+import { getSelectedV1RunLogRecords } from '@/observatory/api/logsV1'
 import {
   getObservatoryAssetRecords,
   getObservatoryBranchRecords,
   getObservatoryCapabilities,
-  getObservatoryLogRecords,
   getObservatoryOperationRecords,
   getObservatoryOverview,
   getObservatoryQualityRecords,
@@ -114,7 +114,7 @@ export async function loadOverviewSnapshotFromApi(): Promise<OverviewSnapshot> {
     getObservatoryOperationRecords(),
     getObservatoryAssetRecords(),
     getObservatoryQualityRecords(),
-    getObservatoryLogRecords(),
+    getSelectedV1RunLogRecords(),
     getObservatoryBranchRecords(),
     getObservatoryCapabilities(),
   ])
@@ -215,7 +215,7 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
         }
       })
 
-      loadCachedResource('observatory:logs', getObservatoryLogRecords, {
+      loadCachedResource('observatory:run-logs', getSelectedV1RunLogRecords, {
         force,
         staleMs: 30_000,
       }).then((nextLogs) => {

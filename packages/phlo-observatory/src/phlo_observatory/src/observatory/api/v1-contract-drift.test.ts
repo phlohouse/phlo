@@ -20,6 +20,10 @@ const lineageRoute = readFileSync(
   new URL('../../routes/lineage.tsx', import.meta.url),
   'utf8',
 )
+const overviewRoute = readFileSync(
+  new URL('../routes/OverviewRoute.tsx', import.meta.url),
+  'utf8',
+)
 const logsClient = readFileSync(new URL('./logsV1.ts', import.meta.url), 'utf8')
 
 function routerSource(name: string): string {
@@ -68,5 +72,11 @@ describe('phase 9 v1 client contracts', () => {
     expect(routerSource('v1_query.py')).toContain(
       '@router.get("/query/catalog"',
     )
+  })
+
+  it('uses v1 run logs in the overview instead of legacy global logs', () => {
+    expect(overviewRoute).toContain('getSelectedV1RunLogRecords')
+    expect(overviewRoute).not.toContain('getObservatoryLogRecords')
+    expect(overviewRoute).toContain("'observatory:run-logs'")
   })
 })
