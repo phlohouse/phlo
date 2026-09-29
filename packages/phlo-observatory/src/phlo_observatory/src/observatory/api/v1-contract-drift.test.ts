@@ -33,6 +33,10 @@ const shell = readFileSync(
   'utf8',
 )
 const logsClient = readFileSync(new URL('./logsV1.ts', import.meta.url), 'utf8')
+const qualityClient = readFileSync(
+  new URL('./qualityV1.ts', import.meta.url),
+  'utf8',
+)
 
 function routerSource(name: string): string {
   return readFileSync(resolve(apiRoot, name), 'utf8')
@@ -81,6 +85,21 @@ describe('phase 9 v1 client contracts', () => {
     expect(resources).toContain('getQueryCatalog({ data: { environment } })')
     expect(routerSource('v1_query.py')).toContain(
       '@router.get("/query/catalog"',
+    )
+  })
+
+  it('uses v1 asset-check definitions and executions for lineage quality', () => {
+    expect(lineageRoute).toContain('getV1QualitySnapshot')
+    expect(lineageRoute).not.toContain('getObservatoryQualityRecords')
+    expect(qualityClient).toContain('/checks')
+    expect(routerSource('v1_assets.py')).toContain('/checks')
+  })
+
+  it('uses the selected asset v1 preview instead of the legacy table preview', () => {
+    expect(lineageRoute).toContain('getV1AssetPreview')
+    expect(lineageRoute).not.toContain('getObservatoryTablePreview')
+    expect(routerSource('v1_assets.py')).toContain(
+      '"/assets/{asset_id:path}/preview"',
     )
   })
 
