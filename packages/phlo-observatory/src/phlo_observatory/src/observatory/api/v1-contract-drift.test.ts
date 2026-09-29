@@ -24,6 +24,14 @@ const overviewRoute = readFileSync(
   new URL('../routes/OverviewRoute.tsx', import.meta.url),
   'utf8',
 )
+const commandPalette = readFileSync(
+  new URL('../shell/ObservatoryCommandPalette.tsx', import.meta.url),
+  'utf8',
+)
+const shell = readFileSync(
+  new URL('../shell/ObservatoryShell.tsx', import.meta.url),
+  'utf8',
+)
 const logsClient = readFileSync(new URL('./logsV1.ts', import.meta.url), 'utf8')
 
 function routerSource(name: string): string {
@@ -78,5 +86,12 @@ describe('phase 9 v1 client contracts', () => {
     expect(overviewRoute).toContain('getSelectedV1RunLogRecords')
     expect(overviewRoute).not.toContain('getObservatoryLogRecords')
     expect(overviewRoute).toContain("'observatory:run-logs'")
+  })
+
+  it('uses v1 run logs and query-catalog tables in shell warmers and search', () => {
+    expect(shell).toContain('getSelectedV1RunLogRecords')
+    expect(shell).not.toContain('getObservatoryLogRecords')
+    expect(commandPalette).toContain('getObservatoryQueryCatalogTables')
+    expect(commandPalette).not.toContain('getObservatoryTableRecords')
   })
 })
