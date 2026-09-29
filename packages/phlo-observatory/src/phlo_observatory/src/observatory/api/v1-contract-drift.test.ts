@@ -16,6 +16,10 @@ const logsRoute = readFileSync(
   new URL('../../routes/logs.tsx', import.meta.url),
   'utf8',
 )
+const lineageRoute = readFileSync(
+  new URL('../../routes/lineage.tsx', import.meta.url),
+  'utf8',
+)
 const logsClient = readFileSync(new URL('./logsV1.ts', import.meta.url), 'utf8')
 
 function routerSource(name: string): string {
@@ -48,5 +52,12 @@ describe('phase 9 v1 client contracts', () => {
     expect(routerSource('v1_jobs.py')).toContain(
       '@router.get("/runs/{run_id}/logs"',
     )
+  })
+
+  it('uses v1 run logs for lineage and correlates them only by latest run id', () => {
+    expect(lineageRoute).toContain('getSelectedV1RunLogRecords')
+    expect(lineageRoute).not.toContain('getObservatoryLogRecords')
+    expect(lineageRoute).toContain('latestRunLogsForAsset(selected, logs)')
+    expect(lineageRoute).toContain('log.metadata.run_id === runId')
   })
 })

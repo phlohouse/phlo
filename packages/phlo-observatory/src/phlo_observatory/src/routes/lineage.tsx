@@ -30,12 +30,12 @@ import type {
 } from '@/observatory/components/ObservatoryFlowCanvas'
 import {
   getObservatoryAssetRecords,
-  getObservatoryLogRecords,
   getObservatoryOperationRecords,
   getObservatoryQualityRecords,
   getObservatoryTablePreview,
   getObservatoryTableRecords,
 } from '@/observatory/api/resources'
+import { getSelectedV1RunLogRecords } from '@/observatory/api/logsV1'
 import { ObservatoryFlowCanvas } from '@/observatory/components/ObservatoryFlowCanvas'
 import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { ObservatoryIndexTable } from '@/observatory/components/ObservatoryTable'
@@ -66,9 +66,9 @@ function LineageIndex() {
     'observatory:quality',
   )
   const logsResult = useLiveResource(
-    getObservatoryLogRecords,
+    getSelectedV1RunLogRecords,
     120_000,
-    'observatory:logs',
+    'observatory:run-logs',
   )
   const operationsResult = useLiveResource(
     getObservatoryOperationRecords,
@@ -739,10 +739,7 @@ function buildAssetDetail(
     ),
     tables: tables.filter((table) => table.asset_id === selected.id),
     quality: quality.filter((check) => check.asset_id === selected.id),
-    logs: logs.filter(
-      (log) =>
-        log.resource?.kind === 'asset' && log.resource.id === selected.id,
-    ),
+    logs: latestRunLogsForAsset(selected, logs),
     operations: operations.filter(
       (operation) =>
         operation.target?.id === selected.id &&
@@ -751,6 +748,15 @@ function buildAssetDetail(
           operation.target.kind === 'dataset'),
     ),
   }
+}
+
+export function latestRunLogsForAsset(
+  asset: ObservatoryAsset,
+  logs: Array<ObservatoryLogEvent>,
+): Array<ObservatoryLogEvent> {
+  const runId = asset.metadata.last_run_id
+  if (typeof runId !== 'string') return []
+  return logs.filter((log) => log.metadata.run_id === runId)
 }
 
 function buildLineageImpact(detail: AssetDetailModel): {
