@@ -60,4 +60,13 @@ describe('phase 9 v1 client contracts', () => {
     expect(lineageRoute).toContain('latestRunLogsForAsset(selected, logs)')
     expect(lineageRoute).toContain('log.metadata.run_id === runId')
   })
+
+  it('uses the ref-aware v1 query catalog for lineage table inventory', () => {
+    expect(lineageRoute).toContain('getObservatoryQueryCatalogTables')
+    expect(lineageRoute).not.toContain('getObservatoryTableRecords')
+    expect(resources).toContain('getQueryCatalog({ data: { environment } })')
+    expect(routerSource('v1_query.py')).toContain(
+      '@router.get("/query/catalog"',
+    )
+  })
 })
