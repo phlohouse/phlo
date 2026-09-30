@@ -620,7 +620,7 @@ class JWTAuthenticationProvider:
             self._secret = b""
         else:
             if not secret:
-                raise ValueError("JWT secret or JWKS URL is required")
+                raise ValueError("JWT secret is required when no JWKS URL is configured")
             self._secret = secret.encode("utf-8")
             self._oidc_validator = None
         self._issuer = issuer

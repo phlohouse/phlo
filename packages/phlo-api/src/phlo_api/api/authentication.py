@@ -187,8 +187,13 @@ def get_request_principal(request: Request) -> AuthPrincipal | None:
         request.state[_AUTH_PRINCIPAL_CACHE_KEY] = None
         return None
 
-    result = authenticate_request(request)
-    principal = result.principal if result.authenticated else None
+    try:
+        principal = provider.current_principal(create_request_context(request))
+    except OIDCVerificationUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "reason": "oidc_verification_unavailable"},
+        ) from exc
     request.state[_AUTH_PRINCIPAL_CACHE_KEY] = principal
     return principal
 
