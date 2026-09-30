@@ -22,9 +22,9 @@ from phlo.capabilities import AuthenticationProviderSpec, clear_all_capabilities
 from phlo.capabilities.registry import register_capability
 from phlo.infrastructure.config import clear_config_cache
 from phlo_api.api.authentication import (
-    authenticate_request,
     create_request_context,
     get_authentication_provider,
+    get_request_principal,
 )
 
 
@@ -210,7 +210,7 @@ def test_oidc_jwks_outage_returns_service_unavailable(monkeypatch) -> None:
     from phlo.security.oidc_identity import OIDCVerificationUnavailable
 
     class UnavailableProvider:
-        def authenticate(self, _context):
+        def current_principal(self, _context):
             raise OIDCVerificationUnavailable
 
     request = Request(
@@ -231,7 +231,7 @@ def test_oidc_jwks_outage_returns_service_unavailable(monkeypatch) -> None:
     )
 
     with pytest.raises(HTTPException) as error:
-        authenticate_request(request)
+        get_request_principal(request)
 
     assert error.value.status_code == 503
 
