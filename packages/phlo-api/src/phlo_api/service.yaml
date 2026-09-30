@@ -20,6 +20,18 @@ depends_on:
 compose:
     restart: unless-stopped
     labels:
+        traefik.enable: "true"
+        traefik.http.routers.phlo-api.rule: "Host(`api.${TRAEFIK_DOMAIN:-phlo.localhost}`) && !PathPrefix(`/oauth2/`)"
+        traefik.http.routers.phlo-api.entrypoints: "web"
+        traefik.http.routers.phlo-api.middlewares: "phlo-api-auth,phlo-api-login"
+        traefik.http.routers.phlo-api.service: "phlo-api"
+        traefik.http.services.phlo-api.loadbalancer.server.port: "4000"
+        traefik.http.middlewares.phlo-api-auth.forwardauth.address: "http://oauth2-proxy:4180/oauth2/auth"
+        traefik.http.middlewares.phlo-api-auth.forwardauth.trustForwardHeader: "false"
+        traefik.http.middlewares.phlo-api-auth.forwardauth.authResponseHeaders: "X-Auth-Request-Access-Token"
+        traefik.http.middlewares.phlo-api-login.errors.status: "401"
+        traefik.http.middlewares.phlo-api-login.errors.service: "oauth2-proxy@docker"
+        traefik.http.middlewares.phlo-api-login.errors.query: "/oauth2/sign_in?rd={url}"
         phlo.metrics.enabled: "true"
         phlo.metrics.port: "phlo-api:4000"
         phlo.metrics.path: "/api/maintenance/metrics"
@@ -28,8 +40,18 @@ compose:
         PORT: 4000
         PYTHONUNBUFFERED: "1"
         PHLO_AUTHORIZATION_MODE: ${PHLO_AUTHORIZATION_MODE:-required}
+        PHLO_AUTHENTICATION_PROVIDER: ${PHLO_AUTHENTICATION_PROVIDER:-}
         PHLO_SERVICE_CREDENTIALS_FILE: ${PHLO_SERVICE_CREDENTIALS_FILE:-}
         PHLO_IDENTITY_AUTHORITY_ENABLED: ${PHLO_IDENTITY_AUTHORITY_ENABLED:-1}
+        PHLO_AUTH_JWT_SECRET: ${PHLO_AUTH_JWT_SECRET:-}
+        PHLO_AUTH_JWT_ISSUER: ${PHLO_AUTH_JWT_ISSUER:-}
+        PHLO_AUTH_JWT_AUDIENCE: ${PHLO_AUTH_JWT_AUDIENCE:-}
+        PHLO_AUTH_JWT_JWKS_URL: ${PHLO_AUTH_JWT_JWKS_URL:-}
+        PHLO_AUTH_JWT_GROUPS_CLAIM: ${PHLO_AUTH_JWT_GROUPS_CLAIM:-groups}
+        PHLO_AUTH_JWT_CA_FILE: ${PHLO_AUTH_JWT_CA_FILE:-}
+        PHLO_AUTH_JWT_LEEWAY: ${PHLO_AUTH_JWT_LEEWAY:-30}
+        PHLO_AUTH_JWT_JWKS_CACHE_TTL_SECONDS: ${PHLO_AUTH_JWT_JWKS_CACHE_TTL_SECONDS:-300}
+        PHLO_AUTH_JWT_REFRESH_MIN_INTERVAL_SECONDS: ${PHLO_AUTH_JWT_REFRESH_MIN_INTERVAL_SECONDS:-5}
         PHLO_SIGNATURE_HMAC_KEY: ${PHLO_SIGNATURE_HMAC_KEY:-}
         PHLO_V1_ENVIRONMENTS: ${PHLO_V1_ENVIRONMENTS:-}
         PHLO_V1_MAINTENANCE_WINDOWS: ${PHLO_V1_MAINTENANCE_WINDOWS:-}
@@ -94,6 +116,37 @@ env_vars:
     PHLO_API_PORT:
         default: 4000
         description: Phlo API port
+    PHLO_AUTHENTICATION_PROVIDER:
+        default: ""
+        description: Explicit authentication provider selection; use jwt with issuer, audience, and JWKS for human OIDC tokens
+    PHLO_AUTH_JWT_SECRET:
+        default: ""
+        description: Legacy HS256 signing secret for non-production JWT authentication
+        secret: true
+    PHLO_AUTH_JWT_ISSUER:
+        default: ""
+        description: Exact OIDC issuer accepted for human JWTs
+    PHLO_AUTH_JWT_AUDIENCE:
+        default: ""
+        description: Required audience for human JWTs (normally phlo-api)
+    PHLO_AUTH_JWT_JWKS_URL:
+        default: ""
+        description: HTTPS JWKS endpoint used to verify issuer-signed RS256 tokens
+    PHLO_AUTH_JWT_GROUPS_CLAIM:
+        default: groups
+        description: OIDC claim containing role/group identifiers
+    PHLO_AUTH_JWT_CA_FILE:
+        default: ""
+        description: Optional CA bundle path for private OIDC JWKS endpoints
+    PHLO_AUTH_JWT_LEEWAY:
+        default: 30
+        description: Bounded clock-skew allowance for OIDC token validation in seconds
+    PHLO_AUTH_JWT_JWKS_CACHE_TTL_SECONDS:
+        default: 300
+        description: Bounded OIDC signing key cache lifetime in seconds
+    PHLO_AUTH_JWT_REFRESH_MIN_INTERVAL_SECONDS:
+        default: 5
+        description: Minimum interval between OIDC JWKS refresh attempts
     PHLO_IDENTITY_AUTHORITY_ENABLED:
         default: "1"
         description: Use Phlo's durable shared identity authority for managed role assignments and service accounts
@@ -170,6 +223,16 @@ dev:
         PYTHONUNBUFFERED: "1"
         PHLO_DEV_MODE: "true"
         PHLO_IDENTITY_AUTHORITY_ENABLED: ${PHLO_IDENTITY_AUTHORITY_ENABLED:-1}
+        PHLO_AUTHENTICATION_PROVIDER: ${PHLO_AUTHENTICATION_PROVIDER:-}
+        PHLO_AUTH_JWT_SECRET: ${PHLO_AUTH_JWT_SECRET:-}
+        PHLO_AUTH_JWT_ISSUER: ${PHLO_AUTH_JWT_ISSUER:-}
+        PHLO_AUTH_JWT_AUDIENCE: ${PHLO_AUTH_JWT_AUDIENCE:-}
+        PHLO_AUTH_JWT_JWKS_URL: ${PHLO_AUTH_JWT_JWKS_URL:-}
+        PHLO_AUTH_JWT_GROUPS_CLAIM: ${PHLO_AUTH_JWT_GROUPS_CLAIM:-groups}
+        PHLO_AUTH_JWT_CA_FILE: ${PHLO_AUTH_JWT_CA_FILE:-}
+        PHLO_AUTH_JWT_LEEWAY: ${PHLO_AUTH_JWT_LEEWAY:-30}
+        PHLO_AUTH_JWT_JWKS_CACHE_TTL_SECONDS: ${PHLO_AUTH_JWT_JWKS_CACHE_TTL_SECONDS:-300}
+        PHLO_AUTH_JWT_REFRESH_MIN_INTERVAL_SECONDS: ${PHLO_AUTH_JWT_REFRESH_MIN_INTERVAL_SECONDS:-5}
         DAGSTER_GRAPHQL_URL: "http://127.0.0.1:${DAGSTER_PORT:-10006}/graphql"
         NESSIE_URL: "http://127.0.0.1:${NESSIE_PORT:-10003}/api/v2"
         PHLO_V1_ENVIRONMENTS: ${PHLO_V1_ENVIRONMENTS:-}

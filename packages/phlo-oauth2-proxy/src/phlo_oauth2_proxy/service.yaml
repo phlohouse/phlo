@@ -10,6 +10,12 @@ compose:
   restart: unless-stopped
   labels:
     phlo.metrics.enabled: "false"
+    traefik.enable: "true"
+    traefik.http.routers.oauth2-proxy.rule: "Host(`api.${TRAEFIK_DOMAIN:-phlo.localhost}`) && PathPrefix(`/oauth2/`)"
+    traefik.http.routers.oauth2-proxy.entrypoints: "web"
+    traefik.http.routers.oauth2-proxy.priority: "100"
+    traefik.http.routers.oauth2-proxy.service: "oauth2-proxy"
+    traefik.http.services.oauth2-proxy.loadbalancer.server.port: "4180"
   environment:
     OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
     OAUTH2_PROXY_REVERSE_PROXY: "true"

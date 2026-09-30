@@ -133,9 +133,32 @@ services:
 
 Precedence is `env vars` -> `services.phlo-api.authorization` -> `api.authorization`.
 
-## Proxy Authentication Flow
+## OIDC browser authentication
 
-For production deployments, Traefik + oauth2-proxy provides browser SSO:
+For browser SSO, run the `api` and `proxy` profiles with Traefik and oauth2-proxy, backed by an OIDC provider such as Authentik. Phlo routes `/oauth2/*` to oauth2-proxy, redirects unauthenticated browser requests to its sign-in page, and protects the API route with forward-auth. oauth2-proxy owns the browser session; `phlo-api` validates the signed access token itself. Forwarded user, email, and group headers are not authentication credentials and are not trusted by the API. Phlo does not install or configure an Authentik server; operators provision the OIDC provider and client.
+
+Configure the same issuer and audience at both layers. For Authentik, use the provider's exact issuer URL and configure the token audience accepted by `phlo-api` (commonly the OIDC client ID). Publish the groups claim in the access token if Phlo RBAC is mapped to identity-provider groups.
+
+Set these values in the deployment environment (keep client and cookie secrets in the deployment's secret store):
+
+```dotenv
+PHLO_AUTHENTICATION_PROVIDER=jwt
+PHLO_AUTH_JWT_ISSUER=https://auth.example.com/application/o/phlo/
+PHLO_AUTH_JWT_AUDIENCE=phlo-api
+PHLO_AUTH_JWT_JWKS_URL=https://auth.example.com/application/o/phlo/jwks/
+PHLO_AUTH_JWT_GROUPS_CLAIM=groups
+OAUTH2_PROXY_PROVIDER=oidc
+OAUTH2_PROXY_OIDC_ISSUER_URL=https://auth.example.com/application/o/phlo/
+OAUTH2_PROXY_CLIENT_ID=phlo-api
+OAUTH2_PROXY_CLIENT_SECRET=<secret>
+OAUTH2_PROXY_COOKIE_SECRET=<generated-secret>
+OAUTH2_PROXY_COOKIE_SECURE=true
+OAUTH2_PROXY_REDIRECT_URL=https://api.example.com/oauth2/callback
+```
+
+The issuer, JWKS endpoint, client ID, and audience above are examples: set them to the exact values configured in Authentik. Set `TRAEFIK_DOMAIN` to the host suffix used by the API router, and terminate HTTPS at the trusted edge before forwarding to Traefik. Do not expose the API directly to untrusted networks; direct bearer-token requests are signature-checked, but only the edge provides the browser login flow. Production startup requires issuer, audience, and JWKS configuration; it does not accept the legacy shared-secret JWT mode.
+
+The request path is:
 
 ```mermaid
 sequenceDiagram
@@ -151,28 +174,14 @@ sequenceDiagram
     oauth2-proxy->>Browser: Set session cookie
     Browser->>Traefik: GET /api/datasets (with cookie)
     Traefik->>oauth2-proxy: forwardAuth /oauth2/auth
-    oauth2-proxy-->>Traefik: 202 + X-Forwarded-* headers
-    Traefik->>phlo-api: Proxy request + identity headers
-    phlo-api->>phlo-api: Validate proxy headers
+    oauth2-proxy-->>Traefik: 202 + X-Auth-Request-Access-Token
+    Traefik->>phlo-api: Proxy request + signed access token
+    phlo-api->>phlo-api: Verify signature, issuer, audience, and time claims via JWKS
     phlo-api-->>Traefik: 200 OK
     Traefik-->>Browser: Response
 ```
 
-Identity headers passed to phlo-api:
-
-- `X-Forwarded-User` - authenticated user identifier
-- `X-Forwarded-Email` - authenticated user email
-- `X-Forwarded-Groups` - comma-separated group list
-
-Configure trusted proxies in `phlo.yaml`:
-
-```yaml
-authentication:
-  provider: proxy
-  proxy:
-    trusted_proxies:
-      - 172.16.0.0/12
-```
+The API and oauth2-proxy service definitions include the Traefik routes and forward-auth chain; the callback route is excluded from API authentication to avoid a redirect loop. Forward-auth passes only `X-Auth-Request-Access-Token`. The `jwt` provider verifies it against the configured issuer and JWKS; identity headers such as `X-Forwarded-User` and `X-Forwarded-Groups` cannot establish identity. If JWKS becomes unavailable after its bounded cache expires, authentication fails closed with HTTP 503 until verification material is available again.
 
 ## What Phlo enforces vs what operators still own
 
