@@ -62,6 +62,7 @@ def token(
         "aud": audience,
         "sub": subject,
         "iat": current,
+        "nbf": current,
         "exp": current + expires_in,
         "groups": groups or ["viewer"],
         "email": subject,

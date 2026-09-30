@@ -197,7 +197,7 @@ def test_regulated_validation_requires_jwt_issuer_and_audience(monkeypatch) -> N
     from phlo.security.validation import _check_identity_provider
 
     monkeypatch.setenv("PHLO_AUTHENTICATION_PROVIDER", "jwt")
-    monkeypatch.setenv("PHLO_AUTH_JWT_SECRET", "secret")
+    monkeypatch.setenv("PHLO_AUTH_JWT_JWKS_URL", "https://issuer.example/jwks.json")
     monkeypatch.delenv("PHLO_AUTH_JWT_ISSUER", raising=False)
     monkeypatch.delenv("PHLO_AUTH_JWT_AUDIENCE", raising=False)
 

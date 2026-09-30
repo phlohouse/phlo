@@ -48,6 +48,7 @@ from phlo.capabilities import (
 )
 from phlo.infrastructure.config import get_configured_authentication_provider_name
 from phlo.logging import get_logger
+from phlo.security.oidc_identity import OIDCVerificationUnavailable
 
 logger = get_logger(__name__)
 
@@ -109,6 +110,10 @@ def create_request_context(request: Request) -> RequestContext:
     headers_dict: dict[str, str] = {}
     for key, value in request.headers.items():
         headers_dict[key.lower()] = value
+    if "authorization" not in headers_dict:
+        access_token = headers_dict.get("x-auth-request-access-token", "")
+        if access_token and "\r" not in access_token and "\n" not in access_token:
+            headers_dict["authorization"] = f"Bearer {access_token}"
     cookies_dict = dict(request.cookies)
     query_params_dict = dict(request.query_params)
 
@@ -151,7 +156,13 @@ def authenticate_request(request: Request) -> AuthResult:
         return result
 
     request_context = create_request_context(request)
-    result = provider.authenticate(request_context)
+    try:
+        result = provider.authenticate(request_context)
+    except OIDCVerificationUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "reason": "oidc_verification_unavailable"},
+        ) from exc
     request.state[_AUTH_RESULT_CACHE_KEY] = result
     return result
 
@@ -176,8 +187,8 @@ def get_request_principal(request: Request) -> AuthPrincipal | None:
         request.state[_AUTH_PRINCIPAL_CACHE_KEY] = None
         return None
 
-    request_context = create_request_context(request)
-    principal = provider.current_principal(request_context)
+    result = authenticate_request(request)
+    principal = result.principal if result.authenticated else None
     request.state[_AUTH_PRINCIPAL_CACHE_KEY] = principal
     return principal
 
@@ -270,8 +281,13 @@ def optional_authenticate(request: Request) -> AuthPrincipal | None:
     if provider is None:
         return None
 
-    request_context = create_request_context(request)
-    result = provider.authenticate(request_context)
+    try:
+        result = provider.authenticate(create_request_context(request))
+    except OIDCVerificationUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "reason": "oidc_verification_unavailable"},
+        ) from exc
 
     if result.authenticated and result.principal is not None:
         return result.principal

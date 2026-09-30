@@ -372,10 +372,10 @@ def _check_identity_provider() -> ValidationResult:
     block = block if isinstance(block, dict) else {}
     secret_env = {
         "proxy": "PHLO_AUTH_PROXY_SHARED_SECRET",
-        "jwt": "PHLO_AUTH_JWT_SECRET",
+        "jwt": "PHLO_AUTH_JWT_JWKS_URL",
         "service_token": "PHLO_AUTH_SERVICE_TOKENS",
     }[configured_name]
-    config_key = {"proxy": "shared_secret", "jwt": "secret", "service_token": "tokens"}[
+    config_key = {"proxy": "shared_secret", "jwt": "jwks_url", "service_token": "tokens"}[
         configured_name
     ]
     if not os.environ.get(secret_env, "").strip() and not block.get(config_key):
@@ -388,6 +388,7 @@ def _check_identity_provider() -> ValidationResult:
     if configured_name == "jwt":
         issuer = os.environ.get("PHLO_AUTH_JWT_ISSUER", "").strip() or block.get("issuer")
         audience = os.environ.get("PHLO_AUTH_JWT_AUDIENCE", "").strip() or block.get("audience")
+        jwks_url = os.environ.get("PHLO_AUTH_JWT_JWKS_URL", "").strip() or block.get("jwks_url")
         if not isinstance(issuer, str) or not issuer.strip():
             return ValidationResult(
                 name="identity_provider_configured",
@@ -399,6 +400,12 @@ def _check_identity_provider() -> ValidationResult:
                 name="identity_provider_configured",
                 passed=False,
                 message="Regulated jwt provider requires PHLO_AUTH_JWT_AUDIENCE",
+            )
+        if not isinstance(jwks_url, str) or not jwks_url.strip():
+            return ValidationResult(
+                name="identity_provider_configured",
+                passed=False,
+                message="Regulated jwt provider requires PHLO_AUTH_JWT_JWKS_URL",
             )
     elif configured_name == "service_token":
         try:

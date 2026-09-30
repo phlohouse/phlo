@@ -1,7 +1,7 @@
 """Tests for the oauth2-proxy service plugin.
 
 Pins the auth-category, proxy-profile service definition with a
-digest-pinned upstream image and no Traefik public-route label; the
+digest-pinned upstream image and an oauth2 callback-only Traefik route; the
 distroless image must not claim an in-container health check.
 """
 
@@ -29,13 +29,22 @@ def test_oauth2_proxy_plugin_metadata():
     assert "oidc" in meta.tags
 
 
-def test_oauth2_proxy_not_publicly_routed():
-    """Verify oauth2-proxy has no traefik.enable label (internal only)."""
+def test_oauth2_proxy_exposes_only_its_callback_path_through_traefik():
+    """Verify oauth2-proxy is reachable only at the shared auth callback path."""
     plugin = Oauth2ProxyServicePlugin()
     defn = plugin.service_definition
     labels = defn.get("compose", {}).get("labels", {})
 
-    assert labels.get("traefik.enable") != "true"
+    assert labels["traefik.enable"] == "true"
+    assert labels["traefik.http.routers.oauth2-proxy.rule"] == (
+        "Host(`api.${TRAEFIK_DOMAIN:-phlo.localhost}`) && PathPrefix(`/oauth2/`)"
+    )
+    assert labels["traefik.http.routers.oauth2-proxy.entrypoints"] == "web"
+    assert labels["traefik.http.routers.oauth2-proxy.priority"] == "100"
+    assert labels["traefik.http.services.oauth2-proxy.loadbalancer.server.port"] == "4180"
+    environment = defn["compose"]["environment"]
+    assert environment["OAUTH2_PROXY_SET_XAUTHREQUEST"] == "true"
+    assert environment["OAUTH2_PROXY_PASS_ACCESS_TOKEN"] == "true"
 
 
 def test_oauth2_proxy_image_pinned():
