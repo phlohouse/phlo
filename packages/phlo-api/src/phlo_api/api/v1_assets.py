@@ -55,16 +55,23 @@ _OVERVIEW_CHECK_ASSET_LIMIT = 50
 _OVERVIEW_CHECK_LIMIT = 100
 
 ASSET_QUERY = """query V1Assets {
-  assetNodes {
-    id assetKey { path } description computeKind groupName isMaterializable isObservable isPartitioned
-    repository { name location { name } }
-    dependencyKeys { path }
-    metadataEntries { label ... on TextMetadataEntry { text } }
-    assetMaterializations(limit: 1) {
-      timestamp runId partition
-      runOrError {
-        __typename
-        ... on Run { runId status tags { key value } repositoryOrigin { repositoryLocationName } }
+  repositoriesOrError {
+    __typename
+    ... on RepositoryConnection {
+      nodes {
+        assetNodes {
+          id assetKey { path } description computeKind groupName isMaterializable isObservable isPartitioned
+          repository { name location { name } }
+          dependencyKeys { path }
+          metadataEntries { label ... on TextMetadataEntry { text } }
+          assetMaterializations(limit: 1) {
+            timestamp runId partition
+            runOrError {
+              __typename
+              ... on Run { runId status tags { key value } repositoryOrigin { repositoryLocationName } }
+            }
+          }
+        }
       }
     }
   }
@@ -568,7 +575,7 @@ def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
     )
     try:
         observed = (
-            datetime.fromtimestamp(float(latest["timestamp"]), UTC)
+            datetime.fromtimestamp(float(latest["timestamp"]) / 1000, UTC)
             if verified and isinstance(latest, dict)
             else None
         )
@@ -671,11 +678,25 @@ async def _assets(
     location = target.dagster_location
     result = await _graphql(ASSET_QUERY)
     data = result.get("data") if isinstance(result, dict) else None
-    nodes = data.get("assetNodes") if isinstance(data, dict) else None
-    if result.get("errors") or not isinstance(nodes, list):
+    repositories = data.get("repositoriesOrError") if isinstance(data, dict) else None
+    repositories_nodes = (
+        repositories.get("nodes")
+        if isinstance(repositories, dict)
+        and repositories.get("__typename") == "RepositoryConnection"
+        else None
+    )
+    if result.get("errors") or not isinstance(repositories_nodes, list):
         raise BadGatewayError("Dagster returned an invalid asset inventory.")
-    raw_nodes = [node for node in nodes if isinstance(node, dict)]
-    if len(raw_nodes) != len(nodes):
+    raw_nodes = [
+        asset
+        for repository in repositories_nodes
+        if isinstance(repository, dict) and isinstance(repository.get("assetNodes"), list)
+        for asset in repository["assetNodes"]
+    ]
+    if any(
+        not isinstance(repository, dict) or not isinstance(repository.get("assetNodes"), list)
+        for repository in repositories_nodes
+    ) or any(not isinstance(node, dict) for node in raw_nodes):
         raise BadGatewayError("Dagster returned an invalid asset inventory.")
     assets = [_asset_view(node, target.nessie_ref) for node in raw_nodes]
     locations = [_repository_location(node) for node in raw_nodes]

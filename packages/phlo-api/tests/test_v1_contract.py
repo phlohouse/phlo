@@ -199,6 +199,10 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/branches/{branch_name}/merge",
         "/api/v1/branches/{branch_name}/rebase",
         "/api/v1/branches/{branch_name}/trial-merge",
+        "/api/v1/staging/promotions",
+        "/api/v1/staging/promotions/candidate",
+        "/api/v1/staging/promotions/candidate/checks",
+        "/api/v1/staging/resync",
     }
     legacy = {(method, path) for method, path in documented if not path.startswith("/api/v1/")}
 

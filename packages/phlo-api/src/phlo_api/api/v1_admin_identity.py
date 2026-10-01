@@ -47,6 +47,7 @@ SignedAction = Literal[
     "admin.service_account.revoke",
     "incident.resolve",
     "branch.merge",
+    "staging.promote",
 ]
 SignatureMeaningValue = Literal["approved", "released", "reviewed", "acknowledged", "authored"]
 _SETTINGS_KEY = "phlo.identity.admin-settings"
@@ -131,7 +132,9 @@ class ServiceAccountCreated(WireModel):
 
 class SignatureCreate(WireModel):
     action: SignedAction
-    target_type: Literal["member", "invitation", "service_account", "incident", "branch"]
+    target_type: Literal[
+        "member", "invitation", "service_account", "incident", "branch", "promotion"
+    ]
     target_id: str = Field(min_length=1, max_length=512)
     target_version: str = Field(min_length=1, max_length=256)
     meaning: SignatureMeaningValue = "approved"
@@ -699,7 +702,13 @@ def v1_admin_service_account_revoke(
 
 
 @router.post("/signatures", response_model=SignatureView, status_code=201)
-def v1_signature_create(payload: SignatureCreate, request: Request) -> SignatureView:
+def v1_signature_create(
+    payload: SignatureCreate,
+    request: Request,
+    idempotency_key: Annotated[
+        str | None, Header(alias="Idempotency-Key", min_length=1, max_length=200)
+    ] = None,
+) -> SignatureView:
     result = authenticate_request(request)
     if not result.authenticated or result.principal is None or result.session is None:
         raise HTTPException(status_code=401, detail="Authenticated session is required.")
@@ -738,7 +747,11 @@ def v1_signature_create(payload: SignatureCreate, request: Request) -> Signature
         signature_repository=authority,
     )
     try:
-        record = _identity_call(lambda: service.sign(signature_request, session))
+        record = _identity_call(
+            lambda: service.sign(signature_request, session, idempotency_key=idempotency_key)
+        )
+    except IdentityConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(
             status_code=403, detail="Recent MFA authentication is required."
