@@ -8,10 +8,12 @@ import time
 from typing import Any
 
 import jwt
+import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from phlo.capabilities import RequestContext
 from phlo.capabilities.authentication import JWTAuthenticationProvider
+from phlo.compliance.signatures.step_up import RecentMfaClaimsChallenge
 
 
 class _Response:
@@ -103,9 +105,62 @@ def test_jwt_provider_accepts_only_valid_rs256_claims(monkeypatch) -> None:
     assert result.principal.claims["scopes"] == ["openid", "phlo-api"]
 
 
+def test_jwt_provider_accepts_valid_rs256_token_without_optional_nbf(monkeypatch) -> None:
+    provider, private_key = _provider(monkeypatch)
+    now = int(time.time())
+    token = jwt.encode(
+        {
+            "iss": "https://issuer.test",
+            "aud": "phlo-api",
+            "sub": "user",
+            "iat": now,
+            "exp": now + 60,
+        },
+        private_key,
+        algorithm="RS256",
+        headers={"kid": "one"},
+    )
+
+    assert provider.validate_token(token) is not None
+
+
+@pytest.mark.parametrize(
+    ("age", "methods", "permitted"),
+    [(1, ["pwd", "mfa"], True), (301, ["pwd", "mfa"], False), (1, ["pwd"], False)],
+)
+def test_verified_oidc_session_preserves_step_up_evidence(
+    monkeypatch, age, methods, permitted
+) -> None:
+    provider, private_key = _provider(monkeypatch)
+    authenticated_at = int(time.time()) - age
+    session = provider.validate_token(_token(private_key, auth_time=authenticated_at, amr=methods))
+
+    assert session is not None
+    assert RecentMfaClaimsChallenge().challenge(session).success is permitted
+    assert session.principal.claims["auth_time"] == authenticated_at
+    assert session.principal.claims["amr"] == methods
+
+
 def test_jwt_provider_rejects_wrong_audience_and_hs256(monkeypatch) -> None:
     provider, private_key = _provider(monkeypatch)
     wrong_audience = _token(private_key, aud="other")
+    wrong_issuer = _token(private_key, iss="https://wrong-issuer.test")
+    now = int(time.time())
+    expired = _token(private_key, iat=now - 120, nbf=now - 120, exp=now - 60)
+    missing_subject = jwt.encode(
+        {
+            "iss": "https://issuer.test",
+            "aud": "phlo-api",
+            "iat": now,
+            "exp": now + 60,
+        },
+        private_key,
+        algorithm="RS256",
+        headers={"kid": "one"},
+    )
+    valid = _token(private_key)
+    header, payload, signature = valid.split(".")
+    invalid_signature = f"{header}.{payload}.{'A' if signature[0] != 'A' else 'B'}{signature[1:]}"
     hs256 = jwt.encode(
         {
             "iss": "https://issuer.test",
@@ -120,5 +175,12 @@ def test_jwt_provider_rejects_wrong_audience_and_hs256(monkeypatch) -> None:
         headers={"kid": "one"},
     )
 
-    for token in (wrong_audience, hs256):
+    for token in (
+        wrong_audience,
+        wrong_issuer,
+        expired,
+        missing_subject,
+        invalid_signature,
+        hs256,
+    ):
         assert provider.validate_token(token) is None

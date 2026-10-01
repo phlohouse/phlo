@@ -23,13 +23,15 @@ compose:
         traefik.enable: "true"
         traefik.http.routers.phlo-api.rule: "Host(`api.${TRAEFIK_DOMAIN:-phlo.localhost}`) && !PathPrefix(`/oauth2/`)"
         traefik.http.routers.phlo-api.entrypoints: "web"
-        traefik.http.routers.phlo-api.middlewares: "phlo-api-auth,phlo-api-login"
+        traefik.http.routers.phlo-api.middlewares: "phlo-api-login,phlo-api-auth"
         traefik.http.routers.phlo-api.service: "phlo-api"
         traefik.http.services.phlo-api.loadbalancer.server.port: "4000"
         traefik.http.middlewares.phlo-api-auth.forwardauth.address: "http://oauth2-proxy:4180/oauth2/auth"
         traefik.http.middlewares.phlo-api-auth.forwardauth.trustForwardHeader: "false"
         traefik.http.middlewares.phlo-api-auth.forwardauth.authResponseHeaders: "X-Auth-Request-Access-Token"
+        traefik.http.middlewares.phlo-api-auth.forwardauth.addAuthCookiesToResponse: "${OAUTH2_PROXY_AUTH_COOKIES:-_oauth2_proxy}"
         traefik.http.middlewares.phlo-api-login.errors.status: "401"
+        traefik.http.middlewares.phlo-api-login.errors.statusRewrites.401: "302"
         traefik.http.middlewares.phlo-api-login.errors.service: "oauth2-proxy@docker"
         traefik.http.middlewares.phlo-api-login.errors.query: "/oauth2/sign_in?rd={url}"
         phlo.metrics.enabled: "true"
@@ -74,6 +76,7 @@ compose:
         CLICKSTACK_QUERY_USER: ${CLICKSTACK_QUERY_USER:-}
         CLICKSTACK_QUERY_PASSWORD: ${CLICKSTACK_QUERY_PASSWORD:-}
         PHLO_PROJECT_PATH: /app
+        POSTGRES_PORT: "5432"
         PHLO_RUN_EVIDENCE_DB_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:-phlo}@postgres:5432/${POSTGRES_DB:-phlo}
     ports:
         - "${PHLO_API_PORT:-4000}:4000"
@@ -110,6 +113,9 @@ env_vars:
     PHLO_API_PORT:
         default: 4000
         description: Phlo API port
+    OAUTH2_PROXY_AUTH_COOKIES:
+        default: _oauth2_proxy
+        description: Comma-separated session cookie names forwarded after refresh; include all chunk names if oauth2-proxy splits a large cookie
     PHLO_AUTHENTICATION_PROVIDER:
         default: ""
         description: Explicit authentication provider selection; use jwt with issuer, audience, and JWKS for human OIDC tokens
