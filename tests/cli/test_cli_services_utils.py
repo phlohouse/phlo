@@ -45,6 +45,23 @@ def test_emit_service_lifecycle_events_preserves_request_correlation(
     assert all(event.phase == "pre_start" for event in lifecycle_events)
 
 
+def test_expand_service_dependencies_includes_inline_definitions() -> None:
+    postgres = _service("postgres")
+    inline = ServiceDefinition.from_inline(
+        "authentik",
+        {"type": "inline", "image": "nginx:alpine", "depends_on": ["postgres"]},
+    )
+    discovery = FakeDiscovery({postgres.name: postgres})
+
+    expanded = service_utils.expand_service_dependencies(
+        discovery,
+        [inline],
+        additional_services=[inline],
+    )
+
+    assert [service.name for service in expanded] == ["postgres", "authentik"]
+
+
 def test_run_service_hooks_skips_missing_dependency(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

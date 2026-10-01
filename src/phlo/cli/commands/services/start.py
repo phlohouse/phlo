@@ -42,6 +42,7 @@ from phlo.cli.commands.services.utils import (
     expand_service_dependencies,
     get_enabled_disabled_service_names,
     get_profile_service_names,
+    inline_service_definitions,
     require_container_backend,
     stage_uv_lock_metadata,
     stale_generated_build_inputs,
@@ -474,12 +475,20 @@ def _expand_requested_services(
         return []
 
     all_services = discovery.discover()
+    inline_services = inline_service_definitions(_load_project_config(Path.cwd()))
+    all_services.update({service.name: service for service in inline_services})
     unknown_services = [name for name in service_names if name not in all_services]
     if unknown_services:
         raise click.ClickException(f"Unknown service name(s): {', '.join(unknown_services)}")
 
     requested = [all_services[name] for name in service_names]
-    return expand_service_dependencies(discovery, requested)
+    if not inline_services:
+        return expand_service_dependencies(discovery, requested)
+    return expand_service_dependencies(
+        discovery,
+        requested,
+        additional_services=inline_services,
+    )
 
 
 def _preflight_required_env_vars(
