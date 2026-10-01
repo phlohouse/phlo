@@ -10,6 +10,9 @@ export default defineConfig({
   ],
   test: {
     environment: 'node',
-    include: ['src/**/*.{test,spec}.?(c|m)[jt]s?(x)'],
+    include: [
+      'src/**/*.{test,spec}.?(c|m)[jt]s?(x)',
+      'replacement/src/**/*.{test,spec}.?(c|m)[jt]s?(x)',
+    ],
   },
 })

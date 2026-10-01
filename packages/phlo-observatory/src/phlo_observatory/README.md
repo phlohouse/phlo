@@ -1,12 +1,18 @@
-Welcome to your new TanStack app!
+# Observatory frontends
+
+This directory contains the legacy frontend and the `replacement` npm workspace.
+Install both with `npm ci` here. `OBSERVATORY_UI` defaults to `legacy` in the
+service package. Set it to `replacement` to select the API-backed UI.
+See [replacement setup](replacement/README.md) for its build, authentication,
+and verification commands. The remaining instructions describe the legacy app.
 
 # Getting Started
 
 To run this application:
 
 ```bash
-npm install
-npm run start
+npm ci
+npm run dev
 ```
 
 ## Dev Host Configuration
