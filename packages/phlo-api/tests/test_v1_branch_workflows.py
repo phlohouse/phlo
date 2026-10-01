@@ -94,6 +94,13 @@ def branch_api(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, dict[str, l
             return refs[name]
         if method == "POST" and path.endswith("/history/transplant"):
             dry_run = body["isDryRun"]
+            assert body["isReturnConflictAsResult"] is True
+            assert body["isFetchAdditionalInfo"] is True
+            assert not dry_run, (
+                "Rebase must replay on its isolated branch, not use Nessie's dry run."
+            )
+            target_name = unquote(path.removeprefix("/api/v2/trees/")).split("@", 1)[0]
+            refs[target_name]["hash"] = "rebased-hash"
             return {
                 "wasApplied": not dry_run,
                 "wasSuccessful": True,
@@ -341,12 +348,57 @@ def test_branch_rebase_transplants_commits_oldest_first_with_cas(
         for method, path, _, body in calls["requests"]
         if method == "POST" and path.endswith("/history/transplant")
     ]
-    assert len(transplant_requests) == 2
-    assert [item["isDryRun"] for item in transplant_requests] == [True, False]
+    assert len(transplant_requests) == 1
+    assert transplant_requests[0]["isDryRun"] is False
     assert transplant_requests[0]["hashesToTransplant"] == ["p2"]
     assert any(
         method == "PUT" and params == {"expectedHash": "p2"}
         for method, _, params, _ in calls["requests"]
+    )
+    assert any(
+        method == "DELETE" and params == {"expectedHash": "rebased-hash"}
+        for method, _, params, _ in calls["requests"]
+    )
+
+
+@pytest.mark.parametrize("failure", ["transplant", "source_cas"])
+def test_branch_rebase_cleans_temporary_ref_when_backend_rejects(
+    branch_api, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    from fastapi import HTTPException
+
+    client, calls = branch_api
+    _enable_branch_mutations(monkeypatch)
+    nessie = v1_branch_workflows._nessie
+
+    async def rejecting_nessie(method, path, **kwargs):
+        if (failure == "transplant" and path.endswith("/history/transplant")) or (
+            failure == "source_cas" and method == "PUT" and path.endswith("/prod-feature")
+        ):
+            raise HTTPException(status_code=409, detail="Concurrent update")
+        return await nessie(method, path, **kwargs)
+
+    monkeypatch.setattr(v1_branch_workflows, "_nessie", rejecting_nessie)
+    response = client.post(
+        "/api/v1/branches/prod-feature/rebase?env=prod",
+        headers={"Idempotency-Key": f"rebase-rejected-{failure}"},
+        json={
+            "target": "prod-target",
+            "expected_source_hash": "p2",
+            "expected_target_hash": "p1",
+        },
+    )
+    assert response.status_code == 409
+    assert client.get("/api/v1/branches/prod-feature?env=prod").json()["hash"] == "p2"
+    assert client.get("/api/v1/branches/prod-target?env=prod").json()["hash"] == "p1"
+    assert any(
+        method == "DELETE"
+        and params == {"expectedHash": "p1" if failure == "transplant" else "rebased-hash"}
+        for method, _, params, _ in calls["requests"]
+    )
+    assert not any(
+        ref["name"].startswith("prod-rebase-")
+        for ref in client.get("/api/v1/branches/refs?env=prod").json()["items"]
     )
 
 

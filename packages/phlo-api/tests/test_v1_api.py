@@ -22,6 +22,29 @@ from phlo_api.main import app
 from phlo_api import security_manifest
 
 
+def _asset_inventory_response(nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    repositories: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for node in nodes:
+        repository = node["repository"]
+        key = (repository["name"], repository["location"]["name"])
+        repositories.setdefault(key, []).append(node)
+    return {
+        "data": {
+            "repositoriesOrError": {
+                "__typename": "RepositoryConnection",
+                "nodes": [
+                    {
+                        "name": name,
+                        "location": {"name": location},
+                        "assetNodes": assets,
+                    }
+                    for (name, location), assets in repositories.items()
+                ],
+            }
+        }
+    }
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv(
@@ -560,7 +583,7 @@ def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch
             "dependencyKeys": [],
             "assetMaterializations": [
                 {
-                    "timestamp": "1780000000",
+                    "timestamp": "1780000000000",
                     "runId": "p-run",
                     "partition": None,
                     "runOrError": {
@@ -585,7 +608,7 @@ def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch
             "dependencyKeys": [],
             "assetMaterializations": [
                 {
-                    "timestamp": "1781000000",
+                    "timestamp": "1781000000000",
                     "runId": "s-run",
                     "partition": None,
                     "runOrError": {
@@ -601,7 +624,7 @@ def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch
     ]
 
     async def graphql(url, query, *args, **kwargs):
-        return {"data": {"assetNodes": nodes}}
+        return _asset_inventory_response(nodes)
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     prod = http.get("/api/v1/assets?env=prod&limit=1")
@@ -639,7 +662,7 @@ def test_asset_cursor_is_environment_bound_and_sources_filter_before_page(client
     ]
 
     async def graphql(url, query, *args, **kwargs):
-        return {"data": {"assetNodes": nodes}}
+        return _asset_inventory_response(nodes)
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     first = http.get("/api/v1/sources?env=prod&limit=1")
@@ -672,7 +695,7 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
             "dependencyKeys": [],
             "assetMaterializations": [
                 {
-                    "timestamp": "1780000000",
+                    "timestamp": "1780000000000",
                     "runId": env,
                     "partition": None,
                     "runOrError": {
@@ -725,7 +748,7 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
                     }
                 }
             }
-        return {"data": {"assetNodes": nodes}}
+        return _asset_inventory_response(nodes)
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     monkeypatch.setattr(
@@ -744,6 +767,10 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
     assert item["history_scoped"] is False
     assert item["last_materialization_at"] is None
     assert item["last_run_id"] is None
+    staging = http.get("/api/v1/assets?env=staging")
+    assert staging.status_code == 200
+    assert staging.json()["items"][0]["history_scoped"] is False
+    assert staging.json()["items"][0]["last_run_id"] is None
     run_history = http.get("/api/v1/assets/orders/runs?env=prod")
     assert run_history.status_code == 200
     assert [item["run_id"] for item in run_history.json()["items"]] == ["prod-run"]
@@ -783,8 +810,9 @@ def test_asset_and_overview_require_location_success_and_unpartitioned_evidence(
 
     http, *_ = client
     current_location = "production_jobs" if env == "prod" else "testing_jobs"
+    observed_at = datetime.now(UTC).replace(microsecond=123000)
     materialization = {
-        "timestamp": str(datetime.now(UTC).timestamp()),
+        "timestamp": str(int(observed_at.timestamp() * 1000)),
         "runId": "historical-run",
         "partition": event_partition,
         "runOrError": {
@@ -821,7 +849,7 @@ def test_asset_and_overview_require_location_success_and_unpartitioned_evidence(
     async def graphql(url, query, variables=None):
         if "V1AssetDetail" in query:
             return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **node}}}
-        return {"data": {"assetNodes": [node]}}
+        return _asset_inventory_response([node])
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     monkeypatch.setattr(
@@ -852,6 +880,12 @@ def test_asset_and_overview_require_location_success_and_unpartitioned_evidence(
         if trusted
         else {"fresh": 0, "stale": 0, "unknown": 1}
     )
+    if trusted:
+        expected_timestamp = observed_at.isoformat().replace("+00:00", "Z")
+        assert listed.json()["items"][0]["last_materialization_at"] == expected_timestamp
+        assert detail.json()["schema_observed_at"] == expected_timestamp
+        assert layers.json()["items"][0]["latest_materialization_at"] == expected_timestamp
+        assert overview.json()["latest_materialization_at"] == expected_timestamp
 
 
 def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client, monkeypatch):
@@ -868,7 +902,7 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
         "dependencyKeys": [],
         "assetMaterializations": [
             {
-                "timestamp": "1780000000",
+                "timestamp": "1780000000000",
                 "runId": "p-run",
                 "partition": None,
                 "runOrError": {
@@ -886,7 +920,7 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
         **node,
         "assetMaterializations": [
             {
-                "timestamp": "1780000000",
+                "timestamp": "1780000000000",
                 "runId": "p-run",
                 "partition": None,
                 "runOrError": {
@@ -920,7 +954,7 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
     async def graphql(url, query, variables=None):
         if "V1AssetDetail" in query:
             return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **detail}}}
-        return {"data": {"assetNodes": [node]}}
+        return _asset_inventory_response([node])
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     response = http.get("/api/v1/assets/orders?env=prod")
@@ -1047,29 +1081,27 @@ def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatc
     relation = "warehouse.orders"
 
     async def graphql(query, variables=None):
-        return {
-            "data": {
-                "assetNodes": [
-                    {
-                        "id": "orders-id",
-                        "assetKey": {"path": ["order_current_state"]},
-                        "description": None,
-                        "computeKind": "python",
-                        "groupName": "warehouse",
-                        "isMaterializable": True,
-                        "repository": {
-                            "name": "repo",
-                            "location": {"name": "production_jobs"},
-                        },
-                        "dependencyKeys": [],
-                        "metadataEntries": (
-                            [{"label": "target_table", "text": relation}] if relation else []
-                        ),
-                        "assetMaterializations": [],
-                    }
-                ]
-            }
-        }
+        return _asset_inventory_response(
+            [
+                {
+                    "id": "orders-id",
+                    "assetKey": {"path": ["order_current_state"]},
+                    "description": None,
+                    "computeKind": "python",
+                    "groupName": "warehouse",
+                    "isMaterializable": True,
+                    "repository": {
+                        "name": "repo",
+                        "location": {"name": "production_jobs"},
+                    },
+                    "dependencyKeys": [],
+                    "metadataEntries": (
+                        [{"label": "target_table", "text": relation}] if relation else []
+                    ),
+                    "assetMaterializations": [],
+                }
+            ]
+        )
 
     async def preview(sql, *, catalog, disconnected, limit):
         calls.append((sql, catalog, limit))
@@ -1356,24 +1388,22 @@ def test_asset_preview_refuses_same_key_from_multiple_locations(client, monkeypa
     http, *_ = client
 
     async def graphql(query, variables=None):
-        return {
-            "data": {
-                "assetNodes": [
-                    {
-                        "id": f"{location}-orders",
-                        "assetKey": {"path": ["warehouse", "orders"]},
-                        "description": None,
-                        "computeKind": "python",
-                        "groupName": "warehouse",
-                        "isMaterializable": True,
-                        "repository": {"name": "repo", "location": {"name": location}},
-                        "dependencyKeys": [],
-                        "assetMaterializations": [],
-                    }
-                    for location in ("production_jobs", "testing_jobs")
-                ]
-            }
-        }
+        return _asset_inventory_response(
+            [
+                {
+                    "id": f"{location}-orders",
+                    "assetKey": {"path": ["warehouse", "orders"]},
+                    "description": None,
+                    "computeKind": "python",
+                    "groupName": "warehouse",
+                    "isMaterializable": True,
+                    "repository": {"name": "repo", "location": {"name": location}},
+                    "dependencyKeys": [],
+                    "assetMaterializations": [],
+                }
+                for location in ("production_jobs", "testing_jobs")
+            ]
+        )
 
     async def unexpected_preview(*args, **kwargs):
         raise AssertionError("ambiguous cross-location asset must not reach Trino")
@@ -1406,7 +1436,7 @@ def test_materialize_action_pins_location_ref_and_replay_key(client, monkeypatch
 
     async def graphql(query, variables=None):
         if "V1Assets" in query:
-            return {"data": {"assetNodes": [node]}}
+            return _asset_inventory_response([node])
         return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **node}}}
 
     calls = []
@@ -1531,7 +1561,7 @@ def test_latest_and_all_backfills_are_environment_pinned_and_bounded(client, mon
 
     async def graphql(query, variables=None):
         if "V1Assets" in query:
-            return {"data": {"assetNodes": assets}}
+            return _asset_inventory_response(assets)
         key = variables["assetKey"]["path"][-1] if "assetKey" in variables else None
         if "V1AssetDetail" in query:
             location, repository = locations[key]
@@ -1716,7 +1746,7 @@ def test_latest_backfill_fails_closed_on_empty_oversized_or_wrong_location(
 
     async def graphql(query, variables=None):
         if "V1Assets" in query:
-            return {"data": {"assetNodes": [node]}}
+            return _asset_inventory_response([node])
         if "V1AssetDetail" in query:
             return {
                 "data": {
@@ -1860,27 +1890,25 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
 
     async def graphql(url, query, variables=None):
         if "V1Assets" in query:
-            return {
-                "data": {
-                    "assetNodes": [
-                        {
-                            "id": env,
-                            "assetKey": {"path": ["warehouse", "orders"]},
-                            "description": env,
-                            "computeKind": None,
-                            "groupName": None,
-                            "isMaterializable": True,
-                            "repository": {"name": "repo", "location": {"name": location}},
-                            "dependencyKeys": [],
-                            "assetMaterializations": [],
-                        }
-                        for env, location in (
-                            ("prod", "production_jobs"),
-                            ("staging", "testing_jobs"),
-                        )
-                    ]
-                }
-            }
+            return _asset_inventory_response(
+                [
+                    {
+                        "id": env,
+                        "assetKey": {"path": ["warehouse", "orders"]},
+                        "description": env,
+                        "computeKind": None,
+                        "groupName": None,
+                        "isMaterializable": True,
+                        "repository": {"name": "repo", "location": {"name": location}},
+                        "dependencyKeys": [],
+                        "assetMaterializations": [],
+                    }
+                    for env, location in (
+                        ("prod", "production_jobs"),
+                        ("staging", "testing_jobs"),
+                    )
+                ]
+            )
         if "V1AssetChecks" in query:
             return {"data": {"assetNodes": nodes}}
         if "V1AssetCheckExecutions" in query:
@@ -1947,7 +1975,7 @@ def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client,
 
     async def graphql(url, query, variables=None):
         if "V1Assets" in query:
-            return {"data": {"assetNodes": asset_nodes}}
+            return _asset_inventory_response(asset_nodes)
         if "V1AssetRuns" in query:
             feed_cursors.append(variables["cursor"])
             results = (
@@ -2016,7 +2044,7 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
             "dependencyKeys": [],
             "assetMaterializations": [
                 {
-                    "timestamp": "1780000000",
+                    "timestamp": "1780000000000",
                     "runId": "run-1",
                     "partition": None,
                     "runOrError": {
@@ -2035,7 +2063,7 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
     ]
 
     async def graphql(url, query, *args, **kwargs):
-        return {"data": {"assetNodes": nodes}}
+        return _asset_inventory_response(nodes)
 
     from phlo_api import incidents
 
@@ -2098,7 +2126,7 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
 
     async def graphql(url, query, variables=None):
         if "V1Assets" in query:
-            return {"data": {"assetNodes": nodes}}
+            return _asset_inventory_response(nodes)
         if "V1AssetChecks" in query:
             return {
                 "data": {

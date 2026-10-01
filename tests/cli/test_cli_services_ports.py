@@ -56,6 +56,24 @@ def test_parse_compose_port_spec_with_loopback_and_env_default() -> None:
     assert spec.container_port == "5432"
 
 
+def test_parse_compose_port_spec_with_host_ip_and_env_var() -> None:
+    port_str = "127.0.0.1:${MINIO_API_PORT:-10001}:9000"
+
+    spec = ports_module._parse_compose_port_spec(port_str)
+
+    assert spec.env_var == "MINIO_API_PORT"
+    assert spec.host_port == "10001"
+    assert spec.container_port == "9000"
+    assert ports_module._resolve_host_port(
+        port_str=port_str,
+        port_spec=spec,
+        service_name="minio",
+        container_port=9000,
+        env={"MINIO_API_PORT": "11001"},
+        running_containers={},
+    ) == (11001, "env", "MINIO_API_PORT")
+
+
 def test_resolve_env_var_found() -> None:
     env = {"POSTGRES_PORT": "10000"}
     result = ports_module._resolve_env_var("POSTGRES_PORT", env)

@@ -97,14 +97,7 @@ RUN_QUERY = """query V1Run($runId: ID!, $eventLimit: Int!, $afterCursor: String)
       eventConnection(limit: $eventLimit, afterCursor: $afterCursor) {
         events {
           __typename
-          ... on ExecutionStepInputEvent { eventType message timestamp stepKey }
-          ... on ExecutionStepOutputEvent { eventType message timestamp stepKey }
-          ... on ExecutionStepFailureEvent { eventType message timestamp stepKey }
-          ... on ExecutionStepSuccessEvent { eventType message timestamp stepKey }
-          ... on RunStartEvent { eventType message timestamp }
-          ... on RunSuccessEvent { eventType message timestamp }
-          ... on RunFailureEvent { eventType message timestamp }
-          ... on LogMessageEvent { eventType message timestamp stepKey }
+          ... on MessageEvent { eventType message timestamp stepKey }
         }
         cursor
         hasMore

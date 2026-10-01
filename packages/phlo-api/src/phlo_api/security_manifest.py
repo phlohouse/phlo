@@ -126,6 +126,20 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"),),
     ),
     *_specs(
+        ("v1_staging_promotions", "v1_staging_candidate"),
+        action=CanonicalAction.CATALOG_READ.value,
+        resource_type="catalog",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
+        ("v1_staging_checks", "v1_staging_resync", "v1_staging_promote"),
+        action=CanonicalAction.CATALOG_MANAGE.value,
+        resource_type="catalog",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
         (
             "v1_admin_audit_records",
             "v1_admin_audit_verify",

@@ -148,9 +148,6 @@ from phlo_api.observatory_api.observatory_search import search_results as _searc
 from phlo_api.observatory_api.observatory_services import load_project_docker_containers
 from phlo_api.observatory_api.observatory_services import load_services as _load_services_impl
 from phlo_api.observatory_api.observatory_services import (
-    runtime_services_from_containers as _runtime_services_from_containers,
-)
-from phlo_api.observatory_api.observatory_services import (
     service_config_from_definition as _service_config_from_definition,
 )
 from phlo_api.observatory_api.observatory_services import (
@@ -4329,9 +4326,7 @@ def _record_observatory_telemetry(*, name: str, resource_id: str, action_id: str
 @router.get("/overview", response_model=ObservatoryOverview)
 def get_observatory_overview() -> ObservatoryOverview:
     """Get the provider-neutral Observatory overview."""
-    project_root = _project_root()
-    containers = load_project_docker_containers(project_root)
-    services = _runtime_services_from_containers(containers, set(), project_root)
+    services = _runtime_services(_load_services())
     operations = _load_operations()
     quality = list(_manifest_records("quality", ObservatoryQualityCheck))
     logs = _load_logs()

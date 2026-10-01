@@ -247,7 +247,11 @@ def _preview_payload(
     if any(not isinstance(label, str) for label in labels):
         raise PreviewUnavailable("Trino returned invalid preview columns.")
     items = [dict(zip(labels, row, strict=True)) for row in rows[:limit]]
-    payload = {"columns": columns, "rows": items, "has_more": len(rows) > limit}
+    payload = {
+        "columns": [{"name": column["name"], "type": column.get("type")} for column in columns],
+        "rows": items,
+        "has_more": len(rows) > limit,
+    }
     encoded = json.dumps(payload, separators=(",", ":"), default=str).encode()
     if len(encoded) > _MAX_RESPONSE_BYTES:
         raise PreviewLimitExceeded("Preview output exceeded the byte budget.")
