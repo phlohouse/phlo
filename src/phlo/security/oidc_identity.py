@@ -122,7 +122,7 @@ class OIDCIdentityValidator:
                 audience=self.audience,
                 issuer=self.issuer,
                 leeway=self.leeway,
-                options={"require": ["iss", "aud", "sub", "exp", "iat", "nbf"]},
+                options={"require": ["iss", "aud", "sub", "exp", "iat"]},
             )
             return self._principal_from_claims(claims)
         except (jwt.PyJWTError, TypeError, ValueError, KeyError):
@@ -164,7 +164,12 @@ class OIDCIdentityValidator:
             email=email if isinstance(email, str) else None,
             groups=groups,
             issuer=self.issuer,
-            claims={"sub": subject, "groups": list(groups), "scopes": list(scopes)},
+            claims={
+                "sub": subject,
+                "groups": list(groups),
+                "scopes": list(scopes),
+                **{key: claims[key] for key in ("auth_time", "amr") if key in claims},
+            },
             attributes={"authentication_source": "oidc", "oidc_audience": self.audience},
         )
 

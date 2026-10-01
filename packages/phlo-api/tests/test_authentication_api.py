@@ -136,7 +136,7 @@ def test_phlo_api_has_forward_auth_middleware() -> None:
         "Host(`api.${TRAEFIK_DOMAIN:-phlo.localhost}`) && !PathPrefix(`/oauth2/`)"
     )
     assert auth_labels["traefik.http.routers.phlo-api.middlewares"] == (
-        "phlo-api-auth,phlo-api-login"
+        "phlo-api-login,phlo-api-auth"
     )
     assert (
         auth_labels["traefik.http.middlewares.phlo-api-auth.forwardauth.address"]
@@ -150,13 +150,27 @@ def test_phlo_api_has_forward_auth_middleware() -> None:
         "traefik.http.middlewares.phlo-api-auth.forwardauth.authResponseHeaders"
     ].split(",")
     assert response_headers == ["X-Auth-Request-Access-Token"]
+    assert (
+        auth_labels["traefik.http.middlewares.phlo-api-auth.forwardauth.addAuthCookiesToResponse"]
+        == "${OAUTH2_PROXY_AUTH_COOKIES:-_oauth2_proxy}"
+    )
     assert auth_labels["traefik.http.middlewares.phlo-api-login.errors.status"] == "401"
+    assert auth_labels["traefik.http.middlewares.phlo-api-login.errors.statusRewrites.401"] == (
+        "302"
+    )
     assert auth_labels["traefik.http.middlewares.phlo-api-login.errors.service"] == (
         "oauth2-proxy@docker"
     )
     assert auth_labels["traefik.http.middlewares.phlo-api-login.errors.query"] == (
         "/oauth2/sign_in?rd={url}"
     )
+
+
+def test_phlo_api_uses_the_internal_postgres_port() -> None:
+    """Host-published ports must not leak into API-to-Postgres connections."""
+    environment = _load_packaged_definition("service.yaml")["compose"]["environment"]
+
+    assert environment["POSTGRES_PORT"] == "5432"
 
 
 def test_oauth2_proxy_access_token_is_forwarded_as_bearer_without_trusting_identity_headers() -> (
@@ -423,4 +437,4 @@ def test_phlo_api_passes_postgres_settings_to_durable_storage() -> None:
 def test_phlo_api_traefik_route_uses_oauth2_proxy_authentication() -> None:
     labels = _load_packaged_definition("service.yaml")["compose"].get("labels", {})
 
-    assert labels["traefik.http.routers.phlo-api.middlewares"] == ("phlo-api-auth,phlo-api-login")
+    assert labels["traefik.http.routers.phlo-api.middlewares"] == ("phlo-api-login,phlo-api-auth")

@@ -55,6 +55,7 @@ def token(
     algorithm: str = "RS256",
     kid: str = "key-1",
     extra_claims: dict[str, Any] | None = None,
+    omit_claims: set[str] | None = None,
 ) -> str:
     current = int(time.time()) if now is None else now
     payload: dict[str, Any] = {
@@ -71,6 +72,8 @@ def token(
         payload["nbf"] = not_before
     if extra_claims:
         payload.update(extra_claims)
+    for claim in omit_claims or set():
+        payload.pop(claim, None)
     return jwt.encode(payload, private_key, algorithm=algorithm, headers={"kid": kid})
 
 

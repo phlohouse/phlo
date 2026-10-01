@@ -45,6 +45,13 @@ def test_oauth2_proxy_exposes_only_its_callback_path_through_traefik():
     environment = defn["compose"]["environment"]
     assert environment["OAUTH2_PROXY_SET_XAUTHREQUEST"] == "true"
     assert environment["OAUTH2_PROXY_PASS_ACCESS_TOKEN"] == "true"
+    assert environment["OAUTH2_PROXY_COOKIE_REFRESH"] == "${OAUTH2_PROXY_COOKIE_REFRESH:-5m}"
+    assert environment["OAUTH2_PROXY_SCOPE"] == (
+        "${OAUTH2_PROXY_SCOPE:-openid email profile offline_access}"
+    )
+    assert environment["OAUTH2_PROXY_WHITELIST_DOMAINS"] == (
+        "${OAUTH2_PROXY_WHITELIST_DOMAINS:-api.${TRAEFIK_DOMAIN:-phlo.localhost}}"
+    )
 
 
 def test_oauth2_proxy_image_pinned():
