@@ -1,0 +1,402 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * phlo design tokens.
+ * Two layers:
+ *   1. shadcn's standard names (background, card, primary, muted, border…) so any
+ *      shadcn component drops in and looks right.
+ *   2. phlo's own semantic names (bad / warn / ok, layers, chart colours) for
+ *      status and data. Screens never use raw hex values.
+ */
+:root {
+  /* Surfaces */
+  --background: #f3f4f6;
+  --foreground: #15171c;
+  --card: #ffffff;
+  --card-foreground: #15171c;
+  --popover: #ffffff;
+  --popover-foreground: #15171c;
+  --raised: #f9fafb;
+  --sunken: #f6f7f9;
+  --soft: #f0f1f4;
+  --nav-on: #e5e7eb;
+  --nav-hover: #eceef1;
+  --line: #eceef1;
+  --line-soft: #f0f1f4;
+  --border: #e1e4e8;
+  --border-card: #e3e5e9;
+  --border-strong: #d1d5db;
+  --input: #d1d5db;
+  --scrim: rgba(17, 20, 26, 0.36);
+
+  /* Text */
+  --text-2: #33363d;
+  --text-3: #4f535b;
+  --muted-foreground: #666a73;
+  --faint: #969aa2;
+
+  /* shadcn roles */
+  --primary: #0b6bcb;
+  --primary-foreground: #ffffff;
+  --primary-soft: #eef4fc;
+  --primary-line: #dfe8f5;
+  --primary-ink: #1f3f66;
+  --link: #0b6bcb;
+  --link-hover: #084f97;
+  --secondary: #f9fafb;
+  --secondary-foreground: #33363d;
+  --muted: #f0f1f4;
+  --accent: #eceef1;
+  --accent-foreground: #15171c;
+  --destructive: #c4321f;
+  --ring: #0b6bcb;
+  --radius: 0.5rem;
+
+  /* Status */
+  --bad: #c4321f;
+  --bad-text: #b0301e;
+  --bad-soft: #fbe0dc;
+  --bad-wash: #fdecea;
+  --bad-ink: #8f2415;
+  --bad-line: #e8b4ab;
+  --warn: #c98a00;
+  --warn-bar: #e0a526;
+  --warn-soft: #fdf1d8;
+  --warn-ink: #7a4800;
+  --warn-wash: #fffaf0;
+  --ok: #1f8a4c;
+  --ok-bar: #3f9a66;
+  --ok-text: #1f7a45;
+  --ok-soft: #e0f1e6;
+  --ok-wash: #eef7f1;
+  --ok-ink: #155d33;
+  --ok-line: #d3eadb;
+  --branch: #5a44c9;
+  --branch-soft: #efedfc;
+  --branch-line: #ddd8f7;
+  --code-kw: #7a3fc2;
+  --teal: #0e7c90;
+  --teal-soft: #d9f0f3;
+  --teal-ink: #0e5f6e;
+  --info: #2a5fa8;
+  --info-soft: #e4ecf8;
+
+  /* Medallion layers */
+  --bronze: #b7793b;
+  --bronze-soft: #f5ece2;
+  --silver: #8f969e;
+  --silver-soft: #eeeff1;
+  --gold: #c9a227;
+  --gold-soft: #f6efd6;
+
+  /* Charts */
+  --bar: #b9c3cf;
+  --chart-line: #868a93;
+  --grid: #e1e4e8;
+  --sla-ok: #cfe8d8;
+  --sla-late: #f3d18b;
+  --skip-line: #cdd1d7;
+
+  --shadow-dialog:
+    0 24px 60px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+.dark {
+  --background: #0f1115;
+  --foreground: #eceef1;
+  --card: #171a1f;
+  --card-foreground: #eceef1;
+  --popover: #1c1f25;
+  --popover-foreground: #eceef1;
+  --raised: #1c1f25;
+  --sunken: #13161a;
+  --soft: #22262d;
+  --nav-on: #282c34;
+  --nav-hover: #1f2329;
+  --line: #23272e;
+  --line-soft: #20242a;
+  --border: #2c3038;
+  --border-card: #272b32;
+  --border-strong: #373c45;
+  --input: #373c45;
+  --scrim: rgba(0, 0, 0, 0.6);
+
+  --text-2: #cbced4;
+  --text-3: #aeb2ba;
+  --muted-foreground: #979ba4;
+  --faint: #6c707a;
+
+  --primary: #2873c9;
+  --primary-foreground: #ffffff;
+  --primary-soft: #16243a;
+  --primary-line: #243a5a;
+  --primary-ink: #b9d3f3;
+  --link: #7fb4f2;
+  --link-hover: #a9ccf6;
+  --secondary: #1c1f25;
+  --secondary-foreground: #cbced4;
+  --muted: #22262d;
+  --accent: #1f2329;
+  --accent-foreground: #eceef1;
+  --destructive: #e0533d;
+  --ring: #2873c9;
+
+  --bad: #e0533d;
+  --bad-text: #f2917f;
+  --bad-soft: #3a1d18;
+  --bad-wash: #33201c;
+  --bad-ink: #f6b3a6;
+  --bad-line: #6a3128;
+  --warn: #d9a02a;
+  --warn-bar: #d9a02a;
+  --warn-soft: #3a2e14;
+  --warn-ink: #f0c46a;
+  --warn-wash: #2a2415;
+  --ok: #3fb872;
+  --ok-bar: #3fa468;
+  --ok-text: #7fd3a0;
+  --ok-soft: #173323;
+  --ok-wash: #14281c;
+  --ok-ink: #a8e6c0;
+  --ok-line: #24462f;
+  --branch: #a597f0;
+  --branch-soft: #27223f;
+  --branch-line: #3a3260;
+  --code-kw: #c4a5f5;
+  --teal: #5cc5d6;
+  --teal-soft: #133338;
+  --teal-ink: #8fdbe6;
+  --info: #7fb4f2;
+  --info-soft: #1a2b42;
+
+  --bronze: #c98c4f;
+  --bronze-soft: #33271b;
+  --silver: #a3aab2;
+  --silver-soft: #26282b;
+  --gold: #d8b440;
+  --gold-soft: #332c16;
+
+  --bar: #56606c;
+  --chart-line: #767a83;
+  --grid: #30343c;
+  --sla-ok: #24462f;
+  --sla-late: #6b5520;
+  --skip-line: #434852;
+
+  --shadow-dialog:
+    0 24px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+@theme inline {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-line: var(--primary-line);
+  --color-primary-ink: var(--primary-ink);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-raised: var(--raised);
+  --color-sunken: var(--sunken);
+  --color-soft: var(--soft);
+  --color-nav-on: var(--nav-on);
+  --color-nav-hover: var(--nav-hover);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-border-card: var(--border-card);
+  --color-border-strong: var(--border-strong);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-faint: var(--faint);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+  --color-scrim: var(--scrim);
+
+  --color-bad: var(--bad);
+  --color-bad-text: var(--bad-text);
+  --color-bad-soft: var(--bad-soft);
+  --color-bad-wash: var(--bad-wash);
+  --color-bad-ink: var(--bad-ink);
+  --color-bad-line: var(--bad-line);
+  --color-warn: var(--warn);
+  --color-warn-bar: var(--warn-bar);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-ink: var(--warn-ink);
+  --color-warn-wash: var(--warn-wash);
+  --color-ok: var(--ok);
+  --color-ok-bar: var(--ok-bar);
+  --color-ok-text: var(--ok-text);
+  --color-ok-soft: var(--ok-soft);
+  --color-ok-wash: var(--ok-wash);
+  --color-ok-ink: var(--ok-ink);
+  --color-ok-line: var(--ok-line);
+  --color-branch: var(--branch);
+  --color-branch-soft: var(--branch-soft);
+  --color-branch-line: var(--branch-line);
+  --color-code-kw: var(--code-kw);
+  --color-teal: var(--teal);
+  --color-teal-soft: var(--teal-soft);
+  --color-teal-ink: var(--teal-ink);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  --color-bronze: var(--bronze);
+  --color-bronze-soft: var(--bronze-soft);
+  --color-silver: var(--silver);
+  --color-silver-soft: var(--silver-soft);
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
+
+  --color-bar: var(--bar);
+  --color-chart-line: var(--chart-line);
+  --color-grid: var(--grid);
+  --color-sla-ok: var(--sla-ok);
+  --color-sla-late: var(--sla-late);
+  --color-skip-line: var(--skip-line);
+
+  --radius-sm: calc(var(--radius) - 3px);
+  --radius-md: calc(var(--radius) - 1px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 6px);
+
+  --shadow-dialog: var(--shadow-dialog);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  a {
+    @apply text-link hover:text-link-hover;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@utility env-stripe {
+  height: 3px;
+  flex-shrink: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--warn-bar) 0 10px,
+    var(--warn-soft) 10px 20px
+  );
+}
+
+@utility progress-stripe {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--primary) 0 6px,
+    var(--primary-line) 6px 12px
+  );
+}
+
+/* React Flow graphs (lineage, branches): theme @xyflow/react's base.css through phlo tokens. */
+.phlo-flow.react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke-default: var(--border-strong);
+  --xy-edge-stroke-width-default: 1.5;
+  --xy-edge-stroke-selected-default: var(--text-3);
+  --xy-node-color-default: var(--foreground);
+  --xy-node-border-default: none;
+  --xy-node-border-selected-default: none;
+  --xy-handle-background-color-default: transparent;
+  --xy-selection-background-color-default: var(--primary-soft);
+  --xy-selection-border-default: 1px dotted var(--primary);
+  --xy-attribution-background-color-default: transparent;
+  background: transparent;
+}
+.phlo-flow .react-flow__handle {
+  opacity: 0;
+  min-width: 0;
+  min-height: 0;
+  width: 1px;
+  height: 1px;
+  border: 0;
+  pointer-events: none;
+}
+.phlo-flow .react-flow__controls {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 1px);
+  background: var(--card);
+}
+.phlo-flow .react-flow__controls-button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: var(--card);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.phlo-flow .react-flow__controls-button + .react-flow__controls-button {
+  border-left: 1px solid var(--border);
+}
+.phlo-flow .react-flow__controls-button:hover {
+  background: var(--nav-hover);
+  color: var(--foreground);
+}
+.phlo-flow .react-flow__controls-button svg {
+  max-width: 12px;
+  max-height: 12px;
+  fill: currentColor;
+}
+@media (min-width: 64rem) {
+  .phlo-flow .react-flow__controls-button {
+    width: 32px;
+    height: 32px;
+  }
+}
+.phlo-flow .react-flow__attribution {
+  background: transparent;
+  padding: 2px 6px;
+  font-size: 9px;
+  opacity: 0.55;
+}
+.phlo-flow .react-flow__attribution a {
+  color: var(--faint);
+}
+.phlo-flow .react-flow__attribution:hover {
+  opacity: 1;
+}
+/* Phone mode: the graph sits in a native scroller, so let touches through to it and the page. */
+.phlo-flow-native .react-flow__pane {
+  touch-action: pan-x pan-y;
+  cursor: default;
+}

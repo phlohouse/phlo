@@ -50,15 +50,25 @@ phlo_observatory = [
     "package.json",
     "package-lock.json",
     "prettier.config.js",
+    "select-ui.sh",
     "tsconfig.json",
     "vite.config.ts",
     "context/**",
     "public/**",
     "src/**",
+    "replacement/package.json",
+    "replacement/components.json",
+    "replacement/tsconfig.json",
+    "replacement/vite.config.ts",
+    "replacement/README.md",
+    "replacement/public/**",
+    "replacement/src/**",
+    "replacement/scripts/**",
 ]
 
 [tool.setuptools.package-dir]
 "" = "src"
 
 [tool.setuptools.packages.find]
+include = ["phlo_observatory"]
 where = ["src"]

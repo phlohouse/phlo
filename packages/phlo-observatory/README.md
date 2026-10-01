@@ -23,6 +23,13 @@ phlo plugin install observatory
 | `NESSIE_URL`          | `http://nessie:19120/api/v2`  | Nessie API URL           |
 | `TRINO_URL`           | `http://trino:8080`           | Trino HTTP URL           |
 | `PHLO_API_URL`        | `http://phlo-api:4000`        | Phlo API URL             |
+| `OBSERVATORY_UI`      | `legacy`                    | `legacy` or `replacement` frontend |
+
+Both frontends ship in the existing package and container image. The replacement
+uses the public Phlo API and remains opt-in while legacy consumers migrate.
+See [replacement setup and verification](src/phlo_observatory/replacement/README.md)
+for authentication requirements and workspace commands. Its `/healthz` endpoint
+checks frontend liveness only.
 
 ## Auto-Configuration
 

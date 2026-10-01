@@ -20,6 +20,7 @@ compose:
     NODE_ENV: production
     HOST: 0.0.0.0
     PORT: 3000
+    OBSERVATORY_UI: ${OBSERVATORY_UI:-legacy}
     PHLO_ENVIRONMENT: ${PHLO_ENVIRONMENT:-}
     PHLO_REGULATED: ${PHLO_REGULATED:-}
     OBSERVATORY_AUTH_ENABLED: ${OBSERVATORY_AUTH_ENABLED:-}
@@ -34,12 +35,8 @@ compose:
   healthcheck:
     test:
       [
-        'CMD',
-        'wget',
-        '--no-verbose',
-        '--tries=1',
-        '--spider',
-        'http://127.0.0.1:3000/',
+        'CMD-SHELL',
+        'if [ "$${OBSERVATORY_UI:-legacy}" = replacement ]; then wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/healthz; else wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/; fi',
       ]
     interval: 30s
     timeout: 10s
@@ -47,6 +44,9 @@ compose:
     start_period: 30s
 
 env_vars:
+  OBSERVATORY_UI:
+    default: legacy
+    description: Select legacy or replacement frontend from the bundled Observatory package
   OBSERVATORY_PORT:
     default: 3001
     description: Observatory UI port
@@ -56,6 +56,8 @@ env_vars:
 
 dev:
   command:
+    - sh
+    - select-ui.sh
     - npm
     - run
     - dev
@@ -66,6 +68,7 @@ dev:
     - '${OBSERVATORY_PORT:-3001}'
   environment:
     NODE_ENV: development
+    OBSERVATORY_UI: ${OBSERVATORY_UI:-legacy}
     PHLO_API_URL: http://127.0.0.1:${PHLO_API_PORT:-4000}
     PHLO_API_BROWSER_URL: http://127.0.0.1:${PHLO_API_PORT:-4000}
     DAGSTER_GRAPHQL_URL: http://127.0.0.1:${DAGSTER_PORT:-10006}/graphql

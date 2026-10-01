@@ -1,0 +1,149 @@
+/** Defines the time-bucketed pipeline run timeline route. */
+import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
+import { getRunTimeline } from '@/lib/data/api/pipelines'
+import { Eyebrow, PageHeader } from '@/components/phlo/page'
+import { EmptyState } from '@/components/phlo/states'
+import { ViewSwitch, runColor } from '@/components/pipelines/bits'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+
+export const Route = createFileRoute('/_app/pipelines/timeline')({
+  loaderDeps: ({ search }) => ({ env: search.env }),
+  loader: ({ deps }) => getRunTimeline({ data: deps.env }),
+  head: () => ({ meta: [{ title: 'Run timeline · phlo' }] }),
+  component: TimelinePage,
+})
+
+const bucketMs = 30 * 60 * 1000
+
+function TimelinePage() {
+  const { jobs, runs, env, observed_at } = Route.useLoaderData()
+  const router = useRouter()
+  const end =
+    Math.floor(Date.parse(observed_at) / bucketMs) * bucketMs + bucketMs
+  const start = end - 48 * bucketMs
+  const groups = [...new Set(jobs.map((job) => job.repository_name))]
+  return (
+    <>
+      <PageHeader
+        title="Run timeline"
+        meta={`${jobs.length} jobs · ${env} · 30-minute buckets`}
+        actions={
+          <>
+            <Button variant="outline" onClick={() => void router.invalidate()}>
+              Refresh
+            </Button>
+            <ViewSwitch current="timeline" env={env} />
+          </>
+        }
+      />
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+        <section
+          aria-label="Runs by job"
+          className="flex min-w-0 flex-col gap-4 px-4 py-4 lg:flex-1 lg:overflow-auto lg:px-5"
+        >
+          <p className="m-0 text-xs text-muted-foreground">
+            {new Date(start).toISOString()} to {new Date(end).toISOString()}.
+            Buckets use run creation time. Failure takes priority when a bucket
+            contains several statuses.
+          </p>
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="Run timeline grid, scrolls sideways"
+            className="overflow-x-auto"
+          >
+            <div className="min-w-[720px]">
+              <div className="grid grid-cols-[148px_minmax(0,1fr)] gap-x-3 text-xs text-muted-foreground">
+                <span>Job</span>
+                <div className="flex justify-between">
+                  <time>{new Date(start).toISOString().slice(11, 16)} UTC</time>
+                  <time>{new Date(end).toISOString().slice(11, 16)} UTC</time>
+                </div>
+              </div>
+              {groups.map((group) => (
+                <div key={group} className="mt-4">
+                  <Eyebrow className="mb-2">{group}</Eyebrow>
+                  {jobs
+                    .filter((job) => job.repository_name === group)
+                    .map((job) => (
+                      <div
+                        key={job.id}
+                        className="mb-2 grid grid-cols-[148px_minmax(0,1fr)] items-center gap-x-3"
+                      >
+                        <Link
+                          to="/pipelines/$jobName"
+                          params={{ jobName: job.id }}
+                          search={{ env }}
+                          className="truncate font-mono text-[11.5px] text-foreground"
+                        >
+                          {job.id}
+                        </Link>
+                        <div
+                          className="grid grid-cols-[repeat(48,minmax(0,1fr))] gap-0.5"
+                          aria-label={`Timeline for ${job.id}`}
+                        >
+                          {Array.from({ length: 48 }, (_, index) => {
+                            const from = start + index * bucketMs
+                            const entries = runs.filter(
+                              (run) =>
+                                run.job_id === job.id &&
+                                Date.parse(run.created_at) >= from &&
+                                Date.parse(run.created_at) < from + bucketMs,
+                            )
+                            const chosen =
+                              entries.find((run) => run.status === 'FAILURE') ??
+                              entries[0]
+                            const label = `${new Date(from).toISOString()} · ${entries.length} observed runs${entries.length ? ` · ${entries.map((run) => run.status).join(', ')}` : ''}`
+                            return chosen ? (
+                              <Link
+                                key={index}
+                                to="/pipelines/$jobName"
+                                params={{ jobName: job.id }}
+                                search={{ env, run: chosen.run_id }}
+                                title={label}
+                                aria-label={label}
+                                className={cn(
+                                  'h-3 rounded-[2px]',
+                                  runColor(chosen.status),
+                                )}
+                              />
+                            ) : (
+                              <span
+                                key={index}
+                                title={`${label}. This is not proof of no runs.`}
+                                className="h-3 rounded-[2px] border border-line-soft"
+                              />
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              ))}
+            </div>
+          </div>
+          {!jobs.length ? (
+            <EmptyState title="No jobs in this environment" />
+          ) : null}
+          <p className="m-0 text-xs text-muted-foreground">
+            Green: success. Red: failure. Grey: canceled. Amber: another
+            observed state. Empty: no evidence in the fetched records.
+          </p>
+        </section>
+        <aside className="flex shrink-0 flex-col gap-3 border-t border-line bg-raised px-4 py-4 text-[13px] text-muted-foreground lg:w-[300px] lg:border-t-0 lg:border-l lg:px-[22px]">
+          <Eyebrow>History coverage</Eyebrow>
+          <p className="m-0">
+            This grid uses the latest {runs.length} records from a bounded
+            environment-scoped API read, up to 100. It does not prove complete
+            24-hour coverage.
+          </p>
+          <p className="m-0">
+            Maintenance events and cross-job correlations are not connected in
+            this view.
+          </p>
+        </aside>
+      </div>
+    </>
+  )
+}
