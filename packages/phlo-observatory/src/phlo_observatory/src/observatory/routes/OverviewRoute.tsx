@@ -31,11 +31,11 @@ import type {
   ObservatoryResourceResult,
   ObservatoryService,
 } from '@/observatory/api/types'
+import { getSelectedV1RunLogRecords } from '@/observatory/api/logsV1'
 import {
   getObservatoryAssetRecords,
   getObservatoryBranchRecords,
   getObservatoryCapabilities,
-  getObservatoryLogRecords,
   getObservatoryOperationRecords,
   getObservatoryOverview,
   getObservatoryQualityRecords,
@@ -114,7 +114,7 @@ export async function loadOverviewSnapshotFromApi(): Promise<OverviewSnapshot> {
     getObservatoryOperationRecords(),
     getObservatoryAssetRecords(),
     getObservatoryQualityRecords(),
-    getObservatoryLogRecords(),
+    getSelectedV1RunLogRecords(),
     getObservatoryBranchRecords(),
     getObservatoryCapabilities(),
   ])
@@ -215,7 +215,7 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
         }
       })
 
-      loadCachedResource('observatory:logs', getObservatoryLogRecords, {
+      loadCachedResource('observatory:run-logs', getSelectedV1RunLogRecords, {
         force,
         staleMs: 30_000,
       }).then((nextLogs) => {
@@ -361,6 +361,23 @@ function useOverviewRoute(initialSnapshot?: OverviewSnapshot) {
   const statusState =
     derivedHealth?.state ??
     (apiError ? ('warning' as const) : ('unknown' as const))
+
+  if (!hasLakehouseEvidence && overview.data === null) {
+    return (
+      <section aria-live="polite" className="phlo-observatory-content">
+        <header className="phlo-observatory-section-header">
+          <div>
+            <div className="phlo-observatory-kicker">Home</div>
+            <h1 className="phlo-observatory-title">Overview unavailable</h1>
+            <p className="phlo-observatory-subtitle" role="status">
+              {apiError ??
+                'No overview evidence is available for this environment.'}
+            </p>
+          </div>
+        </header>
+      </section>
+    )
+  }
 
   return (
     <div className="phlo-observatory-content">

@@ -1,21 +1,11 @@
 /**
- * Browser-local activity state for the shell: recent visits, query execution
- * history, and query workspace tabs persisted to localStorage.
+ * Browser-local navigation history and scratch query tabs, persisted to
+ * localStorage. Query execution evidence belongs to the API.
  */
 export interface ObservatoryRecentVisit {
   path: string
   label: string
   visitedAt: string
-}
-
-export interface ObservatoryQueryExecution {
-  id: string
-  sql: string
-  status: 'succeeded' | 'failed'
-  startedAt: string
-  durationMs: number
-  rowCount: number
-  error?: string
 }
 
 export interface ObservatoryQueryWorkspaceTab {
@@ -31,7 +21,6 @@ export interface ObservatoryQueryWorkspace {
 }
 
 const recentVisitsKey = 'phlo-observatory-recent-visits'
-const queryHistoryKey = 'phlo-observatory-query-history'
 const queryWorkspaceKey = 'phlo-observatory-query-workspace'
 export const localActivityEvent = 'phlo-observatory-local-activity'
 
@@ -49,17 +38,6 @@ export function recordRecentVisit(path: string, label: string): void {
     ...readRecentVisits().filter((visit) => visit.path !== path),
   ].slice(0, 30)
   writeList(recentVisitsKey, next)
-}
-
-export function readQueryHistory(): Array<ObservatoryQueryExecution> {
-  return readList<ObservatoryQueryExecution>(queryHistoryKey)
-}
-
-export function recordQueryExecution(
-  execution: ObservatoryQueryExecution,
-): void {
-  if (typeof window === 'undefined') return
-  writeList(queryHistoryKey, [execution, ...readQueryHistory()].slice(0, 100))
 }
 
 export function readQueryWorkspace(): ObservatoryQueryWorkspace {

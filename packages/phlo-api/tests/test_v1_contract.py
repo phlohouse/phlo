@@ -199,6 +199,10 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/branches/{branch_name}/merge",
         "/api/v1/branches/{branch_name}/rebase",
         "/api/v1/branches/{branch_name}/trial-merge",
+        "/api/v1/staging/promotions",
+        "/api/v1/staging/promotions/candidate",
+        "/api/v1/staging/promotions/candidate/checks",
+        "/api/v1/staging/resync",
     }
     legacy = {(method, path) for method, path in documented if not path.startswith("/api/v1/")}
 
@@ -240,3 +244,30 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         == 1
         for suffix in suffixes
     )
+
+
+def test_observatory_client_response_schemas_are_documented() -> None:
+    paths = app.openapi()["paths"]
+
+    for path, fields in (
+        ("/api/v1/incidents/stats", {"env", "counts"}),
+        ("/api/v1/incidents/{incident_id}/timeline", {"items"}),
+    ):
+        schema = paths[path]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+        assert (
+            set(
+                app.openapi()["components"]["schemas"][schema["$ref"].rsplit("/", 1)[-1]][
+                    "properties"
+                ]
+            )
+            >= fields
+        )
+
+    csv_schema = paths["/api/v1/queries/{query_id}/csv"]["get"]["responses"]["200"]["content"][
+        "text/csv"
+    ]["schema"]
+    audit_schema = paths["/api/v1/admin/audit/export"]["get"]["responses"]["200"]["content"][
+        "application/x-ndjson"
+    ]["schema"]
+    assert csv_schema["type"] == "string"
+    assert audit_schema["type"] == "string"

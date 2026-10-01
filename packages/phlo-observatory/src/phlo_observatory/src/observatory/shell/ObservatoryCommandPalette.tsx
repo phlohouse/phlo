@@ -31,11 +31,12 @@ import type {
   ObservatoryTable,
 } from '@/observatory/api/types'
 import {
+  getObservatoryQueryCatalogTables,
   getObservatoryServices,
-  getObservatoryTableRecords,
   searchObservatory,
   searchObservatoryDirect,
 } from '@/observatory/api/resources'
+import { environmentChangeEvent } from '@/observatory/api/environment'
 import { loadCachedResource } from '@/observatory/routes/liveResource'
 
 const commandGroupLimit = 6
@@ -127,20 +128,27 @@ export function ObservatoryCommandPalette({
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([
-      loadCachedResource('observatory:tables', getObservatoryTableRecords, {
-        staleMs: 120_000,
-      }),
-      loadCachedResource('observatory:services', getObservatoryServices, {
-        staleMs: 120_000,
-      }),
-    ]).then(([tables, services]) => {
-      if (cancelled) return
-      setCommandTables(tables)
-      setCommandServices(services)
-    })
+    const loadResources = () => {
+      void Promise.all([
+        loadCachedResource(
+          'observatory:query-catalog-tables',
+          getObservatoryQueryCatalogTables,
+          { force: true, staleMs: 120_000 },
+        ),
+        loadCachedResource('observatory:services', getObservatoryServices, {
+          staleMs: 120_000,
+        }),
+      ]).then(([tables, services]) => {
+        if (cancelled) return
+        setCommandTables(tables)
+        setCommandServices(services)
+      })
+    }
+    loadResources()
+    window.addEventListener(environmentChangeEvent(), loadResources)
     return () => {
       cancelled = true
+      window.removeEventListener(environmentChangeEvent(), loadResources)
     }
   }, [])
 

@@ -120,7 +120,13 @@ async def test_preview_cancels_latest_continuation_after_row_limit(monkeypatch) 
             return httpx.Response(
                 200,
                 json={
-                    "columns": [{"name": "id", "type": "bigint"}],
+                    "columns": [
+                        {
+                            "name": "id",
+                            "type": "bigint",
+                            "typeSignature": {"rawType": "bigint", "arguments": []},
+                        }
+                    ],
                     "data": [[1], [2], [3]],
                     "nextUri": "https://trino:8443/v1/next/1",
                 },
@@ -139,6 +145,7 @@ async def test_preview_cancels_latest_continuation_after_row_limit(monkeypatch) 
             limit=2,
         )
 
+    assert result["columns"] == [{"name": "id", "type": "bigint"}]
     assert result["rows"] == [{"id": 1}, {"id": 2}]
     assert result["has_more"] is True
     assert [item[:2] for item in requests] == [

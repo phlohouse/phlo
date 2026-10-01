@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import type { ObservatoryResourceResult } from '@/observatory/api/types'
+import { environmentChangeEvent } from '@/observatory/api/environment'
 
 declare global {
   interface Window {
@@ -75,6 +76,10 @@ export function useLiveResource<T>(
         void refresh(true)
       }
     }
+    const refreshForEnvironmentChange = () => {
+      clearCachedResources()
+      void refresh(true, 'reset')
+    }
 
     void refresh(true)
     const interval = window.setInterval(() => {
@@ -84,18 +89,36 @@ export function useLiveResource<T>(
     }, intervalMs)
     window.addEventListener('focus', refreshActiveTab)
     document.addEventListener('visibilitychange', refreshActiveTab)
+    window.addEventListener(
+      environmentChangeEvent(),
+      refreshForEnvironmentChange,
+    )
 
     return () => {
       cancelled = true
       window.clearInterval(interval)
       window.removeEventListener('focus', refreshActiveTab)
       document.removeEventListener('visibilitychange', refreshActiveTab)
+      window.removeEventListener(
+        environmentChangeEvent(),
+        refreshForEnvironmentChange,
+      )
     }
   }, [intervalMs, key, load])
 
   return {
     ...result,
     isLoading: result.data === null && !result.error,
+  }
+}
+
+export function clearCachedResources(): void {
+  resourceCache.clear()
+  if (typeof window === 'undefined') return
+  for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.sessionStorage.key(index)
+    if (key?.startsWith(persistentCachePrefix))
+      window.sessionStorage.removeItem(key)
   }
 }
 
@@ -237,7 +260,6 @@ function fallbackEndpoint(key: string): string | null {
   const endpoints: Record<string, string> = {
     'observatory:overview': `${prefix}/overview`,
     'observatory:capabilities': `${prefix}/surface-capabilities`,
-    'observatory:services': `${prefix}/services`,
     'observatory:operations': `${prefix}/operations`,
     'observatory:runs': `${prefix}/runs`,
     'observatory:pipelines': `${prefix}/pipelines`,
@@ -247,9 +269,7 @@ function fallbackEndpoint(key: string): string | null {
     'observatory:governance-matrix': `${prefix}/governance`,
     'observatory:apis': `${prefix}/apis`,
     'observatory:bi': `${prefix}/bi`,
-    'observatory:assets': `${prefix}/assets`,
     'observatory:tables': `${prefix}/tables`,
-    'observatory:saved-queries': `${prefix}/saved-queries`,
     'observatory:quality': `${prefix}/quality`,
     'observatory:logs': `${prefix}/logs`,
     'observatory:branches': `${prefix}/branches`,

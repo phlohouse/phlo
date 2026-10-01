@@ -118,6 +118,23 @@ class IncidentPage(WireModel):
     next_cursor: str | None
 
 
+class IncidentStatsResponse(WireModel):
+    env: Environment
+    counts: dict[str, int]
+
+
+class IncidentTimelineEvent(WireModel):
+    id: str
+    actor: str
+    kind: str
+    payload: dict[str, Any]
+    occurred_at: datetime
+
+
+class IncidentTimelineResponse(WireModel):
+    items: list[IncidentTimelineEvent]
+
+
 class ActivityPage(WireModel):
     env: Environment
     items: list[dict[str, Any]]
@@ -360,14 +377,14 @@ def list_incidents(
     return IncidentPage(env=env, items=[_row(row) for row in page], next_cursor=next_cursor)
 
 
-@router.get("/incidents/stats")
-def incident_stats(request: Request, env: Environment = Query()) -> dict[str, Any]:
+@router.get("/incidents/stats", response_model=IncidentStatsResponse)
+def incident_stats(request: Request, env: Environment = Query()) -> IncidentStatsResponse:
     _actor(request)
     with _transaction() as connection, connection.cursor() as cur:
         cur.execute(
             "SELECT status,count(*) FROM phlo.incident WHERE env=%s GROUP BY status", (env,)
         )
-        return {"env": env, "counts": dict(cur.fetchall())}
+        return IncidentStatsResponse(env=env, counts=dict(cur.fetchall()))
 
 
 @router.post("/incidents", status_code=201, response_model=IncidentView)
@@ -459,22 +476,24 @@ def incident_detail(request: Request, incident_id: str, env: Environment = Query
     return _row(row)
 
 
-@router.get("/incidents/{incident_id}/timeline")
+@router.get("/incidents/{incident_id}/timeline", response_model=IncidentTimelineResponse)
 def incident_timeline(
     request: Request, incident_id: str, env: Environment = Query()
-) -> dict[str, Any]:
+) -> IncidentTimelineResponse:
     _actor(request)
     with _transaction() as connection, connection.cursor() as cur:
         cur.execute(
             "SELECT event_id,actor,kind,payload,occurred_at FROM phlo.incident_event WHERE incident_id=%s AND env=%s ORDER BY occurred_at,event_id",
             (incident_id, env),
         )
-        return {
-            "items": [
-                {"id": r[0], "actor": r[1], "kind": r[2], "payload": r[3], "occurred_at": r[4]}
+        return IncidentTimelineResponse(
+            items=[
+                IncidentTimelineEvent(
+                    id=r[0], actor=r[1], kind=r[2], payload=r[3], occurred_at=r[4]
+                )
                 for r in cur.fetchall()
             ]
-        }
+        )
 
 
 _SCHEMA_DECISION_COLUMNS = """decision_id,incident_id,env,source_ref,target_ref,source_hash,

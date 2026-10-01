@@ -56,8 +56,8 @@ def test_incident_transactions_group_concurrent_signals_and_isolate_environments
         assert staging.id != first.id
         prod_stats = incidents.incident_stats(request, "prod")
         staging_stats = incidents.incident_stats(request, "staging")
-        assert prod_stats["counts"] == {"open": 1}
-        assert staging_stats["counts"] == {"open": 1}
+        assert prod_stats.counts == {"open": 1}
+        assert staging_stats.counts == {"open": 1}
 
         incidents.create_incident(
             request,
@@ -236,8 +236,6 @@ def test_incident_transactions_group_concurrent_signals_and_isolate_environments
         assert wrong_environment.value.status_code == 404
 
         timeline = incidents.incident_timeline(request, first.id, "prod")
-        decision_events = [
-            event for event in timeline["items"] if event["kind"] == "schema_decision"
-        ]
+        decision_events = [event for event in timeline.items if event.kind == "schema_decision"]
         assert len(decision_events) == 1
-        assert decision_events[0]["payload"]["id"] == decision.id
+        assert decision_events[0].payload["id"] == decision.id
