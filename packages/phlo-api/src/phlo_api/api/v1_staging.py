@@ -152,6 +152,33 @@ async def _git(path: Path, *args: str) -> str:
     return stdout.decode()
 
 
+async def _copy_inventory(ref: str, head: str) -> list[str]:
+    payload = await _nessie(
+        "GET",
+        f"/api/v2/trees/{quote(ref, safe='')}@{head}/entries",
+        params={"maxRecords": 1001},
+    )
+    if not isinstance(payload, dict) or not isinstance(payload.get("entries"), list):
+        raise BackendUnavailableError("Nessie copy inventory is unavailable.")
+    if payload.get("hasMore") or len(payload["entries"]) > 1000:
+        raise BackendUnavailableError("Nessie copy inventory exceeds its supported bound.")
+    tables = []
+    for item in payload["entries"]:
+        if not isinstance(item, dict):
+            raise BadGatewayError("Nessie returned an invalid inventory entry.")
+        if item.get("type") == "ICEBERG_TABLE":
+            name = item.get("name")
+            elements = name.get("elements") if isinstance(name, dict) else None
+            if (
+                not isinstance(elements, list)
+                or not elements
+                or any(not isinstance(part, str) for part in elements)
+            ):
+                raise BadGatewayError("Nessie returned an invalid table name.")
+            tables.append(".".join(elements))
+    return sorted(tables)
+
+
 async def _state() -> dict[str, Any]:
     prod, staging, prod_ref, staging_ref, location = _configured()
     (
@@ -208,35 +235,9 @@ async def _state() -> dict[str, Any]:
     prod_repositories = v1_jobs._repositories(
         await v1_jobs._graphql(v1_jobs.JOBS_QUERY), targets["prod"].dagster_location
     )
-
-    async def entries(ref: str, head: str) -> list[str]:
-        payload = await _nessie(
-            "GET",
-            f"/api/v2/trees/{quote(ref, safe='')}@{head}/entries",
-            params={"maxRecords": 1001},
-        )
-        if not isinstance(payload, dict) or not isinstance(payload.get("entries"), list):
-            raise BackendUnavailableError("Nessie copy inventory is unavailable.")
-        if payload.get("hasMore") or len(payload["entries"]) > 1000:
-            raise BackendUnavailableError("Nessie copy inventory exceeds its supported bound.")
-        tables = []
-        for item in payload["entries"]:
-            if not isinstance(item, dict):
-                raise BadGatewayError("Nessie returned an invalid inventory entry.")
-            if item.get("type") == "ICEBERG_TABLE":
-                name = item.get("name")
-                elements = name.get("elements") if isinstance(name, dict) else None
-                if (
-                    not isinstance(elements, list)
-                    or not elements
-                    or any(not isinstance(part, str) for part in elements)
-                ):
-                    raise BadGatewayError("Nessie returned an invalid table name.")
-                tables.append(".".join(elements))
-        return sorted(tables)
-
     prod_tables, staging_tables = await asyncio.gather(
-        entries(prod_ref, prod_nessie["hash"]), entries(staging_ref, staging_nessie["hash"])
+        _copy_inventory(prod_ref, prod_nessie["hash"]),
+        _copy_inventory(staging_ref, staging_nessie["hash"]),
     )
     state = {
         "env": "staging",
