@@ -1,10 +1,10 @@
 /** Collects and validates an asset backfill request. */
 import * as React from 'react'
-import { z } from 'zod'
 import type { Env } from '@/lib/data/types'
 import { backfillAsset } from '@/lib/data/api/assets'
 import { Mono } from '@/components/phlo/status'
 import { Button } from '@/components/ui/button'
+import { CheckLine } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogBody,
@@ -14,7 +14,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Input, Textarea } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { Segmented } from '@/components/ui/toggle-group'
 
 type State =
   | { kind: 'idle' }
@@ -22,11 +25,13 @@ type State =
   | { kind: 'failed'; message: string }
   | { kind: 'accepted'; ref: string; evidence: string }
 
+type Selection = 'explicit' | 'latest' | 'all'
+
 function backfillRequestValid(
   confirmed: boolean,
   job: string,
   partitionSet: string,
-  selection: 'explicit' | 'latest' | 'all',
+  selection: Selection,
   partitions: Array<string>,
 ) {
   return (
@@ -34,6 +39,122 @@ function backfillRequestValid(
     Boolean(job) &&
     Boolean(partitionSet) &&
     (selection !== 'explicit' || partitions.length > 0)
+  )
+}
+
+function BackfillRequestFields({
+  job,
+  setJob,
+  jobs,
+  partitionSet,
+  setPartitionSet,
+  selection,
+  setSelection,
+  partitionText,
+  setPartitionText,
+  confirmed,
+  setConfirmed,
+  locked,
+  hidden,
+  env,
+}: {
+  job: string
+  setJob: (job: string) => void
+  jobs: Array<string>
+  partitionSet: string
+  setPartitionSet: (partitionSet: string) => void
+  selection: Selection
+  setSelection: (selection: Selection) => void
+  partitionText: string
+  setPartitionText: (partitionText: string) => void
+  confirmed: boolean
+  setConfirmed: (confirmed: boolean) => void
+  locked: boolean
+  hidden: boolean
+  env: Env
+}) {
+  return (
+    <div className={hidden ? 'hidden' : 'flex flex-col gap-[18px]'}>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field>
+          <FieldLabel>Job</FieldLabel>
+          {locked ? (
+            <div className="flex h-9 items-center rounded-lg border border-input bg-card px-3 opacity-50">
+              <Mono>{job}</Mono>
+            </div>
+          ) : (
+            <Select
+              value={job}
+              onValueChange={setJob}
+              className="font-mono text-[13px]"
+              options={jobs.map((name) => ({ value: name, label: name }))}
+            />
+          )}
+        </Field>
+        <Field>
+          <FieldLabel>Partition set</FieldLabel>
+          <Input
+            required
+            value={partitionSet}
+            disabled={locked}
+            onChange={(e) => setPartitionSet(e.target.value)}
+            placeholder="orders_daily"
+            className="font-mono text-[13px]"
+          />
+        </Field>
+      </div>
+      <Field>
+        <FieldLabel>Selection</FieldLabel>
+        {locked ? (
+          <div className="text-[13.5px] text-muted-foreground">
+            {selection === 'explicit'
+              ? 'Explicit keys'
+              : selection === 'latest'
+                ? 'Latest partition'
+                : 'All partitions'}
+          </div>
+        ) : (
+          <Segmented
+            value={selection}
+            onValueChange={setSelection}
+            className="self-start"
+            options={[
+              { value: 'explicit', label: 'Explicit keys' },
+              { value: 'latest', label: 'Latest partition' },
+              { value: 'all', label: 'All partitions' },
+            ]}
+          />
+        )}
+      </Field>
+      {selection === 'explicit' ? (
+        <Field>
+          <FieldLabel>Partition keys</FieldLabel>
+          <Textarea
+            required
+            value={partitionText}
+            disabled={locked}
+            onChange={(e) => setPartitionText(e.target.value)}
+            rows={4}
+            placeholder="One key per line or comma-separated"
+            className="font-mono text-[13px]"
+          />
+          <FieldDescription>
+            One key per line or comma-separated.
+          </FieldDescription>
+        </Field>
+      ) : null}
+      <p className="m-0 text-[12.5px] leading-snug text-muted-foreground">
+        Cost, bytes, duration, and workload estimates are unavailable. The API
+        validates the partition set before submitting.
+      </p>
+      <CheckLine
+        checked={confirmed}
+        disabled={locked}
+        onCheckedChange={setConfirmed}
+      >
+        I confirm this real backfill in {env}.
+      </CheckLine>
+    </div>
   )
 }
 
@@ -52,9 +173,7 @@ export function BackfillDialog({
 }) {
   const [job, setJob] = React.useState(jobs[0] ?? '')
   const [partitionSet, setPartitionSet] = React.useState('')
-  const [selection, setSelection] = React.useState<
-    'explicit' | 'latest' | 'all'
-  >('explicit')
+  const [selection, setSelection] = React.useState<Selection>('explicit')
   const [partitionText, setPartitionText] = React.useState('')
   const [confirmed, setConfirmed] = React.useState(false)
   const [state, setState] = React.useState<State>({ kind: 'idle' })
@@ -131,84 +250,22 @@ export function BackfillDialog({
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <div
-              className={
-                state.kind === 'accepted'
-                  ? 'hidden'
-                  : 'flex flex-col gap-[18px]'
-              }
-            >
-              <label className="flex flex-col gap-2 text-sm">
-                Job
-                <select
-                  value={job}
-                  disabled={locked}
-                  onChange={(e) => setJob(e.target.value)}
-                  className="h-10 rounded-lg border border-border bg-card px-3"
-                >
-                  {jobs.map((name) => (
-                    <option key={name}>{name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-2 text-sm">
-                Partition set
-                <Input
-                  required
-                  value={partitionSet}
-                  disabled={locked}
-                  onChange={(e) => setPartitionSet(e.target.value)}
-                  placeholder="orders_daily"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm">
-                Selection
-                <select
-                  value={selection}
-                  disabled={locked}
-                  onChange={(e) =>
-                    setSelection(
-                      z
-                        .enum(['explicit', 'latest', 'all'])
-                        .parse(e.target.value),
-                    )
-                  }
-                  className="h-10 rounded-lg border border-border bg-card px-3"
-                >
-                  <option value="explicit">Explicit keys</option>
-                  <option value="latest">Latest partition</option>
-                  <option value="all">All partitions</option>
-                </select>
-              </label>
-              {selection === 'explicit' ? (
-                <label className="flex flex-col gap-2 text-sm">
-                  Partition keys
-                  <textarea
-                    required
-                    value={partitionText}
-                    disabled={locked}
-                    onChange={(e) => setPartitionText(e.target.value)}
-                    rows={4}
-                    placeholder="One key per line or comma-separated"
-                    className="rounded-lg border border-border bg-card p-3 font-mono text-sm"
-                  />
-                </label>
-              ) : null}
-              <p className="m-0 text-sm text-muted-foreground">
-                Cost, bytes, duration, and workload estimates are unavailable.
-                The API validates the partition set before submitting.
-              </p>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={confirmed}
-                  disabled={locked}
-                  onChange={(e) => setConfirmed(e.target.checked)}
-                  className="mt-1"
-                />
-                I confirm this real backfill in {env}.
-              </label>
-            </div>
+            <BackfillRequestFields
+              job={job}
+              setJob={setJob}
+              jobs={jobs}
+              partitionSet={partitionSet}
+              setPartitionSet={setPartitionSet}
+              selection={selection}
+              setSelection={setSelection}
+              partitionText={partitionText}
+              setPartitionText={setPartitionText}
+              confirmed={confirmed}
+              setConfirmed={setConfirmed}
+              locked={locked}
+              hidden={state.kind === 'accepted'}
+              env={env}
+            />
             {state.kind === 'failed' ? (
               <div role="alert" className="text-sm text-bad-text">
                 {state.message} Retry reuses the same operation key; inspect run
@@ -254,18 +311,21 @@ export function BackfillDialog({
               </div>
             ) : null}
           </DialogBody>
-          <DialogFooter className="shrink-0">
+          <DialogFooter className="shrink-0 flex-wrap">
             <Button
               type="button"
               variant="outline"
               disabled={state.kind === 'pending'}
               onClick={onClose}
-              className="ml-auto"
+              size="lg"
+              className="ml-auto h-10 bg-card sm:h-9"
             >
               Close
             </Button>
             <Button
               type="submit"
+              size="lg"
+              className="h-10 sm:h-9"
               disabled={
                 !requestValid ||
                 state.kind === 'pending' ||

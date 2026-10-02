@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-const pad = 'px-4 py-5 lg:px-7 lg:py-6'
+const pad = 'px-4 py-5 lg:px-7'
 
 export function UnavailableTab({
   message,
@@ -74,7 +74,7 @@ export function OverviewTab({
             aria-label="Observed asset schema"
             className="overflow-x-auto"
           >
-            <div className="min-w-[560px]">
+            <div className="min-w-[520px]">
               <div
                 role="row"
                 className="grid h-8 grid-cols-[150px_100px_72px_minmax(0,1fr)] items-center gap-x-3.5 border-b border-line-soft text-xs text-muted-foreground"
@@ -256,9 +256,9 @@ export function DataTab({
 
 export function SchemaTab({ data }: { data: AssetSchemaHistory }) {
   return (
-    <div className="grid min-h-0 grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)]">
-      <section className="flex flex-col gap-1 border-b border-line px-4 py-5 lg:border-r lg:border-b-0">
-        <Eyebrow className="pb-2">{data.items.length} versions</Eyebrow>
+    <div className="grid min-h-0 grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)]">
+      <section className="flex flex-col gap-1 border-b border-line px-3 py-4 lg:border-r lg:border-b-0 lg:px-4 lg:py-[18px]">
+        <Eyebrow className="px-2.5 pb-2">{data.items.length} versions</Eyebrow>
         {data.items.map((version) => (
           <div
             key={version.schema_id}
@@ -379,7 +379,7 @@ export function SnapshotsTab({ data }: { data: AssetSnapshots }) {
   )
   const latest = snapshots[0]
   const cols =
-    'grid grid-cols-[180px_160px_120px_100px_70px_150px_minmax(0,1fr)] items-center gap-x-3.5'
+    'grid grid-cols-[140px_110px_160px_100px_70px_190px_minmax(0,1fr)] items-center gap-x-3.5'
   return (
     <div className={cn(pad, 'flex min-h-0 flex-col gap-[18px]')}>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -404,7 +404,7 @@ export function SnapshotsTab({ data }: { data: AssetSnapshots }) {
             role="row"
             className={cn(
               cols,
-              'h-9 border-b border-line text-xs text-muted-foreground',
+              'h-[34px] border-b border-line text-xs text-muted-foreground',
             )}
           >
             <span role="columnheader">Snapshot</span>
@@ -425,18 +425,21 @@ export function SnapshotsTab({ data }: { data: AssetSnapshots }) {
               role="row"
               className={cn(
                 cols,
-                'min-h-11 border-b border-line-soft text-[13px]',
+                'h-11 border-b border-line-soft text-[13.5px]',
               )}
             >
-              <Mono>{snapshot.snapshot_id}</Mono>
-              <span role="cell" className="text-xs text-muted-foreground">
+              <Mono className="text-[12.5px]">{snapshot.snapshot_id}</Mono>
+              <span role="cell" className="text-[13px] text-muted-foreground">
                 {new Date(snapshot.timestamp_ms).toLocaleString()}
               </span>
               <span role="cell">{snapshot.operation ?? 'Unknown'}</span>
-              <span role="cell" className="text-right font-mono text-xs">
+              <span role="cell" className="text-right font-mono text-[12.5px]">
                 {snapshot.summary['added-records'] ?? '—'}
               </span>
-              <span role="cell" className="text-right font-mono text-xs">
+              <span
+                role="cell"
+                className="text-right font-mono text-[12.5px] text-muted-foreground"
+              >
                 {snapshot.summary['added-data-files'] ?? '—'}
               </span>
               <span role="cell">
@@ -444,7 +447,7 @@ export function SnapshotsTab({ data }: { data: AssetSnapshots }) {
                   {data.nessie_ref}
                 </Badge>
               </span>
-              <span role="cell" className="text-xs text-muted-foreground">
+              <span role="cell" className="text-[13px] text-muted-foreground">
                 Not supplied
               </span>
             </div>
@@ -571,9 +574,9 @@ export function AuditsTab({
               'Last result',
               'Last 20 recorded executions',
               'Blocks',
-            ].map((label) => (
+            ].map((label, index) => (
               <span role="columnheader" key={label}>
-                {label}
+                {index === 0 ? <span className="sr-only">{label}</span> : label}
               </span>
             ))}
           </div>

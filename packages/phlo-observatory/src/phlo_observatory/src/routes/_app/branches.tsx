@@ -80,8 +80,11 @@ function BranchReferences({
               <Badge variant="outline">protected</Badge>
             ) : null}
           </span>
-          <Mono className="break-all text-xs text-muted-foreground">
-            {branch.hash}
+          <Mono
+            className="truncate text-xs text-muted-foreground"
+            title={branch.hash}
+          >
+            {branch.hash.slice(0, 12)}
           </Mono>
         </Link>
       ))}
@@ -146,22 +149,24 @@ function BranchEvidence({
         )}
       </div>
       <div className="grid gap-7 pt-3 lg:grid-cols-2">
-        <div>
+        <div className="flex min-w-0 flex-col gap-3">
           <Eyebrow>Comparison with {target.name}</Eyebrow>
           <p className="text-sm">
             Ahead: {detail.comparison.ahead ?? 'unknown'} · Behind:{' '}
             {detail.comparison.behind ?? 'unknown'} · Merge base:{' '}
-            {detail.comparison.merge_base ?? 'unknown'}
+            <Mono>
+              {(detail.comparison.merge_base ?? 'unknown').slice(0, 12)}
+            </Mono>
           </p>
           <Eyebrow className="mt-6">
             Changes{detail.diff.truncated ? ' (first 500)' : ''}
           </Eyebrow>
           {detail.diff.items.length ? (
-            <ul className="m-0 list-none p-0">
+            <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-border-card p-0">
               {detail.diff.items.map((change) => (
                 <li
                   key={change.key}
-                  className="border-b border-line-soft py-2 text-sm"
+                  className="border-b border-line-soft px-3.5 py-3 text-sm last:border-0"
                 >
                   <Badge variant="outline">{change.status}</Badge>{' '}
                   <Mono>{change.key}</Mono>
@@ -183,26 +188,28 @@ function BranchEvidence({
             Commit history{detail.commits.next_cursor ? ' (first 100)' : ''}
           </Eyebrow>
           {detail.commits.items.length ? (
-            detail.commits.items.map((commit) => (
-              <div
-                key={commit.hash}
-                className="min-w-0 border-b border-line-soft py-2"
-              >
-                <Mono className="block break-all text-xs text-branch">
-                  {commit.hash}
-                </Mono>
-                <div className="break-words text-sm">
-                  {commit.message ?? 'No commit message'}
+            <div className="mt-2 overflow-hidden rounded-[10px] border border-border-card">
+              {detail.commits.items.map((commit) => (
+                <div
+                  key={commit.hash}
+                  className="grid min-w-0 gap-1 border-b border-line-soft px-3.5 py-3 last:border-0 sm:grid-cols-[112px_minmax(0,1fr)] sm:gap-x-3"
+                >
+                  <Mono className="block truncate text-xs text-branch">
+                    {commit.hash.slice(0, 12)}
+                  </Mono>
+                  <div className="min-w-0 break-words text-sm">
+                    {commit.message ?? 'No commit message'}
+                  </div>
+                  <div className="break-all text-xs text-muted-foreground sm:col-start-2">
+                    {commit.author ?? commit.committer ?? 'Unknown author'} ·{' '}
+                    {commit.committed_at ?? 'Unknown time'} · parents:{' '}
+                    {commit.parent_hashes.length
+                      ? commit.parent_hashes.join(', ')
+                      : 'none'}
+                  </div>
                 </div>
-                <div className="break-all text-xs text-muted-foreground">
-                  {commit.author ?? commit.committer ?? 'Unknown author'} ·{' '}
-                  {commit.committed_at ?? 'Unknown time'} · parents:{' '}
-                  {commit.parent_hashes.length
-                    ? commit.parent_hashes.join(', ')
-                    : 'none'}
-                </div>
-              </div>
-            ))
+              ))}
+            </div>
           ) : (
             <EmptyState title="No commit history" className="mt-2">
               No commits were returned.
@@ -423,9 +430,18 @@ function BranchesPage() {
                 <h2 className="m-0 break-all font-mono text-xl">
                   {selected.name}
                 </h2>
-                <Mono className="block max-w-full break-all text-xs text-muted-foreground">
-                  {selected.hash}
+                <Mono
+                  className="block max-w-full truncate text-xs text-muted-foreground"
+                  title={selected.hash}
+                >
+                  {selected.hash.slice(0, 12)}
                 </Mono>
+                <div className="mt-1 text-[13px] text-muted-foreground">
+                  {selected.protected
+                    ? 'Protected environment reference'
+                    : `Compared with ${target.name}`}{' '}
+                  · exact revision pinned
+                </div>
               </div>
               <BranchActions
                 selected={selected}

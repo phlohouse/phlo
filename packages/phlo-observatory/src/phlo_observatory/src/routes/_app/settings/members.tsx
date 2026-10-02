@@ -77,8 +77,8 @@ function MembersPage() {
         />
       }
     >
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto 2xl:flex-row 2xl:overflow-hidden">
-        <section className="flex min-w-0 flex-1 flex-col gap-[26px] p-4 2xl:overflow-y-auto lg:px-6 lg:py-5">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
+        <section className="flex min-w-0 flex-1 flex-col gap-[26px] p-4 xl:overflow-y-auto lg:px-6 lg:py-5">
           <div className="flex flex-col">
             <div className="flex items-baseline gap-2.5 pb-2">
               <h2 className="m-0 text-[15px] font-medium">People</h2>
@@ -239,7 +239,7 @@ function MembersPage() {
         </section>
         <aside
           aria-label="Roles"
-          className="flex shrink-0 flex-col border-t border-line bg-raised px-4 py-5 2xl:w-[300px] 2xl:overflow-y-auto 2xl:border-t-0 2xl:border-l 2xl:px-[22px]"
+          className="flex shrink-0 flex-col border-t border-line bg-raised px-4 py-5 xl:w-[300px] xl:overflow-y-auto xl:border-t-0 xl:border-l xl:px-[22px]"
         >
           <Eyebrow className="pb-1">Access model</Eyebrow>
           <RoleNote title="Viewer / Analyst">

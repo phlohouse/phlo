@@ -16,6 +16,14 @@ import { EmptyState } from '@/components/phlo/states'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { runColor } from '@/components/pipelines/bits'
 
@@ -174,6 +182,7 @@ function PipelinePage() {
   const navigate = Route.useNavigate()
   const router = useRouter()
   const [partitionKey, setPartitionKey] = React.useState('')
+  const [controlsOpen, setControlsOpen] = React.useState(false)
   return (
     <>
       <PageHeader
@@ -182,6 +191,9 @@ function PipelinePage() {
         meta={`${job.repository_name} · ${env}`}
         actions={
           <>
+            <Button variant="outline" onClick={() => setControlsOpen(true)}>
+              Job controls
+            </Button>
             <Button variant="outline" onClick={() => void router.invalidate()}>
               Refresh
             </Button>
@@ -238,77 +250,94 @@ function PipelinePage() {
                 ],
               ]}
             />
-            <Eyebrow>Job controls</Eyebrow>
-            <label className="flex flex-col gap-1 text-sm">
-              Partition key
-              <Input
-                value={partitionKey}
-                onChange={(event) => setPartitionKey(event.target.value)}
-                placeholder="For example, 2026-08-20"
-                maxLength={256}
-              />
-              <span className="text-xs text-muted-foreground">
-                Required for partitioned jobs. Leave empty for unpartitioned
-                jobs.
-              </span>
-            </label>
-            <ConfirmedAction
-              key={`launch:${env}:${job.id}:${partitionKey.trim()}`}
-              storageKey={`phlo:launch:${env}:${job.id}:${partitionKey.trim()}`}
-              confirmation={`I confirm a new run of ${job.id} in ${env}${partitionKey.trim() ? ` for partition ${partitionKey.trim()}` : ''}.`}
-              actionLabel="Launch run"
-              acceptedMessage="Dagster accepted the launch. Refresh to observe the run."
-              execute={async (idempotencyKey) => {
-                await launchJob({
-                  data: {
-                    env,
-                    job_id: job.id,
-                    idempotency_key: idempotencyKey,
-                    confirmed: true,
-                    partition_key: partitionKey.trim() || undefined,
-                  },
-                })
-              }}
-            />
-            {schedules.map((schedule) =>
-              schedule.status === 'RUNNING' || schedule.status === 'STOPPED' ? (
-                <ConfirmedAction
-                  key={`${env}:${schedule.id}:${schedule.status}`}
-                  storageKey={`phlo:schedule:${env}:${schedule.id}:${schedule.status}`}
-                  confirmation={`I confirm ${schedule.status === 'RUNNING' ? 'pausing' : 'resuming'} ${schedule.id} in ${env}.`}
-                  actionLabel={
-                    schedule.status === 'RUNNING'
-                      ? `Pause ${schedule.id}`
-                      : `Resume ${schedule.id}`
-                  }
-                  acceptedMessage={`Dagster accepted the schedule ${schedule.status === 'RUNNING' ? 'pause' : 'resume'}.`}
-                  execute={async (idempotencyKey) => {
-                    await changeSchedule({
-                      data: {
-                        env,
-                        schedule_id: schedule.id,
-                        action:
-                          schedule.status === 'RUNNING' ? 'pause' : 'resume',
-                        expected_status:
-                          schedule.status === 'RUNNING' ? 'RUNNING' : 'STOPPED',
-                        idempotency_key: idempotencyKey,
-                        confirmed: true,
-                      },
-                    })
-                    await router.invalidate()
-                  }}
-                />
-              ) : (
-                <Button
-                  key={schedule.id}
-                  variant="outline"
-                  disabled
-                  title={`Unsupported schedule state: ${schedule.status}`}
-                >
-                  Schedule control unavailable
-                </Button>
-              ),
-            )}
+            <Dialog open={controlsOpen} onOpenChange={setControlsOpen}>
+              <DialogContent className="max-w-[560px]">
+                <DialogHeader>
+                  <DialogTitle>Job controls</DialogTitle>
+                  <DialogDescription>
+                    <Mono>{job.id}</Mono> · {env}. Each action requires
+                    confirmation.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogBody className="gap-4">
+                  <label className="flex flex-col gap-1 text-sm">
+                    Partition key
+                    <Input
+                      value={partitionKey}
+                      onChange={(event) => setPartitionKey(event.target.value)}
+                      placeholder="For example, 2026-08-20"
+                      maxLength={256}
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Required for partitioned jobs. Leave empty for
+                      unpartitioned jobs.
+                    </span>
+                  </label>
+                  <ConfirmedAction
+                    key={`launch:${env}:${job.id}:${partitionKey.trim()}`}
+                    storageKey={`phlo:launch:${env}:${job.id}:${partitionKey.trim()}`}
+                    confirmation={`I confirm a new run of ${job.id} in ${env}${partitionKey.trim() ? ` for partition ${partitionKey.trim()}` : ''}.`}
+                    actionLabel="Launch run"
+                    acceptedMessage="Dagster accepted the launch. Refresh to observe the run."
+                    execute={async (idempotencyKey) => {
+                      await launchJob({
+                        data: {
+                          env,
+                          job_id: job.id,
+                          idempotency_key: idempotencyKey,
+                          confirmed: true,
+                          partition_key: partitionKey.trim() || undefined,
+                        },
+                      })
+                    }}
+                  />
+                  {schedules.map((schedule) =>
+                    schedule.status === 'RUNNING' ||
+                    schedule.status === 'STOPPED' ? (
+                      <ConfirmedAction
+                        key={`${env}:${schedule.id}:${schedule.status}`}
+                        storageKey={`phlo:schedule:${env}:${schedule.id}:${schedule.status}`}
+                        confirmation={`I confirm ${schedule.status === 'RUNNING' ? 'pausing' : 'resuming'} ${schedule.id} in ${env}.`}
+                        actionLabel={
+                          schedule.status === 'RUNNING'
+                            ? `Pause ${schedule.id}`
+                            : `Resume ${schedule.id}`
+                        }
+                        acceptedMessage={`Dagster accepted the schedule ${schedule.status === 'RUNNING' ? 'pause' : 'resume'}.`}
+                        execute={async (idempotencyKey) => {
+                          await changeSchedule({
+                            data: {
+                              env,
+                              schedule_id: schedule.id,
+                              action:
+                                schedule.status === 'RUNNING'
+                                  ? 'pause'
+                                  : 'resume',
+                              expected_status:
+                                schedule.status === 'RUNNING'
+                                  ? 'RUNNING'
+                                  : 'STOPPED',
+                              idempotency_key: idempotencyKey,
+                              confirmed: true,
+                            },
+                          })
+                          await router.invalidate()
+                        }}
+                      />
+                    ) : (
+                      <Button
+                        key={schedule.id}
+                        variant="outline"
+                        disabled
+                        title={`Unsupported schedule state: ${schedule.status}`}
+                      >
+                        Schedule control unavailable
+                      </Button>
+                    ),
+                  )}
+                </DialogBody>
+              </DialogContent>
+            </Dialog>
             <div className="flex flex-col gap-2.5">
               <div className="flex items-baseline gap-2">
                 <Eyebrow>Recent runs</Eyebrow>
@@ -368,7 +397,7 @@ function PipelinePage() {
               </div>
             </div>
           </section>
-          <section aria-labelledby="sib-h" className="flex flex-col">
+          <section aria-labelledby="sib-h" className="hidden flex-col lg:flex">
             <div className="flex items-baseline gap-2 px-4 pt-4 pb-2 lg:px-6">
               <h2 id="sib-h" className="m-0 text-[13.5px] font-medium">
                 {job.repository_name}

@@ -1,6 +1,6 @@
 /** Presents merge evidence and collects approval for a branch merge. */
 import * as React from 'react'
-import { GitMergeIcon } from 'lucide-react'
+import { CircleCheckIcon, ClockIcon, GitMergeIcon } from 'lucide-react'
 import type {
   BranchAction,
   BranchCheck,
@@ -18,6 +18,36 @@ import {
 import { Label } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/input'
 import { Mono } from '@/components/phlo/status'
+
+function ChecksSummary({ checks }: { checks?: Array<BranchCheck> }) {
+  const passed = checks?.every((check) => check.status === 'passed')
+  return (
+    <div
+      className={
+        passed
+          ? 'flex items-start gap-2.5 rounded-[10px] border border-ok-line bg-ok-wash px-3 py-2.5 text-[13.5px] text-ok-ink'
+          : 'flex items-start gap-2.5 rounded-[10px] bg-warn-soft px-3 py-2.5 text-[13.5px] text-warn-ink'
+      }
+    >
+      {passed ? (
+        <CircleCheckIcon className="mt-0.5 size-4 shrink-0" />
+      ) : (
+        <ClockIcon className="mt-0.5 size-4 shrink-0" />
+      )}
+      <div>
+        {checks?.length
+          ? checks.map((check) => (
+              <p key={check.name} className="m-0">
+                <strong>{check.name}</strong>: {check.status}
+                {check.run_id ? ` · ${check.run_id}` : ''}
+                {check.message ? ` · ${check.message}` : ''}
+              </p>
+            ))
+          : 'Checks have not been run for this pinned revision.'}
+      </div>
+    </div>
+  )
+}
 
 export function MergeDialog({
   open,
@@ -66,14 +96,18 @@ export function MergeDialog({
             Pinned to {branch.hash.slice(0, 12)} → {target.hash.slice(0, 12)}.
             Reload if either head changes.
           </p>
-          <div>
-            {checks?.map((check) => (
-              <p key={check.name} className="m-0 text-sm">
-                <strong>{check.name}</strong>: {check.status}
-                {check.run_id ? ` · ${check.run_id}` : ''}
-                {check.message ? ` · ${check.message}` : ''}
-              </p>
-            ))}
+          <ChecksSummary checks={checks} />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" disabled={busy} onClick={onChecks}>
+              Run checks
+            </Button>
+            <Button
+              variant="outline"
+              disabled={busy || !message.trim()}
+              onClick={() => onTrial(message.trim())}
+            >
+              Trial merge
+            </Button>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="merge-message">
@@ -89,6 +123,19 @@ export function MergeDialog({
               rows={3}
             />
           </div>
+          <fieldset className="m-0 flex flex-col gap-2 rounded-[10px] border border-border bg-raised p-4">
+            <legend className="px-1.5 text-[13.5px] font-medium">
+              Electronic signature
+            </legend>
+            <p className="m-0 text-sm">
+              The authenticated signer, date, justification and pinned target
+              version will be recorded by the signing service.
+            </p>
+            <p className="m-0 text-xs text-muted-foreground">
+              Recent MFA is required. This dialog does not accept or bypass
+              credentials.
+            </p>
+          </fieldset>
           {trial ? (
             <p className="m-0 text-sm">
               Trial: <strong>{trial.status}</strong>
@@ -107,16 +154,6 @@ export function MergeDialog({
         <DialogFooter className="flex-wrap">
           <Button variant="outline" onClick={onClose}>
             Cancel
-          </Button>
-          <Button variant="outline" disabled={busy} onClick={onChecks}>
-            Run checks
-          </Button>
-          <Button
-            variant="outline"
-            disabled={busy || !message.trim()}
-            onClick={() => onTrial(message.trim())}
-          >
-            Trial merge
           </Button>
           <Button
             disabled={busy || !message.trim() || !version}

@@ -62,7 +62,7 @@ function TimelinePage() {
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         <section
           aria-label="Runs by job"
-          className="flex min-w-0 flex-col gap-4 px-4 py-4 lg:flex-1 lg:overflow-auto lg:px-5"
+          className="flex min-w-0 flex-col gap-3 px-4 py-4 lg:flex-1 lg:overflow-auto lg:px-5"
         >
           <p className="m-0 text-[12.5px] text-muted-foreground md:hidden">
             {jobs.length} jobs · last 24 h · each square is 30 minutes. Scroll
@@ -95,12 +95,12 @@ function TimelinePage() {
                 </span>
               </div>
               {groups.map((group) => (
-                <div key={group} className="mt-4">
+                <div key={group} className="mt-2.5">
                   <button
                     type="button"
                     aria-expanded={open.has(group)}
                     onClick={() => toggle(group)}
-                    className="mb-2 flex min-h-[26px] items-center gap-2 text-left text-[12.5px] font-medium"
+                    className="sticky left-0 z-[1] flex min-h-10 items-center gap-2 bg-card text-left text-[12.5px] font-medium lg:min-h-[26px]"
                   >
                     <ChevronRightIcon
                       className={cn(
@@ -123,13 +123,13 @@ function TimelinePage() {
                         .map((job) => (
                           <div
                             key={job.id}
-                            className="mb-2 grid grid-cols-[148px_minmax(0,1fr)] items-center gap-x-3"
+                            className="mt-0.5 grid h-3.5 grid-cols-[148px_minmax(0,1fr)] items-center gap-x-3"
                           >
                             <Link
                               to="/pipelines/$jobName"
                               params={{ jobName: job.id }}
                               search={{ env }}
-                              className="truncate font-mono text-[11.5px] text-foreground"
+                              className="sticky left-0 z-[1] truncate bg-card font-mono text-[11.5px] text-foreground"
                             >
                               {job.id}
                             </Link>
@@ -183,10 +183,20 @@ function TimelinePage() {
           {!jobs.length ? (
             <EmptyState title="No jobs in this environment" />
           ) : null}
-          <p className="m-0 text-xs text-muted-foreground">
-            Green: success. Red: failure. Grey: canceled. Amber: another
-            observed state. Empty: no evidence in the fetched records.
-          </p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
+            {[
+              ['bg-sla-ok', 'Succeeded'],
+              ['bg-bad', 'Failed'],
+              ['bg-skip-line', 'Canceled'],
+              ['bg-warn-bar', 'Other observed state'],
+              ['border border-line-soft', 'No fetched evidence'],
+            ].map(([color, label]) => (
+              <span key={label} className="inline-flex items-center gap-1.5">
+                <span className={cn('h-3 w-2 rounded-[2px]', color)} />
+                {label}
+              </span>
+            ))}
+          </div>
         </section>
         <aside
           aria-labelledby="patterns-h"

@@ -94,6 +94,140 @@ function resolutionLabel(
     : 'Not resolved'
 }
 
+function IncidentSummary({
+  env,
+  incident,
+  timeline,
+  followUps,
+  linkedEvidence,
+  owner,
+  comment,
+  pending,
+  error,
+  onOwnerChange,
+  onCommentChange,
+  onSaveOwner,
+  onAddComment,
+}: {
+  env: 'prod' | 'staging'
+  incident: IncidentRecord
+  timeline: Array<IncidentTimelineEvent>
+  followUps: Array<IncidentFollowUp>
+  linkedEvidence: Array<[React.ReactNode, React.ReactNode]>
+  owner: string
+  comment: string
+  pending: boolean
+  error?: string
+  onOwnerChange: (value: string) => void
+  onCommentChange: (value: string) => void
+  onSaveOwner: () => void
+  onAddComment: () => void
+}) {
+  return (
+    <aside
+      aria-label="Summary"
+      className="border-b border-line lg:overflow-y-auto lg:border-r lg:border-b-0"
+    >
+      <div className="flex flex-col gap-2.5 px-4 pt-5 pb-4 lg:px-6 lg:pt-[22px]">
+        <div className="flex flex-wrap items-center gap-2">
+          <Mono className="text-[13px] text-muted-foreground">
+            #{incident.id}
+          </Mono>
+          <Badge
+            variant={
+              incident.status === 'resolved'
+                ? 'ok'
+                : incident.status === 'acknowledged'
+                  ? 'warn'
+                  : 'bad'
+            }
+          >
+            {incident.status}
+          </Badge>
+          <Badge variant="outline">{incident.kind}</Badge>
+        </div>
+        <h2 className="m-0 text-[22px] leading-tight font-semibold tracking-[-0.01em]">
+          {incident.title}
+        </h2>
+        <p className="m-0 text-sm leading-relaxed text-text-3">
+          {incident.status === 'resolved'
+            ? 'This incident is resolved. Persisted evidence and the audit trail are shown here.'
+            : 'Investigation is active. This view only shows evidence persisted by the incident service.'}
+        </p>
+      </div>
+      <div className="border-t border-line-soft px-4 py-4 lg:px-6">
+        <KeyValues
+          keyWidth={90}
+          className="items-center gap-y-3"
+          items={[
+            [
+              'Asset',
+              <Link
+                to="/assets/$assetId"
+                params={{ assetId: incident.asset_id }}
+                search={{ env }}
+                className="break-all font-mono text-xs"
+              >
+                {incident.asset_id}
+              </Link>,
+            ],
+            ['Owner', incident.owner ?? 'Unassigned'],
+            ['Created', formatDate(incident.created_at)],
+            ['Updated', formatDate(incident.updated_at)],
+            ['Version', String(incident.version)],
+            ...linkedEvidence,
+          ]}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-2.5 border-t border-line-soft px-4 py-4 lg:px-6">
+        <Stat label="Activity" value={timeline.length} sub="persisted events" />
+        <Stat
+          label="Follow-ups"
+          value={`${followUps.filter((item) => item.completed_at).length}/${followUps.length}`}
+          sub="complete"
+          tone={followUps.some((item) => !item.completed_at) ? 'warn' : 'ok'}
+        />
+      </div>
+      <div className="flex flex-col gap-3 border-t border-line px-4 py-5 lg:px-6">
+        <Eyebrow>Update incident</Eyebrow>
+        <label className="text-sm">
+          Owner
+          <Input
+            className="mt-1.5"
+            value={owner}
+            maxLength={512}
+            onChange={(event) => onOwnerChange(event.target.value)}
+          />
+        </label>
+        <Button
+          variant="outline"
+          disabled={pending || owner === (incident.owner ?? '')}
+          onClick={onSaveOwner}
+        >
+          Save owner
+        </Button>
+        <label className="text-sm">
+          Comment
+          <Textarea
+            className="mt-1.5"
+            rows={3}
+            value={comment}
+            onChange={(event) => onCommentChange(event.target.value)}
+          />
+        </label>
+        <Button disabled={pending || !comment.trim()} onClick={onAddComment}>
+          Add comment
+        </Button>
+        {error ? (
+          <p role="alert" className="m-0 text-sm text-bad-text">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </aside>
+  )
+}
+
 export function IncidentDetail({
   env,
   incident,
@@ -112,6 +246,9 @@ export function IncidentDetail({
   const [due, setDue] = React.useState('')
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string>()
+  const [tab, setTab] = React.useState<
+    'summary' | 'postmortem' | 'activity' | 'lineage'
+  >('summary')
   const linkedEvidence = linkedIncidentEvidence(timeline, env)
   async function run(action: () => Promise<unknown>, clear?: () => void) {
     if (pending) return
@@ -180,262 +317,227 @@ export function IncidentDetail({
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-[400px_minmax(0,1fr)] lg:overflow-hidden">
-      <aside
-        aria-label="Summary"
-        className="border-b border-line lg:overflow-y-auto lg:border-r lg:border-b-0"
-      >
-        <div className="flex flex-col gap-2.5 px-4 pt-5 pb-4 lg:px-6 lg:pt-[22px]">
-          <div className="flex flex-wrap items-center gap-2">
-            <Mono className="text-[13px] text-muted-foreground">
-              #{incident.id}
-            </Mono>
-            <Badge
-              variant={
-                incident.status === 'resolved'
-                  ? 'ok'
-                  : incident.status === 'acknowledged'
-                    ? 'warn'
-                    : 'bad'
-              }
-            >
-              {incident.status}
-            </Badge>
-            <Badge variant="outline">{incident.kind}</Badge>
-          </div>
-          <h2 className="m-0 text-[22px] leading-tight font-semibold tracking-[-0.01em]">
-            {incident.title}
-          </h2>
-          <p className="m-0 text-sm leading-relaxed text-text-3">
-            {incident.status === 'resolved'
-              ? 'This incident is resolved. Persisted evidence and the audit trail are shown here.'
-              : 'Investigation is active. This view only shows evidence persisted by the incident service.'}
-          </p>
+      <IncidentSummary
+        env={env}
+        incident={incident}
+        timeline={timeline}
+        followUps={followUps}
+        linkedEvidence={linkedEvidence}
+        owner={owner}
+        comment={comment}
+        pending={pending}
+        error={error}
+        onOwnerChange={setOwner}
+        onCommentChange={setComment}
+        onSaveOwner={() => run(() => update({ owner: owner.trim() || null }))}
+        onAddComment={() =>
+          run(
+            () => update({ comment: comment.trim() }),
+            () => setComment(''),
+          )
+        }
+      />
+      <main className="flex shrink-0 flex-col lg:min-h-0 lg:overflow-hidden">
+        <div
+          role="tablist"
+          aria-label="Incident details"
+          className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-4 pt-2 lg:px-7"
+        >
+          {(['summary', 'postmortem', 'activity', 'lineage'] as const).map(
+            (value) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={tab === value}
+                onClick={() => setTab(value)}
+                className={
+                  tab === value
+                    ? 'border-b-2 border-primary px-3 py-3 text-sm font-medium text-foreground'
+                    : 'px-3 py-3 text-sm text-muted-foreground hover:text-foreground'
+                }
+              >
+                {value === 'postmortem'
+                  ? 'Post-mortem'
+                  : value[0].toUpperCase() + value.slice(1)}
+              </button>
+            ),
+          )}
         </div>
-        <div className="border-t border-line-soft px-4 py-4 lg:px-6">
-          <KeyValues
-            keyWidth={90}
-            className="items-center gap-y-3"
-            items={[
-              [
-                'Asset',
-                <Link
-                  to="/assets/$assetId"
-                  params={{ assetId: incident.asset_id }}
-                  search={{ env }}
-                  className="break-all font-mono text-xs"
-                >
-                  {incident.asset_id}
-                </Link>,
-              ],
-              ['Owner', incident.owner ?? 'Unassigned'],
-              ['Created', formatDate(incident.created_at)],
-              ['Updated', formatDate(incident.updated_at)],
-              ['Version', String(incident.version)],
-              ...linkedEvidence,
-            ]}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-2.5 border-t border-line-soft px-4 py-4 lg:px-6">
-          <Stat
-            label="Activity"
-            value={timeline.length}
-            sub="persisted events"
-          />
-          <Stat
-            label="Follow-ups"
-            value={`${followUps.filter((item) => item.completed_at).length}/${followUps.length}`}
-            sub="complete"
-            tone={followUps.some((item) => !item.completed_at) ? 'warn' : 'ok'}
-          />
-        </div>
-        <div className="flex flex-col gap-3 border-t border-line px-4 py-5 lg:px-6">
-          <Eyebrow>Update incident</Eyebrow>
-          <label className="text-sm">
-            Owner
-            <Input
-              className="mt-1.5"
-              value={owner}
-              maxLength={512}
-              onChange={(event) => setOwner(event.target.value)}
-            />
-          </label>
-          <Button
-            variant="outline"
-            disabled={pending || owner === (incident.owner ?? '')}
-            onClick={() => run(() => update({ owner: owner.trim() || null }))}
-          >
-            Save owner
-          </Button>
-          <label className="text-sm">
-            Comment
-            <Textarea
-              className="mt-1.5"
-              rows={3}
-              value={comment}
-              onChange={(event) => setComment(event.target.value)}
-            />
-          </label>
-          <Button
-            disabled={pending || !comment.trim()}
-            onClick={() =>
-              run(
-                () => update({ comment: comment.trim() }),
-                () => setComment(''),
-              )
-            }
-          >
-            Add comment
-          </Button>
-          {error ? (
-            <p role="alert" className="m-0 text-sm text-bad-text">
-              {error}
-            </p>
+        <div className="flex min-h-0 flex-col gap-6 overflow-y-auto p-4 lg:px-7 lg:py-[22px]">
+          {tab === 'summary' ? (
+            <section className="flex flex-col gap-3">
+              <div>
+                <h2 className="m-0 text-[15px] font-medium">
+                  Investigation &amp; evidence
+                </h2>
+                <p className="m-0 mt-1 text-[13px] text-muted-foreground">
+                  Evidence recorded by incident updates. Missing impact metrics
+                  or run data are not inferred.
+                </p>
+              </div>
+              <Card className="p-4">
+                <KeyValues
+                  keyWidth={110}
+                  items={[
+                    ['Affected asset', incident.asset_id],
+                    ['Impact', 'Not supplied by the incident API'],
+                    [
+                      'Investigation',
+                      timeline.length
+                        ? `${timeline.length} recorded events`
+                        : 'No evidence recorded',
+                    ],
+                    ['Resolution', resolutionLabel(incident, timeline)],
+                  ]}
+                />
+              </Card>
+            </section>
+          ) : null}
+          {tab === 'activity' ? (
+            <section>
+              <h2 className="mb-1 text-[15px] font-medium">Activity</h2>
+              <p className="mt-0 mb-4 text-[13px] text-muted-foreground">
+                Chronological incident audit trail
+              </p>
+              {timeline.length ? (
+                <ol className="m-0 list-none border-l border-line p-0 pl-5">
+                  {timeline.map((event) => (
+                    <li key={event.id} className="relative pb-5 last:pb-0">
+                      <span className="absolute top-1 -left-[24.5px] size-2 rounded-full bg-primary" />
+                      <div className="flex flex-wrap gap-x-2 text-sm">
+                        <strong>{event.kind.replaceAll('_', ' ')}</strong>
+                        <span className="text-muted-foreground">
+                          {event.actor} · {formatDate(event.occurred_at)}
+                        </span>
+                      </div>
+                      {payloadText(event.payload) ? (
+                        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg bg-sunken p-3 text-xs text-text-2">
+                          {payloadText(event.payload)}
+                        </pre>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <EmptyState title="No timeline events">
+                  No persisted activity is available for this incident.
+                </EmptyState>
+              )}
+            </section>
+          ) : null}
+          {tab === 'postmortem' ? (
+            <section>
+              <div className="mb-4">
+                <h2 className="m-0 text-[15px] font-medium">
+                  Post-mortem &amp; follow-ups
+                </h2>
+                <p className="m-0 mt-1 text-[13px] text-muted-foreground">
+                  A narrative post-mortem is unavailable unless it was persisted
+                  as timeline evidence.
+                </p>
+              </div>
+              <div className="mb-3 flex items-center">
+                <h2 className="m-0 text-[15px] font-medium">
+                  Resolution &amp; follow-ups
+                </h2>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {followUps.filter((item) => item.completed_at).length} of{' '}
+                  {followUps.length} complete
+                </span>
+              </div>
+              {followUps.length ? (
+                <ul className="m-0 list-none rounded-xl border border-border-card p-0">
+                  {followUps.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex items-start gap-3 border-b border-line-soft p-3 last:border-0"
+                    >
+                      <Checkbox
+                        checked={item.completed_at !== null}
+                        disabled={pending}
+                        aria-label={`Complete follow-up: ${item.description}`}
+                        onCheckedChange={(checked) =>
+                          run(() => changeFollowUp(item.id, checked === true))
+                        }
+                      />
+                      <span className="min-w-0 flex-1 text-sm">
+                        <span
+                          className={
+                            item.completed_at
+                              ? 'text-muted-foreground line-through'
+                              : ''
+                          }
+                        >
+                          {item.description}
+                        </span>
+                        {item.due_at ? (
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            Due {formatDate(item.due_at)}
+                          </span>
+                        ) : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No follow-ups recorded.
+                </p>
+              )}
+              <form
+                className="mt-3 flex flex-col gap-2 sm:flex-row"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  const description = followUp.trim()
+                  const dueAt = due
+                    ? new Date(`${due}T00:00:00`).toISOString()
+                    : null
+                  run(
+                    () => addFollowUp(description, dueAt),
+                    () => {
+                      setFollowUp('')
+                      setDue('')
+                    },
+                  )
+                }}
+              >
+                <Input
+                  aria-label="Follow-up description"
+                  required
+                  value={followUp}
+                  onChange={(event) => setFollowUp(event.target.value)}
+                  placeholder="Add a follow-up"
+                />
+                <Input
+                  aria-label="Due date"
+                  type="date"
+                  value={due}
+                  onChange={(event) => setDue(event.target.value)}
+                  className="sm:w-44"
+                />
+                <Button type="submit" disabled={pending || !followUp.trim()}>
+                  Add
+                </Button>
+              </form>
+            </section>
+          ) : null}
+          {tab === 'lineage' ? (
+            <section className="flex flex-col gap-3">
+              <h2 className="m-0 text-[15px] font-medium">Lineage</h2>
+              {linkedEvidence.length ? (
+                <Card className="p-4">
+                  <KeyValues keyWidth={90} items={linkedEvidence} />
+                </Card>
+              ) : (
+                <EmptyState title="Lineage unavailable">
+                  No branch or pipeline lineage was persisted with this
+                  incident.
+                </EmptyState>
+              )}
+            </section>
           ) : null}
         </div>
-      </aside>
-      <main className="flex min-h-0 flex-col gap-6 p-4 lg:overflow-y-auto lg:px-7 lg:py-[22px]">
-        <section className="flex flex-col gap-3">
-          <div>
-            <h2 className="m-0 text-[15px] font-medium">
-              Investigation &amp; evidence
-            </h2>
-            <p className="m-0 mt-1 text-[13px] text-muted-foreground">
-              Evidence recorded by incident updates. Missing impact metrics or
-              run data are not inferred.
-            </p>
-          </div>
-          <Card className="p-4">
-            <KeyValues
-              keyWidth={110}
-              items={[
-                ['Affected asset', incident.asset_id],
-                ['Impact', 'Not supplied by the incident API'],
-                [
-                  'Investigation',
-                  timeline.length
-                    ? `${timeline.length} recorded events`
-                    : 'No evidence recorded',
-                ],
-                ['Resolution', resolutionLabel(incident, timeline)],
-              ]}
-            />
-          </Card>
-        </section>
-        <section>
-          <h2 className="mb-1 text-[15px] font-medium">Activity</h2>
-          <p className="mt-0 mb-4 text-[13px] text-muted-foreground">
-            Chronological incident audit trail
-          </p>
-          {timeline.length ? (
-            <ol className="m-0 list-none border-l border-line p-0 pl-5">
-              {timeline.map((event) => (
-                <li key={event.id} className="relative pb-5 last:pb-0">
-                  <span className="absolute top-1 -left-[24.5px] size-2 rounded-full bg-primary" />
-                  <div className="flex flex-wrap gap-x-2 text-sm">
-                    <strong>{event.kind.replaceAll('_', ' ')}</strong>
-                    <span className="text-muted-foreground">
-                      {event.actor} · {formatDate(event.occurred_at)}
-                    </span>
-                  </div>
-                  {payloadText(event.payload) ? (
-                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg bg-sunken p-3 text-xs text-text-2">
-                      {payloadText(event.payload)}
-                    </pre>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <EmptyState title="No timeline events">
-              No persisted activity is available for this incident.
-            </EmptyState>
-          )}
-        </section>
-        <section className="border-t border-line pt-5">
-          <div className="mb-3 flex items-center">
-            <h2 className="m-0 text-[15px] font-medium">
-              Resolution &amp; follow-ups
-            </h2>
-            <span className="ml-auto text-xs text-muted-foreground">
-              {followUps.filter((item) => item.completed_at).length} of{' '}
-              {followUps.length} complete
-            </span>
-          </div>
-          {followUps.length ? (
-            <ul className="m-0 list-none rounded-xl border border-border-card p-0">
-              {followUps.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-start gap-3 border-b border-line-soft p-3 last:border-0"
-                >
-                  <Checkbox
-                    checked={item.completed_at !== null}
-                    disabled={pending}
-                    aria-label={`Complete follow-up: ${item.description}`}
-                    onCheckedChange={(checked) =>
-                      run(() => changeFollowUp(item.id, checked === true))
-                    }
-                  />
-                  <span className="min-w-0 flex-1 text-sm">
-                    <span
-                      className={
-                        item.completed_at
-                          ? 'text-muted-foreground line-through'
-                          : ''
-                      }
-                    >
-                      {item.description}
-                    </span>
-                    {item.due_at ? (
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        Due {formatDate(item.due_at)}
-                      </span>
-                    ) : null}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No follow-ups recorded.
-            </p>
-          )}
-          <form
-            className="mt-3 flex flex-col gap-2 sm:flex-row"
-            onSubmit={(event) => {
-              event.preventDefault()
-              const description = followUp.trim()
-              const dueAt = due
-                ? new Date(`${due}T00:00:00`).toISOString()
-                : null
-              run(
-                () => addFollowUp(description, dueAt),
-                () => {
-                  setFollowUp('')
-                  setDue('')
-                },
-              )
-            }}
-          >
-            <Input
-              aria-label="Follow-up description"
-              required
-              value={followUp}
-              onChange={(event) => setFollowUp(event.target.value)}
-              placeholder="Add a follow-up"
-            />
-            <Input
-              aria-label="Due date"
-              type="date"
-              value={due}
-              onChange={(event) => setDue(event.target.value)}
-              className="sm:w-44"
-            />
-            <Button type="submit" disabled={pending || !followUp.trim()}>
-              Add
-            </Button>
-          </form>
-        </section>
       </main>
     </div>
   )

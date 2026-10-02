@@ -179,11 +179,15 @@ function AssetsPage() {
         <Eyebrow>
           Showing {rows.length} of {items.length}
         </Eyebrow>
-        <Card className="shrink-0 overflow-hidden">
-          {rows.map((asset) => (
-            <MobileRow key={asset.id} asset={asset} env={env} />
-          ))}
-        </Card>
+        {rows.length ? (
+          <Card className="shrink-0 overflow-hidden">
+            {rows.map((asset) => (
+              <MobileRow key={asset.id} asset={asset} env={env} />
+            ))}
+          </Card>
+        ) : (
+          <NoMatch />
+        )}
       </div>
       <div className="hidden min-h-0 flex-1 flex-col md:flex">
         <div className="min-h-0 flex-1 overflow-auto">
@@ -205,7 +209,15 @@ function AssetsPage() {
                 'Owner',
                 'Last 7 days',
               ].map((label) => (
-                <span key={label} role="columnheader">
+                <span
+                  key={label}
+                  role="columnheader"
+                  className={
+                    label === 'Rows' || label === 'Size'
+                      ? 'text-right'
+                      : undefined
+                  }
+                >
                   {label}
                 </span>
               ))}
@@ -213,6 +225,11 @@ function AssetsPage() {
             {rows.map((asset) => (
               <DesktopRow key={asset.id} asset={asset} env={env} />
             ))}
+            {rows.length === 0 ? (
+              <div className="p-5">
+                <NoMatch />
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="flex min-h-11 shrink-0 items-center gap-4 border-t border-line px-5 py-2 text-[13px] text-muted-foreground">
@@ -279,13 +296,26 @@ function MobileRow({ asset, env }: { asset: ApiAsset; env: Env }) {
       <span className="size-2.5 shrink-0 rounded-full bg-border-strong" />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="truncate font-mono text-[13px]">{asset.id}</span>
-        <span className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+        <span className="flex items-center gap-1.5 overflow-hidden text-[12.5px] whitespace-nowrap text-muted-foreground">
           {layer ? <LayerSwatch layer={layer} /> : null}
           <span className="capitalize">{layer ?? 'Unknown layer'}</span>
-          <span>{asset.group_name ?? 'No group'}</span>
+          <span className="truncate">{asset.group_name ?? 'No group'}</span>
         </span>
       </span>
-      <span className="text-xs text-muted-foreground">Freshness unknown</span>
+      <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
+        Freshness unknown
+      </span>
     </Link>
+  )
+}
+
+function NoMatch() {
+  return (
+    <Card className="items-center gap-1.5 px-4 py-6 text-center">
+      <div className="text-[15px] font-medium">No assets match</div>
+      <div className="text-[13px] text-muted-foreground">
+        Try another name, or pick All.
+      </div>
+    </Card>
   )
 }

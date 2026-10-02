@@ -221,6 +221,9 @@ function IncidentsPage() {
       </div>
       <NewIncidentDialog
         open={dialog === 'new-incident'}
+        assets={Array.from(
+          new Set(incidents.map((incident) => incident.asset_id)),
+        ).sort()}
         busy={creating}
         error={error}
         onClose={close}

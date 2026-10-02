@@ -1,7 +1,14 @@
 /** Defines the searchable audit-log route with verification and export controls. */
 import * as React from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { DownloadIcon, ShieldAlertIcon, ShieldCheckIcon } from 'lucide-react'
+import {
+  ChevronDownIcon,
+  DownloadIcon,
+  PlusIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+  XIcon,
+} from 'lucide-react'
 import type { AuditRecord } from '@/lib/data/api/admin'
 import { exportAuditLog, getAuditLog } from '@/lib/data/api/admin'
 import { PageHeader } from '@/components/phlo/page'
@@ -9,7 +16,12 @@ import { AuditDetail } from '@/components/settings/audit-detail'
 import { SettingsFrame } from '@/components/settings/frame'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Select } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/menu'
 import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/_app/settings/audit-log')({
@@ -19,7 +31,12 @@ export const Route = createFileRoute('/_app/settings/audit-log')({
 })
 
 const rowGrid =
-  'md:grid md:grid-cols-[80px_100px_minmax(0,1fr)_64px] md:items-center md:gap-x-3.5'
+  'md:grid md:grid-cols-[92px_132px_minmax(0,1fr)_86px] md:items-center md:gap-x-3.5'
+const chip =
+  'flex h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[13px] whitespace-nowrap lg:h-[30px]'
+const chipOff =
+  'border-dashed border-skip-line bg-card text-text-2 hover:bg-soft'
+const chipOn = 'border-foreground bg-foreground text-background'
 
 function AuditLogPage() {
   const data = Route.useLoaderData()
@@ -85,41 +102,39 @@ function AuditLogPage() {
           aria-label="Events"
           className="flex min-w-0 flex-1 flex-col xl:overflow-y-auto"
         >
-          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line p-3 lg:px-5">
-            <Select
-              aria-label="Filter by actor"
-              value={actor}
-              onValueChange={setActor}
-              options={[
-                { value: '', label: 'All actors' },
-                ...[
+          <div className="flex shrink-0 items-center gap-2 border-b border-line py-3 pl-4 lg:px-5">
+            <div
+              role="group"
+              aria-label="Filter events"
+              className="flex min-w-0 flex-1 gap-2 overflow-x-auto pr-4 [scrollbar-width:none] lg:pr-0"
+            >
+              <FilterChip
+                label="Actor"
+                value={actor}
+                options={[
                   ...new Set(
                     data.items.map((record) => record.event.actor_subject),
                   ),
-                ].map((value) => ({ value, label: value })),
-              ]}
-              className="w-44"
-            />
-            <Select
-              aria-label="Filter by action"
-              value={action}
-              onValueChange={setAction}
-              options={[
-                { value: '', label: 'All actions' },
-                ...[
+                ]}
+                onChange={setActor}
+              />
+              <FilterChip
+                label="Action"
+                value={action}
+                options={[
                   ...new Set(data.items.map((record) => record.event.action)),
-                ].map((value) => ({ value, label: value })),
-              ]}
-              className="w-52"
-            />
-            <Button
-              variant={signedOnly ? 'default' : 'outline'}
-              size="sm"
-              aria-pressed={signedOnly}
-              onClick={() => setSignedOnly((value) => !value)}
-            >
-              Signed only
-            </Button>
+                ]}
+                onChange={setAction}
+              />
+              <button
+                type="button"
+                className={cn(chip, signedOnly ? chipOn : chipOff)}
+                aria-pressed={signedOnly}
+                onClick={() => setSignedOnly((value) => !value)}
+              >
+                Signed only
+              </button>
+            </div>
             <span
               className="ml-auto text-[13px] text-muted-foreground"
               aria-live="polite"
@@ -167,7 +182,7 @@ function AuditLogPage() {
         <aside
           aria-label="Selected event"
           aria-live="polite"
-          className="flex shrink-0 flex-col gap-[18px] border-t border-line bg-raised px-4 py-5 xl:w-[360px] xl:overflow-y-auto xl:border-t-0 xl:border-l xl:px-[22px]"
+          className="flex shrink-0 flex-col gap-[18px] border-t border-line bg-raised px-4 py-5 xl:w-[340px] xl:overflow-y-auto xl:border-t-0 xl:border-l xl:px-[22px]"
         >
           {selected ? (
             <AuditDetail
@@ -256,12 +271,14 @@ function EventRow({
           </span>
         </span>
         <span className="flex min-w-0 flex-col">
-          <span className="break-all text-[13.5px]">{record.event.action}</span>
-          <span className="break-all font-mono text-xs text-muted-foreground">
+          <span className="truncate text-[13.5px]" title={record.event.action}>
+            {record.event.action}
+          </span>
+          <span className="truncate font-mono text-xs text-muted-foreground">
             {record.event.resource_type ?? 'resource'} ·{' '}
             {record.event.resource_id ?? '—'}
           </span>
-          <span className="break-all text-xs text-muted-foreground md:hidden">
+          <span className="truncate text-xs text-muted-foreground md:hidden">
             {formatDay(date)} {formatTime(date, record.sealed_at)} ·{' '}
             {record.event.actor_subject}
           </span>
@@ -283,6 +300,48 @@ function EventRow({
         </span>
       </button>
     </div>
+  )
+}
+
+function FilterChip({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: Array<string>
+  onChange: (value: string) => void
+}) {
+  if (value)
+    return (
+      <span className={cn(chip, chipOn, 'cursor-default gap-1 pr-1')}>
+        {label}: {value}
+        <button
+          type="button"
+          aria-label={`Clear ${label.toLowerCase()} filter`}
+          onClick={() => onChange('')}
+          className="flex size-7 cursor-pointer items-center justify-center rounded-full hover:bg-background/20 lg:size-5"
+        >
+          <XIcon className="size-3" />
+        </button>
+      </span>
+    )
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger className={cn(chip, chipOff)}>
+        <PlusIcon className="size-3" aria-hidden /> {label}
+        <ChevronDownIcon className="size-3 text-muted-foreground" aria-hidden />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        {options.map((option) => (
+          <DropdownMenuItem key={option} onClick={() => onChange(option)}>
+            {option}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
