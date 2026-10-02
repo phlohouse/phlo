@@ -1,5 +1,6 @@
 /** Displays compact KPI cards and labelled statistics. */
 import * as React from 'react'
+import { Link } from '@tanstack/react-router'
 import { Eyebrow } from './page'
 import { cn } from '@/lib/utils'
 
@@ -10,23 +11,21 @@ export function KpiCard({
   qualifier,
   qualifierTone,
   footer,
+  to,
+  env,
   className,
-  ...props
 }: {
   label: React.ReactNode
   value: React.ReactNode
   qualifier?: React.ReactNode
   qualifierTone?: 'bad' | 'muted'
   footer?: React.ReactNode
-} & Omit<React.ComponentProps<'div'>, 'children'>) {
-  return (
-    <div
-      className={cn(
-        'flex flex-col gap-2 rounded-xl border border-border-card bg-card px-4 py-3.5 lg:px-[18px] lg:py-4',
-        className,
-      )}
-      {...props}
-    >
+  to?: '/assets' | '/incidents' | '/pipelines/timeline'
+  env?: 'prod' | 'staging'
+  className?: string
+}) {
+  const content = (
+    <>
       <Eyebrow>{label}</Eyebrow>
       <div className="flex flex-wrap items-baseline gap-x-1.5">
         <span className="text-[26px] leading-tight font-medium tracking-tight lg:text-[28px]">
@@ -48,7 +47,20 @@ export function KpiCard({
       {footer ? (
         <div className="text-[13px] text-muted-foreground">{footer}</div>
       ) : null}
-    </div>
+    </>
+  )
+  const classes = cn(
+    'flex flex-col gap-2 rounded-xl border border-border-card bg-card px-4 py-3.5 lg:px-[18px] lg:py-4',
+    to && 'text-foreground hover:border-border hover:bg-raised',
+    className,
+  )
+
+  return to && env ? (
+    <Link to={to} search={{ env }} className={classes}>
+      {content}
+    </Link>
+  ) : (
+    <div className={classes}>{content}</div>
   )
 }
 

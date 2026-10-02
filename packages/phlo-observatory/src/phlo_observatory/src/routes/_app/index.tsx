@@ -1,12 +1,30 @@
 /** Defines the Observatory overview dashboard and service-health summary. */
+import * as React from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { RefreshCwIcon } from 'lucide-react'
+import type { ObservatoryServiceList } from '@/lib/data/api/client'
 import { getOverview } from '@/lib/data/api/core'
 import { PageBody, PageHeader } from '@/components/phlo/page'
 import { KpiCard } from '@/components/phlo/kpi'
 import { Dot, toneText } from '@/components/phlo/status'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+
+type Service = ObservatoryServiceList['items'][number]
+
+export function filterServices(
+  services: Array<Service>,
+  name: string,
+  status: Service['status'] | '',
+) {
+  const query = name.trim().toLowerCase()
+  return services.filter(
+    (service) =>
+      service.id.toLowerCase().includes(query) &&
+      (!status || service.status === status),
+  )
+}
 
 export const Route = createFileRoute('/_app/')({
   loaderDeps: ({ search }) => ({ env: search.env }),
@@ -58,7 +76,7 @@ function OverviewPage() {
             </span>
             <span className="text-[13px] text-muted-foreground">
               {services.length
-                ? `${services.length} services from ${overview.env}`
+                ? `${services.length} registered service definitions for ${overview.env}`
                 : 'No service health observations are available.'}
             </span>
           </div>
@@ -68,7 +86,12 @@ function OverviewPage() {
           aria-label="Live counts"
           className="grid grid-cols-2 gap-3 lg:grid-cols-5 lg:gap-4"
         >
-          <KpiCard label="Assets" value={overview.asset_count} />
+          <KpiCard
+            label="Assets"
+            value={overview.asset_count}
+            to="/assets"
+            env={overview.env}
+          />
           <KpiCard
             label="Materialized assets"
             value={overview.materialized_asset_count}
@@ -81,10 +104,14 @@ function OverviewPage() {
           <KpiCard
             label="Open incidents"
             value={overview.incident_counts.open ?? 0}
+            to="/incidents"
+            env={overview.env}
           />
           <KpiCard
             label="Recent runs"
             value={runCount}
+            to="/pipelines/timeline"
+            env={overview.env}
             footer={
               overview.run_history_truncated
                 ? 'Recent history is truncated at the API limit.'
@@ -93,41 +120,7 @@ function OverviewPage() {
           />
         </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Environment services</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {services.length ? (
-              services.map((service) => (
-                <div
-                  key={service.id}
-                  className="flex flex-wrap items-center gap-2 text-sm"
-                >
-                  <Dot tone={healthTone(service.status)} />
-                  <span className="font-medium">{service.id}</span>
-                  <span
-                    className={`ml-auto text-[13px] ${toneText[healthTone(service.status)]}`}
-                  >
-                    {service.status}
-                  </span>
-                  <span className="basis-full pl-4 text-[13px] text-muted-foreground">
-                    {service.observed_at
-                      ? `Observed ${formatTimestamp(service.observed_at)}`
-                      : 'No observation timestamp'}
-                    {service.response_time_seconds === null
-                      ? ''
-                      : ` · ${service.response_time_seconds.toFixed(3)} s`}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <p className="m-0 text-sm text-muted-foreground">
-                The API returned no service observations.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <ServiceHealth services={services} />
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card>
@@ -200,6 +193,96 @@ function OverviewPage() {
         </p>
       </PageBody>
     </>
+  )
+}
+
+function ServiceHealth({ services }: { services: Array<Service> }) {
+  const [name, setName] = React.useState('')
+  const [status, setStatus] = React.useState<Service['status'] | ''>('')
+  const filtered = filterServices(services, name, status)
+  const statuses = [
+    ...new Set(services.map((service) => service.status)),
+  ].sort()
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Environment services</CardTitle>
+        <p className="m-0 text-[13px] text-muted-foreground">
+          Registered services without a health observation remain unknown. This
+          list can include services that are not running. Unknown does not mean
+          unhealthy.
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {services.length ? (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <label className="flex flex-1 flex-col gap-1.5 text-[13px]">
+              Filter by service name
+              <Input
+                type="search"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Service name"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-[13px]">
+              Filter by status
+              <select
+                value={status}
+                onChange={(event) =>
+                  setStatus(
+                    statuses.find((item) => item === event.target.value) ?? '',
+                  )
+                }
+                className="h-9 rounded-lg border border-input bg-card px-3 text-foreground outline-none focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary-soft"
+              >
+                <option value="">All statuses</option>
+                {statuses.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="text-xs text-muted-foreground">
+              Showing {filtered.length} of {services.length}
+            </span>
+          </div>
+        ) : null}
+        {filtered.map((service) => (
+          <div
+            key={service.id}
+            className="flex flex-wrap items-center gap-2 text-sm"
+          >
+            <Dot tone={healthTone(service.status)} />
+            <span className="font-medium">{service.id}</span>
+            <span
+              className={`ml-auto text-[13px] ${toneText[healthTone(service.status)]}`}
+            >
+              {service.status}
+            </span>
+            <span className="basis-full pl-4 text-[13px] text-muted-foreground">
+              {service.observed_at
+                ? `Observed ${formatTimestamp(service.observed_at)}`
+                : 'No observation timestamp'}
+              {service.response_time_seconds === null
+                ? ''
+                : ` · ${service.response_time_seconds.toFixed(3)} s`}
+            </span>
+          </div>
+        ))}
+        {services.length === 0 ? (
+          <p className="m-0 text-sm text-muted-foreground">
+            The API returned no service observations.
+          </p>
+        ) : filtered.length === 0 ? (
+          <p className="m-0 text-sm text-muted-foreground">
+            No services match both filters.
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
   )
 }
 

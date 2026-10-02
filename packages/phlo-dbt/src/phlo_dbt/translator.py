@@ -335,6 +335,8 @@ class DbtSpecTranslator:
             metadata["relation"] = relation_name
         if materialized:
             metadata["materialized"] = materialized
+        if schema and alias and materialized != "ephemeral":
+            metadata["phlo/relation"] = f"{schema}.{alias}"
         metadata["format"] = "dbt"
 
         columns = dbt_resource_props.get("columns", {})

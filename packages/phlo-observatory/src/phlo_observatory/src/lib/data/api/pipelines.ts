@@ -144,19 +144,37 @@ const actionSchema = z.object({
 })
 
 export const launchJob = createServerFn({ method: 'POST' })
-  .inputValidator(operationRequest.extend({ job_id: z.string().min(1) }))
-  .handler(async ({ data: { env, job_id, idempotency_key } }) => {
-    const response = await phloApi(
-      `api/v1/jobs/${encodeURIComponent(job_id)}/launch?env=${env}`,
-      actionSchema.extend({
-        result: z.object({ run_id: z.string(), status: z.literal('accepted') }),
-      }),
-      { env, body: { idempotency_key, dry_run: false, confirmed: true } },
-    )
-    if (response.status !== 'accepted')
-      throw new Error('Dagster did not accept the job launch.')
-    return { run_id: response.result.run_id }
-  })
+  .inputValidator(
+    operationRequest.extend({
+      job_id: z.string().min(1),
+      partition_key: z.string().min(1).max(256).optional(),
+    }),
+  )
+  .handler(
+    async ({ data: { env, job_id, idempotency_key, partition_key } }) => {
+      const response = await phloApi(
+        `api/v1/jobs/${encodeURIComponent(job_id)}/launch?env=${env}`,
+        actionSchema.extend({
+          result: z.object({
+            run_id: z.string(),
+            status: z.literal('accepted'),
+          }),
+        }),
+        {
+          env,
+          body: {
+            idempotency_key,
+            partition_key,
+            dry_run: false,
+            confirmed: true,
+          },
+        },
+      )
+      if (response.status !== 'accepted')
+        throw new Error('Dagster did not accept the job launch.')
+      return { run_id: response.result.run_id }
+    },
+  )
 
 export const changeSchedule = createServerFn({ method: 'POST' })
   .inputValidator(

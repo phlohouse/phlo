@@ -121,6 +121,22 @@ def test_custom_dbt_translator_description_does_not_embed_compiled_sql_by_defaul
     assert "select 1 as x" not in description
 
 
+def test_translator_declares_physical_relation_from_schema_and_alias() -> None:
+    translator = DbtSpecTranslator()
+    props = {
+        "name": "logical_model",
+        "alias": "published_devices",
+        "schema": "fleet",
+        "database": "iceberg",
+        "config": {"materialized": "table"},
+    }
+    assert translator.get_metadata(props)["phlo/relation"] == "fleet.published_devices"
+    assert "phlo/relation" not in translator.get_metadata(
+        {**props, "config": {"materialized": "ephemeral"}}
+    )
+    assert "phlo/relation" not in translator.get_metadata({"name": "unresolved"})
+
+
 def test_custom_dbt_translator_metadata_compiled_sql_is_capped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

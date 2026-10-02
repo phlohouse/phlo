@@ -14,6 +14,7 @@ import { Eyebrow, KeyValues, PageHeader } from '@/components/phlo/page'
 import { EmptyState } from '@/components/phlo/states'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { runColor } from '@/components/pipelines/bits'
 
@@ -155,6 +156,7 @@ function PipelinePage() {
   const { job, runs, schedules, selected, env } = data
   const navigate = Route.useNavigate()
   const router = useRouter()
+  const [partitionKey, setPartitionKey] = React.useState('')
   return (
     <>
       <PageHeader
@@ -203,10 +205,23 @@ function PipelinePage() {
               ]}
             />
             <Eyebrow>Job controls</Eyebrow>
+            <label className="flex flex-col gap-1 text-sm">
+              Partition key
+              <Input
+                value={partitionKey}
+                onChange={(event) => setPartitionKey(event.target.value)}
+                placeholder="For example, 2026-08-20"
+                maxLength={256}
+              />
+              <span className="text-xs text-muted-foreground">
+                Required for partitioned jobs. Leave empty for unpartitioned
+                jobs.
+              </span>
+            </label>
             <ConfirmedAction
-              key={`launch:${env}:${job.id}`}
-              storageKey={`phlo:launch:${env}:${job.id}`}
-              confirmation={`I confirm a new run of ${job.id} in ${env}.`}
+              key={`launch:${env}:${job.id}:${partitionKey.trim()}`}
+              storageKey={`phlo:launch:${env}:${job.id}:${partitionKey.trim()}`}
+              confirmation={`I confirm a new run of ${job.id} in ${env}${partitionKey.trim() ? ` for partition ${partitionKey.trim()}` : ''}.`}
               actionLabel="Launch run"
               acceptedMessage="Dagster accepted the launch. Refresh to observe the run."
               execute={async (idempotencyKey) => {
@@ -216,6 +231,7 @@ function PipelinePage() {
                     job_id: job.id,
                     idempotency_key: idempotencyKey,
                     confirmed: true,
+                    partition_key: partitionKey.trim() || undefined,
                   },
                 })
               }}

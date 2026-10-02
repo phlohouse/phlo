@@ -218,6 +218,7 @@ class JobLaunchRequest(WireModel):
     dry_run: bool = True
     confirmed: bool = False
     run_config: dict[str, Any] = Field(default_factory=dict)
+    partition_key: str | None = Field(default=None, min_length=1, max_length=256)
 
 
 class ScheduleActionRequest(WireModel):
@@ -844,6 +845,11 @@ async def v1_job_launch(
                             {"key": "phlo/operation", "value": "v1_job_launch"},
                             {"key": "phlo/idempotency_key", "value": payload.idempotency_key},
                         ]
+                        + (
+                            [{"key": "dagster/partition", "value": payload.partition_key}]
+                            if payload.partition_key is not None
+                            else []
+                        )
                     },
                 }
             },

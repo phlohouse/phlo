@@ -57,6 +57,11 @@ export const servicesSchema = z.object({
 export type ObservatoryOverview = z.infer<typeof overviewSchema>
 export type ObservatoryServiceList = z.infer<typeof servicesSchema>
 
+const apiErrorMessages: Partial<Record<number, string>> = {
+  401: 'Sign in to access Phlo. Your session may have expired.',
+  403: 'Your account does not have permission for this page or action. Contact a Phlo administrator.',
+}
+
 export async function parseApiResponse<T>({
   response,
   schema,
@@ -68,6 +73,11 @@ export async function parseApiResponse<T>({
   env?: z.infer<typeof environmentSchema>
   responseType?: 'json' | 'text'
 }): Promise<T> {
+  if (!response.ok)
+    throw new Error(
+      apiErrorMessages[response.status] ??
+        `Phlo API request failed (${response.status}).`,
+    )
   let payload: unknown
   try {
     const text = await response.text()
@@ -158,8 +168,6 @@ export const phloApi = createServerOnlyFn(
     } catch {
       throw new Error('Phlo API is unreachable.')
     }
-    if (!response.ok)
-      throw new Error(`Phlo API request failed (${response.status}).`)
 
     return parseApiResponse({
       response,

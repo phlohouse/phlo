@@ -932,6 +932,7 @@ def phlo_ingestion(  # noqa: C901
                 "asset_type": "ingestion",
                 "source_name": getattr(func, "__name__", table_config.table_name),
                 "table_name": table_config.table_name,
+                "phlo/relation": table_config.full_table_name,
                 "write_mode": merge_strategy,
                 "primary_key": [unique_key] if isinstance(unique_key, str) else list(unique_key),
                 "schema_ref": getattr(table_config.validation_schema, "__name__", None),
