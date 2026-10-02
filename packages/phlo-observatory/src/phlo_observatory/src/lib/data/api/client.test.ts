@@ -10,6 +10,21 @@ describe('Phlo API response boundary', () => {
     rows: z.number().int(),
   })
 
+  it('distinguishes permission failures without exposing backend details', async () => {
+    await expect(
+      parseApiResponse({
+        response: new Response('private backend details', { status: 403 }),
+        schema: snapshot,
+      }),
+    ).rejects.toThrow('Your account does not have permission')
+    await expect(
+      parseApiResponse({
+        response: new Response('private backend details', { status: 503 }),
+        schema: snapshot,
+      }),
+    ).rejects.toThrow('Phlo API request failed (503).')
+  })
+
   it('preserves unsafe integer digits while keeping safe integers numeric', async () => {
     const result = await parseApiResponse({
       response: new Response(

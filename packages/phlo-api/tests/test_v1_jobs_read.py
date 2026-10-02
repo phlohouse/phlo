@@ -460,14 +460,15 @@ def test_job_launch_is_ref_pinned_and_idempotently_replayed(api, monkeypatch, tm
         "idempotency_key": "launch-prod-orders",
         "dry_run": False,
         "confirmed": True,
+        "partition_key": "2026-08-20",
     }
     first = client.post("/api/v1/jobs/orders/launch?env=prod", json=body)
     assert first.status_code == 200, first.text
     variables = state["launch_variables"]["executionParams"]
     assert variables["selector"]["repositoryLocationName"] == "prod_loc"
-    assert {tag["key"]: tag["value"] for tag in variables["executionMetadata"]["tags"]}[
-        "phlo/ref"
-    ] == "main"
+    tags = {tag["key"]: tag["value"] for tag in variables["executionMetadata"]["tags"]}
+    assert tags["phlo/ref"] == "main"
+    assert tags["dagster/partition"] == "2026-08-20"
     call_count = len(state["calls"])
     replay = client.post("/api/v1/jobs/orders/launch?env=prod", json=body)
     assert replay.status_code == 200, replay.text

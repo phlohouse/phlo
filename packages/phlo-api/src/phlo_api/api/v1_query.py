@@ -28,6 +28,7 @@ from phlo_api.observatory_api.observatory_durable_state import load_collection, 
 from phlo_api.observatory_api.observatory_metadata import safe_metadata
 from phlo_api.observatory_api.v1_preview import (
     PreviewLimitExceeded,
+    PreviewQueryRejected,
     PreviewUnavailable,
     execute_preview,
     preview_catalog,
@@ -292,6 +293,9 @@ async def _execute_session(session: QuerySession) -> None:
     except PreviewLimitExceeded:
         session.status = "failed"
         session.error = "Query exceeded the configured row, time, or response limit."
+    except PreviewQueryRejected as exc:
+        session.status = "failed"
+        session.error = str(exc)
     except PreviewUnavailable:
         session.status = "failed"
         session.error = "Query engine is unavailable or rejected the query."

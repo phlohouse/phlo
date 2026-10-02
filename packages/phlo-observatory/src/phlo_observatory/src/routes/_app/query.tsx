@@ -329,7 +329,9 @@ function QueryPage() {
   const { env } = Route.useSearch()
   const firstTable =
     data.catalog.catalogs.flatMap((c) =>
-      c.schemas.flatMap((s) => s.tables.map((t) => `${s.name}.${t}`)),
+      c.schemas
+        .filter((s) => !['information_schema', 'system'].includes(s.name))
+        .flatMap((s) => s.tables.map((t) => `${s.name}.${t}`)),
     )[0] ?? ''
   const [savedQueries, setSavedQueries] = React.useState(data.saved)
   const [tabs, setTabs] = React.useState<Array<Tab>>(() => [
