@@ -2,6 +2,8 @@
 
 An Observatory extension is trusted Python packaging plus browser code. Install it in the `phlo-api` environment, expose it through the `phlo.plugins.observatory` entry-point group, and restart the API so package metadata can see it.
 
+The API still discovers extensions and serves their manifests, assets, and settings. The current Observatory UI does not load extension browser modules or render contributed routes, navigation, slots, or settings panels. The old browser loader was removed with the old frontend. The contracts below describe the retained API, not a working browser integration.
+
 ## Manifest contract
 
 The entry point must load an `ObservatoryExtensionPlugin` instance or a no-argument class. Its `manifest` property returns an `ObservatoryExtensionManifest` or a dictionary accepted by that Pydantic model. Its `asset_root` property returns an `importlib.resources.abc.Traversable` directory.
@@ -19,13 +21,13 @@ The entry point must load an `ObservatoryExtensionPlugin` instance or a no-argum
 | `ui.slots[]` | `slot_id`, `module`, `export`, default export `registerSlot` | Named UI slot contribution |
 | `ui.settings[]` | `module`, `export`, default export `registerSettings` | Settings panel contribution |
 
-See the exact [Pydantic models](../../src/phlo/plugins/observatory.py) and the matching [TypeScript API types](../../packages/phlo-observatory/src/phlo_observatory/src/observatory/api/extensions.ts).
+See the exact [Pydantic models](../../src/phlo/plugins/observatory.py).
 
 ## Assets and module URLs
 
 The API advertises `/api/observatory/extensions/<plugin-metadata-name>/assets` as `assets_base_path`. Asset requests must be non-empty relative POSIX paths. Absolute paths and any `..` segment return HTTP 400; missing files return HTTP 404. The server joins the validated path to `asset_root`, extracts packaged resources when necessary, copies the selected file to a response-lifetime temporary directory, and removes that directory after the response.
 
-Use root-relative module names such as `/example.js`. The browser prefixes non-HTTP module values with the API browser URL and the advertised asset base. An explicit `http://` or `https://` module value remains unchanged. However, the current registry only invokes modules included in Observatory's build-time `import.meta.glob`; an arbitrary remote or API-served URL resolves to an empty module and contributes nothing. This is a current implementation constraint, not a remote-module API. See the [asset endpoint](../../packages/phlo-api/src/phlo_api/observatory_api/extensions.py) and [browser registry](../../packages/phlo-observatory/src/phlo_observatory/src/extensions/registry.tsx).
+Use root-relative module names such as `/example.js` in manifests. The API serves assets but does not execute browser modules. No browser registry exists in the current Observatory UI. See the [asset endpoint](../../packages/phlo-api/src/phlo_api/observatory_api/extensions.py).
 
 ## Discovery and compatibility
 
@@ -41,9 +43,9 @@ The default backend is the durable PostgreSQL capability supplied by `phlo-postg
 
 ## Trust and content security policy boundary
 
-Installing an extension grants code execution in two places. Its Python entry point runs inside `phlo-api`, and registered browser modules run with Observatory's origin and user session. Manifests and assets are not a sandbox or an authorisation boundary. Install only packages you trust, pin and review their distributions, and put extension mutations through authenticated, authorised API endpoints.
+Installing an extension grants Python code execution inside `phlo-api`. A browser loader would also grant modules access to Observatory's origin and user session, but the current UI has no loader. Manifests and assets are not a sandbox or an authorisation boundary. Install only packages you trust, pin and review their distributions, and put extension mutations through authenticated, authorised API endpoints.
 
-The extension loader does not define or enforce a Content Security Policy (CSP). No extension-specific CSP allowlist exists in the current API or Observatory server. A deployment-level CSP can therefore block extension scripts, while weakening CSP to admit a remote module also expands the trust boundary. Prefer packaged, same-deployment assets and test the effective ingress/server CSP before promotion.
+No extension-specific Content Security Policy (CSP) allowlist exists in the current API or Observatory server. Serving an asset does not authorise its execution. Any future browser integration needs a reviewed module-loading and CSP policy.
 
 ## Minimal package
 

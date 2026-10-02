@@ -17,8 +17,7 @@ CHECK_CMD := scripts/run-parallel \
 	"py test" "uv run --locked pytest -m 'not integration'" \
 	"ts lint" "$(NPM_OBSERVATORY) run lint" \
 	"ts format" "$(NPM_OBSERVATORY) run format -- --check ." \
-	"ts typecheck" "$(NPM_OBSERVATORY) exec tsc -- -p $(OBSERVATORY_DIR)/tsconfig.json --noEmit" \
-	"ts replacement typecheck" "$(NPM_OBSERVATORY) run typecheck --workspace replacement"
+	"ts typecheck" "$(NPM_OBSERVATORY) run typecheck"
 CORE_REGRESSION_TEST_PATHS ?= tests
 CORE_REGRESSION_PYTEST_ARGS ?= --tb=short
 QUICKSTART_SMOKE_PYTEST_ARGS ?= --tb=short
@@ -144,8 +143,7 @@ format-ts:
 	$(NPM_OBSERVATORY) run format -- --check .
 
 typecheck-ts:
-	$(NPM_OBSERVATORY) exec tsc -- -p $(OBSERVATORY_DIR)/tsconfig.json --noEmit
-	$(NPM_OBSERVATORY) run typecheck --workspace replacement
+	$(NPM_OBSERVATORY) run typecheck
 
 check:
 	@$(CHECK_CMD)

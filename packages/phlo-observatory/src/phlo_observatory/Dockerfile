@@ -5,7 +5,6 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
-COPY replacement/package.json ./replacement/package.json
 
 # Install dependencies
 RUN npm ci
@@ -14,7 +13,7 @@ RUN npm ci
 COPY . .
 
 # Build the application
-RUN npm run build && npm run build --workspace replacement
+RUN npm run build
 
 # Production stage
 FROM node:24-alpine AS runtime
@@ -33,13 +32,10 @@ RUN apk upgrade --no-cache \
 # Install only the runtime dependency graph. The build-only Vite, Nitro, and
 # scaffolding packages remain in the builder stage.
 COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/replacement/package.json ./replacement/package.json
 RUN npm ci --omit=dev --ignore-scripts
 
 # Copy built application
 COPY --from=builder /app/.output /app/.output
-COPY --from=builder /app/replacement/.output /app/replacement/.output
-COPY select-ui.sh ./select-ui.sh
 
 # npm is a build tool; its bundled CLI dependencies are not needed at runtime.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
@@ -54,9 +50,7 @@ EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD if [ "${OBSERVATORY_UI:-legacy}" = replacement ]; then \
-      wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/healthz; \
-    else wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/; fi
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/healthz
 
 # Run the application
-CMD ["sh", "select-ui.sh", "node", ".output/server/index.mjs"]
+CMD ["node", ".output/server/index.mjs"]

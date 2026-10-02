@@ -1,0 +1,15 @@
+{
+  "adHocServices": {
+    "monorepo-replacement": {
+      "name": "monorepo-replacement",
+      "command": "PHLO_API_URL=http://127.0.0.1:14000 HOST=0.0.0.0 node .output/server/index.mjs",
+      "env": {},
+      "portals": [],
+      "health": null,
+      "review": true,
+      "agent": "off",
+      "cwd": "/tmp/phlo-observatory-monorepo/packages/phlo-observatory/src/phlo_observatory",
+      "port": 13003
+    }
+  }
+}
