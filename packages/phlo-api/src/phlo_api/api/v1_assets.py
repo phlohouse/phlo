@@ -59,6 +59,7 @@ ASSET_QUERY = """query V1Assets {
     __typename
     ... on RepositoryConnection {
       nodes {
+        location { name }
         assetNodes {
           id assetKey { path } description computeKind groupName isMaterializable isObservable isPartitioned
           repository { name location { name } }
@@ -687,6 +688,13 @@ async def _assets(
     )
     if result.get("errors") or not isinstance(repositories_nodes, list):
         raise BadGatewayError("Dagster returned an invalid asset inventory.")
+    if not any(
+        isinstance(repository, dict)
+        and isinstance(repository.get("location"), dict)
+        and repository["location"].get("name") == location
+        for repository in repositories_nodes
+    ):
+        raise BackendUnavailableError("The selected Dagster code location is unavailable.")
     raw_nodes = [
         asset
         for repository in repositories_nodes

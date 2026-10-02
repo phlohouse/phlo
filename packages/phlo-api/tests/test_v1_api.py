@@ -28,6 +28,9 @@ def _asset_inventory_response(nodes: list[dict[str, Any]]) -> dict[str, Any]:
         repository = node["repository"]
         key = (repository["name"], repository["location"]["name"])
         repositories.setdefault(key, []).append(node)
+    for location in ("production_jobs", "testing_jobs"):
+        if not any(key[1] == location for key in repositories):
+            repositories[("repo", location)] = []
     return {
         "data": {
             "repositoriesOrError": {
@@ -642,6 +645,44 @@ def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch
     )
     denied = http.get("/api/v1/assets?env=prod")
     assert denied.status_code == 403
+
+
+@pytest.mark.parametrize("path", ["assets", "overview", "sources", "layers"])
+def test_missing_code_location_is_unavailable_not_an_empty_inventory(client, monkeypatch, path):
+    from types import SimpleNamespace
+
+    from phlo_api import incidents
+
+    http, *_ = client
+    response = _asset_inventory_response([])
+    # Dagster omits repositories from code locations whose servers failed to load.
+    response["data"]["repositoriesOrError"]["nodes"] = [
+        repository
+        for repository in response["data"]["repositoriesOrError"]["nodes"]
+        if repository["location"]["name"] == "testing_jobs"
+    ]
+
+    async def graphql(*args, **kwargs):
+        return response
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(
+        incidents, "incident_stats", lambda request, env: IncidentStatsResponse(env=env, counts={})
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda *args, **kwargs: SimpleNamespace(items=[], next_cursor=None),
+    )
+    missing = http.get(f"/api/v1/{path}?env=prod")
+    assert missing.status_code == 503, missing.text
+    # An existing, successfully loaded empty location is still a valid empty workspace.
+    empty = http.get(f"/api/v1/{path}?env=staging")
+    assert empty.status_code == 200, empty.text
+    if path == "overview":
+        assert empty.json()["asset_count"] == 0
+    else:
+        assert empty.json()["items"] == []
 
 
 def test_asset_cursor_is_environment_bound_and_sources_filter_before_page(client, monkeypatch):
