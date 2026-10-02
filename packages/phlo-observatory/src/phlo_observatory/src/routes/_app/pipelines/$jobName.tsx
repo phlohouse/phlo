@@ -11,6 +11,7 @@ import {
   retryRun,
 } from '@/lib/data/api/pipelines'
 import { Eyebrow, KeyValues, PageHeader } from '@/components/phlo/page'
+import { Mono } from '@/components/phlo/status'
 import { EmptyState } from '@/components/phlo/states'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -28,6 +29,21 @@ export const Route = createFileRoute('/_app/pipelines/$jobName')({
 })
 
 type PipelineData = Awaited<ReturnType<typeof getPipelineJob>>
+
+const statusBadge = (status: PipelineData['runs'][number]['status']) =>
+  status === 'FAILURE'
+    ? 'bad'
+    : status === 'SUCCESS'
+      ? 'ok'
+      : status === 'CANCELED'
+        ? 'neutral'
+        : 'warn'
+
+function duration(seconds: number | null) {
+  if (seconds === null) return 'Not available'
+  if (seconds < 60) return `${seconds.toFixed(2)} seconds`
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
+}
 
 function RunEvents({ events }: { events: PipelineData['events'] }) {
   if (!events?.items.length)
@@ -65,88 +81,89 @@ function SelectedRun({ data }: { data: PipelineData }) {
   return (
     <aside
       aria-label="Selected run"
-      className="flex shrink-0 flex-col gap-4 border-t border-line px-4 py-5 lg:w-[440px] lg:overflow-y-auto lg:border-t-0 lg:px-6"
+      className="flex shrink-0 flex-col border-t border-line lg:w-[440px] lg:overflow-y-auto lg:border-t-0"
     >
-      <Badge
-        variant={
-          selected.status === 'FAILURE'
-            ? 'bad'
-            : selected.status === 'SUCCESS'
-              ? 'ok'
-              : 'neutral'
-        }
-        className="self-start"
-      >
-        {selected.status}
-      </Badge>
-      <h3 className="m-0 break-all font-mono text-sm font-medium">
-        {selected.run_id}
-      </h3>
-      <KeyValues
-        items={[
-          ['Created', selected.created_at],
-          ['Started', selected.started_at ?? 'Not started'],
-          ['Ended', selected.ended_at ?? 'Not ended'],
-          [
-            'Duration',
-            selected.duration_seconds === null
-              ? 'Not available'
-              : `${selected.duration_seconds.toFixed(2)} seconds`,
-          ],
-        ]}
-      />
-      <Eyebrow>Run events</Eyebrow>
-      <RunEvents events={events} />
-      {events?.truncated ? (
-        <p className="m-0 text-xs text-muted-foreground">
-          Only the first 100 events are shown. More events are available from
-          the API.
-        </p>
-      ) : null}
-      <Button
-        variant="outline"
-        aria-expanded={logsOpen}
-        onClick={() => setLogsOpen((value) => !value)}
-      >
-        {logsOpen ? 'Hide logs' : 'View logs'}
-      </Button>
+      <div className="flex flex-col gap-2.5 border-b border-line px-4 pt-5 pb-4 lg:px-6 lg:pt-[22px] lg:pb-[18px]">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={statusBadge(selected.status)} className="font-medium">
+            {selected.status.replace('_', ' ')}
+          </Badge>
+          <span className="text-[13px] text-muted-foreground">
+            Run <Mono className="text-[12.5px]">{selected.run_id}</Mono>
+            {data.runs[0]?.run_id === selected.run_id ? ' · latest' : ''}
+          </span>
+        </div>
+        <div className="break-all font-mono text-lg font-medium">{job.id}</div>
+        <KeyValues
+          className="mt-1 text-[13.5px]"
+          items={[
+            ['Duration', duration(selected.duration_seconds)],
+            ['Created', selected.created_at],
+            ['Started', selected.started_at ?? 'Not started'],
+            ['Ended', selected.ended_at ?? 'Not ended'],
+            ['Trigger', 'Unavailable from API'],
+          ]}
+        />
+      </div>
+      <div className="flex flex-col gap-3 border-b border-line px-4 py-[18px] lg:px-6">
+        <Eyebrow>Run events</Eyebrow>
+        <RunEvents events={events} />
+        {events?.truncated ? (
+          <p className="m-0 text-xs text-muted-foreground">
+            Only the first 100 events are shown. More events are available from
+            the API.
+          </p>
+        ) : null}
+      </div>
       {logsOpen ? (
-        <pre className="m-0 max-h-80 overflow-auto rounded-lg border border-line bg-sunken p-3 font-mono text-xs whitespace-pre-wrap">
-          {events?.items
-            .map(
-              (event) =>
-                `${event.timestamp} ${event.event_type} ${event.step_key ?? ''}\n${event.message}`,
-            )
-            .join('\n\n') || 'No log evidence returned.'}
-        </pre>
+        <div className="flex flex-col gap-2 px-4 py-[18px] lg:px-6">
+          <Eyebrow>Logs</Eyebrow>
+          <pre className="m-0 max-h-80 overflow-auto rounded-lg border border-line bg-sunken p-3 font-mono text-xs whitespace-pre-wrap">
+            {events?.items
+              .map(
+                (event) =>
+                  `${event.timestamp} ${event.event_type} ${event.step_key ?? ''}\n${event.message}`,
+              )
+              .join('\n\n') || 'No log evidence returned.'}
+          </pre>
+        </div>
       ) : null}
-      {selected.status === 'FAILURE' ? (
-        <RetryControl
-          key={`${env}:${selected.run_id}`}
-          env={env}
-          runId={selected.run_id}
-          jobId={job.id}
-        />
-      ) : null}
-      {selected.status === 'STARTED' ? (
-        <ConfirmedAction
-          key={`cancel:${env}:${selected.run_id}`}
-          storageKey={`phlo:cancel:${env}:${selected.run_id}:STARTED`}
-          confirmation={`I confirm canceling run ${selected.run_id} in ${env}.`}
-          actionLabel="Cancel run"
-          acceptedMessage="Dagster accepted the cancellation. Completion is not yet known."
-          execute={async (idempotencyKey) => {
-            await cancelRun({
-              data: {
-                env,
-                run_id: selected.run_id,
-                idempotency_key: idempotencyKey,
-                confirmed: true,
-              },
-            })
-          }}
-        />
-      ) : null}
+      <div className="mt-auto flex flex-col gap-3 border-t border-line px-4 py-4 lg:px-6">
+        <Button
+          variant="outline"
+          aria-expanded={logsOpen}
+          onClick={() => setLogsOpen((value) => !value)}
+        >
+          {logsOpen ? 'Hide logs' : 'View logs'}
+        </Button>
+        {selected.status === 'FAILURE' ? (
+          <RetryControl
+            key={`${env}:${selected.run_id}`}
+            env={env}
+            runId={selected.run_id}
+            jobId={job.id}
+          />
+        ) : null}
+        {selected.status === 'STARTED' ? (
+          <ConfirmedAction
+            key={`cancel:${env}:${selected.run_id}`}
+            storageKey={`phlo:cancel:${env}:${selected.run_id}:STARTED`}
+            confirmation={`I confirm canceling run ${selected.run_id} in ${env}.`}
+            actionLabel="Cancel run"
+            acceptedMessage="Dagster accepted the cancellation. Completion is not yet known."
+            execute={async (idempotencyKey) => {
+              await cancelRun({
+                data: {
+                  env,
+                  run_id: selected.run_id,
+                  idempotency_key: idempotencyKey,
+                  confirmed: true,
+                },
+              })
+            }}
+          />
+        ) : null}
+      </div>
     </aside>
   )
 }
@@ -160,13 +177,11 @@ function PipelinePage() {
   return (
     <>
       <PageHeader
-        title={job.id}
-        meta={env}
+        crumbs={[{ label: 'Pipelines', to: '/pipelines' }]}
+        title={<Mono className="text-[13.5px]">{job.id}</Mono>}
+        meta={`${job.repository_name} · ${env}`}
         actions={
           <>
-            <Link to="/pipelines" search={{ env }}>
-              All pipelines
-            </Link>
             <Button variant="outline" onClick={() => void router.invalidate()}>
               Refresh
             </Button>
@@ -179,13 +194,30 @@ function PipelinePage() {
             aria-label="Job"
             className="flex flex-col gap-4 border-b border-line px-4 py-5 lg:px-6"
           >
-            <h2 className="m-0 break-all font-mono text-lg font-medium">
-              {job.id}
-            </h2>
-            <p className="m-0 text-sm text-muted-foreground">
-              {job.description ?? 'No description supplied.'}
-            </p>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant={runs[0] ? statusBadge(runs[0].status) : 'neutral'}
+                  size="lg"
+                  className="font-medium"
+                >
+                  {runs[0]?.status.replace('_', ' ') ?? 'No runs'}
+                </Badge>
+                <span className="text-[13px] text-muted-foreground">
+                  {runs[0]
+                    ? 'Latest observed job status'
+                    : 'No run status available'}
+                </span>
+              </div>
+              <h2 className="m-0 break-all font-mono text-lg font-medium">
+                {job.id}
+              </h2>
+              <p className="m-0 text-sm text-muted-foreground">
+                {job.description ?? 'No description supplied.'}
+              </p>
+            </div>
             <KeyValues
+              className="text-[13.5px]"
               items={[
                 ['Environment', env],
                 ['Repository', job.repository_name],
@@ -197,7 +229,9 @@ function PipelinePage() {
                         .join(', ')
                     : 'None configured',
                 ],
-                ['Owner', 'Unavailable'],
+                ['Owner', 'Unavailable from API'],
+                ['Average', 'Unavailable from API'],
+                ['Last run', runs[0]?.created_at ?? 'No run observed'],
                 [
                   'Runs shown',
                   `${runs.length} of at most 100 environment-scoped records`,
@@ -275,54 +309,111 @@ function PipelinePage() {
                 </Button>
               ),
             )}
-            <Eyebrow>Recent runs · newest first</Eyebrow>
-            <div
-              className="flex flex-wrap gap-1"
-              role="group"
-              aria-label="Pick a run"
-            >
-              {runs.map((run) => (
-                <button
-                  key={run.run_id}
-                  type="button"
-                  aria-pressed={selected?.run_id === run.run_id}
-                  aria-label={`${run.status} run ${run.run_id}`}
-                  title={`${run.status} · ${run.created_at}`}
-                  onClick={() =>
-                    void navigate({
-                      search: (p) => ({ ...p, run: run.run_id }),
-                    })
-                  }
-                  className="flex h-10 w-3 items-center justify-center"
-                >
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-baseline gap-2">
+                <Eyebrow>Recent runs</Eyebrow>
+                <span className="text-[12.5px] text-muted-foreground">
+                  oldest on the left · pick one to inspect it
+                </span>
+              </div>
+              <div
+                className="flex flex-wrap items-center gap-0.5"
+                role="group"
+                aria-label="Pick a run"
+              >
+                {[...runs]
+                  .slice(0, 24)
+                  .reverse()
+                  .map((run) => (
+                    <button
+                      key={run.run_id}
+                      type="button"
+                      aria-pressed={selected?.run_id === run.run_id}
+                      aria-label={`${run.status} run ${run.run_id}`}
+                      title={`${run.status} · ${run.created_at}`}
+                      onClick={() =>
+                        void navigate({
+                          search: (p) => ({ ...p, run: run.run_id }),
+                        })
+                      }
+                      className="group flex h-10 w-3 cursor-pointer items-center justify-center rounded-[3px] lg:h-8"
+                    >
+                      <span
+                        className={cn(
+                          'h-[22px] w-2 rounded-[2px]',
+                          runColor(run.status),
+                          selected?.run_id === run.run_id
+                            ? 'outline-2 outline-offset-2 outline-foreground'
+                            : 'group-hover:opacity-75',
+                        )}
+                      />
+                    </button>
+                  ))}
+              </div>
+              <div className="flex flex-wrap gap-4 text-[12.5px] text-muted-foreground">
+                {[
+                  ['bg-sla-ok', 'Succeeded'],
+                  ['bg-bad', 'Failed'],
+                  ['bg-skip-line', 'Canceled'],
+                  ['bg-warn-bar', 'In progress / queued'],
+                ].map(([color, label]) => (
                   <span
-                    className={cn(
-                      'h-[22px] w-2 rounded-[2px]',
-                      runColor(run.status),
-                      selected?.run_id === run.run_id &&
-                        'outline-2 outline-offset-2 outline-foreground',
-                    )}
-                  />
-                </button>
-              ))}
+                    key={label}
+                    className="inline-flex items-center gap-1.5"
+                  >
+                    <span className={cn('h-3 w-2 rounded-[2px]', color)} />
+                    {label}
+                  </span>
+                ))}
+              </div>
             </div>
           </section>
-          <section className="flex flex-col gap-3 px-4 py-5 lg:px-6">
-            <Eyebrow>Selected assets</Eyebrow>
-            {job.selected_assets.map((key) => (
+          <section aria-labelledby="sib-h" className="flex flex-col">
+            <div className="flex items-baseline gap-2 px-4 pt-4 pb-2 lg:px-6">
+              <h2 id="sib-h" className="m-0 text-[13.5px] font-medium">
+                {job.repository_name}
+              </h2>
+              <span className="text-[13px] text-muted-foreground">
+                Sibling jobs unavailable from detail API
+              </span>
               <Link
-                key={key.join('/')}
-                to="/assets/$assetId"
-                params={{ assetId: key.join('/') }}
+                to="/pipelines"
                 search={{ env }}
-                className="break-all font-mono text-[13px]"
+                className="ml-auto text-[13px]"
               >
-                {key.join('/')}
+                All pipelines
               </Link>
-            ))}
+            </div>
+            <div
+              className="grid h-8 grid-cols-[minmax(0,1fr)_148px] items-center gap-x-4 border-y border-line-soft bg-raised px-4 text-xs text-muted-foreground lg:px-6"
+              aria-hidden
+            >
+              <span>Selected assets</span>
+              <span className="text-right">Environment</span>
+            </div>
+            <ul className="m-0 list-none p-0">
+              {job.selected_assets.map((key) => (
+                <li
+                  key={key.join('/')}
+                  className="grid grid-cols-[minmax(0,1fr)_148px] items-center gap-x-4 border-b border-line-soft px-4 py-2 text-[13px] lg:px-6"
+                >
+                  <Link
+                    to="/assets/$assetId"
+                    params={{ assetId: key.join('/') }}
+                    search={{ env }}
+                    className="truncate font-mono text-[13px]"
+                  >
+                    {key.join('/')}
+                  </Link>
+                  <span className="text-right text-muted-foreground">
+                    {env}
+                  </span>
+                </li>
+              ))}
+            </ul>
             {!job.selected_assets.length ? (
-              <p className="m-0 text-sm text-muted-foreground">
-                No assets declared.
+              <p className="m-0 px-4 py-5 text-sm text-muted-foreground lg:px-6">
+                No selected assets or sibling-job records are available.
               </p>
             ) : null}
           </section>

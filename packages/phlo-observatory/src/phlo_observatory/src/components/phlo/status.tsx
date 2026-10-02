@@ -249,21 +249,31 @@ export function LayerLabel({
 export function HealthBar({
   ok,
   bad,
+  unknown = 0,
   className,
 }: {
   ok: number
   bad: number
+  unknown?: number
   className?: string
 }) {
   return (
     <div
       className={cn('flex h-[5px] gap-0.5', className)}
       role="img"
-      aria-label={`${ok} healthy, ${bad} not`}
+      aria-label={`${ok} healthy, ${bad} unhealthy, ${unknown} unknown`}
     >
-      <div className="rounded-[2px] bg-ok" style={{ flexGrow: ok }} />
+      {ok > 0 ? (
+        <div className="rounded-[2px] bg-ok" style={{ flexGrow: ok }} />
+      ) : null}
       {bad > 0 ? (
         <div className="rounded-[2px] bg-bad" style={{ flexGrow: bad }} />
+      ) : null}
+      {unknown > 0 ? (
+        <div
+          className="rounded-[2px] bg-border-strong"
+          style={{ flexGrow: unknown }}
+        />
       ) : null}
     </div>
   )

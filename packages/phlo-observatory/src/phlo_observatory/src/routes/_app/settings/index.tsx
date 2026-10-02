@@ -4,7 +4,7 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { Loader2Icon } from 'lucide-react'
 import type { ObservatoryServiceList } from '@/lib/data/api/client'
 import type { Settings } from '@/lib/data/api/settings'
-import { getOverview } from '@/lib/data/api/core'
+import { getShell } from '@/lib/data/api/core'
 import {
   emptySettings,
   getSettings,
@@ -24,7 +24,7 @@ export const Route = createFileRoute('/_app/settings/')({
   loaderDeps: ({ search }) => ({ env: search.env }),
   loader: async ({ deps }) => {
     const [health, configuration] = await Promise.all([
-      getOverview({ data: deps.env }),
+      getShell({ data: deps.env }),
       getSettings()
         .then((value) => ({ value, error: null }))
         .catch((error: unknown) => ({

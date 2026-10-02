@@ -1,6 +1,6 @@
 /** Defines the authenticated application shell and loads its shared status data. */
 import { Outlet, createFileRoute, useRouterState } from '@tanstack/react-router'
-import { getOverview } from '@/lib/data/api/core'
+import { getShell } from '@/lib/data/api/core'
 import { environmentSearchSchema } from '@/lib/data/api/client'
 import { Sidebar } from '@/components/phlo/sidebar'
 import { MobileTabBar, MobileTopBar } from '@/components/phlo/mobile-nav'
@@ -14,7 +14,7 @@ import { PageSkeleton, RouteError } from '@/components/phlo/states'
 export const Route = createFileRoute('/_app')({
   validateSearch: environmentSearchSchema,
   loaderDeps: ({ search }) => ({ env: search.env }),
-  loader: ({ deps }) => getOverview({ data: deps.env }),
+  loader: ({ deps }) => getShell({ data: deps.env }),
   pendingComponent: PageSkeleton,
   errorComponent: RouteError,
   component: AppLayout,

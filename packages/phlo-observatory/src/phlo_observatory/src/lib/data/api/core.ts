@@ -1,6 +1,8 @@
 /** Server functions for data shared by the app shell and overview. */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
+import { incidentSchema } from './incidents'
+import { runSchema } from './pipelines'
 import {
   environmentSchema,
   overviewSchema,
@@ -8,7 +10,7 @@ import {
   servicesSchema,
 } from './client'
 
-export const getOverview = createServerFn({ method: 'GET' })
+export const getShell = createServerFn({ method: 'GET' })
   .inputValidator(environmentSchema)
   .handler(async ({ data: env }) => {
     const [overview, serviceList, me] = await Promise.all([
@@ -29,4 +31,63 @@ export const getOverview = createServerFn({ method: 'GET' })
       throw new Error('Phlo API returned data for a different environment.')
     }
     return { overview, services: serviceList.items, me }
+  })
+
+export const overviewRangeSchema = z.enum(['24h', '7d', '30d'])
+const sourcesSchema = z.object({
+  env: environmentSchema,
+  items: z.array(
+    z.object({
+      id: z.string(),
+      last_materialization_at: z.string().nullable(),
+    }),
+  ),
+  next_cursor: z.string().nullable(),
+})
+const layersSchema = z.object({
+  env: environmentSchema,
+  items: z.array(
+    z.object({
+      group_name: z.string().nullable(),
+      asset_count: z.number().int().nonnegative(),
+      materialized_asset_count: z.number().int().nonnegative(),
+      latest_materialization_at: z.string().nullable(),
+    }),
+  ),
+  next_cursor: z.string().nullable(),
+})
+const runsPageSchema = z.object({
+  env: environmentSchema,
+  items: z.array(runSchema),
+  next_cursor: z.string().nullable(),
+})
+const incidentsPageSchema = z.object({
+  env: environmentSchema,
+  items: z.array(incidentSchema),
+  next_cursor: z.string().nullable(),
+})
+
+export const getOverview = createServerFn({ method: 'GET' })
+  .inputValidator(
+    z.object({ env: environmentSchema, range: overviewRangeSchema }),
+  )
+  .handler(async ({ data: { env, range } }) => {
+    const [overview, sources, layers, runs, incidents] = await Promise.all([
+      phloApi(`api/v1/overview?env=${env}`, overviewSchema, { env }),
+      phloApi(`api/v1/sources?env=${env}&limit=500`, sourcesSchema, { env }),
+      phloApi(`api/v1/layers?env=${env}&limit=500`, layersSchema, { env }),
+      phloApi(`api/v1/runs?env=${env}&limit=100`, runsPageSchema, { env }),
+      phloApi(`api/v1/incidents?env=${env}&limit=500`, incidentsPageSchema, {
+        env,
+      }),
+    ])
+    return {
+      overview,
+      sources,
+      layers,
+      runs,
+      incidents,
+      range,
+      observedAt: new Date().toISOString(),
+    }
   })

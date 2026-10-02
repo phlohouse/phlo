@@ -4,6 +4,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import {
   CircleCheckIcon,
   DownloadIcon,
+  GitBranchIcon,
   Loader2Icon,
   PlayIcon,
   PlusIcon,
@@ -24,11 +25,16 @@ import {
 } from '@/lib/data/api/query'
 import { CatalogTree } from '@/components/query/catalog-tree'
 import { SqlEditor } from '@/components/query/sql-editor'
-import { PlanView, ResultsGrid } from '@/components/query/result-views'
+import {
+  PlanView,
+  ResultsChart,
+  ResultsGrid,
+} from '@/components/query/result-views'
 import { EmptyState } from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/menu'
+import { Segmented } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/_app/query')({
@@ -112,6 +118,7 @@ function QueryStatus({
 
 function QueryOutput({
   tab,
+  chart,
   env,
   refName,
   isSubmitting,
@@ -120,6 +127,7 @@ function QueryOutput({
   cancelled,
 }: {
   tab: Tab
+  chart: boolean
   env: string
   refName?: string
   isSubmitting: boolean
@@ -140,6 +148,8 @@ function QueryOutput({
       <div className="flex min-h-[420px] flex-1 flex-col lg:min-h-0">
         {tab.mode === 'plan' ? (
           <PlanView result={result} />
+        ) : chart ? (
+          <ResultsChart result={result} />
         ) : result.rows.length ? (
           <ResultsGrid result={result} />
         ) : (
@@ -193,7 +203,7 @@ function QueryTabs({
     <div
       role="tablist"
       aria-label="Open queries"
-      className="order-last flex w-full gap-1 overflow-x-auto lg:order-none lg:w-auto"
+      className="order-last -mx-4 flex w-[calc(100%+2rem)] gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:order-none lg:mx-0 lg:w-auto lg:min-w-0 lg:px-0"
     >
       {tabs.map((item) => (
         <button
@@ -203,10 +213,10 @@ function QueryTabs({
           aria-selected={item.id === activeId}
           onClick={() => onSelect(item.id)}
           className={cn(
-            'h-[30px] rounded-md px-2.5 text-[13px]',
+            'flex h-10 shrink-0 cursor-pointer items-center rounded-md border px-2.5 text-[13px] whitespace-nowrap lg:h-[30px]',
             item.id === activeId
-              ? 'border border-border bg-soft'
-              : 'text-text-3',
+              ? 'border-border bg-soft text-foreground'
+              : 'border-transparent text-text-3 hover:bg-soft',
           )}
         >
           {item.name}
@@ -216,7 +226,7 @@ function QueryTabs({
         type="button"
         aria-label="New query tab"
         onClick={onNew}
-        className="size-[30px]"
+        className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-3 hover:bg-soft lg:size-[30px]"
       >
         <PlusIcon className="mx-auto size-3.5" />
       </button>
@@ -263,7 +273,7 @@ function QueryToolbar(props: QueryToolbarProps) {
     cancel,
   } = props
   return (
-    <header className="flex min-h-[52px] shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2.5 lg:flex-nowrap lg:pl-5">
+    <header className="flex min-h-[52px] shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-line px-4 py-2.5 lg:flex-nowrap lg:py-0 lg:pl-5">
       <h1 className="mr-2 text-sm font-medium">Query</h1>
       <QueryTabs
         tabs={tabs}
@@ -282,8 +292,24 @@ function QueryToolbar(props: QueryToolbarProps) {
             {tree}
           </PopoverContent>
         </Popover>
-        <span className="hidden text-xs text-muted-foreground md:inline">
-          <Mono>{refName ?? env}</Mono> · {engineId ?? 'No engine'}
+        <span
+          title="The API selects the environment's configured Nessie ref"
+          className={cn(
+            buttonVariants({ variant: 'outline' }),
+            'hidden md:inline-flex',
+          )}
+        >
+          <GitBranchIcon className="text-branch" />
+          <Mono>{refName ?? env}</Mono>
+        </span>
+        <span
+          title="Engine selection is fixed by the environment"
+          className={cn(
+            buttonVariants({ variant: 'outline' }),
+            'hidden md:inline-flex',
+          )}
+        >
+          {engineId ?? 'No engine'}
         </span>
         {tab.saved ? (
           <Button
@@ -324,25 +350,38 @@ function QueryToolbar(props: QueryToolbarProps) {
   )
 }
 
-function QueryPage() {
-  const data = Route.useLoaderData()
-  const { env } = Route.useSearch()
-  const firstTable =
-    data.catalog.catalogs.flatMap((c) =>
+function initialSql(table: string) {
+  return table ? `SELECT *\nFROM ${table}\nLIMIT 100` : 'SELECT 1'
+}
+
+function firstCatalogTable(
+  catalog: Awaited<ReturnType<typeof getQueryWorkspace>>['catalog']['catalogs'],
+) {
+  return (
+    catalog.flatMap((c) =>
       c.schemas
         .filter((s) => !['information_schema', 'system'].includes(s.name))
         .flatMap((s) => s.tables.map((t) => `${s.name}.${t}`)),
     )[0] ?? ''
+  )
+}
+
+function QueryPage() {
+  const data = Route.useLoaderData()
+  const { env } = Route.useSearch()
+  const firstTable = firstCatalogTable(data.catalog.catalogs)
   const [savedQueries, setSavedQueries] = React.useState(data.saved)
   const [tabs, setTabs] = React.useState<Array<Tab>>(() => [
     {
       id: 'new-1',
       name: 'Untitled 1',
-      sql: firstTable ? `SELECT *\nFROM ${firstTable}\nLIMIT 100` : 'SELECT 1',
+      sql: initialSql(firstTable),
       mode: 'results',
     },
   ])
   const [activeId, setActiveId] = React.useState('new-1')
+  const [chart, setChart] = React.useState(false)
+  React.useEffect(() => setChart(false), [activeId, env])
   const [selected, setSelected] = React.useState(firstTable)
   const [treeOpen, setTreeOpen] = React.useState(false)
   const submitting = React.useRef(new Set<string>())
@@ -363,9 +402,7 @@ function QueryPage() {
       {
         id: initialId,
         name: 'Untitled 1',
-        sql: firstTable
-          ? `SELECT *\nFROM ${firstTable}\nLIMIT 100`
-          : 'SELECT 1',
+        sql: initialSql(firstTable),
         mode: 'results',
       },
     ])
@@ -404,12 +441,13 @@ function QueryPage() {
     }
   }, [env, patch, tab.id, tab.session?.id])
 
-  const start = async (mode: Tab['mode']) => {
+  const start = async (mode: Tab['mode'], showChart = false) => {
     if (
       submitting.current.has(tab.id) ||
       (tab.session && !terminal.has(tab.session.status))
     )
       return
+    setChart(showChart)
     submitting.current.add(tab.id)
     setPending((items) => [...items, tab.id])
     patch(tab.id, { mode, session: undefined, error: undefined })
@@ -449,7 +487,7 @@ function QueryPage() {
       {
         id,
         name: `Untitled ${n}`,
-        sql: selected ? `SELECT *\nFROM ${selected}\nLIMIT 100` : 'SELECT 1',
+        sql: initialSql(selected),
         mode: 'results',
       },
     ])
@@ -503,7 +541,7 @@ function QueryPage() {
       const next = remaining[0] ?? {
         id: `new-${crypto.randomUUID()}`,
         name: 'Untitled 1',
-        sql: selected ? `SELECT *\nFROM ${selected}\nLIMIT 100` : 'SELECT 1',
+        sql: initialSql(selected),
         mode: 'results' as const,
       }
       setSavedQueries((items) =>
@@ -627,8 +665,31 @@ function QueryPage() {
             cancelled={cancelled}
             csv={csv}
           />
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2">
+            <Segmented
+              aria-label="Result view"
+              value={tab.mode === 'plan' ? 'plan' : chart ? 'chart' : 'results'}
+              onValueChange={(view: 'results' | 'chart' | 'plan') => {
+                if (view === 'plan') {
+                  void start('plan')
+                  return
+                }
+                if (tab.mode === 'plan') void start('results', view === 'chart')
+                else setChart(view === 'chart')
+              }}
+              options={[
+                {
+                  value: 'results',
+                  label: `Results${result && tab.mode === 'results' ? ` · ${result.rows.length}` : ''}`,
+                },
+                { value: 'chart', label: 'Chart' },
+                { value: 'plan', label: 'Plan' },
+              ]}
+            />
+          </div>
           <QueryOutput
             tab={tab}
+            chart={chart}
             env={env}
             refName={data.refs[0]?.name}
             isSubmitting={isSubmitting}

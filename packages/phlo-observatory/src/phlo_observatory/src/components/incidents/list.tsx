@@ -1,10 +1,16 @@
 /** Filters and renders grouped incident records. */
 import { Link } from '@tanstack/react-router'
-import { ChevronRightIcon } from 'lucide-react'
+import { CheckIcon, ChevronRightIcon, PlusIcon, XIcon } from 'lucide-react'
 import type { IncidentRecord } from '@/lib/data/api/incidents'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Eyebrow } from '@/components/phlo/page'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/menu'
 
 export type FilterKey = 'kind' | 'owner' | 'status'
 export type Filters = Partial<Record<FilterKey, string>>
@@ -14,6 +20,75 @@ export const applyFilters = (items: Array<IncidentRecord>, filters: Filters) =>
       (key) => !filters[key] || (item[key] ?? 'Unassigned') === filters[key],
     ),
   )
+
+export function FilterChip({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value?: string
+  options: Array<string>
+  onChange: (value?: string) => void
+}) {
+  const active = value !== undefined
+  return (
+    <span
+      className={cn(
+        'inline-flex h-10 items-center rounded-full border text-[13px] sm:h-[30px]',
+        active
+          ? 'border-foreground bg-foreground text-background'
+          : 'border-dashed border-skip-line bg-card text-text-2',
+      )}
+    >
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          className={cn(
+            'inline-flex h-full cursor-pointer items-center gap-1.5 rounded-full px-3 outline-none',
+            active && 'pr-1.5',
+          )}
+        >
+          {active ? (
+            <>
+              {label} <span className="opacity-75">·</span> {cap(value)}
+            </>
+          ) : (
+            <>
+              <PlusIcon className="size-3" /> {label}
+            </>
+          )}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          {options.map((option) => (
+            <DropdownMenuItem
+              key={option}
+              onClick={() => onChange(option === value ? undefined : option)}
+            >
+              <CheckIcon
+                className={cn(
+                  'size-3.5',
+                  option === value ? 'text-primary' : 'invisible',
+                )}
+              />{' '}
+              {cap(option)}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {active ? (
+        <button
+          type="button"
+          aria-label={`Clear ${label.toLowerCase()} filter`}
+          onClick={() => onChange()}
+          className="mr-1 inline-flex size-7 items-center justify-center rounded-full sm:size-5"
+        >
+          <XIcon className="size-3" />
+        </button>
+      ) : null}
+    </span>
+  )
+}
 
 const age = (date: string) => {
   const minutes = Math.max(
@@ -35,6 +110,7 @@ export function IncidentGroup({
   title: string
   note?: string
   incidents: Array<IncidentRecord>
+  headed?: boolean
 }) {
   return (
     <section className="flex flex-col gap-2.5 px-4 pt-3 md:gap-0 md:px-0 md:pt-0">
@@ -48,8 +124,9 @@ export function IncidentGroup({
       </div>
       <div
         aria-hidden
-        className="hidden h-9 grid-cols-[minmax(0,1fr)_140px_140px_90px] items-center gap-4 border-y border-line bg-raised px-5 text-xs text-muted-foreground md:grid"
+        className="hidden h-9 grid-cols-[64px_minmax(0,1fr)_140px_140px_90px] items-center gap-4 border-y border-line bg-raised px-5 text-xs text-muted-foreground md:grid"
       >
+        <span>ID</span>
         <span>Incident</span>
         <span>Status</span>
         <span>Owner</span>
@@ -64,8 +141,11 @@ export function IncidentGroup({
             <Link
               to="/incidents/$incidentId"
               params={{ incidentId: incident.id }}
-              className="flex min-h-16 items-center gap-3 px-3.5 py-3 text-foreground hover:bg-raised md:grid md:min-h-12 md:grid-cols-[minmax(0,1fr)_140px_140px_90px] md:gap-4 md:px-5 md:py-0"
+              className="flex min-h-16 items-center gap-3 px-3.5 py-3 text-foreground hover:bg-raised md:grid md:min-h-12 md:grid-cols-[64px_minmax(0,1fr)_140px_140px_90px] md:gap-4 md:px-5 md:py-0"
             >
+              <span className="hidden font-mono text-xs text-muted-foreground md:block">
+                #{incident.id}
+              </span>
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium">
                   {incident.title}
