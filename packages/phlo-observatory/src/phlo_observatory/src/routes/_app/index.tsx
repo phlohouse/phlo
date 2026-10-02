@@ -328,7 +328,7 @@ function OverviewPage() {
             groups remain unclassified.
           </div>
         </Card>
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <div className="grid shrink-0 grid-cols-1 gap-4 lg:flex-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
           <RunsByHour data={data} />
           <Card>
             <CardHeader>
