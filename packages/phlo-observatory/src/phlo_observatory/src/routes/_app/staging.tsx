@@ -237,124 +237,131 @@ function StagingOverview({
             footer="Latest observed inventory"
           />
         </div>
-        <Card id="promote" className="scroll-mt-4 px-4 py-4 lg:px-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="m-0 text-[15px] font-medium">Promote to prod</h2>
-            <span className="text-[13px] text-muted-foreground">
-              Each promotion is checked, confirmed and signed
-            </span>
-            <Eyebrow className="ml-auto">Candidate</Eyebrow>
-            <Mono className="break-all text-xs">{candidateId}</Mono>
-          </div>
-          <dl className="mt-3 grid gap-3 text-sm md:grid-cols-2">
-            <Evidence label="Git">
-              <Mono className="break-all text-xs">
-                {candidate.prod_git_revision}
-              </Mono>
-              <ArrowRightIcon className="inline size-3 mx-2" />
-              <Mono className="break-all text-xs">
-                {candidate.staging_git_revision}
-              </Mono>
-            </Evidence>
-            <Evidence label="Nessie">
-              <Mono>{candidate.prod_ref}</Mono> @{' '}
-              <Mono className="break-all text-xs">{candidate.prod_hash}</Mono>
-              <br />
-              <Mono>{candidate.staging_ref}</Mono> @{' '}
-              <Mono className="break-all text-xs">
-                {candidate.staging_hash}
-              </Mono>
-            </Evidence>
-            <Evidence label="Dagster locations">
-              prod: <Mono>{candidate.dagster_location}</Mono>
-              <br />
-              staging: <Mono>{candidate.staging_location}</Mono>
-            </Evidence>
-            <Evidence label="Scope">
-              Promotion advances Git/code/config and reloads prod Dagster.
-              Nessie data is not promoted.
-            </Evidence>
-          </dl>
-        </Card>
-
-        <div className="grid shrink-0 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-          <Inventory
-            title={`Differences from prod (${codeChanges.length})`}
-            items={codeChanges.map((item) => ({
-              name: item.path,
-              note: gitStatus(item.status),
-            }))}
-            empty="No code paths differ."
-          />
-          <Card className="p-4 lg:p-5">
-            <div className="flex items-center gap-3">
-              <div>
-                <h2 className="m-0 text-[15px] font-medium">
-                  Candidate checks
-                </h2>
-                <p className="m-0 text-xs text-muted-foreground">
-                  Tests, contracts and audits run against this exact candidate.
-                </p>
-              </div>
-              <Button
-                className="ml-auto"
-                variant="outline"
-                disabled={Boolean(busy)}
-                onClick={() => void run('checks', checkCandidate)}
-              >
-                {busy === 'checks' ? (
-                  <Loader2Icon className="animate-spin" />
-                ) : null}
-                Run checks
-              </Button>
+        <div className="grid shrink-0 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+          <Card
+            id="promote"
+            className="scroll-mt-4 px-4 py-4 lg:col-start-2 lg:px-5"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="m-0 text-[15px] font-medium">Promote to prod</h2>
+              <span className="text-[13px] text-muted-foreground">
+                Each promotion is checked, confirmed and signed
+              </span>
+              <Eyebrow className="ml-auto">Candidate</Eyebrow>
+              <Mono className="max-w-full truncate text-xs">{candidateId}</Mono>
             </div>
-            {checks ? (
-              <ul className="mt-3 list-none p-0">
-                {checks.items.map((item) => (
-                  <li
-                    key={item.name}
-                    className="border-t border-line-soft py-2 text-sm"
-                  >
-                    <Badge
-                      variant={
-                        item.status === 'passed'
-                          ? 'ok'
-                          : item.status === 'failed'
-                            ? 'bad'
-                            : 'warn'
-                      }
-                    >
-                      {item.status}
-                    </Badge>{' '}
-                    <span className="ml-2">{item.name}</span>
-                    {item.run_id ? (
-                      <Mono className="ml-2 text-xs">{item.run_id}</Mono>
-                    ) : null}
-                    {item.message ? (
-                      <div className="text-xs text-muted-foreground">
-                        {item.message}
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mb-0 text-sm text-muted-foreground">
-                No check evidence has been run for this candidate in this
-                session.
-              </p>
-            )}
+            <dl className="mt-3 grid gap-3 text-sm">
+              <Evidence label="Git">
+                <Mono className="break-all text-xs">
+                  {candidate.prod_git_revision}
+                </Mono>
+                <ArrowRightIcon className="inline size-3 mx-2" />
+                <Mono className="break-all text-xs">
+                  {candidate.staging_git_revision}
+                </Mono>
+              </Evidence>
+              <Evidence label="Nessie">
+                <Mono>{candidate.prod_ref}</Mono> @{' '}
+                <Mono className="break-all text-xs">{candidate.prod_hash}</Mono>
+                <br />
+                <Mono>{candidate.staging_ref}</Mono> @{' '}
+                <Mono className="break-all text-xs">
+                  {candidate.staging_hash}
+                </Mono>
+              </Evidence>
+              <Evidence label="Dagster locations">
+                prod: <Mono>{candidate.dagster_location}</Mono>
+                <br />
+                staging: <Mono>{candidate.staging_location}</Mono>
+              </Evidence>
+              <Evidence label="Scope">
+                Promotion advances Git/code/config and reloads prod Dagster.
+                Nessie data is not promoted.
+              </Evidence>
+            </dl>
           </Card>
-          <Inventory
-            title={`Dagster job inventory (${candidate.jobs.prod.length} prod / ${candidate.jobs.staging.length} staging)`}
-            items={jobInventory}
-            empty="No jobs were returned."
-          />
-          <Inventory
-            title={`Where staging data comes from (${candidate.copy_inventory.prod.length} prod / ${candidate.copy_inventory.staging.length} staging tables)`}
-            items={copyInventory}
-            empty="No data-copy inventory was returned."
-          />
+
+          <div className="contents">
+            <Inventory
+              className="lg:col-start-1 lg:row-start-1 lg:row-span-4"
+              title={`Differences from prod (${codeChanges.length})`}
+              items={codeChanges.map((item) => ({
+                name: item.path,
+                note: gitStatus(item.status),
+              }))}
+              empty="No code paths differ."
+            />
+            <Card className="p-4 lg:p-5">
+              <div className="flex items-center gap-3">
+                <div>
+                  <h2 className="m-0 text-[15px] font-medium">
+                    Candidate checks
+                  </h2>
+                  <p className="m-0 text-xs text-muted-foreground">
+                    Tests, contracts and audits run against this exact
+                    candidate.
+                  </p>
+                </div>
+                <Button
+                  className="ml-auto"
+                  variant="outline"
+                  disabled={Boolean(busy)}
+                  onClick={() => void run('checks', checkCandidate)}
+                >
+                  {busy === 'checks' ? (
+                    <Loader2Icon className="animate-spin" />
+                  ) : null}
+                  Run checks
+                </Button>
+              </div>
+              {checks ? (
+                <ul className="mt-3 list-none p-0">
+                  {checks.items.map((item) => (
+                    <li
+                      key={item.name}
+                      className="border-t border-line-soft py-2 text-sm"
+                    >
+                      <Badge
+                        variant={
+                          item.status === 'passed'
+                            ? 'ok'
+                            : item.status === 'failed'
+                              ? 'bad'
+                              : 'warn'
+                        }
+                      >
+                        {item.status}
+                      </Badge>{' '}
+                      <span className="ml-2">{item.name}</span>
+                      {item.run_id ? (
+                        <Mono className="ml-2 text-xs">{item.run_id}</Mono>
+                      ) : null}
+                      {item.message ? (
+                        <div className="text-xs text-muted-foreground">
+                          {item.message}
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mb-0 text-sm text-muted-foreground">
+                  No check evidence has been run for this candidate in this
+                  session.
+                </p>
+              )}
+            </Card>
+            <Inventory
+              title={`Dagster job inventory (${candidate.jobs.prod.length} prod / ${candidate.jobs.staging.length} staging)`}
+              items={jobInventory}
+              empty="No jobs were returned."
+            />
+            <Inventory
+              title={`Where staging data comes from (${candidate.copy_inventory.prod.length} prod / ${candidate.copy_inventory.staging.length} staging tables)`}
+              items={copyInventory}
+              empty="No data-copy inventory was returned."
+            />
+          </div>
         </div>
 
         <Card className="p-4 lg:p-5">
@@ -499,7 +506,7 @@ function ConfirmDialog({
                 ? 'Promote staging code to prod'
                 : 'Destructively re-sync staging data'}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="break-all">
               {promote
                 ? `Advance ${candidate.prod_ref} to staging Git revision and reload prod Dagster. Nessie data stays unchanged.`
                 : `Move ${candidate.staging_ref} from ${candidate.staging_hash} to prod hash ${candidate.prod_hash}. Staging-only data changes may be lost.`}
@@ -576,16 +583,18 @@ function Evidence({
   )
 }
 function Inventory({
+  className,
   title,
   items,
   empty,
 }: {
+  className?: string
   title: string
   items: Array<{ name: string; note: string }>
   empty: string
 }) {
   return (
-    <Card className="p-4 lg:p-5">
+    <Card className={`p-4 lg:p-5 ${className ?? ''}`}>
       <h2 className="m-0 text-[15px] font-medium">{title}</h2>
       {items.length ? (
         <ul className="mt-2 max-h-64 list-none overflow-y-auto p-0">

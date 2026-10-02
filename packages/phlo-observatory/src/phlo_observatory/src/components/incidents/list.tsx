@@ -1,6 +1,12 @@
 /** Filters and renders grouped incident records. */
 import { Link } from '@tanstack/react-router'
-import { CheckIcon, ChevronRightIcon, PlusIcon, XIcon } from 'lucide-react'
+import {
+  CheckIcon,
+  ChevronRightIcon,
+  FileWarningIcon,
+  PlusIcon,
+  XIcon,
+} from 'lucide-react'
 import type { IncidentRecord } from '@/lib/data/api/incidents'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -124,13 +130,15 @@ export function IncidentGroup({
       </div>
       <div
         aria-hidden
-        className="hidden h-9 grid-cols-[64px_minmax(0,1fr)_140px_140px_90px] items-center gap-4 border-y border-line bg-raised px-5 text-xs text-muted-foreground md:grid"
+        className="hidden h-9 items-center gap-x-4 border-b border-line bg-raised px-4 text-xs tracking-wide text-muted-foreground md:grid md:grid-cols-[56px_minmax(0,1fr)_76px_150px_60px] lg:px-5 xl:grid-cols-[62px_minmax(0,1fr)_92px_84px_160px_110px_70px]"
       >
         <span>ID</span>
         <span>Incident</span>
+        <span className="hidden xl:block">Layer</span>
+        <span>Severity</span>
         <span>Status</span>
-        <span>Owner</span>
-        <span className="text-right">Updated</span>
+        <span className="hidden xl:block">Owner</span>
+        <span className="text-right">Opened</span>
       </div>
       <ul className="m-0 list-none overflow-hidden rounded-xl border border-border-card p-0 md:rounded-none md:border-0">
         {incidents.map((incident) => (
@@ -141,38 +149,89 @@ export function IncidentGroup({
             <Link
               to="/incidents/$incidentId"
               params={{ incidentId: incident.id }}
-              className="flex min-h-16 items-center gap-3 px-3.5 py-3 text-foreground hover:bg-raised md:grid md:min-h-12 md:grid-cols-[64px_minmax(0,1fr)_140px_140px_90px] md:gap-4 md:px-5 md:py-0"
+              className="flex items-start gap-3 py-3 pr-3 pl-3.5 text-foreground hover:bg-raised md:grid md:h-12 md:grid-cols-[56px_minmax(0,1fr)_76px_150px_60px] md:items-center md:gap-x-4 md:px-4 md:py-0 lg:px-5 xl:grid-cols-[62px_minmax(0,1fr)_92px_84px_160px_110px_70px]"
             >
-              <span className="hidden font-mono text-xs text-muted-foreground md:block">
+              <span
+                className="hidden truncate font-mono text-[12.5px] text-muted-foreground md:block"
+                title={incident.id}
+              >
                 #{incident.id}
               </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">
+              <span
+                className="mt-px inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-soft text-text-3 md:hidden"
+                aria-hidden
+              >
+                <FileWarningIcon className="size-4" />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-[5px] md:flex-row md:items-center md:gap-2.5">
+                <span
+                  className="hidden size-7 shrink-0 items-center justify-center rounded-md bg-soft text-text-3 md:inline-flex"
+                  aria-hidden
+                >
+                  <FileWarningIcon className="size-4" />
+                </span>
+                <span className="truncate text-[15px] font-medium md:text-sm md:font-normal">
                   {incident.title}
                 </span>
-                <span className="block truncate font-mono text-xs text-muted-foreground">
+                <span className="truncate font-mono text-xs text-muted-foreground md:hidden">
                   #{incident.id} · {incident.asset_id} · {cap(incident.kind)}
                 </span>
+                <span className="hidden text-[13px] whitespace-nowrap text-muted-foreground lg:inline">
+                  {cap(incident.kind)}
+                </span>
+                <span className="flex items-center gap-2.5 text-[13px] md:hidden">
+                  <Badge
+                    variant={
+                      incident.status === 'resolved'
+                        ? 'ok'
+                        : incident.status === 'acknowledged'
+                          ? 'warn'
+                          : 'bad'
+                    }
+                  >
+                    {cap(incident.status)}
+                  </Badge>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {incident.owner ?? 'Unassigned'}
+                  </span>
+                  <span className="ml-auto shrink-0 text-[12.5px] text-muted-foreground">
+                    {age(incident.created_at)}
+                  </span>
+                </span>
               </span>
-              <Badge
-                variant={
-                  incident.status === 'resolved'
-                    ? 'ok'
-                    : incident.status === 'acknowledged'
-                      ? 'warn'
-                      : 'bad'
-                }
+              <span
+                className="hidden text-[13px] text-muted-foreground xl:block"
+                title="Layer is not supplied by the incident API"
               >
-                {cap(incident.status)}
-              </Badge>
-              <span className="hidden truncate text-[13px] text-text-2 md:block">
+                Unavailable
+              </span>
+              <span
+                className="hidden text-[13.5px] text-muted-foreground md:block"
+                title="Severity is not supplied by the incident API"
+              >
+                Unknown
+              </span>
+              <span className="hidden min-w-0 md:flex">
+                <Badge
+                  variant={
+                    incident.status === 'resolved'
+                      ? 'ok'
+                      : incident.status === 'acknowledged'
+                        ? 'warn'
+                        : 'bad'
+                  }
+                >
+                  {cap(incident.status)}
+                </Badge>
+              </span>
+              <span className="hidden truncate text-[13.5px] text-text-2 xl:block">
                 {incident.owner ?? 'Unassigned'}
               </span>
-              <span className="ml-auto text-xs text-muted-foreground md:ml-0 md:text-right">
-                {age(incident.updated_at)}
+              <span className="hidden text-right text-[13px] text-muted-foreground md:block">
+                {age(incident.created_at)}
               </span>
               <ChevronRightIcon
-                className="size-4 text-faint md:hidden"
+                className="mt-[3px] size-3.5 shrink-0 text-faint md:hidden"
                 aria-hidden
               />
             </Link>

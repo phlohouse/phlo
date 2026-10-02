@@ -1,12 +1,18 @@
 /** Renders desktop navigation, environment selection, and quick actions. */
 import * as React from 'react'
 import { Link } from '@tanstack/react-router'
-import { CheckIcon, ChevronDownIcon, SearchIcon } from 'lucide-react'
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  FileWarningIcon,
+  SearchIcon,
+} from 'lucide-react'
 import { navItems } from './nav-items'
 import { Dot } from './status'
 import { ThemeSwitch } from './theme-switch'
 import { useCommandPalette } from './command-palette'
 import type { ObservatoryServiceList } from '@/lib/data/api/client'
+import type { IncidentRecord } from '@/lib/data/api/incidents'
 import type { Env } from '@/lib/data/types'
 import {
   DropdownMenu,
@@ -116,11 +122,13 @@ const activeCls = 'bg-nav-on text-foreground hover:bg-nav-on'
 export function Sidebar({
   env,
   openIncidentCount,
+  incidents,
   services,
   identity,
 }: {
   env: Env
   openIncidentCount: number | null
+  incidents: Array<IncidentRecord>
   services: ObservatoryServiceList['items']
   identity: { subject: string; email: string | null; roles: Array<string> }
 }) {
@@ -178,6 +186,24 @@ export function Sidebar({
           <div className="px-2.5 pb-1.5 text-xs tracking-wide text-muted-foreground">
             Open incidents
           </div>
+          {incidents.map((incident) => (
+            <Link
+              key={incident.id}
+              to="/incidents/$incidentId"
+              params={{ incidentId: incident.id }}
+              search={{ env }}
+              className={cn(itemCls, 'text-[13.5px]')}
+              activeProps={{ className: activeCls }}
+            >
+              <span
+                className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-soft text-text-3"
+                aria-hidden
+              >
+                <FileWarningIcon className="size-3.5" />
+              </span>
+              <span className="min-w-0 truncate">{incident.title}</span>
+            </Link>
+          ))}
           <p className="m-0 px-2.5 text-[13px] text-text-3">
             {openIncidentCount === null ? (
               'Incident status is unavailable.'

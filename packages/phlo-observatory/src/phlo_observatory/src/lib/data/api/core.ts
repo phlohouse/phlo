@@ -10,10 +10,16 @@ import {
   servicesSchema,
 } from './client'
 
+const incidentsPageSchema = z.object({
+  env: environmentSchema,
+  items: z.array(incidentSchema),
+  next_cursor: z.string().nullable(),
+})
+
 export const getShell = createServerFn({ method: 'GET' })
   .inputValidator(environmentSchema)
   .handler(async ({ data: env }) => {
-    const [overview, serviceList, me] = await Promise.all([
+    const [overview, serviceList, me, incidents] = await Promise.all([
       phloApi(`api/v1/overview?env=${env}`, overviewSchema),
       phloApi(`api/v1/services?env=${env}`, servicesSchema),
       phloApi(
@@ -26,11 +32,25 @@ export const getShell = createServerFn({ method: 'GET' })
           permissions: z.record(z.string(), z.array(z.string())),
         }),
       ),
+      phloApi(`api/v1/incidents?env=${env}&limit=100`, incidentsPageSchema, {
+        env,
+      }),
     ])
-    if (overview.env !== env || serviceList.env !== env) {
+    if (
+      overview.env !== env ||
+      serviceList.env !== env ||
+      incidents.env !== env
+    ) {
       throw new Error('Phlo API returned data for a different environment.')
     }
-    return { overview, services: serviceList.items, me }
+    return {
+      overview,
+      services: serviceList.items,
+      me,
+      incidents: incidents.items
+        .filter((item) => item.status !== 'resolved')
+        .slice(0, 5),
+    }
   })
 
 export const overviewRangeSchema = z.enum(['24h', '7d', '30d'])
@@ -59,11 +79,6 @@ const layersSchema = z.object({
 const runsPageSchema = z.object({
   env: environmentSchema,
   items: z.array(runSchema),
-  next_cursor: z.string().nullable(),
-})
-const incidentsPageSchema = z.object({
-  env: environmentSchema,
-  items: z.array(incidentSchema),
   next_cursor: z.string().nullable(),
 })
 

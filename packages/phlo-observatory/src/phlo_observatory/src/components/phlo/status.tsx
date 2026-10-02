@@ -384,15 +384,9 @@ export function DayStrip({
 }
 
 /* ---------- Text ---------- */
-export function Mono({
-  children,
-  className,
-}: {
-  children: React.ReactNode
-  className?: string
-}) {
+export function Mono({ className, ...props }: React.ComponentProps<'span'>) {
   return (
-    <span className={cn('font-mono text-[0.92em]', className)}>{children}</span>
+    <span className={cn('font-mono text-[0.92em]', className)} {...props} />
   )
 }
 

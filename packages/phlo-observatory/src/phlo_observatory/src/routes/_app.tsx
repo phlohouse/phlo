@@ -21,14 +21,15 @@ export const Route = createFileRoute('/_app')({
 })
 
 function AppLayout() {
-  const { overview, services, me } = Route.useLoaderData()
+  const { overview, services, me, incidents } = Route.useLoaderData()
   const apiUnavailable = useRouterState({
     select: (s) => s.matches.some((match) => match.status === 'error'),
   })
   const env = overview.env
   const openIncidentCount = apiUnavailable
     ? null
-    : (overview.incident_counts.open ?? 0)
+    : (overview.incident_counts.open ?? 0) +
+      (overview.incident_counts.acknowledged ?? 0)
 
   return (
     <CommandPaletteProvider env={env}>
@@ -37,6 +38,7 @@ function AppLayout() {
           <Sidebar
             env={env}
             openIncidentCount={openIncidentCount}
+            incidents={apiUnavailable ? [] : incidents}
             services={apiUnavailable ? [] : services}
             identity={me}
           />

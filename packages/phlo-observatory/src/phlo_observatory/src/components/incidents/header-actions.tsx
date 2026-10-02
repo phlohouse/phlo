@@ -1,10 +1,18 @@
 /** Renders acknowledgement, subscription, and resolution actions for an incident. */
 import * as React from 'react'
 import { useRouter } from '@tanstack/react-router'
-import { BellIcon, BellOffIcon } from 'lucide-react'
+import { BellIcon, BellOffIcon, EllipsisIcon, LinkIcon } from 'lucide-react'
 import type { IncidentRecord } from '@/lib/data/api/incidents'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/menu'
 import { Textarea } from '@/components/ui/input'
 import {
   clearIncidentOperationKey,
@@ -26,6 +34,8 @@ export function IncidentActions({
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string>()
   const [comment, setComment] = React.useState('')
+  const [reopen, setReopen] = React.useState(false)
+  const [copied, setCopied] = React.useState(false)
   async function run(action: () => Promise<unknown>) {
     setPending(true)
     setError(undefined)
@@ -59,6 +69,7 @@ export function IncidentActions({
     <>
       <Button
         variant="outline"
+        className="h-10 lg:h-8"
         disabled={pending}
         aria-pressed={subscribed}
         onClick={() =>
@@ -106,10 +117,68 @@ export function IncidentActions({
         </Button>
       ) : null}
       {incident.status === 'resolved' ? (
-        <Button disabled={pending} onClick={() => updateStatus('open')}>
-          Reopen
-        </Button>
+        <Popover open={reopen} onOpenChange={setReopen}>
+          <PopoverTrigger
+            render={
+              <Button
+                variant="outline"
+                className="h-10 lg:h-8"
+                disabled={pending}
+              />
+            }
+          >
+            Reopen
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="flex w-[300px] flex-col gap-3 p-4"
+          >
+            <div className="text-sm font-medium">Reopen #{incident.id}?</div>
+            <p className="m-0 text-[13px] leading-snug text-muted-foreground">
+              The incident returns to Open. Persisted evidence and follow-ups
+              remain attached.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setReopen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={pending}
+                onClick={() => {
+                  setReopen(false)
+                  updateStatus('open')
+                }}
+              >
+                Reopen
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
       ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label="More actions"
+          className="inline-flex size-10 cursor-pointer items-center justify-center rounded-lg border border-border bg-raised text-text-3 hover:bg-soft lg:size-8"
+        >
+          <EllipsisIcon className="size-4" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onClick={() => {
+              void navigator.clipboard.writeText(window.location.href)
+              setCopied(true)
+            }}
+          >
+            <LinkIcon className="size-3.5" />{' '}
+            {copied ? 'Link copied' : 'Copy link'}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       {incident.status === 'acknowledged' ? (
         <Popover>
           <PopoverTrigger render={<Button disabled={pending} />}>

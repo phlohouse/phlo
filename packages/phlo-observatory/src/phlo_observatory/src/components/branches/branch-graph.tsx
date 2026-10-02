@@ -50,7 +50,7 @@ function CommitView({ data }: NodeProps<CommitNode>) {
       cn(branchTone, data.conflict ? 'bg-bad' : 'bg-branch'),
     data.kind === 'ghost' && 'border-dashed border-branch bg-card',
   )
-  const caption = data.caption ?? data.hash
+  const caption = data.caption ?? data.hash?.slice(0, 7)
   const circle = <span className={dot} />
   return (
     <div className="relative size-3">

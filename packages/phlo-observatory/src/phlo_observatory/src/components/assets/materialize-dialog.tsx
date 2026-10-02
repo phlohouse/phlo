@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router'
 import type { Env } from '@/lib/data/types'
 import { materializeAsset } from '@/lib/data/api/assets'
 import { Button } from '@/components/ui/button'
+import { CheckLine } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogBody,
@@ -13,6 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Select } from '@/components/ui/select'
 import { Mono } from '@/components/phlo/status'
 
 type State =
@@ -94,36 +97,36 @@ export function MaterializeDialog({
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <label className="flex flex-col gap-2 text-sm">
-              Job
-              <select
-                value={job}
-                disabled={key.current !== null}
-                onChange={(event) => setJob(event.target.value)}
-                className="h-10 rounded-lg border border-border bg-card px-3 text-foreground"
-              >
-                {jobs.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="m-0 text-sm text-muted-foreground">
+            <Field>
+              <FieldLabel>Job</FieldLabel>
+              {key.current !== null ? (
+                <div className="flex h-9 items-center rounded-lg border border-input bg-card px-3 opacity-50">
+                  <Mono>{job}</Mono>
+                </div>
+              ) : (
+                <Select
+                  value={job}
+                  onValueChange={setJob}
+                  className="font-mono text-[13px]"
+                  options={jobs.map((name) => ({ value: name, label: name }))}
+                />
+              )}
+              <FieldDescription>
+                Uses the job's configured Nessie reference.
+              </FieldDescription>
+            </Field>
+            <p className="m-0 text-[12.5px] leading-snug text-muted-foreground">
               This submits a real Dagster run in {env}, using its configured
               Nessie reference. Partition backfills and cost estimates are not
               connected in this dialog.
             </p>
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={confirmed}
-                disabled={state.kind === 'pending' || state.kind === 'accepted'}
-                onChange={(event) => setConfirmed(event.target.checked)}
-                className="mt-1"
-              />
+            <CheckLine
+              checked={confirmed}
+              disabled={state.kind === 'pending' || state.kind === 'accepted'}
+              onCheckedChange={setConfirmed}
+            >
               I confirm this materialization in {env}.
-            </label>
+            </CheckLine>
             {state.kind === 'failed' ? (
               <div role="alert" className="text-sm text-bad-text">
                 {state.message} Retrying here or after a reload reuses the same
@@ -156,18 +159,21 @@ export function MaterializeDialog({
               </div>
             ) : null}
           </DialogBody>
-          <DialogFooter>
+          <DialogFooter className="flex-wrap">
             <Button
               type="button"
               variant="outline"
               disabled={state.kind === 'pending'}
               onClick={onClose}
-              className="ml-auto"
+              size="lg"
+              className="ml-auto h-10 bg-card sm:h-9"
             >
               Close
             </Button>
             <Button
               type="submit"
+              size="lg"
+              className="h-10 sm:h-9"
               disabled={
                 !confirmed ||
                 !job ||

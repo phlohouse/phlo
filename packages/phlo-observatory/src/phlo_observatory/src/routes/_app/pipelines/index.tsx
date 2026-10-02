@@ -265,6 +265,8 @@ function PipelinesPage() {
               title={`${group.name} · ${group.jobs.length}`}
               jobs={group.jobs}
               env={env}
+              expanded={open.has(group.name)}
+              onToggle={() => toggleGroup(group.name)}
             />
           ))}
         </div>
@@ -381,7 +383,7 @@ function JobRow({
     <div
       className={cn(
         rowGrid,
-        'min-h-[34px] border-b border-line-soft text-[13px] hover:bg-raised',
+        'h-[30px] border-b border-line-soft text-[13px] hover:bg-raised',
       )}
     >
       <Dot tone={runStates[observedRunState(job.latest)].tone} />
@@ -408,8 +410,17 @@ function JobRow({
           : 'No run observed — status unknown'}
       </span>
       <RunCells job={job} env={env} />
-      <span className="text-right text-xs text-muted-foreground">
-        {job.latest?.created_at ?? 'Unknown'}
+      <span
+        className="truncate text-right text-xs text-muted-foreground"
+        title={job.latest?.created_at}
+      >
+        {job.latest
+          ? `${new Date(job.latest.created_at).toLocaleTimeString('en-GB', {
+              hour: '2-digit',
+              minute: '2-digit',
+              timeZone: 'UTC',
+            })} UTC`
+          : 'Unknown'}
       </span>
       <span className="text-muted-foreground">Unknown</span>
     </div>
@@ -457,38 +468,72 @@ function MobileSection({
   title,
   jobs,
   env,
+  expanded = true,
+  onToggle,
 }: {
   title: string
   jobs: Array<ObservedJob>
   env: Awaited<ReturnType<typeof getPipelineList>>['env']
+  expanded?: boolean
+  onToggle?: () => void
 }) {
   if (!jobs.length) return null
   return (
-    <section className="flex flex-col gap-2">
-      <Eyebrow>{title}</Eyebrow>
+    <section className="flex shrink-0 flex-col gap-2">
+      {!onToggle ? <Eyebrow>{title}</Eyebrow> : null}
       <Card className="overflow-hidden">
-        {jobs.map((job) => (
-          <Link
-            key={job.id}
-            to="/pipelines/$jobName"
-            params={{ jobName: job.id }}
-            search={{ env }}
-            className="flex items-start gap-2.5 border-b border-line-soft px-3.5 py-3 text-foreground last:border-0"
+        {onToggle ? (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={onToggle}
+            className={cn(
+              'flex min-h-14 w-full cursor-pointer items-center gap-2.5 py-2 pr-3.5 pl-2.5 text-left',
+              expanded && 'bg-raised',
+            )}
           >
-            <Dot
-              tone={runStates[observedRunState(job.latest)].tone}
-              className="mt-1.5"
+            <ChevronRightIcon
+              className={cn(
+                'size-3.5 shrink-0 text-faint transition-transform',
+                expanded && 'rotate-90',
+              )}
+              aria-hidden
             />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-mono text-[13px]">
-                {job.id}
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="truncate text-[14.5px] font-medium">
+                {title}
               </span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {job.repository_name} · {job.latest?.status ?? 'Unknown'}
+              <span className="text-[12.5px] text-muted-foreground">
+                Latest observed runs
               </span>
             </span>
-          </Link>
-        ))}
+            <GroupRuns jobs={jobs} />
+          </button>
+        ) : null}
+        {expanded
+          ? jobs.map((job) => (
+              <Link
+                key={job.id}
+                to="/pipelines/$jobName"
+                params={{ jobName: job.id }}
+                search={{ env }}
+                className="flex items-start gap-2.5 border-b border-line-soft px-3.5 py-3 text-foreground last:border-0"
+              >
+                <Dot
+                  tone={runStates[observedRunState(job.latest)].tone}
+                  className="mt-1.5"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-mono text-[13px]">
+                    {job.id}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {job.repository_name} · {job.latest?.status ?? 'Unknown'}
+                  </span>
+                </span>
+              </Link>
+            ))
+          : null}
       </Card>
     </section>
   )

@@ -21,28 +21,29 @@ export function AuditDetail({
   signature?: Signature
 }) {
   const event = record.event
+  const actorOrReason = describeActorOrReason(record)
   return (
     <>
       <div className="flex flex-col gap-1.5">
         <Eyebrow>Event #{record.sequence_number}</Eyebrow>
         <h2 className="m-0 text-base font-medium">{event.action}</h2>
-        <Mono className="text-xs break-all">
+        <Mono className="truncate text-xs">
           {event.resource_type ?? 'resource'} · {event.resource_id ?? '—'}
         </Mono>
       </div>
+      <div className="flex flex-col gap-1.5">
+        <div className="text-[13.5px] text-muted-foreground">
+          {actorOrReason.label}
+        </div>
+        <div className="text-[13.5px] leading-normal">
+          {actorOrReason.value}
+        </div>
+      </div>
       <dl className="m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 text-[13px]">
-        <dt className="text-muted-foreground">Recorded</dt>
-        <dd className="m-0">{record.sealed_at}</dd>
-        <dt className="text-muted-foreground">Actor</dt>
-        <dd className="m-0 break-all">
-          {event.actor_subject} ({event.actor_type ?? 'unknown'})
-        </dd>
         <dt className="text-muted-foreground">Decision</dt>
         <dd className="m-0">{event.decision ?? '—'}</dd>
         <dt className="text-muted-foreground">Outcome</dt>
         <dd className="m-0">{event.outcome ?? '—'}</dd>
-        <dt className="text-muted-foreground">Reason code</dt>
-        <dd className="m-0 break-all">{event.reason_code ?? '—'}</dd>
       </dl>
       {signature ? (
         <dl className="m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-[9px] rounded-[10px] border border-border bg-card p-3.5">
@@ -79,15 +80,23 @@ export function AuditDetail({
           No accessible signature is linked to this event.
         </div>
       )}
+      <div className="flex flex-col gap-1.5">
+        <div className="text-[13.5px] text-muted-foreground">
+          Linked resource
+        </div>
+        <Mono className="truncate text-xs">
+          {event.resource_type ?? 'resource'} · {event.resource_id ?? '—'}
+        </Mono>
+      </div>
       {event.attributes && Object.keys(event.attributes).length > 0 ? (
-        <div className="flex flex-col gap-1.5">
-          <div className="text-[13px] text-muted-foreground">
-            Event attributes
-          </div>
+        <details className="text-[13px]">
+          <summary className="cursor-pointer text-muted-foreground">
+            Raw event attributes
+          </summary>
           <pre className="m-0 overflow-x-auto rounded-[10px] border border-border bg-card p-3 text-[11px] whitespace-pre-wrap break-all">
             {JSON.stringify(event.attributes, null, 2)}
           </pre>
-        </div>
+        </details>
       ) : null}
       <div className="flex flex-col gap-1 xl:mt-auto">
         <div className="text-[13.5px] text-muted-foreground">Record hash</div>
@@ -100,4 +109,14 @@ export function AuditDetail({
       </div>
     </>
   )
+}
+
+function describeActorOrReason(record: AuditRecord) {
+  const event = record.event
+  return event.reason_code
+    ? { label: 'Reason', value: event.reason_code }
+    : {
+        label: 'Actor',
+        value: `${event.actor_subject} (${event.actor_type ?? 'unknown'}) · ${record.sealed_at}`,
+      }
 }

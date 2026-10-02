@@ -1,6 +1,6 @@
 /** Collects and submits the details for a new branch. */
 import * as React from 'react'
-import { GitBranchIcon } from 'lucide-react'
+import { GitBranchIcon, InfoIcon } from 'lucide-react'
 import type { BranchRef } from '@/lib/data/api/branches'
 import { Button } from '@/components/ui/button'
 import {
@@ -40,7 +40,7 @@ export function NewBranchDialog({
     /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(name) && suffix.length > 0
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-w-[560px]">
+      <DialogContent className="max-w-[600px]">
         <form
           onSubmit={(event) => {
             event.preventDefault()
@@ -68,7 +68,15 @@ export function NewBranchDialog({
                 />
               </div>
               <span className="text-xs text-muted-foreground">
-                Environment namespace is required by the API.
+                Letters, numbers, dots, underscores and hyphens. The environment
+                namespace is required by the API.
+              </span>
+            </div>
+            <div className="flex items-start gap-2.5 rounded-[10px] border border-primary-line bg-primary-soft px-3.5 py-3 text-[13.5px] leading-normal text-primary-ink">
+              <InfoIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>
+                The branch starts at the exact selected ref. No additional
+                branch settings are persisted by this form.
               </span>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -89,11 +97,24 @@ export function NewBranchDialog({
               </p>
             ) : null}
           </DialogBody>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+          <DialogFooter className="flex-wrap">
+            <span className="w-full min-w-0 truncate text-[13px] text-muted-foreground sm:w-auto">
+              Creates <Mono className="text-xs">{name}</Mono>
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="ml-auto bg-card"
+              onClick={onClose}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid || !fromRef || busy}>
+            <Button
+              type="submit"
+              size="lg"
+              disabled={!valid || !fromRef || busy}
+            >
               {busy ? 'Creating…' : 'Create branch'}
             </Button>
           </DialogFooter>

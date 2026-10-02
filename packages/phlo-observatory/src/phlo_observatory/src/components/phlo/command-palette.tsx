@@ -2,15 +2,24 @@
 import * as React from 'react'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { useNavigate } from '@tanstack/react-router'
-import { CornerDownLeftIcon, SearchIcon } from 'lucide-react'
+import {
+  CornerDownLeftIcon,
+  DatabaseIcon,
+  FileWarningIcon,
+  SearchIcon,
+  WorkflowIcon,
+} from 'lucide-react'
 import { navItems } from './nav-items'
 import type { Env } from '@/lib/data/types'
+import { getAssetList } from '@/lib/data/api/assets'
+import { getPipelineList } from '@/lib/data/api/pipelines'
+import { getIncidentList } from '@/lib/data/api/incidents'
 import { cn } from '@/lib/utils'
 import { Kbd } from '@/components/ui/separator'
 
 type Cmd = {
   id: string
-  group: 'Navigation'
+  group: 'Assets' | 'Jobs' | 'Incidents' | 'Actions' | 'Navigation'
   label: string
   mono?: boolean
   hint?: string
@@ -49,7 +58,7 @@ export function CommandPaletteProvider({
   return (
     <PaletteContext.Provider value={{ open, setOpen }}>
       {children}
-      <CommandPalette env={env} open={open} onOpenChange={setOpen} />
+      <CommandPalette key={env} env={env} open={open} onOpenChange={setOpen} />
     </PaletteContext.Provider>
   )
 }
@@ -98,7 +107,92 @@ function CommandPalette({
   const navigate = useNavigate()
   const [q, setQ] = React.useState('')
   const [active, setActive] = React.useState(0)
-  const all = React.useMemo(() => buildCommands(env), [env])
+  const [targets, setTargets] = React.useState<Array<Cmd>>([])
+  const [targetError, setTargetError] = React.useState<string>()
+  React.useEffect(() => {
+    setTargets([])
+    setTargetError(undefined)
+    if (!open) return
+    let stopped = false
+    void Promise.all([
+      getAssetList({ data: env }),
+      getPipelineList({ data: env }),
+      getIncidentList({ data: env }),
+    ])
+      .then(([assets, pipelines, incidents]) => {
+        if (stopped) return
+        const commands: Array<Cmd> = [
+          ...assets.items.map((asset): Cmd => ({
+            id: `asset:${asset.id}`,
+            group: 'Assets',
+            label: asset.id,
+            mono: true,
+            icon: (
+              <span className={cn(iconCls, 'bg-soft text-muted-foreground')}>
+                <DatabaseIcon className="size-3.5" />
+              </span>
+            ),
+            run: (nav) =>
+              nav({
+                to: '/assets/$assetId',
+                params: { assetId: asset.id },
+                search: { env },
+              }),
+          })),
+          ...pipelines.jobs.map((job): Cmd => ({
+            id: `job:${job.id}`,
+            group: 'Jobs',
+            label: job.id,
+            mono: true,
+            icon: (
+              <span className={cn(iconCls, 'bg-soft text-muted-foreground')}>
+                <WorkflowIcon className="size-3.5" />
+              </span>
+            ),
+            run: (nav) =>
+              nav({
+                to: '/pipelines/$jobName',
+                params: { jobName: job.id },
+                search: { env },
+              }),
+          })),
+          ...incidents.incidents
+            .filter((item) => item.status !== 'resolved')
+            .map((incident): Cmd => ({
+              id: `incident:${incident.id}`,
+              group: 'Incidents',
+              label: incident.title,
+              icon: (
+                <span className={cn(iconCls, 'bg-soft text-muted-foreground')}>
+                  <FileWarningIcon className="size-3.5" />
+                </span>
+              ),
+              run: (nav) =>
+                nav({
+                  to: '/incidents/$incidentId',
+                  params: { incidentId: incident.id },
+                  search: { env },
+                }),
+            })),
+        ]
+        setTargets(commands)
+      })
+      .catch((error) => {
+        if (!stopped)
+          setTargetError(
+            error instanceof Error
+              ? error.message
+              : 'Search targets are unavailable.',
+          )
+      })
+    return () => {
+      stopped = true
+    }
+  }, [open, env])
+  const all = React.useMemo(
+    () => [...targets, ...buildCommands(env)],
+    [targets, env],
+  )
   const results = React.useMemo(() => {
     const s = q.trim().toLowerCase()
     const r = s ? all.filter((c) => c.label.toLowerCase().includes(s)) : all
@@ -144,12 +238,21 @@ function CommandPalette({
                   runAt(active)
                 }
               }}
-              placeholder="Search pages"
+              placeholder="Search assets, jobs, incidents and pages"
               aria-label="Search"
               className="h-12 flex-1 bg-transparent text-[15px] outline-none placeholder:text-faint"
             />
             <Kbd>esc</Kbd>
           </div>
+          {targetError ? (
+            <p
+              role="status"
+              className="m-0 px-4 py-2 text-xs text-muted-foreground"
+            >
+              Asset, job and incident search is unavailable. {targetError} Page
+              navigation remains available.
+            </p>
+          ) : null}
           <div role="listbox" className="min-h-0 overflow-y-auto p-1.5">
             {results.length === 0 ? (
               <div className="px-3 py-6 text-center text-sm text-muted-foreground">

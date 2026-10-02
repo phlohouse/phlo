@@ -1,11 +1,11 @@
 /** Collects and validates a new asset audit proposal. */
 import * as React from 'react'
-import { z } from 'zod'
 import type { Env } from '@/lib/data/types'
 import type { AuditRule } from '@/lib/data/api/assets'
 import { createAuditProposal } from '@/lib/data/api/assets'
 import { Mono } from '@/components/phlo/status'
 import { Button } from '@/components/ui/button'
+import { CheckLine, ChoiceItem, RadioGroup } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogBody,
@@ -15,7 +15,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 
 type State =
   | { kind: 'idle' }
@@ -53,6 +55,112 @@ function auditRequestValid(
   boundsValid: boolean,
 ) {
   return confirmed && Boolean(name) && Boolean(column) && boundsValid
+}
+
+function AuditRuleFields({
+  kind,
+  setKind,
+  column,
+  setColumn,
+  columns,
+  minimum,
+  setMinimum,
+  maximum,
+  setMaximum,
+  locked,
+  boundsValid,
+}: {
+  kind: AuditRule['kind']
+  setKind: (kind: AuditRule['kind']) => void
+  column: string
+  setColumn: (column: string) => void
+  columns: Array<{ name: string }>
+  minimum: string
+  setMinimum: (minimum: string) => void
+  maximum: string
+  setMaximum: (maximum: string) => void
+  locked: boolean
+  boundsValid: boolean
+}) {
+  return (
+    <>
+      <Field>
+        <FieldLabel>Rule</FieldLabel>
+        {locked ? (
+          <div className="text-[13.5px] text-muted-foreground">
+            {kind === 'not_null'
+              ? 'Not null'
+              : kind === 'unique'
+                ? 'Unique'
+                : 'Range'}
+          </div>
+        ) : (
+          <RadioGroup
+            value={kind}
+            onValueChange={(value) => {
+              if (
+                value === 'not_null' ||
+                value === 'unique' ||
+                value === 'range'
+              )
+                setKind(value)
+            }}
+          >
+            <ChoiceItem value="not_null">Not null</ChoiceItem>
+            <ChoiceItem value="unique">Unique</ChoiceItem>
+            <ChoiceItem value="range">Range</ChoiceItem>
+          </RadioGroup>
+        )}
+      </Field>
+      <Field>
+        <FieldLabel>Observed column</FieldLabel>
+        {locked ? (
+          <div className="flex h-9 items-center rounded-lg border border-input bg-card px-3 opacity-50">
+            <Mono>{column}</Mono>
+          </div>
+        ) : (
+          <Select
+            value={column}
+            onValueChange={setColumn}
+            className="font-mono text-[13px]"
+            options={columns.map((item) => ({
+              value: item.name,
+              label: <Mono className="text-[13px]">{item.name}</Mono>,
+            }))}
+          />
+        )}
+      </Field>
+      {kind === 'range' ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field>
+            <FieldLabel>Minimum</FieldLabel>
+            <Input
+              type="number"
+              step="any"
+              value={minimum}
+              disabled={locked}
+              onChange={(e) => setMinimum(e.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel>Maximum</FieldLabel>
+            <Input
+              type="number"
+              step="any"
+              value={maximum}
+              disabled={locked}
+              onChange={(e) => setMaximum(e.target.value)}
+            />
+          </Field>
+        </div>
+      ) : null}
+      {!boundsValid ? (
+        <div role="alert" className="text-sm text-bad-text">
+          Minimum must not exceed maximum.
+        </div>
+      ) : null}
+    </>
+  )
 }
 
 export function AddAuditDialog({
@@ -145,8 +253,8 @@ export function AddAuditDialog({
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <label className="flex flex-col gap-2 text-sm">
-              Check name
+            <Field>
+              <FieldLabel>Check name</FieldLabel>
               <Input
                 required
                 pattern="[A-Za-z][A-Za-z0-9_]*"
@@ -156,82 +264,34 @@ export function AddAuditDialog({
                 onChange={(e) => setName(e.target.value)}
                 placeholder="orders_are_valid"
               />
-            </label>
-            <label className="flex flex-col gap-2 text-sm">
-              Rule
-              <select
-                value={kind}
-                disabled={locked}
-                onChange={(e) =>
-                  setKind(
-                    z
-                      .enum(['not_null', 'unique', 'range'])
-                      .parse(e.target.value),
-                  )
-                }
-                className="h-10 rounded-lg border border-border bg-card px-3"
-              >
-                <option value="not_null">Not null</option>
-                <option value="unique">Unique</option>
-                <option value="range">Range</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-2 text-sm">
-              Observed column
-              <select
-                value={column}
-                disabled={locked}
-                onChange={(e) => setColumn(e.target.value)}
-                className="h-10 rounded-lg border border-border bg-card px-3 font-mono"
-              >
-                {columns.map((item) => (
-                  <option key={item.name}>{item.name}</option>
-                ))}
-              </select>
-            </label>
-            {kind === 'range' ? (
-              <div className="grid grid-cols-2 gap-3">
-                <label className="flex flex-col gap-2 text-sm">
-                  Minimum
-                  <Input
-                    type="number"
-                    step="any"
-                    value={minimum}
-                    disabled={locked}
-                    onChange={(e) => setMinimum(e.target.value)}
-                  />
-                </label>
-                <label className="flex flex-col gap-2 text-sm">
-                  Maximum
-                  <Input
-                    type="number"
-                    step="any"
-                    value={maximum}
-                    disabled={locked}
-                    onChange={(e) => setMaximum(e.target.value)}
-                  />
-                </label>
-              </div>
-            ) : null}
-            {!boundsValid ? (
-              <div role="alert" className="text-sm text-bad-text">
-                Minimum must not exceed maximum.
-              </div>
-            ) : null}
-            <p className="m-0 text-sm text-muted-foreground">
+              <FieldDescription>
+                Starts with a letter; letters, numbers, and underscores only.
+              </FieldDescription>
+            </Field>
+            <AuditRuleFields
+              kind={kind}
+              setKind={setKind}
+              column={column}
+              setColumn={setColumn}
+              columns={columns}
+              minimum={minimum}
+              setMinimum={setMinimum}
+              maximum={maximum}
+              setMaximum={setMaximum}
+              locked={locked}
+              boundsValid={boundsValid}
+            />
+            <p className="m-0 text-[12.5px] leading-snug text-muted-foreground">
               This stores source and a patch locally for human review. It does
               not run the audit or change project code.
             </p>
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={confirmed}
-                disabled={locked}
-                onChange={(e) => setConfirmed(e.target.checked)}
-                className="mt-1"
-              />
+            <CheckLine
+              checked={confirmed}
+              disabled={locked}
+              onCheckedChange={setConfirmed}
+            >
               I confirm this local proposal in {env}.
-            </label>
+            </CheckLine>
             {state.kind === 'failed' ? (
               <div role="alert" className="text-sm text-bad-text">
                 {state.message} Retry reuses the same operation key.
@@ -293,18 +353,21 @@ export function AddAuditDialog({
               </div>
             ) : null}
           </DialogBody>
-          <DialogFooter>
+          <DialogFooter className="flex-wrap">
             <Button
               type="button"
               variant="outline"
               disabled={state.kind === 'pending'}
               onClick={onClose}
-              className="ml-auto"
+              size="lg"
+              className="ml-auto h-10 bg-card sm:h-9"
             >
               Close
             </Button>
             <Button
               type="submit"
+              size="lg"
+              className="h-10 sm:h-9"
               disabled={
                 !requestValid ||
                 state.kind === 'pending' ||
