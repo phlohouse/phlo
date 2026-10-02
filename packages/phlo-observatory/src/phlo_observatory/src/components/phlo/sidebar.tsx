@@ -1,4 +1,5 @@
 /** Renders desktop navigation, environment selection, and quick actions. */
+import * as React from 'react'
 import { Link } from '@tanstack/react-router'
 import { CheckIcon, ChevronDownIcon, SearchIcon } from 'lucide-react'
 import { navItems } from './nav-items'
@@ -125,6 +126,11 @@ export function Sidebar({
 }) {
   const staging = env === 'staging'
   const calm = openIncidentCount === 0
+  const [showAllServices, setShowAllServices] = React.useState(false)
+  const observedServices = services.filter(
+    (service) => service.status !== 'unknown',
+  )
+  const visibleServices = showAllServices ? services : observedServices
   return (
     <nav
       aria-label="Primary"
@@ -194,7 +200,7 @@ export function Sidebar({
           </p>
         ) : null}
         <div className="flex max-h-48 flex-col gap-2 overflow-y-auto">
-          {services.map((s) => {
+          {visibleServices.map((s) => {
             const state = s.status
             return (
               <div
@@ -220,6 +226,18 @@ export function Sidebar({
             )
           })}
         </div>
+        {services.length > observedServices.length ? (
+          <button
+            type="button"
+            aria-expanded={showAllServices}
+            onClick={() => setShowAllServices((value) => !value)}
+            className="cursor-pointer text-left text-xs text-muted-foreground hover:text-foreground"
+          >
+            {showAllServices
+              ? 'Show observed services only'
+              : `${services.length - observedServices.length} unobserved · show all`}
+          </button>
+        ) : null}
         <div
           className="min-w-0 border-t border-line pt-2 text-xs text-muted-foreground"
           aria-label="Signed-in identity"

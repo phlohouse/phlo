@@ -10,6 +10,7 @@ import {
   runStagingChecks,
 } from '@/lib/data/api/staging'
 import { Eyebrow, PageBody, PageHeader } from '@/components/phlo/page'
+import { KpiCard } from '@/components/phlo/kpi'
 import { EmptyState } from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
 import { Badge } from '@/components/ui/badge'
@@ -158,10 +159,10 @@ function StagingOverview({
       <PageHeader
         title={
           <span className="flex items-center gap-2.5">
-            Staging cutover <Badge variant="warn">staging</Badge>
+            Overview <Badge variant="warn">staging</Badge>
           </span>
         }
-        meta={`Observed ${formatTime(candidate.observed_at)}`}
+        meta={`Observed ${formatTime(candidate.observed_at)} · changes here never reach prod until promoted`}
         actions={
           <>
             <Button
@@ -206,9 +207,43 @@ function StagingOverview({
             </Button>
           </div>
         ) : null}
-        <Card className="p-4 lg:p-5">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-3.5">
+          <KpiCard
+            label="Differs from prod"
+            value={candidate.code_changes.length}
+            qualifier="code changes"
+            footer={`${candidate.prod_ref} → ${candidate.staging_ref}`}
+          />
+          <KpiCard
+            label="Candidate checks"
+            value={
+              checks
+                ? checks.items.filter((item) => item.status === 'passed').length
+                : '—'
+            }
+            qualifier={checks ? `of ${checks.items.length} passing` : 'not run'}
+            footer="Tests, contracts and audits"
+          />
+          <KpiCard
+            label="Dagster jobs"
+            value={candidate.jobs.staging.length}
+            qualifier="in staging"
+            footer={`${candidate.jobs.prod.length} in prod`}
+          />
+          <KpiCard
+            label="Data copy"
+            value={candidate.copy_inventory.staging.length}
+            qualifier="tables"
+            footer="Latest observed inventory"
+          />
+        </div>
+        <Card id="promote" className="scroll-mt-4 px-4 py-4 lg:px-5">
           <div className="flex flex-wrap items-center gap-2">
-            <Eyebrow>Promotion candidate</Eyebrow>
+            <h2 className="m-0 text-[15px] font-medium">Promote to prod</h2>
+            <span className="text-[13px] text-muted-foreground">
+              Each promotion is checked, confirmed and signed
+            </span>
+            <Eyebrow className="ml-auto">Candidate</Eyebrow>
             <Mono className="break-all text-xs">{candidateId}</Mono>
           </div>
           <dl className="mt-3 grid gap-3 text-sm md:grid-cols-2">
@@ -242,9 +277,9 @@ function StagingOverview({
           </dl>
         </Card>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid shrink-0 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
           <Inventory
-            title={`Git path changes (${codeChanges.length})`}
+            title={`Differences from prod (${codeChanges.length})`}
             items={codeChanges.map((item) => ({
               name: item.path,
               note: gitStatus(item.status),
@@ -316,14 +351,14 @@ function StagingOverview({
             empty="No jobs were returned."
           />
           <Inventory
-            title={`Nessie table inventory (${candidate.copy_inventory.prod.length} prod / ${candidate.copy_inventory.staging.length} staging)`}
+            title={`Where staging data comes from (${candidate.copy_inventory.prod.length} prod / ${candidate.copy_inventory.staging.length} staging tables)`}
             items={copyInventory}
-            empty="No tables were returned."
+            empty="No data-copy inventory was returned."
           />
         </div>
 
         <Card className="p-4 lg:p-5">
-          <h2 className="m-0 text-[15px] font-medium">Promotion history</h2>
+          <h2 className="m-0 text-[15px] font-medium">Recent activity</h2>
           {history.length ? (
             <div className="mt-2 overflow-x-auto">
               <table className="w-full text-left text-sm">

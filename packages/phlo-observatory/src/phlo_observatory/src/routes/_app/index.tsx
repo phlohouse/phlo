@@ -1,17 +1,51 @@
-/** Defines the Observatory overview dashboard and service-health summary. */
+/** Reference dashboard composition backed by environment-scoped observations. */
 import * as React from 'react'
-import { createFileRoute, useRouter } from '@tanstack/react-router'
-import { RefreshCwIcon } from 'lucide-react'
+import {
+  Link,
+  createFileRoute,
+  getRouteApi,
+  useRouter,
+  useRouterState,
+} from '@tanstack/react-router'
+import { ArrowRightIcon, CircleCheckIcon, RefreshCwIcon } from 'lucide-react'
+import { z } from 'zod'
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import type { ObservatoryServiceList } from '@/lib/data/api/client'
-import { getOverview } from '@/lib/data/api/core'
-import { PageBody, PageHeader } from '@/components/phlo/page'
+import type { ApiRun } from '@/lib/data/api/pipelines'
+import type { Layer } from '@/lib/data/types'
+import type { ChartConfig } from '@/components/ui/chart'
+import { getOverview, overviewRangeSchema } from '@/lib/data/api/core'
+import { Eyebrow, PageBody, PageHeader } from '@/components/phlo/page'
 import { KpiCard } from '@/components/phlo/kpi'
-import { Dot, toneText } from '@/components/phlo/status'
+import { Dot, HealthBar, LayerSwatch, toneText } from '@/components/phlo/status'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from '@/components/ui/chart'
 import { Input } from '@/components/ui/input'
+import { Segmented } from '@/components/ui/toggle-group'
 
+type Range = z.infer<typeof overviewRangeSchema>
 type Service = ObservatoryServiceList['items'][number]
+type Overview = Awaited<ReturnType<typeof getOverview>>
+
+export const Route = createFileRoute('/_app/')({
+  validateSearch: z.object({ range: overviewRangeSchema.default('24h') }),
+  loaderDeps: ({ search }) => ({ env: search.env, range: search.range }),
+  loader: ({ deps }) => getOverview({ data: deps }),
+  head: () => ({ meta: [{ title: 'Overview · phlo' }] }),
+  component: OverviewPage,
+})
 
 export function filterServices(
   services: Array<Service>,
@@ -26,173 +60,483 @@ export function filterServices(
   )
 }
 
-export const Route = createFileRoute('/_app/')({
-  loaderDeps: ({ search }) => ({ env: search.env }),
-  loader: ({ deps }) => getOverview({ data: deps.env }),
-  head: () => ({ meta: [{ title: 'Overview · phlo' }] }),
-  component: OverviewPage,
-})
+export function runsInRange(
+  runs: Array<ApiRun>,
+  range: Range,
+  observedAt: string,
+) {
+  const hours = range === '24h' ? 24 : range === '7d' ? 168 : 720
+  const end = Date.parse(observedAt)
+  return runs.filter((run) => {
+    const created = Date.parse(run.created_at)
+    return created >= end - hours * 3_600_000 && created <= end
+  })
+}
+
+export function runBuckets(
+  runs: Array<ApiRun>,
+  range: Range,
+  observedAt: string,
+) {
+  const width = range === '24h' ? 3_600_000 : 86_400_000
+  const count = range === '24h' ? 24 : range === '7d' ? 7 : 30
+  const start = Date.parse(observedAt) - count * width
+  const rows = Array.from({ length: count }, (_, index) => ({
+    timestamp: new Date(start + index * width).toISOString(),
+    succeeded: 0,
+    failed: 0,
+  }))
+  for (const run of runsInRange(runs, range, observedAt)) {
+    const index = Math.min(
+      count - 1,
+      Math.floor((Date.parse(run.created_at) - start) / width),
+    )
+    const row = rows[index]
+    if (row && run.status === 'SUCCESS') row.succeeded += 1
+    if (row && run.status === 'FAILURE') row.failed += 1
+  }
+  return rows
+}
+
+function OverviewKpis({ data }: { data: Overview }) {
+  const { overview, range, observedAt } = data
+  const fresh = overview.freshness_counts
+  const quality = overview.quality_checks.counts
+  const runs = runsInRange(data.runs.items, range, observedAt)
+  const failed = runs.filter((run) => run.status === 'FAILURE').length
+  const succeeded = runs.filter((run) => run.status === 'SUCCESS').length
+  const durations = runs
+    .filter((run) => run.status === 'SUCCESS' && run.duration_seconds !== null)
+    .map((run) => run.duration_seconds ?? 0)
+    .sort((a, b) => a - b)
+  const middle = Math.floor(durations.length / 2)
+  const median = durations.length
+    ? ((durations[middle] ?? 0) +
+        (durations[Math.floor((durations.length - 1) / 2)] ?? 0)) /
+      2
+    : null
+  const open =
+    (overview.incident_counts.open ?? 0) +
+    (overview.incident_counts.acknowledged ?? 0)
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+      <KpiCard
+        label="Asset freshness"
+        value={
+          fresh.unknown || !overview.asset_count
+            ? '—'
+            : `${Math.round((fresh.fresh / overview.asset_count) * 100)}%`
+        }
+        qualifier={`${fresh.fresh} of ${overview.asset_count} fresh`}
+        to="/assets"
+        env={overview.env}
+        footer={
+          <div className="flex flex-col gap-1.5">
+            <HealthBar
+              ok={fresh.fresh}
+              bad={fresh.stale}
+              unknown={fresh.unknown}
+            />
+            <span>
+              {fresh.stale} stale · {fresh.unknown} unknown
+            </span>
+          </div>
+        }
+      />
+      <KpiCard
+        label="Dagster runs"
+        value={runs.length}
+        qualifier={`${failed} failed · observed`}
+        qualifierTone={failed ? 'bad' : 'muted'}
+        to="/pipelines/timeline"
+        env={overview.env}
+        footer={`${succeeded} succeeded · median ${median === null ? 'unavailable' : `${median.toFixed(1)} s`} · latest 100 records only`}
+      />
+      <KpiCard
+        label="Audits"
+        value={quality?.passing ?? '—'}
+        qualifier={quality ? `of ${quality.total} passing` : 'not observed'}
+        footer={
+          quality
+            ? `${quality.total - quality.passing - quality.unevaluated} failing · ${quality.unevaluated} unevaluated`
+            : 'Quality observations unavailable'
+        }
+      />
+      <KpiCard
+        label="Open incidents"
+        value={open}
+        qualifier={`${overview.incident_counts.acknowledged ?? 0} acknowledged`}
+        to="/incidents"
+        env={overview.env}
+        footer="Persisted incidents in this environment"
+      />
+    </div>
+  )
+}
+
+function allClear(overview: Overview['overview']) {
+  const fresh = overview.freshness_counts
+  const quality = overview.quality_checks.counts
+  return (
+    overview.asset_count > 0 &&
+    fresh.unknown === 0 &&
+    fresh.stale === 0 &&
+    fresh.fresh === overview.asset_count &&
+    quality !== null &&
+    quality.unevaluated === 0 &&
+    quality.passing === quality.total &&
+    (overview.incident_counts.open ?? 0) +
+      (overview.incident_counts.acknowledged ?? 0) ===
+      0
+  )
+}
 
 function OverviewPage() {
-  const { overview, services } = Route.useLoaderData()
+  const data = Route.useLoaderData()
+  const { overview, range, observedAt } = data
+  const { services } = getRouteApi('/_app').useLoaderData()
   const router = useRouter()
-  const state =
-    services.length === 0
-      ? 'unknown'
-      : services.every((service) => service.status === 'healthy')
-        ? 'healthy'
-        : services.some(
-              (service) =>
-                service.status === 'unavailable' ||
-                service.status === 'unhealthy',
-            )
-          ? 'unhealthy'
-          : services.some((service) => service.status === 'degraded')
-            ? 'degraded'
-            : 'unknown'
-  const runCount = Object.values(overview.run_status_counts).reduce(
-    (sum, count) => sum + count,
-    0,
-  )
-  const quality = overview.quality_checks.counts
-
+  const navigate = Route.useNavigate()
+  const busy = useRouterState({ select: (state) => state.isLoading })
+  React.useEffect(() => {
+    const timer = window.setInterval(() => void router.invalidate(), 60_000)
+    return () => window.clearInterval(timer)
+  }, [router])
+  const runs = runsInRange(data.runs.items, range, observedAt)
+  const activity = [
+    ...runs.map((run) => ({
+      id: run.run_id,
+      at: run.created_at,
+      text: `${run.job_id} · ${run.status.toLowerCase()}`,
+      tone:
+        run.status === 'SUCCESS'
+          ? ('ok' as const)
+          : run.status === 'FAILURE'
+            ? ('bad' as const)
+            : ('neutral' as const),
+      run,
+    })),
+    ...data.incidents.items
+      .filter(
+        (incident) =>
+          Date.parse(incident.updated_at) >=
+          Date.parse(observedAt) -
+            (range === '24h' ? 24 : range === '7d' ? 168 : 720) * 3_600_000,
+      )
+      .map((incident) => ({
+        id: incident.id,
+        at: incident.updated_at,
+        text: incident.title,
+        tone:
+          incident.status === 'resolved' ? ('ok' as const) : ('warn' as const),
+        incident,
+      })),
+  ]
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+    .slice(0, 6)
   return (
     <>
       <PageHeader
-        title={`Overview · ${overview.env}`}
-        meta="Environment-scoped data from the Phlo API"
+        title="Overview"
+        meta={`Observed ${formatTimestamp(observedAt)} · auto every 60 s`}
         actions={
-          <Button variant="outline" onClick={() => void router.invalidate()}>
-            <RefreshCwIcon /> Refresh
-          </Button>
+          <>
+            <Segmented
+              aria-label="Time range"
+              value={range}
+              onValueChange={(value) =>
+                void navigate({
+                  search: (previous) => ({ ...previous, range: value }),
+                })
+              }
+              options={[
+                { value: '24h', label: '24 h' },
+                { value: '7d', label: '7 d' },
+                { value: '30d', label: '30 d' },
+              ]}
+            />
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => void router.invalidate()}
+            >
+              <RefreshCwIcon className={busy ? 'animate-spin' : ''} /> Refresh
+            </Button>
+          </>
         }
       />
       <PageBody>
-        <div className="flex items-center gap-3 rounded-xl border border-border-card bg-card px-4 py-3">
-          <Dot tone={healthTone(state)} size="md" />
-          <div className="flex min-w-0 flex-col">
-            <span className={`font-medium ${toneText[healthTone(state)]}`}>
-              Environment services: {state}
-            </span>
-            <span className="text-[13px] text-muted-foreground">
-              {services.length
-                ? `${services.length} registered service definitions for ${overview.env}`
-                : 'No service health observations are available.'}
-            </span>
+        {allClear(overview) ? (
+          <div className="flex items-center gap-3 rounded-xl border border-ok-line bg-ok-wash px-4 py-3 text-ok-ink">
+            <CircleCheckIcon className="size-5" />
+            <div className="flex flex-col">
+              <span className="font-medium">All clear</span>
+              <span className="text-[13px]">
+                All {overview.asset_count} assets meet their freshness targets
+                and all evaluated audits passed.
+              </span>
+            </div>
           </div>
-        </div>
-
-        <section
-          aria-label="Live counts"
-          className="grid grid-cols-2 gap-3 lg:grid-cols-5 lg:gap-4"
-        >
-          <KpiCard
-            label="Assets"
-            value={overview.asset_count}
-            to="/assets"
-            env={overview.env}
-          />
-          <KpiCard
-            label="Materialized assets"
-            value={overview.materialized_asset_count}
-          />
-          <KpiCard
-            label="Freshness · fresh"
-            value={overview.freshness_counts.fresh}
-            footer={`${overview.freshness_counts.stale} stale · ${overview.freshness_counts.unknown} unknown`}
-          />
-          <KpiCard
-            label="Open incidents"
-            value={overview.incident_counts.open ?? 0}
-            to="/incidents"
-            env={overview.env}
-          />
-          <KpiCard
-            label="Recent runs"
-            value={runCount}
-            to="/pipelines/timeline"
-            env={overview.env}
-            footer={
-              overview.run_history_truncated
-                ? 'Recent history is truncated at the API limit.'
-                : 'Counts from the selected environment.'
-            }
-          />
-        </section>
-
-        <ServiceHealth services={services} />
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        ) : null}
+        <OverviewKpis data={data} />
+        <Card>
+          <CardHeader>
+            <CardTitle>Data flow</CardTitle>
+            <CardDescription className="hidden sm:block">
+              Sources through each layer, as of the last materialization
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col items-stretch gap-2.5 lg:flex-row">
+            <div className="flex shrink-0 flex-col gap-2 rounded-[10px] bg-sunken p-3.5 lg:w-[230px]">
+              <Eyebrow>Sources · dlt</Eyebrow>
+              {data.sources.items.length ? (
+                data.sources.items.map((source) => (
+                  <div
+                    key={source.id}
+                    className="flex min-w-0 items-center gap-2 text-[13.5px] text-foreground"
+                  >
+                    <Dot tone="neutral" />
+                    <span className="truncate">{source.id}</span>
+                  </div>
+                ))
+              ) : (
+                <span className="text-[13px] text-muted-foreground">
+                  No source assets registered
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground">
+                Source lag is not observed
+                {data.sources.next_cursor ? ' · more sources available' : ''}.
+              </span>
+            </div>
+            {(['bronze', 'silver', 'gold'] satisfies Array<Layer>).map(
+              (layer) => (
+                <React.Fragment key={layer}>
+                  <ArrowRightIcon
+                    className="hidden size-5 shrink-0 self-center text-faint lg:block"
+                    aria-hidden
+                  />
+                  <LayerCard layer={layer} data={data} />
+                </React.Fragment>
+              ),
+            )}
+          </CardContent>
+          <div className="px-6 pb-4 text-xs text-muted-foreground">
+            {overview.asset_count} total assets ·{' '}
+            {overview.materialized_asset_count} verified materializations. Layer
+            counts require an explicit Bronze, Silver or Gold group. Other
+            groups remain unclassified.
+          </div>
+        </Card>
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+          <RunsByHour data={data} />
           <Card>
             <CardHeader>
-              <CardTitle>Recent run status counts</CardTitle>
+              <CardTitle>Recent activity</CardTitle>
+              <CardAction>
+                <Link
+                  to="/incidents"
+                  search={{ env: overview.env }}
+                  className="text-[13px]"
+                >
+                  All incidents
+                </Link>
+              </CardAction>
             </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              {Object.entries(overview.run_status_counts).length ? (
-                Object.entries(overview.run_status_counts).map(
-                  ([status, count]) => (
-                    <div
-                      key={status}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      <Dot
-                        tone={
-                          status === 'SUCCESS'
-                            ? 'ok'
-                            : status === 'FAILURE'
-                              ? 'bad'
-                              : 'neutral'
-                        }
-                      />
-                      <span>{status}</span>
-                      <span className="ml-auto font-mono">{count}</span>
+            <CardContent className="flex flex-col gap-3.5">
+              {activity.map((item) => (
+                <div key={item.id} className="flex gap-3">
+                  <Dot tone={item.tone} size="md" className="mt-1.5" />
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <div className="text-sm leading-snug">
+                      {'run' in item ? (
+                        <Link
+                          to="/pipelines/$jobName"
+                          params={{ jobName: item.run.job_id }}
+                          search={{ env: overview.env, run: item.run.run_id }}
+                          className="break-all text-foreground hover:text-link"
+                        >
+                          {item.text}
+                        </Link>
+                      ) : (
+                        <Link
+                          to="/incidents/$incidentId"
+                          params={{ incidentId: item.incident.id }}
+                          search={{ env: overview.env }}
+                          className="text-foreground hover:text-link"
+                        >
+                          {item.text}
+                        </Link>
+                      )}
                     </div>
-                  ),
-                )
-              ) : (
+                    <div className="text-[13px] text-muted-foreground">
+                      {formatTimestamp(item.at)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {!activity.length ? (
                 <p className="m-0 text-sm text-muted-foreground">
-                  The API returned no run status counts.
+                  No activity observed in this time range.
                 </p>
-              )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Quality checks</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3 text-sm">
-              {quality ? (
-                <>
-                  <div>
-                    {quality.passing} passing · {quality.total} total ·{' '}
-                    {quality.unevaluated} unevaluated
-                  </div>
-                  <div className="text-[13px] text-muted-foreground">
-                    {overview.quality_checks.failing_assets?.length
-                      ? `${overview.quality_checks.failing_assets.length} assets have failing checks.`
-                      : 'No failing assets were reported.'}
-                  </div>
-                </>
-              ) : (
-                <p className="m-0 text-muted-foreground">
-                  Quality status is unknown
-                  {overview.quality_checks.reason
-                    ? `: ${overview.quality_checks.reason.replaceAll('_', ' ')}.`
-                    : '.'}
+              ) : null}
+              {data.incidents.next_cursor ? (
+                <p className="m-0 text-xs text-muted-foreground">
+                  Incident activity is limited to the first 500 records.
                 </p>
-              )}
+              ) : null}
             </CardContent>
           </Card>
         </div>
-
-        <p className="m-0 text-xs text-muted-foreground">
-          This overview uses the environment-scoped /api/v1 contract.
-          {overview.latest_materialization_at
-            ? ` Latest verified materialization: ${formatTimestamp(overview.latest_materialization_at)}.`
-            : ' No verified materialization timestamp was reported.'}
-        </p>
+        <details id="services" className="shrink-0 text-sm">
+          <summary className="cursor-pointer text-muted-foreground">
+            Environment services · {services.length} definitions
+          </summary>
+          <div className="mt-3">
+            <ServiceHealth services={services} />
+          </div>
+        </details>
       </PageBody>
     </>
+  )
+}
+
+function LayerCard({ layer, data }: { layer: Layer; data: Overview }) {
+  const group = data.layers.items.find(
+    (item) => item.group_name?.toLowerCase() === layer,
+  )
+  return (
+    <Link
+      to="/assets"
+      search={{ env: data.overview.env, layer }}
+      className="flex min-w-0 flex-1 flex-col gap-2.5 rounded-[10px] border border-border-card p-3.5 text-foreground hover:border-border-strong hover:text-foreground"
+    >
+      <div className="flex items-center gap-2">
+        <LayerSwatch layer={layer} size="lg" />
+        <span className="text-sm font-medium">
+          {layer[0].toUpperCase() + layer.slice(1)}
+        </span>
+        <span className="ml-auto text-[13px] text-muted-foreground">
+          {layer === 'bronze'
+            ? 'Raw'
+            : layer === 'silver'
+              ? 'Cleaned'
+              : 'Curated'}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-2xl font-medium">
+          {group?.asset_count ?? '—'}
+        </span>
+        <span className="text-[13px] text-muted-foreground">assets</span>
+      </div>
+      <HealthBar ok={0} bad={0} unknown={group?.asset_count || 1} />
+      <div className="text-[13px] text-muted-foreground">
+        {group
+          ? `${group.materialized_asset_count} verified materializations`
+          : 'Layer not classified'}{' '}
+        · freshness unknown
+      </div>
+    </Link>
+  )
+}
+
+const runsChartConfig = {
+  succeeded: { label: 'Succeeded', color: 'var(--bar)' },
+  failed: { label: 'Failed', color: 'var(--bad)' },
+} satisfies ChartConfig
+
+function RunsByHour({ data }: { data: Overview }) {
+  const rows = runBuckets(data.runs.items, data.range, data.observedAt)
+  const totals = rows.reduce(
+    (total, row) => ({
+      succeeded: total.succeeded + row.succeeded,
+      failed: total.failed + row.failed,
+    }),
+    { succeeded: 0, failed: 0 },
+  )
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          {data.range === '24h' ? 'Runs by hour' : 'Runs by day'}
+        </CardTitle>
+        <CardAction className="gap-3.5 text-[13px] text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-[2px] bg-bar" /> Succeeded
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-[2px] bg-bad" /> Failed
+          </span>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-2">
+        <ChartContainer
+          config={runsChartConfig}
+          label={`${totals.succeeded} succeeded and ${totals.failed} failed runs, last ${data.range}`}
+          className="aspect-auto h-[180px] w-full lg:h-auto lg:min-h-[180px] lg:flex-1"
+        >
+          <BarChart
+            data={rows}
+            margin={{ top: 4, right: 0, bottom: 0, left: 0 }}
+            barCategoryGap="18%"
+          >
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="timestamp" hide />
+            <YAxis
+              width={24}
+              tickLine={false}
+              axisLine={false}
+              tickMargin={4}
+              fontSize={11}
+              allowDecimals={false}
+              tickCount={4}
+            />
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  labelFormatter={(value) => formatTimestamp(String(value))}
+                  valueFormatter={(value) => `${value} runs`}
+                />
+              }
+            />
+            <Bar
+              dataKey="succeeded"
+              stackId="runs"
+              fill="var(--color-succeeded)"
+              radius={3}
+              isAnimationActive={false}
+            />
+            <Bar
+              dataKey="failed"
+              stackId="runs"
+              fill="var(--color-failed)"
+              radius={3}
+              isAnimationActive={false}
+            />
+          </BarChart>
+        </ChartContainer>
+        <div className="flex justify-between pl-6 font-mono text-[11px] text-muted-foreground">
+          {rows
+            .filter((_, index) => index % Math.ceil(rows.length / 5) === 0)
+            .map((row) => (
+              <span key={row.timestamp}>
+                {new Intl.DateTimeFormat('en-GB', {
+                  timeZone: 'UTC',
+                  ...(data.range === '24h'
+                    ? { hour: '2-digit', minute: '2-digit' }
+                    : { day: 'numeric', month: 'short' }),
+                }).format(new Date(row.timestamp))}
+              </span>
+            ))}
+        </div>
+        <p className="m-0 text-xs text-muted-foreground">
+          Counts use the latest {data.runs.items.length} observed records from a
+          bounded API read, not complete history.
+        </p>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -203,53 +547,49 @@ function ServiceHealth({ services }: { services: Array<Service> }) {
   const statuses = [
     ...new Set(services.map((service) => service.status)),
   ].sort()
-
   return (
     <Card>
       <CardHeader>
         <CardTitle>Environment services</CardTitle>
         <p className="m-0 text-[13px] text-muted-foreground">
-          Registered services without a health observation remain unknown. This
-          list can include services that are not running. Unknown does not mean
-          unhealthy.
+          Registered services without an observation remain unknown. Unknown
+          does not mean unhealthy.
         </p>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {services.length ? (
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <label className="flex flex-1 flex-col gap-1.5 text-[13px]">
-              Filter by service name
-              <Input
-                type="search"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Service name"
-              />
-            </label>
-            <label className="flex flex-col gap-1.5 text-[13px]">
-              Filter by status
-              <select
-                value={status}
-                onChange={(event) =>
-                  setStatus(
-                    statuses.find((item) => item === event.target.value) ?? '',
-                  )
-                }
-                className="h-9 rounded-lg border border-input bg-card px-3 text-foreground outline-none focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary-soft"
-              >
-                <option value="">All statuses</option>
-                {statuses.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <span className="text-xs text-muted-foreground">
-              Showing {filtered.length} of {services.length}
-            </span>
-          </div>
-        ) : null}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="flex flex-1 flex-col gap-1.5 text-[13px]">
+            Filter by service name
+            <Input
+              type="search"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Service name"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-[13px]">
+            Filter by status
+            <select
+              value={status}
+              onChange={(event) =>
+                setStatus(
+                  statuses.find((item) => item === event.target.value) ?? '',
+                )
+              }
+              className="h-9 rounded-lg border border-input bg-card px-3 text-foreground"
+            >
+              <option value="">All statuses</option>
+              {statuses.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="text-xs text-muted-foreground">
+            Showing {filtered.length} of {services.length}
+          </span>
+        </div>
         {filtered.map((service) => (
           <div
             key={service.id}
@@ -266,19 +606,14 @@ function ServiceHealth({ services }: { services: Array<Service> }) {
               {service.observed_at
                 ? `Observed ${formatTimestamp(service.observed_at)}`
                 : 'No observation timestamp'}
-              {service.response_time_seconds === null
-                ? ''
-                : ` · ${service.response_time_seconds.toFixed(3)} s`}
             </span>
           </div>
         ))}
-        {services.length === 0 ? (
+        {!filtered.length ? (
           <p className="m-0 text-sm text-muted-foreground">
-            The API returned no service observations.
-          </p>
-        ) : filtered.length === 0 ? (
-          <p className="m-0 text-sm text-muted-foreground">
-            No services match both filters.
+            {services.length
+              ? 'No services match both filters.'
+              : 'No service observations available.'}
           </p>
         ) : null}
       </CardContent>
@@ -293,7 +628,7 @@ function healthTone(status: string): 'ok' | 'warn' | 'bad' | 'neutral' {
   return 'neutral'
 }
 
-function formatTimestamp(value: string): string {
+function formatTimestamp(value: string) {
   return (
     new Intl.DateTimeFormat('en-GB', {
       dateStyle: 'medium',

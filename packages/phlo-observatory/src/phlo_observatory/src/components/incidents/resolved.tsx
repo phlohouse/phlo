@@ -1,6 +1,7 @@
 /** Renders resolved incident details, timeline events, and follow-ups. */
 import * as React from 'react'
 import { Link, useRouter } from '@tanstack/react-router'
+import { GitBranchIcon } from 'lucide-react'
 import type {
   IncidentFollowUp,
   IncidentRecord,
@@ -12,6 +13,9 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input, Textarea } from '@/components/ui/input'
 import { EmptyState } from '@/components/phlo/states'
 import { Eyebrow, KeyValues } from '@/components/phlo/page'
+import { Stat } from '@/components/phlo/kpi'
+import { Mono } from '@/components/phlo/status'
+import { Card } from '@/components/ui/card'
 import {
   clearIncidentOperationKey,
   createFollowUp,
@@ -30,6 +34,64 @@ const payloadText = (payload: IncidentTimelineEvent['payload']) => {
   return Object.keys(payload).length
     ? JSON.stringify(payload, null, 2)
     : undefined
+}
+const evidenceValue = (
+  timeline: Array<IncidentTimelineEvent>,
+  keys: Array<string>,
+) => {
+  for (const event of timeline) {
+    for (const key of keys) {
+      const value = event.payload[key]
+      if (typeof value === 'string' && value.trim()) return value
+    }
+  }
+}
+
+function linkedIncidentEvidence(
+  timeline: Array<IncidentTimelineEvent>,
+  env: 'prod' | 'staging',
+) {
+  const branch = evidenceValue(timeline, ['branch', 'branch_name', 'ref'])
+  const job = evidenceValue(timeline, ['job', 'job_name', 'pipeline'])
+  const items: Array<[React.ReactNode, React.ReactNode]> = []
+  if (branch)
+    items.push([
+      'Branch',
+      <Link
+        to="/branches"
+        search={{ env, branch }}
+        className="min-w-0 truncate font-mono text-xs"
+      >
+        <GitBranchIcon className="mr-1 inline size-3.5" />
+        {branch}
+      </Link>,
+    ])
+  if (job)
+    items.push([
+      'Job',
+      <Link
+        to="/pipelines/$jobName"
+        params={{ jobName: job }}
+        search={{ env }}
+        className="min-w-0 truncate font-mono text-xs"
+      >
+        {job}
+      </Link>,
+    ])
+  return items
+}
+
+function resolutionLabel(
+  incident: IncidentRecord,
+  timeline: Array<IncidentTimelineEvent>,
+) {
+  const resolvedAt = [...timeline]
+    .reverse()
+    .find((event) => event.kind.toLowerCase().includes('resolv'))?.occurred_at
+  if (resolvedAt) return formatDate(resolvedAt)
+  return incident.status === 'resolved'
+    ? 'Recorded without a resolution timestamp'
+    : 'Not resolved'
 }
 
 export function IncidentDetail({
@@ -50,6 +112,7 @@ export function IncidentDetail({
   const [due, setDue] = React.useState('')
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string>()
+  const linkedEvidence = linkedIncidentEvidence(timeline, env)
   async function run(action: () => Promise<unknown>, clear?: () => void) {
     if (pending) return
     setPending(true)
@@ -119,43 +182,73 @@ export function IncidentDetail({
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-[400px_minmax(0,1fr)] lg:overflow-hidden">
       <aside
         aria-label="Summary"
-        className="border-b border-line p-4 lg:overflow-y-auto lg:border-r lg:border-b-0 lg:p-6"
+        className="border-b border-line lg:overflow-y-auto lg:border-r lg:border-b-0"
       >
-        <div className="mb-5 flex flex-wrap items-center gap-2">
-          <Badge
-            variant={
-              incident.status === 'resolved'
-                ? 'ok'
-                : incident.status === 'acknowledged'
-                  ? 'warn'
-                  : 'bad'
-            }
-          >
-            {incident.status}
-          </Badge>
-          <Badge variant="outline">{incident.kind}</Badge>
+        <div className="flex flex-col gap-2.5 px-4 pt-5 pb-4 lg:px-6 lg:pt-[22px]">
+          <div className="flex flex-wrap items-center gap-2">
+            <Mono className="text-[13px] text-muted-foreground">
+              #{incident.id}
+            </Mono>
+            <Badge
+              variant={
+                incident.status === 'resolved'
+                  ? 'ok'
+                  : incident.status === 'acknowledged'
+                    ? 'warn'
+                    : 'bad'
+              }
+            >
+              {incident.status}
+            </Badge>
+            <Badge variant="outline">{incident.kind}</Badge>
+          </div>
+          <h2 className="m-0 text-[22px] leading-tight font-semibold tracking-[-0.01em]">
+            {incident.title}
+          </h2>
+          <p className="m-0 text-sm leading-relaxed text-text-3">
+            {incident.status === 'resolved'
+              ? 'This incident is resolved. Persisted evidence and the audit trail are shown here.'
+              : 'Investigation is active. This view only shows evidence persisted by the incident service.'}
+          </p>
         </div>
-        <KeyValues
-          keyWidth={90}
-          items={[
-            [
-              'Asset',
-              <Link
-                to="/assets/$assetId"
-                params={{ assetId: incident.asset_id }}
-                search={{ env }}
-                className="break-all font-mono text-xs"
-              >
-                {incident.asset_id}
-              </Link>,
-            ],
-            ['Owner', incident.owner ?? 'Unassigned'],
-            ['Created', formatDate(incident.created_at)],
-            ['Updated', formatDate(incident.updated_at)],
-            ['Version', String(incident.version)],
-          ]}
-        />
-        <div className="mt-6 flex flex-col gap-3 border-t border-line pt-5">
+        <div className="border-t border-line-soft px-4 py-4 lg:px-6">
+          <KeyValues
+            keyWidth={90}
+            className="items-center gap-y-3"
+            items={[
+              [
+                'Asset',
+                <Link
+                  to="/assets/$assetId"
+                  params={{ assetId: incident.asset_id }}
+                  search={{ env }}
+                  className="break-all font-mono text-xs"
+                >
+                  {incident.asset_id}
+                </Link>,
+              ],
+              ['Owner', incident.owner ?? 'Unassigned'],
+              ['Created', formatDate(incident.created_at)],
+              ['Updated', formatDate(incident.updated_at)],
+              ['Version', String(incident.version)],
+              ...linkedEvidence,
+            ]}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2.5 border-t border-line-soft px-4 py-4 lg:px-6">
+          <Stat
+            label="Activity"
+            value={timeline.length}
+            sub="persisted events"
+          />
+          <Stat
+            label="Follow-ups"
+            value={`${followUps.filter((item) => item.completed_at).length}/${followUps.length}`}
+            sub="complete"
+            tone={followUps.some((item) => !item.completed_at) ? 'warn' : 'ok'}
+          />
+        </div>
+        <div className="flex flex-col gap-3 border-t border-line px-4 py-5 lg:px-6">
           <Eyebrow>Update incident</Eyebrow>
           <label className="text-sm">
             Owner
@@ -200,9 +293,39 @@ export function IncidentDetail({
           ) : null}
         </div>
       </aside>
-      <main className="flex min-h-0 flex-col gap-7 p-4 lg:overflow-y-auto lg:p-7">
+      <main className="flex min-h-0 flex-col gap-6 p-4 lg:overflow-y-auto lg:px-7 lg:py-[22px]">
+        <section className="flex flex-col gap-3">
+          <div>
+            <h2 className="m-0 text-[15px] font-medium">
+              Investigation &amp; evidence
+            </h2>
+            <p className="m-0 mt-1 text-[13px] text-muted-foreground">
+              Evidence recorded by incident updates. Missing impact metrics or
+              run data are not inferred.
+            </p>
+          </div>
+          <Card className="p-4">
+            <KeyValues
+              keyWidth={110}
+              items={[
+                ['Affected asset', incident.asset_id],
+                ['Impact', 'Not supplied by the incident API'],
+                [
+                  'Investigation',
+                  timeline.length
+                    ? `${timeline.length} recorded events`
+                    : 'No evidence recorded',
+                ],
+                ['Resolution', resolutionLabel(incident, timeline)],
+              ]}
+            />
+          </Card>
+        </section>
         <section>
-          <h2 className="mb-3 text-base font-medium">Timeline</h2>
+          <h2 className="mb-1 text-[15px] font-medium">Activity</h2>
+          <p className="mt-0 mb-4 text-[13px] text-muted-foreground">
+            Chronological incident audit trail
+          </p>
           {timeline.length ? (
             <ol className="m-0 list-none border-l border-line p-0 pl-5">
               {timeline.map((event) => (
@@ -228,9 +351,11 @@ export function IncidentDetail({
             </EmptyState>
           )}
         </section>
-        <section>
+        <section className="border-t border-line pt-5">
           <div className="mb-3 flex items-center">
-            <h2 className="m-0 text-base font-medium">Follow-ups</h2>
+            <h2 className="m-0 text-[15px] font-medium">
+              Resolution &amp; follow-ups
+            </h2>
             <span className="ml-auto text-xs text-muted-foreground">
               {followUps.filter((item) => item.completed_at).length} of{' '}
               {followUps.length} complete

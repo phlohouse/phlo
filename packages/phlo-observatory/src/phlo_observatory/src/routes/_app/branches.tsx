@@ -20,6 +20,7 @@ import { EmptyState } from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
 import { MergeDialog } from '@/components/branches/merge-dialog'
 import { NewBranchDialog } from '@/components/branches/new-branch-dialog'
+import { BranchGraph } from '@/components/branches/branch-graph'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -98,76 +99,116 @@ function BranchReferences({
 function BranchEvidence({
   detail,
   target,
+  selected,
 }: {
   detail?: BranchDetail
   target: Branch
+  selected: Branch
 }) {
   if (!detail)
     return <p className="text-sm text-muted-foreground">Loading branch data…</p>
+  const baseIndex = detail.commits.items.findIndex(
+    (commit) => commit.hash === detail.comparison.merge_base,
+  )
+  const graphKnown =
+    target.name === 'main' &&
+    baseIndex >= 0 &&
+    detail.comparison.merge_base !== null &&
+    detail.comparison.behind !== null
   return (
-    <div className="grid gap-7 pt-5 lg:grid-cols-2">
-      <div>
-        <Eyebrow>Comparison with {target.name}</Eyebrow>
-        <p className="text-sm">
-          Ahead: {detail.comparison.ahead ?? 'unknown'} · Behind:{' '}
-          {detail.comparison.behind ?? 'unknown'} · Merge base:{' '}
-          {detail.comparison.merge_base ?? 'unknown'}
-        </p>
-        <Eyebrow className="mt-6">
-          Changes{detail.diff.truncated ? ' (first 500)' : ''}
-        </Eyebrow>
-        {detail.diff.items.length ? (
-          <ul className="m-0 list-none p-0">
-            {detail.diff.items.map((change) => (
-              <li
-                key={change.key}
-                className="border-b border-line-soft py-2 text-sm"
-              >
-                <Badge variant="outline">{change.status}</Badge>{' '}
-                <Mono>{change.key}</Mono>
-                <div className="text-xs text-muted-foreground">
-                  {change.from_content_id ?? 'none'} →{' '}
-                  {change.to_content_id ?? 'none'}
-                </div>
-              </li>
-            ))}
-          </ul>
+    <div>
+      <div className="pt-5 pb-2">
+        {graphKnown &&
+        detail.comparison.merge_base !== null &&
+        detail.comparison.behind !== null ? (
+          <BranchGraph
+            name={selected.name}
+            graph={{
+              base: detail.comparison.merge_base,
+              commits: detail.commits.items
+                .slice(0, baseIndex)
+                .map((commit) => commit.hash)
+                .toReversed(),
+              behind: detail.comparison.behind,
+              mergeable: false,
+            }}
+            commits={detail.commits.items.map((commit) => ({
+              id: commit.hash,
+              message: commit.message ?? 'No commit message',
+              who: commit.author ?? commit.committer ?? 'Unknown author',
+              ago: commit.committed_at ?? 'Unknown time',
+            }))}
+          />
         ) : (
-          <EmptyState title="No table changes" className="mt-2">
-            The API returned no changes against {target.name}.
-          </EmptyState>
+          <div className="flex h-[132px] items-center justify-center rounded-lg border border-dashed border-line text-[13px] text-muted-foreground">
+            Branch graph unavailable: no verified fork and comparison history.
+          </div>
         )}
       </div>
-      <div className="min-w-0">
-        <Eyebrow>
-          Commit history{detail.commits.next_cursor ? ' (first 100)' : ''}
-        </Eyebrow>
-        {detail.commits.items.length ? (
-          detail.commits.items.map((commit) => (
-            <div
-              key={commit.hash}
-              className="min-w-0 border-b border-line-soft py-2"
-            >
-              <Mono className="block break-all text-xs text-branch">
-                {commit.hash}
-              </Mono>
-              <div className="break-words text-sm">
-                {commit.message ?? 'No commit message'}
+      <div className="grid gap-7 pt-3 lg:grid-cols-2">
+        <div>
+          <Eyebrow>Comparison with {target.name}</Eyebrow>
+          <p className="text-sm">
+            Ahead: {detail.comparison.ahead ?? 'unknown'} · Behind:{' '}
+            {detail.comparison.behind ?? 'unknown'} · Merge base:{' '}
+            {detail.comparison.merge_base ?? 'unknown'}
+          </p>
+          <Eyebrow className="mt-6">
+            Changes{detail.diff.truncated ? ' (first 500)' : ''}
+          </Eyebrow>
+          {detail.diff.items.length ? (
+            <ul className="m-0 list-none p-0">
+              {detail.diff.items.map((change) => (
+                <li
+                  key={change.key}
+                  className="border-b border-line-soft py-2 text-sm"
+                >
+                  <Badge variant="outline">{change.status}</Badge>{' '}
+                  <Mono>{change.key}</Mono>
+                  <div className="text-xs text-muted-foreground">
+                    {change.from_content_id ?? 'none'} →{' '}
+                    {change.to_content_id ?? 'none'}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState title="No table changes" className="mt-2">
+              The API returned no changes against {target.name}.
+            </EmptyState>
+          )}
+        </div>
+        <div className="min-w-0">
+          <Eyebrow>
+            Commit history{detail.commits.next_cursor ? ' (first 100)' : ''}
+          </Eyebrow>
+          {detail.commits.items.length ? (
+            detail.commits.items.map((commit) => (
+              <div
+                key={commit.hash}
+                className="min-w-0 border-b border-line-soft py-2"
+              >
+                <Mono className="block break-all text-xs text-branch">
+                  {commit.hash}
+                </Mono>
+                <div className="break-words text-sm">
+                  {commit.message ?? 'No commit message'}
+                </div>
+                <div className="break-all text-xs text-muted-foreground">
+                  {commit.author ?? commit.committer ?? 'Unknown author'} ·{' '}
+                  {commit.committed_at ?? 'Unknown time'} · parents:{' '}
+                  {commit.parent_hashes.length
+                    ? commit.parent_hashes.join(', ')
+                    : 'none'}
+                </div>
               </div>
-              <div className="break-all text-xs text-muted-foreground">
-                {commit.author ?? commit.committer ?? 'Unknown author'} ·{' '}
-                {commit.committed_at ?? 'Unknown time'} · parents:{' '}
-                {commit.parent_hashes.length
-                  ? commit.parent_hashes.join(', ')
-                  : 'none'}
-              </div>
-            </div>
-          ))
-        ) : (
-          <EmptyState title="No commit history" className="mt-2">
-            No commits were returned.
-          </EmptyState>
-        )}
+            ))
+          ) : (
+            <EmptyState title="No commit history" className="mt-2">
+              No commits were returned.
+            </EmptyState>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -376,8 +417,8 @@ function BranchesPage() {
             No protected environment ref was returned by the API.
           </EmptyState>
         ) : (
-          <section className="min-w-0 flex-1 overflow-y-auto p-5 lg:p-7">
-            <div className="flex flex-wrap items-start gap-3 border-b border-line pb-5">
+          <section className="min-w-0 flex-1 overflow-y-auto">
+            <div className="flex flex-wrap items-start gap-3 border-b border-line px-4 pt-5 pb-4 lg:px-7 lg:pt-[22px] lg:pb-[18px]">
               <div className="mr-auto min-w-0">
                 <h2 className="m-0 break-all font-mono text-xl">
                   {selected.name}
@@ -395,7 +436,13 @@ function BranchesPage() {
                 refresh={refresh}
               />
             </div>
-            <BranchEvidence detail={detail} target={target} />
+            <div className="px-4 pb-6 lg:px-7">
+              <BranchEvidence
+                detail={detail}
+                target={target}
+                selected={selected}
+              />
+            </div>
             {error && dialog !== 'merge' ? (
               <p className="text-sm text-bad-text" role="alert">
                 {error}

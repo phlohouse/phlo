@@ -125,7 +125,20 @@ const auditProposalSchema = z.object({
   created_at: z.string(),
 })
 export type ApiAsset = z.infer<typeof assetSchema>
+export type ApiAssetDetail = z.infer<typeof assetDetailSchema>
+export type AssetPreview = z.infer<typeof previewSchema>
+export type AssetSnapshots = z.infer<typeof snapshotsSchema>
+export type AssetSchemaHistory = z.infer<typeof schemaHistorySchema>
+export type AssetChecks = z.infer<typeof checksSchema>
 export type AuditRule = z.infer<typeof auditRuleSchema>
+
+export function assetLayer(asset: Pick<ApiAsset, 'group_name' | 'key'>) {
+  return (['bronze', 'silver', 'gold'] as const).find(
+    (layer) =>
+      asset.group_name?.toLowerCase() === layer ||
+      asset.key[0]?.toLowerCase() === layer,
+  )
+}
 
 export const getAssetList = createServerFn({ method: 'GET' })
   .inputValidator(environmentSchema)

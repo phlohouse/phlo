@@ -5,6 +5,7 @@ import { ClientOnly, Link } from '@tanstack/react-router'
 import { Controls, Handle, Position, ReactFlow } from '@xyflow/react'
 import type { Edge, Node, NodeProps } from '@xyflow/react'
 import type {
+  Env,
   Layer,
   LineageColumn,
   LineageNode,
@@ -19,6 +20,7 @@ type Props = {
   columns: Array<LineageColumn>
   edges: Array<[string, string]>
   label: string
+  env: Env
 }
 
 const NODE_H = 56
@@ -26,7 +28,7 @@ const ROW = 76
 const GAP = 64
 const TOP = 34 // room for the column headings
 
-type TableData = { node: LineageNode; stale: boolean }
+type TableData = { node: LineageNode; stale: boolean; env: Env }
 type HeadingData = { text: string }
 type TableNode = Node<TableData, 'table'>
 type HeadingNode = Node<HeadingData, 'heading'>
@@ -93,6 +95,7 @@ function TableNodeView({ data, width }: NodeProps<TableNode>) {
       {n.href ? (
         <Link
           to={n.href}
+          search={{ env: data.env }}
           draggable={false}
           tabIndex={-1}
           aria-label={`${n.name}, ${n.sub}`}
@@ -121,7 +124,11 @@ function HeadingNodeView({ data }: NodeProps<HeadingNode>) {
 
 const nodeTypes = { table: TableNodeView, heading: HeadingNodeView }
 
-function build(columns: Array<LineageColumn>, pairs: Array<[string, string]>) {
+function build(
+  columns: Array<LineageColumn>,
+  pairs: Array<[string, string]>,
+  env: Env,
+) {
   const rows = Math.max(1, ...columns.map((c) => c.nodes.length))
   const mid = TOP + ((rows - 1) * ROW) / 2
   const all = columns.flatMap((c) => c.nodes)
@@ -146,7 +153,7 @@ function build(columns: Array<LineageColumn>, pairs: Array<[string, string]>) {
         position: { x, y: mid + (k - (c.nodes.length - 1) / 2) * ROW },
         width: w,
         height: NODE_H,
-        data: { node: n, stale },
+        data: { node: n, stale, env },
       }),
     )
     x += w + GAP
@@ -180,11 +187,11 @@ function build(columns: Array<LineageColumn>, pairs: Array<[string, string]>) {
   return { nodes, edges, width }
 }
 
-function Flow({ columns, edges: pairs, label }: Props) {
+function Flow({ columns, edges: pairs, label, env }: Props) {
   const { theme } = useTheme()
   const { nodes, edges, width } = React.useMemo(
-    () => build(columns, pairs),
-    [columns, pairs],
+    () => build(columns, pairs, env),
+    [columns, pairs, env],
   )
   // Phones: draw at full size inside a native horizontal scroller, so one finger scrolls the page
   // (or slides the graph sideways) instead of being captured by the canvas.
@@ -285,7 +292,13 @@ export function LineageGraph(props: Props) {
               .map(([, b]) => nameOf(b))
             return (
               <li key={n.id}>
-                {n.href ? <Link to={n.href}>{n.name}</Link> : n.name}
+                {n.href ? (
+                  <Link to={n.href} search={{ env: props.env }}>
+                    {n.name}
+                  </Link>
+                ) : (
+                  n.name
+                )}
                 <span className="text-muted-foreground">
                   {' '}
                   · {n.sub}
