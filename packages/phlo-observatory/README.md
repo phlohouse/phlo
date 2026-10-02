@@ -4,7 +4,7 @@ Phlo Observatory UI for data platform visibility.
 
 ## Description
 
-Web-based UI for exploring the data lakehouse. View lineage, browse tables, run bounded read-only previews, and monitor pipeline health; an authenticated durable per-run report API and UI projection are implemented at alpha maturity.
+Web-based UI for exploring the data lakehouse through Phlo API. View lineage, browse assets, run bounded read-only queries, and monitor pipeline health. The durable per-run report remains available through Phlo API; its dedicated UI projection is pending.
 
 ## Installation
 
@@ -16,20 +16,19 @@ phlo plugin install observatory
 
 ## Configuration
 
-| Variable              | Default                       | Description              |
-| --------------------- | ----------------------------- | ------------------------ |
-| `OBSERVATORY_PORT`    | `3001`                        | Observatory web UI port  |
-| `DAGSTER_GRAPHQL_URL` | `http://dagster:3000/graphql` | Dagster GraphQL endpoint |
-| `NESSIE_URL`          | `http://nessie:19120/api/v2`  | Nessie API URL           |
-| `TRINO_URL`           | `http://trino:8080`           | Trino HTTP URL           |
-| `PHLO_API_URL`        | `http://phlo-api:4000`        | Phlo API URL             |
-| `OBSERVATORY_UI`      | `legacy`                    | `legacy` or `replacement` frontend |
+| Variable           | Default                | Description             |
+| ------------------ | ---------------------- | ----------------------- |
+| `OBSERVATORY_PORT` | `3001`                 | Observatory web UI port |
+| `PHLO_API_URL`     | `http://phlo-api:4000` | Server-side Phlo API URL |
 
-Both frontends ship in the existing package and container image. The replacement
-uses the public Phlo API and remains opt-in while legacy consumers migrate.
-See [replacement setup and verification](src/phlo_observatory/replacement/README.md)
-for authentication requirements and workspace commands. Its `/healthz` endpoint
-checks frontend liveness only.
+The API-backed frontend is the only UI in the package and container image.
+The old frontend and selector have been removed. Configure the authenticated
+proxy and Phlo API before exposing the service. The server forwards the user's
+token to Phlo API, which verifies it independently. Rollback requires deploying
+the previous image. Legacy backend API routes and Python extension contracts
+remain; browser-extension loading is not implemented in this UI.
+See [setup and verification](src/phlo_observatory/README.md) for authentication
+requirements and frontend commands. `/healthz` checks frontend liveness only.
 
 ## Auto-Configuration
 

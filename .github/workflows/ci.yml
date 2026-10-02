@@ -537,7 +537,7 @@ jobs:
         run: npx prettier --check .
 
       - name: Lint with ESLint
-        run: npx eslint src replacement/src --ext .ts,.tsx --max-warnings 0
+        run: npm run lint -- --max-warnings 0
 
       - name: Type check with TypeScript
         run: npx tsc --noEmit
@@ -547,11 +547,6 @@ jobs:
 
       - name: Run tests
         run: npm test
-
-      - name: Build and typecheck replacement frontend
-        run: |
-          npm run build --workspace replacement
-          npm run typecheck --workspace replacement
 
   phlo-github-writer:
     name: agent / GitHub writer

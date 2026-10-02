@@ -1,311 +1,61 @@
-# Observatory frontends
+# Run Observatory
 
-This directory contains the legacy frontend and the `replacement` npm workspace.
-Install both with `npm ci` here. `OBSERVATORY_UI` defaults to `legacy` in the
-service package. Set it to `replacement` to select the API-backed UI.
-See [replacement setup](replacement/README.md) for its build, authentication,
-and verification commands. The remaining instructions describe the legacy app.
+This frontend belongs to the `phlo-observatory` package in the Phlo repository.
+It uses the public Phlo `/api/v1` contract. It does not query Dagster, Nessie,
+Trino, or PostgreSQL directly.
 
-# Getting Started
+From `packages/phlo-observatory/src/phlo_observatory`, install dependencies
+and start the development server:
 
-To run this application:
-
-```bash
+```sh
 npm ci
-npm run dev
+PHLO_API_URL=http://127.0.0.1:4000 npm run dev
 ```
 
-## Dev Host Configuration
+For a production Node server, build the app first:
 
-Vite dev server host settings can be overridden via environment variables:
-
-- `DEV_HOST`: server host (default: `localhost`)
-- `DEV_HMR_HOST`: HMR host (default: `DEV_HOST`)
-- `DEV_ALLOWED_HOSTS`: comma-separated allowed hosts (default: `DEV_HOST`)
-
-# Building For Production
-
-To build this application for production:
-
-```bash
+```sh
 npm run build
+PHLO_API_URL=http://127.0.0.1:4000 npm start
 ```
 
-## Testing
+`PHLO_API_URL` must be reachable from the server. Protected API calls need the
+user's bearer token in `Authorization` or `x-auth-request-access-token` from
+the authenticated proxy. The server forwards that token to Phlo API, which
+verifies it independently. Do not configure provider or database credentials
+in this frontend. Never expose a bypass around the authenticated proxy.
 
-This project uses [Vitest](https://vitest.dev/) for testing. You can run the tests with:
+With Phlo services, rebuild the existing `observatory` service. This is the
+only bundled UI; the old frontend and its selector have been removed.
+Configure the authenticated proxy and Phlo API before exposing the service.
+Rollback requires deploying the previous image, not changing an environment variable.
+This cutover does not migrate data or remove legacy backend API routes.
 
-```bash
-npm run test
-```
+`GET /healthz` returns `{"status":"ok"}` and `HEAD /healthz` returns 200.
+This checks frontend liveness, not API connectivity, authentication, or readiness.
+An unavailable API appears as an error in the relevant screen.
 
-## Styling
+## Verify the app
 
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
+Run these commands from the frontend directory:
 
-## Linting & Formatting
-
-This project uses [eslint](https://eslint.org/) and [prettier](https://prettier.io/) for linting and formatting. Eslint is configured using [tanstack/eslint-config](https://tanstack.com/config/latest/docs/eslint). The following scripts are available:
-
-```bash
+```sh
+npm test
+npm run build
+npm run typecheck
 npm run lint
-npm run format
-npm run check
+npx prettier --check .
 ```
 
-## Routing
+For live contract and isolation checks, run the following command from this
+directory against the documented disposable commerce fixtures. Supply
+`PHLO_TEST_TOKEN` privately and set `PHLO_TEST_API_URL` to the real API endpoint.
+The two numbers are independently known prod and staging asset counts.
 
-This project uses [TanStack Router](https://tanstack.com/router). The initial setup is a file based router. Which means that the routes are managed as files in `src/routes`.
-
-### Adding A Route
-
-To add a new route to your application just add another a new file in the `./src/routes` directory.
-
-TanStack will automatically generate the content of the route file for you.
-
-Now that you have two routes you can use a `Link` component to navigate between them.
-
-### Adding Links
-
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
-
-```tsx
-import { Link } from '@tanstack/react-router'
+```sh
+node scripts/verify-api-client.mjs <app-url> 1 2
 ```
 
-Then anywhere in your JSX you can use it like so:
-
-```tsx
-<Link to="/about">About</Link>
-```
-
-This will create a link that will navigate to the `/about` route.
-
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
-
-### Using A Layout
-
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you use the `<Outlet />` component.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { Outlet, createRootRoute } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
-
-import { Link } from '@tanstack/react-router'
-
-export const Route = createRootRoute({
-  component: () => (
-    <>
-      <header>
-        <nav>
-          <Link to="/">Home</Link>
-          <Link to="/about">About</Link>
-        </nav>
-      </header>
-      <Outlet />
-      <TanStackRouterDevtools />
-    </>
-  ),
-})
-```
-
-The `<TanStackRouterDevtools />` component is not required so you can remove it if you don't want it in your layout.
-
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-const peopleRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/people',
-  loader: async () => {
-    const response = await fetch('https://swapi.dev/api/people')
-    return response.json() as Promise<{
-      results: {
-        name: string
-      }[]
-    }>
-  },
-  component: () => {
-    const data = peopleRoute.useLoaderData()
-    return (
-      <ul>
-        {data.results.map((person) => (
-          <li key={person.name}>{person.name}</li>
-        ))}
-      </ul>
-    )
-  },
-})
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-### React-Query
-
-React-Query is an excellent addition or alternative to route loading and integrating it into you application is a breeze.
-
-First add your dependencies:
-
-```bash
-npm install @tanstack/react-query @tanstack/react-query-devtools
-```
-
-Next we'll need to create a query client and provider. We recommend putting those in `main.tsx`.
-
-```tsx
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-
-// ...
-
-const queryClient = new QueryClient()
-
-// ...
-
-if (!rootElement.innerHTML) {
-  const root = ReactDOM.createRoot(rootElement)
-
-  root.render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  )
-}
-```
-
-You can also add TanStack Query Devtools to the root route (optional).
-
-```tsx
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
-
-const rootRoute = createRootRoute({
-  component: () => (
-    <>
-      <Outlet />
-      <ReactQueryDevtools buttonPosition="top-right" />
-      <TanStackRouterDevtools />
-    </>
-  ),
-})
-```
-
-Now you can use `useQuery` to fetch your data.
-
-```tsx
-import { useQuery } from '@tanstack/react-query'
-
-import './App.css'
-
-function App() {
-  const { data } = useQuery({
-    queryKey: ['people'],
-    queryFn: () =>
-      fetch('https://swapi.dev/api/people')
-        .then((res) => res.json())
-        .then((data) => data.results as { name: string }[]),
-    initialData: [],
-  })
-
-  return (
-    <div>
-      <ul>
-        {data.map((person) => (
-          <li key={person.name}>{person.name}</li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-export default App
-```
-
-You can find out everything you need to know on how to use React-Query in the [React-Query documentation](https://tanstack.com/query/latest/docs/framework/react/overview).
-
-## State Management
-
-Another common requirement for React applications is state management. There are many options for state management in React. TanStack Store provides a great starting point for your project.
-
-First you need to add TanStack Store as a dependency:
-
-```bash
-npm install @tanstack/store
-```
-
-Now let's create a simple counter in the `src/App.tsx` file as a demonstration.
-
-```tsx
-import { useStore } from '@tanstack/react-store'
-import { Store } from '@tanstack/store'
-import './App.css'
-
-const countStore = new Store(0)
-
-function App() {
-  const count = useStore(countStore)
-  return (
-    <div>
-      <button onClick={() => countStore.setState((n) => n + 1)}>
-        Increment - {count}
-      </button>
-    </div>
-  )
-}
-
-export default App
-```
-
-One of the many nice features of TanStack Store is the ability to derive state from other state. That derived state will update when the base state updates.
-
-Let's check this out by doubling the count using derived state.
-
-```tsx
-import { useStore } from '@tanstack/react-store'
-import { Store, Derived } from '@tanstack/store'
-import './App.css'
-
-const countStore = new Store(0)
-
-const doubledStore = new Derived({
-  fn: () => countStore.state * 2,
-  deps: [countStore],
-})
-doubledStore.mount()
-
-function App() {
-  const count = useStore(countStore)
-  const doubledCount = useStore(doubledStore)
-
-  return (
-    <div>
-      <button onClick={() => countStore.setState((n) => n + 1)}>
-        Increment - {count}
-      </button>
-      <div>Doubled - {doubledCount}</div>
-    </div>
-  )
-}
-
-export default App
-```
-
-We use the `Derived` class to create a new store that is derived from another store. The `Derived` class has a `mount` method that will start the derived store updating.
-
-Once we've created the derived store we can use it in the `App` component just like we would any other store using the `useStore` hook.
-
-You can find out everything you need to know on how to use TanStack Store in the [TanStack Store documentation](https://tanstack.com/store/latest).
-
-# Demo files
-
-Files prefixed with `demo` can be safely deleted. They are there to provide a starting point for you to play around with the features you've installed.
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
+The script checks mounted OpenAPI route shapes, real pages, exact Iceberg IDs,
+and asymmetric prod and staging inventories. It requires `agent-browser`.
+It does not prove every method or response schema in OpenAPI matches the client.
