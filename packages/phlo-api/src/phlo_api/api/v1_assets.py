@@ -6,17 +6,24 @@ import base64
 import asyncio
 import hashlib
 import json
+import math
 import os
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, Field
 
+from phlo.plugins.observatory_settings import (
+    OperationalSettings,
+    get_operational_settings,
+    StorageUnavailableError,
+)
 from phlo_api.api.v1 import _run_on_ref, _target
 from phlo_api.api.authentication import get_request_principal
+from phlo_api.api.asset_preview_filters import preview_filters, preview_where
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, NotFoundError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
 from phlo_api.observatory_api.v1_preview import (
@@ -29,7 +36,10 @@ from phlo_api.observatory_api.v1_preview import (
 from phlo_api.api.v1_audit_proposals import (
     AssetAuditProposal,
     AssetAuditProposalRequest,
+    AssetAuditTestResult,
+    audit_schema_digest,
     create_audit_proposal,
+    evaluate_audit_rules,
     get_audit_proposal,
     generate_check_file,
 )
@@ -59,16 +69,37 @@ ASSET_QUERY = """query V1Assets {
     __typename
     ... on RepositoryConnection {
       nodes {
+        name
+        location { name }
         assetNodes {
           id assetKey { path } description computeKind groupName isMaterializable isObservable isPartitioned
           repository { name location { name } }
+          hasAssetChecks
+          tags { key value }
+          jobNames
           dependencyKeys { path }
-          metadataEntries { label ... on TextMetadataEntry { text } }
-          assetMaterializations(limit: 1) {
+          internalFreshnessPolicy { __typename ... on TimeWindowFreshnessPolicy { failWindowSeconds } }
+          metadataEntries {
+            label
+            ... on TextMetadataEntry { text }
+            ... on JsonMetadataEntry { jsonString }
+            ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
+            ... on TableColumnLineageMetadataEntry {
+              lineage { columnName columnDeps { assetKey { path } columnName } }
+            }
+          }
+          assetMaterializations(limit: 100) {
             timestamp runId partition
             runOrError {
               __typename
               ... on Run { runId status tags { key value } repositoryOrigin { repositoryLocationName } }
+            }
+            metadataEntries {
+              label
+              ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
+              ... on TableColumnLineageMetadataEntry {
+                lineage { columnName columnDeps { assetKey { path } columnName } }
+              }
             }
           }
         }
@@ -84,9 +115,11 @@ ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
       repository { name location { name } }
       jobNames
       dependencyKeys { path }
+      internalFreshnessPolicy { __typename ... on TimeWindowFreshnessPolicy { failWindowSeconds } }
       metadataEntries {
         label description
         ... on TextMetadataEntry { text }
+        ... on JsonMetadataEntry { jsonString }
         ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
         ... on TableColumnLineageMetadataEntry {
           lineage { columnName columnDeps { assetKey { path } columnName } }
@@ -105,18 +138,6 @@ ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
             lineage { columnName columnDeps { assetKey { path } columnName } }
           }
         }
-      }
-    }
-    ... on AssetNotFoundError { message }
-  }
-}"""
-ASSET_LATEST_PARTITION_QUERY = """query V1AssetLatestPartition($assetKey: AssetKeyInput!, $limit: Int!, $ascending: Boolean!) {
-  assetNodeOrError(assetKey: $assetKey) {
-    __typename
-    ... on AssetNode {
-      repository { location { name } }
-      partitionKeyConnection(limit: $limit, ascending: $ascending) {
-        results cursor hasMore
       }
     }
     ... on AssetNotFoundError { message }
@@ -149,14 +170,23 @@ ASSET_RUNS_QUERY = """query V1AssetRuns($limit: Int!, $cursor: String) {
     ... on PythonError { message }
   }
 }"""
-ASSET_CHECKS_QUERY = """query V1AssetChecks($assetKeys: [AssetKeyInput!], $limit: Int!) {
-  assetNodes(assetKeys: $assetKeys) {
-    assetKey { path }
-    repository { location { name } }
-    assetChecksOrError(limit: $limit) {
-      __typename
-      ... on AssetChecks { checks { name description } }
-      ... on AssetCheckNeedsMigrationError { message }
+ASSET_CHECKS_QUERY = """query V1AssetChecks($repositorySelector: RepositorySelector!, $limit: Int!) {
+  repositoriesOrError(repositorySelector: $repositorySelector) {
+    __typename
+    ... on RepositoryConnection {
+      nodes {
+        name
+        location { name }
+        assetNodes {
+          assetKey { path }
+          repository { name location { name } }
+          assetChecksOrError(limit: $limit) {
+            __typename
+            ... on AssetChecks { checks { name description } }
+            ... on AssetCheckNeedsMigrationError { message }
+          }
+        }
+      }
     }
   }
 }"""
@@ -192,6 +222,14 @@ class AssetView(WireModel):
     last_run_id: str | None
     relation: str | None = None
     history_scoped: bool = True
+    reports: list[str] = Field(default_factory=list)
+    layer: Literal["bronze", "silver", "gold"] | None = None
+    freshness_sla_seconds: float | None = Field(default=None, gt=0)
+    repository_name: str | None = Field(default=None, exclude=True)
+    is_ingestion: bool = Field(default=False, exclude=True)
+    check_definition_scope: Literal["unique", "ambiguous", "unknown"] = Field(
+        default="unknown", exclude=True
+    )
 
 
 class AssetPage(WireModel):
@@ -204,6 +242,7 @@ class AssetDetail(AssetView):
     columns: list["AssetColumn"]
     schema_observed_at: datetime | None
     column_lineage: dict[str, list["ColumnLineageDependency"]] | None = None
+    downstream: list[AssetView] = Field(default_factory=list)
 
 
 class AssetColumn(WireModel):
@@ -265,6 +304,10 @@ class IcebergSnapshot(WireModel):
     operation: str | None
     summary: dict[str, str]
     parent_id: int | None = None
+    schema_id: int | None = None
+    author: str | None = None
+    sequence_number: int | None = None
+    manifest_list: str | None = None
 
 
 class TableHistory(WireModel):
@@ -272,6 +315,16 @@ class TableHistory(WireModel):
     table_name: str
     nessie_ref: str
     items: list[IcebergSnapshot]
+    current_snapshot_id: int | None = None
+    metadata_location: str | None = None
+
+
+class SnapshotRollback(WireModel):
+    snapshot_id: str = Field(pattern=r"^[0-9]{1,19}$")
+    expected_metadata_location: str = Field(min_length=1, max_length=4096)
+    nessie_ref: str = Field(min_length=1, max_length=128)
+    confirmed: Literal[True]
+    idempotency_key: str = Field(min_length=1, max_length=128)
 
 
 class IcebergField(WireModel):
@@ -298,6 +351,13 @@ class MaterializationEstimate(WireModel):
     env: Environment
     asset_id: str
     partition_count: int
+    plan_hash: str | None = None
+    nessie_ref: str | None = None
+    ref_hash: str | None = None
+    job_snapshot_id: str | None = None
+    selected_assets: list[str] = Field(default_factory=list)
+    partition_keys: list[str] = Field(default_factory=list)
+    estimated_rows: None = None
     estimated_cost: None = None
     estimated_bytes: None = None
     estimated_duration_seconds: None = None
@@ -317,6 +377,7 @@ class AssetPreview(WireModel):
     columns: list[PreviewColumn]
     rows: list[dict[str, Any]]
     has_more: bool
+    sql: str
 
 
 class PreviewAccess(WireModel):
@@ -342,6 +403,13 @@ class MaterializeAssetAction(WireModel):
     dry_run: bool = True
     idempotency_key: str = Field(min_length=1, max_length=128)
     run_config: dict[str, Any] | None = None
+    mode: Literal["latest", "backfill", "full"] | None = None
+    from_time: str | None = None
+    to_time: str | None = None
+    write_ref: str | None = Field(default=None, min_length=1, max_length=128)
+    rebuild_downstream: bool = False
+    plan_hash: str | None = None
+    confirmed: bool = False
 
 
 class BackfillAssetAction(WireModel):
@@ -362,9 +430,11 @@ class AssetActionResponse(WireModel):
 
 class LayerView(WireModel):
     group_name: str | None
+    layer: Literal["bronze", "silver", "gold"] | None = None
     asset_count: int = Field(ge=0)
     materialized_asset_count: int = Field(ge=0)
     latest_materialization_at: datetime | None
+    freshness_counts: FreshnessCounts | None = None
 
 
 class LayerPage(WireModel):
@@ -546,54 +616,136 @@ def _declared_relation(entries: Any) -> str | None:
     return values[0]["text"]
 
 
-def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
+def _declared_asset_policy(
+    node: dict[str, Any],
+) -> tuple[Literal["bronze", "silver", "gold"] | None, float | None]:
+    """Read emitted DSL evidence, without guessing layers from model names."""
+    entries = node.get("metadataEntries") or []
+    layer_values = [
+        entry.get("text")
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("label") == "phlo/layer"
+    ]
+    if len(layer_values) > 1 or any(
+        value not in {"bronze", "silver", "gold"} for value in layer_values
+    ):
+        raise BadGatewayError("Asset has invalid declared layer metadata.")
+    layer: Literal["bronze", "silver", "gold"] | None = layer_values[0] if layer_values else None
+    if layer is None:
+        key = _key_path(node.get("assetKey"))
+        candidates: set[Literal["bronze", "silver", "gold"]] = {
+            value
+            for value in ("bronze", "silver", "gold")
+            if value in (node.get("groupName"), key[0])
+        }
+        layer = next(iter(candidates)) if len(candidates) == 1 else None
+    slas = [entry for entry in entries if isinstance(entry, dict) and entry.get("label") == "sla"]
+    if len(slas) > 1:
+        raise BadGatewayError("Asset has ambiguous SLA metadata.")
+    seconds = None
+    if slas:
+        try:
+            raw = slas[0].get("jsonString")
+            sla = json.loads(raw) if isinstance(raw, str) else None
+            hours = sla.get("freshness_hours") if isinstance(sla, dict) else None
+            if hours is not None:
+                if type(hours) not in {int, float} or not math.isfinite(hours) or hours <= 0:
+                    raise ValueError
+                seconds = float(hours * 3600)
+        except (TypeError, ValueError) as exc:
+            raise BadGatewayError("Asset has invalid declared freshness SLA.") from exc
+    policy = node.get("internalFreshnessPolicy")
+    if (
+        seconds is None
+        and isinstance(policy, dict)
+        and policy.get("__typename") == "TimeWindowFreshnessPolicy"
+    ):
+        seconds = policy.get("failWindowSeconds")
+        if type(seconds) not in {int, float} or not math.isfinite(seconds) or seconds <= 0:
+            raise BadGatewayError("Asset has invalid freshness policy.")
+    return layer, float(seconds) if seconds is not None else None
+
+
+def _scoped_materialization(node: dict[str, Any], ref: str) -> dict[str, Any] | None:
+    """Find the newest verified event within the bounded recent event window."""
     location = _repository_location(node)
+    materials = node.get("assetMaterializations")
+    if not isinstance(materials, list):
+        raise BadGatewayError("Dagster returned invalid asset evidence.")
+    for event in materials:
+        run = event.get("runOrError") if isinstance(event, dict) else None
+        origin = run.get("repositoryOrigin") if isinstance(run, dict) else None
+        if (
+            node.get("isPartitioned") is False
+            and isinstance(event, dict)
+            and "partition" in event
+            and event["partition"] is None
+            and isinstance(run, dict)
+            and run.get("__typename") == "Run"
+            and run.get("status") == "SUCCESS"
+            and isinstance(event.get("runId"), str)
+            and event["runId"]
+            and run.get("runId") == event["runId"]
+            and isinstance(origin, dict)
+            and origin.get("repositoryLocationName") == location
+            and _run_on_ref(run, ref)
+        ):
+            return event
+    return None
+
+
+def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
     materializable = node.get("isMaterializable")
     if type(materializable) is not bool:
         raise BadGatewayError("Dagster returned invalid asset materializability evidence.")
-    materials = node.get("assetMaterializations")
     dependencies = node.get("dependencyKeys")
-    if not isinstance(materials, list) or not isinstance(dependencies, list):
+    if not isinstance(dependencies, list):
         raise BadGatewayError("Dagster returned invalid asset evidence.")
-    latest = materials[0] if materials else None
-    run = latest.get("runOrError") if isinstance(latest, dict) else None
-    origin = run.get("repositoryOrigin") if isinstance(run, dict) else None
-    verified = (
-        node.get("isPartitioned") is False
-        and isinstance(latest, dict)
-        and "partition" in latest
-        and latest["partition"] is None
-        and isinstance(run, dict)
-        and run.get("__typename") == "Run"
-        and run.get("status") == "SUCCESS"
-        and isinstance(latest.get("runId"), str)
-        and latest["runId"]
-        and run.get("runId") == latest["runId"]
-        and isinstance(origin, dict)
-        and origin.get("repositoryLocationName") == location
-        and _run_on_ref(run, ref)
-    )
+    latest = _scoped_materialization(node, ref)
     try:
         observed = (
             datetime.fromtimestamp(float(latest["timestamp"]) / 1000, UTC)
-            if verified and isinstance(latest, dict)
+            if latest is not None
             else None
         )
-        run_id = latest["runId"] if verified and isinstance(latest, dict) else None
+        run_id = latest["runId"] if latest is not None else None
     except (KeyError, TypeError, ValueError, OSError) as exc:
         raise BadGatewayError("Dagster returned invalid materialization evidence.") from exc
     key = _key_path(node.get("assetKey"))
+    layer, freshness_sla = _declared_asset_policy(node)
+    reports: list[str] = []
+    for entry in node.get("metadataEntries") or []:
+        if entry.get("label") == "phlo/reports":
+            try:
+                declared = json.loads(entry.get("jsonString", entry.get("text")))
+                if not isinstance(declared, list) or any(
+                    not isinstance(name, str) or not name.strip() for name in declared
+                ):
+                    raise ValueError
+                reports.extend(declared)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise BadGatewayError("Invalid declared report metadata.") from exc
     return AssetView(
         id="/".join(key),
         key=key,
         description=node.get("description"),
         compute_kind=node.get("computeKind"),
         group_name=node.get("groupName"),
+        layer=layer,
+        freshness_sla_seconds=freshness_sla,
         is_source=not materializable,
         dependencies=[_key_path(item) for item in dependencies],
         relation=_declared_relation(node.get("metadataEntries") or []),
         last_materialization_at=observed,
         last_run_id=run_id,
+        history_scoped=latest is not None,
+        reports=reports,
+        repository_name=node["repository"].get("name"),
+        is_ingestion=any(
+            tag.get("key") == "asset_type" and tag.get("value") == "ingestion"
+            for tag in node.get("tags") or []
+        ),
+        check_definition_scope=node.get("_phlo_check_definition_scope", "unknown"),
     )
 
 
@@ -616,12 +768,12 @@ def _table_name(value: str) -> str:
     return value
 
 
-def _iceberg_history(table_name: str, ref: str, limit: int) -> list[dict[str, Any]]:
+def _iceberg_history(table_name: str, ref: str, limit: int) -> dict[str, Any]:
     from phlo_iceberg.catalog import get_catalog
 
     table = get_catalog(ref=ref).load_table(table_name)
     snapshots = sorted(table.snapshots(), key=lambda snapshot: snapshot.timestamp_ms, reverse=True)
-    return [
+    items = [
         {
             "snapshot_id": int(snapshot.snapshot_id),
             "timestamp_ms": int(snapshot.timestamp_ms),
@@ -633,9 +785,20 @@ def _iceberg_history(table_name: str, ref: str, limit: int) -> list[dict[str, An
                 )
             },
             "parent_id": snapshot.parent_snapshot_id,
+            "schema_id": snapshot.schema_id,
+            "sequence_number": snapshot.sequence_number,
+            "manifest_list": snapshot.manifest_list,
+            "author": snapshot.summary.additional_properties.get("author")
+            if snapshot.summary
+            else None,
         }
         for snapshot in snapshots[:limit]
     ]
+    return {
+        "items": items,
+        "current_snapshot_id": table.metadata.current_snapshot_id,
+        "metadata_location": table.metadata_location,
+    }
 
 
 def _iceberg_schema(table_name: str, ref: str) -> tuple[int, list[dict[str, Any]]]:
@@ -668,12 +831,43 @@ def _response_field(result: dict[str, Any], name: str) -> dict[str, Any]:
     return value
 
 
-async def _assets(
+def _check_definition_scope(
+    selected: dict[str, Any], repositories: list[dict[str, Any]]
+) -> Literal["unique", "ambiguous", "unknown"]:
+    key = _key_path(selected.get("assetKey"))
+    identity = (selected["repository"].get("name"), _repository_location(selected))
+    if any(not isinstance(value, str) or not value for value in identity):
+        return "unknown"
+    for repository in repositories:
+        location = repository.get("location")
+        if not isinstance(location, dict) or not isinstance(repository.get("name"), str):
+            return "unknown"
+        origin = (repository["name"], location.get("name"))
+        if not all(isinstance(value, str) and value for value in origin):
+            return "unknown"
+        for node in repository["assetNodes"]:
+            if _key_path(node.get("assetKey")) != key:
+                continue
+            declared = node.get("repository")
+            if (
+                not isinstance(declared, dict)
+                or declared.get("name") != origin[0]
+                or _repository_location(node) != origin[1]
+                or type(node.get("hasAssetChecks")) is not bool
+            ):
+                return "unknown"
+            if node["hasAssetChecks"] and origin != identity:
+                return "ambiguous"
+    return "unique"
+
+
+async def _asset_nodes(
     request: Request,
     env: Environment,
     *,
     allowed_query: frozenset[str] = frozenset({"env"}),
-) -> list[AssetView]:
+) -> list[dict[str, Any]]:
+    """Read repository-bound definitions, never globally preferred duplicate keys."""
     target = _target(request, env, allowed_query=allowed_query)
     location = target.dagster_location
     result = await _graphql(ASSET_QUERY)
@@ -687,6 +881,13 @@ async def _assets(
     )
     if result.get("errors") or not isinstance(repositories_nodes, list):
         raise BadGatewayError("Dagster returned an invalid asset inventory.")
+    if not any(
+        isinstance(repository, dict)
+        and isinstance(repository.get("location"), dict)
+        and repository["location"].get("name") == location
+        for repository in repositories_nodes
+    ):
+        raise BackendUnavailableError("The selected Dagster code location is unavailable.")
     raw_nodes = [
         asset
         for repository in repositories_nodes
@@ -698,27 +899,38 @@ async def _assets(
         for repository in repositories_nodes
     ) or any(not isinstance(node, dict) for node in raw_nodes):
         raise BadGatewayError("Dagster returned an invalid asset inventory.")
-    assets = [_asset_view(node, target.nessie_ref) for node in raw_nodes]
-    locations = [_repository_location(node) for node in raw_nodes]
-    locations_by_key: dict[str, set[str]] = {}
-    for asset, node_location in zip(assets, locations, strict=True):
-        locations_by_key.setdefault(asset.id, set()).add(node_location)
-    # Filter on Dagster's repository location before exposing any resource data.
-    return sorted(
-        [
-            asset.model_copy(
-                update={
-                    "last_materialization_at": None,
-                    "last_run_id": None,
-                    "history_scoped": False,
+    selected = []
+    for repository in repositories_nodes:
+        repository_location = repository.get("location")
+        if not isinstance(repository_location, dict) or repository_location.get("name") != location:
+            continue
+        for node in repository["assetNodes"]:
+            if _repository_location(node) != location:
+                raise BadGatewayError("Dagster asset definition does not match its repository.")
+            selected.append(
+                {
+                    **node,
+                    "_phlo_check_definition_scope": _check_definition_scope(
+                        node, repositories_nodes
+                    ),
                 }
             )
-            if len(locations_by_key[asset.id]) > 1
-            else asset
-            for asset, node_location in zip(assets, locations, strict=True)
-            if node_location == location
-        ],
-        key=lambda asset: asset.id,
+    keys = [tuple(_key_path(node.get("assetKey"))) for node in selected]
+    if len(keys) != len(set(keys)):
+        raise BackendUnavailableError("Asset keys are ambiguous within the selected code location.")
+    return selected
+
+
+async def _assets(
+    request: Request,
+    env: Environment,
+    *,
+    allowed_query: frozenset[str] = frozenset({"env"}),
+) -> list[AssetView]:
+    target = _target(request, env, allowed_query=allowed_query)
+    nodes = await _asset_nodes(request, env, allowed_query=allowed_query)
+    return sorted(
+        (_asset_view(node, target.nessie_ref) for node in nodes), key=lambda asset: asset.id
     )
 
 
@@ -738,15 +950,106 @@ async def v1_table_snapshots(
     target = _target(request, env, allowed_query=frozenset({"env", "limit"}))
     name = _table_name(table_name)
     try:
-        raw_items = await asyncio.wait_for(
+        raw = await asyncio.wait_for(
             asyncio.to_thread(_iceberg_history, name, target.nessie_ref, limit), timeout=5
         )
-        items = [IcebergSnapshot.model_validate(item) for item in raw_items]
+        history = TableHistory(env=env, table_name=name, nessie_ref=target.nessie_ref, **raw)
     except TimeoutError as exc:
         raise BackendUnavailableError("Iceberg history exceeded the read time budget.") from exc
     except Exception as exc:
         raise BackendUnavailableError("Ref-scoped Iceberg history is unavailable.") from exc
-    return TableHistory(env=env, table_name=name, nessie_ref=target.nessie_ref, items=items)
+    return history
+
+
+@router.post("/tables/{table_name}/rollback")
+async def v1_table_rollback(
+    request: Request, table_name: str, payload: SnapshotRollback, env: Environment = Query()
+) -> dict[str, Any]:
+    from phlo.compliance.signatures.step_up import RecentMfaClaimsChallenge
+    from phlo_api.api.authentication import authenticate_request
+    from phlo_api.api.operation_controls import (
+        IdempotencyConflict,
+        audit_operation,
+        enforce_rate_limit,
+        idempotency_key_target,
+        replay_or_execute_async,
+        require_scope,
+    )
+    from phlo_iceberg.tables import (
+        StaleTableRevision,
+        _require_direct_write,
+        rollback_table_to_snapshot,
+    )
+    from pyiceberg.exceptions import CommitFailedException
+
+    target = _target(request, env)
+    name = _table_name(table_name)
+    if payload.nessie_ref != target.nessie_ref:
+        raise HTTPException(
+            status_code=409, detail="Environment reference changed; refresh history."
+        )
+    authentication = authenticate_request(request)
+    if not authentication.authenticated or authentication.session is None:
+        raise HTTPException(status_code=401, detail="Verified authentication session is required.")
+    if not RecentMfaClaimsChallenge().challenge(authentication.session).success:
+        raise HTTPException(status_code=403, detail="Recent verified MFA is required for rollback.")
+    auth = require_scope(request, "lakehouse:operate")
+    enforce_rate_limit(auth["subject"], "snapshot_rollback")
+    intent = payload.model_dump(exclude={"idempotency_key"})
+    digest = hashlib.sha256(json.dumps(intent, sort_keys=True).encode()).hexdigest()
+    action_target = f"{auth['subject']}:{env}:{name}@{target.nessie_ref}:rollback:{digest}"
+    bound = idempotency_key_target(payload.idempotency_key, "v1_table_rollback")
+    if bound is not None and bound != action_target:
+        raise IdempotencyConflict({"error": "idempotency_key_conflict"})
+
+    async def execute() -> dict[str, Any]:
+        try:
+            await asyncio.to_thread(_require_direct_write, target.nessie_ref)
+            result = await asyncio.to_thread(
+                rollback_table_to_snapshot,
+                name,
+                int(payload.snapshot_id),
+                target.nessie_ref,
+                expected_metadata_location=payload.expected_metadata_location,
+            )
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="Direct writes to main are protected; use a branch and signed merge.",
+            ) from exc
+        except (StaleTableRevision, CommitFailedException) as exc:
+            raise HTTPException(
+                status_code=409, detail="Table revision changed; refresh history."
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422, detail="Snapshot is not a current ancestor."
+            ) from exc
+        except Exception as exc:
+            raise BackendUnavailableError(
+                "Snapshot rollback failed; inspect history before retrying."
+            ) from exc
+        return {
+            "env": env,
+            "table_name": name,
+            "nessie_ref": target.nessie_ref,
+            "rolled_back_to": str(result["rolled_back_to"]),
+        }
+
+    return await replay_or_execute_async(
+        idempotency_key=payload.idempotency_key,
+        operation="v1_table_rollback",
+        target=action_target,
+        execute=execute,
+        audit=lambda result: audit_operation(
+            operation="v1_table_rollback",
+            target=action_target,
+            dry_run=False,
+            auth=auth,
+            payload=intent,
+            result=result,
+        ),
+    )
 
 
 @router.get("/tables/{table_name}/schema-history", response_model=SchemaHistory)
@@ -783,10 +1086,56 @@ async def v1_materialization_estimate(
     asset_id: str,
     env: Environment = Query(),
     partition_count: Annotated[int, Query(ge=1, le=5000)] = 1,
+    job_name: str | None = None,
+    mode: Literal["latest", "backfill", "full"] = "latest",
+    from_time: str | None = None,
+    to_time: str | None = None,
+    write_ref: str | None = None,
+    rebuild_downstream: bool = False,
 ) -> MaterializationEstimate:
-    _target(request, env, allowed_query=frozenset({"env", "partition_count"}))
+    allowed = frozenset(
+        {
+            "env",
+            "partition_count",
+            "job_name",
+            "mode",
+            "from_time",
+            "to_time",
+            "write_ref",
+            "rebuild_downstream",
+        }
+    )
+    _target(request, env, allowed_query=allowed)
     asset_id = asset_id.strip("/")
-    assets = await _assets(request, env)
+    if job_name is not None:
+        plan = await _materialization_plan(
+            request,
+            env,
+            asset_id,
+            MaterializeAssetAction(
+                job_name=job_name,
+                idempotency_key="estimate",
+                mode=mode,
+                from_time=from_time,
+                to_time=to_time,
+                write_ref=write_ref,
+                rebuild_downstream=rebuild_downstream,
+            ),
+            allowed_query=allowed,
+        )
+        return MaterializationEstimate(
+            env=env,
+            asset_id=asset_id,
+            partition_count=len(plan["runs"]),
+            plan_hash=_plan_hash(plan),
+            nessie_ref=plan["write_ref"],
+            ref_hash=plan["ref_hash"],
+            job_snapshot_id=plan["job_snapshot_id"],
+            selected_assets=plan["selected_assets"],
+            partition_keys=[run["partition_key"] for run in plan["runs"] if run["partition_key"]],
+            workload_status="Partition count and asset selection verified with Dagster; rows, bytes and duration unavailable.",
+        )
+    assets = await _assets(request, env, allowed_query=allowed)
     if not any(asset.id == asset_id for asset in assets):
         raise NotFoundError("Asset was not found.")
     return MaterializationEstimate(env=env, asset_id=asset_id, partition_count=partition_count)
@@ -798,25 +1147,52 @@ async def v1_asset_preview(
     asset_id: str,
     env: Environment = Query(),
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    filters: Annotated[str, Query(max_length=16384)] = "[]",
 ) -> AssetPreview:
-    target = _target(request, env, allowed_query=frozenset({"env", "limit"}))
+    allowed = frozenset({"env", "limit", "filters"})
+    target = _target(request, env, allowed_query=allowed)
+    if len(request.query_params.getlist("filters")) > 1:
+        raise HTTPException(status_code=422, detail="Provide one filter list.")
+    try:
+        predicates = preview_filters.validate_json(filters)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid preview filters.") from exc
     asset_id = asset_id.strip("/")
     matches = [
         asset
-        for asset in await _assets(request, env, allowed_query=frozenset({"env", "limit"}))
+        for asset in await _assets(request, env, allowed_query=allowed)
         if asset.id == asset_id
     ]
     if not matches:
         raise NotFoundError("Asset was not found.")
-    if not matches[0].history_scoped:
-        raise BackendUnavailableError("Asset preview cannot be scoped to this environment.")
     if not matches[0].relation:
         raise BackendUnavailableError("Asset has no declared physical relation for preview.")
+    where = ""
+    if predicates:
+        try:
+            current_id, schemas = await asyncio.wait_for(
+                asyncio.to_thread(_iceberg_schema, matches[0].relation, target.nessie_ref),
+                timeout=5,
+            )
+            columns = {
+                field["name"]
+                for schema in schemas
+                if schema["schema_id"] == current_id
+                for field in schema["fields"]
+            }
+            where = preview_where(predicates, columns)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422, detail="Invalid preview filter column or value."
+            ) from exc
+        except Exception as exc:
+            raise BackendUnavailableError("Ref-scoped filter schema is unavailable.") from exc
     try:
         catalog = preview_catalog(env, target.nessie_ref)
         relation = quote_table(catalog, matches[0].relation.replace(".", "/"))
+        sql = f"SELECT * FROM {relation}{where} LIMIT {limit + 1}"
         result = await execute_preview(
-            f"SELECT * FROM {relation} LIMIT {limit + 1}",
+            sql,
             catalog=catalog,
             disconnected=request.is_disconnected,
             limit=limit,
@@ -836,6 +1212,7 @@ async def v1_asset_preview(
             columns=columns,
             rows=result["rows"],
             has_more=result["has_more"],
+            sql=sql,
         )
     except (TypeError, ValueError, KeyError) as exc:
         raise BadGatewayError("Trino returned invalid preview data.") from exc
@@ -886,8 +1263,6 @@ async def v1_asset_audit_proposal(
     matches = [asset for asset in assets if asset.id == asset_id]
     if not matches:
         raise NotFoundError("Asset was not found.")
-    if not matches[0].history_scoped:
-        raise BackendUnavailableError("Asset check proposals cannot be scoped to this environment.")
     detail = await v1_asset_detail(request, asset_id, env)
     columns = {column.name for column in detail.columns}
     if not columns:
@@ -899,12 +1274,21 @@ async def v1_asset_audit_proposal(
             detail={"error": "unknown_asset_columns", "columns": unknown_columns},
         )
     try:
-        file_path, source = generate_check_file(matches[0].key, payload.check_name, payload.rules)
+        file_path, source = generate_check_file(
+            matches[0].key,
+            payload.check_name,
+            payload.rules,
+            failure_policy=payload.failure_policy,
+            table_relation=detail.relation,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    schema_digest = audit_schema_digest([(column.name, column.type) for column in detail.columns])
     source_digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
-    action_target = f"{env}:{asset_id}@{target.nessie_ref}:audit-proposal:{source_digest}"
+    action_target = (
+        f"{env}:{asset_id}@{target.nessie_ref}:audit-proposal:{source_digest}:{schema_digest}"
+    )
     idempotency_store_ready = (
         os.environ.get("PHLO_V1_ACTIONS_SINGLE_REPLICA") == "1"
         and os.environ.get("PHLO_V1_ACTIONS_SINGLE_PROCESS") == "1"
@@ -927,6 +1311,10 @@ async def v1_asset_audit_proposal(
                 check_name=payload.check_name,
                 file_path=file_path,
                 source=source,
+                rules=payload.rules,
+                failure_policy=payload.failure_policy,
+                schema_digest=schema_digest,
+                table_relation=detail.relation,
             )
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
             raise BackendUnavailableError("Audit proposal storage is unavailable.") from exc
@@ -945,6 +1333,8 @@ async def v1_asset_audit_proposal(
             payload={
                 "check_name": payload.check_name,
                 "rules": [rule.model_dump(mode="json") for rule in payload.rules],
+                "failure_policy": payload.failure_policy,
+                "schema_digest": schema_digest,
             },
             result={
                 "proposal_id": outcome.get("proposal_id"),
@@ -984,6 +1374,74 @@ async def v1_asset_audit_proposal_detail(
     ):
         raise NotFoundError("Audit proposal was not found.")
     return proposal
+
+
+async def _require_current_audit_schema(
+    request: Request, proposal: AssetAuditProposal, env: Environment
+) -> None:
+    if proposal.schema_digest is None:
+        raise HTTPException(status_code=409, detail={"error": "audit_proposal_needs_regeneration"})
+    detail = await v1_asset_detail(request, proposal.asset_id, env)
+    digest = audit_schema_digest([(column.name, column.type) for column in detail.columns])
+    if digest != proposal.schema_digest or detail.relation != proposal.table_relation:
+        raise HTTPException(status_code=409, detail={"error": "audit_proposal_schema_changed"})
+
+
+@router.post(
+    "/assets/{asset_id:path}/audits/{proposal_id}/test", response_model=AssetAuditTestResult
+)
+async def v1_asset_audit_proposal_test(
+    request: Request,
+    asset_id: str,
+    proposal_id: str,
+    env: Environment = Query(),
+) -> AssetAuditTestResult:
+    """Execute trusted rules against at most 100 real rows, without installing source."""
+    from phlo_api.api.operation_controls import audit_operation, enforce_rate_limit, require_scope
+
+    auth = require_scope(request, "project:write")
+    enforce_rate_limit(auth["subject"], "test_asset_audit_proposal")
+    proposal = await v1_asset_audit_proposal_detail(request, asset_id, proposal_id, env)
+    await _require_current_audit_schema(request, proposal, env)
+    if not proposal.rules:
+        raise HTTPException(status_code=409, detail={"error": "audit_proposal_needs_regeneration"})
+    await enforce_http_operation(
+        request, HTTP_ROUTE_MANIFEST["v1_asset_preview"], {"env": env, "asset_id": asset_id}
+    )
+    preview = await v1_asset_preview(request, asset_id, env, limit=100)
+    try:
+        results = await asyncio.to_thread(
+            evaluate_audit_rules,
+            proposal.rules,
+            preview.rows,
+            [column.name for column in preview.columns],
+        )
+    except (ImportError, TypeError, ValueError, KeyError) as exc:
+        raise BackendUnavailableError("The validated audit rule runtime is unavailable.") from exc
+    result = AssetAuditTestResult(
+        proposal_id=proposal.proposal_id,
+        source_digest=proposal.source_digest,
+        env=env,
+        nessie_ref=preview.nessie_ref,
+        executed_at=datetime.now(UTC),
+        rows_checked=len(preview.rows),
+        sampled=preview.has_more,
+        passed=all(item.passed for item in results),
+        results=results,
+    )
+    try:
+        await asyncio.to_thread(
+            audit_operation,
+            operation="v1_test_asset_audit_proposal",
+            target=f"{env}:{asset_id}@{preview.nessie_ref}",
+            dry_run=True,
+            auth=auth,
+            payload={"proposal_id": proposal_id, "source_digest": proposal.source_digest},
+            result=result.model_dump(mode="json"),
+        )
+    except (OSError, TypeError, ValueError, KeyError) as exc:
+        raise BackendUnavailableError("Audit execution evidence could not be recorded.") from exc
+    return result
 
 
 @router.post(
@@ -1033,6 +1491,12 @@ async def v1_asset_audit_proposal_pull_request(
         or proposal.nessie_ref != target.nessie_ref
     ):
         raise NotFoundError("Audit proposal was not found.")
+    if (
+        payload.expected_source_digest is not None
+        and payload.expected_source_digest != proposal.source_digest
+    ):
+        raise HTTPException(status_code=409, detail={"error": "audit_proposal_source_changed"})
+    await _require_current_audit_schema(request, proposal, env)
     try:
         config = project_git_review_config()
     except GitReviewUnavailable as exc:
@@ -1092,7 +1556,11 @@ async def v1_asset_audit_proposal_pull_request(
 
 
 async def _action_context(
-    request: Request, env: Environment, asset_id: str
+    request: Request,
+    env: Environment,
+    asset_id: str,
+    *,
+    allowed_query: frozenset[str] = frozenset({"env"}),
 ) -> tuple[EnvironmentTarget, str, list[str]]:
     if (
         os.environ.get("PHLO_V1_ACTIONS_SINGLE_REPLICA") != "1"
@@ -1100,15 +1568,15 @@ async def _action_context(
         or os.environ.get("PHLO_V1_ACTIONS_REF_TAG_CONTRACT") != "1"
     ):
         raise BackendUnavailableError("Environment-pinned actions are not enabled.")
-    target = _target(request, env)
-    assets = await _assets(request, env)
-    matches = [asset for asset in assets if asset.id == asset_id]
-    if not matches:
-        raise NotFoundError("Asset was not found.")
-    if not matches[0].history_scoped:
-        raise BackendUnavailableError("Asset actions cannot be scoped to this environment.")
-    detail = await _graphql(ASSET_DETAIL_QUERY, {"assetKey": {"path": asset_id.split("/")}})
-    node = _response_field(detail, "assetNodeOrError")
+    target = _target(request, env, allowed_query=allowed_query)
+    definitions = [
+        node
+        for node in await _asset_nodes(request, env, allowed_query=allowed_query)
+        if node.get("assetKey", {}).get("path") == asset_id.split("/")
+    ]
+    if len(definitions) != 1:
+        raise NotFoundError("Asset has no unique definition in this environment.")
+    node = definitions[0]
     repository = node.get("repository")
     if not isinstance(repository, dict):
         raise NotFoundError("Asset was not found.")
@@ -1126,22 +1594,10 @@ async def _action_context(
     return target, repository_name, job_names
 
 
-async def _latest_asset_partition(asset_id: str, repository_location: str) -> str:
-    result = await _graphql(
-        ASSET_LATEST_PARTITION_QUERY,
-        {
-            "assetKey": {"path": asset_id.split("/")},
-            "limit": 1,
-            "ascending": False,
-        },
-    )
-    node = _response_field(result, "assetNodeOrError")
-    if node.get("__typename") != "AssetNode":
-        raise BackendUnavailableError("Dagster could not resolve the asset partition definition.")
-    repository = node.get("repository")
-    location = repository.get("location") if isinstance(repository, dict) else None
-    if not isinstance(location, dict) or location.get("name") != repository_location:
-        raise NotFoundError("Asset was not found.")
+async def _latest_asset_partition(
+    asset_id: str, repository_location: str, repository_name: str
+) -> str:
+    node = await _scoped_operation_node(asset_id, repository_location, repository_name, limit=1)
     connection = node.get("partitionKeyConnection")
     if connection is None:
         raise BackendUnavailableError("Asset has no partition-key connection.")
@@ -1198,6 +1654,339 @@ def _action_result(result: Any) -> dict[str, Any]:
     raise BadGatewayError("Dagster returned an invalid action response.")
 
 
+_OPERATION_NODE_QUERY = """query AssetOperationNode($selector: RepositorySelector!, $limit: Int!) {
+  repositoryOrError(repositorySelector: $selector) {
+    __typename
+    ... on Repository {
+      name location { name }
+      assetNodes {
+        assetKey { path } jobNames isPartitioned hasMaterializePermission kinds opVersion
+        repository { name location { name } }
+        partitionDefinition { type fmt }
+        partitionKeyConnection(limit: $limit, ascending: false) { results cursor hasMore }
+      }
+    }
+  }
+}"""
+_OPERATION_JOB_QUERY = """query AssetOperationJob($selector: PipelineSelector!) {
+  pipelineOrError(params: $selector) {
+    __typename
+    ... on Pipeline { pipelineSnapshotId hasLaunchExecutionPermission }
+  }
+}"""
+_OPERATION_PARTITION_QUERY = """query AssetOperationPartition($selector: PipelineSelector!, $partition: String!, $assets: [AssetKeyInput!]) {
+  pipelineOrError(params: $selector) {
+    __typename
+    ... on Pipeline {
+      partition(partitionName: $partition, selectedAssetKeys: $assets) {
+        runConfigOrError { __typename ... on PartitionRunConfig { yaml } }
+      }
+    }
+  }
+}"""
+
+
+async def _scoped_operation_node(
+    asset_id: str, repository_location: str, repository_name: str, *, limit: int = 501
+) -> dict[str, Any]:
+    repository = _response_field(
+        await _graphql(
+            _OPERATION_NODE_QUERY,
+            {
+                "selector": {
+                    "repositoryLocationName": repository_location,
+                    "repositoryName": repository_name,
+                },
+                "limit": limit,
+            },
+        ),
+        "repositoryOrError",
+    )
+    if (
+        repository.get("__typename") != "Repository"
+        or repository.get("name") != repository_name
+        or repository.get("location", {}).get("name") != repository_location
+    ):
+        raise NotFoundError("Asset repository was not found in this environment.")
+    nodes = repository.get("assetNodes")
+    if not isinstance(nodes, list):
+        raise BadGatewayError("Dagster returned invalid action definitions.")
+    matches = [
+        node for node in nodes if node.get("assetKey", {}).get("path") == asset_id.split("/")
+    ]
+    if len(matches) != 1:
+        raise NotFoundError("Asset has no unique definition in this repository.")
+    node = matches[0]
+    origin = node.get("repository", {})
+    if (
+        origin.get("name") != repository_name
+        or origin.get("location", {}).get("name") != repository_location
+    ):
+        raise NotFoundError("Asset was not found in this repository.")
+    return node
+
+
+def _plan_hash(plan: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _time_range_keys(keys: list[str], fmt: str, start: str | None, end: str | None) -> list[str]:
+    """Use the owning partition definition, never invent hourly/daily keys."""
+    try:
+        first = datetime.fromisoformat(start or "")
+        last = datetime.fromisoformat(end or "")
+        if first.tzinfo is None or last.tzinfo is None or first >= last:
+            raise ValueError("invalid range")
+        times = sorted(
+            [(key, datetime.strptime(key, fmt).replace(tzinfo=UTC)) for key in keys],
+            key=lambda item: item[1],
+        )
+        boundaries = [time for _, time in times]
+        if fmt == "%Y-%m-%d":
+            step = timedelta(days=1)
+        elif len(boundaries) > 1:
+            step = min(b - a for a, b in zip(boundaries, boundaries[1:]))
+        else:
+            raise ValueError("partition interval unavailable")
+        chosen = [key for key, timestamp in times if first <= timestamp < last]
+        # Reject a truncated range and partial partition boundaries rather than silently widening it.
+        if (
+            not chosen
+            or first not in boundaries
+            or last not in [*boundaries, boundaries[-1] + step]
+            or last > datetime.now(UTC)
+        ):
+            raise ValueError("outside available partition boundaries")
+        return chosen
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Use a non-empty UTC range starting at an available partition boundary; the end is exclusive.",
+        ) from exc
+
+
+async def _materialization_nodes(
+    request: Request,
+    env: Environment,
+    asset_id: str,
+    payload: MaterializeAssetAction,
+    target: EnvironmentTarget,
+    repository: str,
+    *,
+    allowed_query: frozenset[str],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Resolve bounded downstream selection and authorize every scoped definition."""
+    inventory = await _assets(request, env, allowed_query=allowed_query)
+    selected = {asset_id}
+    if payload.rebuild_downstream:
+        while True:
+            added = {
+                asset.id
+                for asset in inventory
+                if any("/".join(dep) in selected for dep in asset.dependencies)
+            } - selected
+            if not added:
+                break
+            selected.update(added)
+            if len(selected) > 50:
+                raise HTTPException(
+                    status_code=422, detail="Downstream rebuild exceeds the 50-asset action limit."
+                )
+    nodes: list[dict[str, Any]] = []
+    for key in sorted(selected):
+        if key != asset_id:
+            # The root route authorization does not authorize its descendants.
+            await enforce_http_operation(
+                request=request,
+                spec=HTTP_ROUTE_MANIFEST["v1_asset_materialize"],
+                path_params={"asset_id": key},
+            )
+        node = await _scoped_operation_node(key, target.dagster_location, repository)
+        origin = node.get("repository", {})
+        if (
+            payload.job_name not in node.get("jobNames", [])
+            or origin.get("name") != repository
+            or origin.get("location", {}).get("name") != target.dagster_location
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Every selected downstream asset must belong to the same scoped job and repository.",
+            )
+        if node.get("hasMaterializePermission") is not True:
+            raise HTTPException(
+                status_code=403, detail="Dagster denies materialization of a selected asset."
+            )
+        nodes.append(node)
+    return sorted(selected), nodes
+
+
+def _materialization_partition_keys(
+    root: dict[str, Any], nodes: list[dict[str, Any]], payload: MaterializeAssetAction
+) -> list[str | None]:
+    """Select actual partition boundaries or one unpartitioned/full-refresh run."""
+    keys: list[str | None] = [None]
+    if payload.mode == "full":
+        if any("dbt" not in node.get("kinds", []) for node in nodes):
+            raise HTTPException(
+                status_code=422,
+                detail="Full refresh requires dbt assets. DLT sources do not expose a safe whole-table replacement contract.",
+            )
+    elif root.get("isPartitioned") is True:
+        connection = root.get("partitionKeyConnection")
+        if not isinstance(connection, dict) or not isinstance(connection.get("results"), list):
+            raise BadGatewayError("Dagster returned no partition keys.")
+        available = connection["results"]
+        if not available or any(not isinstance(key, str) or not key for key in available):
+            raise HTTPException(status_code=422, detail="No available partitions for this asset.")
+        if payload.mode == "backfill":
+            definition = root.get("partitionDefinition") or {}
+            if definition.get("type") != "TIME_WINDOW" or not isinstance(
+                definition.get("fmt"), str
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Time-range backfill requires a time-window partition definition.",
+                )
+            keys = []
+            keys.extend(
+                _time_range_keys(available, definition["fmt"], payload.from_time, payload.to_time)
+            )
+            if len(keys) > 500:
+                raise HTTPException(
+                    status_code=422, detail="Time range exceeds the 500-partition action limit."
+                )
+        else:
+            keys = [available[0]]
+    elif payload.mode == "backfill":
+        raise HTTPException(
+            status_code=422, detail="Time-range backfill requires a partitioned asset."
+        )
+    if payload.mode != "backfill" and (
+        payload.from_time is not None or payload.to_time is not None
+    ):
+        raise HTTPException(status_code=422, detail="Time ranges are only valid in backfill mode.")
+    if any(node.get("partitionDefinition") != root.get("partitionDefinition") for node in nodes):
+        raise HTTPException(
+            status_code=422, detail="Selected assets must share a partition definition."
+        )
+    return keys
+
+
+async def _materialization_runs(
+    selector: dict[str, str], selected: list[str], keys: list[str | None]
+) -> list[dict[str, Any]]:
+    """Read the owning job's partition configuration without caller overrides."""
+    import yaml
+
+    runs: list[dict[str, Any]] = []
+    for key in keys:
+        config = {}
+        if key is not None:
+            result = _response_field(
+                await _graphql(
+                    _OPERATION_PARTITION_QUERY,
+                    {
+                        "selector": selector,
+                        "partition": key,
+                        "assets": [{"path": item.split("/")} for item in selected],
+                    },
+                ),
+                "pipelineOrError",
+            )
+            value = (result.get("partition") or {}).get("runConfigOrError") or {}
+            if value.get("__typename") != "PartitionRunConfig" or not isinstance(
+                value.get("yaml"), str
+            ):
+                raise BackendUnavailableError("Dagster partition run configuration is unavailable.")
+            try:
+                config = yaml.safe_load(value["yaml"]) or {}
+            except yaml.YAMLError as exc:
+                raise BadGatewayError(
+                    "Dagster returned invalid partition run configuration."
+                ) from exc
+            if not isinstance(config, dict):
+                raise BadGatewayError("Dagster returned invalid partition run configuration.")
+        runs.append({"partition_key": key, "run_config": config})
+    return runs
+
+
+async def _materialization_plan(
+    request: Request,
+    env: Environment,
+    asset_id: str,
+    payload: MaterializeAssetAction,
+    *,
+    allowed_query: frozenset[str] = frozenset({"env"}),
+) -> dict[str, Any]:
+    from phlo_api.api.v1_branch_workflows import _scoped_reference
+    from phlo.security import is_regulated
+
+    target, repository, jobs = await _action_context(
+        request, env, asset_id, allowed_query=allowed_query
+    )
+    if payload.job_name not in jobs:
+        raise NotFoundError("Job was not found for this asset.")
+    if payload.partition_key is not None or payload.run_config is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="Mode-based operations use Dagster's partition config, not caller overrides.",
+        )
+    ref = await _scoped_reference(
+        payload.write_ref or target.nessie_ref, env, target, branch_only=True
+    )
+    if ref.protected and (payload.mode == "full" or is_regulated()):
+        raise HTTPException(
+            status_code=403,
+            detail="Use an environment-scoped work branch and the signed merge workflow for this write.",
+        )
+    selected, nodes = await _materialization_nodes(
+        request, env, asset_id, payload, target, repository, allowed_query=allowed_query
+    )
+    selector = {
+        "pipelineName": payload.job_name,
+        "repositoryName": repository,
+        "repositoryLocationName": target.dagster_location,
+    }
+    job = _response_field(
+        await _graphql(_OPERATION_JOB_QUERY, {"selector": selector}), "pipelineOrError"
+    )
+    if job.get("__typename") != "Pipeline" or not isinstance(job.get("pipelineSnapshotId"), str):
+        raise BadGatewayError("Dagster returned no job revision.")
+    if job.get("hasLaunchExecutionPermission") is not True:
+        raise HTTPException(status_code=403, detail="Dagster denies launching this job.")
+    root = next(node for node in nodes if node["assetKey"]["path"] == asset_id.split("/"))
+    keys = _materialization_partition_keys(root, nodes, payload)
+    runs = await _materialization_runs(selector, selected, keys)
+    return {
+        "write_ref": ref.name,
+        "ref_hash": ref.hash,
+        "selected_assets": selected,
+        "job_snapshot_id": job["pipelineSnapshotId"],
+        "op_versions": [node.get("opVersion") for node in nodes],
+        "mode": payload.mode,
+        "runs": runs,
+        "repository": repository,
+        "location": target.dagster_location,
+    }
+
+
+def _require_full_refresh_mfa(request: Request) -> None:
+    from phlo_api.api.authentication import authenticate_request
+    from phlo.capabilities import AuthenticatedSession
+    from phlo.compliance.signatures.step_up import RecentMfaClaimsChallenge
+
+    auth = authenticate_request(request)
+    if (
+        not isinstance(auth.session, AuthenticatedSession)
+        or not RecentMfaClaimsChallenge().challenge(auth.session).success
+    ):
+        raise HTTPException(
+            status_code=403, detail="Recent verified human MFA is required for full refresh."
+        )
+
+
 @router.post("/assets/{asset_id:path}/materialize", response_model=AssetActionResponse)
 async def v1_asset_materialize(
     request: Request,
@@ -1224,9 +2013,73 @@ async def v1_asset_materialize(
     enforce_rate_limit(auth["subject"], "materialize_asset")
     require_idempotency_key(payload.idempotency_key)
     provider = resolve_orchestrator_operations()
-    tags = {"environment": env, "phlo/ref": target.nessie_ref}
+    write_ref = payload.write_ref or target.nessie_ref
+    if payload.mode is None and (
+        payload.write_ref is not None
+        or payload.rebuild_downstream
+        or payload.plan_hash is not None
+        or payload.from_time is not None
+        or payload.to_time is not None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Operation controls require an explicit mode and estimated plan.",
+        )
+    if payload.mode is not None and not payload.dry_run and not payload.confirmed:
+        raise HTTPException(status_code=422, detail="Confirm the materialization before executing.")
+    if payload.mode == "full" and not payload.dry_run:
+        _require_full_refresh_mfa(request)
+    tags = {"environment": env, "phlo/ref": write_ref}
 
     async def execute() -> dict[str, Any]:
+        if payload.mode is not None:
+            plan = await _materialization_plan(request, env, asset_id, payload)
+            if payload.plan_hash != _plan_hash(plan):
+                raise HTTPException(
+                    status_code=409,
+                    detail="The ref, job revision, selection or partition config changed. Refresh the estimate.",
+                )
+            results = []
+            for index, run in enumerate(plan["runs"]):
+                child_key = hashlib.sha256(
+                    f"{auth['subject']}:{payload.idempotency_key}:{index}".encode()
+                ).hexdigest()
+                result = _action_result(
+                    await provider.materialize_asset(
+                        asset_id,
+                        {
+                            "job_name": payload.job_name,
+                            "dry_run": payload.dry_run,
+                            "partition_key": run["partition_key"],
+                            "run_config": run["run_config"],
+                            "asset_selection": plan["selected_assets"],
+                            "repository_location_name": plan["location"],
+                            "repository_name": plan["repository"],
+                            "idempotency_key": child_key,
+                            "tags": {
+                                **tags,
+                                "phlo/materialize_mode": payload.mode,
+                                "phlo/full_refresh_asset": asset_id
+                                if payload.mode == "full"
+                                else "",
+                                "phlo/plan": payload.plan_hash,
+                                "phlo/ref_hash": plan["ref_hash"],
+                                "phlo/job_snapshot_id": plan["job_snapshot_id"],
+                            },
+                        },
+                    )
+                )
+                results.append(result)
+                if result.get("accepted") is not True:
+                    break
+            return {
+                "accepted": len(results) == len(plan["runs"])
+                and all(item.get("accepted") is True for item in results),
+                "run_ids": [item["run_id"] for item in results if item.get("run_id")],
+                "runs": results,
+                "plan_hash": payload.plan_hash,
+                "dry_run": payload.dry_run,
+            }
         result = await provider.materialize_asset(
             asset_id,
             {
@@ -1242,7 +2095,7 @@ async def v1_asset_materialize(
     intent_digest = hashlib.sha256(
         json.dumps(intent, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    action_target = f"{env}:{asset_id}@{target.nessie_ref}:materialize:{intent_digest}"
+    action_target = f"{auth['subject']}:{env}:{asset_id}@{write_ref}:materialize:{intent_digest}"
     bound_target = idempotency_key_target(payload.idempotency_key, "v1_materialize_asset")
     if bound_target is not None and bound_target != action_target:
         raise IdempotencyConflict({"error": "idempotency_key_conflict"})
@@ -1256,13 +2109,11 @@ async def v1_asset_materialize(
             target=action_target,
             dry_run=payload.dry_run,
             auth=auth,
-            payload={"job_name": payload.job_name, "partition_key": payload.partition_key},
+            payload=payload.model_dump(exclude={"idempotency_key", "run_config"}),
             result=value,
         ),
     )
-    return AssetActionResponse(
-        env=env, asset_id=asset_id, nessie_ref=target.nessie_ref, result=result
-    )
+    return AssetActionResponse(env=env, asset_id=asset_id, nessie_ref=write_ref, result=result)
 
 
 @router.post("/assets/{asset_id:path}/backfill", response_model=AssetActionResponse)
@@ -1309,7 +2160,7 @@ async def v1_asset_backfill(
         repository_name,
     )
     partition_keys = (
-        [await _latest_asset_partition(asset_id, target.dagster_location)]
+        [await _latest_asset_partition(asset_id, target.dagster_location, repository_name)]
         if payload.selection == "latest"
         else payload.partitions
     )
@@ -1458,7 +2309,7 @@ async def v1_asset_query_usage(
     matches = [asset for asset in assets if asset.id == asset_id]
     if not matches:
         raise NotFoundError("Asset was not found.")
-    if not matches[0].history_scoped or not matches[0].relation:
+    if not matches[0].relation:
         if cursor is not None:
             raise HTTPException(status_code=400, detail="Asset relation changed; cursor is stale.")
         return QueryUsagePage(
@@ -1607,7 +2458,15 @@ async def v1_asset_checks(
     ]
     if not matches:
         raise NotFoundError("Asset was not found.")
-    definitions = await _asset_check_definitions(key, target.dagster_location)
+    if matches[0].check_definition_scope != "unique":
+        raise BackendUnavailableError(
+            "Check definitions cannot be isolated: repository-local hasAssetChecks proof is "
+            "missing or another repository declares checks for this asset. Use a workspace "
+            "with uniquely scoped check definitions."
+        )
+    definitions = await _asset_check_definitions(
+        key, target.dagster_location, matches[0].repository_name
+    )
     executions = await _asset_check_executions(
         key,
         [definition.name for definition in definitions],
@@ -1619,17 +2478,42 @@ async def v1_asset_checks(
 
 
 async def _asset_check_definitions(
-    key: list[str], repository_location: str
+    key: list[str], repository_location: str, repository_name: str | None
 ) -> list[CheckDefinition]:
+    nodes = await _asset_check_inventory(repository_location, repository_name)
+    return _check_definitions(nodes, key)
+
+
+async def _asset_check_inventory(
+    repository_location: str, repository_name: str | None
+) -> list[dict[str, Any]]:
+    if not repository_name:
+        raise BackendUnavailableError("Dagster asset-check repository identity is unavailable.")
     result = await _graphql(
         ASSET_CHECKS_QUERY,
-        {"assetKeys": [{"path": key}], "limit": _CHECK_DEFINITION_LIMIT + 1},
+        {
+            "repositorySelector": {
+                "repositoryLocationName": repository_location,
+                "repositoryName": repository_name,
+            },
+            "limit": _CHECK_DEFINITION_LIMIT + 1,
+        },
     )
     data = result.get("data")
-    nodes = data.get("assetNodes") if isinstance(data, dict) else None
+    repositories = data.get("repositoriesOrError") if isinstance(data, dict) else None
+    nodes = (
+        repositories.get("nodes")
+        if isinstance(repositories, dict)
+        and repositories.get("__typename") == "RepositoryConnection"
+        else None
+    )
     if result.get("errors") or not isinstance(nodes, list):
         raise BadGatewayError("Dagster returned invalid asset-check definitions.")
-    scoped_nodes = _check_nodes_for_location(nodes, key, repository_location)
+    return _check_nodes_for_location(nodes, repository_location, repository_name)
+
+
+def _check_definitions(nodes: list[dict[str, Any]], key: list[str]) -> list[CheckDefinition]:
+    scoped_nodes = [node for node in nodes if _key_path(node.get("assetKey")) == key]
     if len(scoped_nodes) != 1:
         raise BackendUnavailableError("Dagster asset-check definitions are not uniquely scoped.")
     response = scoped_nodes[0].get("assetChecksOrError")
@@ -1647,14 +2531,35 @@ async def _asset_check_definitions(
 
 
 def _check_nodes_for_location(
-    nodes: list[Any], key: list[str], repository_location: str
+    repositories: list[Any], repository_location: str, repository_name: str
 ) -> list[dict[str, Any]]:
     scoped_nodes = []
-    for node in nodes:
-        if not isinstance(node, dict) or _key_path(node.get("assetKey")) != key:
+    for repository in repositories:
+        if (
+            not isinstance(repository, dict)
+            or not isinstance(repository.get("location"), dict)
+            or not isinstance(repository["location"].get("name"), str)
+            or not isinstance(repository.get("assetNodes"), list)
+        ):
             raise BadGatewayError("Dagster returned invalid asset-check definitions.")
-        if _repository_location(node) == repository_location:
+        if (
+            repository["location"]["name"] != repository_location
+            or repository.get("name") != repository_name
+        ):
+            raise BadGatewayError("Dagster asset-check inventory does not match its selector.")
+        for node in repository["assetNodes"]:
+            if (
+                not isinstance(node, dict)
+                or _repository_location(node) != repository_location
+                or node["repository"].get("name") != repository_name
+            ):
+                raise BadGatewayError(
+                    "Dagster asset-check definition does not match its repository."
+                )
             scoped_nodes.append(node)
+    keys = [tuple(_key_path(node.get("assetKey"))) for node in scoped_nodes]
+    if len(keys) != len(set(keys)):
+        raise BackendUnavailableError("Dagster asset-check definitions are not uniquely scoped.")
     return scoped_nodes
 
 
@@ -1761,11 +2666,20 @@ async def _overview_quality_checks(
 ) -> QualityCheckEvidence:
     if len(assets) > _OVERVIEW_CHECK_ASSET_LIMIT:
         return QualityCheckEvidence(status="unknown", counts=None, reason="asset_limit_exceeded")
+    if any(asset.check_definition_scope != "unique" for asset in assets):
+        return QualityCheckEvidence(
+            status="unknown", counts=None, reason="check_definition_scope_unverified"
+        )
     definitions_by_asset: list[tuple[list[str], list[CheckDefinition]]] = []
+    inventories: dict[str | None, list[dict[str, Any]]] = {}
     definition_count = 0
     for asset in assets:
         key = asset.id.split("/")
-        definitions = await _asset_check_definitions(key, repository_location)
+        if asset.repository_name not in inventories:
+            inventories[asset.repository_name] = await _asset_check_inventory(
+                repository_location, asset.repository_name
+            )
+        definitions = _check_definitions(inventories[asset.repository_name], key)
         definition_count += len(definitions)
         if definition_count > _OVERVIEW_CHECK_LIMIT:
             return QualityCheckEvidence(
@@ -1773,8 +2687,10 @@ async def _overview_quality_checks(
             )
         definitions_by_asset.append((key, definitions))
 
+    if definition_count == 0:
+        return QualityCheckEvidence(status="unknown", counts=None, reason="no_checks_defined")
     passing = 0
-    total = 0
+    total = definition_count
     unevaluated = 0
     failing_assets: list[str] = []
     for key, definitions in definitions_by_asset:
@@ -1786,22 +2702,21 @@ async def _overview_quality_checks(
         )
         for name in names:
             latest_evaluation = max(
-                (
-                    execution
-                    for execution in histories[name]
-                    if execution.status == "SUCCEEDED" and execution.passed is not None
-                ),
+                histories[name],
                 key=lambda execution: execution.timestamp,
                 default=None,
             )
-            if latest_evaluation is None:
+            if (
+                latest_evaluation is None
+                or latest_evaluation.passed is None
+                or latest_evaluation.status not in {"SUCCEEDED", "FAILED"}
+            ):
                 if raw_counts[name] >= _CHECK_EXECUTION_SCAN_LIMIT:
                     return QualityCheckEvidence(
                         status="unknown", counts=None, reason="check_history_limit_exceeded"
                     )
                 unevaluated += 1
                 continue
-            total += 1
             if latest_evaluation.passed:
                 passing += 1
             else:
@@ -1850,33 +2765,18 @@ async def v1_asset_detail(
     request: Request, asset_id: str, env: Environment = Query()
 ) -> AssetDetail:
     asset_id = asset_id.strip("/")
-    matches = [item for item in await _assets(request, env) if item.id == asset_id]
+    target = _target(request, env)
+    nodes = await _asset_nodes(request, env)
+    matches = [node for node in nodes if _key_path(node.get("assetKey")) == asset_id.split("/")]
     if not matches:
         raise NotFoundError("Asset was not found.")
-    if not matches[0].history_scoped:
-        raise BackendUnavailableError("Dagster metadata cannot be scoped to this environment.")
-    result = await _graphql(ASSET_DETAIL_QUERY, {"assetKey": {"path": asset_id.split("/")}})
-    payload = _response_field(result, "assetNodeOrError")
-    if (
-        result.get("errors")
-        or not isinstance(payload, dict)
-        or payload.get("__typename") != "AssetNode"
-    ):
-        raise BadGatewayError("Dagster returned invalid asset detail.")
-    repository = payload.get("repository")
-    location = repository.get("location") if isinstance(repository, dict) else None
-    if (
-        not isinstance(location, dict)
-        or location.get("name") != _target(request, env).dagster_location
-    ):
-        raise NotFoundError("Asset was not found.")
-    detail = _asset_view(payload, _target(request, env).nessie_ref)
+    inventory = [_asset_view(node, target.nessie_ref) for node in nodes]
+    payload = matches[0]
+    detail = _asset_view(payload, target.nessie_ref)
     definition_entries = payload.get("metadataEntries") or []
-    materials = payload.get("assetMaterializations") or []
+    materialization = _scoped_materialization(payload, target.nessie_ref)
     materialization_entries = (
-        materials[0].get("metadataEntries") or []
-        if materials and detail.last_run_id is not None
-        else []
+        (materialization.get("metadataEntries") or []) if materialization else []
     )
 
     def schema_columns(entries: list[Any]) -> list[AssetColumn]:
@@ -1897,11 +2797,26 @@ async def v1_asset_detail(
     observed_lineage = _column_lineage(materialization_entries) or _column_lineage(
         definition_entries
     )
+    reachable = {asset_id}
+    downstream = []
+    remaining = [item for item in inventory if item.id != asset_id]
+    while True:
+        next_assets = [
+            item
+            for item in remaining
+            if any("/".join(key) in reachable for key in item.dependencies)
+        ]
+        if not next_assets:
+            break
+        downstream.extend(next_assets)
+        reachable.update(item.id for item in next_assets)
+        remaining = [item for item in remaining if item.id not in reachable]
     return AssetDetail(
         **detail.model_dump(),
         columns=columns,
         schema_observed_at=detail.last_materialization_at if latest_schema else None,
         column_lineage=observed_lineage,
+        downstream=downstream,
     )
 
 
@@ -1910,54 +2825,20 @@ async def v1_sources(
     request: Request, env: Environment = Query(), limit: Limit = 100, cursor: str | None = None
 ) -> AssetPage:
     assets = await _assets(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
-    return _page(env, "sources", [asset for asset in assets if asset.is_source], limit, cursor)
+    return _page(
+        env,
+        "sources",
+        [asset for asset in assets if asset.is_source or asset.is_ingestion],
+        limit,
+        cursor,
+    )
 
 
-@router.get("/layers", response_model=LayerPage)
-async def v1_layers(
-    request: Request, env: Environment = Query(), limit: Limit = 100, cursor: str | None = None
-) -> LayerPage:
-    assets = await _assets(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
-    groups: dict[str | None, list[AssetView]] = {}
-    for asset in assets:
-        groups.setdefault(asset.group_name, []).append(asset)
-    layers = [
-        LayerView(
-            group_name=name,
-            asset_count=len(group),
-            materialized_asset_count=sum(
-                asset.last_materialization_at is not None for asset in group
-            ),
-            latest_materialization_at=max(
-                (asset.last_materialization_at for asset in group if asset.last_materialization_at),
-                default=None,
-            ),
-        )
-        for name, group in sorted(groups.items(), key=lambda item: item[0] or "")
-    ]
-    offset = _offset(cursor, env, "layers")
-    selected = layers[offset : offset + limit]
-    next_cursor = _cursor(env, "layers", offset + limit) if offset + limit < len(layers) else None
-    return LayerPage(env=env, items=selected, next_cursor=next_cursor)
+def _freshness_policy_inputs(
+    request: Request, env: Environment
+) -> tuple[dict[str, int], OperationalSettings | None]:
+    from phlo_api.incidents import list_asset_incident_policies
 
-
-@router.get("/overview", response_model=OverviewResponse)
-async def v1_overview(request: Request, env: Environment = Query()) -> OverviewResponse:
-    assets = await _assets(request, env)
-    from phlo_api.api.v1 import _runs
-    from phlo_api.incidents import incident_stats, list_asset_incident_policies
-
-    target = _target(request, env)
-    runs = await _runs(target.dagster_location, target.nessie_ref)
-    try:
-        quality_checks = await _overview_quality_checks(
-            assets, target.dagster_location, target.nessie_ref
-        )
-    except (BackendUnavailableError, BadGatewayError, NotFoundError):
-        quality_checks = QualityCheckEvidence(
-            status="unknown", counts=None, reason="source_unavailable"
-        )
-    stats = incident_stats(request, env)
     policies: dict[str, int] = {}
     cursor = None
     while True:
@@ -1972,17 +2853,92 @@ async def v1_overview(request: Request, env: Environment = Query()) -> OverviewR
         cursor = page.next_cursor
         if cursor is None:
             break
-    freshness = {"fresh": 0, "stale": 0, "unknown": 0}
-    now = datetime.now(UTC)
+    try:
+        defaults = get_operational_settings()
+    except StorageUnavailableError:
+        defaults = None
+    return policies, defaults
+
+
+def _count_freshness(
+    assets: list[AssetView],
+    policies: dict[str, int],
+    defaults: OperationalSettings | None,
+    now: datetime,
+) -> FreshnessCounts:
+    counts = {"fresh": 0, "stale": 0, "unknown": 0}
     for asset in assets:
-        sla = policies.get(asset.id)
+        sla = policies.get(asset.id, asset.freshness_sla_seconds)
+        if sla is None and defaults is not None:
+            sla = defaults.freshness_sla_seconds(asset.layer)
         observed = asset.last_materialization_at
-        if sla is None or observed is None:
-            freshness["unknown"] += 1
+        if sla is None or observed is None or observed > now:
+            counts["unknown"] += 1
         elif (now - observed).total_seconds() > sla:
-            freshness["stale"] += 1
+            counts["stale"] += 1
         else:
-            freshness["fresh"] += 1
+            counts["fresh"] += 1
+    return FreshnessCounts(**counts)
+
+
+@router.get("/layers", response_model=LayerPage)
+async def v1_layers(
+    request: Request, env: Environment = Query(), limit: Limit = 100, cursor: str | None = None
+) -> LayerPage:
+    assets = await _assets(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
+    groups: dict[
+        tuple[str | None, Literal["bronze", "silver", "gold"] | None], list[AssetView]
+    ] = {}
+    for asset in assets:
+        groups.setdefault((asset.group_name, asset.layer), []).append(asset)
+    try:
+        policies, defaults = _freshness_policy_inputs(request, env)
+    except BackendUnavailableError:
+        policies, defaults = {}, None
+    now = datetime.now(UTC)
+    layers = [
+        LayerView(
+            group_name=name,
+            layer=layer,
+            asset_count=len(group),
+            materialized_asset_count=sum(
+                asset.last_materialization_at is not None for asset in group
+            ),
+            latest_materialization_at=max(
+                (asset.last_materialization_at for asset in group if asset.last_materialization_at),
+                default=None,
+            ),
+            freshness_counts=_count_freshness(group, policies, defaults, now),
+        )
+        for (name, layer), group in sorted(
+            groups.items(), key=lambda item: (item[0][0] or "", item[0][1] or "")
+        )
+    ]
+    offset = _offset(cursor, env, "layers")
+    selected = layers[offset : offset + limit]
+    next_cursor = _cursor(env, "layers", offset + limit) if offset + limit < len(layers) else None
+    return LayerPage(env=env, items=selected, next_cursor=next_cursor)
+
+
+@router.get("/overview", response_model=OverviewResponse)
+async def v1_overview(request: Request, env: Environment = Query()) -> OverviewResponse:
+    assets = await _assets(request, env)
+    from phlo_api.api.v1 import _runs
+    from phlo_api.incidents import incident_stats
+
+    target = _target(request, env)
+    runs = await _runs(target.dagster_location, target.nessie_ref)
+    try:
+        quality_checks = await _overview_quality_checks(
+            assets, target.dagster_location, target.nessie_ref
+        )
+    except (BackendUnavailableError, BadGatewayError, NotFoundError):
+        quality_checks = QualityCheckEvidence(
+            status="unknown", counts=None, reason="source_unavailable"
+        )
+    stats = incident_stats(request, env)
+    policies, defaults = _freshness_policy_inputs(request, env)
+    freshness = _count_freshness(assets, policies, defaults, datetime.now(UTC))
     latest = max(
         (asset.last_materialization_at for asset in assets if asset.last_materialization_at),
         default=None,
@@ -1996,7 +2952,7 @@ async def v1_overview(request: Request, env: Environment = Query()) -> OverviewR
         materialized_asset_count=sum(asset.last_materialization_at is not None for asset in assets),
         latest_materialization_at=latest,
         incident_counts=stats.counts,
-        freshness_counts=FreshnessCounts(**freshness),
+        freshness_counts=freshness,
         run_status_counts=run_status_counts,
         run_history_truncated=len(runs) == 100,
         quality_checks=quality_checks,

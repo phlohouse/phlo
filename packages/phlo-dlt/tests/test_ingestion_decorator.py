@@ -42,6 +42,40 @@ def test_phlo_ingestion_export_is_available() -> None:
     assert callable(phlo_ingestion)
 
 
+def test_ingestion_declares_its_physical_relation() -> None:
+    class ReadingSchema(DataFrameModel):
+        id: int
+
+    @phlo_ingestion(
+        table_name="sensor_events", unique_key="id", group="ingest", validation_schema=ReadingSchema
+    )
+    def events(partition_date: str):
+        return object()
+
+    asset = get_ingestion_assets()[0]
+    assert asset.key == "dlt_sensor_events"
+    assert asset.metadata["phlo/relation"] == "raw.sensor_events"
+
+
+def test_ingestion_declares_layer_independently_of_group() -> None:
+    class ReadingSchema(DataFrameModel):
+        id: int
+
+    @phlo_ingestion(
+        table_name="sensor_events",
+        unique_key="id",
+        group="registry",
+        layer="bronze",
+        validation_schema=ReadingSchema,
+    )
+    def events(partition_date: str):
+        return []
+
+    asset = get_ingestion_assets()[0]
+    assert asset.metadata["phlo/layer"] == "bronze"
+    assert asset.group == "registry"
+
+
 def test_strict_domain_quality_failure_preserves_main_through_wap_and_evidence(
     monkeypatch, tmp_path
 ) -> None:

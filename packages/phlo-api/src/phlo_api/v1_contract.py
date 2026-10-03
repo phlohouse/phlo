@@ -8,7 +8,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 
 Environment = Literal["prod", "staging"]
-ServiceStatus = Literal["healthy", "degraded", "unhealthy", "unknown", "unavailable"]
+ServiceStatus = Literal["healthy", "degraded", "unhealthy", "unknown", "unavailable", "inactive"]
 RunStatus = Literal[
     "NOT_STARTED",
     "MANAGED",
@@ -38,6 +38,7 @@ class EnvironmentTarget(WireModel):
 
     dagster_location: str = Field(min_length=1)
     nessie_ref: str = Field(min_length=1)
+    compose_project: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]*$")
 
 
 class MeResponse(WireModel):
@@ -62,6 +63,9 @@ class ServiceSnapshot(WireModel):
     status: ServiceStatus
     observed_at: AwareDatetime | None
     response_time_seconds: float | None = Field(ge=0)
+    runtime_state: Literal["running", "starting", "stopped", "unknown"] = "unknown"
+    definition_state: Literal["configured", "available", "disabled", "unknown"] = "unknown"
+    reason: str | None = None
 
     @model_validator(mode="after")
     def require_observation_for_measured_status(self) -> ServiceSnapshot:

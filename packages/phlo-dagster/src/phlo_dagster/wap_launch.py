@@ -37,7 +37,7 @@ WAP_CATALOG_SYSTEM_TAG = "phlo/catalog_system"
 WAP_BRANCH_PREFIX = "pipeline-run-"
 WAP_STRATEGY_BRANCH = "branch"
 WAP_STRATEGY_SNAPSHOT = "snapshot"
-_PROMOTED_OUTCOME_FIELDS = frozenset({"failure_reason"})
+_PROMOTED_OUTCOME_FIELDS = frozenset({"failure_reason", "review_required", "review_message"})
 logger = get_logger(__name__)
 
 

@@ -236,6 +236,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         (
             "v1_asset_audit_proposal",
             "v1_asset_audit_proposal_detail",
+            "v1_asset_audit_proposal_test",
             "v1_asset_audit_proposal_pull_request",
         ),
         action=CanonicalAction.ASSET_MANAGE.value,
@@ -261,6 +262,13 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         ("v1_table_snapshots", "v1_table_schema_history"),
         action=CanonicalAction.ASSET_READ.value,
         resource_type="asset",
+        resource_keys=("env", "table_name"),
+        resource_sources=(("env", "query"), ("table_name", "path")),
+    ),
+    *_specs(
+        ("v1_table_rollback",),
+        action=CanonicalAction.DATASET_WRITE.value,
+        resource_type="dataset",
         resource_keys=("env", "table_name"),
         resource_sources=(("env", "query"), ("table_name", "path")),
     ),

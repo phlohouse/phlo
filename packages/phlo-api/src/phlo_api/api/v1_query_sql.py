@@ -20,7 +20,17 @@ def validate_workspace_query(sql: str, catalog: str) -> str:
         raise InvalidWorkspaceQuery("SQL could not be parsed.") from exc
     if len(statements) != 1 or not isinstance(statements[0], exp.Query):
         raise InvalidWorkspaceQuery("Only one read-only SQL query is allowed.")
+    if any(
+        isinstance(node, (exp.DDL, exp.DML, exp.Command, exp.Into)) for node in statements[0].walk()
+    ):
+        raise InvalidWorkspaceQuery(
+            "SQL mutations are not allowed, including inside query expressions."
+        )
     for table in statements[0].find_all(exp.Table):
+        if not isinstance(table.this, exp.Identifier):
+            raise InvalidWorkspaceQuery(
+                "Connector passthrough and table functions are not allowed."
+            )
         reference = table.args.get("catalog")
         if reference is not None and reference.name != catalog:
             raise InvalidWorkspaceQuery(

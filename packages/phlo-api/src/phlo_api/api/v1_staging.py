@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
+from anyio import to_thread
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import Field
 
@@ -21,6 +22,7 @@ from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.operation_controls import (
     audit_operation,
     idempotency_key_target,
+    load_operational_settings,
     read_operation_audit,
     replay_or_execute_async,
     require_scope,
@@ -177,6 +179,44 @@ async def _copy_inventory(ref: str, head: str) -> list[str]:
                 raise BadGatewayError("Nessie returned an invalid table name.")
             tables.append(".".join(elements))
     return sorted(tables)
+
+
+async def _release_signing_config(prod: Path) -> None:
+    try:
+        key = await _git(prod, "config", "--get", "user.signingkey")
+    except HTTPException as exc:
+        raise HTTPException(
+            503,
+            "Signed release evidence requires Git user.signingkey and an available signing key.",
+        ) from exc
+    if not key.strip():
+        raise HTTPException(503, "Configure Git user.signingkey before promoting a signed release.")
+
+
+async def _signed_release_tag(prod: Path, state: dict[str, Any], signature_id: str) -> str:
+    tag = f"phlo-approved-release-{state['candidate_id']}-{signature_id}"
+    manifest = json.dumps(
+        {
+            "candidate_id": state["candidate_id"],
+            "code_version": state["staging_git_revision"],
+            "prod_hash": state["prod_hash"],
+            "staging_hash": state["staging_hash"],
+            "signature_id": signature_id,
+        },
+        sort_keys=True,
+    )
+    try:
+        await _git(prod, "tag", "-s", "-m", manifest, tag, state["staging_git_revision"])
+        await _git(prod, "verify-tag", tag)
+        target = await _git(prod, "rev-parse", f"refs/tags/{tag}^{{commit}}")
+    except HTTPException as exc:
+        raise HTTPException(
+            503,
+            "Signed release evidence could not be created and verified. Check Git signing identity, key availability and verification trust, then obtain a new MFA approval before retrying; no code was advanced.",
+        ) from exc
+    if target.strip() != state["staging_git_revision"]:
+        raise HTTPException(409, "Signed release tag does not identify the approved code revision.")
+    return tag
 
 
 async def _state() -> dict[str, Any]:
@@ -493,6 +533,7 @@ async def promote(
     )
 
     async def execute() -> dict[str, Any]:
+        settings = await to_thread.run_sync(load_operational_settings)
         state = await _state()
         if state["candidate_id"] != payload.candidate_id:
             raise HTTPException(409, "Promotion candidate is stale.")
@@ -514,9 +555,18 @@ async def promote(
         async with _PROMOTION_LOCK:
             if (await _state())["candidate_id"] != payload.candidate_id:
                 raise HTTPException(409, "Promotion candidate is stale.")
+            if (
+                await to_thread.run_sync(load_operational_settings)
+            ).settings_revision != settings.settings_revision:
+                raise HTTPException(409, "Governance settings changed; reload and retry.")
+            release_tag = None
+            if settings.sign_release_tags:
+                await _release_signing_config(prod)
             v1_admin_identity._consume_signature(
                 v1_admin_identity._authority(), payload.signature_id, expected
             )
+            if settings.sign_release_tags:
+                release_tag = await _signed_release_tag(prod, state, payload.signature_id)
             await _git(
                 prod,
                 "update-ref",
@@ -554,6 +604,8 @@ async def promote(
             "resulting_ref": state["prod_ref"],
             "resulting_hash": state["prod_hash"],
             "checks": check_rows,
+            "release_tag": release_tag,
+            "settings_revision": settings.settings_revision,
         }
 
     return await replay_or_execute_async(
