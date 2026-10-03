@@ -1,6 +1,6 @@
 /** Renders asset tabs from observed metadata, query results, and check evidence. */
 import { Link } from '@tanstack/react-router'
-import { CodeIcon, DatabaseIcon, PlusIcon, XIcon } from 'lucide-react'
+import { CodeIcon, DatabaseIcon } from 'lucide-react'
 import * as React from 'react'
 import type { ReactNode } from 'react'
 import type {
@@ -11,21 +11,23 @@ import type {
   AssetSnapshots,
   PreviewFilter,
 } from '@/lib/data/api/assets'
+import type { QuerySession } from '@/lib/data/api/query'
 import type { Env, LineageColumn } from '@/lib/data/types'
 import {
+  getAssetDetail,
   getAssetPreview,
-  previewFilterSchema,
+  materializationJob,
   rollbackAssetSnapshot,
+  startAssetExactRowCount,
 } from '@/lib/data/api/assets'
+import { cancelQuery, getQuerySession } from '@/lib/data/api/query'
+import { exactRowCountValue, isExactRowCountCurrent } from '@/lib/exactRowCount'
 import { LineageGraph } from '@/components/assets/lineage-graph'
-import { Stat } from '@/components/phlo/kpi'
 import { Eyebrow, KeyValues } from '@/components/phlo/page'
 import { EmptyState } from '@/components/phlo/states'
 import { Dot, Mono } from '@/components/phlo/status'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
 import { CheckLine } from '@/components/ui/checkbox'
 import {
   Dialog,
@@ -37,6 +39,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { DataTableCommandFilterMenu } from '@/components/assets/asset-data-filter'
 
 const pad = 'px-4 py-5 lg:px-7'
 
@@ -68,30 +71,22 @@ export function OverviewTab({
   return (
     <div className="grid min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]">
       <section className={cn(pad, 'flex min-w-0 flex-col gap-[22px]')}>
-        <div className="flex flex-col gap-2.5">
-          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5">
-            <Eyebrow>Rows per run</Eyebrow>
-            <div className="ml-auto flex items-center gap-3.5 text-[13px] text-muted-foreground">
-              <span>Loaded</span>
-              <span>Skipped</span>
-              <span>Failed</span>
-            </div>
-          </div>
-          <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-line text-[13px] text-muted-foreground">
-            Row counts per materialization are not available.
-          </div>
-        </div>
+        <RowsPerRun asset={asset} env={env} jobs={jobs} />
         <div>
-          <div className="flex items-baseline pb-1.5">
-            <Eyebrow>Schema · {asset.columns.length} declared columns</Eyebrow>
+          <div className="flex flex-wrap items-baseline gap-2 pb-1.5">
+            <Eyebrow>
+              Schema · {asset.columns.length} columns ·{' '}
+              {asset.schema_source ?? 'observed'}
+            </Eyebrow>
             <span className="ml-auto text-[13px] text-muted-foreground">
-              Contract: not observed
+              Contract: {asset.schema_contract ?? 'not declared'}
             </span>
           </div>
           <div
             role="table"
             aria-label="Observed asset schema"
-            className="overflow-x-auto"
+            tabIndex={0}
+            className="overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
             <div className="min-w-[520px]">
               <div
@@ -116,7 +111,11 @@ export function OverviewTab({
                       : (column.type ?? 'Unknown')}
                   </Mono>
                   <span role="cell" className="text-muted-foreground">
-                    Unknown
+                    {column.nullable == null
+                      ? 'Unknown'
+                      : column.nullable
+                        ? 'Yes'
+                        : 'No'}
                   </span>
                   <span role="cell" className="truncate text-muted-foreground">
                     {column.description ?? 'Not supplied'}
@@ -133,44 +132,7 @@ export function OverviewTab({
         </div>
       </section>
       <aside className="flex flex-col gap-[22px] border-t border-line px-4 py-5 lg:border-t-0 lg:border-l lg:px-6">
-        <KeyValues
-          keyWidth={112}
-          className="text-[13.5px] [&_dd]:break-all"
-          items={[
-            ['Owner', 'Not observed'],
-            ['Source', asset.compute_kind ?? 'Not observed'],
-            [
-              'Job',
-              jobs.length ? (
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  {jobs.map((job) => (
-                    <Link
-                      key={job.id}
-                      to="/pipelines/$jobName"
-                      params={{ jobName: job.id }}
-                      search={{ env }}
-                      title={job.id}
-                      className="truncate font-mono text-[12.5px]"
-                    >
-                      {job.id}
-                    </Link>
-                  ))}
-                </span>
-              ) : (
-                'None available'
-              ),
-            ],
-            ['Freshness SLA', 'Not observed'],
-            ['Rows', 'Not observed'],
-            ['Size', 'Not observed'],
-            ['Sort order', 'Not observed'],
-            ['Relation', asset.relation ?? 'Not observed'],
-            [
-              'Last materialized',
-              asset.last_materialization_at ?? 'Not observed',
-            ],
-          ]}
-        />
+        <AssetMetadata asset={asset} env={env} jobs={jobs} />
         <div className="flex flex-col gap-2">
           <Eyebrow>Audits</Eyebrow>
           <span className="text-[13px] text-muted-foreground">
@@ -190,12 +152,475 @@ export function OverviewTab({
             </Link>
           </div>
           <span className="text-[13px] text-muted-foreground">
-            Downstream inventory is not supplied. {asset.dependencies.length}{' '}
-            upstream dependencies are declared.
+            {asset.downstream?.length ?? 0} downstream assets ·{' '}
+            {asset.dependencies.length} upstream dependencies.
           </span>
         </div>
       </aside>
     </div>
+  )
+}
+
+function RowsPerRun({
+  asset,
+  env,
+  jobs,
+}: {
+  asset: ApiAssetDetail
+  env: Env
+  jobs: Array<{ id: string }>
+}) {
+  return (
+    <section
+      aria-label="Rows written per run"
+      className="flex min-w-0 flex-col gap-2.5"
+    >
+      <Eyebrow>Rows written per run</Eyebrow>
+      <p className="m-0 text-xs text-muted-foreground">
+        Scoped successful runs. Write counts are not the current table row
+        count.
+      </p>
+      {asset.materializations.length ? (
+        <div className="max-h-48 overflow-y-auto rounded-lg border border-line">
+          <div className="grid grid-cols-[minmax(0,1fr)_80px_80px] gap-3 border-b border-line px-3 py-2 text-xs text-muted-foreground">
+            <span>Run</span>
+            <span className="text-right">Written</span>
+            <span className="text-right">Deleted</span>
+          </div>
+          {asset.materializations.map((run) => {
+            const job = materializationJob(run.job_id, jobs)
+            return (
+              <div
+                key={`${run.run_id}:${run.timestamp}`}
+                className="grid grid-cols-[minmax(0,1fr)_80px_80px] items-center gap-3 border-b border-line-soft px-3 py-2 text-xs last:border-0"
+              >
+                <div className="min-w-0">
+                  {job ? (
+                    <Link
+                      to="/pipelines/$jobName/runs/$runId"
+                      params={{ jobName: job.id, runId: run.run_id }}
+                      search={{ env }}
+                      title={run.run_id}
+                      className="block truncate font-mono"
+                    >
+                      {run.run_id}
+                    </Link>
+                  ) : (
+                    <>
+                      <Mono className="block truncate" title={run.run_id}>
+                        {run.run_id}
+                      </Mono>
+                      <span className="block text-muted-foreground">
+                        Job identity unavailable
+                      </span>
+                    </>
+                  )}
+                  <time
+                    title={run.timestamp}
+                    className="block truncate text-muted-foreground"
+                  >
+                    {run.timestamp}
+                  </time>
+                </div>
+                <span className="text-right">
+                  {run.rows_inserted?.toLocaleString() ?? 'Unknown'}
+                </span>
+                <span className="text-right">
+                  {run.rows_deleted?.toLocaleString() ?? 'Unknown'}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="m-0 rounded-lg border border-dashed border-line p-4 text-sm text-muted-foreground">
+          No scoped write-count evidence is available.
+        </p>
+      )}
+    </section>
+  )
+}
+
+function freshnessEvidenceLabel(asset: ApiAssetDetail) {
+  if (asset.freshness_source === 'iceberg_snapshot')
+    return 'Selected-ref Iceberg snapshot'
+  if (asset.freshness_source === 'dagster_materialization')
+    return 'Accepted Dagster materialization'
+  return 'Not observed'
+}
+
+function freshnessObservedTime(asset: ApiAssetDetail) {
+  if (!asset.freshness_observed_at) return 'Not observed'
+  return (
+    <time dateTime={asset.freshness_observed_at}>
+      {asset.freshness_observed_at.replace(/\.\d+Z$/, 'Z')}
+    </time>
+  )
+}
+
+function freshnessSlaLabel(asset: ApiAssetDetail) {
+  return asset.freshness_sla_seconds
+    ? `${asset.freshness_sla_seconds / 3600} hours`
+    : 'Not declared'
+}
+
+function AssetMetadata({
+  asset,
+  env,
+  jobs,
+}: React.ComponentProps<typeof OverviewTab>) {
+  return (
+    <>
+      <KeyValues
+        keyWidth={112}
+        className="text-[13.5px] [&_dd]:break-all"
+        items={[
+          ['Owner', asset.owner ?? 'Not declared'],
+          ['Source', asset.source_name ?? 'Not declared'],
+          [
+            'Job',
+            jobs.length ? (
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                {jobs.map((job) => (
+                  <Link
+                    key={job.id}
+                    to="/pipelines/$jobName"
+                    params={{ jobName: job.id }}
+                    search={{ env }}
+                    title={job.id}
+                    className="truncate font-mono text-[12.5px]"
+                  >
+                    {job.id}
+                  </Link>
+                ))}
+              </span>
+            ) : (
+              'None available'
+            ),
+          ],
+          ['Declared SLA', freshnessSlaLabel(asset)],
+          [
+            'Rows',
+            <ExactRowCount
+              key={`${env}:${asset.id}`}
+              asset={asset}
+              env={env}
+            />,
+          ],
+          [
+            'Size',
+            asset.size_bytes == null
+              ? 'Not observed'
+              : `${asset.size_bytes.toLocaleString()} bytes`,
+          ],
+          [
+            'Sort order',
+            asset.sort_order == null
+              ? 'Not observed'
+              : asset.sort_order.join(', ') || 'Unsorted',
+          ],
+          ['Relation', asset.relation ?? 'Not observed'],
+          [
+            'Last materialized',
+            asset.last_materialization_at ? (
+              <time
+                dateTime={asset.last_materialization_at}
+                title={asset.last_materialization_at}
+              >
+                {asset.last_materialization_at.replace(/\.\d+Z$/, 'Z')}
+              </time>
+            ) : (
+              'Not observed'
+            ),
+          ],
+          ['Freshness evidence', freshnessEvidenceLabel(asset)],
+          ['Freshness observed at', freshnessObservedTime(asset)],
+          [
+            'Freshness reason',
+            asset.freshness_reason?.replaceAll('_', ' ') ?? 'None',
+          ],
+          [
+            'Current Iceberg snapshot',
+            asset.current_snapshot_id ?? 'Not observed',
+          ],
+        ]}
+      />
+      {asset.table_metadata_error ? (
+        <p role="status" className="m-0 text-xs text-muted-foreground">
+          {asset.table_metadata_error}
+        </p>
+      ) : null}
+    </>
+  )
+}
+
+type ExactCountObservation = {
+  id: string
+  source: string
+  observedAt: string
+  snapshotId: string
+  nessieRef: string
+}
+
+function isActiveExactCount(session: QuerySession | null): boolean {
+  return (
+    session != null &&
+    ['queued', 'running', 'cancelling'].includes(session.status)
+  )
+}
+
+function isCurrentExactCount(
+  session: QuerySession | null,
+  observation: ExactCountObservation | null,
+  currentSnapshotId: string | null | undefined,
+  verifiedAt: string | null,
+): boolean {
+  return (
+    session?.status === 'completed' &&
+    verifiedAt != null &&
+    isExactRowCountCurrent(
+      exactRowCountValue(session.result?.rows[0]?.row_count),
+      currentSnapshotId,
+      observation?.snapshotId ?? '',
+    )
+  )
+}
+
+function exactCountMessage({
+  observation,
+  session,
+  currentSnapshotId,
+  verifiedAt,
+  exactCount,
+}: {
+  observation: ExactCountObservation
+  session: QuerySession | null
+  currentSnapshotId: string | null | undefined
+  verifiedAt: string | null
+  exactCount: string | null
+}): string {
+  switch (session?.status) {
+    case 'completed':
+      if (exactCount == null)
+        return 'Count result did not contain an exact total'
+      if (currentSnapshotId === observation.snapshotId && verifiedAt != null) {
+        const source =
+          observation.source === 'trino_count_star'
+            ? 'Trino COUNT(*)'
+            : observation.source
+        return `${source}: snapshot matched at ${new Date(verifiedAt).toLocaleString()}`
+      }
+      if (currentSnapshotId === observation.snapshotId)
+        return `Observed count ${exactCount}; snapshot verification pending; not current`
+      return `Observed count ${exactCount}; ${currentSnapshotId ? 'snapshot changed; not current' : 'current snapshot identity unavailable; not current'}`
+    case 'failed':
+      return `Count failed: ${session.error ?? 'provider unavailable'}`
+    case 'cancelled':
+      return 'Count cancelled'
+    default:
+      return 'Exact count running'
+  }
+}
+
+function ExactCountEvidence({
+  observation,
+  session,
+  currentSnapshotId,
+  verifiedAt,
+}: {
+  observation: ExactCountObservation | null
+  session: QuerySession | null
+  currentSnapshotId: string | null | undefined
+  verifiedAt: string | null
+}) {
+  if (!observation) return null
+  const exactCount = exactRowCountValue(session?.result?.rows[0]?.row_count)
+  const message = exactCountMessage({
+    observation,
+    session,
+    currentSnapshotId,
+    verifiedAt,
+    exactCount,
+  })
+  return (
+    <span className="text-xs text-muted-foreground">
+      {message}
+      {' · ref '}
+      {observation.nessieRef}
+      {' · snapshot '}
+      {observation.snapshotId}
+      {' · '}
+      {new Date(observation.observedAt).toLocaleString()}
+    </span>
+  )
+}
+
+function ExactCountControl({
+  active,
+  canCount,
+  submitting,
+  onCancel,
+  onCount,
+}: {
+  active: boolean
+  canCount: boolean
+  submitting: boolean
+  onCancel: () => void
+  onCount: () => void
+}) {
+  if (active) {
+    return (
+      <Button size="sm" variant="outline" onClick={onCancel}>
+        Cancel count
+      </Button>
+    )
+  }
+  if (!canCount) return null
+  return (
+    <Button size="sm" variant="outline" disabled={submitting} onClick={onCount}>
+      {submitting ? 'Starting…' : 'Count exact rows'}
+    </Button>
+  )
+}
+
+function ExactRowCount({ asset, env }: { asset: ApiAssetDetail; env: Env }) {
+  const [observation, setObservation] =
+    React.useState<ExactCountObservation | null>(null)
+  const [session, setSession] = React.useState<QuerySession | null>(null)
+  const [currentSnapshotId, setCurrentSnapshotId] = React.useState(
+    asset.current_snapshot_id,
+  )
+  const [snapshotVerifiedAt, setSnapshotVerifiedAt] = React.useState<
+    string | null
+  >(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [submitting, setSubmitting] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!observation || (session && !isActiveExactCount(session))) return
+    let active = true
+    let timer: ReturnType<typeof setTimeout>
+    const poll = async () => {
+      try {
+        const next = await getQuerySession({
+          data: { env, id: observation.id },
+        })
+        if (!active) return
+        setError(null)
+        setSession(next)
+        if (['queued', 'running', 'cancelling'].includes(next.status)) {
+          timer = setTimeout(poll, 800)
+        }
+      } catch {
+        if (active) {
+          setError('Count session check failed; retrying status lookup.')
+          timer = setTimeout(poll, 1500)
+        }
+      }
+    }
+    timer = setTimeout(poll, 500)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [env, observation, session])
+
+  React.useEffect(() => {
+    setCurrentSnapshotId(asset.current_snapshot_id)
+  }, [asset.current_snapshot_id])
+
+  React.useEffect(() => {
+    if (!observation || session?.status !== 'completed') return
+    let active = true
+    void getAssetDetail({ data: { env, id: asset.id, tab: 'overview' } })
+      .then((detail) => {
+        if (active) {
+          setCurrentSnapshotId(detail.asset.current_snapshot_id)
+          setSnapshotVerifiedAt(new Date().toISOString())
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setCurrentSnapshotId(null)
+          setSnapshotVerifiedAt(null)
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [asset.id, env, observation, session?.status])
+
+  const submit = async () => {
+    setSubmitting(true)
+    setError(null)
+    try {
+      const result = await startAssetExactRowCount({
+        data: { env, id: asset.id },
+      })
+      setObservation({
+        id: result.query.id,
+        source: result.source,
+        observedAt: result.observed_at,
+        snapshotId: result.snapshot_id,
+        nessieRef: result.nessie_ref,
+      })
+      setSnapshotVerifiedAt(null)
+      setSession(null)
+    } catch {
+      setError(
+        'Exact count is unavailable. Check query-provider support and access.',
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const cancel = async () => {
+    if (!observation) return
+    try {
+      setSession(await cancelQuery({ data: { env, id: observation.id } }))
+      setError(null)
+    } catch {
+      setError('Count cancellation could not be confirmed.')
+    }
+  }
+
+  const active =
+    observation != null && (session == null || isActiveExactCount(session))
+  const countIsCurrent = isCurrentExactCount(
+    session,
+    observation,
+    currentSnapshotId,
+    snapshotVerifiedAt,
+  )
+  const canCount = asset.row_count == null || observation != null
+
+  return (
+    <span className="flex min-w-0 flex-col items-start gap-1 break-normal [overflow-wrap:anywhere]">
+      <span>
+        {countIsCurrent
+          ? exactRowCountValue(session?.result?.rows[0]?.row_count)
+          : (asset.row_count?.toLocaleString() ?? 'Not observed')}
+      </span>
+      <ExactCountEvidence
+        observation={observation}
+        session={session}
+        currentSnapshotId={currentSnapshotId}
+        verifiedAt={snapshotVerifiedAt}
+      />
+      {error ? (
+        <span role="alert" className="text-xs text-destructive">
+          {error}
+        </span>
+      ) : null}
+      <ExactCountControl
+        active={Boolean(active)}
+        canCount={canCount}
+        submitting={submitting}
+        onCancel={cancel}
+        onCount={() => void submit()}
+      />
+    </span>
   )
 }
 
@@ -208,14 +633,9 @@ export function DataTab({
 }) {
   const [data, setData] = React.useState(initialData)
   const [filters, setFilters] = React.useState<Array<PreviewFilter>>([])
-  const [editing, setEditing] = React.useState(false)
-  const [column, setColumn] = React.useState(initialData.columns[0]?.name ?? '')
-  const [operator, setOperator] =
-    React.useState<PreviewFilter['operator']>('eq')
-  const [valueType, setValueType] = React.useState('text')
-  const [value, setValue] = React.useState('')
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [filterOpen, setFilterOpen] = React.useState(false)
   const requestId = React.useRef(0)
   React.useEffect(
     () => () => {
@@ -223,7 +643,7 @@ export function DataTab({
     },
     [],
   )
-  async function apply(next: Array<PreviewFilter>) {
+  async function apply(next: Array<PreviewFilter>): Promise<boolean> {
     const sequence = ++requestId.current
     setPending(true)
     setError(null)
@@ -231,81 +651,30 @@ export function DataTab({
       const result = await getAssetPreview({
         data: { env: initialData.env, id: asset.id, filters: next },
       })
-      if (sequence !== requestId.current) return
+      if (sequence !== requestId.current) return false
       setData(result)
       setFilters(next)
-      setEditing(false)
+      return true
     } catch (cause) {
       if (sequence === requestId.current)
         setError(cause instanceof Error ? cause.message : 'Preview failed.')
+      return false
     } finally {
       if (sequence === requestId.current) setPending(false)
     }
   }
-  function addFilter(event: React.FormEvent) {
-    event.preventDefault()
-    const parsed = previewFilterSchema.safeParse(
-      operator === 'is_null' || operator === 'is_not_null'
-        ? { column, operator }
-        : {
-            column,
-            operator,
-            value:
-              valueType === 'number'
-                ? value.trim()
-                  ? Number(value)
-                  : NaN
-                : valueType === 'boolean'
-                  ? value === 'true'
-                  : value,
-          },
-    )
-    if (!parsed.success) {
-      setError('Enter a valid filter value.')
-      return
-    }
-    void apply([...filters, parsed.data])
-  }
-  const operators = [
-    { value: 'eq', label: '=' },
-    { value: 'ne', label: '≠' },
-    { value: 'lt', label: '<' },
-    { value: 'lte', label: '≤' },
-    { value: 'gt', label: '>' },
-    { value: 'gte', label: '≥' },
-    { value: 'is_null', label: 'is null' },
-    { value: 'is_not_null', label: 'is not null' },
-  ] satisfies Array<{ value: PreviewFilter['operator']; label: string }>
   return (
     <div className="flex min-h-0 flex-col" aria-busy={pending}>
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 text-[13px] text-muted-foreground lg:px-7">
-        {filters.map((filter, index) => (
-          <span
-            key={index}
-            className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card pr-1 pl-3 text-text-2"
-          >
-            <span className="text-muted-foreground">{filter.column}</span>
-            {operators.find((item) => item.value === filter.operator)?.label}
-            {'value' in filter ? <Mono>{String(filter.value)}</Mono> : null}
-            <button
-              type="button"
-              disabled={pending}
-              aria-label={`Remove filter ${index + 1} on ${filter.column}`}
-              onClick={() => void apply(filters.filter((_, i) => i !== index))}
-              className="inline-flex size-5 items-center justify-center rounded-full hover:bg-soft"
-            >
-              <XIcon className="size-3" />
-            </button>
-          </span>
-        ))}
-        <Button
-          variant="outline"
-          className="h-7 rounded-full border-dashed"
-          disabled={pending || !data.columns.length || filters.length >= 20}
-          onClick={() => setEditing(!editing)}
-        >
-          <PlusIcon /> Add filter
-        </Button>
+        <DataTableCommandFilterMenu
+          columns={data.columns}
+          filters={filters}
+          pending={pending}
+          errorMessage={error}
+          onApply={apply}
+          onValidationError={() => setError('Enter a valid filter value.')}
+          onOpenChange={setFilterOpen}
+        />
         <DatabaseIcon className="size-4" /> Preview on{' '}
         <Mono>{data.nessie_ref}</Mono>
         <Link
@@ -319,78 +688,17 @@ export function DataTab({
           <CodeIcon /> Open in Query
         </Link>
       </div>
-      {editing ? (
-        <form
-          onSubmit={addFilter}
-          className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 lg:px-7"
-        >
-          <Select
-            aria-label="Filter column"
-            className="w-full sm:w-44"
-            value={column}
-            onValueChange={setColumn}
-            options={data.columns.map((item) => ({
-              value: item.name,
-              label: item.name,
-            }))}
-          />
-          <Select
-            aria-label="Filter operator"
-            className="w-full sm:w-32"
-            value={operator}
-            onValueChange={setOperator}
-            options={operators}
-          />
-          {operator !== 'is_null' && operator !== 'is_not_null' ? (
-            <>
-              <Select
-                aria-label="Filter value type"
-                className="w-full sm:w-32"
-                value={valueType}
-                onValueChange={(type) => {
-                  setValueType(type)
-                  setValue(type === 'boolean' ? 'true' : '')
-                }}
-                options={[
-                  { value: 'text', label: 'Text' },
-                  { value: 'number', label: 'Number' },
-                  { value: 'boolean', label: 'Boolean' },
-                ]}
-              />
-              {valueType === 'boolean' ? (
-                <Select
-                  aria-label="Filter value"
-                  className="w-full sm:w-32"
-                  value={value}
-                  onValueChange={setValue}
-                  options={[
-                    { value: 'true', label: 'true' },
-                    { value: 'false', label: 'false' },
-                  ]}
-                />
-              ) : (
-                <Input
-                  aria-label="Filter value"
-                  type={valueType === 'number' ? 'number' : 'text'}
-                  step="any"
-                  className="w-full sm:w-44"
-                  value={value}
-                  onChange={(event) => setValue(event.target.value)}
-                />
-              )}
-            </>
-          ) : null}
-          <Button type="submit" disabled={pending}>
-            {pending ? 'Applying…' : 'Apply filter'}
-          </Button>
-        </form>
-      ) : null}
-      {error ? (
+      {error && !filterOpen ? (
         <p role="alert" className="px-4 text-sm text-bad-text lg:px-7">
           {error} The previous preview is unchanged.
         </p>
       ) : null}
-      <div className="overflow-x-auto">
+      <div
+        tabIndex={0}
+        role="region"
+        aria-label={`Sample rows from ${asset.id}; scroll horizontally to view all columns`}
+        className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      >
         <table
           className="w-full min-w-max border-collapse font-mono text-[12.5px]"
           aria-label={`Sample rows from ${asset.id}`}
@@ -406,7 +714,7 @@ export function DataTab({
                   className="border-b border-line px-3 text-left font-normal"
                 >
                   {previewColumn.name}{' '}
-                  <span className="text-[10.5px] text-faint">
+                  <span className="text-[10.5px] text-muted-foreground">
                     {previewColumn.type ?? 'unknown'}
                   </span>
                 </th>
@@ -427,7 +735,7 @@ export function DataTab({
                     className="h-8 border-r border-b border-line-soft px-3 whitespace-nowrap last:border-r-0"
                   >
                     {cellValue === null ? (
-                      <span className="text-faint">NULL</span>
+                      <span className="text-muted-foreground">NULL</span>
                     ) : typeof cellValue === 'object' ? (
                       JSON.stringify(cellValue)
                     ) : (
@@ -739,7 +1047,9 @@ function SnapshotRollbackAction({
             <DialogHeader>
               <DialogTitle>Roll back to snapshot</DialogTitle>
               <DialogDescription>
-                {data.table_name} · {data.env} · {data.nessie_ref}
+                <Mono>{data.table_name}</Mono> · environment{' '}
+                <Mono>{data.env}</Mono> · Nessie ref{' '}
+                <Mono>{data.nessie_ref}</Mono>
               </DialogDescription>
             </DialogHeader>
             <DialogBody>
@@ -754,7 +1064,7 @@ function SnapshotRollbackAction({
                 onCheckedChange={setConfirmed}
                 disabled={state.kind === 'pending' || state.kind === 'complete'}
               >
-                I confirm this snapshot rollback in {data.env} on{' '}
+                I confirm this snapshot rollback in {data.env} using Nessie ref{' '}
                 {data.nessie_ref}.
               </CheckLine>
               {state.kind === 'failed' ? (
@@ -819,28 +1129,34 @@ export function SnapshotsTab({
   const selected = snapshots.find(
     (snapshot) => snapshot.snapshot_id === selection.id,
   )
+  const current = snapshots.find(
+    (snapshot) => snapshot.snapshot_id === data.current_snapshot_id,
+  )
   const [open, setOpen] = React.useState(false)
   const cols =
     'grid grid-cols-[230px_180px_100px_100px_70px_140px_minmax(0,1fr)] items-center gap-x-3.5'
   return (
     <div className={cn(pad, 'flex min-h-0 flex-col gap-[18px]')}>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Snapshots" value={snapshots.length} />
-        <Stat
-          label="Latest committed"
-          value={
-            latest
-              ? new Date(latest.timestamp_ms).toLocaleString()
-              : 'Not observed'
-          }
-        />
-        <Stat
-          label="Latest operation"
-          value={latest?.operation ?? 'Not observed'}
-        />
-        <Stat label="Nessie ref" value={data.nessie_ref} />
+      <SnapshotFacts
+        data={data}
+        snapshots={snapshots}
+        current={current}
+        latest={latest}
+        selected={selected}
+        selectionRevision={selection.revision}
+        open={open}
+        onOpenChange={setOpen}
+        onRolledBack={onRolledBack}
+      />
+      <div className="text-xs text-muted-foreground">
+        Select a row to inspect its metadata or request a guarded rollback.
       </div>
-      <div className="overflow-x-auto">
+      <div
+        tabIndex={0}
+        role="region"
+        aria-label="Snapshot history; scroll horizontally to view all columns"
+        className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      >
         <div className="min-w-[1000px]" role="table" aria-label="Snapshots">
           <div
             role="row"
@@ -850,7 +1166,7 @@ export function SnapshotsTab({
             )}
           >
             <span role="columnheader">Snapshot</span>
-            <span role="columnheader">Committed</span>
+            <span role="columnheader">Committed (UTC)</span>
             <span role="columnheader">Operation</span>
             <span role="columnheader" className="text-right">
               Rows added
@@ -892,7 +1208,7 @@ export function SnapshotsTab({
                 ) : null}
               </span>
               <span role="cell" className="text-[13px] text-muted-foreground">
-                {new Date(snapshot.timestamp_ms).toLocaleString()}
+                <SnapshotTimestamp timestampMs={snapshot.timestamp_ms} />
               </span>
               <span role="cell">{snapshot.operation ?? 'Unknown'}</span>
               <span role="cell" className="text-right font-mono text-[12.5px]">
@@ -917,21 +1233,6 @@ export function SnapshotsTab({
         </div>
       </div>
       {!data.items.length ? <EmptyState title="No snapshots observed" /> : null}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <p className="m-0 min-w-0 flex-1 rounded-[10px] border border-border-card bg-sunken px-3.5 py-3 text-[13px] text-muted-foreground">
-          Snapshots observed on {data.nessie_ref}. Current snapshot:{' '}
-          <Mono>{data.current_snapshot_id ?? 'Not observed'}</Mono>. Select a
-          row to inspect its metadata or roll back.
-        </p>
-        <SnapshotRollbackAction
-          key={selection.revision}
-          data={data}
-          selected={selected}
-          open={open}
-          onOpenChange={setOpen}
-          onRolledBack={onRolledBack}
-        />
-      </div>
       {selected ? (
         <div className="flex min-w-0 flex-col gap-3">
           <KeyValues
@@ -975,6 +1276,110 @@ export function SnapshotsTab({
   )
 }
 
+function SnapshotFacts({
+  data,
+  snapshots,
+  current,
+  latest,
+  selected,
+  selectionRevision,
+  open,
+  onOpenChange,
+  onRolledBack,
+}: {
+  data: AssetSnapshots
+  snapshots: Array<AssetSnapshots['items'][number]>
+  current: AssetSnapshots['items'][number] | undefined
+  latest: AssetSnapshots['items'][number] | undefined
+  selected: AssetSnapshots['items'][number] | undefined
+  selectionRevision: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onRolledBack?: () => void
+}) {
+  return (
+    <div className="grid gap-4 rounded-xl border border-border-card bg-raised p-4 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-center">
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="text-xs text-muted-foreground">Current snapshot</span>
+        <Mono className="truncate text-[13px]">
+          {data.current_snapshot_id ?? 'Not observed'}
+        </Mono>
+        <span className="text-xs text-muted-foreground">
+          {current ? (
+            <SnapshotTimestamp timestampMs={current.timestamp_ms} />
+          ) : (
+            'Current snapshot time not observed'
+          )}
+        </span>
+      </div>
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="text-xs text-muted-foreground">Observed history</span>
+        <span className="text-[13px]">
+          {snapshots.length} {snapshots.length === 1 ? 'snapshot' : 'snapshots'}
+        </span>
+        <span className="truncate text-xs text-muted-foreground">
+          {latest ? (
+            <>
+              Latest observed · {latest.operation ?? 'operation unknown'} ·{' '}
+              <SnapshotTimestamp timestampMs={latest.timestamp_ms} />
+            </>
+          ) : (
+            'No snapshot history observed'
+          )}
+        </span>
+      </div>
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="text-xs text-muted-foreground">Provenance</span>
+        <span className="text-[13px]">Iceberg snapshot metadata</span>
+        <span className="text-xs text-muted-foreground">
+          <span className="block">
+            Nessie ref <Mono>{data.nessie_ref}</Mono>
+          </span>
+          {data.table_name ? (
+            <span className="block break-all">
+              Table <Mono>{data.table_name}</Mono>
+            </span>
+          ) : null}
+        </span>
+      </div>
+      <div className="flex flex-col items-start gap-1">
+        <SnapshotRollbackAction
+          key={selectionRevision}
+          data={data}
+          selected={selected}
+          open={open}
+          onOpenChange={onOpenChange}
+          onRolledBack={onRolledBack}
+        />
+        <span className="max-w-44 text-[11px] text-muted-foreground">
+          Requires table-write access and recent verified MFA.
+        </span>
+      </div>
+    </div>
+  )
+}
+
+export function formatSnapshotTimestamp(timestampMs: number): string {
+  if (!Number.isFinite(new Date(timestampMs).getTime()))
+    return 'Timestamp unavailable'
+  return `${new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'UTC',
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  }).format(timestampMs)} UTC`
+}
+
+function SnapshotTimestamp({ timestampMs }: { timestampMs: number }) {
+  const date = new Date(timestampMs)
+  if (!Number.isFinite(date.getTime())) return <>Timestamp unavailable</>
+  const exact = date.toISOString()
+  return (
+    <time dateTime={exact} title={exact}>
+      {formatSnapshotTimestamp(timestampMs)}
+    </time>
+  )
+}
+
 function checkOutcome(passed: boolean | null) {
   if (passed === null)
     return {
@@ -990,16 +1395,26 @@ function checkOutcome(passed: boolean | null) {
 function AuditRow({
   check,
   executions,
+  historyUnavailable,
 }: {
   check: AssetChecks['definitions'][number]
   executions: AssetChecks['executions']
+  historyUnavailable: boolean
 }) {
-  const history = executions
-    .filter((execution) => execution.check_name === check.name)
-    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-    .slice(0, 20)
+  const history = historyUnavailable
+    ? []
+    : executions
+        .filter((execution) => execution.check_name === check.name)
+        .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+        .slice(0, 20)
   const latest = history[0]
-  const outcome = checkOutcome(latest?.passed ?? null)
+  const outcome = historyUnavailable
+    ? {
+        label: 'History unavailable',
+        tone: 'neutral' as const,
+        bar: 'bg-border',
+      }
+    : checkOutcome(latest?.passed ?? null)
   return (
     <div
       role="row"
@@ -1019,12 +1434,20 @@ function AuditRow({
         Asset check
       </span>
       <span role="cell" className="text-[13.5px]" title={latest?.timestamp}>
-        {latest ? outcome.label : 'No execution'}
+        {historyUnavailable
+          ? 'History unavailable'
+          : latest
+            ? outcome.label
+            : 'No execution'}
       </span>
       <span
         role="cell"
         className="flex gap-[3px]"
-        aria-label={`${history.length} recorded check executions, newest first`}
+        aria-label={
+          historyUnavailable
+            ? 'Check execution history unavailable'
+            : `${history.length} recorded check executions, newest first`
+        }
       >
         {history.map((execution) => (
           <span
@@ -1087,6 +1510,9 @@ export function AuditsTab({
               key={check.name}
               check={check}
               executions={data.executions}
+              historyUnavailable={data.history.unverifiable_checks.includes(
+                check.name,
+              )}
             />
           ))}
         </div>
@@ -1095,6 +1521,12 @@ export function AuditsTab({
         <EmptyState title="No checks defined">
           This is not a passing audit result.
         </EmptyState>
+      ) : null}
+      {data.history.status === 'partial' ? (
+        <p role="status" className="m-0 text-[13px] text-muted-foreground">
+          Some execution history could not be verified for this repository and
+          ref. Affected check history is hidden and is not a passing result.
+        </p>
       ) : null}
       <p className="m-0 text-[13px] text-muted-foreground">
         History shows recorded check executions. Blocking and warning policies

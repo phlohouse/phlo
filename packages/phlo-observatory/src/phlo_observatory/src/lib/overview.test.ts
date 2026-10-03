@@ -139,6 +139,7 @@ describe('dashboard observations', () => {
         addAudit: null,
         data: {
           env: 'prod',
+          history: { status: 'complete', unverifiable_checks: [] },
           definitions: [
             { name: 'recent', description: null },
             { name: 'never_run', description: null },
@@ -169,6 +170,37 @@ describe('dashboard observations', () => {
     expect(markup).toContain('2 recorded check executions, newest first')
   })
 
+  it('hides outcomes for checks whose execution identity is unverifiable', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AuditsTab, {
+        addAudit: null,
+        data: {
+          env: 'prod',
+          history: {
+            status: 'partial',
+            unverifiable_checks: ['registry_quality'],
+          },
+          definitions: [{ name: 'registry_quality', description: null }],
+          executions: [
+            {
+              check_name: 'registry_quality',
+              run_id: 'verified-but-not-authoritative',
+              timestamp: '2026-10-02T12:00:00Z',
+              passed: true,
+              status: 'SUCCEEDED',
+              severity: null,
+            },
+          ],
+        },
+      }),
+    )
+    expect(markup).toContain('History unavailable')
+    expect(markup).toContain('Some execution history could not be verified')
+    expect(markup).not.toContain('No execution')
+    expect(markup).not.toContain('Passed')
+    expect(markup).not.toContain('verified-but-not-authoritative')
+  })
+
   it('preserves large snapshot identifiers and summary counts without numeric coercion', () => {
     const markup = renderToStaticMarkup(
       createElement(SnapshotsTab, {
@@ -192,6 +224,7 @@ describe('dashboard observations', () => {
     expect(markup).toContain('9007199254740993')
     expect(markup).toContain('9007199254740995')
     expect(markup).not.toContain('9007199254740992')
-    expect(markup).toContain('Snapshots observed on staging')
+    expect(markup).toContain('Nessie ref')
+    expect(markup).toContain('staging')
   })
 })

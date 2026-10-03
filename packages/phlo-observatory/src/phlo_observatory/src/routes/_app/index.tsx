@@ -299,7 +299,14 @@ function OverviewPage() {
                     className="flex min-w-0 items-center gap-2 text-[13.5px] text-foreground"
                   >
                     <Dot tone="neutral" />
-                    <span className="truncate">{source.id}</span>
+                    <Link
+                      to="/assets/$assetId"
+                      params={{ assetId: source.id }}
+                      search={{ env: overview.env }}
+                      className="truncate hover:text-link"
+                    >
+                      {source.id}
+                    </Link>
                   </div>
                 ))
               ) : (

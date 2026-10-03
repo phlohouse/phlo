@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (207)
+## Endpoints (209)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -145,6 +145,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `POST` | `/api/v1/assets/{asset_id}/materialize` | V1 Asset Materialize | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/preview` | V1 Asset Preview | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/query-usage` | V1 Asset Query Usage | `v1 assets` |
+| `POST` | `/api/v1/assets/{asset_id}/row-count` | V1 Asset Exact Row Count | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/runs` | V1 Asset Runs | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/usage` | V1 Asset Usage | `v1 assets` |
 | `GET` | `/api/v1/branches` | V1 Branches | `v1 branches` |
@@ -218,4 +219,5 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/tables/{table_name}/schema-history` | V1 Table Schema History | `v1 assets` |
 | `GET` | `/api/v1/tables/{table_name}/snapshots` | V1 Table Snapshots | `v1 assets` |
 | `POST` | `/api/v1/trino/query-completed` | V1 Trino Query Completed | `v1 usage` |
+| `GET` | `/api/v1/wap/runs` | V1 Wap Runs | `v1 WAP` |
 | `GET` | `/health` | Health | none |

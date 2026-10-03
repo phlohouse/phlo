@@ -48,6 +48,23 @@ _PROMOTION_LOCK = asyncio.Lock()
 StagingEnvironment = Annotated[Literal["staging"], Query()]
 
 
+class PromotionCheckReadiness(WireModel):
+    name: Literal["tests", "contracts", "audits"]
+    job_name: str | None
+    status: Literal[
+        "ready",
+        "unconfigured",
+        "missing_job",
+        "missing_evidence",
+        "stale_evidence",
+        "failed",
+        "running",
+        "unavailable",
+    ]
+    run_id: str | None = None
+    message: str
+
+
 class PromotionCandidate(WireModel):
     env: Literal["staging"]
     candidate_id: str
@@ -62,6 +79,8 @@ class PromotionCandidate(WireModel):
     code_paths: list[str]
     code_changes: list[str]
     jobs: dict[str, list[str]]
+    check_readiness: list[PromotionCheckReadiness]
+    check_configuration_ready: bool
     copy_inventory: dict[str, list[str]]
     observed_at: str
 
@@ -320,7 +339,35 @@ async def promotions(request: Request, env: StagingEnvironment) -> dict[str, Any
 async def candidate(request: Request, env: StagingEnvironment) -> dict[str, Any]:
     v1._target(request, env)
     require_scope(request, "lakehouse:read")
-    return await _state()
+    state = await _state()
+    state["check_readiness"] = await _check_readiness(state)
+    state["check_configuration_ready"] = all(
+        item["status"] not in {"unconfigured", "missing_job"} for item in state["check_readiness"]
+    )
+    return state
+
+
+_CHECK_KINDS: tuple[Literal["tests", "contracts", "audits"], ...] = (
+    "tests",
+    "contracts",
+    "audits",
+)
+
+
+def _configured_check_names() -> list[str | None]:
+    names = [
+        item.strip() for item in os.environ.get("PHLO_PROMOTION_DAGSTER_CHECK_JOBS", "").split(",")
+    ]
+    valid = (
+        len(names) == len(_CHECK_KINDS)
+        and len(set(names)) == len(names)
+        and all(re.fullmatch(r"[A-Za-z0-9_]+", name) for name in names)
+    )
+    if not valid:
+        return [None, None, None]
+    configured: list[str | None] = []
+    configured.extend(names)
+    return configured
 
 
 def _check_names() -> list[str]:
@@ -334,58 +381,181 @@ def _check_names() -> list[str]:
         or len(set(names)) != 3
         or any(not re.fullmatch(r"[A-Za-z0-9_]+", name) for name in names)
     ):
-        raise HTTPException(503, "Three distinct test, contract and audit jobs must be configured.")
+        raise HTTPException(
+            503,
+            "Set PHLO_PROMOTION_DAGSTER_CHECK_JOBS to three distinct Dagster job names in "
+            "tests,contracts,audits order; each job must exist in the staging Dagster location.",
+        )
     return names
 
 
-async def _checks(state: dict[str, Any]) -> list[dict[str, Any]]:
-    names = _check_names()
-    query = "query Runs($limit:Int!){runsOrError(limit:$limit){__typename ... on Runs{results{runId status pipelineName tags{key value} repositoryOrigin{repositoryLocationName}}}}}"
-    response = await graphql_request(resolve_dagster_url(), query, {"limit": 100})
-    rows = v1._source_data(response, "runsOrError", "Runs").get("results")
-    if not isinstance(rows, list) or len(rows) > 100:
-        raise BackendUnavailableError("Dagster promotion check evidence is unavailable.")
-    for row in rows:
-        if (
-            not isinstance(row, dict)
-            or not isinstance(row.get("tags"), list)
-            or any(
-                not isinstance(tag, dict)
-                or not isinstance(tag.get("key"), str)
-                or not isinstance(tag.get("value"), str)
-                for tag in row["tags"]
-            )
-        ):
-            raise BadGatewayError("Dagster returned invalid promotion check evidence.")
-    found = []
-    for name in names:
-        matching = [
-            r
-            for r in rows
-            if r.get("pipelineName") == name
-            and isinstance(r.get("repositoryOrigin"), dict)
-            and r["repositoryOrigin"].get("repositoryLocationName") == state["staging_location"]
-            and {t.get("key"): t.get("value") for t in r.get("tags", [])}.get("environment")
-            == "staging"
-            and {t.get("key"): t.get("value") for t in r.get("tags", [])}.get("phlo/ref")
-            == state["staging_ref"]
-            and {t.get("key"): t.get("value") for t in r.get("tags", [])}.get("phlo/code_version")
-            == state["staging_git_revision"]
-            and {t.get("key"): t.get("value") for t in r.get("tags", [])}.get("phlo/nessie_hash")
-            == state["staging_hash"]
-            and {t.get("key"): t.get("value") for t in r.get("tags", [])}.get(
-                "phlo/promotion_candidate"
-            )
-            == state["candidate_id"]
+async def _check_readiness(state: dict[str, Any]) -> list[dict[str, Any]]:
+    names = _configured_check_names()
+    staging_jobs = set(state["jobs"]["staging"])
+    readiness = _initial_check_readiness(names, staging_jobs)
+    if not any(name is not None and name in staging_jobs for name in names):
+        return readiness
+
+    rows = await _promotion_check_runs()
+    if rows is None:
+        return [
+            {
+                **item,
+                "status": "unavailable",
+                "message": "Dagster run evidence could not be read. Retry after Dagster is available.",
+            }
+            if item["status"] == "missing_evidence"
+            else item
+            for item in readiness
         ]
-        if (
-            not matching
-            or matching[0].get("status") != "SUCCESS"
-            or not isinstance(matching[0].get("runId"), str)
-        ):
-            raise HTTPException(409, f"Required Dagster check has not passed: {name}")
-        found.append({"name": name, "status": "passed", "run_id": matching[0]["runId"]})
-    return found
+
+    for index, (kind, name) in enumerate(zip(_CHECK_KINDS, names, strict=True)):
+        if name is None or name not in staging_jobs:
+            continue
+        readiness[index] = _check_run_readiness(kind, name, state, rows)
+    return readiness
+
+
+def _initial_check_readiness(
+    names: list[str | None], staging_jobs: set[str]
+) -> list[dict[str, Any]]:
+    readiness = []
+    for kind, name in zip(_CHECK_KINDS, names, strict=True):
+        if name is None:
+            status, message = (
+                "unconfigured",
+                "Configure PHLO_PROMOTION_DAGSTER_CHECK_JOBS as tests,contracts,audits.",
+            )
+        elif name not in staging_jobs:
+            status, message = (
+                "missing_job",
+                f"Dagster job {name} is not present in the staging location.",
+            )
+        else:
+            status, message = (
+                "missing_evidence",
+                f"No candidate-bound {kind} run has been recorded.",
+            )
+        readiness.append({"name": kind, "job_name": name, "status": status, "message": message})
+    return readiness
+
+
+async def _promotion_check_runs() -> list[dict[str, Any]] | None:
+    query = "query Runs($limit:Int!){runsOrError(limit:$limit){__typename ... on Runs{results{runId status pipelineName tags{key value} repositoryOrigin{repositoryLocationName}}}}}"
+    try:
+        response = await graphql_request(resolve_dagster_url(), query, {"limit": 100})
+        rows = v1._source_data(response, "runsOrError", "Runs").get("results")
+    except Exception:
+        return None
+    if not isinstance(rows, list) or len(rows) > 100:
+        return None
+    if any(
+        not isinstance(row, dict)
+        or not isinstance(row.get("pipelineName"), str)
+        or not isinstance(row.get("status"), str)
+        or (row.get("runId") is not None and not isinstance(row.get("runId"), str))
+        or not isinstance(row.get("tags"), list)
+        or any(
+            not isinstance(tag, dict)
+            or not isinstance(tag.get("key"), str)
+            or not isinstance(tag.get("value"), str)
+            for tag in row.get("tags", [])
+        )
+        for row in rows
+    ):
+        return None
+    return rows
+
+
+def _check_run_readiness(
+    kind: Literal["tests", "contracts", "audits"],
+    name: str,
+    state: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    matching = [row for row in rows if row["pipelineName"] == name]
+    if not matching:
+        return {
+            "name": kind,
+            "job_name": name,
+            "status": "missing_evidence",
+            "message": f"No candidate-bound {kind} run has been recorded.",
+        }
+    staging_location = [
+        row
+        for row in matching
+        if isinstance(row.get("repositoryOrigin"), dict)
+        and row["repositoryOrigin"].get("repositoryLocationName") == state["staging_location"]
+    ]
+    row = (staging_location or matching)[0]
+    tags = {tag["key"]: tag["value"] for tag in row["tags"]}
+    expected = {
+        "environment": "staging",
+        "phlo/ref": state["staging_ref"],
+        "phlo/code_version": state["staging_git_revision"],
+        "phlo/nessie_hash": state["staging_hash"],
+        "phlo/promotion_candidate": state["candidate_id"],
+    }
+    missing = [key for key, value in expected.items() if tags.get(key) != value]
+    location = row.get("repositoryOrigin")
+    if (
+        not isinstance(location, dict)
+        or location.get("repositoryLocationName") != state["staging_location"]
+    ):
+        missing.append("staging Dagster location")
+    run_id = row.get("runId")
+    if missing:
+        return {
+            "name": kind,
+            "job_name": name,
+            "status": "stale_evidence",
+            "run_id": run_id,
+            "message": f"Latest {kind} run is not bound to this candidate: {', '.join(missing)}.",
+        }
+    if not isinstance(run_id, str) or not run_id:
+        return {
+            "name": kind,
+            "job_name": name,
+            "status": "unavailable",
+            "message": f"Dagster did not return a run identifier for the {kind} evidence.",
+        }
+    status = row["status"]
+    if status == "SUCCESS":
+        return {
+            "name": kind,
+            "job_name": name,
+            "status": "ready",
+            "run_id": run_id,
+            "message": "Candidate-bound check passed.",
+        }
+    if status in {"STARTED", "QUEUED", "NOT_STARTED", "MANAGED"}:
+        return {
+            "name": kind,
+            "job_name": name,
+            "status": "running",
+            "run_id": run_id,
+            "message": f"Candidate-bound {kind} check is still running.",
+        }
+    return {
+        "name": kind,
+        "job_name": name,
+        "status": "failed",
+        "run_id": run_id,
+        "message": f"Candidate-bound {kind} check ended with status {status}.",
+    }
+
+
+async def _checks(state: dict[str, Any]) -> list[dict[str, Any]]:
+    _check_names()
+    readiness = await _check_readiness(state)
+    blocked = [item for item in readiness if item["status"] != "ready"]
+    if blocked:
+        detail = "; ".join(f"{item['name']}: {item['message']}" for item in blocked)
+        raise HTTPException(409, f"Promotion checks are not ready: {detail}")
+    return [
+        {"name": kind, "status": "passed", "run_id": item["run_id"]}
+        for kind, item in zip(_CHECK_KINDS, readiness, strict=True)
+    ]
 
 
 @router.post(
@@ -406,6 +576,13 @@ async def checks(
         auth["subject"], "staging.checks", payload.model_dump(), idempotency_key
     )
     names = _check_names()
+    missing_jobs = [name for name in names if name not in state["jobs"]["staging"]]
+    if missing_jobs:
+        raise HTTPException(
+            503,
+            "Configured candidate check jobs are missing from the staging Dagster location: "
+            + ", ".join(missing_jobs),
+        )
 
     async def execute() -> dict[str, Any]:
         branch = BranchReference(

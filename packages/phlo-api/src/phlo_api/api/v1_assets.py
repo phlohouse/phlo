@@ -22,6 +22,7 @@ from phlo.plugins.observatory_settings import (
     StorageUnavailableError,
 )
 from phlo_api.api.v1 import _run_on_ref, _target
+from phlo_api.api.v1_query import QuerySessionView, start_exact_asset_count
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.asset_preview_filters import preview_filters, preview_where
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, NotFoundError
@@ -63,6 +64,10 @@ _CHECK_DEFINITION_LIMIT = 100
 _CHECK_EXECUTION_SCAN_LIMIT = 101
 _OVERVIEW_CHECK_ASSET_LIMIT = 50
 _OVERVIEW_CHECK_LIMIT = 100
+_CHECK_INVENTORY_METADATA_KEY = "phlo/asset-check-inventory"
+_CHECK_INVENTORY_VERSION = 1
+_CHECK_INVENTORY_MAX_BYTES = 16_384
+_EXACT_COUNT_SNAPSHOT_LOOKUP_TIMEOUT_SECONDS = 5
 
 ASSET_QUERY = """query V1Assets {
   repositoriesOrError {
@@ -72,7 +77,7 @@ ASSET_QUERY = """query V1Assets {
         name
         location { name }
         assetNodes {
-          id assetKey { path } description computeKind groupName isMaterializable isObservable isPartitioned
+          id assetKey { path } description computeKind kinds groupName isMaterializable isObservable isPartitioned
           repository { name location { name } }
           hasAssetChecks
           tags { key value }
@@ -80,7 +85,7 @@ ASSET_QUERY = """query V1Assets {
           dependencyKeys { path }
           internalFreshnessPolicy { __typename ... on TimeWindowFreshnessPolicy { failWindowSeconds } }
           metadataEntries {
-            label
+            __typename label
             ... on TextMetadataEntry { text }
             ... on JsonMetadataEntry { jsonString }
             ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
@@ -92,10 +97,11 @@ ASSET_QUERY = """query V1Assets {
             timestamp runId partition
             runOrError {
               __typename
-              ... on Run { runId status tags { key value } repositoryOrigin { repositoryLocationName } }
+              ... on Run { runId status pipelineName tags { key value } repositoryOrigin { repositoryLocationName } }
             }
             metadataEntries {
               label
+              ... on IntMetadataEntry { intValue intRepr }
               ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
               ... on TableColumnLineageMetadataEntry {
                 lineage { columnName columnDeps { assetKey { path } columnName } }
@@ -111,13 +117,13 @@ ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
   assetNodeOrError(assetKey: $assetKey) {
     __typename
     ... on AssetNode {
-      id assetKey { path } description computeKind groupName isMaterializable isObservable isPartitioned
+      id assetKey { path } description computeKind kinds groupName isMaterializable isObservable isPartitioned
       repository { name location { name } }
       jobNames
       dependencyKeys { path }
       internalFreshnessPolicy { __typename ... on TimeWindowFreshnessPolicy { failWindowSeconds } }
       metadataEntries {
-        label description
+        __typename label description
         ... on TextMetadataEntry { text }
         ... on JsonMetadataEntry { jsonString }
         ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
@@ -129,10 +135,11 @@ ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
         timestamp runId partition
         runOrError {
           __typename
-          ... on Run { runId status tags { key value } repositoryOrigin { repositoryLocationName } }
+          ... on Run { runId status pipelineName tags { key value } repositoryOrigin { repositoryLocationName } }
         }
         metadataEntries {
           label
+          ... on IntMetadataEntry { intValue intRepr }
           ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
           ... on TableColumnLineageMetadataEntry {
             lineage { columnName columnDeps { assetKey { path } columnName } }
@@ -159,8 +166,8 @@ ASSET_RUNS_QUERY = """query V1AssetRuns($limit: Int!, $cursor: String) {
     ... on RunsFeedConnection {
       results {
         ... on Run {
-          __typename runId status creationTime startTime endTime
-          repositoryOrigin { repositoryLocationName }
+          __typename runId status creationTime startTime endTime pipelineName
+          repositoryOrigin { repositoryName repositoryLocationName }
           tags { key value }
           assetSelection { path }
         }
@@ -170,7 +177,7 @@ ASSET_RUNS_QUERY = """query V1AssetRuns($limit: Int!, $cursor: String) {
     ... on PythonError { message }
   }
 }"""
-ASSET_CHECKS_QUERY = """query V1AssetChecks($repositorySelector: RepositorySelector!, $limit: Int!) {
+ASSET_CHECKS_QUERY = """query V1AssetChecks($repositorySelector: RepositorySelector!, $limit: Int!, $includeLegacy: Boolean!) {
   repositoriesOrError(repositorySelector: $repositorySelector) {
     __typename
     ... on RepositoryConnection {
@@ -180,7 +187,11 @@ ASSET_CHECKS_QUERY = """query V1AssetChecks($repositorySelector: RepositorySelec
         assetNodes {
           assetKey { path }
           repository { name location { name } }
-          assetChecksOrError(limit: $limit) {
+          metadataEntries {
+            label
+            ... on JsonMetadataEntry { jsonString }
+          }
+          assetChecksOrError(limit: $limit) @include(if: $includeLegacy) {
             __typename
             ... on AssetChecks { checks { name description } }
             ... on AssetCheckNeedsMigrationError { message }
@@ -205,9 +216,17 @@ ASSET_CHECK_EXECUTIONS_QUERY = """query V1AssetCheckExecutions($assetKey: AssetK
         ... on JsonMetadataEntry { jsonString }
       }
     }
-    run { runId tags { key value } repositoryOrigin { repositoryLocationName } }
+    run { runId tags { key value } repositoryOrigin { repositoryLocationName repositoryName } }
   }
 }"""
+
+
+class AssetWriteCount(WireModel):
+    run_id: str
+    job_id: str | None = None
+    timestamp: datetime
+    rows_inserted: int | None = Field(default=None, ge=0)
+    rows_deleted: int | None = Field(default=None, ge=0)
 
 
 class AssetView(WireModel):
@@ -220,12 +239,35 @@ class AssetView(WireModel):
     dependencies: list[list[str]]
     last_materialization_at: datetime | None
     last_run_id: str | None
+    freshness_observed_at: datetime | None = None
+    freshness_source: Literal["dagster_materialization", "iceberg_snapshot"] | None = None
+    freshness_status: Literal["fresh", "stale", "unknown"] = "unknown"
+    freshness_reason: (
+        Literal[
+            "missing_sla",
+            "no_observation",
+            "future_observation",
+            "invalid_observation",
+            "catalog_unavailable",
+            "ambiguous_observation",
+        ]
+        | None
+    ) = None
     relation: str | None = None
     history_scoped: bool = True
     reports: list[str] = Field(default_factory=list)
+    owner: str | None = None
+    source_name: str | None = None
+    schema_contract: str | None = None
+    row_count: int | None = Field(default=None, ge=0)
+    size_bytes: int | None = Field(default=None, ge=0)
+    table_metadata_error: str | None = None
+    materializations: list[AssetWriteCount] = Field(default_factory=list)
+    materialization_history_truncated: bool = False
     layer: Literal["bronze", "silver", "gold"] | None = None
     freshness_sla_seconds: float | None = Field(default=None, gt=0)
     repository_name: str | None = Field(default=None, exclude=True)
+    job_names: list[str] = Field(default_factory=list, exclude=True)
     is_ingestion: bool = Field(default=False, exclude=True)
     check_definition_scope: Literal["unique", "ambiguous", "unknown"] = Field(
         default="unknown", exclude=True
@@ -241,14 +283,29 @@ class AssetPage(WireModel):
 class AssetDetail(AssetView):
     columns: list["AssetColumn"]
     schema_observed_at: datetime | None
+    schema_source: Literal["materialization", "definition", "catalog", "unavailable"] = (
+        "unavailable"
+    )
+    current_snapshot_id: str | None = None
+    sort_order: list[str] | None = None
     column_lineage: dict[str, list["ColumnLineageDependency"]] | None = None
     downstream: list[AssetView] = Field(default_factory=list)
+
+
+class AssetExactCount(WireModel):
+    env: Environment
+    nessie_ref: str
+    source: Literal["trino_count_star"]
+    observed_at: datetime
+    snapshot_id: str
+    query: QuerySessionView
 
 
 class AssetColumn(WireModel):
     name: str
     type: str | None
     description: str | None
+    nullable: bool | None = None
 
 
 class ColumnLineageDependency(WireModel):
@@ -258,10 +315,13 @@ class ColumnLineageDependency(WireModel):
 
 class AssetRun(WireModel):
     run_id: str
+    job_id: str
     status: str
     created_at: AwareDatetime
     started_at: AwareDatetime | None
     ended_at: AwareDatetime | None
+    duration_seconds: float | None = Field(ge=0)
+    selected_assets: list[list[str]] = Field(default_factory=list)
 
 
 class AssetRuns(WireModel):
@@ -291,11 +351,17 @@ class CheckExecution(WireModel):
     metadata: list[CheckMetadata]
 
 
+class CheckHistoryEvidence(WireModel):
+    status: Literal["complete", "partial"]
+    unverifiable_checks: list[str]
+
+
 class AssetChecks(WireModel):
     env: Environment
     asset_id: str
     definitions: list[CheckDefinition]
     executions: list[CheckExecution]
+    history: CheckHistoryEvidence
 
 
 class IcebergSnapshot(WireModel):
@@ -354,13 +420,15 @@ class MaterializationEstimate(WireModel):
     plan_hash: str | None = None
     nessie_ref: str | None = None
     ref_hash: str | None = None
+    job_name: str | None = None
+    job_selection: Literal["automatic", "explicit"] | None = None
     job_snapshot_id: str | None = None
     selected_assets: list[str] = Field(default_factory=list)
     partition_keys: list[str] = Field(default_factory=list)
-    estimated_rows: None = None
-    estimated_cost: None = None
-    estimated_bytes: None = None
-    estimated_duration_seconds: None = None
+    estimated_rows: int | None = Field(default=None, ge=0)
+    estimated_cost: float | None = Field(default=None, ge=0)
+    estimated_bytes: int | None = Field(default=None, ge=0)
+    estimated_duration_seconds: float | None = Field(default=None, ge=0)
     cost_status: str = "unavailable: no cost source is configured"
     workload_status: str = "unavailable: no workload source is configured"
 
@@ -398,7 +466,7 @@ class AssetUsage(WireModel):
 
 
 class MaterializeAssetAction(WireModel):
-    job_name: str = Field(min_length=1)
+    job_name: str | None = Field(default=None, min_length=1)
     partition_key: str | None = None
     dry_run: bool = True
     idempotency_key: str = Field(min_length=1, max_length=128)
@@ -522,27 +590,31 @@ def _decode_asset_run_cursor(cursor: str | None, env: Environment, asset_id: str
 
 
 def _asset_run_view(
-    row: Any, asset_path: list[str], repository_location: str, ref: str
+    row: Any, asset: AssetView, repository_location: str, ref: str
 ) -> AssetRun | None:
     if not isinstance(row, dict) or row.get("__typename") != "Run":
         raise ValueError
-    selection = row.get("assetSelection")
-    if selection is None:
-        return None
-    if not isinstance(selection, list):
-        raise ValueError
-    if not any(_key_path(key) == asset_path for key in selection):
-        return None
     repository = row.get("repositoryOrigin")
     location = repository.get("repositoryLocationName") if isinstance(repository, dict) else None
-    if not isinstance(location, str):
+    repository_name = repository.get("repositoryName") if isinstance(repository, dict) else None
+    if not isinstance(location, str) or not isinstance(repository_name, str):
         raise ValueError
-    if location != repository_location:
+    if location != repository_location or repository_name != asset.repository_name:
         return None
     if not _run_on_ref(row, ref, required=True):
         return None
+    selection = row.get("assetSelection")
+    if selection is None:
+        if not asset.job_names or row.get("pipelineName") not in asset.job_names:
+            return None
+    else:
+        if not isinstance(selection, list):
+            raise ValueError
+        if not any(_key_path(key) == asset.key for key in selection):
+            return None
     status = row.get("status")
     run_id = row.get("runId")
+    job_id = row.get("pipelineName")
     if (
         status
         not in {
@@ -558,22 +630,38 @@ def _asset_run_view(
         }
         or not isinstance(run_id, str)
         or not run_id
+        or not isinstance(job_id, str)
+        or not job_id
     ):
         raise ValueError
+    created_at = datetime.fromtimestamp(float(row["creationTime"]), UTC)
+    started_at = (
+        datetime.fromtimestamp(float(row["startTime"]), UTC)
+        if row.get("startTime") is not None
+        else None
+    )
+    ended_at = (
+        datetime.fromtimestamp(float(row["endTime"]), UTC)
+        if row.get("endTime") is not None
+        else None
+    )
+    duration_seconds = (
+        (ended_at - started_at).total_seconds()
+        if started_at is not None and ended_at is not None
+        else None
+    )
+    if duration_seconds is not None and duration_seconds < 0:
+        raise ValueError
+    selected_assets = [_key_path(key) for key in selection] if selection is not None else []
     return AssetRun(
         run_id=run_id,
+        job_id=job_id,
         status=status,
-        created_at=datetime.fromtimestamp(float(row["creationTime"]), UTC),
-        started_at=(
-            datetime.fromtimestamp(float(row["startTime"]), UTC)
-            if row.get("startTime") is not None
-            else None
-        ),
-        ended_at=(
-            datetime.fromtimestamp(float(row["endTime"]), UTC)
-            if row.get("endTime") is not None
-            else None
-        ),
+        created_at=created_at,
+        started_at=started_at,
+        ended_at=ended_at,
+        duration_seconds=duration_seconds,
+        selected_assets=selected_assets,
     )
 
 
@@ -694,6 +782,30 @@ def _scoped_materialization(node: dict[str, Any], ref: str) -> dict[str, Any] | 
     return None
 
 
+def _declared_text(entries: list[Any], label: str) -> str | None:
+    matches = [
+        entry for entry in entries if isinstance(entry, dict) and entry.get("label") == label
+    ]
+    if len(matches) > 1:
+        raise BadGatewayError(f"Asset has invalid {label} metadata.")
+    if not matches:
+        return None
+    entry = matches[0]
+    if entry.get("__typename") == "NullMetadataEntry" or entry.get("jsonString") == "null":
+        return None
+    value = entry.get("text")
+    if not isinstance(value, str) or not value.strip():
+        raise BadGatewayError(f"Asset has invalid {label} metadata.")
+    return value
+
+
+def _compute_kind(node: dict[str, Any]) -> str | None:
+    kinds = node.get("kinds") or []
+    if not isinstance(kinds, list) or any(not isinstance(kind, str) or not kind for kind in kinds):
+        raise BadGatewayError("Asset has invalid compute kinds.")
+    return node.get("computeKind") or " · ".join(sorted(kinds)) or None
+
+
 def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
     materializable = node.get("isMaterializable")
     if type(materializable) is not bool:
@@ -712,6 +824,17 @@ def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
     except (KeyError, TypeError, ValueError, OSError) as exc:
         raise BadGatewayError("Dagster returned invalid materialization evidence.") from exc
     key = _key_path(node.get("assetKey"))
+    job_names = node.get("jobNames") or []
+    if not isinstance(job_names, list) or any(not isinstance(name, str) for name in job_names):
+        raise BadGatewayError("Dagster returned invalid asset job membership.")
+    materializations = node.get("assetMaterializations") or []
+    if not isinstance(materializations, list):
+        raise BadGatewayError("Dagster returned invalid materialization history.")
+    recent_writes = [
+        item
+        for item in _asset_write_counts(node, ref)
+        if item.timestamp >= datetime.now(UTC) - timedelta(days=7)
+    ]
     layer, freshness_sla = _declared_asset_policy(node)
     reports: list[str] = []
     for entry in node.get("metadataEntries") or []:
@@ -729,7 +852,7 @@ def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
         id="/".join(key),
         key=key,
         description=node.get("description"),
-        compute_kind=node.get("computeKind"),
+        compute_kind=_compute_kind(node),
         group_name=node.get("groupName"),
         layer=layer,
         freshness_sla_seconds=freshness_sla,
@@ -739,8 +862,16 @@ def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
         last_materialization_at=observed,
         last_run_id=run_id,
         history_scoped=latest is not None,
+        freshness_observed_at=observed,
+        freshness_source="dagster_materialization" if observed is not None else None,
         reports=reports,
+        owner=_declared_text(node.get("metadataEntries") or [], "owner"),
+        source_name=_declared_text(node.get("metadataEntries") or [], "source_name"),
+        schema_contract=_declared_text(node.get("metadataEntries") or [], "schema_ref"),
+        materializations=recent_writes,
+        materialization_history_truncated=len(materializations) >= 100,
         repository_name=node["repository"].get("name"),
+        job_names=job_names,
         is_ingestion=any(
             tag.get("key") == "asset_type" and tag.get("value") == "ingestion"
             for tag in node.get("tags") or []
@@ -799,6 +930,125 @@ def _iceberg_history(table_name: str, ref: str, limit: int) -> dict[str, Any]:
         "current_snapshot_id": table.metadata.current_snapshot_id,
         "metadata_location": table.metadata_location,
     }
+
+
+def _iceberg_current_snapshot_id(table_name: str, ref: str) -> str | None:
+    from phlo_iceberg.catalog import get_catalog
+
+    snapshot = get_catalog(ref=ref).load_table(table_name).current_snapshot()
+    snapshot_id = snapshot.snapshot_id if snapshot is not None else None
+    return str(snapshot_id) if snapshot_id is not None else None
+
+
+def _nonnegative_integer(value: Any) -> int | None:
+    if value is None:
+        return None
+    if type(value) is int and value >= 0:
+        return value
+    if isinstance(value, str) and value.isascii() and value.isdecimal():
+        return int(value)
+    raise BadGatewayError("Asset has invalid row-count or size metadata.")
+
+
+def _iceberg_asset_metadata(table_name: str, ref: str) -> dict[str, Any]:
+    """Read current table evidence from the selected ref without scanning data files."""
+    from phlo_iceberg.catalog import get_catalog
+
+    table = get_catalog(ref=ref).load_table(table_name)
+    snapshot = table.current_snapshot()
+    snapshot_summary = getattr(snapshot, "summary", None)
+    summary = snapshot_summary.additional_properties if snapshot_summary is not None else {}
+    raw_snapshot_id = getattr(snapshot, "snapshot_id", None)
+    snapshot_id = str(raw_snapshot_id) if type(raw_snapshot_id) is int else None
+    freshness_observed_at = None
+    freshness_reason = "no_observation" if snapshot is None else None
+    if snapshot is not None:
+        timestamp_ms = getattr(snapshot, "timestamp_ms", None)
+        if type(timestamp_ms) is int:
+            try:
+                freshness_observed_at = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(
+                    milliseconds=timestamp_ms
+                )
+            except OverflowError:
+                freshness_reason = "invalid_observation"
+        else:
+            freshness_reason = "invalid_observation"
+        if snapshot_id is None:
+            freshness_reason = "invalid_observation"
+            freshness_observed_at = None
+    row_count = None
+    if (
+        summary.get("total-position-deletes") == "0"
+        and summary.get("total-equality-deletes") == "0"
+    ):
+        row_count = _nonnegative_integer(summary.get("total-records"))
+    return {
+        "columns": [
+            {
+                "name": field.name,
+                "type": str(field.field_type),
+                "description": field.doc,
+                "nullable": not field.required,
+            }
+            for field in table.schema().fields
+        ],
+        "row_count": row_count,
+        "size_bytes": _nonnegative_integer(summary.get("total-files-size")),
+        "sort_order": [str(field) for field in table.sort_order().fields],
+        "snapshot_id": snapshot_id,
+        "freshness_observed_at": freshness_observed_at,
+        "freshness_reason": freshness_reason,
+    }
+
+
+def _table_stats_reason(metadata: dict[str, Any]) -> str | None:
+    reasons = []
+    if metadata.get("row_count") is None:
+        reasons.append("Exact row count is not provable from the current snapshot metadata.")
+    if metadata.get("size_bytes") is None:
+        reasons.append("Table size is unavailable from the current snapshot metadata.")
+    return " ".join(reasons) or None
+
+
+def _asset_write_counts(node: dict[str, Any], ref: str) -> list[AssetWriteCount]:
+    counts = []
+    for event in node.get("assetMaterializations") or []:
+        if _scoped_materialization({**node, "assetMaterializations": [event]}, ref) is None:
+            continue
+        run = event.get("runOrError") if isinstance(event, dict) else None
+        job_id = None
+        if (
+            isinstance(run, dict)
+            and run.get("__typename") == "Run"
+            and run.get("runId") == event.get("runId")
+            and isinstance(run.get("pipelineName"), str)
+            and run["pipelineName"].strip()
+        ):
+            job_id = run["pipelineName"]
+        entries = event.get("metadataEntries") or []
+        metrics = {}
+        for label in ("rows_inserted", "rows_deleted"):
+            values = [
+                entry
+                for entry in entries
+                if isinstance(entry, dict) and entry.get("label") == label
+            ]
+            if len(values) > 1:
+                raise BadGatewayError("Asset has ambiguous write-count metadata.")
+            entry = values[0] if values else {}
+            metrics[label] = _nonnegative_integer(
+                entry.get("intValue") if entry.get("intValue") is not None else entry.get("intRepr")
+            )
+        if any(value is not None for value in metrics.values()):
+            counts.append(
+                AssetWriteCount(
+                    run_id=event["runId"],
+                    job_id=job_id,
+                    timestamp=datetime.fromtimestamp(float(event["timestamp"]) / 1000, UTC),
+                    **metrics,
+                )
+            )
+    return counts
 
 
 def _iceberg_schema(table_name: str, ref: str) -> tuple[int, list[dict[str, Any]]]:
@@ -941,6 +1191,100 @@ def _page(
     selected = items[offset : offset + limit]
     next_cursor = _cursor(env, kind, offset + limit) if offset + limit < len(items) else None
     return AssetPage(env=env, items=selected, next_cursor=next_cursor)
+
+
+_ASSET_PAGE_STATS_TIMEOUT_SECONDS = 5
+
+
+async def _asset_page_with_table_stats(page: AssetPage, ref: str) -> AssetPage:
+    """Enrich only the returned page using the selected Nessie ref."""
+    semaphore = asyncio.Semaphore(8)
+
+    async def enrich(asset: AssetView) -> AssetView:
+        if asset.relation is None:
+            return asset.model_copy(
+                update={
+                    "table_metadata_error": "No declared table relation is available.",
+                    "freshness_reason": "no_observation"
+                    if asset.freshness_source is None
+                    else asset.freshness_reason,
+                }
+            )
+        try:
+            async with semaphore:
+                metadata = await asyncio.wait_for(
+                    asyncio.to_thread(_iceberg_asset_metadata, _table_name(asset.relation), ref),
+                    timeout=5,
+                )
+        except Exception:
+            return asset.model_copy(
+                update={
+                    "table_metadata_error": "Ref-scoped table statistics are unavailable. Check the catalog connection.",
+                    "freshness_reason": "catalog_unavailable"
+                    if asset.freshness_source is None
+                    else asset.freshness_reason,
+                }
+            )
+        observed = metadata.get("freshness_observed_at")
+        use_snapshot = asset.freshness_source is None
+        return asset.model_copy(
+            update={
+                "row_count": metadata.get("row_count"),
+                "size_bytes": metadata.get("size_bytes"),
+                "table_metadata_error": _table_stats_reason(metadata),
+                "freshness_observed_at": observed if use_snapshot else asset.freshness_observed_at,
+                "freshness_source": "iceberg_snapshot"
+                if use_snapshot and observed is not None
+                else asset.freshness_source,
+                "freshness_reason": metadata.get("freshness_reason")
+                if use_snapshot and observed is None
+                else asset.freshness_reason,
+            }
+        )
+
+    try:
+        items = await asyncio.wait_for(
+            asyncio.gather(*(enrich(item) for item in page.items)),
+            timeout=_ASSET_PAGE_STATS_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        items = [
+            item.model_copy(
+                update={
+                    "row_count": None,
+                    "size_bytes": None,
+                    "table_metadata_error": "Ref-scoped table statistics exceeded the page read time budget.",
+                    "freshness_reason": "catalog_unavailable"
+                    if item.freshness_source is None
+                    else item.freshness_reason,
+                }
+            )
+            for item in page.items
+        ]
+    return page.model_copy(update={"items": items})
+
+
+_AGGREGATE_FRESHNESS_METADATA_LIMIT = 100
+
+
+async def _assets_with_freshness_evidence(
+    assets: list[AssetView], env: Environment, ref: str
+) -> list[AssetView]:
+    """Read selected-ref snapshots within the normal first-page metadata budget."""
+    selected = assets[:_AGGREGATE_FRESHNESS_METADATA_LIMIT]
+    page = await _asset_page_with_table_stats(
+        AssetPage(env=env, items=selected, next_cursor=None), ref
+    )
+    return page.items + [
+        asset.model_copy(
+            update={
+                "freshness_reason": "catalog_unavailable"
+                if asset.freshness_source is None
+                else asset.freshness_reason
+            }
+        )
+        for asset in assets[len(selected) :]
+    ]
 
 
 @router.get("/tables/{table_name}/snapshots", response_model=TableHistory)
@@ -1107,7 +1451,7 @@ async def v1_materialization_estimate(
     )
     _target(request, env, allowed_query=allowed)
     asset_id = asset_id.strip("/")
-    if job_name is not None:
+    if job_name is not None or "partition_count" not in request.query_params:
         plan = await _materialization_plan(
             request,
             env,
@@ -1130,15 +1474,22 @@ async def v1_materialization_estimate(
             plan_hash=_plan_hash(plan),
             nessie_ref=plan["write_ref"],
             ref_hash=plan["ref_hash"],
+            job_name=plan["job_name"],
+            job_selection="explicit" if job_name else "automatic",
             job_snapshot_id=plan["job_snapshot_id"],
             selected_assets=plan["selected_assets"],
             partition_keys=[run["partition_key"] for run in plan["runs"] if run["partition_key"]],
-            workload_status="Partition count and asset selection verified with Dagster; rows, bytes and duration unavailable.",
+            workload_status="Run count, partitions and asset selection verified with Dagster. No future workload or cost estimates are supported.",
         )
     assets = await _assets(request, env, allowed_query=allowed)
     if not any(asset.id == asset_id for asset in assets):
         raise NotFoundError("Asset was not found.")
-    return MaterializationEstimate(env=env, asset_id=asset_id, partition_count=partition_count)
+    return MaterializationEstimate(
+        env=env,
+        asset_id=asset_id,
+        partition_count=partition_count,
+        workload_status="Caller-supplied run count; no launch plan has been verified and no workload source is configured.",
+    )
 
 
 @router.get("/assets/{asset_id:path}/preview", response_model=AssetPreview)
@@ -1806,7 +2157,7 @@ async def _materialization_nodes(
         node = await _scoped_operation_node(key, target.dagster_location, repository)
         origin = node.get("repository", {})
         if (
-            payload.job_name not in node.get("jobNames", [])
+            (payload.job_name is not None and payload.job_name not in node.get("jobNames", []))
             or origin.get("name") != repository
             or origin.get("location", {}).get("name") != target.dagster_location
         ):
@@ -1926,7 +2277,7 @@ async def _materialization_plan(
     target, repository, jobs = await _action_context(
         request, env, asset_id, allowed_query=allowed_query
     )
-    if payload.job_name not in jobs:
+    if payload.job_name is not None and payload.job_name not in jobs:
         raise NotFoundError("Job was not found for this asset.")
     if payload.partition_key is not None or payload.run_config is not None:
         raise HTTPException(
@@ -1944,8 +2295,19 @@ async def _materialization_plan(
     selected, nodes = await _materialization_nodes(
         request, env, asset_id, payload, target, repository, allowed_query=allowed_query
     )
+    job_name = payload.job_name
+    if job_name is None:
+        # Dagster's native materialization uses a discovered implicit job, subset by asset keys.
+        common = set(jobs).intersection(*(set(node.get("jobNames", [])) for node in nodes))
+        implicit = sorted(name for name in common if name.startswith("__ASSET_JOB"))
+        if len(implicit) != 1:
+            raise HTTPException(
+                status_code=422,
+                detail="No unique automatic asset job covers this selection. Select a named job explicitly.",
+            )
+        job_name = implicit[0]
     selector = {
-        "pipelineName": payload.job_name,
+        "pipelineName": job_name,
         "repositoryName": repository,
         "repositoryLocationName": target.dagster_location,
     }
@@ -1963,6 +2325,7 @@ async def _materialization_plan(
         "write_ref": ref.name,
         "ref_hash": ref.hash,
         "selected_assets": selected,
+        "job_name": job_name,
         "job_snapshot_id": job["pipelineSnapshotId"],
         "op_versions": [node.get("opVersion") for node in nodes],
         "mode": payload.mode,
@@ -2008,7 +2371,7 @@ async def v1_asset_materialize(
     asset_id = asset_id.strip("/")
     target, repository_name, job_names = await _action_context(request, env, asset_id)
     auth = require_scope(request, "lakehouse:operate")
-    if payload.job_name not in job_names:
+    if (payload.mode is None or payload.job_name is not None) and payload.job_name not in job_names:
         raise NotFoundError("Job was not found for this asset.")
     enforce_rate_limit(auth["subject"], "materialize_asset")
     require_idempotency_key(payload.idempotency_key)
@@ -2048,7 +2411,7 @@ async def v1_asset_materialize(
                     await provider.materialize_asset(
                         asset_id,
                         {
-                            "job_name": payload.job_name,
+                            "job_name": plan["job_name"],
                             "dry_run": payload.dry_run,
                             "partition_key": run["partition_key"],
                             "run_config": run["run_config"],
@@ -2077,6 +2440,7 @@ async def v1_asset_materialize(
                 and all(item.get("accepted") is True for item in results),
                 "run_ids": [item["run_id"] for item in results if item.get("run_id")],
                 "runs": results,
+                "job_name": plan["job_name"],
                 "plan_hash": payload.plan_hash,
                 "dry_run": payload.dry_run,
             }
@@ -2233,12 +2597,24 @@ async def v1_asset_backfill(
 async def v1_assets(
     request: Request, env: Environment = Query(), limit: Limit = 100, cursor: str | None = None
 ) -> AssetPage:
-    return _page(
+    target = _target(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
+    page = _page(
         env,
         "assets",
         await _assets(request, env, allowed_query=frozenset({"env", "limit", "cursor"})),
         limit,
         cursor,
+    )
+    page = await _asset_page_with_table_stats(page, target.nessie_ref)
+    try:
+        policies, defaults = _freshness_policy_inputs(request, env)
+    except BackendUnavailableError:
+        policies, defaults = {}, None
+    now = datetime.now(UTC)
+    return page.model_copy(
+        update={
+            "items": [_apply_asset_freshness(item, policies, defaults, now) for item in page.items]
+        }
     )
 
 
@@ -2278,9 +2654,7 @@ async def v1_asset_runs(
             item
             for row in rows
             if (
-                item := _asset_run_view(
-                    row, asset_id.split("/"), target.dagster_location, target.nessie_ref
-                )
+                item := _asset_run_view(row, matches[0], target.dagster_location, target.nessie_ref)
             )
             is not None
         ]
@@ -2458,34 +2832,47 @@ async def v1_asset_checks(
     ]
     if not matches:
         raise NotFoundError("Asset was not found.")
-    if matches[0].check_definition_scope != "unique":
-        raise BackendUnavailableError(
-            "Check definitions cannot be isolated: repository-local hasAssetChecks proof is "
-            "missing or another repository declares checks for this asset. Use a workspace "
-            "with uniquely scoped check definitions."
-        )
     definitions = await _asset_check_definitions(
-        key, target.dagster_location, matches[0].repository_name
+        key,
+        target.dagster_location,
+        matches[0].repository_name,
+        allow_legacy=matches[0].check_definition_scope == "unique",
     )
-    executions = await _asset_check_executions(
+    executions, unverifiable_checks = await _asset_check_executions(
         key,
         [definition.name for definition in definitions],
         target.dagster_location,
+        matches[0].repository_name,
         target.nessie_ref,
         limit,
     )
-    return AssetChecks(env=env, asset_id=asset_id, definitions=definitions, executions=executions)
+    return AssetChecks(
+        env=env,
+        asset_id=asset_id,
+        definitions=definitions,
+        executions=executions,
+        history=CheckHistoryEvidence(
+            status="partial" if unverifiable_checks else "complete",
+            unverifiable_checks=sorted(unverifiable_checks),
+        ),
+    )
 
 
 async def _asset_check_definitions(
-    key: list[str], repository_location: str, repository_name: str | None
+    key: list[str],
+    repository_location: str,
+    repository_name: str | None,
+    *,
+    allow_legacy: bool = True,
 ) -> list[CheckDefinition]:
-    nodes = await _asset_check_inventory(repository_location, repository_name)
-    return _check_definitions(nodes, key)
+    nodes = await _asset_check_inventory(
+        repository_location, repository_name, include_legacy=allow_legacy
+    )
+    return _check_definitions(nodes, key, allow_legacy=allow_legacy)
 
 
 async def _asset_check_inventory(
-    repository_location: str, repository_name: str | None
+    repository_location: str, repository_name: str | None, *, include_legacy: bool
 ) -> list[dict[str, Any]]:
     if not repository_name:
         raise BackendUnavailableError("Dagster asset-check repository identity is unavailable.")
@@ -2497,6 +2884,7 @@ async def _asset_check_inventory(
                 "repositoryName": repository_name,
             },
             "limit": _CHECK_DEFINITION_LIMIT + 1,
+            "includeLegacy": include_legacy,
         },
     )
     data = result.get("data")
@@ -2512,11 +2900,19 @@ async def _asset_check_inventory(
     return _check_nodes_for_location(nodes, repository_location, repository_name)
 
 
-def _check_definitions(nodes: list[dict[str, Any]], key: list[str]) -> list[CheckDefinition]:
+def _check_definitions(
+    nodes: list[dict[str, Any]], key: list[str], *, allow_legacy: bool
+) -> list[CheckDefinition]:
     scoped_nodes = [node for node in nodes if _key_path(node.get("assetKey")) == key]
     if len(scoped_nodes) != 1:
         raise BackendUnavailableError("Dagster asset-check definitions are not uniquely scoped.")
-    response = scoped_nodes[0].get("assetChecksOrError")
+    node = scoped_nodes[0]
+    export = _local_check_export(node, key)
+    if export is not None:
+        return export
+    if not allow_legacy:
+        raise BackendUnavailableError("Repository-local asset-check export is unavailable.")
+    response = node.get("assetChecksOrError")
     if not isinstance(response, dict) or response.get("__typename") != "AssetChecks":
         raise BackendUnavailableError("Dagster asset-check definitions are unavailable.")
     raw_checks = response.get("checks")
@@ -2528,6 +2924,64 @@ def _check_definitions(nodes: list[dict[str, Any]], key: list[str]) -> list[Chec
         return [CheckDefinition.model_validate(item) for item in raw_checks]
     except (TypeError, ValueError) as exc:
         raise BadGatewayError("Dagster returned invalid asset-check definitions.") from exc
+
+
+def _local_check_export(node: dict[str, Any], key: list[str]) -> list[CheckDefinition] | None:
+    if "metadataEntries" not in node:
+        return None
+    entries = node.get("metadataEntries")
+    if not isinstance(entries, list):
+        raise BadGatewayError("Dagster returned invalid asset-check export metadata.")
+    matches = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("label") == _CHECK_INVENTORY_METADATA_KEY
+    ]
+    if not matches:
+        return None
+    if len(matches) != 1 or not isinstance(matches[0].get("jsonString"), str):
+        raise BadGatewayError("Dagster returned invalid asset-check export metadata.")
+    raw = matches[0]["jsonString"]
+    if len(raw.encode()) > _CHECK_INVENTORY_MAX_BYTES:
+        raise BackendUnavailableError("Repository-local asset-check export exceeds its bound.")
+    try:
+        payload = json.loads(raw)
+        if (
+            not isinstance(payload, dict)
+            or type(payload.get("version")) is not int
+            or payload["version"] != _CHECK_INVENTORY_VERSION
+            or payload.get("asset_key") != key
+            or type(payload.get("complete")) is not bool
+            or not isinstance(payload.get("checks"), list)
+            or not isinstance(payload.get("digest"), str)
+        ):
+            raise ValueError
+        digest = payload.pop("digest")
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        if hashlib.sha256(canonical).hexdigest() != digest:
+            raise ValueError
+        if not payload["complete"]:
+            raise BackendUnavailableError("Repository-local asset-check export is incomplete.")
+        checks = payload["checks"]
+        if len(checks) > _CHECK_DEFINITION_LIMIT:
+            raise BackendUnavailableError("Repository-local asset-check export exceeds its bound.")
+        definitions = [CheckDefinition.model_validate(item) for item in checks]
+        if len({definition.name for definition in definitions}) != len(
+            definitions
+        ) or definitions != sorted(definitions, key=lambda item: item.name):
+            raise ValueError
+        return definitions
+    except BackendUnavailableError:
+        raise
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise BadGatewayError("Dagster returned invalid asset-check export metadata.") from exc
+
+
+def _has_local_check_export(nodes: list[dict[str, Any]], key: list[str]) -> bool:
+    scoped_nodes = [node for node in nodes if _key_path(node.get("assetKey")) == key]
+    if len(scoped_nodes) != 1:
+        raise BackendUnavailableError("Dagster asset-check definitions are not uniquely scoped.")
+    return _local_check_export(scoped_nodes[0], key) is not None
 
 
 def _check_nodes_for_location(
@@ -2564,24 +3018,36 @@ def _check_nodes_for_location(
 
 
 async def _asset_check_executions(
-    key: list[str], check_names: list[str], repository_location: str, ref: str, limit: int
-) -> list[CheckExecution]:
-    groups, _ = await _asset_check_execution_groups(
-        key, check_names, repository_location, ref, limit
+    key: list[str],
+    check_names: list[str],
+    repository_location: str,
+    repository_name: str | None,
+    ref: str,
+    limit: int,
+) -> tuple[list[CheckExecution], set[str]]:
+    groups, _, unverifiable_checks = await _asset_check_execution_groups(
+        key, check_names, repository_location, repository_name, ref, limit
     )
-    executions = [item for group in groups.values() for item in group]
+    executions = [
+        item for name, group in groups.items() if name not in unverifiable_checks for item in group
+    ]
     executions.sort(key=lambda item: (item.timestamp, item.check_name, item.run_id), reverse=True)
-    return executions[:limit]
+    return executions[:limit], unverifiable_checks
 
 
 async def _asset_check_execution_groups(
-    key: list[str], check_names: list[str], repository_location: str, ref: str, limit: int
-) -> tuple[dict[str, list[CheckExecution]], dict[str, int]]:
+    key: list[str],
+    check_names: list[str],
+    repository_location: str,
+    repository_name: str | None,
+    ref: str,
+    limit: int,
+) -> tuple[dict[str, list[CheckExecution]], dict[str, int], set[str]]:
     semaphore = asyncio.Semaphore(8)
 
     async def executions_for_check(
         check_name: str,
-    ) -> tuple[str, int, list[CheckExecution]]:
+    ) -> tuple[str, int, list[CheckExecution], bool]:
         async with semaphore:
             result = await _graphql(
                 ASSET_CHECK_EXECUTIONS_QUERY,
@@ -2591,50 +3057,68 @@ async def _asset_check_execution_groups(
         rows = data.get("assetCheckExecutions") if isinstance(data, dict) else None
         if result.get("errors") or not isinstance(rows, list) or len(rows) > limit:
             raise BadGatewayError("Dagster returned invalid asset-check history.")
+        executions, history_verified = _normalize_check_executions(
+            rows, repository_location, repository_name, ref, check_name
+        )
         return (
             check_name,
             len(rows),
-            _normalize_check_executions(rows, repository_location, ref, check_name),
+            executions,
+            history_verified,
         )
 
     groups = await asyncio.gather(*(executions_for_check(name) for name in check_names))
     return (
-        {name: executions for name, _, executions in groups},
-        {name: count for name, count, _ in groups},
+        {name: executions for name, _, executions, _ in groups},
+        {name: count for name, count, _, _ in groups},
+        {name for name, _, _, verified in groups if not verified},
     )
 
 
 def _normalize_check_executions(
-    raw_executions: list[Any], repository_location: str, ref: str, check_name: str
-) -> list[CheckExecution]:
-    scoped = [
-        _normalize_check_execution(execution, repository_location, ref, check_name)
-        for execution in raw_executions
-    ]
-    return [execution for execution in scoped if execution is not None]
+    raw_executions: list[Any],
+    repository_location: str,
+    repository_name: str | None,
+    ref: str,
+    check_name: str,
+) -> tuple[list[CheckExecution], bool]:
+    scoped = []
+    history_verified = True
+    for raw_execution in raw_executions:
+        try:
+            execution, verified = _normalize_check_execution(
+                raw_execution, repository_location, repository_name, ref, check_name
+            )
+        except (BadGatewayError, TypeError, ValueError, OverflowError):
+            execution, verified = None, False
+        if not verified:
+            history_verified = False
+        if execution is not None:
+            scoped.append(execution)
+    return scoped, history_verified
 
 
 def _normalize_check_execution(
-    execution: Any, repository_location: str, ref: str, check_name: str
-) -> CheckExecution | None:
+    execution: Any,
+    repository_location: str,
+    repository_name: str | None,
+    ref: str,
+    check_name: str,
+) -> tuple[CheckExecution | None, bool]:
     if not isinstance(execution, dict):
-        raise BadGatewayError("Dagster returned invalid asset-check history.")
+        return None, False
     run_id = execution.get("runId")
-    # Runless evaluations have no repository identity; omit rather than risk
-    # disclosing another location's same-key check evaluation.
+    # Runless evaluations have no verifiable repository identity.
     if not isinstance(run_id, str) or not run_id:
-        return None
+        return None, False
     run = execution.get("run")
-    origin = run.get("repositoryOrigin") if isinstance(run, dict) else None
-    location = origin.get("repositoryLocationName") if isinstance(origin, dict) else None
-    if not isinstance(location, str):
-        raise BadGatewayError("Dagster could not verify an asset-check run location.")
-    if location != repository_location:
-        return None
-    if run.get("runId") != run_id:
-        raise BadGatewayError("Dagster returned an asset-check run with mismatched identity.")
-    if not _run_on_ref(run, ref, required=True):
-        return None
+    matches_target, identity_verified = _check_execution_run_scope(
+        run, run_id, repository_location, repository_name, ref
+    )
+    if not identity_verified:
+        return None, False
+    if not matches_target:
+        return None, True
     evaluation = execution.get("evaluation")
     evaluation = evaluation if isinstance(evaluation, dict) else None
     passed = evaluation.get("success") if evaluation is not None else None
@@ -2658,7 +3142,44 @@ def _normalize_check_execution(
         passed=passed,
         severity=evaluation.get("severity") if evaluation is not None else None,
         metadata=metadata,
+    ), True
+
+
+def _check_execution_run_scope(
+    run: Any, run_id: str, repository_location: str, repository_name: str | None, ref: str
+) -> tuple[bool, bool]:
+    if not isinstance(run, dict):
+        return False, False
+    run_run_id = run.get("runId")
+    if not isinstance(run_run_id, str) or not run_run_id or run_run_id != run_id:
+        return False, False
+    origin = run.get("repositoryOrigin")
+    location = origin.get("repositoryLocationName") if isinstance(origin, dict) else None
+    origin_repository = origin.get("repositoryName") if isinstance(origin, dict) else None
+    if not isinstance(location, str) or not location:
+        return False, False
+    if location != repository_location:
+        return False, True
+    if not isinstance(origin_repository, str) or not origin_repository:
+        return False, False
+    if origin_repository != repository_name:
+        return False, True
+    tags = run.get("tags")
+    ref_values = (
+        [tag.get("value") for tag in tags if isinstance(tag, dict) and tag.get("key") == "phlo/ref"]
+        if isinstance(tags, list)
+        else []
     )
+    if (
+        not isinstance(tags, list)
+        or len(ref_values) != 1
+        or not isinstance(ref_values[0], str)
+        or not ref_values[0]
+    ):
+        return False, False
+    if ref_values[0] != ref:
+        return False, True
+    return True, True
 
 
 async def _overview_quality_checks(
@@ -2666,26 +3187,37 @@ async def _overview_quality_checks(
 ) -> QualityCheckEvidence:
     if len(assets) > _OVERVIEW_CHECK_ASSET_LIMIT:
         return QualityCheckEvidence(status="unknown", counts=None, reason="asset_limit_exceeded")
-    if any(asset.check_definition_scope != "unique" for asset in assets):
-        return QualityCheckEvidence(
-            status="unknown", counts=None, reason="check_definition_scope_unverified"
-        )
-    definitions_by_asset: list[tuple[list[str], list[CheckDefinition]]] = []
+    definitions_by_asset: list[tuple[list[str], str | None, list[CheckDefinition]]] = []
     inventories: dict[str | None, list[dict[str, Any]]] = {}
+    ambiguous_repositories = {
+        asset.repository_name for asset in assets if asset.check_definition_scope != "unique"
+    }
     definition_count = 0
     for asset in assets:
         key = asset.id.split("/")
         if asset.repository_name not in inventories:
             inventories[asset.repository_name] = await _asset_check_inventory(
-                repository_location, asset.repository_name
+                repository_location,
+                asset.repository_name,
+                include_legacy=asset.repository_name not in ambiguous_repositories,
             )
-        definitions = _check_definitions(inventories[asset.repository_name], key)
+        if asset.check_definition_scope != "unique" and not _has_local_check_export(
+            inventories[asset.repository_name], key
+        ):
+            return QualityCheckEvidence(
+                status="unknown", counts=None, reason="check_definition_scope_unverified"
+            )
+        definitions = _check_definitions(
+            inventories[asset.repository_name],
+            key,
+            allow_legacy=asset.check_definition_scope == "unique",
+        )
         definition_count += len(definitions)
         if definition_count > _OVERVIEW_CHECK_LIMIT:
             return QualityCheckEvidence(
                 status="unknown", counts=None, reason="check_limit_exceeded"
             )
-        definitions_by_asset.append((key, definitions))
+        definitions_by_asset.append((key, asset.repository_name, definitions))
 
     if definition_count == 0:
         return QualityCheckEvidence(status="unknown", counts=None, reason="no_checks_defined")
@@ -2693,13 +3225,22 @@ async def _overview_quality_checks(
     total = definition_count
     unevaluated = 0
     failing_assets: list[str] = []
-    for key, definitions in definitions_by_asset:
+    for key, repository_name, definitions in definitions_by_asset:
         names = [definition.name for definition in definitions]
         if not names:
             continue
-        histories, raw_counts = await _asset_check_execution_groups(
-            key, names, repository_location, ref, _CHECK_EXECUTION_SCAN_LIMIT
+        histories, raw_counts, unverifiable_checks = await _asset_check_execution_groups(
+            key,
+            names,
+            repository_location,
+            repository_name,
+            ref,
+            _CHECK_EXECUTION_SCAN_LIMIT,
         )
+        if unverifiable_checks:
+            return QualityCheckEvidence(
+                status="unknown", counts=None, reason="check_history_scope_unverified"
+            )
         for name in names:
             latest_evaluation = max(
                 histories[name],
@@ -2793,6 +3334,41 @@ async def v1_asset_detail(
 
     latest_schema = schema_columns(materialization_entries)
     columns = latest_schema or schema_columns(definition_entries)
+    schema_source: Literal["materialization", "definition", "catalog", "unavailable"] = (
+        "materialization" if latest_schema else "definition" if columns else "unavailable"
+    )
+    schema_observed_at = detail.last_materialization_at if latest_schema else None
+    table_metadata: dict[str, Any] = {}
+    table_metadata_error = None
+    if detail.relation:
+        try:
+            table_metadata = await asyncio.wait_for(
+                asyncio.to_thread(
+                    _iceberg_asset_metadata, _table_name(detail.relation), target.nessie_ref
+                ),
+                timeout=5,
+            )
+        except Exception:
+            table_metadata_error = (
+                "Ref-scoped table metadata is unavailable. Check the catalog connection."
+            )
+        if not table_metadata_error:
+            table_metadata_error = _table_stats_reason(table_metadata)
+        if detail.freshness_source is None:
+            detail = detail.model_copy(
+                update={
+                    "freshness_observed_at": table_metadata.get("freshness_observed_at"),
+                    "freshness_source": "iceberg_snapshot"
+                    if table_metadata.get("freshness_observed_at") is not None
+                    else None,
+                    "freshness_reason": table_metadata.get("freshness_reason")
+                    or ("catalog_unavailable" if table_metadata_error else "no_observation"),
+                }
+            )
+        if not columns and table_metadata.get("columns"):
+            columns = [AssetColumn.model_validate(column) for column in table_metadata["columns"]]
+            schema_source = "catalog"
+            schema_observed_at = datetime.now(UTC)
 
     observed_lineage = _column_lineage(materialization_entries) or _column_lineage(
         definition_entries
@@ -2811,12 +3387,65 @@ async def v1_asset_detail(
         downstream.extend(next_assets)
         reachable.update(item.id for item in next_assets)
         remaining = [item for item in remaining if item.id not in reachable]
-    return AssetDetail(
-        **detail.model_dump(),
-        columns=columns,
-        schema_observed_at=detail.last_materialization_at if latest_schema else None,
-        column_lineage=observed_lineage,
-        downstream=downstream,
+    detail_payload = detail.model_dump()
+    detail_payload.update(
+        {
+            "columns": columns,
+            "schema_observed_at": schema_observed_at,
+            "schema_source": schema_source,
+            "row_count": table_metadata.get("row_count"),
+            "size_bytes": table_metadata.get("size_bytes"),
+            "current_snapshot_id": table_metadata.get("snapshot_id"),
+            "sort_order": table_metadata.get("sort_order"),
+            "table_metadata_error": table_metadata_error,
+            "materializations": _asset_write_counts(payload, target.nessie_ref),
+            "column_lineage": observed_lineage,
+            "downstream": downstream,
+        }
+    )
+    try:
+        policies, defaults = _freshness_policy_inputs(request, env)
+    except BackendUnavailableError:
+        policies, defaults = {}, None
+    detail = _apply_asset_freshness(
+        AssetDetail.model_validate(detail_payload), policies, defaults, datetime.now(UTC)
+    )
+    return AssetDetail.model_validate(detail.model_dump())
+
+
+@router.post("/assets/{asset_id:path}/row-count", response_model=AssetExactCount, status_code=202)
+async def v1_asset_exact_row_count(
+    request: Request, asset_id: str, env: Environment = Query()
+) -> AssetExactCount:
+    asset_id = asset_id.strip("/")
+    target = _target(request, env)
+    nodes = await _asset_nodes(request, env)
+    matches = [node for node in nodes if _key_path(node.get("assetKey")) == asset_id.split("/")]
+    if not matches:
+        raise NotFoundError("Asset was not found.")
+    table_name = _declared_relation(matches[0].get("metadataEntries") or [])
+    if table_name is None:
+        raise BackendUnavailableError("This asset has no declared Iceberg table to count.")
+    table_name = _table_name(table_name)
+    try:
+        snapshot_id = await asyncio.wait_for(
+            asyncio.to_thread(_iceberg_current_snapshot_id, table_name, target.nessie_ref),
+            timeout=_EXACT_COUNT_SNAPSHOT_LOOKUP_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        raise BackendUnavailableError(
+            "The selected-ref Iceberg snapshot identity is unavailable."
+        ) from exc
+    if snapshot_id is None:
+        raise BackendUnavailableError("The selected-ref table has no current snapshot to count.")
+    query = start_exact_asset_count(request, env, table_name=table_name, snapshot_id=snapshot_id)
+    return AssetExactCount(
+        env=env,
+        nessie_ref=target.nessie_ref,
+        source="trino_count_star",
+        observed_at=datetime.now(UTC),
+        snapshot_id=snapshot_id,
+        query=query,
     )
 
 
@@ -2868,17 +3497,40 @@ def _count_freshness(
 ) -> FreshnessCounts:
     counts = {"fresh": 0, "stale": 0, "unknown": 0}
     for asset in assets:
-        sla = policies.get(asset.id, asset.freshness_sla_seconds)
-        if sla is None and defaults is not None:
-            sla = defaults.freshness_sla_seconds(asset.layer)
-        observed = asset.last_materialization_at
-        if sla is None or observed is None or observed > now:
-            counts["unknown"] += 1
-        elif (now - observed).total_seconds() > sla:
-            counts["stale"] += 1
-        else:
-            counts["fresh"] += 1
+        status, _ = _freshness_state(asset, policies, defaults, now)
+        counts[status] += 1
     return FreshnessCounts(**counts)
+
+
+def _freshness_state(
+    asset: AssetView,
+    policies: dict[str, int],
+    defaults: OperationalSettings | None,
+    now: datetime,
+) -> tuple[Literal["fresh", "stale", "unknown"], str | None]:
+    sla = policies.get(asset.id, asset.freshness_sla_seconds)
+    if sla is None and defaults is not None:
+        sla = defaults.freshness_sla_seconds(asset.layer)
+    if sla is None:
+        return "unknown", "missing_sla"
+    observed = asset.freshness_observed_at
+    if observed is None:
+        return "unknown", asset.freshness_reason or "no_observation"
+    if observed > now:
+        return "unknown", "future_observation"
+    if (now - observed).total_seconds() > sla:
+        return "stale", None
+    return "fresh", None
+
+
+def _apply_asset_freshness(
+    asset: AssetView,
+    policies: dict[str, int],
+    defaults: OperationalSettings | None,
+    now: datetime,
+) -> AssetView:
+    status, reason = _freshness_state(asset, policies, defaults, now)
+    return asset.model_copy(update={"freshness_status": status, "freshness_reason": reason})
 
 
 @router.get("/layers", response_model=LayerPage)
@@ -2886,6 +3538,8 @@ async def v1_layers(
     request: Request, env: Environment = Query(), limit: Limit = 100, cursor: str | None = None
 ) -> LayerPage:
     assets = await _assets(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
+    target = _target(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
+    assets = await _assets_with_freshness_evidence(assets, env, target.nessie_ref)
     groups: dict[
         tuple[str | None, Literal["bronze", "silver", "gold"] | None], list[AssetView]
     ] = {}
@@ -2927,6 +3581,7 @@ async def v1_overview(request: Request, env: Environment = Query()) -> OverviewR
     from phlo_api.incidents import incident_stats
 
     target = _target(request, env)
+    assets = await _assets_with_freshness_evidence(assets, env, target.nessie_ref)
     runs = await _runs(target.dagster_location, target.nessie_ref)
     try:
         quality_checks = await _overview_quality_checks(

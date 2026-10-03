@@ -37,6 +37,8 @@ export const overviewSchema = z.object({
 
 export const servicesSchema = z.object({
   env: environmentSchema,
+  dagster_location: z.string().nullable().optional(),
+  nessie_ref: z.string().nullable().optional(),
   items: z.array(
     z.object({
       id: z.string(),
@@ -57,6 +59,7 @@ export const servicesSchema = z.object({
         .enum(['configured', 'available', 'disabled', 'unknown'])
         .optional(),
       reason: z.string().nullable().optional(),
+      health_origin: z.string().nullable().optional(),
     }),
   ),
   next_cursor: z.string().nullable(),
@@ -64,6 +67,14 @@ export const servicesSchema = z.object({
 
 export type ObservatoryOverview = z.infer<typeof overviewSchema>
 export type ObservatoryServiceList = z.infer<typeof servicesSchema>
+
+export function environmentServices(services: ObservatoryServiceList['items']) {
+  return services.filter(
+    (service) =>
+      service.reason !== 'no_environment_binding' &&
+      service.reason !== 'disabled',
+  )
+}
 
 export function serviceHealthTone(
   service: ObservatoryServiceList['items'][number],
@@ -86,6 +97,15 @@ export function serviceHealthLabel(
   service: ObservatoryServiceList['items'][number],
   now = Date.now(),
 ): string {
+  if (service.reason === 'no_environment_binding') return 'not bound'
+  if (service.reason === 'probe_not_configured') return 'not configured'
+  if (
+    service.reason === 'health_probe_failed' ||
+    service.reason === 'health_probe_http_error'
+  )
+    return 'probe failed'
+  if (service.reason === 'health_probe_deadline_exceeded')
+    return 'probe timed out'
   if (
     (service.status === 'healthy' || service.status === 'degraded') &&
     serviceHealthTone(service, now) === 'neutral'
@@ -102,6 +122,70 @@ const apiErrorMessages: Partial<Record<number, string>> = {
   401: 'Sign in to access Phlo. Your session may have expired.',
   403: 'Your account does not have permission for this page or action. Contact a Phlo administrator.',
 }
+const publicApiErrorSchema = z.object({
+  error: z.object({
+    code: z.literal('backend_unavailable'),
+    message: z
+      .string()
+      .max(280)
+      .refine((message) => message.trim() === message)
+      .refine(
+        (message) =>
+          !Array.from(message).some((character) => {
+            const point = character.codePointAt(0) ?? 0
+            return point < 32 || point === 127
+          }),
+      )
+      .refine(
+        (message) =>
+          !/\b(authorization|bearer|token|password|secret|api[_-]?key)\s*[:=]\s*\S+/i.test(
+            message,
+          ),
+      ),
+  }),
+})
+
+export class PhloApiError extends Error {
+  constructor(
+    readonly status: number,
+    detail?: string,
+  ) {
+    const safeDetail = detail
+      ?.split('')
+      .filter((character) => {
+        const code = character.charCodeAt(0)
+        return code >= 32 && code !== 127
+      })
+      .join('')
+      .replace(
+        /\b(authorization|bearer|token|password|secret|api[_-]?key)\s*[:=]\s*\S+/gi,
+        '$1=[redacted]',
+      )
+      .trim()
+      .slice(0, 240)
+    super(
+      [
+        apiErrorMessages[status] ?? `Phlo API request failed (${status}).`,
+        safeDetail && safeDetail.length > 0 ? safeDetail : undefined,
+      ]
+        .filter(Boolean)
+        .join(' '),
+    )
+    this.name = 'PhloApiError'
+  }
+}
+
+async function apiErrorDetail(response: Response): Promise<string | undefined> {
+  if (response.status !== 503) return
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    return
+  }
+  const result = publicApiErrorSchema.safeParse(payload)
+  return result.success ? result.data.error.message : undefined
+}
 
 export async function parseApiResponse<T>({
   response,
@@ -115,10 +199,7 @@ export async function parseApiResponse<T>({
   responseType?: 'json' | 'text'
 }): Promise<T> {
   if (!response.ok)
-    throw new Error(
-      apiErrorMessages[response.status] ??
-        `Phlo API request failed (${response.status}).`,
-    )
+    throw new PhloApiError(response.status, await apiErrorDetail(response))
   let payload: unknown
   try {
     const text = await response.text()

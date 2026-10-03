@@ -552,7 +552,12 @@ function IncidentRuns({
       {runs.error ? (
         <EmptyState title="Runs unavailable">{runs.error}</EmptyState>
       ) : runs.items.length ? (
-        <div className="overflow-x-auto rounded-lg border border-border-card">
+        <div
+          role="region"
+          aria-label="Incident run history"
+          tabIndex={0}
+          className="overflow-x-auto rounded-lg border border-border-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
           <Table className="min-w-[620px] whitespace-nowrap">
             <TableHeader>
               <TableRow>
@@ -633,6 +638,8 @@ export function IncidentDetail({
   const [tab, setTab] = React.useState<
     'summary' | 'postmortem' | 'activity' | 'runs' | 'lineage'
   >(incident.status === 'resolved' ? 'postmortem' : 'summary')
+  const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([])
+  const tabs = ['summary', 'postmortem', 'activity', 'runs', 'lineage'] as const
   const linkedEvidence = linkedIncidentEvidence(timeline, env)
   async function run(action: () => Promise<unknown>, clear?: () => void) {
     if (pending) return
@@ -727,30 +734,57 @@ export function IncidentDetail({
           aria-label="Incident details"
           className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-4 pt-2 lg:px-7"
         >
-          {(
-            ['summary', 'postmortem', 'activity', 'runs', 'lineage'] as const
-          ).map((value) => (
+          {tabs.map((value, index) => (
             <button
               key={value}
               type="button"
+              ref={(node) => {
+                tabRefs.current[index] = node
+              }}
               role="tab"
+              id={`incident-tab-${value}`}
+              aria-controls="incident-tab-panel"
               aria-selected={tab === value}
+              tabIndex={tab === value ? 0 : -1}
               onClick={() => setTab(value)}
+              onKeyDown={(event) => {
+                const next =
+                  event.key === 'ArrowRight'
+                    ? (index + 1) % tabs.length
+                    : event.key === 'ArrowLeft'
+                      ? (index - 1 + tabs.length) % tabs.length
+                      : event.key === 'Home'
+                        ? 0
+                        : event.key === 'End'
+                          ? tabs.length - 1
+                          : -1
+                if (next >= 0) {
+                  event.preventDefault()
+                  setTab(tabs[next])
+                  tabRefs.current[next]?.focus()
+                }
+              }}
               className={
                 tab === value
-                  ? 'border-b-2 border-primary px-3 py-3 text-sm font-medium text-foreground'
-                  : 'px-3 py-3 text-sm text-muted-foreground hover:text-foreground'
+                  ? 'border-b-2 border-primary px-1.5 py-3 text-sm font-medium whitespace-nowrap text-foreground sm:px-3'
+                  : 'px-1.5 py-3 text-sm whitespace-nowrap text-muted-foreground hover:text-foreground sm:px-3'
               }
             >
-              {value === 'postmortem'
-                ? 'Post-mortem'
-                : value === 'summary'
-                  ? 'Investigation'
+              {value === 'summary'
+                ? 'Investigation'
+                : value === 'postmortem'
+                  ? 'Post-mortem'
                   : value[0].toUpperCase() + value.slice(1)}
             </button>
           ))}
         </div>
-        <div className="flex min-h-0 flex-col gap-6 overflow-y-auto p-4 lg:px-7 lg:py-[22px]">
+        <div
+          id="incident-tab-panel"
+          role="tabpanel"
+          aria-labelledby={`incident-tab-${tab}`}
+          tabIndex={0}
+          className="flex min-h-0 flex-col gap-6 overflow-y-auto p-4 outline-none lg:px-7 lg:py-[22px]"
+        >
           {incident.effects.length ? (
             <section
               aria-label="Delivery status"

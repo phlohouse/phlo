@@ -4,6 +4,15 @@ import { z } from 'zod'
 import { environmentSchema, phloApi } from './client'
 import { jobsSchema } from './pipelines'
 
+const exactCountSubmissionSchema = z.object({
+  env: environmentSchema,
+  nessie_ref: z.string(),
+  source: z.literal('trino_count_star'),
+  observed_at: z.string(),
+  snapshot_id: z.string().regex(/^[0-9]{1,19}$/),
+  query: z.object({ id: z.string().min(1) }),
+})
+
 const assetSchema = z.object({
   id: z.string(),
   key: z.array(z.string()),
@@ -14,21 +23,67 @@ const assetSchema = z.object({
   dependencies: z.array(z.array(z.string())),
   last_materialization_at: z.string().nullable(),
   last_run_id: z.string().nullable(),
+  freshness_observed_at: z.string().nullable().optional(),
+  freshness_source: z
+    .enum(['dagster_materialization', 'iceberg_snapshot'])
+    .nullable()
+    .optional(),
+  freshness_status: z.enum(['fresh', 'stale', 'unknown']).optional(),
+  freshness_reason: z
+    .enum([
+      'missing_sla',
+      'no_observation',
+      'future_observation',
+      'invalid_observation',
+      'catalog_unavailable',
+      'ambiguous_observation',
+    ])
+    .nullable()
+    .optional(),
   relation: z.string().nullable(),
   history_scoped: z.boolean(),
   reports: z.array(z.string()).optional(),
   layer: z.enum(['bronze', 'silver', 'gold']).nullable().optional(),
   freshness_sla_seconds: z.number().nullable().optional(),
+  owner: z.string().nullable().optional(),
+  source_name: z.string().nullable().optional(),
+  schema_contract: z.string().nullable().optional(),
+  row_count: z.number().int().nonnegative().nullable().optional(),
+  size_bytes: z.number().int().nonnegative().nullable().optional(),
+  table_metadata_error: z.string().nullable().optional(),
+  materializations: z
+    .array(
+      z.object({
+        run_id: z.string(),
+        timestamp: z.string(),
+        job_id: z.string().nullable().optional(),
+        rows_inserted: z.number().int().nonnegative().nullable(),
+        rows_deleted: z.number().int().nonnegative().nullable(),
+      }),
+    )
+    .optional(),
+  materialization_history_truncated: z.boolean().optional(),
 })
 const assetDetailSchema = assetSchema.extend({
+  current_snapshot_id: z
+    .string()
+    .regex(/^-?[0-9]{1,19}$/)
+    .nullable(),
   columns: z.array(
     z.object({
       name: z.string(),
       type: z.string().nullable(),
       description: z.string().nullable(),
+      nullable: z.boolean().nullable().optional(),
     }),
   ),
   schema_observed_at: z.string().nullable(),
+  schema_source: z
+    .enum(['materialization', 'definition', 'catalog', 'unavailable'])
+    .optional(),
+  sort_order: z.array(z.string()).nullable().optional(),
+  materializations: assetSchema.shape.materializations.unwrap().default([]),
+  materialization_history_truncated: z.boolean().optional(),
   column_lineage: z
     .record(
       z.string(),
@@ -45,6 +100,7 @@ const assetPageSchema = z.object({
   items: z.array(assetSchema),
   next_cursor: z.string().nullable(),
 })
+const assetPageSize = 100
 export const assetTabSchema = z.enum([
   'overview',
   'data',
@@ -104,6 +160,10 @@ const schemaHistorySchema = z.object({
 })
 const checksSchema = z.object({
   env: environmentSchema,
+  history: z.object({
+    status: z.enum(['complete', 'partial']),
+    unverifiable_checks: z.array(z.string()),
+  }),
   definitions: z.array(
     z.object({ name: z.string(), description: z.string().nullable() }),
   ),
@@ -266,11 +326,123 @@ export function assetLayer(
   )
 }
 
+export function assetFreshness(
+  asset: Pick<
+    ApiAsset,
+    'last_materialization_at' | 'freshness_sla_seconds' | 'freshness_status'
+  >,
+  now = Date.now(),
+) {
+  if ('freshness_status' in asset && asset.freshness_status)
+    return asset.freshness_status
+  if (!asset.last_materialization_at || !asset.freshness_sla_seconds)
+    return 'unknown'
+  const observed = Date.parse(asset.last_materialization_at)
+  if (!Number.isFinite(observed) || observed > now) return 'unknown'
+  return now - observed > asset.freshness_sla_seconds * 1000 ? 'stale' : 'fresh'
+}
+
+export function assetWriteSummary(asset: ApiAsset) {
+  const materializations = asset.materializations
+  if (!materializations) return 'Unavailable'
+  if (!materializations.length)
+    return asset.materialization_history_truncated === undefined
+      ? 'Unavailable'
+      : asset.materialization_history_truncated
+        ? 'History truncated'
+        : 'No writes observed'
+
+  const inserted = materializations.every((run) => run.rows_inserted !== null)
+    ? materializations.reduce(
+        (total, run) => total + (run.rows_inserted ?? 0),
+        0,
+      )
+    : null
+  const deleted = materializations.every((run) => run.rows_deleted !== null)
+    ? materializations.reduce(
+        (total, run) => total + (run.rows_deleted ?? 0),
+        0,
+      )
+    : null
+  const prefix = asset.materialization_history_truncated ? '≥' : ''
+  const runCount = materializations.length
+  const counts =
+    inserted === null && deleted === null
+      ? 'counts unavailable'
+      : `${inserted === null ? '?' : `+${inserted.toLocaleString()}`}/${deleted === null ? '?' : `−${deleted.toLocaleString()}`} rows`
+  return `${prefix}${runCount} ${runCount === 1 ? 'run' : 'runs'} · ${counts}`
+}
+
+export function materializationJob(
+  jobId: string | null | undefined,
+  jobs: ReadonlyArray<{ id: string }>,
+) {
+  return jobs.find((job) => job.id === jobId)
+}
+
+export function assetListCursorForEnv(
+  cursor: string | undefined,
+  cursorEnv: string | undefined,
+  env: string,
+) {
+  return cursorEnv === env ? cursor : undefined
+}
+
+type AssetListCursorState<TEnv extends string> = {
+  cursor: string | undefined
+  cursorEnv: TEnv | undefined
+  previousCursors: Array<string>
+}
+
+export function nextAssetListPage<TEnv extends string>(
+  state: AssetListCursorState<TEnv>,
+  nextCursor: string | null,
+  env: TEnv,
+): AssetListCursorState<TEnv> {
+  return {
+    cursor: nextCursor ?? undefined,
+    cursorEnv: env,
+    previousCursors:
+      state.cursorEnv !== env
+        ? []
+        : state.cursor
+          ? [...state.previousCursors, state.cursor]
+          : state.previousCursors,
+  }
+}
+
+export function previousAssetListPage<TEnv extends string>(
+  state: AssetListCursorState<TEnv>,
+  env: TEnv,
+): AssetListCursorState<TEnv> {
+  const cursor = state.previousCursors.at(-1)
+  return {
+    cursor,
+    cursorEnv: cursor === undefined ? undefined : env,
+    previousCursors: state.previousCursors.slice(0, -1),
+  }
+}
+
+export function assetListPosition(page: number, itemCount: number) {
+  const start = (page - 1) * assetPageSize + 1
+  const end = start + itemCount - 1
+  return { start, end, loaded: end }
+}
+
 export const getAssetList = createServerFn({ method: 'GET' })
-  .inputValidator(environmentSchema)
-  .handler(({ data: env }) =>
-    phloApi(`api/v1/assets?env=${env}`, assetPageSchema, { env }),
+  .inputValidator(
+    z.union([
+      environmentSchema,
+      z.object({ env: environmentSchema, cursor: z.string().optional() }),
+    ]),
   )
+  .handler(({ data }) => {
+    const { env, cursor } =
+      typeof data === 'string' ? { env: data, cursor: undefined } : data
+    const query = new URLSearchParams({ env, limit: String(assetPageSize) })
+    if (cursor) query.set('cursor', cursor)
+    return phloApi(`api/v1/assets?${query}`, assetPageSchema, { env })
+  })
 
 export const getAssetDetail = createServerFn({ method: 'GET' })
   .inputValidator(assetRequest)
@@ -358,11 +530,21 @@ export const getAssetDetail = createServerFn({ method: 'GET' })
     }
   })
 
+export const startAssetExactRowCount = createServerFn({ method: 'POST' })
+  .inputValidator(assetRequest.pick({ env: true, id: true }))
+  .handler(({ data }) =>
+    phloApi(
+      `api/v1/assets/${encodeURIComponent(data.id)}/row-count?env=${data.env}`,
+      exactCountSubmissionSchema,
+      { env: data.env, method: 'POST' },
+    ),
+  )
+
 export const materializationInputSchema = z
   .object({
     env: environmentSchema,
     id: z.string().min(1),
-    job_name: z.string().min(1),
+    job_name: z.string().min(1).optional(),
     mode: z.enum(['latest', 'backfill', 'full']),
     from_time: z.iso.datetime({ offset: true }).optional(),
     to_time: z.iso.datetime({ offset: true }).optional(),
@@ -394,13 +576,15 @@ const materializationEstimateSchema = z.object({
   plan_hash: z.string().nullable(),
   nessie_ref: z.string().nullable(),
   ref_hash: z.string().nullable(),
+  job_name: z.string().nullable(),
+  job_selection: z.enum(['automatic', 'explicit']).nullable(),
   job_snapshot_id: z.string().nullable(),
   selected_assets: z.array(z.string()),
   partition_keys: z.array(z.string()),
-  estimated_rows: z.null(),
-  estimated_cost: z.null(),
-  estimated_bytes: z.null(),
-  estimated_duration_seconds: z.null(),
+  estimated_rows: z.number().int().nonnegative().nullable(),
+  estimated_cost: z.number().finite().nonnegative().nullable(),
+  estimated_bytes: z.number().int().nonnegative().nullable(),
+  estimated_duration_seconds: z.number().finite().nonnegative().nullable(),
   cost_status: z.string(),
   workload_status: z.string(),
 })
@@ -438,6 +622,7 @@ export const materializeAsset = createServerFn({ method: 'POST' })
         nessie_ref: z.string(),
         result: z.object({
           accepted: z.boolean(),
+          job_name: z.string(),
           run_ids: z.array(z.string()),
           runs: z.array(
             z.object({ accepted: z.boolean(), message: z.string().optional() }),

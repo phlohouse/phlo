@@ -176,13 +176,14 @@ async def test_query_rejection_reports_a_safe_reason_not_engine_unavailability(m
         with pytest.raises(
             preview.PreviewQueryRejected,
             match="This table or operation is not supported by the query engine.",
-        ):
+        ) as rejected:
             await preview.execute_preview(
                 "SELECT * FROM information_schema.applicable_roles",
                 catalog="iceberg_prod",
                 disconnected=lambda: _not_disconnected(),
                 limit=10,
             )
+        assert rejected.value.error_name == "NOT_SUPPORTED"
 
 
 @pytest.mark.anyio

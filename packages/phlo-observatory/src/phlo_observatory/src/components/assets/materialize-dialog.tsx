@@ -12,7 +12,8 @@ import {
   materializationInputSchema,
   materializeAsset,
 } from '@/lib/data/api/assets'
-import { getBranchesPage } from '@/lib/data/api/branches'
+import { createBranch, getBranchesPage } from '@/lib/data/api/branches'
+import { NewBranchDialog } from '@/components/branches/new-branch-dialog'
 import { Button } from '@/components/ui/button'
 import { CheckLine, OptionCard, RadioGroup } from '@/components/ui/checkbox'
 import {
@@ -72,10 +73,9 @@ function useMaterialization({
   open,
   assetId,
   env,
-  jobs,
-  initialMode = 'backfill',
+  initialMode = 'latest',
 }: MaterializeDialogProps) {
-  const [job, setJob] = React.useState(jobs[0] ?? '')
+  const [job, setJob] = React.useState('')
   const [mode, setMode] = React.useState(initialMode)
   const [from, setFrom] = React.useState('')
   const [to, setTo] = React.useState('')
@@ -86,11 +86,25 @@ function useMaterialization({
   const [confirmed, setConfirmed] = React.useState(false)
   const [destructive, setDestructive] = React.useState('')
   const [state, setState] = React.useState<State>({ kind: 'idle' })
+  const [branchOpen, setBranchOpen] = React.useState(false)
+  const [branchBusy, setBranchBusy] = React.useState(false)
+  const [branchError, setBranchError] = React.useState<string>()
+  const branchRequest = React.useRef<{ intent: string; key: string } | null>(
+    null,
+  )
+  const creatingBranch = React.useRef(false)
+  const [refRevision, setRefRevision] = React.useState(0)
+  const [autoPlanTarget, setAutoPlanTarget] = React.useState<string | null>(
+    null,
+  )
   const [estimate, setEstimate] = React.useState<EstimateState>({
     kind: 'idle',
   })
   const key = React.useRef<string | null>(null)
   const submitting = React.useRef(false)
+  React.useEffect(() => {
+    if (open) setMode(initialMode)
+  }, [initialMode, open])
   React.useEffect(() => {
     if (!open) return
     let active = true
@@ -122,7 +136,7 @@ function useMaterialization({
   const input = materializationInputSchema.safeParse({
     env,
     id: assetId,
-    job_name: job,
+    job_name: job || undefined,
     mode,
     write_ref: target || undefined,
     rebuild_downstream: rebuild,
@@ -133,9 +147,10 @@ function useMaterialization({
         }
       : {}),
   })
-  const intent = JSON.stringify(
+  const intent = JSON.stringify([
     input.success ? input.data : { job, mode, target, rebuild, from, to },
-  )
+    refRevision,
+  ])
   const intentRef = React.useRef(intent)
   intentRef.current = intent
   const ready =
@@ -143,6 +158,7 @@ function useMaterialization({
       ? estimate.value
       : null
   const locked =
+    branchBusy ||
     key.current !== null ||
     state.kind === 'pending' ||
     state.kind === 'accepted'
@@ -157,6 +173,8 @@ function useMaterialization({
   const storageKey = `phlo:materialize:${env}:${assetId}:${ready?.plan_hash ?? ''}`
   async function refreshEstimate() {
     if (!input.success || !target) return
+    setConfirmed(false)
+    setDestructive('')
     setEstimate({ kind: 'pending', intent })
     try {
       const value = await getMaterializationEstimate({ data: input.data })
@@ -170,6 +188,62 @@ function useMaterialization({
           message:
             error instanceof Error ? error.message : 'Estimate unavailable.',
         })
+    }
+  }
+  React.useEffect(() => {
+    if (autoPlanTarget !== target || !input.success) return
+    setAutoPlanTarget(null)
+    void refreshEstimate()
+  })
+  async function addBranch(name: string, fromRef: string) {
+    if (creatingBranch.current || locked) return
+    creatingBranch.current = true
+    setBranchBusy(true)
+    setBranchError(undefined)
+    setConfirmed(false)
+    setDestructive('')
+    setEstimate({ kind: 'idle' })
+    setRefRevision((value) => value + 1)
+    try {
+      const branchIntent = JSON.stringify({ env, name, fromRef })
+      if (branchRequest.current?.intent !== branchIntent)
+        branchRequest.current = {
+          intent: branchIntent,
+          key: crypto.randomUUID(),
+        }
+      const result = await createBranch({
+        data: {
+          env,
+          name,
+          fromRef,
+          confirmed: true,
+          idempotencyKey: branchRequest.current.key,
+        },
+      })
+      if (result.status !== 'succeeded')
+        throw new Error(
+          'Branch creation was rejected or conflicted. Refresh the source and retry.',
+        )
+      const page = await getBranchesPage({ data: { env } })
+      const created = page.branches.find((ref) => ref.name === result.branch)
+      if (!created)
+        throw new Error(
+          'The created branch is not visible yet. Retry to reload references.',
+        )
+      setRefs(page.branches)
+      setRefError(null)
+      setTarget(created.name)
+      setRefRevision((value) => value + 1)
+      setAutoPlanTarget(created.name)
+      setBranchOpen(false)
+      branchRequest.current = null
+    } catch (error) {
+      setBranchError(
+        error instanceof Error ? error.message : 'Branch creation failed.',
+      )
+    } finally {
+      creatingBranch.current = false
+      setBranchBusy(false)
     }
   }
   async function submit(event: React.FormEvent) {
@@ -236,6 +310,11 @@ function useMaterialization({
     destructive,
     setDestructive,
     state,
+    branchOpen,
+    setBranchOpen,
+    branchBusy,
+    branchError,
+    addBranch,
     estimate,
     ready,
     locked,
@@ -266,20 +345,29 @@ function LoadingFields({
   jobs: Array<string>
   onExplicitPartitions?: () => void
 }) {
+  const namedJobs = jobs.filter((name) => !name.startsWith('__ASSET_JOB'))
   return (
     <>
-      {jobs.length > 1 ? (
+      {namedJobs.length ? (
         <Field>
-          <FieldLabel>Job</FieldLabel>
+          <FieldLabel htmlFor="mz-job">Execution</FieldLabel>
           {op.locked ? (
-            <Mono>{op.job}</Mono>
+            <Mono>{op.job || 'Automatic asset run'}</Mono>
           ) : (
             <Select
+              id="mz-job"
               value={op.job}
               onValueChange={op.setJob}
-              options={jobs.map((name) => ({ value: name, label: name }))}
+              options={[
+                { value: '', label: 'Automatic asset run' },
+                ...namedJobs.map((name) => ({ value: name, label: name })),
+              ]}
             />
           )}
+          <FieldDescription>
+            Choose a named job when its configuration matters. Automatic runs
+            use the selected assets' default configuration.
+          </FieldDescription>
         </Field>
       ) : null}
       <div className="flex flex-col gap-1.5">
@@ -390,13 +478,19 @@ function WriteTargetField({
           options={op.refs.map((ref) => ({ value: ref.name, label: ref.name }))}
         />
       )}
+      <Button
+        type="button"
+        variant="outline"
+        disabled={op.locked || !op.refs.length}
+        onClick={() => op.setBranchOpen(true)}
+        className="self-start"
+      >
+        Create work branch
+      </Button>
       <p className="m-0 text-[12.5px] leading-snug text-muted-foreground">
-        Only existing branches in {env} are writable. Create a work branch in{' '}
-        <Link to="/branches" search={{ env }}>
-          Branches
-        </Link>{' '}
-        if needed. Protected writes are blocked in regulated mode; merge
-        separately with a signature.
+        Only existing branches in {env} are writable. New work branches are
+        selected and planned here. Protected writes are blocked in regulated
+        mode; merge separately with a signature.
       </p>
       {op.refError ? (
         <p role="alert" className="m-0 text-sm text-bad-text">
@@ -412,38 +506,30 @@ function EstimatePanel({ operation: op }: { operation: Materialization }) {
     op.estimate.kind === 'pending' && op.estimate.intent === op.intent
   return (
     <>
-      <div
-        className="grid grid-cols-2 gap-2.5 sm:grid-cols-4"
-        aria-label="Materialization estimate"
-      >
-        <Stat
-          label="Rows"
-          value="Unavailable"
-          className="[&>span:first-of-type]:text-[15px]"
-        />
-        <Stat
-          label="Runs"
-          value={op.ready?.partition_count ?? 'Unknown'}
-          className="[&>span:first-of-type]:text-[15px]"
-        />
-        <Stat
-          label="Time"
-          value="Unavailable"
-          className="[&>span:first-of-type]:text-[15px]"
-        />
-        <Stat
-          label="Compute"
-          value="Unavailable"
-          className="[&>span:first-of-type]:text-[15px]"
-        />
-      </div>
+      {op.ready ? (
+        <div
+          className="grid grid-cols-2 gap-2.5"
+          aria-label="Verified materialization plan"
+        >
+          <Stat
+            label="Planned runs"
+            value={op.ready.partition_count}
+            className="[&>span:first-of-type]:text-[15px]"
+          />
+          <Stat
+            label="Selected assets"
+            value={op.ready.selected_assets.length}
+            className="[&>span:first-of-type]:text-[15px]"
+          />
+        </div>
+      ) : null}
       <Button
         type="button"
         variant="outline"
         disabled={op.locked || !op.inputValid || !op.target || pending}
         onClick={() => void op.refreshEstimate()}
       >
-        {pending ? 'Estimating…' : 'Refresh estimate'}
+        {pending ? 'Planning…' : 'Review plan'}
       </Button>
       {op.estimate.kind === 'failed' && op.estimate.intent === op.intent ? (
         <p role="alert" className="m-0 text-sm text-bad-text">
@@ -451,16 +537,35 @@ function EstimatePanel({ operation: op }: { operation: Materialization }) {
         </p>
       ) : null}
       {op.ready ? (
-        <p
+        <div
           role="status"
-          className="m-0 break-words text-[12.5px] text-muted-foreground"
+          className="flex flex-col gap-1.5 break-words text-[12.5px] text-muted-foreground"
         >
-          {op.ready.selected_assets.length} assets · {op.ready.partition_count}{' '}
-          runs · {op.ready.nessie_ref}@{op.ready.ref_hash?.slice(0, 12)}. Job
-          revision {op.ready.job_snapshot_id?.slice(0, 12)}. Only run count is
-          estimable.
-        </p>
+          <span>
+            Write ref{' '}
+            <Mono>
+              {op.ready.nessie_ref}@{op.ready.ref_hash?.slice(0, 12)}
+            </Mono>
+          </span>
+          <span>
+            {op.ready.job_selection === 'automatic'
+              ? 'Automatic asset run'
+              : op.ready.job_name}{' '}
+            · execution revision{' '}
+            <Mono>{op.ready.job_snapshot_id?.slice(0, 12)}</Mono>
+          </span>
+          <span>Assets: {op.ready.selected_assets.join(', ')}</span>
+          <span>
+            {op.ready.partition_keys.length
+              ? `Partitions: ${op.ready.partition_keys.join(', ')}`
+              : 'No partition key. One configured run.'}
+          </span>
+        </div>
       ) : null}
+      <p className="m-0 text-[12.5px] text-muted-foreground">
+        The plan verifies run count, asset selection and write ref. Future rows,
+        bytes, duration and cost are not estimated.
+      </p>
     </>
   )
 }
@@ -494,7 +599,7 @@ function OperationResult({
         <Link
           key={run}
           to="/pipelines/$jobName"
-          params={{ jobName: op.job }}
+          params={{ jobName: result.job_name }}
           search={{ env, run }}
         >
           View run {run}
@@ -529,7 +634,7 @@ function OperationFooter({
       <Button
         type="button"
         variant="outline"
-        disabled={op.state.kind === 'pending'}
+        disabled={op.state.kind === 'pending' || op.branchBusy}
         onClick={onClose}
         size="lg"
         className="ml-auto h-10 bg-card sm:h-9"
@@ -567,7 +672,7 @@ export function MaterializeDialog(props: MaterializeDialogProps) {
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        if (!value && op.state.kind !== 'pending') onClose()
+        if (!value && op.state.kind !== 'pending' && !op.branchBusy) onClose()
       }}
     >
       <DialogContent>
@@ -579,7 +684,7 @@ export function MaterializeDialog(props: MaterializeDialogProps) {
             <DialogTitle>Materialize</DialogTitle>
             <DialogDescription>
               <Mono className="text-foreground">{assetId}</Mono> · via{' '}
-              <Mono>{op.job || 'No job'}</Mono> · {env}
+              <Mono>{op.job || 'Automatic asset run'}</Mono> · {env}
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
@@ -594,7 +699,7 @@ export function MaterializeDialog(props: MaterializeDialogProps) {
               disabled={op.locked}
               onCheckedChange={op.setRebuild}
             >
-              Also rebuild what depends on it in this job
+              Also rebuild downstream assets in the same execution
             </CheckLine>
             <EstimatePanel operation={op} />
             {op.mode === 'full' ? (
@@ -627,6 +732,18 @@ export function MaterializeDialog(props: MaterializeDialogProps) {
           <OperationFooter operation={op} onClose={onClose} />
         </form>
       </DialogContent>
+      <NewBranchDialog
+        key={`${env}:${op.branchOpen}`}
+        open={op.branchOpen}
+        env={env}
+        refs={op.refs}
+        busy={op.branchBusy}
+        error={op.branchError}
+        onClose={() => {
+          if (!op.branchBusy) op.setBranchOpen(false)
+        }}
+        onCreate={(name, fromRef) => void op.addBranch(name, fromRef)}
+      />
     </Dialog>
   )
 }

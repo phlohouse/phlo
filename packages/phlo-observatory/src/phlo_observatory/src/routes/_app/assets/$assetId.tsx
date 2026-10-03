@@ -3,8 +3,10 @@ import * as React from 'react'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { CodeIcon, PlusIcon } from 'lucide-react'
 import { z } from 'zod'
+import type { ApiAssetDetail } from '@/lib/data/api/assets'
 import type { Layer } from '@/lib/data/types'
 import {
+  assetFreshness,
   assetLayer,
   assetTabSchema,
   getAssetDetail,
@@ -53,6 +55,26 @@ const layerSoft: Record<Layer, string> = {
   silver: 'bg-silver-soft',
   gold: 'bg-gold-soft',
 }
+const freshnessBadge: Record<
+  ReturnType<typeof assetFreshness>,
+  { label: string; variant: 'ok' | 'bad' | 'neutral' }
+> = {
+  fresh: { label: 'Materialized within SLA', variant: 'ok' },
+  stale: { label: 'Materialization overdue', variant: 'bad' },
+  unknown: { label: 'Freshness unknown', variant: 'neutral' },
+}
+
+function freshnessForAsset(asset: ApiAssetDetail) {
+  const status = assetFreshness(asset)
+  const badge = freshnessBadge[status]
+  return {
+    ...badge,
+    label:
+      asset.freshness_source === 'iceberg_snapshot'
+        ? `${status[0]?.toUpperCase()}${status.slice(1)} · Iceberg snapshot`
+        : badge.label,
+  }
+}
 
 function AssetPage() {
   const result = Route.useLoaderData()
@@ -67,6 +89,7 @@ function AssetPage() {
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [tab])
   const layer = assetLayer(asset)
+  const freshness = freshnessForAsset(asset)
   const close = () =>
     void navigate({
       search: (previous) => ({ ...previous, dialog: undefined }),
@@ -155,8 +178,8 @@ function AssetPage() {
                   Layer unknown
                 </Badge>
               )}
-              <Badge variant="neutral" size="lg">
-                Freshness unknown
+              <Badge variant={freshness.variant} size="lg">
+                {freshness.label}
               </Badge>
               <Badge variant="outline" size="lg">
                 {asset.compute_kind ?? 'Compute kind unknown'}

@@ -348,7 +348,7 @@ export function BranchGraph({ name, graph, commits, conflicting }: Props) {
   return (
     <div>
       <div
-        role="img"
+        role="group"
         aria-label={label}
         className={cn(
           'max-w-[820px]',

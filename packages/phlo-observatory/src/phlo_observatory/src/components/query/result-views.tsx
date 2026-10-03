@@ -21,7 +21,12 @@ const display = (value: unknown) =>
 
 export function ResultsGrid({ result }: { result: QueryResult }) {
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div
+      role="region"
+      aria-label="Query result table"
+      tabIndex={0}
+      className="min-h-0 flex-1 overflow-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+    >
       <table
         className="w-full min-w-max border-separate border-spacing-0 font-mono text-[12.5px]"
         aria-label="Query results"
@@ -64,7 +69,12 @@ export function ResultsGrid({ result }: { result: QueryResult }) {
 
 export function PlanView({ result }: { result: QueryResult }) {
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div
+      role="region"
+      aria-label="Query plan"
+      tabIndex={0}
+      className="min-h-0 flex-1 overflow-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+    >
       <pre className="m-0 px-4 py-4 font-mono text-[12.5px] leading-6 whitespace-pre-wrap text-text-2">
         {result.rows
           .map((row) =>

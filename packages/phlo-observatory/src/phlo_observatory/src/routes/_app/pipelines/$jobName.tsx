@@ -12,7 +12,7 @@ import {
   getPipelineJob,
   launchJob,
 } from '@/lib/data/api/pipelines'
-import { Eyebrow, KeyValues, PageHeader } from '@/components/phlo/page'
+import { Eyebrow, PageHeader } from '@/components/phlo/page'
 import { Mono } from '@/components/phlo/status'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -33,6 +33,7 @@ import {
   runDuration,
 } from '@/components/pipelines/bits'
 import { ConfirmedAction } from '@/components/pipelines/controls'
+import { formatRunLogTimestamp } from '@/components/pipelines/run-logs'
 
 export const Route = createFileRoute('/_app/pipelines/$jobName')({
   validateSearch: pipelineSearchSchema.extend({
@@ -60,6 +61,34 @@ function JobSummary({ data }: { data: PipelineData }) {
   const durations = runs.flatMap((run) =>
     run.duration_seconds === null ? [] : [run.duration_seconds],
   )
+  const details: Array<[string, React.ReactNode]> = [
+    ['Environment', env],
+    ['Repository', job.repository_name],
+    ['Domain', job.domain ?? 'Not declared'],
+    ['Source', job.source ?? 'Not declared'],
+    [
+      'Schedules',
+      schedules.length
+        ? schedules
+            .map((schedule) => `${schedule.id}: ${schedule.status}`)
+            .join(', ')
+        : 'None configured',
+    ],
+    ['Owner', job.owners.join(' · ') || 'Not declared'],
+    [
+      'Average',
+      durations.length
+        ? runDuration(
+            durations.reduce((sum, value) => sum + value, 0) / durations.length,
+          )
+        : 'No completed durations',
+    ],
+    [
+      'Last run',
+      runs[0] ? formatRunLogTimestamp(runs[0].created_at) : 'No run observed',
+    ],
+    ['Runs shown', `${runs.length} in this view`],
+  ]
   return (
     <>
       <div className="flex flex-col gap-2">
@@ -82,35 +111,14 @@ function JobSummary({ data }: { data: PipelineData }) {
           {job.description ?? 'No description supplied.'}
         </p>
       </div>
-      <KeyValues
-        className="text-[13.5px]"
-        items={[
-          ['Environment', env],
-          ['Repository', job.repository_name],
-          ['Domain', job.domain ?? 'Not declared'],
-          ['Source', job.source ?? 'Not declared'],
-          [
-            'Schedules',
-            schedules.length
-              ? schedules
-                  .map((schedule) => `${schedule.id}: ${schedule.status}`)
-                  .join(', ')
-              : 'None configured',
-          ],
-          ['Owner', job.owners.join(' · ') || 'Not declared'],
-          [
-            'Average',
-            durations.length
-              ? runDuration(
-                  durations.reduce((sum, value) => sum + value, 0) /
-                    durations.length,
-                )
-              : 'No completed durations',
-          ],
-          ['Last run', runs[0]?.created_at ?? 'No run observed'],
-          ['Runs shown', `${runs.length} paginated environment-scoped records`],
-        ]}
-      />
+      <dl className="m-0 grid grid-cols-2 gap-x-5 gap-y-3 text-[13.5px] sm:grid-cols-3 xl:grid-cols-5">
+        {details.map(([label, value]) => (
+          <div key={label} className="min-w-0">
+            <dt className="text-xs text-muted-foreground">{label}</dt>
+            <dd className="m-0 break-words">{value}</dd>
+          </div>
+        ))}
+      </dl>
     </>
   )
 }

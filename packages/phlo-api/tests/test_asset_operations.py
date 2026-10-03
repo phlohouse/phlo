@@ -330,6 +330,7 @@ def test_plan_queries_match_installed_dagster_schema():
     schema = create_schema().graphql_schema
     for query in (
         v1_assets.ASSET_QUERY,
+        v1_assets.ASSET_DETAIL_QUERY,
         v1_assets._OPERATION_NODE_QUERY,
         v1_assets._OPERATION_JOB_QUERY,
         v1_assets._OPERATION_PARTITION_QUERY,
@@ -510,3 +511,194 @@ defs = dg.Definitions(assets=[orders, summary], jobs=[dg.define_asset_job("wareh
             )
             assert backfill.tags["phlo/ref"] == "candidate"
             assert len(backfill.partition_names) == 1
+
+
+def test_automatic_plan_discovers_common_implicit_job_and_launches_selection(operations):
+    http, calls, _, nodes = operations
+    nodes[0]["jobNames"] = ["warehouse_job", "__ASSET_JOB_7", "__ASSET_JOB_3"]
+    nodes[1]["jobNames"] = ["warehouse_job", "__ASSET_JOB_7"]
+    plan = estimate(http, job_name=None).json()
+    assert plan["job_name"] == "__ASSET_JOB_7"
+    assert plan["job_selection"] == "automatic"
+    assert plan["partition_count"] == 2
+    assert plan["selected_assets"] == ["warehouse/orders", "warehouse/summary"]
+    assert all(
+        plan[field] is None
+        for field in (
+            "estimated_rows",
+            "estimated_bytes",
+            "estimated_duration_seconds",
+            "estimated_cost",
+        )
+    )
+    body = action(plan["plan_hash"])
+    body.pop("job_name")
+    response = http.post("/api/v1/assets/warehouse/orders/materialize?env=prod", json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()["result"]["job_name"] == "__ASSET_JOB_7"
+    assert len(calls) == 2
+    assert all(call[1]["job_name"] == "__ASSET_JOB_7" for call in calls)
+    assert all(
+        call[1]["asset_selection"] == ["warehouse/orders", "warehouse/summary"] for call in calls
+    )
+
+
+def test_caller_supplied_count_is_not_a_verified_or_launchable_plan(operations):
+    http, calls, *_ = operations
+    response = estimate(http, job_name=None, partition_count=3)
+    assert response.status_code == 200, response.text
+    value = response.json()
+    assert value["partition_count"] == 3
+    assert value["plan_hash"] is None
+    assert value["job_name"] is None
+    assert (
+        value["workload_status"]
+        == "Caller-supplied run count; no launch plan has been verified and no workload source is configured."
+    )
+    response = http.post(
+        "/api/v1/assets/warehouse/orders/materialize?env=prod", json=action(value["plan_hash"])
+    )
+    assert response.status_code == 409
+    assert calls == []
+
+
+def test_automatic_plan_requires_unique_common_job_and_all_permissions(operations):
+    http, calls, _, nodes = operations
+    assert estimate(http, job_name=None).status_code == 422
+    for node in nodes:
+        node["jobNames"] += ["__ASSET_JOB_3", "__ASSET_JOB_7"]
+    assert estimate(http, job_name=None).status_code == 422
+    assert estimate(http).status_code == 200  # Explicit configured job remains valid.
+    nodes[0]["jobNames"].remove("__ASSET_JOB_3")
+    nodes[1]["hasMaterializePermission"] = False
+    assert estimate(http, job_name=None).status_code == 403
+    assert calls == []
+
+
+@pytest.mark.parametrize("changed", ["job_name", "selected_assets", "op_version"])
+def test_automatic_plan_pins_job_identity_selection_and_code(operations, changed):
+    http, calls, _, nodes = operations
+    for node in nodes:
+        node["jobNames"] += ["__ASSET_JOB_7"]
+    plan = estimate(http, job_name=None).json()
+    body = action(plan["plan_hash"])
+    body.pop("job_name")
+    if changed == "job_name":
+        for node in nodes:
+            node["jobNames"] = ["warehouse_job", "__ASSET_JOB_8"]
+    elif changed == "selected_assets":
+        body["rebuild_downstream"] = False
+    else:
+        nodes[1]["opVersion"] = "code-2"
+    response = http.post("/api/v1/assets/warehouse/orders/materialize?env=prod", json=body)
+    assert response.status_code == 409
+    assert calls == []
+
+
+@pytest.mark.parametrize("partitioned", [False, True])
+def test_native_implicit_job_executes_only_selected_asset(
+    operations, monkeypatch, tmp_path, partitioned
+):
+    import asyncio
+    import time
+    import dagster as dg
+    from dagster._core.workspace.context import WorkspaceProcessContext
+    from dagster._core.workspace.load_target import PythonFileTarget
+    from dagster_graphql.test.utils import execute_dagster_graphql
+    from phlo_api.observatory_api import dagster as adapter
+    from phlo_dagster import operations as provider
+
+    http, *_ = operations
+    definitions = tmp_path / "definitions.py"
+    definitions.write_text(
+        f"""
+from pathlib import Path
+import dagster as dg
+parts = dg.DailyPartitionsDefinition(start_date="2026-09-24") if {partitioned!r} else None
+@dg.asset(key_prefix="warehouse", partitions_def=parts)
+def orders(context):
+    Path(__file__).with_name("executed.txt").write_text(context.run.tags["phlo/ref"])
+    return 19
+@dg.asset(key_prefix="warehouse", deps=[orders], partitions_def=parts)
+def summary():
+    raise AssertionError("Unselected asset must not execute")
+defs = dg.Definitions(assets=[orders, summary])
+""",
+        encoding="utf-8",
+    )
+    instance_dir = tmp_path / "dagster"
+    instance_dir.mkdir()
+    overrides = {
+        "run_coordinator": {
+            "module": "dagster._core.run_coordinator.default_run_coordinator",
+            "class": "DefaultRunCoordinator",
+        }
+    }
+    with dg.DagsterInstance.local_temp(str(instance_dir), overrides=overrides) as instance:
+        target = PythonFileTarget(str(definitions), "defs", str(tmp_path), "production_jobs")
+        with WorkspaceProcessContext(instance, target) as workspace:
+            context = workspace.create_request_context()
+
+            async def graphql(query, variables=None):
+                result = await asyncio.to_thread(execute_dagster_graphql, context, query, variables)
+                assert not result.errors, result.errors
+                return {"data": result.data}
+
+            async def transport(url, query, variables, **kwargs):
+                return await graphql(query, variables)
+
+            monkeypatch.setattr(v1_assets, "_graphql", graphql)
+            monkeypatch.setattr(adapter, "graphql_request", transport)
+            monkeypatch.setattr(provider, "_graphql", transport)
+            monkeypatch.setattr(
+                orchestrator_operations,
+                "resolve_orchestrator_operations",
+                lambda: orchestrator_operations.LegacyDagsterOrchestratorOperationsProvider(),
+            )
+            mode = "backfill" if partitioned else "latest"
+            start = "2026-09-25T00:00:00Z" if partitioned else None
+            end = "2026-09-27T00:00:00Z" if partitioned else None
+            response = estimate(
+                http,
+                job_name=None,
+                mode=mode,
+                from_time=start,
+                to_time=end,
+                rebuild_downstream=False,
+            )
+            assert response.status_code == 200, response.text
+            plan = response.json()
+            assert plan["job_name"] == "__ASSET_JOB"
+            assert plan["selected_assets"] == ["warehouse/orders"]
+            assert plan["partition_keys"] == (["2026-09-25", "2026-09-26"] if partitioned else [])
+            body = action(
+                plan["plan_hash"],
+                mode=mode,
+                from_time=start,
+                to_time=end,
+                rebuild_downstream=False,
+            )
+            body.pop("job_name")
+            response = http.post("/api/v1/assets/warehouse/orders/materialize?env=prod", json=body)
+            assert response.status_code == 200, response.text
+            result = response.json()["result"]
+            assert result["accepted"] is True
+            run_ids = result["run_ids"]
+            assert len(run_ids) == (2 if partitioned else 1)
+            deadline = time.monotonic() + 60
+            while (
+                not all(instance.get_run_by_id(run_id).is_finished for run_id in run_ids)
+                and time.monotonic() < deadline
+            ):
+                time.sleep(0.2)
+            for run_id in run_ids:
+                run = instance.get_run_by_id(run_id)
+                assert run.status == dg.DagsterRunStatus.SUCCESS
+                assert run.job_name == "__ASSET_JOB"
+                assert run.asset_selection == {dg.AssetKey(["warehouse", "orders"])}
+                assert run.tags["phlo/plan"] == plan["plan_hash"]
+            if partitioned:
+                assert {
+                    instance.get_run_by_id(run_id).tags["dagster/partition"] for run_id in run_ids
+                } == {"2026-09-25", "2026-09-26"}
+            assert (tmp_path / "executed.txt").read_text(encoding="utf-8") == "prod-work"

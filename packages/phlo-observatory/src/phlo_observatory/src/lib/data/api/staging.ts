@@ -18,6 +18,25 @@ const candidateSchema = z.object({
   code_paths: z.array(z.string()),
   code_changes: z.array(z.string()),
   jobs: z.object({ prod: z.array(z.string()), staging: z.array(z.string()) }),
+  check_readiness: z.array(
+    z.object({
+      name: z.enum(['tests', 'contracts', 'audits']),
+      job_name: z.string().nullable(),
+      status: z.enum([
+        'ready',
+        'unconfigured',
+        'missing_job',
+        'missing_evidence',
+        'stale_evidence',
+        'failed',
+        'running',
+        'unavailable',
+      ]),
+      run_id: z.string().nullable().optional(),
+      message: z.string(),
+    }),
+  ),
+  check_configuration_ready: z.boolean(),
   copy_inventory: z.object({
     prod: z.array(z.string()),
     staging: z.array(z.string()),
@@ -60,6 +79,18 @@ const signatureSchema = z.object({ signature_id: z.string() })
 export type StagingCandidate = z.infer<typeof candidateSchema>
 export type StagingChecks = z.infer<typeof checksSchema>
 export type StagingHistory = z.infer<typeof historySchema>
+
+export function stagingChecksPassed(
+  candidateId: string,
+  readiness: ReadonlyArray<
+    Pick<StagingCandidate['check_readiness'][number], 'status'>
+  >,
+  checks: Pick<StagingChecks, 'candidate_id' | 'passed'> | undefined,
+): boolean {
+  return checks?.candidate_id === candidateId
+    ? checks.passed
+    : readiness.every((item) => item.status === 'ready')
+}
 
 const envInput = z.object({ env: environmentSchema })
 const mutationInput = z.object({

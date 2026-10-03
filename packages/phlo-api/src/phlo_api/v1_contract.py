@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
 
 
 Environment = Literal["prod", "staging"]
@@ -39,6 +39,16 @@ class EnvironmentTarget(WireModel):
     dagster_location: str = Field(min_length=1)
     nessie_ref: str = Field(min_length=1)
     compose_project: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    service_health_urls: dict[str, AnyHttpUrl] = Field(default_factory=dict, max_length=500)
+
+    @model_validator(mode="after")
+    def require_server_owned_health_urls(self) -> EnvironmentTarget:
+        for url in self.service_health_urls.values():
+            if url.username or url.password or url.query or url.fragment:
+                raise ValueError(
+                    "service health URLs cannot contain credentials, queries, or fragments"
+                )
+        return self
 
 
 class MeResponse(WireModel):
@@ -66,6 +76,7 @@ class ServiceSnapshot(WireModel):
     runtime_state: Literal["running", "starting", "stopped", "unknown"] = "unknown"
     definition_state: Literal["configured", "available", "disabled", "unknown"] = "unknown"
     reason: str | None = None
+    health_origin: str | None = None
 
     @model_validator(mode="after")
     def require_observation_for_measured_status(self) -> ServiceSnapshot:
@@ -76,6 +87,8 @@ class ServiceSnapshot(WireModel):
 
 class ServicesResponse(WireModel):
     env: Environment
+    dagster_location: str | None = None
+    nessie_ref: str | None = None
     items: list[ServiceSnapshot]
     next_cursor: str | None
 

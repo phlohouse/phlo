@@ -1,20 +1,24 @@
 /** Defines the SQL workspace for running, explaining, and saving queries. */
 import * as React from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, getRouteApi } from '@tanstack/react-router'
 import { z } from 'zod'
 import {
+  CheckIcon,
   CircleCheckIcon,
   DownloadIcon,
   GitBranchIcon,
   Loader2Icon,
+  PencilIcon,
   PinIcon,
   PlayIcon,
   PlusIcon,
   SquareIcon,
   TableIcon,
   Trash2Icon,
+  XIcon,
 } from 'lucide-react'
-import type { QuerySession, SavedQuery } from '@/lib/data/api/query'
+import type { QueryTab, QueryTable } from '@/lib/query-workspace'
+import type { QuerySession } from '@/lib/data/api/query'
 import type { IncidentRecord } from '@/lib/data/api/incidents'
 import {
   cancelQuery,
@@ -59,6 +63,23 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Select } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import {
+  closeQueryTab,
+  isCurrentQueryResponse,
+  nextQueryTabFocus,
+  openQueryTablePreview,
+  queryDraftChangedSinceAttempt,
+  queryInitialSql,
+  queryTableName,
+  queryTableSql,
+  queryWorkspaceKey,
+  renameQueryTab,
+  restoreQueryWorkspace,
+  storeQueryWorkspace,
+} from '@/lib/query-workspace'
+
+const appRoute = getRouteApi('/_app')
 
 export const Route = createFileRoute('/_app/query')({
   validateSearch: z.object({
@@ -73,16 +94,7 @@ export const Route = createFileRoute('/_app/query')({
   component: QueryPage,
 })
 
-type Tab = {
-  id: string
-  name: string
-  sql: string
-  saved?: SavedQuery
-  session?: QuerySession
-  mode: 'results' | 'plan'
-  error?: string
-  pinnedIncident?: string
-}
+type Tab = QueryTab
 const terminal = new Set<QuerySession['status']>([
   'completed',
   'failed',
@@ -122,7 +134,8 @@ function QueryStatusMessage({
     return (
       <>
         <CircleCheckIcon className="size-3.5 text-ok-text" />{' '}
-        {result.rows.length} rows{result.has_more ? ' (more available)' : ''}
+        {result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'}
+        {result.has_more ? ' (more available)' : ''}
       </>
     )
   return <span>{cancelled ? 'Cancelled' : 'Not run yet'}</span>
@@ -148,15 +161,22 @@ function QueryStatus({
   return (
     <div
       role="status"
-      className="flex min-h-10 items-center gap-2 border-y border-line bg-raised px-4 text-[12.5px] text-muted-foreground"
+      className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-y border-line bg-raised px-4 py-2 text-[12.5px] text-muted-foreground"
     >
-      <QueryStatusMessage
-        tab={tab}
-        isSubmitting={isSubmitting}
-        running={running}
-        result={result}
-        cancelled={cancelled}
-      />
+      {queryDraftChangedSinceAttempt(tab) ? (
+        <p className="m-0 w-full">
+          SQL changed since the last attempt. Run to update results.
+        </p>
+      ) : null}
+      <div className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-2 sm:basis-auto">
+        <QueryStatusMessage
+          tab={tab}
+          isSubmitting={isSubmitting}
+          running={running}
+          result={result}
+          cancelled={cancelled}
+        />
+      </div>
       <Button
         variant="outline"
         size="sm"
@@ -239,7 +259,9 @@ function QueryOutput({
         <EmptyState
           title={
             tab.error
-              ? 'Query failed'
+              ? queryDraftChangedSinceAttempt(tab)
+                ? 'Previous query failed'
+                : 'Query failed'
               : cancelled
                 ? 'Query cancelled'
                 : 'Not run yet'
@@ -265,44 +287,78 @@ function QueryTabs({
   activeId,
   onSelect,
   onNew,
+  panelId,
 }: {
   tabs: Array<Tab>
   activeId: string
   onSelect: (id: string) => void
   onNew: () => void
+  panelId: (id: string) => string
 }) {
+  const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([])
+  React.useEffect(() => {
+    tabRefs.current[
+      tabs.findIndex((item) => item.id === activeId)
+    ]?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+    })
+  }, [activeId, tabs])
+  const focusTab = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) => {
+    const target = nextQueryTabFocus(event.key, tabs.length, index)
+    if (target === index || target < 0) return
+    event.preventDefault()
+    const next = tabs[target]
+    if (!next) return
+    onSelect(next.id)
+    tabRefs.current[target]?.focus()
+  }
   return (
-    <div
-      role="tablist"
-      aria-label="Open queries"
-      className="order-last -mx-4 flex w-[calc(100%+2rem)] gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:order-none lg:mx-0 lg:w-auto lg:min-w-0 lg:px-0"
-    >
-      {tabs.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          role="tab"
-          aria-selected={item.id === activeId}
-          onClick={() => onSelect(item.id)}
-          className={cn(
-            'flex h-10 shrink-0 cursor-pointer items-center rounded-md border px-2.5 text-[13px] whitespace-nowrap lg:h-[30px]',
-            item.id === activeId
-              ? 'border-border bg-soft text-foreground'
-              : 'border-transparent text-text-3 hover:bg-soft',
-          )}
-        >
-          {item.name}
-        </button>
-      ))}
-      <button
+    <>
+      <div
+        role="tablist"
+        aria-label="Open queries"
+        className="order-last -mx-4 flex w-[calc(100%+2rem)] gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:order-none lg:mx-0 lg:w-auto lg:min-w-0 lg:flex-1 lg:px-0"
+      >
+        {tabs.map((item, index) => (
+          <button
+            key={item.id}
+            ref={(element) => {
+              tabRefs.current[index] = element
+            }}
+            id={`query-tab-${item.id}`}
+            type="button"
+            role="tab"
+            aria-controls={panelId(item.id)}
+            aria-selected={item.id === activeId}
+            tabIndex={item.id === activeId ? 0 : -1}
+            onKeyDown={(event) => focusTab(event, index)}
+            onClick={() => onSelect(item.id)}
+            className={cn(
+              'flex h-10 shrink-0 cursor-pointer items-center rounded-md border px-2.5 text-[13px] whitespace-nowrap lg:h-[30px]',
+              item.id === activeId
+                ? 'border-border bg-soft text-foreground'
+                : 'border-transparent text-text-3 hover:bg-soft',
+            )}
+          >
+            {item.name}
+          </button>
+        ))}
+      </div>
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-sm"
         aria-label="New query tab"
         onClick={onNew}
-        className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-3 hover:bg-soft lg:size-[30px]"
+        className="order-last lg:order-none"
       >
-        <PlusIcon className="mx-auto size-3.5" />
-      </button>
-    </div>
+        <PlusIcon />
+      </Button>
+    </>
   )
 }
 
@@ -314,6 +370,12 @@ type QueryToolbarProps = {
   setTreeOpen: (open: boolean) => void
   setActiveId: (id: string) => void
   newTab: () => void
+  rename: () => void
+  close: () => void
+  renaming: boolean
+  renameValue: string
+  setRenameValue: (value: string) => void
+  finishRename: (save: boolean) => void
   refName?: string
   engineId?: string
   env: string
@@ -334,6 +396,12 @@ function QueryToolbar(props: QueryToolbarProps) {
     setTreeOpen,
     setActiveId,
     newTab,
+    rename,
+    close,
+    renaming,
+    renameValue,
+    setRenameValue,
+    finishRename,
     refName,
     engineId,
     env,
@@ -345,15 +413,64 @@ function QueryToolbar(props: QueryToolbarProps) {
     cancel,
   } = props
   return (
-    <header className="flex min-h-[52px] shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-line px-4 py-2.5 lg:flex-nowrap lg:py-0 lg:pl-5">
+    <header className="flex min-h-[52px] shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-line px-4 py-2.5 lg:pl-5">
       <h1 className="mr-2 text-sm font-medium">Query</h1>
       <QueryTabs
         tabs={tabs}
         activeId={tab.id}
         onSelect={setActiveId}
         onNew={newTab}
+        panelId={(id) => `query-panel-${id}`}
       />
-      <div className="ml-auto flex items-center gap-2">
+      {renaming ? (
+        <div className="flex shrink-0 items-center gap-1">
+          <Input
+            aria-label="Query name"
+            value={renameValue}
+            maxLength={120}
+            className="h-8 w-40"
+            onChange={(event) => setRenameValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') finishRename(true)
+              if (event.key === 'Escape') finishRename(false)
+            }}
+          />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Save query name"
+            onClick={() => finishRename(true)}
+          >
+            <CheckIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Cancel rename"
+            onClick={() => finishRename(false)}
+          >
+            <XIcon />
+          </Button>
+        </div>
+      ) : (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={rename}
+          aria-label="Rename query"
+        >
+          <PencilIcon /> Rename
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={close}
+        aria-label={`Close ${tab.name}`}
+      >
+        <XIcon />
+      </Button>
+      <div className="ml-auto mr-4 flex min-w-0 max-w-full shrink-0 flex-wrap items-center justify-end gap-2 lg:mr-0">
         <Popover open={treeOpen} onOpenChange={setTreeOpen}>
           <PopoverTrigger
             className={cn(buttonVariants({ variant: 'outline' }), 'lg:hidden')}
@@ -433,25 +550,151 @@ function QueryToolbar(props: QueryToolbarProps) {
   )
 }
 
-function initialSql(table: string) {
-  return table ? `SELECT *\nFROM ${table}\nLIMIT 100` : 'SELECT 1'
+function initialSql(table: QueryTable | null) {
+  return table ? queryTableSql(table) : 'SELECT 1'
 }
 
 function firstCatalogTable(
-  catalog: Awaited<ReturnType<typeof getQueryWorkspace>>['catalog']['catalogs'],
+  catalogs: Awaited<
+    ReturnType<typeof getQueryWorkspace>
+  >['catalog']['catalogs'],
 ) {
   return (
-    catalog.flatMap((c) =>
-      c.schemas
-        .filter((s) => !['information_schema', 'system'].includes(s.name))
-        .flatMap((s) => s.tables.map((t) => `${s.name}.${t}`)),
-    )[0] ?? ''
+    catalogs.flatMap((catalogItem) =>
+      catalogItem.schemas
+        .filter(
+          (schema) => !['information_schema', 'system'].includes(schema.name),
+        )
+        .flatMap((schema) =>
+          schema.tables.map((table) => ({
+            catalog: catalogItem.name,
+            schema: schema.name,
+            table,
+          })),
+        ),
+    )[0] ?? null
   )
+}
+
+function queryTabName(table: QueryTable | null, fallback: string) {
+  return table ? `Query · ${queryTableName(table)}` : fallback
+}
+
+function initialWorkspace(
+  cacheKey: string,
+  suppliedSql: string | undefined,
+  firstTable: QueryTable | null,
+) {
+  if (suppliedSql === undefined && typeof window !== 'undefined') {
+    const restored = restoreQueryWorkspace(cacheKey)
+    if (restored) return restored
+  }
+  return {
+    tabs: [
+      {
+        id: 'new-initial',
+        name: queryTabName(firstTable, 'Query 1'),
+        sql: queryInitialSql(suppliedSql, initialSql(firstTable)),
+        mode: 'results' as const,
+        ...(suppliedSql === undefined && firstTable
+          ? { previewTable: firstTable }
+          : {}),
+      },
+    ],
+    activeId: '',
+    selected: firstTable,
+  }
+}
+
+function confirmDiscard(tab: Pick<Tab, 'dirty' | 'name'>, action: string) {
+  return (
+    !tab.dirty ||
+    window.confirm(`Discard unsaved changes ${action} “${tab.name}”?`)
+  )
+}
+
+function closeActiveQuery({
+  tab,
+  tabs,
+  activeId,
+  selected,
+  setTabs,
+  setActiveId,
+}: {
+  tab: Tab
+  tabs: Array<Tab>
+  activeId: string
+  selected: QueryTable | null
+  setTabs: React.Dispatch<React.SetStateAction<Array<Tab>>>
+  setActiveId: React.Dispatch<React.SetStateAction<string>>
+}) {
+  if (!confirmDiscard(tab, 'to')) return
+  const closed = closeQueryTab<Tab>(tabs, activeId, tab.id, () => {
+    const id = `new-${crypto.randomUUID()}`
+    return {
+      id,
+      name: queryTabName(selected, 'Query 1'),
+      sql: initialSql(selected),
+      mode: 'results',
+      previewTable: selected ?? undefined,
+    }
+  })
+  setTabs(closed.tabs)
+  setActiveId(closed.activeId)
+}
+
+function usePersistQueryWorkspace(
+  cacheKey: string,
+  actor: string,
+  suppliedSql: string | undefined,
+  workspace: {
+    tabs: Array<Tab>
+    activeId: string
+    selected: QueryTable | null
+  },
+) {
+  React.useEffect(() => {
+    if (suppliedSql !== undefined || typeof window === 'undefined') return
+    storeQueryWorkspace(cacheKey, actor, workspace)
+  }, [actor, cacheKey, suppliedSql, workspace])
+}
+
+function changeQueryView(
+  view: 'results' | 'chart' | 'plan',
+  mode: Tab['mode'],
+  start: (mode: Tab['mode'], showChart?: boolean) => Promise<void>,
+  setChart: (showChart: boolean) => void,
+) {
+  if (view === 'plan') {
+    void start('plan')
+    return
+  }
+  if (mode === 'plan') void start('results', view === 'chart')
+  else setChart(view === 'chart')
+}
+
+function queryDisplayState(tab: Tab, pending: Array<string>) {
+  return {
+    running: tab.session && !terminal.has(tab.session.status),
+    cancelled: tab.session?.status === 'cancelled',
+    isSubmitting: pending.includes(tab.id),
+    result: tab.session?.status === 'completed' ? tab.session.result : null,
+  }
 }
 
 function QueryPage() {
   const { env, sql } = Route.useSearch()
-  return <QueryWorkspace key={JSON.stringify([env, sql])} />
+  const { me } = appRoute.useLoaderData()
+  const actor = JSON.stringify([me.principal_type, me.subject])
+  const cacheKey = queryWorkspaceKey(env, actor)
+  return (
+    <QueryWorkspace
+      key={JSON.stringify([cacheKey, sql])}
+      cacheKey={cacheKey}
+      actor={actor}
+      suppliedSql={sql}
+    />
+  )
 }
 
 function PinQueryDialog({
@@ -582,23 +825,31 @@ function PinQueryDialog({
   )
 }
 
-function QueryWorkspace() {
+function QueryWorkspace({
+  cacheKey,
+  actor,
+  suppliedSql,
+}: {
+  cacheKey: string
+  actor: string
+  suppliedSql?: string
+}) {
   const data = Route.useLoaderData()
-  const { env, sql: suppliedSql } = Route.useSearch()
+  const { env } = Route.useSearch()
   const firstTable = firstCatalogTable(data.catalog.catalogs)
   const [savedQueries, setSavedQueries] = React.useState(data.saved)
-  const [tabs, setTabs] = React.useState<Array<Tab>>(() => [
-    {
-      id: 'new-1',
-      name: 'Untitled 1',
-      sql: suppliedSql ?? initialSql(firstTable),
-      mode: 'results',
-    },
-  ])
-  const [activeId, setActiveId] = React.useState('new-1')
+  const [initial] = React.useState(() =>
+    initialWorkspace(cacheKey, suppliedSql, firstTable),
+  )
+  const [tabs, setTabs] = React.useState<Array<Tab>>(initial.tabs)
+  const [activeId, setActiveId] = React.useState(
+    initial.activeId || initial.tabs[0].id,
+  )
   const [chart, setChart] = React.useState(false)
   React.useEffect(() => setChart(false), [activeId, env])
-  const [selected, setSelected] = React.useState(firstTable)
+  const [selected, setSelected] = React.useState(initial.selected)
+  const [renaming, setRenaming] = React.useState(false)
+  const [renameValue, setRenameValue] = React.useState('')
   const [treeOpen, setTreeOpen] = React.useState(false)
   const [pinOpen, setPinOpen] = React.useState(false)
   const mounted = React.useRef(true)
@@ -620,22 +871,14 @@ function QueryWorkspace() {
   )
 
   React.useEffect(() => {
-    const initialId = `new-${crypto.randomUUID()}`
     setSavedQueries(data.saved)
-    setTabs([
-      {
-        id: initialId,
-        name: 'Untitled 1',
-        sql: suppliedSql ?? initialSql(firstTable),
-        mode: 'results',
-      },
-    ])
-    setActiveId(initialId)
-    setSelected(firstTable)
-    submitting.current.clear()
-    setPending([])
-    setPinOpen(false)
-  }, [env, suppliedSql])
+  }, [data.saved])
+
+  usePersistQueryWorkspace(cacheKey, actor, suppliedSql, {
+    tabs,
+    activeId,
+    selected,
+  })
 
   React.useEffect(() => {
     const session = tab.session
@@ -645,7 +888,7 @@ function QueryWorkspace() {
     const poll = async () => {
       try {
         const next = await getQuerySession({ data: { env, id: session.id } })
-        if (stopped) return
+        if (!isCurrentQueryResponse(!stopped, env, next.env)) return
         patch(tab.id, { session: next, error: next.error ?? undefined })
         if (!terminal.has(next.status)) timer = window.setTimeout(poll, 750)
       } catch (error) {
@@ -677,6 +920,7 @@ function QueryWorkspace() {
     setPending((items) => [...items, tab.id])
     patch(tab.id, {
       mode,
+      submittedSql: tab.sql,
       session: undefined,
       error: undefined,
       pinnedIncident: undefined,
@@ -685,6 +929,7 @@ function QueryWorkspace() {
       const session = await (mode === 'plan' ? explainQuery : submitQuery)({
         data: { env, sql: tab.sql },
       })
+      if (!isCurrentQueryResponse(mounted.current, env, session.env)) return
       patch(tab.id, { session })
     } catch (error) {
       patch(tab.id, {
@@ -710,19 +955,41 @@ function QueryWorkspace() {
     setTreeOpen(false)
   }
   const newTab = () => {
-    const n = tabs.length + 1
     const id = `new-${crypto.randomUUID()}`
+    const name = queryTabName(selected, `Query ${tabs.length + 1}`)
     setTabs((items) => [
       ...items,
       {
         id,
-        name: `Untitled ${n}`,
+        name,
         sql: initialSql(selected),
         mode: 'results',
+        previewTable: selected ?? undefined,
       },
     ])
     setActiveId(id)
   }
+  const selectTable = (table: QueryTable) => {
+    const next = openQueryTablePreview(
+      { tabs, activeId, selected },
+      table,
+      `new-${crypto.randomUUID()}`,
+    )
+    setTabs(next.tabs)
+    setActiveId(next.activeId)
+    setSelected(next.selected)
+    setTreeOpen(false)
+  }
+  const rename = () => {
+    setRenameValue(tab.name)
+    setRenaming(true)
+  }
+  const finishRename = (save: boolean) => {
+    setRenaming(false)
+    patch(tab.id, renameQueryTab(tab, renameValue, save))
+  }
+  const close = () =>
+    closeActiveQuery({ tab, tabs, activeId, selected, setTabs, setActiveId })
   const persist = async () => {
     if (submitting.current.has(tab.id)) return
     submitting.current.add(tab.id)
@@ -742,7 +1009,7 @@ function QueryWorkspace() {
         ...items.filter((item) => item.id !== saved.id),
         saved,
       ])
-      patch(tab.id, { id: saved.id, saved, name: saved.name })
+      patch(tab.id, { id: saved.id, saved, name: saved.name, dirty: false })
       setActiveId(saved.id)
     } catch (error) {
       patch(tab.id, {
@@ -773,6 +1040,7 @@ function QueryWorkspace() {
         name: 'Untitled 1',
         sql: initialSql(selected),
         mode: 'results' as const,
+        previewTable: selected ?? undefined,
       }
       setSavedQueries((items) =>
         items.filter((item) => item.id !== tab.saved?.id),
@@ -795,7 +1063,7 @@ function QueryWorkspace() {
     if (!tab.session) return
     try {
       const text = await downloadQueryCsv({ data: { env, id: tab.session.id } })
-      if (!mounted.current) return
+      if (!isCurrentQueryResponse(mounted.current, env, tab.session.env)) return
       const url = URL.createObjectURL(
         new Blob([text], { type: 'text/csv;charset=utf-8' }),
       )
@@ -805,6 +1073,7 @@ function QueryWorkspace() {
       anchor.click()
       URL.revokeObjectURL(url)
     } catch (error) {
+      if (!mounted.current) return
       patch(tab.id, {
         error:
           error instanceof Error
@@ -822,6 +1091,7 @@ function QueryWorkspace() {
         session: { ...previous, status: 'cancelling' },
       })
       const session = await cancelQuery({ data: { env, id: previous.id } })
+      if (!isCurrentQueryResponse(mounted.current, env, session.env)) return
       patch(tab.id, { session })
     } catch (error) {
       patch(tab.id, {
@@ -833,16 +1103,16 @@ function QueryWorkspace() {
       })
     }
   }
-  const running = tab.session && !terminal.has(tab.session.status)
-  const cancelled = tab.session?.status === 'cancelled'
-  const isSubmitting = pending.includes(tab.id)
-  const result = tab.session?.status === 'completed' ? tab.session.result : null
+  const { running, cancelled, isSubmitting, result } = queryDisplayState(
+    tab,
+    pending,
+  )
   const tree = (
     <CatalogTree
       catalog={data.catalog.catalogs}
       saved={savedQueries}
-      selected={selected}
-      onSelect={setSelected}
+      selected={selected ? queryTableName(selected) : ''}
+      onSelect={selectTable}
       onOpenSaved={openSaved}
       activeSaved={tab.saved?.id}
     />
@@ -858,6 +1128,12 @@ function QueryWorkspace() {
         setTreeOpen={setTreeOpen}
         setActiveId={setActiveId}
         newTab={newTab}
+        rename={rename}
+        close={close}
+        renaming={renaming}
+        renameValue={renameValue}
+        setRenameValue={setRenameValue}
+        finishRename={finishRename}
         refName={data.refs[0]?.name}
         engineId={data.engines[0]?.id}
         env={env}
@@ -876,13 +1152,27 @@ function QueryWorkspace() {
           {tree}
         </aside>
         <section
+          id={`query-panel-${tab.id}`}
+          role="tabpanel"
+          aria-labelledby={`query-tab-${tab.id}`}
           aria-label="Workspace"
           className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden"
         >
+          {tabs
+            .filter((item) => item.id !== activeId)
+            .map((item) => (
+              <div
+                key={item.id}
+                id={`query-panel-${item.id}`}
+                role="tabpanel"
+                aria-labelledby={`query-tab-${item.id}`}
+                hidden
+              />
+            ))}
           <SqlEditor
             key={tab.id}
             value={tab.sql}
-            onChange={(sql) => patch(tab.id, { sql })}
+            onChange={(sql) => patch(tab.id, { sql, dirty: true })}
             onRun={() => start('results')}
             catalog={data.catalog.catalogs}
             label={`SQL for ${tab.name}`}
@@ -901,14 +1191,9 @@ function QueryWorkspace() {
             <Segmented
               aria-label="Result view"
               value={tab.mode === 'plan' ? 'plan' : chart ? 'chart' : 'results'}
-              onValueChange={(view: 'results' | 'chart' | 'plan') => {
-                if (view === 'plan') {
-                  void start('plan')
-                  return
-                }
-                if (tab.mode === 'plan') void start('results', view === 'chart')
-                else setChart(view === 'chart')
-              }}
+              onValueChange={(view: 'results' | 'chart' | 'plan') =>
+                changeQueryView(view, tab.mode, start, setChart)
+              }
               options={[
                 {
                   value: 'results',

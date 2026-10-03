@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -271,6 +272,48 @@ def _prepare_query_attempt(
     return catalog, nessie_ref
 
 
+def start_exact_asset_count(
+    request: Request,
+    env: Environment,
+    *,
+    table_name: str,
+    snapshot_id: str,
+) -> QuerySessionView:
+    """Start a one-row count pinned to a server-selected table snapshot."""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*", table_name):
+        raise HTTPException(status_code=400, detail={"error": "invalid_asset_relation"})
+    if not re.fullmatch(r"[0-9]{1,19}", snapshot_id):
+        raise HTTPException(status_code=503, detail={"error": "snapshot_identity_unavailable"})
+    catalog, nessie_ref = _prepare_query_attempt(
+        request,
+        env,
+        operation="asset.exact_row_count",
+        sql=f"COUNT(*) on {table_name} snapshot {snapshot_id}",
+    )
+    schema, table = table_name.split(".")
+    sql = (
+        "SELECT CAST(COUNT(*) AS VARCHAR) AS row_count FROM "
+        f'"{catalog}"."{schema}"."{table}" FOR VERSION AS OF {snapshot_id}'
+    )
+    try:
+        sql = validate_workspace_query(sql, catalog)
+    except InvalidWorkspaceQuery as exc:
+        raise BackendUnavailableError(
+            "The query engine cannot safely count this Iceberg snapshot."
+        ) from exc
+    session = QuerySession(
+        query_id=uuid4().hex,
+        actor=_actor(request),
+        env=env,
+        nessie_ref=nessie_ref,
+        sql=sql,
+        catalog=catalog,
+        row_limit=1,
+    )
+    _remember_session(session)
+    return _query_view(session)
+
+
 async def _execute_session(session: QuerySession) -> None:
     session.status = "running"
     session.updated_at = datetime.now(UTC)
@@ -383,6 +426,34 @@ def _saved_name(value: str) -> str:
     return name
 
 
+async def _unsupported_role_tables(catalog: str, tables: list[str]) -> set[str]:
+    """Probe only connector-dependent role tables, under one five-second budget."""
+    unsupported: set[str] = set()
+
+    async def probe(table: str) -> None:
+        quoted = catalog.replace('"', '""')
+        try:
+            await execute_preview(
+                f'SELECT * FROM "{quoted}".information_schema."{table}" LIMIT 1',
+                catalog=catalog,
+                disconnected=lambda: asyncio.sleep(0, result=False),
+                limit=1,
+            )
+        except PreviewQueryRejected as exc:
+            if exc.error_name == "NOT_SUPPORTED":
+                unsupported.add(table)
+        except (PreviewLimitExceeded, PreviewUnavailable):
+            pass  # An outage or denied permission is not proof of unsupported metadata.
+
+    try:
+        async with asyncio.timeout(5):
+            for table in set(tables) & {"roles", "applicable_roles", "enabled_roles"}:
+                await probe(table)
+    except TimeoutError:
+        pass
+    return unsupported
+
+
 @router.get("/query/catalog", response_model=QueryCatalog)
 async def v1_query_catalog(request: Request, env: Environment) -> QueryCatalog:
     catalog, nessie_ref = _mapped_catalog(request, env)
@@ -401,6 +472,12 @@ async def v1_query_catalog(request: Request, env: Environment) -> QueryCatalog:
     for row in result["rows"]:
         schema_name = str(row["table_schema"])
         schemas_by_name.setdefault(schema_name, []).append(str(row["table_name"]))
+    system_tables = schemas_by_name.get("information_schema", [])
+    unsupported = await _unsupported_role_tables(catalog, system_tables)
+    if unsupported:
+        schemas_by_name["information_schema"] = [
+            table for table in system_tables if table not in unsupported
+        ]
     return QueryCatalog(
         env=env,
         nessie_ref=nessie_ref,

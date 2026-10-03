@@ -21,18 +21,24 @@ import { Mono } from '@/components/phlo/status'
 import { MergeDialog } from '@/components/branches/merge-dialog'
 import { NewBranchDialog } from '@/components/branches/new-branch-dialog'
 import { BranchGraph } from '@/components/branches/branch-graph'
+import { WapRuns } from '@/components/branches/wap-runs'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
 const searchSchema = z.object({
   dialog: z.enum(['new-branch', 'merge']).optional(),
   branch: z.string().optional(),
+  view: z.enum(['references', 'wap']).default('references'),
 })
 export const Route = createFileRoute('/_app/branches')({
   validateSearch: searchSchema,
-  loaderDeps: ({ search }) => ({ env: search.env }),
-  loader: ({ deps }) => getBranchesPage({ data: { env: deps.env } }),
+  loaderDeps: ({ search }) => ({ env: search.env, view: search.view }),
+  loader: ({ deps }): Promise<BranchPage> =>
+    deps.view === 'wap'
+      ? Promise.resolve({ env: deps.env, branches: [], tags: [] })
+      : getBranchesPage({ data: { env: deps.env } }),
   head: () => ({ meta: [{ title: 'Branches · phlo' }] }),
   component: BranchesPage,
 })
@@ -64,6 +70,15 @@ function BranchReferences({
       aria-label="References"
       className="shrink-0 border-b border-line p-3 lg:w-[340px] lg:overflow-y-auto lg:border-r lg:border-b-0"
     >
+      <details className="px-4 pt-1 pb-3 text-sm text-muted-foreground">
+        <summary className="cursor-pointer hover:text-foreground">
+          Which branches are shown?
+        </summary>
+        <p className="mt-2 mb-0">
+          The configured {env} reference and branches named {env}-*. Open the
+          WAP tab for temporary staging references and their run observations.
+        </p>
+      </details>
       {data.branches.map((branch) => (
         <Link
           key={branch.name}
@@ -309,9 +324,42 @@ function BranchActions({
   )
 }
 
+function BranchHeader({
+  data,
+  view,
+}: {
+  data: BranchPage
+  view: 'references' | 'wap'
+}) {
+  return (
+    <PageHeader
+      title="Branches"
+      meta={
+        view === 'wap'
+          ? `${data.env} · WAP staging observations`
+          : `Nessie catalog · ${data.branches.length} branches, ${data.tags.length} tags`
+      }
+      actions={
+        view === 'wap' ? undefined : (
+          <Link
+            to="/branches"
+            search={{ env: data.env, dialog: 'new-branch' }}
+            className={cn(
+              buttonVariants({ variant: 'outline' }),
+              'h-10 lg:h-8',
+            )}
+          >
+            <PlusIcon /> New branch
+          </Link>
+        )
+      }
+    />
+  )
+}
+
 function BranchesPage() {
   const data = Route.useLoaderData(),
-    { env, dialog, branch: selectedName } = Route.useSearch(),
+    { env, dialog, view, branch: selectedName } = Route.useSearch(),
     navigate = Route.useNavigate(),
     router = useRouter()
   const target = data.branches.find((branch) => branch.protected)
@@ -401,72 +449,81 @@ function BranchesPage() {
 
   return (
     <>
-      <PageHeader
-        title="Branches"
-        meta={`Nessie catalog · ${data.branches.length} branches, ${data.tags.length} tags`}
-        actions={
-          <Link
-            to="/branches"
-            search={{ env, dialog: 'new-branch' }}
-            className={cn(
-              buttonVariants({ variant: 'outline' }),
-              'h-10 lg:h-8',
-            )}
-          >
-            <PlusIcon /> New branch
-          </Link>
-        }
-      />
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
-        <BranchReferences data={data} env={env} selected={selected} />
-        {!selected || !target ? (
-          <EmptyState title="No configured branches" className="m-6">
-            No protected environment ref was returned by the API.
-          </EmptyState>
-        ) : (
-          <section className="min-w-0 flex-1 overflow-y-auto">
-            <div className="flex flex-wrap items-start gap-3 border-b border-line px-4 pt-5 pb-4 lg:px-7 lg:pt-[22px] lg:pb-[18px]">
-              <div className="mr-auto min-w-0">
-                <h2 className="m-0 break-all font-mono text-xl">
-                  {selected.name}
-                </h2>
-                <Mono
-                  className="block max-w-full truncate text-xs text-muted-foreground"
-                  title={selected.hash}
-                >
-                  {selected.hash.slice(0, 12)}
-                </Mono>
-                <div className="mt-1 text-[13px] text-muted-foreground">
-                  {selected.protected
-                    ? 'Protected environment reference'
-                    : `Compared with ${target.name}`}{' '}
-                  · exact revision pinned
+      <BranchHeader data={data} view={view} />
+      <Tabs
+        value={view}
+        className="flex-1"
+        onValueChange={(value) => {
+          if (value === 'references' || value === 'wap')
+            navigate({
+              search: (current) => ({
+                ...current,
+                view: value,
+                dialog: undefined,
+              }),
+            })
+        }}
+      >
+        <TabsList aria-label="Branch views">
+          <TabsTrigger value="references">References</TabsTrigger>
+          <TabsTrigger value="wap">WAP</TabsTrigger>
+        </TabsList>
+        <TabsContent value="wap" className="overflow-y-auto">
+          <WapRuns key={env} env={env} />
+        </TabsContent>
+        <TabsContent value="references" className="flex min-h-0 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+            <BranchReferences data={data} env={env} selected={selected} />
+            {!selected || !target ? (
+              <EmptyState title="No configured branches" className="m-6">
+                No protected environment ref was returned by the API.
+              </EmptyState>
+            ) : (
+              <section className="min-w-0 flex-1 overflow-y-auto">
+                <div className="flex flex-wrap items-start gap-3 border-b border-line px-4 pt-5 pb-4 lg:px-7 lg:pt-[22px] lg:pb-[18px]">
+                  <div className="mr-auto min-w-0">
+                    <h2 className="m-0 break-all font-mono text-xl">
+                      {selected.name}
+                    </h2>
+                    <Mono
+                      className="block max-w-full truncate text-xs text-muted-foreground"
+                      title={selected.hash}
+                    >
+                      {selected.hash.slice(0, 12)}
+                    </Mono>
+                    <div className="mt-1 text-[13px] text-muted-foreground">
+                      {selected.protected
+                        ? 'Protected environment reference'
+                        : `Compared with ${target.name}`}{' '}
+                      · exact revision pinned
+                    </div>
+                  </div>
+                  <BranchActions
+                    selected={selected}
+                    target={target}
+                    busy={busy}
+                    env={env}
+                    run={run}
+                    refresh={refresh}
+                  />
                 </div>
-              </div>
-              <BranchActions
-                selected={selected}
-                target={target}
-                busy={busy}
-                env={env}
-                run={run}
-                refresh={refresh}
-              />
-            </div>
-            <div className="px-4 pb-6 lg:px-7">
-              <BranchEvidence
-                detail={detail}
-                target={target}
-                selected={selected}
-              />
-            </div>
-            {error && dialog !== 'merge' ? (
-              <p className="text-sm text-bad-text" role="alert">
-                {error}
-              </p>
-            ) : null}
-          </section>
-        )}
-      </div>
+                <div className="px-4 pb-6 lg:px-7">
+                  <BranchEvidence
+                    detail={detail}
+                    target={target}
+                    selected={selected}
+                  />
+                </div>
+                {error && dialog !== 'merge' ? (
+                  <p className="text-sm text-bad-text" role="alert">
+                    {error}
+                  </p>
+                ) : null}
+              </section>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
       <NewBranchDialog
         open={dialog === 'new-branch'}
         env={env}

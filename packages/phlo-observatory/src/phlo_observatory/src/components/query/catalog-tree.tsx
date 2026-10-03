@@ -1,7 +1,9 @@
-/** Renders an expandable query catalog for inserting tables and columns. */
+/** Renders an expandable query catalog for opening table preview queries. */
 import * as React from 'react'
 import { ChevronDownIcon, ChevronRightIcon, SearchIcon } from 'lucide-react'
 import type { SavedQuery } from '@/lib/data/api/query'
+import type { QueryTable } from '@/lib/query-workspace'
+import { queryTableName } from '@/lib/query-workspace'
 import { cn } from '@/lib/utils'
 
 type Catalog = {
@@ -24,7 +26,7 @@ export function CatalogTree({
   catalog: Array<Catalog>
   saved: Array<SavedQuery>
   selected: string
-  onSelect: (name: string) => void
+  onSelect: (table: QueryTable) => void
   onOpenSaved: (id: string) => void
   activeSaved?: string
   className?: string
@@ -98,7 +100,12 @@ export function CatalogTree({
                 {expanded ? (
                   <ul role="group" className="m-0 list-none p-0">
                     {tables.map((table) => {
-                      const fq = `${schema.name}.${table}`
+                      const tableRef = {
+                        catalog: c.name,
+                        schema: schema.name,
+                        table,
+                      }
+                      const fq = queryTableName(tableRef)
                       return (
                         <li
                           key={fq}
@@ -113,7 +120,7 @@ export function CatalogTree({
                               selected === fq &&
                                 'bg-primary-soft text-foreground',
                             )}
-                            onClick={() => onSelect(fq)}
+                            onClick={() => onSelect(tableRef)}
                           >
                             {table}
                           </button>

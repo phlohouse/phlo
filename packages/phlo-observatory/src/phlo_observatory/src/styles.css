@@ -387,13 +387,10 @@
   background: transparent;
   padding: 2px 6px;
   font-size: 9px;
-  opacity: 0.55;
+  opacity: 1;
 }
 .phlo-flow .react-flow__attribution a {
-  color: var(--faint);
-}
-.phlo-flow .react-flow__attribution:hover {
-  opacity: 1;
+  color: var(--link);
 }
 /* Phone mode: the graph sits in a native scroller, so let touches through to it and the page. */
 .phlo-flow-native .react-flow__pane {

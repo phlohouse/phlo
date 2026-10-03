@@ -1,5 +1,4 @@
 /** Renders desktop navigation, environment selection, and quick actions. */
-import * as React from 'react'
 import { Link } from '@tanstack/react-router'
 import {
   CheckIcon,
@@ -14,7 +13,11 @@ import { useCommandPalette } from './command-palette'
 import type { ObservatoryServiceList } from '@/lib/data/api/client'
 import type { IncidentRecord } from '@/lib/data/api/incidents'
 import type { Env } from '@/lib/data/types'
-import { serviceHealthLabel, serviceHealthTone } from '@/lib/data/api/client'
+import {
+  environmentServices,
+  serviceHealthLabel,
+  serviceHealthTone,
+} from '@/lib/data/api/client'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,14 +58,37 @@ export function EnvPill({ env }: { env: Env }) {
 }
 
 /** Brand + environment switcher. Anything that isn't prod is amber. */
-export function EnvSwitcher({ env }: { env: Env }) {
+export function EnvSwitcher({
+  env,
+  compact = false,
+}: {
+  env: Env
+  compact?: boolean
+}) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1 text-foreground outline-none hover:bg-nav-hover focus-visible:outline-2 focus-visible:outline-ring">
-        <BrandMark />
-        <span className="text-[15px] font-semibold">phlo</span>
+      <DropdownMenuTrigger
+        aria-label={
+          compact ? `Environment: ${env}. Switch environment` : undefined
+        }
+        className={cn(
+          'flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1 text-foreground outline-none hover:bg-nav-hover focus-visible:outline-2 focus-visible:outline-ring',
+          !compact && 'w-full',
+        )}
+      >
+        {compact ? null : (
+          <>
+            <BrandMark />
+            <span className="text-[15px] font-semibold">phlo</span>
+          </>
+        )}
         <EnvPill env={env} />
-        <ChevronDownIcon className="ml-auto size-3.5 text-muted-foreground" />
+        <ChevronDownIcon
+          className={cn(
+            'size-3.5 text-muted-foreground',
+            !compact && 'ml-auto',
+          )}
+        />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-[280px]">
         <DropdownMenuLabel>Switch environment</DropdownMenuLabel>
@@ -135,11 +161,7 @@ export function Sidebar({
 }) {
   const staging = env === 'staging'
   const calm = openIncidentCount === 0
-  const [showAllServices, setShowAllServices] = React.useState(false)
-  const observedServices = services.filter(
-    (service) => service.status !== 'unknown',
-  )
-  const visibleServices = showAllServices ? services : observedServices
+  const visibleServices = environmentServices(services)
   return (
     <nav
       aria-label="Primary"
@@ -148,85 +170,97 @@ export function Sidebar({
       <EnvSwitcher env={env} />
       <QuickActionsButton />
 
-      <div className="flex flex-col gap-0.5">
-        {navItems.map(({ to, label, Icon, exact }) => {
-          return (
-            <Link
-              key={to}
-              to={to}
-              search={{ env }}
-              activeOptions={{ exact }}
-              className={itemCls}
-              activeProps={{ className: activeCls, 'aria-current': 'page' }}
-            >
-              <Icon className="size-4 shrink-0" strokeWidth={1.7} />
-              <span className="min-w-0 truncate">{label}</span>
-              {to === '/incidents' &&
-              openIncidentCount !== null &&
-              openIncidentCount > 0 ? (
-                <span className="ml-auto rounded-[5px] bg-bad px-1.5 py-px text-xs text-white">
-                  {openIncidentCount}
-                </span>
-              ) : null}
-            </Link>
-          )
-        })}
-      </div>
-
-      {calm ? (
-        <div className="flex flex-col gap-1.5">
-          <div className="px-2.5 text-xs tracking-wide text-muted-foreground">
-            Open incidents
-          </div>
-          <p className="m-0 px-2.5 text-[13.5px] leading-normal text-text-3">
-            No active incidents are reported by the connected API.
-          </p>
-        </div>
-      ) : (
-        <div className="flex min-h-0 flex-col gap-0.5">
-          <div className="px-2.5 pb-1.5 text-xs tracking-wide text-muted-foreground">
-            Open incidents
-          </div>
-          {incidents.map((incident) => (
-            <Link
-              key={incident.id}
-              to="/incidents/$incidentId"
-              params={{ incidentId: incident.id }}
-              search={{ env }}
-              className={cn(itemCls, 'text-[13.5px]')}
-              activeProps={{ className: activeCls }}
-            >
-              <span
-                className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-soft text-text-3"
-                aria-hidden
+      <div
+        role="region"
+        tabIndex={0}
+        aria-label="Primary navigation and open incidents"
+        className="min-h-0 flex-1 overflow-y-auto outline-none focus-visible:outline-2 focus-visible:outline-ring"
+      >
+        <div className="flex flex-col gap-0.5">
+          {navItems.map(({ to, label, Icon, exact }) => {
+            return (
+              <Link
+                key={to}
+                to={to}
+                search={{ env }}
+                activeOptions={{ exact }}
+                className={itemCls}
+                activeProps={{ className: activeCls, 'aria-current': 'page' }}
               >
-                <FileWarningIcon className="size-3.5" />
-              </span>
-              <span className="min-w-0 truncate">{incident.title}</span>
-            </Link>
-          ))}
-          <p className="m-0 px-2.5 text-[13px] text-text-3">
-            {openIncidentCount === null ? (
-              'Incident status is unavailable.'
-            ) : (
-              <Link to="/incidents" search={{ env }}>
-                {openIncidentCount} reported. View incidents.
+                <Icon className="size-4 shrink-0" strokeWidth={1.7} />
+                <span className="min-w-0 truncate">{label}</span>
+                {to === '/incidents' &&
+                openIncidentCount !== null &&
+                openIncidentCount > 0 ? (
+                  <span className="ml-auto rounded-[5px] bg-bad px-1.5 py-px text-xs text-white">
+                    {openIncidentCount}
+                  </span>
+                ) : null}
               </Link>
-            )}
-          </p>
+            )
+          })}
         </div>
-      )}
+
+        {calm ? (
+          <div className="flex flex-col gap-1.5">
+            <div className="px-2.5 text-xs tracking-wide text-muted-foreground">
+              Open incidents
+            </div>
+            <p className="m-0 px-2.5 text-[13.5px] leading-normal text-text-3">
+              No active incidents are reported by the connected API.
+            </p>
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-col gap-0.5">
+            <div className="px-2.5 pb-1.5 text-xs tracking-wide text-muted-foreground">
+              Open incidents
+            </div>
+            {incidents.map((incident) => (
+              <Link
+                key={incident.id}
+                to="/incidents/$incidentId"
+                params={{ incidentId: incident.id }}
+                search={{ env }}
+                className={cn(itemCls, 'text-[13.5px]')}
+                activeProps={{ className: activeCls }}
+              >
+                <span
+                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-soft text-text-3"
+                  aria-hidden
+                >
+                  <FileWarningIcon className="size-3.5" />
+                </span>
+                <span className="min-w-0 truncate">{incident.title}</span>
+              </Link>
+            ))}
+            <p className="m-0 px-2.5 text-[13px] text-text-3">
+              {openIncidentCount === null ? (
+                'Incident status is unavailable.'
+              ) : (
+                <Link to="/incidents" search={{ env }}>
+                  {openIncidentCount} reported. View incidents.
+                </Link>
+              )}
+            </p>
+          </div>
+        )}
+      </div>
 
       <div className="mt-auto flex flex-col gap-2 border-t border-border px-2.5 pt-3 pb-1">
         <div className="text-xs tracking-wide text-muted-foreground">
           {staging ? 'Services · staging' : 'Services'}
         </div>
-        {services.length === 0 ? (
+        {visibleServices.length === 0 ? (
           <p className="m-0 text-[13px] text-text-3">
-            No service health observations are available.
+            No environment health checks are configured.
           </p>
         ) : null}
-        <div className="flex max-h-48 flex-col gap-2 overflow-y-auto">
+        <div
+          role="region"
+          aria-label="Service health observations"
+          tabIndex={0}
+          className="flex max-h-48 flex-col gap-2 overflow-y-auto outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring"
+        >
           {visibleServices.map((s) => {
             const state = serviceHealthLabel(s)
             return (
@@ -235,27 +269,18 @@ export function Sidebar({
                 className="flex items-center gap-2 text-[13px] text-text-2"
               >
                 <Dot tone={serviceHealthTone(s)} />
-                {s.id}
-                <span className="ml-auto font-mono text-xs text-muted-foreground">
+                <span className="min-w-0 flex-1 truncate" title={s.id}>
+                  {s.id}
+                </span>
+                <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground">
                   {state}
                 </span>
               </div>
             )
           })}
         </div>
-        {services.length > observedServices.length ? (
-          <button
-            type="button"
-            aria-expanded={showAllServices}
-            onClick={() => setShowAllServices((value) => !value)}
-            className="cursor-pointer text-left text-xs text-muted-foreground hover:text-foreground"
-          >
-            {showAllServices
-              ? 'Show observed services only'
-              : `${services.length - observedServices.length} unobserved · show all`}
-          </button>
-        ) : null}
         <div
+          role="group"
           className="min-w-0 border-t border-line pt-2 text-xs text-muted-foreground"
           aria-label="Signed-in identity"
         >

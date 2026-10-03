@@ -1,6 +1,6 @@
 /** Provides shared empty, loading, not-found, and route-error states. */
 import * as React from 'react'
-import { Link, useRouter } from '@tanstack/react-router'
+import { Link, useRouter, useRouterState } from '@tanstack/react-router'
 import { CircleCheckIcon, SearchXIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
@@ -75,8 +75,12 @@ export function PageSkeleton() {
 }
 
 export function NotFound() {
-  return (
+  const inAppShell = useRouterState({
+    select: (state) => state.matches.some((match) => match.routeId === '/_app'),
+  })
+  const content = (
     <div className="flex flex-1 items-center justify-center p-8">
+      <h1 className="sr-only">Nothing here</h1>
       <EmptyState
         title="Nothing here"
         icon={<SearchXIcon className="size-3" />}
@@ -86,6 +90,7 @@ export function NotFound() {
       </EmptyState>
     </div>
   )
+  return inAppShell ? content : <main className="flex flex-1">{content}</main>
 }
 
 export function RouteError({ error, reset }: ErrorComponentProps) {

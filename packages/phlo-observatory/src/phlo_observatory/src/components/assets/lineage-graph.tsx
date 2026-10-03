@@ -269,7 +269,7 @@ export function LineageGraph(props: Props) {
   return (
     <div className="relative">
       <div
-        role="img"
+        role="group"
         aria-label={props.label}
         style={{ '--flow-h': `${phoneH}px` } as React.CSSProperties}
         className="h-(--flow-h) overflow-hidden rounded-lg border border-border-card bg-sunken md:h-[360px]"

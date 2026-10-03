@@ -4,7 +4,11 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { Loader2Icon } from 'lucide-react'
 import type { ObservatoryServiceList } from '@/lib/data/api/client'
 import type { Settings } from '@/lib/data/api/settings'
-import { serviceHealthLabel, serviceHealthTone } from '@/lib/data/api/client'
+import {
+  environmentServices,
+  serviceHealthLabel,
+  serviceHealthTone,
+} from '@/lib/data/api/client'
 import { getShell } from '@/lib/data/api/core'
 import {
   emptySettings,
@@ -43,27 +47,14 @@ export const Route = createFileRoute('/_app/settings/')({
   component: SettingsPage,
 })
 
-const connections: Array<{
-  name: string
-  uri: string
-  service: string
-  latency: string
-}> = [
-  {
-    name: 'Nessie catalog',
-    uri: '[NESSIE_URI]/api/v2',
-    service: 'nessie',
-    latency: '',
-  },
-  { name: 'Dagster', uri: '[DAGSTER_URL]', service: 'dagster', latency: '' },
-  { name: 'Postgres', uri: '[POSTGRES_DSN]', service: 'postgres', latency: '' },
-  {
-    name: 'Object store',
-    uri: '[WAREHOUSE_BUCKET]',
-    service: 'minio',
-    latency: '',
-  },
-]
+const connectionNames: Record<string, string> = {
+  nessie: 'Nessie catalog',
+  dagster: 'Dagster',
+  postgres: 'Postgres',
+  minio: 'Object store',
+  trino: 'Trino',
+  'phlo-api': 'Phlo API',
+}
 
 function saveStatus(
   pending: boolean,
@@ -81,7 +72,8 @@ function saveStatus(
 }
 
 function SettingsPage() {
-  const { overview, services, configuration } = Route.useLoaderData()
+  const { overview, services, environmentBinding, configuration } =
+    Route.useLoaderData()
   const loaded = configuration.value
   const [s, setS] = React.useState<Settings>(loaded?.settings ?? emptySettings)
   const [savedS, setSavedS] = React.useState<Settings>(
@@ -189,22 +181,25 @@ function SettingsPage() {
             {error}
           </div>
         ) : null}
+        <EnvironmentBindingCard
+          env={overview.env}
+          binding={environmentBinding}
+        />
         <SettingsCard
-          title="Connections"
-          description="Services phlo reads from and writes to"
+          title="Service health"
+          description="Environment-bound health checks. Connection strings and credentials stay on the server."
           inline
           className="gap-2"
         >
           <div className="flex flex-col">
-            {connections.map((c) => {
-              const service = services.find((x) => x.id === c.service)
+            {environmentServices(services).map((service) => {
               return (
                 <ConnectionRow
-                  key={c.name}
-                  conn={c}
+                  key={service.id}
+                  name={connectionNames[service.id] ?? service.id}
                   service={service}
                   detail={
-                    service?.response_time_seconds == null
+                    service.response_time_seconds == null
                       ? undefined
                       : `${service.response_time_seconds.toFixed(3)} s`
                   }
@@ -377,6 +372,58 @@ function SettingsPage() {
   )
 }
 
+function EnvironmentBindingCard({
+  env,
+  binding,
+}: {
+  env: Awaited<ReturnType<typeof getShell>>['overview']['env']
+  binding: Awaited<ReturnType<typeof getShell>>['environmentBinding']
+}) {
+  return (
+    <SettingsCard
+      title={`Where ${env} connects`}
+      description="The pipeline definitions and table reference used in this environment."
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <dl className="m-0 flex min-w-0 flex-col gap-1">
+          <dt className="text-sm text-muted-foreground">Pipelines</dt>
+          <dd className="m-0 break-all font-mono text-sm">
+            {binding.dagsterLocation ?? 'Not reported by the API'}
+          </dd>
+          <dd className="m-0 text-sm text-muted-foreground">
+            Dagster code location
+          </dd>
+        </dl>
+        <dl className="m-0 flex min-w-0 flex-col gap-1">
+          <dt className="text-sm text-muted-foreground">Tables</dt>
+          <dd className="m-0 break-all font-mono text-sm">
+            {binding.nessieRef ?? 'Not reported by the API'}
+          </dd>
+          <dd className="m-0 text-sm text-muted-foreground">
+            Nessie reference
+          </dd>
+        </dl>
+      </div>
+      <p className="m-0 text-sm text-muted-foreground">
+        These connections are read-only here. Save changes applies to the
+        preferences below, not to these connections.
+      </p>
+      <details className="border-t border-line-soft pt-3 text-sm">
+        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+          Deployment details
+        </summary>
+        <p className="mt-2 mb-0 text-muted-foreground">
+          This Observatory supports prod and staging. To change their
+          connections, an operator updates <code>PHLO_V1_ENVIRONMENTS</code> in
+          the API deployment. This page cannot create environments or provision
+          services.
+          <code> PHLO_ENVIRONMENT</code> only labels a Phlo runtime.
+        </p>
+      </details>
+    </SettingsCard>
+  )
+}
+
 function SettingsCard({
   title,
   description,
@@ -473,28 +520,36 @@ function TextRow({
 }
 
 function ConnectionRow({
-  conn,
+  name,
   service,
   detail,
 }: {
-  conn: { name: string; uri: string; latency: string }
-  service?: ObservatoryServiceList['items'][number]
+  name: string
+  service: ObservatoryServiceList['items'][number]
   detail?: string
 }) {
   const router = useRouter()
   const [testing, setTesting] = React.useState(false)
-  const state = service ? serviceHealthLabel(service) : 'unknown'
+  const state = serviceHealthLabel(service)
+  const source = service.health_origin
+    ? `Health host: ${service.health_origin}`
+    : service.reason?.startsWith('docker_')
+      ? 'Container health check'
+      : 'Environment health check'
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-t border-line-soft py-2.5 md:h-11 md:grid-cols-[150px_minmax(0,1fr)_190px_64px] md:py-0">
-      <span className="text-sm">{conn.name}</span>
-      <span className="col-start-1 row-start-2 truncate font-mono text-[12.5px] text-text-3 md:col-start-auto md:row-start-auto">
-        {conn.uri}
+      <span className="text-sm">{name}</span>
+      <span
+        className="col-start-1 row-start-2 truncate text-[13px] text-muted-foreground md:col-start-auto md:row-start-auto"
+        title={source}
+      >
+        {source}
       </span>
       <span
         className="col-start-1 row-start-3 flex items-center gap-2 text-[13.5px] md:col-start-auto md:row-start-auto"
         aria-live="polite"
       >
-        <Dot tone={service ? serviceHealthTone(service) : 'neutral'} />
+        <Dot tone={serviceHealthTone(service)} />
         {state}
         {detail ? (
           <span className="text-[13px] text-muted-foreground">· {detail}</span>
@@ -505,7 +560,7 @@ function ConnectionRow({
         size="sm"
         className="col-start-2 row-span-3 row-start-1 h-10 md:col-start-auto md:row-span-1 md:row-start-auto md:h-7"
         disabled={testing}
-        aria-label={`Test ${conn.name} connection`}
+        aria-label={`Refresh ${name} health check`}
         onClick={async () => {
           setTesting(true)
           try {
@@ -515,7 +570,7 @@ function ConnectionRow({
           }
         }}
       >
-        {testing ? <Loader2Icon className="animate-spin" /> : 'Test'}
+        {testing ? <Loader2Icon className="animate-spin" /> : 'Refresh'}
       </Button>
     </div>
   )

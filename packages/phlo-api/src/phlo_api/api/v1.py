@@ -9,6 +9,7 @@ import re
 from datetime import datetime, timezone
 from time import monotonic
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -81,6 +82,8 @@ _RUN_STATUSES = frozenset(
         "CANCELED",
     }
 )
+_SERVICE_PROBE_CONCURRENCY = 8
+_SERVICE_PROBE_DEADLINE_SECONDS = 5.0
 
 
 def _targets() -> dict[str, EnvironmentTarget]:
@@ -187,6 +190,71 @@ async def _runs(location: str, ref: str) -> dict[str, str]:
     return runs
 
 
+async def _service_health_probe(name: str, url: str) -> ServiceSnapshot:
+    started = monotonic()
+    try:
+        async with backend_client() as client:
+            async with client.stream("GET", url, timeout=3.0, follow_redirects=False) as response:
+                status_code = response.status_code
+        status = "healthy" if 200 <= status_code < 300 else "unhealthy"
+        reason = "health_probe_ok" if status == "healthy" else "health_probe_http_error"
+    except (httpx.HTTPError, OSError, ValueError):
+        status = "unavailable"
+        reason = "health_probe_failed"
+    return ServiceSnapshot(
+        id=name,
+        status=status,
+        observed_at=datetime.now(timezone.utc),
+        response_time_seconds=monotonic() - started,
+        runtime_state="unknown",
+        definition_state="configured",
+        reason=reason,
+    )
+
+
+async def _bound_service_health_snapshots(
+    target: EnvironmentTarget, definitions: dict[str, Any]
+) -> dict[str, ServiceSnapshot]:
+    probes = {
+        name: url
+        for name, url in target.service_health_urls.items()
+        if name in definitions and not getattr(definitions[name], "disabled", False)
+    }
+    semaphore = asyncio.Semaphore(_SERVICE_PROBE_CONCURRENCY)
+
+    async def probe(name: str, url: str) -> ServiceSnapshot:
+        async with semaphore:
+            return await _service_health_probe(name, url)
+
+    tasks = {asyncio.create_task(probe(name, str(url))): name for name, url in probes.items()}
+    if not tasks:
+        return {}
+    try:
+        completed, pending = await asyncio.wait(tasks, timeout=_SERVICE_PROBE_DEADLINE_SECONDS)
+        snapshots: dict[str, ServiceSnapshot] = {}
+        for task in completed:
+            snapshot = task.result()
+            snapshots[snapshot.id] = snapshot
+        for task in pending:
+            name = tasks[task]
+            snapshots[name] = ServiceSnapshot(
+                id=name,
+                status="unavailable",
+                observed_at=datetime.now(timezone.utc),
+                response_time_seconds=None,
+                runtime_state="unknown",
+                definition_state="configured",
+                reason="health_probe_deadline_exceeded",
+            )
+        return snapshots
+    finally:
+        unfinished = [task for task in tasks if not task.done()]
+        for task in unfinished:
+            task.cancel()
+        if unfinished:
+            await asyncio.gather(*unfinished, return_exceptions=True)
+
+
 async def _service_snapshots(target: EnvironmentTarget) -> list[ServiceSnapshot]:
     try:
         definitions = ServiceDiscovery().discover()
@@ -204,7 +272,9 @@ async def _service_snapshots(target: EnvironmentTarget) -> list[ServiceSnapshot]
             observed_at=None,
             response_time_seconds=None,
             definition_state="disabled" if getattr(definition, "disabled", False) else "available",
-            reason="disabled" if getattr(definition, "disabled", False) else "no_runtime_evidence",
+            reason="disabled"
+            if getattr(definition, "disabled", False)
+            else "no_environment_binding",
         )
         for name, definition in definitions.items()
     }
@@ -235,6 +305,7 @@ async def _service_snapshots(target: EnvironmentTarget) -> list[ServiceSnapshot]
                 reason=f"docker_{runtime}_{health.state}",
             )
     runtime_failures = {name: item for name, item in items.items() if item.status == "unhealthy"}
+    items.update(await _bound_service_health_snapshots(target, definitions))
     started = monotonic()
     try:
         locations = await _locations()
@@ -301,6 +372,11 @@ async def _service_snapshots(target: EnvironmentTarget) -> list[ServiceSnapshot]
     items.update(runtime_failures)
     if len(items) > 500:
         raise BackendUnavailableError("Service inventory exceeds the v1 page limit.")
+    for name, url in target.service_health_urls.items():
+        if name in items:
+            # Display the configured health host, never a URL path or credentials.
+            origin = urlsplit(str(url))._replace(path="", query="", fragment="").geturl()
+            items[name] = items[name].model_copy(update={"health_origin": origin})
     return [items[name] for name in sorted(items)]
 
 
@@ -402,8 +478,13 @@ async def v1_environments(request: Request) -> EnvironmentsResponse:
 
 @router.get("/services", response_model=ServicesResponse)
 async def v1_services(request: Request, env: Annotated[Environment, Query()]) -> ServicesResponse:
+    target = _target(request, env)
     return ServicesResponse(
-        env=env, items=await _service_snapshots(_target(request, env)), next_cursor=None
+        env=env,
+        dagster_location=target.dagster_location,
+        nessie_ref=target.nessie_ref,
+        items=await _service_snapshots(target),
+        next_cursor=None,
     )
 
 

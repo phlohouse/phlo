@@ -13,6 +13,7 @@ function Select<T extends string>({
   options,
   className,
   id,
+  disabled,
   'aria-label': ariaLabel,
 }: {
   value: T
@@ -20,11 +21,13 @@ function Select<T extends string>({
   options: ReadonlyArray<Option<T>>
   className?: string
   id?: string
+  disabled?: boolean
   'aria-label'?: string
 }) {
   return (
     <SelectPrimitive.Root
       value={value}
+      disabled={disabled}
       onValueChange={(v) => {
         if (v != null) onValueChange(v)
       }}

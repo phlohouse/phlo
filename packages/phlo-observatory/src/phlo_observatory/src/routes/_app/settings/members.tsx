@@ -160,9 +160,14 @@ function MembersPage() {
                   </div>
                 ))}
               {data.members.length === 0 && data.invitations.length === 0 ? (
-                <p className="m-0 py-6 text-[13.5px] text-muted-foreground">
-                  No members or invitations.
-                </p>
+                <div role="row" className={cn(peopleGrid, 'grid py-6')}>
+                  <span
+                    role="cell"
+                    className="col-span-full text-[13.5px] text-muted-foreground"
+                  >
+                    No members or invitations.
+                  </span>
+                </div>
               ) : null}
             </div>
           </div>
@@ -230,9 +235,14 @@ function MembersPage() {
                 </div>
               ))}
               {data.serviceAccounts.length === 0 ? (
-                <p className="m-0 py-6 text-[13.5px] text-muted-foreground">
-                  No service accounts.
-                </p>
+                <div role="row" className={cn(serviceGrid, 'grid py-6')}>
+                  <span
+                    role="cell"
+                    className="col-span-full text-[13.5px] text-muted-foreground"
+                  >
+                    No service accounts.
+                  </span>
+                </div>
               ) : null}
             </div>
           </div>

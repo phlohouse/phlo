@@ -46,6 +46,10 @@ export const getShell = createServerFn({ method: 'GET' })
     return {
       overview,
       services: serviceList.items,
+      environmentBinding: {
+        dagsterLocation: serviceList.dagster_location ?? null,
+        nessieRef: serviceList.nessie_ref ?? null,
+      },
       me,
       incidents: incidents.items
         .filter((item) => item.status !== 'resolved')

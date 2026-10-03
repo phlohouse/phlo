@@ -49,6 +49,7 @@ from phlo_dagster.framework.discovery import (
     discover_user_workflows,
 )
 from phlo_dagster.framework.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
+from phlo_dagster.framework.asset_check_inventory import add_asset_check_inventory
 from phlo_dagster.framework.schema_contracts import maybe_refresh_contracts
 from phlo_dagster.incident_sensor import phlo_incident_signal_sensor
 from phlo_dagster.settings import get_settings
@@ -236,6 +237,7 @@ def build_definitions(
         jobs=merged.jobs,
         executor=executor,
     )
+    final_defs = add_asset_check_inventory(final_defs)
 
     final_assets = list(final_defs.assets or [])
     final_checks = list(final_defs.asset_checks or [])

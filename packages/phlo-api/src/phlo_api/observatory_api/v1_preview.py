@@ -31,6 +31,10 @@ class PreviewUnavailable(RuntimeError):
 class PreviewQueryRejected(PreviewUnavailable):
     """Trino rejected SQL; the message excludes raw SQL and engine details."""
 
+    def __init__(self, message: str, *, error_name: str | None = None) -> None:
+        super().__init__(message)
+        self.error_name = error_name
+
 
 class PreviewLimitExceeded(RuntimeError):
     """The preview exceeded its response or execution budget."""
@@ -223,7 +227,8 @@ async def _collect_pages(
                     reasons.get(
                         error_name if isinstance(error_name, str) else "",
                         "The query engine rejected the query.",
-                    )
+                    ),
+                    error_name=error_name if isinstance(error_name, str) else None,
                 )
             if not columns and isinstance(result.get("columns"), list):
                 columns = result["columns"]

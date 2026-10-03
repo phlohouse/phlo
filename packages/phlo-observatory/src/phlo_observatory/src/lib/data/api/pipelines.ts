@@ -45,6 +45,28 @@ const runsSchema = z.object({
   items: z.array(runSchema),
   next_cursor: z.string().nullable(),
 })
+type RunError = {
+  message: string
+  class_name: string | null
+  stack: Array<string>
+  causes: Array<RunError>
+}
+const runErrorSchema: z.ZodType<RunError> = z.lazy(() =>
+  z.object({
+    message: z.string(),
+    class_name: z.string().nullable(),
+    stack: z.array(z.string()),
+    causes: z.array(runErrorSchema),
+  }),
+)
+const capturedLogsSchema = z.object({
+  file_key: z.string(),
+  step_keys: z.array(z.string()),
+  stdout: z.string().nullable(),
+  stderr: z.string().nullable(),
+  available: z.boolean(),
+  truncated: z.boolean(),
+})
 const eventsSchema = z.object({
   env: environmentSchema,
   run_id: z.string(),
@@ -56,8 +78,14 @@ const eventsSchema = z.object({
       message: z.string(),
       timestamp: z.string(),
       step_key: z.string().nullable(),
+      level: z.string().nullable(),
+      error: runErrorSchema.nullable(),
+      captured_file_key: z.string().nullable(),
+      captured_step_keys: z.array(z.string()),
     }),
   ),
+  captured_logs: z.array(capturedLogsSchema).optional(),
+  captured_logs_available: z.boolean().optional(),
 })
 const schedulesSchema = z.object({
   env: environmentSchema,
@@ -73,6 +101,12 @@ const jobRequest = z.object({
   env: environmentSchema,
   id: z.string().min(1),
   run: z.string().min(1).optional(),
+})
+const runLogRequest = z.object({
+  env: environmentSchema,
+  id: z.string().min(1),
+  run: z.string().min(1),
+  cursor: z.string().min(1).optional(),
 })
 
 export type ApiRun = z.infer<typeof runSchema>
@@ -192,22 +226,7 @@ export const getPipelineJob = createServerFn({ method: 'GET' })
       throw new Error('The selected run belongs to a different job.')
     let events: z.infer<typeof eventsSchema> | null = null
     if (selected) {
-      let cursor: string | null = null
-      const seen = new Set<string>()
-      const items: z.infer<typeof eventsSchema>['items'] = []
-      do {
-        const page: z.infer<typeof eventsSchema> = await phloApi(
-          `api/v1/runs/${encodeURIComponent(selected.run_id)}/timeline?env=${env}&limit=100${cursor ? `&after_cursor=${encodeURIComponent(cursor)}` : ''}`,
-          eventsSchema,
-          { env },
-        )
-        items.push(...page.items)
-        events = { ...page, items }
-        cursor = page.truncated ? page.next_cursor : null
-        if (page.truncated && (!cursor || seen.has(cursor)))
-          throw new Error('Run event cursor did not advance.')
-        if (cursor) seen.add(cursor)
-      } while (cursor)
+      events = await readRunLogPage({ env, id, run: selected.run_id })
     }
     return {
       job,
@@ -224,6 +243,37 @@ export const getPipelineJob = createServerFn({ method: 'GET' })
       env,
     }
   })
+
+export const getRunLogPage = createServerFn({ method: 'GET' })
+  .inputValidator(runLogRequest)
+  .handler(async ({ data }) => readRunLogPage(data))
+
+async function readRunLogPage({
+  env,
+  id,
+  run,
+  cursor,
+}: z.infer<typeof runLogRequest>) {
+  const selected = await phloApi(
+    `api/v1/runs/${encodeURIComponent(run)}?env=${env}`,
+    runSchema,
+    { env },
+  )
+  if (selected.job_id !== id)
+    throw new Error('The selected run belongs to a different job.')
+  const page = await phloApi(
+    `api/v1/runs/${encodeURIComponent(run)}/logs?env=${env}&limit=100${cursor ? `&after_cursor=${encodeURIComponent(cursor)}` : ''}`,
+    eventsSchema,
+    { env },
+  )
+  if (page.env !== env || page.run_id !== run)
+    throw new Error('Run log page identity did not match the requested run.')
+  if (page.truncated && !page.next_cursor)
+    throw new Error('Run event cursor is unavailable.')
+  if (cursor && page.next_cursor === cursor)
+    throw new Error('Run event cursor did not advance.')
+  return page
+}
 
 export const getRunTimeline = getPipelineList
 

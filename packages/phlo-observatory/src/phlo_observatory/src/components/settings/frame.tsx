@@ -1,11 +1,13 @@
 /** Frames settings pages with workspace and environment subnavigation. */
 import * as React from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
+import type { Env } from '@/lib/data/types'
 import { cn } from '@/lib/utils'
 
 type NavItem = {
   label: string
   to: string
+  env?: Env
   hash?: string
   match?: (path: string, hash: string) => boolean
 }
@@ -36,17 +38,31 @@ const workspace: Array<NavItem> = [
   },
 ]
 const environments: Array<NavItem> = [
-  { label: 'prod', to: '/' },
-  { label: 'staging', to: '/staging' },
+  { label: 'prod', to: '/', env: 'prod' },
+  { label: 'staging', to: '/staging', env: 'staging' },
 ]
 
-function SubnavLink({ item, on }: { item: NavItem; on: boolean }) {
-  const search = useRouterState({ select: (s) => s.location.search })
+export function settingsDestination(
+  item: NavItem,
+  sourceSearch: { env?: unknown },
+) {
+  const env: Env =
+    item.env ?? (sourceSearch.env === 'staging' ? 'staging' : 'prod')
+  return { to: item.to, hash: item.hash, search: { env } }
+}
+
+function SubnavLink({
+  item,
+  on,
+  env,
+}: {
+  item: NavItem
+  on: boolean
+  env: Env
+}) {
   return (
     <Link
-      to={item.to}
-      hash={item.hash}
-      search={search}
+      {...settingsDestination(item, { env })}
       aria-current={on ? 'page' : undefined}
       className={cn(
         'flex h-10 shrink-0 items-center rounded-md px-2.5 text-[13.5px] whitespace-nowrap text-text-2 hover:bg-soft hover:text-foreground lg:h-8',
@@ -71,10 +87,15 @@ export function SettingsFrame({
   children: React.ReactNode
   className?: string
 }) {
-  const { pathname, hash } = useRouterState({
-    select: (s) => ({ pathname: s.location.pathname, hash: s.location.hash }),
+  const { pathname, hash, selectedEnv } = useRouterState({
+    select: (s) => ({
+      pathname: s.location.pathname,
+      hash: s.location.hash,
+      selectedEnv: s.location.search.env,
+    }),
   })
   const h = hash.replace(/^#/, '')
+  const env: Env = selectedEnv === 'staging' ? 'staging' : 'prod'
 
   return (
     <>
@@ -88,7 +109,12 @@ export function SettingsFrame({
             Workspace
           </div>
           {workspace.map((i) => (
-            <SubnavLink key={i.label} item={i} on={!!i.match?.(pathname, h)} />
+            <SubnavLink
+              key={i.label}
+              item={i}
+              env={env}
+              on={!!i.match?.(pathname, h)}
+            />
           ))}
           <div className="hidden px-2.5 pt-4 pb-1.5 text-xs text-muted-foreground lg:block">
             Environments
@@ -98,7 +124,7 @@ export function SettingsFrame({
             className="mx-1 my-2.5 w-px shrink-0 bg-border lg:hidden"
           />
           {environments.map((i) => (
-            <SubnavLink key={i.label} item={i} on={false} />
+            <SubnavLink key={i.label} item={i} env={env} on={false} />
           ))}
         </nav>
         <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', className)}>

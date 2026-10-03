@@ -198,6 +198,7 @@ function CommandPalette({
     const r = s ? all.filter((c) => c.label.toLowerCase().includes(s)) : all
     return r.slice(0, 12)
   }, [q, all])
+  const activeIndex = results.length ? Math.min(active, results.length - 1) : -1
 
   React.useEffect(() => setActive(0), [q])
   React.useEffect(() => {
@@ -224,6 +225,13 @@ function CommandPalette({
             <SearchIcon className="size-4 text-muted-foreground" />
             <input
               autoFocus
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={open}
+              aria-controls="command-palette-options"
+              aria-activedescendant={
+                activeIndex >= 0 ? `command-option-${activeIndex}` : undefined
+              }
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
@@ -235,10 +243,10 @@ function CommandPalette({
                   setActive((a) => Math.max(a - 1, 0))
                 } else if (e.key === 'Enter') {
                   e.preventDefault()
-                  runAt(active)
+                  runAt(activeIndex)
                 }
               }}
-              placeholder="Search assets, jobs, incidents and pages"
+              placeholder="Search pages, assets and jobs"
               aria-label="Search"
               className="h-12 flex-1 bg-transparent text-[15px] outline-none placeholder:text-faint"
             />
@@ -253,7 +261,12 @@ function CommandPalette({
               navigation remains available.
             </p>
           ) : null}
-          <div role="listbox" className="min-h-0 overflow-y-auto p-1.5">
+          <div
+            id="command-palette-options"
+            role="listbox"
+            aria-label="Search results"
+            className="min-h-0 overflow-y-auto p-1.5"
+          >
             {results.length === 0 ? (
               <div className="px-3 py-6 text-center text-sm text-muted-foreground">
                 Nothing matches "{q}"
@@ -271,13 +284,14 @@ function CommandPalette({
                   ) : null}
                   <button
                     type="button"
+                    id={`command-option-${i}`}
                     role="option"
-                    aria-selected={i === active}
+                    aria-selected={i === activeIndex}
                     onMouseEnter={() => setActive(i)}
                     onClick={() => runAt(i)}
                     className={cn(
                       'flex h-10 w-full cursor-pointer items-center gap-3 rounded-lg px-3 text-left text-sm text-foreground',
-                      i === active && 'bg-primary-soft',
+                      i === activeIndex && 'bg-primary-soft',
                     )}
                   >
                     {c.icon}
@@ -294,7 +308,7 @@ function CommandPalette({
                         {c.hint}
                       </span>
                     ) : null}
-                    {i === active ? (
+                    {i === activeIndex ? (
                       <CornerDownLeftIcon className="size-3.5 text-muted-foreground" />
                     ) : null}
                   </button>

@@ -8,6 +8,7 @@ import {
   promoteStaging,
   resyncStaging,
   runStagingChecks,
+  stagingChecksPassed,
 } from '@/lib/data/api/staging'
 import { Eyebrow, PageBody, PageHeader } from '@/components/phlo/page'
 import { KpiCard } from '@/components/phlo/kpi'
@@ -153,6 +154,11 @@ function StagingOverview({
     candidate.copy_inventory.prod,
     candidate.copy_inventory.staging,
   )
+  const checksPassed = stagingChecksPassed(
+    candidate.candidate_id,
+    candidate.check_readiness,
+    checks,
+  )
 
   return (
     <>
@@ -180,8 +186,9 @@ function StagingOverview({
               Re-sync data…
             </Button>
             <Button
+              variant={checksPassed ? 'default' : 'outline'}
               disabled={
-                Boolean(busy) || !checks?.passed || !candidate.code_paths.length
+                Boolean(busy) || !checksPassed || !candidate.code_paths.length
               }
               onClick={() => setDialog('promote')}
             >
@@ -219,9 +226,13 @@ function StagingOverview({
             value={
               checks
                 ? checks.items.filter((item) => item.status === 'passed').length
-                : '—'
+                : candidate.check_readiness.filter(
+                    (item) => item.status === 'ready',
+                  ).length
             }
-            qualifier={checks ? `of ${checks.items.length} passing` : 'not run'}
+            qualifier={
+              checks ? `of ${checks.items.length} passing` : 'of 3 passing'
+            }
             footer="Tests, contracts and audits"
           />
           <KpiCard
@@ -305,7 +316,9 @@ function StagingOverview({
                 <Button
                   className="ml-auto"
                   variant="outline"
-                  disabled={Boolean(busy)}
+                  disabled={
+                    Boolean(busy) || !candidate.check_configuration_ready
+                  }
                   onClick={() => void run('checks', checkCandidate)}
                 >
                   {busy === 'checks' ? (
@@ -345,11 +358,36 @@ function StagingOverview({
                   ))}
                 </ul>
               ) : (
-                <p className="mb-0 text-sm text-muted-foreground">
-                  No check evidence has been run for this candidate in this
-                  session.
-                </p>
+                <ul className="mt-3 list-none p-0">
+                  {candidate.check_readiness.map((item) => (
+                    <li
+                      key={item.name}
+                      className="border-t border-line-soft py-2 text-sm"
+                    >
+                      <Badge variant={checkStatusVariant(item.status)}>
+                        {item.status.replaceAll('_', ' ')}
+                      </Badge>{' '}
+                      <span className="ml-2">{item.name}</span>
+                      {item.job_name ? (
+                        <Mono className="ml-2 text-xs">{item.job_name}</Mono>
+                      ) : null}
+                      {item.run_id ? (
+                        <Mono className="ml-2 text-xs">{item.run_id}</Mono>
+                      ) : null}
+                      <div className="text-xs text-muted-foreground">
+                        {item.message}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               )}
+              {!candidate.check_configuration_ready ? (
+                <p className="mb-0 mt-2 text-xs text-muted-foreground">
+                  Add the three executable check jobs to the staging Dagster
+                  location and set PHLO_PROMOTION_DAGSTER_CHECK_JOBS in
+                  tests,contracts,audits order before running checks.
+                </p>
+              ) : null}
             </Card>
             <Inventory
               title={`Dagster job inventory (${candidate.jobs.prod.length} prod / ${candidate.jobs.staging.length} staging)`}
@@ -582,6 +620,13 @@ function Evidence({
     </div>
   )
 }
+
+function checkStatusVariant(status: string): 'ok' | 'bad' | 'warn' {
+  if (status === 'ready') return 'ok'
+  if (status === 'failed') return 'bad'
+  return 'warn'
+}
+
 function Inventory({
   className,
   title,
@@ -597,7 +642,11 @@ function Inventory({
     <Card className={`p-4 lg:p-5 ${className ?? ''}`}>
       <h2 className="m-0 text-[15px] font-medium">{title}</h2>
       {items.length ? (
-        <ul className="mt-2 max-h-64 list-none overflow-y-auto p-0">
+        <ul
+          aria-label={title}
+          tabIndex={0}
+          className="mt-2 max-h-64 list-none overflow-y-auto p-0 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring"
+        >
           {items.map((item) => (
             <li
               key={`${item.note}:${item.name}`}

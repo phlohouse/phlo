@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -141,7 +143,16 @@ def test_alert_adapter_consumes_chat_without_mutating_provider(saved_settings, m
     assert slack.channel == "#old"
 
 
-def asset(identity, observed=None, sla=None, layer=None):
+def asset(
+    identity,
+    observed=None,
+    sla=None,
+    layer=None,
+    freshness_source="dagster_materialization",
+    freshness_reason=None,
+    relation=None,
+):
+    materialized_at = observed if freshness_source == "dagster_materialization" else None
     return v1_assets.AssetView(
         id=identity,
         key=[identity],
@@ -150,9 +161,13 @@ def asset(identity, observed=None, sla=None, layer=None):
         group_name="transform",
         is_source=False,
         dependencies=[],
-        last_materialization_at=observed,
+        last_materialization_at=materialized_at,
         last_run_id=None,
+        freshness_observed_at=observed,
+        freshness_source=freshness_source if observed is not None else None,
+        freshness_reason=freshness_reason,
         freshness_sla_seconds=sla,
+        relation=relation,
         layer=layer,
         repository_name="iot_repo",
         check_definition_scope="unique",
@@ -189,10 +204,93 @@ def test_freshness_precedence_boundaries_future_and_missing():
     assert v1_assets._declared_asset_policy(node) == (None, 7200)
 
 
+def test_snapshot_freshness_is_separate_from_failed_or_missing_materialization():
+    now = datetime(2026, 10, 2, 12, tzinfo=UTC)
+    snapshot = asset(
+        "snapshot-only",
+        now - timedelta(minutes=1),
+        sla=60,
+        freshness_source="iceberg_snapshot",
+    )
+    failed_run = asset(
+        "failed-run",
+        now - timedelta(days=2),
+        sla=60,
+        freshness_source="iceberg_snapshot",
+    ).model_copy(update={"last_materialization_at": None, "last_run_id": None})
+
+    assert snapshot.last_materialization_at is None
+    assert snapshot.last_run_id is None
+    assert failed_run.last_materialization_at is None
+    assert failed_run.last_run_id is None
+    assert v1_assets._count_freshness([snapshot], {}, None, now).model_dump() == {
+        "fresh": 1,
+        "stale": 0,
+        "unknown": 0,
+    }
+    assert v1_assets._count_freshness([failed_run], {}, None, now).stale == 1
+
+
+def test_snapshot_freshness_rejects_future_invalid_and_missing_evidence():
+    now = datetime(2026, 10, 2, 12, tzinfo=UTC)
+    assets = [
+        asset(
+            "future-snapshot",
+            now + timedelta(seconds=1),
+            sla=60,
+            freshness_source="iceberg_snapshot",
+        ),
+        asset(
+            "invalid-snapshot",
+            sla=60,
+            freshness_source=None,
+            freshness_reason="invalid_observation",
+        ),
+        asset("no-snapshot", sla=60, freshness_source=None, freshness_reason="no_observation"),
+    ]
+    assert [
+        v1_assets._apply_asset_freshness(item, {}, None, now).freshness_reason for item in assets
+    ] == ["future_observation", "invalid_observation", "no_observation"]
+    assert v1_assets._count_freshness(assets, {}, None, now).unknown == 3
+
+
+def test_aggregate_snapshot_reads_are_bounded_and_leave_the_remainder_unknown(monkeypatch):
+    now = datetime.now(UTC).replace(microsecond=0)
+    assets = [
+        asset("first", sla=600, relation="raw.first"),
+        asset("second", sla=600, relation="raw.second"),
+    ]
+    calls = []
+    monkeypatch.setattr(v1_assets, "_AGGREGATE_FRESHNESS_METADATA_LIMIT", 1)
+
+    def metadata(table_name, ref):
+        calls.append((table_name, ref))
+        return {
+            "row_count": 1,
+            "size_bytes": 10,
+            "snapshot_id": "9007199254740993",
+            "freshness_observed_at": now - timedelta(minutes=1),
+            "freshness_reason": None,
+        }
+
+    monkeypatch.setattr(v1_assets, "_iceberg_asset_metadata", metadata)
+    enriched = asyncio.run(v1_assets._assets_with_freshness_evidence(assets, "prod", "main"))
+
+    assert calls == [("raw.first", "main")]
+    assert enriched[0].freshness_source == "iceberg_snapshot"
+    assert enriched[1].freshness_source is None
+    assert enriched[1].freshness_reason == "catalog_unavailable"
+    assert v1_assets._count_freshness(enriched, {}, None, now).model_dump() == {
+        "fresh": 1,
+        "stale": 0,
+        "unknown": 1,
+    }
+
+
 def test_quality_failed_latest_and_no_checks_are_not_passing(monkeypatch):
     definitions = [v1_assets.CheckDefinition(name=name) for name in ("bad", "pending")]
 
-    async def inventory(*args):
+    async def inventory(*args, **kwargs):
         return [
             {
                 "assetKey": {"path": ["readings"]},
@@ -215,13 +313,17 @@ def test_quality_failed_latest_and_no_checks_are_not_passing(monkeypatch):
                 metadata=[],
             )
 
-        return {
-            "bad": [event("bad", "SUCCEEDED", True, 10), event("bad", "FAILED", False, 11)],
-            "pending": [
-                event("pending", "SUCCEEDED", True, 10),
-                event("pending", "IN_PROGRESS", None, 11),
-            ],
-        }, {"bad": 2, "pending": 2}
+        return (
+            {
+                "bad": [event("bad", "SUCCEEDED", True, 10), event("bad", "FAILED", False, 11)],
+                "pending": [
+                    event("pending", "SUCCEEDED", True, 10),
+                    event("pending", "IN_PROGRESS", None, 11),
+                ],
+            },
+            {"bad": 2, "pending": 2},
+            set(),
+        )
 
     monkeypatch.setattr(v1_assets, "_asset_check_inventory", inventory)
     monkeypatch.setattr(v1_assets, "_asset_check_execution_groups", groups)
@@ -246,7 +348,10 @@ def test_same_key_quality_is_scoped_to_location_and_ref(monkeypatch):
             "evaluation": {"success": passed, "severity": "ERROR", "metadataEntries": []},
             "run": {
                 "runId": identity,
-                "repositoryOrigin": {"repositoryLocationName": location},
+                "repositoryOrigin": {
+                    "repositoryName": "iot_repo",
+                    "repositoryLocationName": location,
+                },
                 "tags": [{"key": "phlo/ref", "value": ref}],
             },
         }
@@ -257,7 +362,7 @@ def test_same_key_quality_is_scoped_to_location_and_ref(monkeypatch):
         execution("prod", "production", "main", False, 10),
     ]
 
-    async def inventory(*args):
+    async def inventory(*args, **kwargs):
         return [
             {
                 "assetKey": {"path": ["same-key"]},
@@ -309,7 +414,10 @@ def repository_check_source(monkeypatch):
             "evaluation": {"success": passed, "severity": "ERROR", "metadataEntries": []},
             "run": {
                 "runId": identity,
-                "repositoryOrigin": {"repositoryLocationName": location},
+                "repositoryOrigin": {
+                    "repositoryName": "iot_repo",
+                    "repositoryLocationName": location,
+                },
                 "tags": [{"key": "phlo/ref", "value": ref}],
             },
         }
@@ -517,3 +625,230 @@ def test_runtime_observations_are_bound_and_failed_replicas_stay_visible(monkeyp
     assert result["dagster"].status == "healthy" and result["dagster"].observed_at is not None
     unbound = EnvironmentTarget(dagster_location="prod-location", nessie_ref="main")
     assert "worker" not in {item.id for item in asyncio.run(v1._service_snapshots(unbound))}
+
+
+def test_environment_health_urls_probe_only_bound_enabled_services(monkeypatch):
+    calls = []
+
+    def respond(request):
+        calls.append(str(request.url))
+        if request.url.path == "/failed":
+            return httpx.Response(503)
+        if request.url.path == "/offline":
+            raise httpx.ConnectError("offline", request=request)
+        return httpx.Response(204)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+
+    @asynccontextmanager
+    async def client_context():
+        yield client
+
+    monkeypatch.setattr(v1, "backend_client", lambda: client_context())
+    monkeypatch.setattr(
+        v1.ServiceDiscovery,
+        "discover",
+        lambda self: {
+            "external": object(),
+            "failed": object(),
+            "offline": object(),
+            "disabled": SimpleNamespace(disabled=True),
+        },
+    )
+    monkeypatch.setattr(v1, "project_env_value", lambda name: None)
+
+    async def locations():
+        return {"prod-location"}
+
+    monkeypatch.setattr(v1, "_locations", locations)
+    target = EnvironmentTarget(
+        dagster_location="prod-location",
+        nessie_ref="main",
+        service_health_urls={
+            "external": "https://prod-health.example:8443/private-health-path",
+            "failed": "https://health.example/failed",
+            "offline": "https://health.example/offline",
+            "disabled": "https://health.example/ok",
+            "unknown-definition": "https://health.example/ok",
+        },
+    )
+    try:
+        result = {item.id: item for item in asyncio.run(v1._service_snapshots(target))}
+    finally:
+        asyncio.run(client.aclose())
+
+    assert result["external"].status == "healthy"
+    assert result["external"].runtime_state == "unknown"
+    assert result["external"].health_origin == "https://prod-health.example:8443"
+    assert result["failed"].health_origin == "https://health.example"
+    assert result["dagster"].health_origin is None
+    assert "private-health-path" not in result["external"].model_dump_json()
+    assert result["failed"].status == "unhealthy"
+    assert result["offline"].status == "unavailable"
+    assert result["disabled"].status == "inactive"
+    assert result["disabled"].reason == "disabled"
+    assert "unknown-definition" not in result
+    assert len(calls) == 3
+
+
+def test_environment_target_rejects_health_urls_with_secrets_or_query_parameters():
+    for url in (
+        "https://user:password@health.example/ready",
+        "https://health.example/ready?token=secret",
+        "https://health.example/ready#fragment",
+    ):
+        with pytest.raises(ValidationError):
+            EnvironmentTarget(
+                dagster_location="prod-location",
+                nessie_ref="main",
+                service_health_urls={"external": url},
+            )
+
+
+def test_environment_mapping_allows_operator_owned_shared_health_urls(monkeypatch):
+    shared = "https://shared.example/ready"
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps(
+            {
+                "prod": {
+                    "dagster_location": "prod-location",
+                    "nessie_ref": "main",
+                    "service_health_urls": {"catalog": shared},
+                },
+                "staging": {
+                    "dagster_location": "staging-location",
+                    "nessie_ref": "candidate",
+                    "service_health_urls": {"catalog": shared},
+                },
+            }
+        ),
+    )
+
+    targets = v1._targets()
+    assert str(targets["prod"].service_health_urls["catalog"]) == shared
+    assert str(targets["staging"].service_health_urls["catalog"]) == shared
+
+
+def test_probe_deadline_marks_unobserved_services_unavailable(monkeypatch):
+    monkeypatch.setattr(v1, "_SERVICE_PROBE_DEADLINE_SECONDS", 0.01)
+    monkeypatch.setattr(
+        v1.ServiceDiscovery,
+        "discover",
+        lambda self: {"fast": object(), "slow": object()},
+    )
+    monkeypatch.setattr(v1, "project_env_value", lambda name: None)
+
+    async def locations():
+        return {"prod-location"}
+
+    async def probe(name, url):
+        if name == "slow":
+            await asyncio.sleep(1)
+        return v1.ServiceSnapshot(
+            id=name,
+            status="healthy",
+            observed_at=datetime.now(UTC),
+            response_time_seconds=0.001,
+            definition_state="configured",
+            reason="health_probe_ok",
+        )
+
+    monkeypatch.setattr(v1, "_locations", locations)
+    monkeypatch.setattr(v1, "_service_health_probe", probe)
+    result = {
+        item.id: item
+        for item in asyncio.run(
+            v1._service_snapshots(
+                EnvironmentTarget(
+                    dagster_location="prod-location",
+                    nessie_ref="main",
+                    service_health_urls={
+                        "fast": "https://health.example/fast",
+                        "slow": "https://health.example/slow",
+                    },
+                )
+            )
+        )
+    }
+
+    assert result["fast"].status == "healthy"
+    assert result["slow"].status == "unavailable"
+    assert result["slow"].reason == "health_probe_deadline_exceeded"
+    assert result["slow"].observed_at is not None
+    assert result["slow"].response_time_seconds is None
+
+
+def test_bound_health_probe_tasks_are_cleaned_up_when_caller_is_cancelled(monkeypatch):
+    async def run():
+        started = asyncio.Event()
+        finalized = asyncio.Event()
+
+        async def probe(name, url):
+            started.set()
+            try:
+                await asyncio.Future()
+            finally:
+                finalized.set()
+
+        monkeypatch.setattr(v1, "_service_health_probe", probe)
+        work = asyncio.create_task(
+            v1._bound_service_health_snapshots(
+                EnvironmentTarget(
+                    dagster_location="prod-location",
+                    nessie_ref="main",
+                    service_health_urls={"blocked": "https://health.example/blocked"},
+                ),
+                {"blocked": object()},
+            )
+        )
+        await started.wait()
+        work.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await work
+
+        assert finalized.is_set()
+        assert asyncio.all_tasks() == {asyncio.current_task()}
+
+    asyncio.run(run())
+
+
+def test_bound_health_probe_failure_cleans_up_unfinished_sibling(monkeypatch):
+    async def run():
+        sibling_started = asyncio.Event()
+        sibling_finalized = asyncio.Event()
+
+        async def fail(name, url):
+            await sibling_started.wait()
+            raise RuntimeError("probe failed unexpectedly")
+
+        async def sibling(name, url):
+            sibling_started.set()
+            try:
+                await asyncio.Future()
+            finally:
+                sibling_finalized.set()
+
+        async def probe(name, url):
+            if name == "failure":
+                return await fail(name, url)
+            return await sibling(name, url)
+
+        monkeypatch.setattr(v1, "_service_health_probe", probe)
+        with pytest.raises(RuntimeError, match="probe failed unexpectedly"):
+            await v1._bound_service_health_snapshots(
+                EnvironmentTarget(
+                    dagster_location="prod-location",
+                    nessie_ref="main",
+                    service_health_urls={
+                        "failure": "https://health.example/failure",
+                        "sibling": "https://health.example/sibling",
+                    },
+                ),
+                {"failure": object(), "sibling": object()},
+            )
+
+        assert sibling_finalized.is_set()
+        assert asyncio.all_tasks() == {asyncio.current_task()}
+
+    asyncio.run(run())

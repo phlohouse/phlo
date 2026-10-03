@@ -32,12 +32,6 @@ vi.mock('./client', () => ({
   phloApi: vi.fn(),
 }))
 vi.mock('./assets', () => ({ getAssetDetail: vi.fn() }))
-vi.mock('./pipelines', () => ({
-  runSchema: z.object({
-    run_id: z.string(),
-    selected_assets: z.array(z.array(z.string())),
-  }),
-}))
 
 const incident = {
   id: 'incident-7',
@@ -96,23 +90,26 @@ describe('Incident query parity contracts', () => {
     expect(phloApi).toHaveBeenCalledTimes(1)
   })
 
-  it('loads specialised schema investigation and only related environment-scoped runs', async () => {
+  it('loads specialised schema investigation and related runs through the scoped asset route', async () => {
     vi.mocked(phloApi).mockImplementation((path, schema) =>
       schema.parseAsync(
         path.includes('/timeline') || path.includes('/follow-ups')
           ? { items: [] }
-          : path.startsWith('api/v1/runs?')
+          : path.includes('/runs?')
             ? {
                 env: 'staging',
-                next_cursor: null,
+                asset_id: 'bronze/orders',
+                next_cursor: 'next-page',
                 items: [
                   {
                     run_id: 'related',
+                    job_id: 'orders',
+                    status: 'SUCCESS',
+                    created_at: '2026-10-02T12:00:00Z',
+                    started_at: '2026-10-02T12:00:01Z',
+                    ended_at: '2026-10-02T12:00:02Z',
+                    duration_seconds: 1,
                     selected_assets: [['bronze', 'orders']],
-                  },
-                  {
-                    run_id: 'unrelated',
-                    selected_assets: [['gold', 'customers']],
                   },
                 ],
               }
@@ -129,7 +126,18 @@ describe('Incident query parity contracts', () => {
     expect(getAssetDetail).toHaveBeenCalledWith({
       data: { env: 'staging', id: 'bronze/orders', tab: 'schema' },
     })
+    expect(phloApi).toHaveBeenCalledWith(
+      'api/v1/assets/bronze%2Forders/runs?env=staging&limit=100',
+      expect.anything(),
+      { env: 'staging' },
+    )
+    expect(
+      vi
+        .mocked(phloApi)
+        .mock.calls.some(([path]) => path.includes('api/v1/runs/related?')),
+    ).toBe(false)
     expect(detail.runs.items.map((run) => run.run_id)).toEqual(['related'])
+    expect(detail.runs.truncated).toBe(true)
     expect(detail.investigation.kind).toBe('schema')
   })
 })

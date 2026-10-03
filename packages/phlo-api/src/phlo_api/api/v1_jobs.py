@@ -109,7 +109,14 @@ RUN_QUERY = """query V1Run($runId: ID!, $eventLimit: Int!, $afterCursor: String)
       eventConnection(limit: $eventLimit, afterCursor: $afterCursor) {
         events {
           __typename
-          ... on MessageEvent { eventType message timestamp stepKey }
+          ... on MessageEvent { eventType message timestamp stepKey level }
+          ... on ExecutionStepFailureEvent {
+            error { message className stack causes { message className stack causes { message className stack } } }
+          }
+          ... on RunFailureEvent {
+            error { message className stack causes { message className stack causes { message className stack } } }
+          }
+          ... on LogsCapturedEvent { fileKey stepKeys }
         }
         cursor
         hasMore
@@ -118,6 +125,18 @@ RUN_QUERY = """query V1Run($runId: ID!, $eventLimit: Int!, $afterCursor: String)
     ... on RunNotFoundError { message }
   }
 }"""
+RUN_CAPTURED_LOGS_QUERY = """query V1RunCapturedLogs($runId: ID!, $fileKey: String!) {
+  runOrError(runId: $runId) {
+    __typename
+    ... on Run {
+      ... on PipelineRun {
+        capturedLogs(fileKey: $fileKey) { stdout stderr }
+      }
+    }
+    ... on RunNotFoundError { message }
+  }
+}"""
+_CAPTURED_LOG_BYTES = 256 * 1024
 
 
 class Job(WireModel):
@@ -178,6 +197,30 @@ class RunEvent(WireModel):
     message: str
     timestamp: AwareDatetime
     step_key: str | None
+    level: str | None = None
+    error: RunError | None = None
+    captured_file_key: str | None = None
+    captured_step_keys: list[str] = Field(default_factory=list)
+
+
+class RunError(WireModel):
+    message: str
+    class_name: str | None = None
+    stack: list[str] = Field(default_factory=list)
+    causes: list[RunError] = Field(default_factory=list)
+
+
+RunError.model_rebuild()
+RunEvent.model_rebuild()
+
+
+class CapturedRunLogs(WireModel):
+    file_key: str
+    step_keys: list[str]
+    stdout: str | None
+    stderr: str | None
+    available: bool
+    truncated: bool = False
 
 
 class RunTimeline(WireModel):
@@ -192,6 +235,8 @@ class RunLogs(RunTimeline):
     follow_supported: bool = True
     status: RunStatus
     is_terminal: bool
+    captured_logs: list[CapturedRunLogs] = Field(default_factory=list)
+    captured_logs_available: bool = True
 
 
 class RunPattern(WireModel):
@@ -725,6 +770,31 @@ def _events(value: dict[str, Any], limit: int) -> tuple[list[RunEvent], bool, st
     ):
         raise BadGatewayError("Dagster returned invalid run events.")
     events: list[RunEvent] = []
+
+    def parse_error(error: Any, depth: int = 0) -> RunError | None:
+        if error is None:
+            return None
+        if not isinstance(error, dict) or not isinstance(error.get("message"), str):
+            raise BadGatewayError("Dagster returned invalid run error details.")
+        stack = error.get("stack", [])
+        causes = error.get("causes", [])
+        class_name = error.get("className")
+        if (
+            not isinstance(stack, list)
+            or any(not isinstance(line, str) for line in stack)
+            or not isinstance(causes, list)
+            or (class_name is not None and not isinstance(class_name, str))
+        ):
+            raise BadGatewayError("Dagster returned invalid run error details.")
+        return RunError(
+            message=error["message"][:20_000],
+            class_name=class_name,
+            stack=[line[:4_000] for line in stack[:100]],
+            causes=[cause for item in causes[:10] if (cause := parse_error(item, depth + 1))]
+            if depth < 2
+            else [],
+        )
+
     for row in rows[:limit]:
         if not isinstance(row, dict):
             raise BadGatewayError("Dagster returned an invalid run event.")
@@ -739,12 +809,77 @@ def _events(value: dict[str, Any], limit: int) -> tuple[list[RunEvent], bool, st
         step_key = row.get("stepKey")
         if step_key is not None and not isinstance(step_key, str):
             raise BadGatewayError("Dagster returned an invalid run event.")
+        level = row.get("level")
+        file_key = row.get("fileKey")
+        step_keys = row.get("stepKeys") or []
+        if (
+            (level is not None and not isinstance(level, str))
+            or (file_key is not None and not isinstance(file_key, str))
+            or not isinstance(step_keys, list)
+            or any(not isinstance(key, str) for key in step_keys)
+        ):
+            raise BadGatewayError("Dagster returned an invalid run event.")
+        error = parse_error(row.get("error"))
         events.append(
             RunEvent(
-                event_type=event_type, message=row["message"], timestamp=observed, step_key=step_key
+                event_type=event_type,
+                message=row["message"][:20_000],
+                timestamp=observed,
+                step_key=step_key,
+                level=level,
+                error=error,
+                captured_file_key=file_key,
+                captured_step_keys=step_keys[:100],
             )
         )
     return events, has_more, cursor
+
+
+def _bounded_log_text(value: str | None) -> tuple[str | None, bool]:
+    if value is None:
+        return None, False
+    encoded = value.encode("utf-8")
+    return (
+        encoded[:_CAPTURED_LOG_BYTES].decode("utf-8", errors="ignore"),
+        len(encoded) > _CAPTURED_LOG_BYTES,
+    )
+
+
+async def _captured_logs(run_id: str, file_key: str, step_keys: list[str]) -> CapturedRunLogs:
+    try:
+        response = await _graphql(RUN_CAPTURED_LOGS_QUERY, {"runId": run_id, "fileKey": file_key})
+    except Exception:
+        return CapturedRunLogs(
+            file_key=file_key,
+            step_keys=step_keys,
+            stdout=None,
+            stderr=None,
+            available=False,
+        )
+    data = response.get("data")
+    run = data.get("runOrError") if isinstance(data, dict) else None
+    logs = run.get("capturedLogs") if isinstance(run, dict) else None
+    if response.get("errors") or not isinstance(logs, dict):
+        return CapturedRunLogs(
+            file_key=file_key,
+            step_keys=step_keys,
+            stdout=None,
+            stderr=None,
+            available=False,
+        )
+    stdout, stderr = logs.get("stdout"), logs.get("stderr")
+    if any(value is not None and not isinstance(value, str) for value in (stdout, stderr)):
+        raise BadGatewayError("Dagster returned invalid captured logs.")
+    stdout, stdout_truncated = _bounded_log_text(stdout)
+    stderr, stderr_truncated = _bounded_log_text(stderr)
+    return CapturedRunLogs(
+        file_key=file_key,
+        step_keys=step_keys,
+        stdout=stdout,
+        stderr=stderr,
+        available=stdout is not None or stderr is not None,
+        truncated=stdout_truncated or stderr_truncated,
+    )
 
 
 @router.get("/runs/{run_id}/timeline", response_model=RunTimeline)
@@ -776,6 +911,16 @@ async def v1_run_logs(
 ) -> RunLogs:
     run, value = await _run_detail(request, env, run_id, limit, after_cursor)
     items, truncated, cursor = _events(value, limit)
+    capture_events: dict[str, list[str]] = {}
+    for event in items:
+        if event.event_type == "LOGS_CAPTURED" and event.captured_file_key:
+            capture_events.setdefault(event.captured_file_key, event.captured_step_keys)
+    captured = await asyncio.gather(
+        *(
+            _captured_logs(run.run_id, file_key, step_keys)
+            for file_key, step_keys in list(capture_events.items())[:20]
+        )
+    )
     return RunLogs(
         env=env,
         run_id=run.run_id,
@@ -784,6 +929,8 @@ async def v1_run_logs(
         next_cursor=cursor or None,
         status=run.status,
         is_terminal=run.status in {"SUCCESS", "FAILURE", "CANCELED"},
+        captured_logs=captured,
+        captured_logs_available=all(item.available for item in captured),
     )
 
 

@@ -2,6 +2,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { environmentSchema, phloApi } from './client'
+import { runStatusSchema } from './pipelines'
 
 const refSchema = z.object({
   env: environmentSchema,
@@ -13,6 +14,30 @@ const refSchema = z.object({
 const refsSchema = z.object({
   env: environmentSchema,
   items: z.array(refSchema),
+})
+export const wapPageSchema = z.object({
+  env: environmentSchema,
+  items: z.array(
+    z.object({
+      logical_run_id: z.string().min(1),
+      run_id: z.string().min(1),
+      job_id: z.string().min(1),
+      status: runStatusSchema,
+      created_at: z.iso.datetime({ offset: true }),
+      staging_ref: z.string().min(1),
+      catalog_system: z.string().nullable(),
+      strategy: z.enum(['branch', 'snapshot', 'unknown']),
+      branch_state: z.enum(['present', 'absent', 'unknown', 'not_applicable']),
+      branch_hash: z.string().nullable(),
+      report_state: z.enum(['verified', 'missing', 'invalid']),
+      lifecycle_status: z.string().nullable(),
+      reported_at: z.iso.datetime({ offset: true }).nullable(),
+    }),
+  ),
+  scanned_runs: z.number().int().nonnegative(),
+  scan_limit: z.number().int().positive(),
+  scan_limited: z.boolean(),
+  catalog_available: z.boolean(),
 })
 const commitSchema = z.object({
   hash: z.string(),
@@ -113,6 +138,12 @@ export const getBranchesPage = createServerFn({ method: 'GET' })
       tags: refs.items.filter((item) => item.type === 'TAG'),
     }
   })
+
+export const getWapRuns = createServerFn({ method: 'GET' })
+  .validator(envInput)
+  .handler(({ data: { env } }) =>
+    phloApi(`/api/v1/wap/runs?env=${env}`, wapPageSchema, { env }),
+  )
 
 export const getBranchDetail = createServerFn({ method: 'GET' })
   .validator(detailInput)

@@ -323,8 +323,7 @@ def test_timeline_requests_common_fields_for_engine_and_materialization_events(a
     client, _, monkeypatch = api
 
     async def graphql(url, query, variables=None):
-        # Both types implement MessageEvent, but were missing from the concrete fragments.
-        assert "... on MessageEvent { eventType message timestamp stepKey }" in query
+        assert "... on MessageEvent { eventType message timestamp stepKey level }" in query
         return {
             "data": {
                 "runOrError": {
@@ -370,6 +369,96 @@ def test_timeline_requests_common_fields_for_engine_and_materialization_events(a
             "1970-01-01T00:00:02.750000Z",
         ]
         assert response.json()["items"][1]["step_key"] == "orders"
+
+
+def test_failure_diagnostics_and_captured_logs_are_returned(api, monkeypatch):
+    client, _, _ = api
+    multibyte_stdout = "é" * 131_072 + "a"
+    error = {
+        "message": "DagsterInvariantViolationError: partition key unavailable",
+        "className": "DagsterInvariantViolationError",
+        "stack": ['  File "execute_plan.py", line 243\n'] * 7,
+        "causes": [],
+    }
+    calls = []
+
+    async def graphql(url, query, variables=None):
+        calls.append((query, variables))
+        if "V1RunCapturedLogs" in query:
+            assert variables == {"runId": "prod-run", "fileKey": "captured-key"}
+            return {
+                "data": {
+                    "runOrError": {
+                        "__typename": "Run",
+                        "capturedLogs": {
+                            "stdout": multibyte_stdout,
+                            "stderr": "worker error",
+                        },
+                    }
+                }
+            }
+        assert "ExecutionStepFailureEvent" in query
+        return {
+            "data": {
+                "runOrError": {
+                    "__typename": "Run",
+                    **_run("prod-run", "prod_loc", "main", status="FAILURE"),
+                    "eventConnection": {
+                        "events": [
+                            {
+                                "__typename": "ExecutionStepFailureEvent",
+                                "eventType": "STEP_FAILURE",
+                                "message": "step failed",
+                                "timestamp": "1000",
+                                "stepKey": "orders",
+                                "level": "ERROR",
+                                "error": error,
+                            },
+                            {
+                                "__typename": "LogsCapturedEvent",
+                                "eventType": "LOGS_CAPTURED",
+                                "message": "captured",
+                                "timestamp": "2000",
+                                "stepKey": None,
+                                "level": "DEBUG",
+                                "fileKey": "captured-key",
+                                "stepKeys": ["orders"],
+                            },
+                        ],
+                        "cursor": "end",
+                        "hasMore": False,
+                    },
+                }
+            }
+        }
+
+    monkeypatch.setattr(v1_jobs, "graphql_request", graphql)
+    response = client.get("/api/v1/runs/prod-run/logs?env=prod&limit=10")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    failure = payload["items"][0]
+    assert failure["error"]["class_name"] == "DagsterInvariantViolationError"
+    assert len(failure["error"]["stack"]) == 7
+    assert payload["captured_logs_available"] is True
+    captured = payload["captured_logs"][0]
+    assert captured["file_key"] == "captured-key"
+    assert captured["step_keys"] == ["orders"]
+    assert len(captured["stdout"].encode("utf-8")) == 256 * 1024
+    assert captured["stdout"] == "é" * 131_072
+    assert captured["stderr"] == "worker error"
+    assert captured["available"] is True
+    assert captured["truncated"] is True
+    assert len(calls) == 2
+
+
+def test_run_diagnostics_queries_match_installed_dagster_schema():
+    from graphql import parse, validate
+
+    from dagster_graphql.schema import create_schema
+
+    schema = create_schema().graphql_schema
+    for query in (v1_jobs.RUN_QUERY, v1_jobs.RUN_CAPTURED_LOGS_QUERY):
+        assert validate(schema, parse(query)) == []
 
 
 def test_job_summary_histogram_and_maintenance_windows_are_explicitly_scoped(api, monkeypatch):

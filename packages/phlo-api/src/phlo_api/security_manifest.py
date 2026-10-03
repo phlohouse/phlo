@@ -105,6 +105,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
             "v1_branch_commits",
             "v1_branch_diff",
             "v1_branch_compare",
+            "v1_wap_runs",
         ),
         action=CanonicalAction.CATALOG_READ.value,
         resource_type="catalog",
@@ -221,6 +222,13 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
     *_specs(
         ("v1_asset_preview",),
         action=CanonicalAction.ASSET_READ.value,
+        resource_type="asset",
+        resource_keys=("env", "asset_id"),
+        resource_sources=(("env", "query"), ("asset_id", "path")),
+    ),
+    *_specs(
+        ("v1_asset_exact_row_count",),
+        action=CanonicalAction.DATASET_QUERY.value,
         resource_type="asset",
         resource_keys=("env", "asset_id"),
         resource_sources=(("env", "query"), ("asset_id", "path")),

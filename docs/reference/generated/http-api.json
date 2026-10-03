@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 207,
+  "endpoint_count": 209,
   "endpoints": [
     {
       "method": "GET",
@@ -1182,6 +1182,15 @@
       ]
     },
     {
+      "method": "POST",
+      "operation_id": "v1_asset_exact_row_count_api_v1_assets__asset_id__row_count_post",
+      "path": "/api/v1/assets/{asset_id}/row-count",
+      "summary": "V1 Asset Exact Row Count",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
       "method": "GET",
       "operation_id": "v1_asset_runs_api_v1_assets__asset_id__runs_get",
       "path": "/api/v1/assets/{asset_id}/runs",
@@ -1836,6 +1845,15 @@
       "summary": "V1 Trino Query Completed",
       "tags": [
         "v1 usage"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_wap_runs_api_v1_wap_runs_get",
+      "path": "/api/v1/wap/runs",
+      "summary": "V1 Wap Runs",
+      "tags": [
+        "v1 WAP"
       ]
     },
     {

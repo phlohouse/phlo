@@ -62,6 +62,12 @@ export const followUpSchema = z.object({
   completed_at: z.string().datetime({ offset: true }).nullable(),
 })
 const followUpsSchema = z.object({ items: z.array(followUpSchema) })
+const assetRunsSchema = z.object({
+  env: environmentSchema,
+  asset_id: z.string(),
+  items: z.array(runSchema),
+  next_cursor: z.string().nullable(),
+})
 const subscriptionSchema = z.object({
   incident_id: z.string(),
   subscribed: z.boolean(),
@@ -141,40 +147,31 @@ export const getIncidentDetail = createServerFn({ method: 'GET' })
         followUpsSchema,
       ),
     ])
-    const runs = await phloApi(
-      `api/v1/runs?env=${env}&limit=100`,
-      z.object({
-        env: environmentSchema,
-        items: z.array(runSchema),
-        next_cursor: z.string().nullable(),
+    const assets = incident.asset_ids.length
+      ? incident.asset_ids
+      : [incident.asset_id]
+    const runs = await Promise.all(
+      [...new Set(assets)].map(async (assetId) => {
+        const page = await phloApi(
+          `api/v1/assets/${encodeURIComponent(assetId)}/runs?env=${env}&limit=100`,
+          assetRunsSchema,
+          { env },
+        )
+        return { items: page.items, truncated: page.next_cursor !== null }
       }),
-      { env },
     )
-      .then((page) => ({
-        items: page.items.filter(
-          (run) =>
-            run.selected_assets.some((key) =>
-              (incident.asset_ids.length
-                ? incident.asset_ids
-                : [incident.asset_id]
-              ).some(
-                (asset) => asset === key.join('/') || asset === key.join('.'),
-              ),
-            ) ||
-            timeline.items.some((event) => {
-              const evidence = event.payload.evidence
-              return (
-                typeof evidence === 'object' &&
-                evidence !== null &&
-                !Array.isArray(evidence) &&
-                (evidence.run_id === run.run_id ||
-                  evidence.successful_run_id === run.run_id)
-              )
-            }),
-        ),
-        truncated: page.next_cursor !== null,
-        error: null,
-      }))
+      .then((perAsset) => {
+        const byId = new Map(
+          perAsset
+            .flatMap((page) => page.items)
+            .map((run) => [run.run_id, run]),
+        )
+        return {
+          items: [...byId.values()],
+          truncated: perAsset.some((page) => page.truncated),
+          error: null,
+        }
+      })
       .catch((error: unknown) => ({
         items: [],
         truncated: false,

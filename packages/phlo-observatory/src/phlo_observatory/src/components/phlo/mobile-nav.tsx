@@ -1,11 +1,18 @@
 /** Renders the mobile top bar and route tab bar. */
 import { Link } from '@tanstack/react-router'
-import { SearchIcon } from 'lucide-react'
+import { MoreHorizontalIcon, SearchIcon } from 'lucide-react'
 import { navItems } from './nav-items'
-import { BrandMark, EnvPill } from './sidebar'
+import { BrandMark, EnvSwitcher } from './sidebar'
 import { ThemeToggleButton } from './theme-switch'
 import { useCommandPalette } from './command-palette'
 import type { Env } from '@/lib/data/types'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/menu'
 
 /** Phone header: brand, environment, search, theme. Shown below the lg breakpoint. */
 export function MobileTopBar({ env }: { env: Env }) {
@@ -20,7 +27,7 @@ export function MobileTopBar({ env }: { env: Env }) {
         <BrandMark className="size-7 text-sm" />
         <span className="text-[17px] font-semibold">phlo</span>
       </Link>
-      <EnvPill env={env} />
+      <EnvSwitcher env={env} compact />
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -34,7 +41,7 @@ export function MobileTopBar({ env }: { env: Env }) {
   )
 }
 
-/** Bottom tab bar on phones: Home, Incidents, Assets, Pipelines. */
+/** Bottom navigation on phones, with less-used destinations in an overflow menu. */
 export function MobileTabBar({
   env,
   openIncidents,
@@ -45,7 +52,7 @@ export function MobileTabBar({
   return (
     <nav
       aria-label="Primary"
-      className="grid h-16 shrink-0 grid-cols-4 border-t border-line bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="grid h-16 shrink-0 grid-cols-5 border-t border-line bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
       {navItems
         .filter((n) => n.mobile)
@@ -74,6 +81,26 @@ export function MobileTabBar({
             {to === '/' ? 'Home' : label}
           </Link>
         ))}
+      <DropdownMenu>
+        <DropdownMenuTrigger className="flex min-w-0 cursor-pointer flex-col items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+          <MoreHorizontalIcon className="size-5" aria-hidden="true" />
+          More
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-44">
+          <DropdownMenuLabel>More pages</DropdownMenuLabel>
+          {navItems
+            .filter((item) => !item.mobile)
+            .map(({ to, label, Icon }) => (
+              <DropdownMenuItem
+                key={to}
+                render={<Link to={to} search={{ env }} />}
+              >
+                <Icon className="size-4" />
+                {label}
+              </DropdownMenuItem>
+            ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </nav>
   )
 }
