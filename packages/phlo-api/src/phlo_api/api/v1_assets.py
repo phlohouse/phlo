@@ -75,6 +75,7 @@ ASSET_QUERY = """query V1Assets {
           id assetKey { path } description computeKind groupName isMaterializable isObservable isPartitioned
           repository { name location { name } }
           hasAssetChecks
+          tags { key value }
           jobNames
           dependencyKeys { path }
           internalFreshnessPolicy { __typename ... on TimeWindowFreshnessPolicy { failWindowSeconds } }
@@ -225,6 +226,7 @@ class AssetView(WireModel):
     layer: Literal["bronze", "silver", "gold"] | None = None
     freshness_sla_seconds: float | None = Field(default=None, gt=0)
     repository_name: str | None = Field(default=None, exclude=True)
+    is_ingestion: bool = Field(default=False, exclude=True)
     check_definition_scope: Literal["unique", "ambiguous", "unknown"] = Field(
         default="unknown", exclude=True
     )
@@ -739,6 +741,10 @@ def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
         history_scoped=latest is not None,
         reports=reports,
         repository_name=node["repository"].get("name"),
+        is_ingestion=any(
+            tag.get("key") == "asset_type" and tag.get("value") == "ingestion"
+            for tag in node.get("tags") or []
+        ),
         check_definition_scope=node.get("_phlo_check_definition_scope", "unknown"),
     )
 
@@ -2819,7 +2825,13 @@ async def v1_sources(
     request: Request, env: Environment = Query(), limit: Limit = 100, cursor: str | None = None
 ) -> AssetPage:
     assets = await _assets(request, env, allowed_query=frozenset({"env", "limit", "cursor"}))
-    return _page(env, "sources", [asset for asset in assets if asset.is_source], limit, cursor)
+    return _page(
+        env,
+        "sources",
+        [asset for asset in assets if asset.is_source or asset.is_ingestion],
+        limit,
+        cursor,
+    )
 
 
 def _freshness_policy_inputs(

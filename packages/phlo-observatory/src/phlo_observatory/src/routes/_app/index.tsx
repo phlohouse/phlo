@@ -291,7 +291,7 @@ function OverviewPage() {
           </CardHeader>
           <CardContent className="flex flex-col items-stretch gap-2.5 lg:flex-row">
             <div className="flex shrink-0 flex-col gap-2 rounded-[10px] bg-sunken p-3.5 lg:w-[230px]">
-              <Eyebrow>Sources · dlt</Eyebrow>
+              <Eyebrow>Sources</Eyebrow>
               {data.sources.items.length ? (
                 data.sources.items.map((source) => (
                   <div
