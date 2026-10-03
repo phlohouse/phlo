@@ -728,6 +728,56 @@ def test_asset_cursor_is_environment_bound_and_sources_filter_before_page(client
     assert crossed.status_code == 400
 
 
+@pytest.mark.parametrize("provider", ["dlt", "airbyte", "sling"])
+def test_sources_include_declared_ingestion_without_disabling_materialization(
+    client, monkeypatch, provider
+):
+    http, *_ = client
+    base = {
+        "description": None,
+        "computeKind": None,
+        "groupName": "ingest",
+        "isMaterializable": True,
+        "repository": {"name": "repo", "location": {"name": "production_jobs"}},
+        "dependencyKeys": [],
+        "assetMaterializations": [],
+    }
+    nodes = [
+        {**base, "assetKey": {"path": ["a_dlt_not_ingestion"]}, "tags": []},
+        {
+            **base,
+            "assetKey": {"path": ["b_registry"]},
+            "tags": [
+                {"key": "asset_type", "value": "ingestion"},
+                {"key": "provider", "value": provider},
+            ],
+        },
+        {**base, "assetKey": {"path": ["c_external"]}, "isMaterializable": False},
+        {
+            **base,
+            "assetKey": {"path": ["b_registry"]},
+            "repository": {"name": "repo", "location": {"name": "testing_jobs"}},
+            "tags": [{"key": "asset_type", "value": "transformation"}],
+        },
+    ]
+
+    async def graphql(url, query, *args, **kwargs):
+        return _asset_inventory_response(nodes)
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    response = http.get("/api/v1/sources?env=prod&limit=1")
+    assert response.status_code == 200, response.text
+    assert [item["id"] for item in response.json()["items"]] == ["b_registry"]
+    ingestion = response.json()["items"][0]
+    assert ingestion["is_source"] is False
+    assert "is_ingestion" not in ingestion
+    cursor = response.json()["next_cursor"]
+    next_page = http.get(f"/api/v1/sources?env=prod&limit=1&cursor={cursor}")
+    assert [item["id"] for item in next_page.json()["items"]] == ["c_external"]
+    assert next_page.json()["items"][0]["is_source"] is True
+    assert http.get("/api/v1/sources?env=staging").json()["items"] == []
+
+
 def test_shared_asset_key_preserves_verified_repository_history(client, monkeypatch):
     from types import SimpleNamespace
 
