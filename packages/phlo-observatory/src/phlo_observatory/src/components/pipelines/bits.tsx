@@ -27,6 +27,22 @@ export function runColor(status: ApiRun['status']) {
         : 'bg-warn-bar'
 }
 
+export function runBadge(status: ApiRun['status']) {
+  return status === 'FAILURE'
+    ? 'bad'
+    : status === 'SUCCESS'
+      ? 'ok'
+      : status === 'CANCELED'
+        ? 'neutral'
+        : 'warn'
+}
+
+export function runDuration(seconds: number | null) {
+  if (seconds === null) return 'Not available'
+  if (seconds < 60) return `${seconds.toFixed(2)} seconds`
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
+}
+
 export const statusDot: Record<ScaleStatus, string> = {
   failing: 'bg-bad',
   slow: 'bg-warn-bar',

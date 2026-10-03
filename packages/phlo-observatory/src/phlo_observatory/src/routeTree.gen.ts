@@ -26,6 +26,7 @@ import { Route as AppPipelinesTimelineRouteImport } from './routes/_app/pipeline
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppSettingsAuditLogRouteImport } from './routes/_app/settings/audit-log'
 import { Route as AppSettingsMembersRouteImport } from './routes/_app/settings/members'
+import { Route as AppPipelinesJobNameRunsRunIdRouteImport } from './routes/_app/pipelines/$jobName_.runs.$runId'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -111,6 +112,12 @@ const AppSettingsMembersRoute = AppSettingsMembersRouteImport.update({
   path: '/settings/members',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPipelinesJobNameRunsRunIdRoute =
+  AppPipelinesJobNameRunsRunIdRouteImport.update({
+    id: '/pipelines/$jobName_/runs/$runId',
+    path: '/pipelines/$jobName/runs/$runId',
+    getParentRoute: () => AppRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -129,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/incidents/': typeof AppIncidentsIndexRoute
   '/pipelines/': typeof AppPipelinesIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
+  '/pipelines/$jobName/runs/$runId': typeof AppPipelinesJobNameRunsRunIdRoute
 }
 export interface FileRoutesByTo {
   '/healthz': typeof HealthzRoute
@@ -147,6 +155,7 @@ export interface FileRoutesByTo {
   '/incidents': typeof AppIncidentsIndexRoute
   '/pipelines': typeof AppPipelinesIndexRoute
   '/settings': typeof AppSettingsIndexRoute
+  '/pipelines/$jobName/runs/$runId': typeof AppPipelinesJobNameRunsRunIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -167,6 +176,7 @@ export interface FileRoutesById {
   '/_app/incidents/': typeof AppIncidentsIndexRoute
   '/_app/pipelines/': typeof AppPipelinesIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
+  '/_app/pipelines/$jobName_/runs/$runId': typeof AppPipelinesJobNameRunsRunIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
     | '/incidents/'
     | '/pipelines/'
     | '/settings/'
+    | '/pipelines/$jobName/runs/$runId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/healthz'
@@ -205,6 +216,7 @@ export interface FileRouteTypes {
     | '/incidents'
     | '/pipelines'
     | '/settings'
+    | '/pipelines/$jobName/runs/$runId'
   id:
     | '__root__'
     | '/_app'
@@ -224,6 +236,7 @@ export interface FileRouteTypes {
     | '/_app/incidents/'
     | '/_app/pipelines/'
     | '/_app/settings/'
+    | '/_app/pipelines/$jobName_/runs/$runId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -352,6 +365,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsMembersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/pipelines/$jobName_/runs/$runId': {
+      id: '/_app/pipelines/$jobName_/runs/$runId'
+      path: '/pipelines/$jobName/runs/$runId'
+      fullPath: '/pipelines/$jobName/runs/$runId'
+      preLoaderRoute: typeof AppPipelinesJobNameRunsRunIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -371,6 +391,7 @@ interface AppRouteChildren {
   AppIncidentsIndexRoute: typeof AppIncidentsIndexRoute
   AppPipelinesIndexRoute: typeof AppPipelinesIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+  AppPipelinesJobNameRunsRunIdRoute: typeof AppPipelinesJobNameRunsRunIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -389,6 +410,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppIncidentsIndexRoute: AppIncidentsIndexRoute,
   AppPipelinesIndexRoute: AppPipelinesIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
+  AppPipelinesJobNameRunsRunIdRoute: AppPipelinesJobNameRunsRunIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
