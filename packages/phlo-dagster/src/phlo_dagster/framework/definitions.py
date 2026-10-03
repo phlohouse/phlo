@@ -32,6 +32,7 @@ Example:
 
 from __future__ import annotations
 
+import os
 import platform
 from pathlib import Path
 from typing import Any
@@ -208,6 +209,14 @@ def build_definitions(
     dagster_defs = _collect_dagster_extension_definitions()
     definitions_to_merge = [user_defs]
     definitions_to_merge.append(dg.Definitions(sensors=[phlo_incident_signal_sensor]))
+    if os.environ.get("PHLO_OBSERVATORY_ENVIRONMENT"):
+        from phlo.plugins.observatory_settings import operational_environment_target
+        from phlo_dagster.alerting_sensor import email_digest_sensor
+        from phlo_dagster.maintenance_sensor import get_policy_maintenance_definitions
+
+        operational_environment_target(os.environ["PHLO_OBSERVATORY_ENVIRONMENT"])
+        definitions_to_merge.append(dg.Definitions(sensors=[email_digest_sensor]))
+        definitions_to_merge.append(get_policy_maintenance_definitions())
     if dagster_defs is not None:
         definitions_to_merge.append(dagster_defs)
     wap_defs = _collect_wap_definitions()

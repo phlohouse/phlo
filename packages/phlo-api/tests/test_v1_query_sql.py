@@ -17,6 +17,9 @@ from phlo_api.api.v1_query_sql import (
         "delete from prod_catalog.analytics.orders",
         "select 1; select 2",
         "create table prod_catalog.analytics.copy as select * from prod_catalog.analytics.orders",
+        "SELECT * FROM TABLE(system.query(query => 'DELETE FROM orders'))",
+        "WITH deleted AS (DELETE FROM orders RETURNING *) SELECT * FROM deleted",
+        "SELECT * INTO copy FROM orders",
     ],
 )
 def test_query_rejects_writes_or_references_outside_selected_catalog(sql: str) -> None:

@@ -46,9 +46,17 @@ export const servicesSchema = z.object({
         'unhealthy',
         'unknown',
         'unavailable',
+        'inactive',
       ]),
       observed_at: z.string().nullable(),
       response_time_seconds: z.number().nullable(),
+      runtime_state: z
+        .enum(['running', 'starting', 'stopped', 'unknown'])
+        .optional(),
+      definition_state: z
+        .enum(['configured', 'available', 'disabled', 'unknown'])
+        .optional(),
+      reason: z.string().nullable().optional(),
     }),
   ),
   next_cursor: z.string().nullable(),
@@ -56,6 +64,39 @@ export const servicesSchema = z.object({
 
 export type ObservatoryOverview = z.infer<typeof overviewSchema>
 export type ObservatoryServiceList = z.infer<typeof servicesSchema>
+
+export function serviceHealthTone(
+  service: ObservatoryServiceList['items'][number],
+  now = Date.now(),
+): 'ok' | 'warn' | 'bad' | 'neutral' {
+  if (
+    service.status === 'unhealthy' ||
+    (service.status === 'unavailable' && service.observed_at)
+  )
+    return 'bad'
+  const observed = service.observed_at ? Date.parse(service.observed_at) : NaN
+  if (!Number.isFinite(observed) || now - observed > 300_000 || observed > now)
+    return 'neutral'
+  if (service.status === 'healthy') return 'ok'
+  if (service.status === 'degraded') return 'warn'
+  return 'neutral'
+}
+
+export function serviceHealthLabel(
+  service: ObservatoryServiceList['items'][number],
+  now = Date.now(),
+): string {
+  if (
+    (service.status === 'healthy' || service.status === 'degraded') &&
+    serviceHealthTone(service, now) === 'neutral'
+  )
+    return service.observed_at &&
+      Number.isFinite(Date.parse(service.observed_at)) &&
+      Date.parse(service.observed_at) <= now
+      ? 'stale observation'
+      : 'unknown'
+  return service.status
+}
 
 const apiErrorMessages: Partial<Record<number, string>> = {
   401: 'Sign in to access Phlo. Your session may have expired.',

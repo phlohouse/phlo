@@ -2,6 +2,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { environmentSchema, phloApi } from './client'
+import { getIncidentList, updateIncident } from './incidents'
 
 const columnSchema = z.object({ name: z.string(), type: z.string().nullable() })
 const resultSchema = z.object({
@@ -13,6 +14,8 @@ const sessionSchema = z.object({
   id: z.string(),
   env: environmentSchema,
   nessie_ref: z.string(),
+  engine: z.literal('trino'),
+  evidence_available: z.boolean(),
   status: z.enum([
     'queued',
     'running',
@@ -40,6 +43,7 @@ const savedQuerySchema = z.object({
 })
 const inputSchema = z.object({ env: environmentSchema })
 const queryInputSchema = inputSchema.extend({
+  engine: z.literal('trino').default('trino'),
   sql: z
     .string()
     .min(1)
@@ -127,7 +131,7 @@ export const submitQuery = createServerFn({ method: 'POST' })
     phloApi(`/api/v1/queries?env=${data.env}`, sessionSchema, {
       env: data.env,
       method: 'POST',
-      body: { sql: data.sql, row_limit: 100 },
+      body: { sql: data.sql, row_limit: 100, engine: data.engine },
     }),
   )
 export const explainQuery = createServerFn({ method: 'POST' })
@@ -136,7 +140,7 @@ export const explainQuery = createServerFn({ method: 'POST' })
     phloApi(`/api/v1/queries/explain?env=${data.env}`, sessionSchema, {
       env: data.env,
       method: 'POST',
-      body: { sql: data.sql, row_limit: 100 },
+      body: { sql: data.sql, row_limit: 100, engine: data.engine },
     }),
   )
 
@@ -148,6 +152,30 @@ export const getQuerySession = createServerFn({ method: 'GET' })
       sessionSchema,
       { env: data.env },
     ),
+  )
+
+export const getQueryIncidentTargets = createServerFn({ method: 'GET' })
+  .inputValidator(inputSchema)
+  .handler(({ data }) => getIncidentList({ data: data.env }))
+
+export const pinQueryToIncident = createServerFn({ method: 'POST' })
+  .inputValidator(
+    sessionInputSchema.extend({
+      incident_id: z.string().min(1),
+      version: z.number().int().positive(),
+      idempotency_key: z.string().min(1),
+    }),
+  )
+  .handler(({ data }) =>
+    updateIncident({
+      data: {
+        env: data.env,
+        id: data.incident_id,
+        version: data.version,
+        idempotency_key: data.idempotency_key,
+        update: { query_id: data.id },
+      },
+    }),
   )
 export const cancelQuery = createServerFn({ method: 'POST' })
   .validator(sessionInputSchema)

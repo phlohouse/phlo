@@ -4,11 +4,13 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { Loader2Icon } from 'lucide-react'
 import type { ObservatoryServiceList } from '@/lib/data/api/client'
 import type { Settings } from '@/lib/data/api/settings'
+import { serviceHealthLabel, serviceHealthTone } from '@/lib/data/api/client'
 import { getShell } from '@/lib/data/api/core'
 import {
   emptySettings,
   getSettings,
   saveSettings,
+  settingsSchema,
 } from '@/lib/data/api/settings'
 import { PageHeader } from '@/components/phlo/page'
 import { Dot, LayerSwatch, Mono } from '@/components/phlo/status'
@@ -108,6 +110,11 @@ function SettingsPage() {
   }, [loaded?.version])
 
   const save = async () => {
+    const validated = settingsSchema.safeParse(s)
+    if (!validated.success) {
+      setError(validated.error.issues.map((issue) => issue.message).join(' '))
+      return
+    }
     setPending(true)
     setError(null)
     try {
@@ -195,7 +202,7 @@ function SettingsPage() {
                 <ConnectionRow
                   key={c.name}
                   conn={c}
-                  state={service?.status ?? 'unknown'}
+                  service={service}
                   detail={
                     service?.response_time_seconds == null
                       ? undefined
@@ -210,7 +217,7 @@ function SettingsPage() {
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <SettingsCard
             title="Freshness targets"
-            description="Saved defaults only. Activate freshness and owner overrides through each asset's incident policy."
+            description="Layer defaults apply when an asset has no declared SLA or incident-policy override. Missing observations remain unknown."
           >
             {(['bronze', 'silver', 'gold'] as const).map((l) => (
               <NumberRow
@@ -245,7 +252,7 @@ function SettingsPage() {
 
           <SettingsCard
             title="Alerts"
-            description="Saved preferences only; this does not configure or deliver notifications."
+            description="Uses configured alert providers. Digests run through the Dagster sensor in UTC; owner and consumer delivery require operator-configured recipients."
           >
             <TextRow
               label="Chat channel"
@@ -277,7 +284,7 @@ function SettingsPage() {
 
           <SettingsCard
             title="Table maintenance"
-            description="Saved preferences only; this does not schedule compaction or snapshot housekeeping."
+            description="The bound Dagster policy sensor evaluates nightly at 02:00 UTC. File size is the small-file threshold. Retention and orphan cleanup produce protected plans; execution requires operator approval."
           >
             <NumberRow
               label="Target file size"
@@ -306,6 +313,10 @@ function SettingsPage() {
               >
                 Keep snapshots that a release tag points to
               </CheckLine>
+              <p className="m-0 text-xs text-muted-foreground">
+                The table provider always protects referenced snapshots, even
+                when this preference is off.
+              </p>
               <CheckLine
                 checked={s.compactNightly}
                 onCheckedChange={(v) => set('compactNightly', v)}
@@ -447,13 +458,7 @@ function TextRow({
       <Input
         value={value}
         inputMode={inputMode}
-        onChange={(e) =>
-          onChange(
-            inputMode === 'numeric'
-              ? e.target.value.replace(/[^\d]/g, '')
-              : e.target.value,
-          )
-        }
+        onChange={(e) => onChange(e.target.value)}
         className={cn(
           'h-10 sm:h-8',
           narrow ? 'w-[84px]' : 'min-w-0 flex-1',
@@ -469,15 +474,16 @@ function TextRow({
 
 function ConnectionRow({
   conn,
-  state,
+  service,
   detail,
 }: {
   conn: { name: string; uri: string; latency: string }
-  state: ObservatoryServiceList['items'][number]['status']
+  service?: ObservatoryServiceList['items'][number]
   detail?: string
 }) {
   const router = useRouter()
   const [testing, setTesting] = React.useState(false)
+  const state = service ? serviceHealthLabel(service) : 'unknown'
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-t border-line-soft py-2.5 md:h-11 md:grid-cols-[150px_minmax(0,1fr)_190px_64px] md:py-0">
       <span className="text-sm">{conn.name}</span>
@@ -488,17 +494,7 @@ function ConnectionRow({
         className="col-start-1 row-start-3 flex items-center gap-2 text-[13.5px] md:col-start-auto md:row-start-auto"
         aria-live="polite"
       >
-        <Dot
-          tone={
-            state === 'healthy'
-              ? 'ok'
-              : state === 'degraded'
-                ? 'warn'
-                : state === 'unknown'
-                  ? 'neutral'
-                  : 'bad'
-          }
-        />
+        <Dot tone={service ? serviceHealthTone(service) : 'neutral'} />
         {state}
         {detail ? (
           <span className="text-[13px] text-muted-foreground">· {detail}</span>

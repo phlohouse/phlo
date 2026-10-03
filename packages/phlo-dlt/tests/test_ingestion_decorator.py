@@ -57,6 +57,25 @@ def test_ingestion_declares_its_physical_relation() -> None:
     assert asset.metadata["phlo/relation"] == "raw.sensor_events"
 
 
+def test_ingestion_declares_layer_independently_of_group() -> None:
+    class ReadingSchema(DataFrameModel):
+        id: int
+
+    @phlo_ingestion(
+        table_name="sensor_events",
+        unique_key="id",
+        group="registry",
+        layer="bronze",
+        validation_schema=ReadingSchema,
+    )
+    def events(partition_date: str):
+        return []
+
+    asset = get_ingestion_assets()[0]
+    assert asset.metadata["phlo/layer"] == "bronze"
+    assert asset.group == "registry"
+
+
 def test_strict_domain_quality_failure_preserves_main_through_wap_and_evidence(
     monkeypatch, tmp_path
 ) -> None:

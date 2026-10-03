@@ -12,6 +12,7 @@ from typing import Annotated, Any
 from uuid import uuid4
 
 import httpx
+from anyio.to_thread import run_sync
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
@@ -36,6 +37,10 @@ from phlo_api.errors import (
 )
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
 from phlo_api.observatory_api.http_client import backend_client
+from phlo_api.observatory_api.observatory_services import (
+    load_docker_containers,
+    scoped_service_observations,
+)
 from phlo_api.v1_contract import (
     Environment,
     EnvironmentTarget,
@@ -90,6 +95,9 @@ def _targets() -> dict[str, EnvironmentTarget]:
             or len({target.nessie_ref for target in targets.values()}) != 2
         ):
             raise ValueError("environment targets must be distinct")
+        projects = [target.compose_project for target in targets.values() if target.compose_project]
+        if len(projects) != len(set(projects)):
+            raise ValueError("environment compose projects must be distinct")
         if any(
             not re.fullmatch(r"[A-Za-z0-9_.-]+", target.nessie_ref) for target in targets.values()
         ):
@@ -187,14 +195,46 @@ async def _service_snapshots(target: EnvironmentTarget) -> list[ServiceSnapshot]
     if not definitions:
         raise BackendUnavailableError("Service discovery is unavailable.")
 
-    # Definitions are identities, not health evidence. Only the two scoped
-    # sources below have an environment-specific probe in this phase.
+    # Definitions are identities, not observations. Docker evidence is usable
+    # only with an explicit operator-owned environment binding.
     items = {
         name: ServiceSnapshot(
-            id=name, status="unknown", observed_at=None, response_time_seconds=None
+            id=name,
+            status="inactive" if getattr(definition, "disabled", False) else "unknown",
+            observed_at=None,
+            response_time_seconds=None,
+            definition_state="disabled" if getattr(definition, "disabled", False) else "available",
+            reason="disabled" if getattr(definition, "disabled", False) else "no_runtime_evidence",
         )
-        for name in definitions
+        for name, definition in definitions.items()
     }
+    if target.compose_project:
+        containers = await run_sync(load_docker_containers)
+        observations = await run_sync(
+            scoped_service_observations, target.compose_project, containers
+        )
+        for name, (runtime, health) in observations.items():
+            status = (
+                "unhealthy"
+                if health.state == "error"
+                else "inactive"
+                if runtime == "stopped"
+                else "degraded"
+                if health.state == "warning"
+                else "healthy"
+                if health.state == "ok"
+                else "unknown"
+            )
+            items[name] = ServiceSnapshot(
+                id=name,
+                status=status,
+                observed_at=datetime.now(timezone.utc),
+                response_time_seconds=None,
+                runtime_state="running" if runtime == "unhealthy" else runtime,
+                definition_state="configured",
+                reason=f"docker_{runtime}_{health.state}",
+            )
+    runtime_failures = {name: item for name, item in items.items() if item.status == "unhealthy"}
     started = monotonic()
     try:
         locations = await _locations()
@@ -206,14 +246,23 @@ async def _service_snapshots(target: EnvironmentTarget) -> list[ServiceSnapshot]
         )
     except (BackendUnavailableError, BadGatewayError):
         dagster = ServiceSnapshot(
-            id="dagster", status="unavailable", observed_at=None, response_time_seconds=None
+            id="dagster",
+            status="unavailable",
+            observed_at=datetime.now(timezone.utc),
+            response_time_seconds=monotonic() - started,
+            reason="scoped_probe_failed",
         )
-    items["dagster"] = dagster
+    if items.get("dagster") is None or items["dagster"].status != "unhealthy":
+        items["dagster"] = dagster
 
     url = project_env_value("NESSIE_URL")
     if not url:
         items["nessie"] = ServiceSnapshot(
-            id="nessie", status="unavailable", observed_at=None, response_time_seconds=None
+            id="nessie",
+            status="unknown",
+            observed_at=None,
+            response_time_seconds=None,
+            reason="probe_not_configured",
         )
     else:
         base = url.rstrip("/")
@@ -237,13 +286,19 @@ async def _service_snapshots(target: EnvironmentTarget) -> list[ServiceSnapshot]
             items["nessie"] = ServiceSnapshot(
                 id="nessie",
                 status=status,
-                observed_at=datetime.now(timezone.utc) if status != "unavailable" else None,
-                response_time_seconds=monotonic() - started if status != "unavailable" else None,
+                observed_at=datetime.now(timezone.utc),
+                response_time_seconds=monotonic() - started,
+                reason="scoped_ref_probe",
             )
         except (httpx.HTTPError, ValueError):
             items["nessie"] = ServiceSnapshot(
-                id="nessie", status="unavailable", observed_at=None, response_time_seconds=None
+                id="nessie",
+                status="unavailable",
+                observed_at=datetime.now(timezone.utc),
+                response_time_seconds=monotonic() - started,
+                reason="scoped_probe_failed",
             )
+    items.update(runtime_failures)
     if len(items) > 500:
         raise BackendUnavailableError("Service inventory exceeds the v1 page limit.")
     return [items[name] for name in sorted(items)]
@@ -376,7 +431,10 @@ async def v1_events(request: Request, env: Annotated[Environment, Query()]) -> S
     connection = uuid4().hex
 
     async def stream():
-        previous_services = {item.id: item.status for item in services}
+        def service_state(item: ServiceSnapshot) -> tuple[str, str, str, str | None]:
+            return item.status, item.runtime_state, item.definition_state, item.reason
+
+        previous_services = {item.id: service_state(item) for item in services}
         previous_runs = runs
         sequence = 0
         deadline = monotonic() + 60
@@ -390,7 +448,7 @@ async def v1_events(request: Request, env: Annotated[Environment, Query()]) -> S
                 yield _frame("error", error_envelope(exc))
                 return
             for item in current_services:
-                if previous_services.get(item.id) != item.status:
+                if previous_services.get(item.id) != service_state(item):
                     sequence += 1
                     yield _frame(
                         "service.status",
@@ -425,7 +483,7 @@ async def v1_events(request: Request, env: Annotated[Environment, Query()]) -> S
                     yield _frame(
                         "run.status", event.model_dump(mode="json"), f"{connection}:{sequence}"
                     )
-            previous_services = {item.id: item.status for item in current_services}
+            previous_services = {item.id: service_state(item) for item in current_services}
             previous_runs = current_runs
             yield ": heartbeat\n\n"
 

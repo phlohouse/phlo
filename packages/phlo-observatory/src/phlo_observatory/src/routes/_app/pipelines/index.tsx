@@ -1,12 +1,16 @@
 /** Pipeline catalogue composed from environment-scoped API observations. */
 import * as React from 'react'
-import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
+import {
+  Link,
+  createFileRoute,
+  getRouteApi,
+  useRouter,
+} from '@tanstack/react-router'
 import {
   ChevronRightIcon,
   SearchIcon,
   SlidersHorizontalIcon,
 } from 'lucide-react'
-import { z } from 'zod'
 import type { ApiRun } from '@/lib/data/api/pipelines'
 import { getPipelineList } from '@/lib/data/api/pipelines'
 import { Eyebrow, PageHeader } from '@/components/phlo/page'
@@ -14,16 +18,26 @@ import {
   Facet,
   HealthMix,
   ViewSwitch,
+  pipelineSearchSchema,
   runColor,
 } from '@/components/pipelines/bits'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
+import { Segmented } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { Dot } from '@/components/phlo/status'
+import {
+  observedRunState,
+  ownsJob,
+  pipelineGroupName,
+  pipelineMatches,
+} from '@/components/pipelines/evidence'
+
+export { observedRunState } from '@/components/pipelines/evidence'
 
 export const Route = createFileRoute('/_app/pipelines/')({
-  validateSearch: z.object({ q: z.string().default('') }),
+  validateSearch: pipelineSearchSchema,
   loaderDeps: ({ search }) => ({ env: search.env }),
   loader: ({ deps }) => getPipelineList({ data: deps.env }),
   head: () => ({ meta: [{ title: 'Pipelines · phlo' }] }),
@@ -46,24 +60,13 @@ const runStates = {
   unknown: { label: 'No run observed', tone: 'neutral' },
 } as const
 
-export function observedRunState(latest?: ApiRun) {
-  if (!latest) return 'unknown'
-  if (latest.status === 'FAILURE') return 'failed'
-  if (latest.status === 'SUCCESS') return 'succeeded'
-  return 'other'
-}
-
 function PipelinesPage() {
   const { jobs, runs, env } = Route.useLoaderData()
-  const { q } = Route.useSearch()
+  const search = Route.useSearch()
+  const { q, by, owners, sources, states, saved } = search
+  const { me } = getRouteApi('/_app').useLoaderData()
   const navigate = Route.useNavigate()
   const router = useRouter()
-  const [states, setStates] = React.useState({
-    failed: true,
-    succeeded: true,
-    other: true,
-    unknown: true,
-  })
   const [open, setOpen] = React.useState<Set<string>>(() => new Set())
   const [filtersOpen, setFiltersOpen] = React.useState(false)
   const observed = React.useMemo<Array<ObservedJob>>(
@@ -82,20 +85,17 @@ function PipelinesPage() {
       }),
     [jobs, runs],
   )
-  const needle = q.trim().toLowerCase()
-  const visible = observed.filter(
-    (job) =>
-      job.id.toLowerCase().includes(needle) &&
-      states[observedRunState(job.latest)],
+  const mine = (job: Job) => ownsJob(job, me)
+  const groupName = (job: Job) => pipelineGroupName(job, by)
+  const visible = observed.filter((job) =>
+    pipelineMatches(job, job.latest, search, me),
   )
   const attention = visible.filter((job) => job.failing)
   const grouped = [
-    ...new Set(
-      visible.filter((job) => !job.failing).map((job) => job.repository_name),
-    ),
+    ...new Set(visible.filter((job) => !job.failing).map(groupName)),
   ].map((name) => ({
     name,
-    jobs: visible.filter((job) => !job.failing && job.repository_name === name),
+    jobs: visible.filter((job) => !job.failing && groupName(job) === name),
   }))
   const success = runs.filter((run) => run.status === 'SUCCESS').length
   const failed = runs.filter((run) => run.status === 'FAILURE').length
@@ -121,9 +121,17 @@ function PipelinesPage() {
           (state) => (
             <FacetItem
               key={state}
-              checked={states[state]}
+              checked={states.includes(state)}
               onChange={(checked) =>
-                setStates((previous) => ({ ...previous, [state]: checked }))
+                void navigate({
+                  search: (previous) => ({
+                    ...previous,
+                    states: checked
+                      ? [...states, state]
+                      : states.filter((value) => value !== state),
+                  }),
+                  replace: true,
+                })
               }
               count={
                 observed.filter((job) => observedRunState(job.latest) === state)
@@ -137,14 +145,107 @@ function PipelinesPage() {
         )}
       </Facet>
       <Facet title="Source">
-        <DisabledFacet label="Unknown — API metadata unavailable" />
+        {[...new Set(jobs.map((job) => job.source ?? ''))]
+          .sort()
+          .map((source) => (
+            <FacetItem
+              key={source}
+              checked={sources.includes(source)}
+              count={jobs.filter((job) => (job.source ?? '') === source).length}
+              onChange={(on) =>
+                void navigate({
+                  search: (previous) => ({
+                    ...previous,
+                    sources: on
+                      ? [...sources, source]
+                      : sources.filter((value) => value !== source),
+                  }),
+                  replace: true,
+                })
+              }
+            >
+              {source || 'Unknown source'}
+            </FacetItem>
+          ))}
       </Facet>
       <Facet title="Owner">
-        <DisabledFacet label="Unknown — API metadata unavailable" />
+        {[
+          ...new Set(
+            jobs.flatMap((job) => (job.owners.length ? job.owners : [''])),
+          ),
+        ]
+          .sort()
+          .map((owner) => (
+            <FacetItem
+              key={owner}
+              checked={owners.includes(owner)}
+              count={
+                jobs.filter((job) =>
+                  owner ? job.owners.includes(owner) : !job.owners.length,
+                ).length
+              }
+              onChange={(on) =>
+                void navigate({
+                  search: (previous) => ({
+                    ...previous,
+                    owners: on
+                      ? [...owners, owner]
+                      : owners.filter((value) => value !== owner),
+                  }),
+                  replace: true,
+                })
+              }
+            >
+              {owner || 'Unknown owner'}
+            </FacetItem>
+          ))}
       </Facet>
       <Facet title="Saved views">
-        <DisabledFacet label="Not supported by API" />
+        {(['mine', 'release'] as const).map((view) => (
+          <FacetItem
+            key={view}
+            checked={saved.includes(view)}
+            count={
+              jobs.filter((job) =>
+                view === 'mine' ? mine(job) : job.feeds_batch_release,
+              ).length
+            }
+            onChange={(on) =>
+              void navigate({
+                search: (previous) => ({
+                  ...previous,
+                  saved: on
+                    ? [...saved, view]
+                    : saved.filter((value) => value !== view),
+                }),
+                replace: true,
+              })
+            }
+          >
+            {view === 'mine' ? 'My jobs' : 'Feeds batch release'}
+          </FacetItem>
+        ))}
       </Facet>
+      <button
+        type="button"
+        className="min-h-10 self-start px-1.5 text-sm text-link"
+        onClick={() =>
+          void navigate({
+            search: {
+              env,
+              q: '',
+              by,
+              owners: [],
+              sources: [],
+              saved: [],
+              states: ['failed', 'succeeded', 'other', 'unknown'],
+            },
+            replace: true,
+          })
+        }
+      >
+        Clear filters
+      </button>
     </>
   )
   const searchBox = (id: string, className?: string) => (
@@ -178,25 +279,22 @@ function PipelinesPage() {
             <span className="hidden text-[13px] text-muted-foreground sm:inline">
               Group by
             </span>
-            <div className="inline-flex rounded-lg border border-border bg-raised p-0.5 text-[13px]">
-              <span className="rounded-md bg-card px-2.5 py-1 shadow-[0_0_0_1px_var(--border)]">
-                Repository
-              </span>
-              <button
-                disabled
-                title="Owner metadata unavailable"
-                className="px-2.5 text-muted-foreground opacity-50"
-              >
-                Owner
-              </button>
-              <button
-                disabled
-                title="Source metadata unavailable"
-                className="px-2.5 text-muted-foreground opacity-50"
-              >
-                Source
-              </button>
-            </div>
+            <Segmented
+              aria-label="Group jobs by"
+              value={by}
+              options={[
+                { value: 'domain', label: 'Domain' },
+                { value: 'owner', label: 'Owner' },
+                { value: 'source', label: 'Source' },
+              ]}
+              onValueChange={(value) => {
+                setOpen(new Set())
+                void navigate({
+                  search: (previous) => ({ ...previous, by: value }),
+                  replace: true,
+                })
+              }}
+            />
             <Button variant="outline" onClick={() => void router.invalidate()}>
               Refresh
             </Button>
@@ -250,8 +348,7 @@ function PipelinesPage() {
               </span>
             </div>
             <div className="text-[12.5px] text-muted-foreground">
-              Latest run states from at most 100 records, not complete job
-              histories.
+              Latest run states from paginated environment-scoped history.
             </div>
           </Card>
           <MobileSection
@@ -282,7 +379,7 @@ function PipelinesPage() {
           >
             <span />
             <span>Job</span>
-            <span>Repository</span>
+            <span>Domain</span>
             <span>Why it's here</span>
             <span>Last 24 observed</span>
             <span className="text-right">Last run</span>
@@ -308,8 +405,7 @@ function PipelinesPage() {
                   Other observed jobs
                 </h2>
                 <span className="text-[13px] text-muted-foreground">
-                  Grouped by native repository; success is not inferred for
-                  missing history
+                  Grouped by {by}; missing history remains unknown
                 </span>
               </div>
               {grouped.map((group) => {
@@ -341,9 +437,24 @@ function PipelinesPage() {
                       </span>
                       <GroupRuns jobs={group.jobs} />
                       <span className="text-right font-mono text-xs text-muted-foreground">
-                        Unknown
+                        {group.jobs
+                          .flatMap((job) =>
+                            job.latest ? [job.latest.created_at] : [],
+                          )
+                          .sort()
+                          .at(-1)
+                          ?.slice(11, 16) ?? 'Unknown'}
                       </span>
-                      <span className="text-muted-foreground">Unknown</span>
+                      <span
+                        className="truncate text-muted-foreground"
+                        title={[
+                          ...new Set(group.jobs.flatMap((job) => job.owners)),
+                        ].join(' · ')}
+                      >
+                        {[
+                          ...new Set(group.jobs.flatMap((job) => job.owners)),
+                        ].join(' · ') || 'Unknown owner'}
+                      </span>
                     </button>
                     {expanded ? (
                       <div className="bg-sunken">
@@ -363,8 +474,8 @@ function PipelinesPage() {
             </div>
           ) : null}
           <div className="mt-auto flex min-h-11 items-center border-t border-line px-4 text-[13px] text-muted-foreground">
-            Showing {visible.length} of {jobs.length} · API returns at most 100
-            recent environment-scoped runs
+            Showing {visible.length} of {jobs.length} · {runs.length}{' '}
+            environment-scoped runs
           </div>
         </section>
       </div>
@@ -390,13 +501,13 @@ function JobRow({
       <Link
         to="/pipelines/$jobName"
         params={{ jobName: job.id }}
-        search={{ env }}
+        search={(previous) => ({ ...previous, env, run: undefined })}
         className="truncate font-mono text-[12.5px] text-foreground"
       >
         {job.id}
       </Link>
       <span className="truncate text-muted-foreground">
-        {job.repository_name}
+        {job.domain ?? 'Unknown domain'}
       </span>
       <span
         className={
@@ -422,7 +533,12 @@ function JobRow({
             })} UTC`
           : 'Unknown'}
       </span>
-      <span className="text-muted-foreground">Unknown</span>
+      <span
+        className="truncate text-muted-foreground"
+        title={job.owners.join(' · ')}
+      >
+        {job.owners.join(' · ') || 'Unknown owner'}
+      </span>
     </div>
   )
 }
@@ -440,7 +556,7 @@ function RunCells({
           key={run.run_id}
           to="/pipelines/$jobName"
           params={{ jobName: job.id }}
-          search={{ env, run: run.run_id }}
+          search={(previous) => ({ ...previous, env, run: run.run_id })}
           title={`${run.status} · ${run.created_at}`}
           className={cn('h-[22px] w-2 rounded-[2px]', runColor(run.status))}
         />
@@ -516,7 +632,7 @@ function MobileSection({
                 key={job.id}
                 to="/pipelines/$jobName"
                 params={{ jobName: job.id }}
-                search={{ env }}
+                search={(previous) => ({ ...previous, env, run: undefined })}
                 className="flex items-start gap-2.5 border-b border-line-soft px-3.5 py-3 text-foreground last:border-0"
               >
                 <Dot
@@ -528,7 +644,8 @@ function MobileSection({
                     {job.id}
                   </span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {job.repository_name} · {job.latest?.status ?? 'Unknown'}
+                    {job.domain ?? 'Unknown domain'} ·{' '}
+                    {job.latest?.status ?? 'Unknown'}
                   </span>
                 </span>
               </Link>
@@ -549,26 +666,30 @@ function FacetItem({
   count: number
   children: React.ReactNode
 }) {
+  const id = React.useId()
   return (
-    <label className="flex h-7 items-center gap-2 rounded-md px-1.5 text-[13px] text-text-2 hover:bg-soft">
+    <div className="flex h-7 items-center gap-2 rounded-md px-1.5 text-[13px] text-text-2 hover:bg-soft">
       <Checkbox
+        id={id}
+        aria-labelledby={`${id}-label`}
         checked={checked}
         onCheckedChange={(value) => onChange(value === true)}
         className="size-3.5"
       />
-      {children}
-      <span className="ml-auto font-mono text-[11.5px] text-muted-foreground">
-        {count}
-      </span>
-    </label>
-  )
-}
-function DisabledFacet({ label }: { label: string }) {
-  return (
-    <label className="flex min-h-7 items-center gap-2 px-1.5 text-[12px] text-muted-foreground opacity-70">
-      <Checkbox disabled className="size-3.5" />
-      {label}
-    </label>
+      <label
+        id={`${id}-label`}
+        htmlFor={id}
+        className="flex flex-1 items-center gap-2"
+      >
+        {children}
+        <span
+          aria-hidden
+          className="ml-auto font-mono text-[11.5px] text-muted-foreground"
+        >
+          {count}
+        </span>
+      </label>
+    </div>
   )
 }
 function Legend({ cls, children }: { cls: string; children: React.ReactNode }) {

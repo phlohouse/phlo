@@ -61,13 +61,11 @@ function AssetPage() {
   const navigate = Route.useNavigate()
   const router = useRouter()
   const tabs = React.useRef<HTMLDivElement>(null)
-  React.useEffect(
-    () =>
-      tabs.current
-        ?.querySelector('[data-active]')
-        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
-    [tab],
-  )
+  React.useEffect(() => {
+    tabs.current
+      ?.querySelector('[data-active]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [tab])
   const layer = assetLayer(asset)
   const close = () =>
     void navigate({
@@ -209,14 +207,22 @@ function AssetPage() {
               <OverviewTab asset={asset} env={env} jobs={jobs} />
             ) : null}
             {result.kind === 'data' ? (
-              <DataTab asset={asset} data={result.data} />
+              <DataTab
+                key={`${env}:${asset.id}:${result.data.sql}`}
+                asset={asset}
+                data={result.data}
+              />
             ) : null}
             {result.kind === 'schema' ? <SchemaTab data={result.data} /> : null}
             {result.kind === 'lineage' ? (
               <LineageTab asset={asset} env={env} />
             ) : null}
             {result.kind === 'snapshots' ? (
-              <SnapshotsTab data={result.data} />
+              <SnapshotsTab
+                key={`${env}:${asset.id}:${result.data.metadata_location}`}
+                data={result.data}
+                onRolledBack={() => void router.invalidate()}
+              />
             ) : null}
             {result.kind === 'audits' ? (
               <AuditsTab data={result.data} addAudit={auditButton} />

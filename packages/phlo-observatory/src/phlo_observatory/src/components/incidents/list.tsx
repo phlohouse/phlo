@@ -18,12 +18,16 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/menu'
 
-export type FilterKey = 'kind' | 'owner' | 'status'
+export type FilterKey = 'kind' | 'owner' | 'status' | 'severity' | 'layer'
 export type Filters = Partial<Record<FilterKey, string>>
 export const applyFilters = (items: Array<IncidentRecord>, filters: Filters) =>
   items.filter((item) =>
     (Object.keys(filters) as Array<FilterKey>).every(
-      (key) => !filters[key] || (item[key] ?? 'Unassigned') === filters[key],
+      (key) =>
+        !filters[key] ||
+        (key === 'layer'
+          ? item.layers.includes(filters[key])
+          : (item[key] ?? 'Unassigned') === filters[key]),
     ),
   )
 
@@ -149,6 +153,7 @@ export function IncidentGroup({
             <Link
               to="/incidents/$incidentId"
               params={{ incidentId: incident.id }}
+              search={(current) => ({ env: current.env })}
               className="flex items-start gap-3 py-3 pr-3 pl-3.5 text-foreground hover:bg-raised md:grid md:h-12 md:grid-cols-[56px_minmax(0,1fr)_76px_150px_60px] md:items-center md:gap-x-4 md:px-4 md:py-0 lg:px-5 xl:grid-cols-[62px_minmax(0,1fr)_92px_84px_160px_110px_70px]"
             >
               <span
@@ -199,17 +204,11 @@ export function IncidentGroup({
                   </span>
                 </span>
               </span>
-              <span
-                className="hidden text-[13px] text-muted-foreground xl:block"
-                title="Layer is not supplied by the incident API"
-              >
-                Unavailable
+              <span className="hidden text-[13px] text-muted-foreground xl:block">
+                {incident.layers.join(', ') || 'Unknown'}
               </span>
-              <span
-                className="hidden text-[13.5px] text-muted-foreground md:block"
-                title="Severity is not supplied by the incident API"
-              >
-                Unknown
+              <span className="hidden text-[13.5px] text-muted-foreground md:block">
+                {cap(incident.severity)}
               </span>
               <span className="hidden min-w-0 md:flex">
                 <Badge

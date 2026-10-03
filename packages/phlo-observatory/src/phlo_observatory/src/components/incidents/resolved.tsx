@@ -6,6 +6,7 @@ import type {
   IncidentFollowUp,
   IncidentRecord,
   IncidentTimelineEvent,
+  getIncidentDetail,
 } from '@/lib/data/api/incidents'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,6 +24,14 @@ import {
   updateFollowUp,
   updateIncident,
 } from '@/lib/data/api/incidents'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat(undefined, {
@@ -35,6 +44,13 @@ const payloadText = (payload: IncidentTimelineEvent['payload']) => {
     ? JSON.stringify(payload, null, 2)
     : undefined
 }
+function signalEvidence(timeline: Array<IncidentTimelineEvent>) {
+  const signal = timeline.find((event) => event.kind === 'signal')?.payload
+    .evidence
+  return typeof signal === 'object' && signal !== null && !Array.isArray(signal)
+    ? signal
+    : {}
+}
 const evidenceValue = (
   timeline: Array<IncidentTimelineEvent>,
   keys: Array<string>,
@@ -43,6 +59,15 @@ const evidenceValue = (
     for (const key of keys) {
       const value = event.payload[key]
       if (typeof value === 'string' && value.trim()) return value
+      const evidence = event.payload.evidence
+      if (
+        typeof evidence === 'object' &&
+        evidence !== null &&
+        !Array.isArray(evidence)
+      ) {
+        const nested = evidence[key]
+        if (typeof nested === 'string' && nested.trim()) return nested
+      }
     }
   }
 }
@@ -145,14 +170,26 @@ function IncidentSummary({
             {incident.status}
           </Badge>
           <Badge variant="outline">{incident.kind}</Badge>
+          <Badge
+            variant={
+              incident.severity === 'high'
+                ? 'bad'
+                : incident.severity === 'medium'
+                  ? 'warn'
+                  : 'outline'
+            }
+          >
+            {incident.severity}
+          </Badge>
         </div>
         <h2 className="m-0 text-[22px] leading-tight font-semibold tracking-[-0.01em]">
           {incident.title}
         </h2>
         <p className="m-0 text-sm leading-relaxed text-text-3">
-          {incident.status === 'resolved'
-            ? 'This incident is resolved. Persisted evidence and the audit trail are shown here.'
-            : 'Investigation is active. This view only shows evidence persisted by the incident service.'}
+          {incident.description ||
+            (incident.status === 'resolved'
+              ? 'This incident is resolved. Persisted evidence and the audit trail are shown here.'
+              : 'Investigation is active. This view only shows evidence persisted by the incident service.')}
         </p>
       </div>
       <div className="border-t border-line-soft px-4 py-4 lg:px-6">
@@ -162,14 +199,22 @@ function IncidentSummary({
           items={[
             [
               'Asset',
-              <Link
-                to="/assets/$assetId"
-                params={{ assetId: incident.asset_id }}
-                search={{ env }}
-                className="break-all font-mono text-xs"
-              >
-                {incident.asset_id}
-              </Link>,
+              <span className="flex flex-col gap-1">
+                {(incident.asset_ids.length
+                  ? incident.asset_ids
+                  : [incident.asset_id]
+                ).map((asset) => (
+                  <Link
+                    key={asset}
+                    to="/assets/$assetId"
+                    params={{ assetId: asset }}
+                    search={{ env }}
+                    className="break-all font-mono text-xs"
+                  >
+                    {asset}
+                  </Link>
+                ))}
+              </span>,
             ],
             ['Owner', incident.owner ?? 'Unassigned'],
             ['Created', formatDate(incident.created_at)],
@@ -228,16 +273,355 @@ function IncidentSummary({
   )
 }
 
+function FreshnessInvestigation({
+  incident,
+  timeline,
+  investigation,
+  evidence,
+}: Pick<
+  Awaited<ReturnType<typeof getIncidentDetail>>,
+  'incident' | 'timeline' | 'investigation'
+> & {
+  evidence: IncidentTimelineEvent['payload']
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <Stat
+          label="Last success"
+          value={
+            'asset' in investigation &&
+            investigation.asset.last_materialization_at
+              ? formatDate(investigation.asset.last_materialization_at)
+              : 'Unknown'
+          }
+        />
+        <Stat
+          label="Freshness SLA"
+          value={
+            typeof evidence.freshness_sla_seconds === 'number'
+              ? `${evidence.freshness_sla_seconds / 60} min`
+              : 'Not configured'
+          }
+        />
+      </div>
+      <Card className="p-4">
+        <KeyValues
+          keyWidth={140}
+          items={[
+            ['Detected at', formatDate(incident.created_at)],
+            [
+              'Last successful run',
+              typeof evidence.successful_run_id === 'string'
+                ? evidence.successful_run_id
+                : 'Not recorded',
+            ],
+            [
+              'Materialization event',
+              typeof evidence.materialization_event_id === 'number'
+                ? String(evidence.materialization_event_id)
+                : 'Not recorded',
+            ],
+            ['Resolution', resolutionLabel(incident, timeline)],
+          ]}
+        />
+      </Card>
+      <p className="m-0 text-sm text-text-3">
+        Check ingestion failures against the freshness SLA before retrying. A
+        recent success does not erase the original breach evidence.
+      </p>
+    </>
+  )
+}
+
+function IncidentInvestigation({
+  env,
+  incident,
+  timeline,
+  investigation,
+}: Pick<
+  Awaited<ReturnType<typeof getIncidentDetail>>,
+  'incident' | 'timeline' | 'investigation'
+> & { env: 'prod' | 'staging' }) {
+  const kind = incident.kind.toLowerCase()
+  const heading = kind.includes('freshness')
+    ? 'Freshness investigation'
+    : kind.includes('schema')
+      ? 'Schema investigation'
+      : /audit|check|quality/.test(kind)
+        ? 'Audit investigation'
+        : 'Investigation & evidence'
+  const evidence = signalEvidence(timeline)
+  return (
+    <section className="flex flex-col gap-4">
+      <div>
+        <h2 className="m-0 text-[15px] font-medium">{heading}</h2>
+        <p className="m-0 mt-1 text-[13px] text-muted-foreground">
+          Observed asset state and persisted incident evidence in {env}.
+        </p>
+      </div>
+      {investigation.kind === 'unavailable' ? (
+        <EmptyState title={`${heading} unavailable`}>
+          {investigation.message}
+        </EmptyState>
+      ) : null}
+      {kind.includes('freshness') ? (
+        <FreshnessInvestigation
+          incident={incident}
+          timeline={timeline}
+          investigation={investigation}
+          evidence={evidence}
+        />
+      ) : null}
+      {investigation.kind === 'schema' ? (
+        <>
+          <div className="flex items-center gap-2">
+            <h3 className="m-0 text-sm font-medium">Schema history</h3>
+            <Badge variant="outline">
+              Current #{investigation.data.current_schema_id}
+            </Badge>
+          </div>
+          {investigation.data.items.map((schema) => (
+            <div
+              key={schema.schema_id}
+              className="overflow-x-auto rounded-lg border border-border-card"
+            >
+              <Table>
+                <caption className="px-3 py-2 text-left text-sm">
+                  Schema #{schema.schema_id}
+                  {schema.schema_id === investigation.data.current_schema_id
+                    ? ' · current'
+                    : ''}
+                </caption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Column</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Required</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {schema.fields.map((field) => (
+                    <TableRow key={field.name}>
+                      <TableCell className="font-mono">{field.name}</TableCell>
+                      <TableCell className="font-mono">{field.type}</TableCell>
+                      <TableCell>{field.required ? 'Yes' : 'No'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ))}
+          <p className="m-0 text-sm text-muted-foreground">
+            Branch schema decisions remain bound to source and target hashes.
+            Merge requires checks, a fresh signature, and MFA.
+          </p>
+          <Link
+            to="/branches"
+            search={{
+              env,
+              branch: evidenceValue(timeline, ['source_ref', 'branch']),
+            }}
+            className="text-sm"
+          >
+            Compare and resolve in Branches
+          </Link>
+        </>
+      ) : null}
+      {investigation.kind === 'audits' ? (
+        <>
+          <h3 className="m-0 text-sm font-medium">Audit results</h3>
+          {investigation.data.executions.length ? (
+            <div className="overflow-x-auto rounded-lg border border-border-card">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Check</TableHead>
+                    <TableHead>Result</TableHead>
+                    <TableHead>Severity</TableHead>
+                    <TableHead>Observed</TableHead>
+                    <TableHead>Run</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {investigation.data.executions.map((check, index) => (
+                    <TableRow
+                      key={`${check.run_id}:${check.check_name}:${index}`}
+                    >
+                      <TableCell>{check.check_name}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            check.passed === true
+                              ? 'ok'
+                              : check.passed === false
+                                ? 'bad'
+                                : 'outline'
+                          }
+                        >
+                          {check.passed === true
+                            ? 'Passed'
+                            : check.passed === false
+                              ? 'Failed'
+                              : check.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{check.severity ?? 'Unknown'}</TableCell>
+                      <TableCell>{formatDate(check.timestamp)}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {check.run_id}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <EmptyState title="No audit executions">
+              {investigation.data.definitions.length} check definitions, but no
+              execution evidence was returned.
+            </EmptyState>
+          )}
+          <p className="m-0 text-sm text-text-3">
+            Query contributing data, then pin the completed execution to retain
+            its statement and result identity without exposing rows to incident
+            readers.
+          </p>
+          <Link to="/query" search={{ env }} className="text-sm">
+            Open Query
+          </Link>
+        </>
+      ) : null}
+      {'jobs' in investigation && investigation.jobs.length ? (
+        <div className="flex flex-wrap gap-2">
+          {investigation.jobs.map((job) => (
+            <Link
+              key={job.id}
+              to="/pipelines/$jobName"
+              params={{ jobName: job.id }}
+              search={{ env }}
+              className="text-sm"
+            >
+              Open {job.id} in Pipelines
+            </Link>
+          ))}
+        </div>
+      ) : null}
+      <div className="flex flex-col gap-2">
+        <h3 className="m-0 text-sm font-medium">Pinned query evidence</h3>
+        {timeline
+          .filter((event) => event.kind === 'query_evidence')
+          .map((event) => (
+            <Card key={event.id} className="overflow-hidden p-3">
+              <KeyValues
+                keyWidth={90}
+                items={Object.entries(event.payload).map(([key, value]) => [
+                  key.replaceAll('_', ' '),
+                  <span className="break-all font-mono text-xs">
+                    {String(value ?? '—')}
+                  </span>,
+                ])}
+              />
+            </Card>
+          ))}
+        {!timeline.some((event) => event.kind === 'query_evidence') ? (
+          <p className="m-0 text-sm text-muted-foreground">
+            No completed query executions pinned.
+          </p>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
+function IncidentRuns({
+  env,
+  runs,
+}: Pick<Awaited<ReturnType<typeof getIncidentDetail>>, 'runs'> & {
+  env: 'prod' | 'staging'
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="m-0 text-[15px] font-medium">Runs for affected assets</h2>
+      <p className="m-0 text-xs text-muted-foreground">
+        Observed in {env}
+        {runs.truncated
+          ? '. History is bounded; older runs may be missing.'
+          : '.'}
+      </p>
+      {runs.error ? (
+        <EmptyState title="Runs unavailable">{runs.error}</EmptyState>
+      ) : runs.items.length ? (
+        <div className="overflow-x-auto rounded-lg border border-border-card">
+          <Table className="min-w-[620px] whitespace-nowrap">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Run</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Job</TableHead>
+                <TableHead>Started</TableHead>
+                <TableHead>Duration</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {runs.items.map((run) => (
+                <TableRow key={run.run_id}>
+                  <TableCell>
+                    <Link
+                      to="/pipelines/$jobName"
+                      params={{ jobName: run.job_id }}
+                      search={{ env, run: run.run_id }}
+                      className="font-mono text-xs"
+                    >
+                      {run.run_id}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        run.status === 'SUCCESS'
+                          ? 'ok'
+                          : run.status === 'FAILURE'
+                            ? 'bad'
+                            : 'outline'
+                      }
+                    >
+                      {run.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{run.job_id}</TableCell>
+                  <TableCell>
+                    {formatDate(run.started_at ?? run.created_at)}
+                  </TableCell>
+                  <TableCell>
+                    {run.duration_seconds === null
+                      ? '—'
+                      : `${run.duration_seconds.toFixed(1)} s`}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <EmptyState title="No related runs observed">
+          No affected-asset runs were returned in the bounded environment
+          history.
+        </EmptyState>
+      )}
+    </section>
+  )
+}
+
 export function IncidentDetail({
   env,
   incident,
   timeline,
   followUps,
-}: {
+  runs,
+  investigation,
+}: Awaited<ReturnType<typeof getIncidentDetail>> & {
   env: 'prod' | 'staging'
-  incident: IncidentRecord
-  timeline: Array<IncidentTimelineEvent>
-  followUps: Array<IncidentFollowUp>
 }) {
   const router = useRouter()
   const [comment, setComment] = React.useState('')
@@ -247,8 +631,8 @@ export function IncidentDetail({
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string>()
   const [tab, setTab] = React.useState<
-    'summary' | 'postmortem' | 'activity' | 'lineage'
-  >('summary')
+    'summary' | 'postmortem' | 'activity' | 'runs' | 'lineage'
+  >(incident.status === 'resolved' ? 'postmortem' : 'summary')
   const linkedEvidence = linkedIncidentEvidence(timeline, env)
   async function run(action: () => Promise<unknown>, clear?: () => void) {
     if (pending) return
@@ -343,57 +727,83 @@ export function IncidentDetail({
           aria-label="Incident details"
           className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-4 pt-2 lg:px-7"
         >
-          {(['summary', 'postmortem', 'activity', 'lineage'] as const).map(
-            (value) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={tab === value}
-                onClick={() => setTab(value)}
-                className={
-                  tab === value
-                    ? 'border-b-2 border-primary px-3 py-3 text-sm font-medium text-foreground'
-                    : 'px-3 py-3 text-sm text-muted-foreground hover:text-foreground'
-                }
-              >
-                {value === 'postmortem'
-                  ? 'Post-mortem'
+          {(
+            ['summary', 'postmortem', 'activity', 'runs', 'lineage'] as const
+          ).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={tab === value}
+              onClick={() => setTab(value)}
+              className={
+                tab === value
+                  ? 'border-b-2 border-primary px-3 py-3 text-sm font-medium text-foreground'
+                  : 'px-3 py-3 text-sm text-muted-foreground hover:text-foreground'
+              }
+            >
+              {value === 'postmortem'
+                ? 'Post-mortem'
+                : value === 'summary'
+                  ? 'Investigation'
                   : value[0].toUpperCase() + value.slice(1)}
-              </button>
-            ),
-          )}
+            </button>
+          ))}
         </div>
         <div className="flex min-h-0 flex-col gap-6 overflow-y-auto p-4 lg:px-7 lg:py-[22px]">
-          {tab === 'summary' ? (
-            <section className="flex flex-col gap-3">
-              <div>
-                <h2 className="m-0 text-[15px] font-medium">
-                  Investigation &amp; evidence
-                </h2>
-                <p className="m-0 mt-1 text-[13px] text-muted-foreground">
-                  Evidence recorded by incident updates. Missing impact metrics
-                  or run data are not inferred.
+          {incident.effects.length ? (
+            <section
+              aria-label="Delivery status"
+              className="flex flex-col gap-2 rounded-lg border border-border-card p-3"
+            >
+              {incident.effects.map((effect) => (
+                <p key={effect.id} className="m-0 text-sm">
+                  {effect.kind === 'pause'
+                    ? 'Downstream pause'
+                    : 'Notification'}{' '}
+                  · {effect.status} · {effect.attempts} attempts
+                  {effect.error ? (
+                    <span className="block text-bad-text">{effect.error}</span>
+                  ) : null}
                 </p>
-              </div>
-              <Card className="p-4">
-                <KeyValues
-                  keyWidth={110}
-                  items={[
-                    ['Affected asset', incident.asset_id],
-                    ['Impact', 'Not supplied by the incident API'],
-                    [
-                      'Investigation',
-                      timeline.length
-                        ? `${timeline.length} recorded events`
-                        : 'No evidence recorded',
-                    ],
-                    ['Resolution', resolutionLabel(incident, timeline)],
-                  ]}
-                />
-              </Card>
+              ))}
+              {incident.effects.some((effect) => effect.status === 'failed') ? (
+                <Button
+                  variant="outline"
+                  disabled={pending}
+                  onClick={() =>
+                    run(() =>
+                      updateIncident({
+                        data: {
+                          env,
+                          id: incident.id,
+                          version: incident.version,
+                          idempotency_key: incidentOperationKey(
+                            env,
+                            incident.id,
+                            'retry-effects',
+                            String(incident.version),
+                          ),
+                          update: { retry_effects: true },
+                        },
+                      }),
+                    )
+                  }
+                >
+                  Retry failed delivery
+                </Button>
+              ) : null}
             </section>
           ) : null}
+          {tab === 'summary' ? (
+            <IncidentInvestigation
+              env={env}
+              incident={incident}
+              timeline={timeline}
+              investigation={investigation}
+            />
+          ) : null}
+          {tab === 'runs' ? <IncidentRuns env={env} runs={runs} /> : null}
           {tab === 'activity' ? (
             <section>
               <h2 className="mb-1 text-[15px] font-medium">Activity</h2>
@@ -433,8 +843,10 @@ export function IncidentDetail({
                   Post-mortem &amp; follow-ups
                 </h2>
                 <p className="m-0 mt-1 text-[13px] text-muted-foreground">
-                  A narrative post-mortem is unavailable unless it was persisted
-                  as timeline evidence.
+                  {timeline
+                    .filter((event) => event.kind === 'resolution_comment')
+                    .map((event) => payloadText(event.payload))
+                    .join('\n') || 'No resolution narrative has been recorded.'}
                 </p>
               </div>
               <div className="mb-3 flex items-center">

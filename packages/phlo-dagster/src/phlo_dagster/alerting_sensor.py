@@ -28,22 +28,36 @@ Example:
 
 from __future__ import annotations
 
+import json
+import os
 from datetime import datetime, timedelta, timezone
 
-from dagster import DagsterEventType, DagsterRunStatus, RunsFilter, sensor
+from dagster import (
+    DefaultSensorStatus,
+    DagsterEventType,
+    DagsterRunStatus,
+    RunsFilter,
+    SkipReason,
+    sensor,
+)
 
 from phlo.capabilities import AlertSink, resolve_capability
 from phlo.logging import get_logger
+from phlo.plugins.observatory_settings import (
+    get_operational_settings,
+    operational_environment_target,
+    operational_schedule_slot,
+)
 
 logger = get_logger(__name__)
 
 
-def _load_alert_sink() -> AlertSink:
+def _load_alert_sink(name: str = "alerting") -> AlertSink:
     """Resolve the configured alert sink capability.
 
     Raise RuntimeError when the alert_sink:alerting capability is unavailable.
     """
-    resolution = resolve_capability("alert_sink", "alerting")
+    resolution = resolve_capability("alert_sink", name)
     if resolution is None:
         raise RuntimeError(
             "Alerting integration requires an alert_sink:alerting capability. "
@@ -118,6 +132,8 @@ def failure_alert_sensor(context):
                 ):
                     alerted_count += 1
                     logger.info("failure_alert_sent", run_id=run.run_id, job_name=run.job_name)
+                else:
+                    raise RuntimeError("Failure notification delivery was not confirmed.")
 
         logger.info(
             "failure_alert_sensor_scan_completed",
@@ -139,6 +155,50 @@ def failure_alert_sensor(context):
 
     # Advance cursor to now so next tick only sees newer runs
     context.update_cursor(datetime.now(timezone.utc).isoformat())
+
+
+@sensor(
+    name="email_digest_sensor",
+    minimum_interval_seconds=300,
+    default_status=DefaultSensorStatus.STOPPED,
+)
+def email_digest_sensor(context):
+    """Consume the durable digest cadence using Dagster's existing sensor daemon."""
+    env = os.environ.get("PHLO_OBSERVATORY_ENVIRONMENT")
+    if not env:
+        return SkipReason("No operational consumer environment is bound.")
+    location, ref = operational_environment_target(env)
+    settings = get_operational_settings()
+    now = datetime.now(timezone.utc)
+    slot = operational_schedule_slot(settings.email_digest, now)
+    if slot is None or context.cursor == slot.isoformat():
+        return SkipReason("No new email digest slot is due.")
+    runs = context.instance.get_runs(
+        filters=RunsFilter(
+            statuses=[DagsterRunStatus.FAILURE],
+            tags={"phlo/ref": ref},
+            updated_after=slot - timedelta(days=1),
+        )
+    )
+    items = []
+    for run in runs:
+        origin = run.remote_job_origin
+        if (
+            origin is None
+            or origin.repository_origin.code_location_origin.location_name != location
+        ):
+            continue
+        items.append({"run_id": run.run_id, "job": run.job_name})
+    confirmed = _load_alert_sink("digest").send_alert(
+        title=f"Pipeline failure digest ({env})",
+        message=json.dumps({"env": env, "slot": slot.isoformat(), "failed_runs": items}),
+        severity="WARNING" if items else "INFO",
+        run_id=f"digest:{env}:{slot.isoformat()}",
+        error_message=f"digest:{env}:{slot.isoformat()}",
+    )
+    if confirmed is not True:
+        raise RuntimeError("Email digest delivery was not confirmed.")
+    context.update_cursor(slot.isoformat())
 
 
 def _extract_error_message(event) -> str | None:

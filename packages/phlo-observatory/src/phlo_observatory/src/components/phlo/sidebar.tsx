@@ -14,6 +14,7 @@ import { useCommandPalette } from './command-palette'
 import type { ObservatoryServiceList } from '@/lib/data/api/client'
 import type { IncidentRecord } from '@/lib/data/api/incidents'
 import type { Env } from '@/lib/data/types'
+import { serviceHealthLabel, serviceHealthTone } from '@/lib/data/api/client'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -227,23 +228,13 @@ export function Sidebar({
         ) : null}
         <div className="flex max-h-48 flex-col gap-2 overflow-y-auto">
           {visibleServices.map((s) => {
-            const state = s.status
+            const state = serviceHealthLabel(s)
             return (
               <div
                 key={s.id}
                 className="flex items-center gap-2 text-[13px] text-text-2"
               >
-                <Dot
-                  tone={
-                    state === 'healthy'
-                      ? 'ok'
-                      : state === 'degraded'
-                        ? 'warn'
-                        : state === 'unknown'
-                          ? 'neutral'
-                          : 'bad'
-                  }
-                />
+                <Dot tone={serviceHealthTone(s)} />
                 {s.id}
                 <span className="ml-auto font-mono text-xs text-muted-foreground">
                   {state}

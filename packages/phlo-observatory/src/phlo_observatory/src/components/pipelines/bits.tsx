@@ -1,9 +1,21 @@
 /** Provides pipeline status indicators, health summaries, and view controls. */
 import * as React from 'react'
 import { Link } from '@tanstack/react-router'
+import { z } from 'zod'
 import type { Env, ScaleStatus } from '@/lib/data/types'
 import type { ApiRun } from '@/lib/data/api/pipelines'
 import { cn } from '@/lib/utils'
+
+export const pipelineSearchSchema = z.object({
+  q: z.string().default(''),
+  by: z.enum(['domain', 'owner', 'source']).default('domain'),
+  owners: z.array(z.string()).default([]),
+  sources: z.array(z.string()).default([]),
+  states: z
+    .array(z.enum(['failed', 'succeeded', 'other', 'unknown']))
+    .default(['failed', 'succeeded', 'other', 'unknown']),
+  saved: z.array(z.enum(['mine', 'release'])).default([]),
+})
 
 export function runColor(status: ApiRun['status']) {
   return status === 'FAILURE'
@@ -92,7 +104,7 @@ export function ViewSwitch({
     >
       <Link
         to="/pipelines"
-        search={{ env }}
+        search={(previous) => ({ ...previous, env })}
         aria-current={current === 'list' ? 'page' : undefined}
         className={cn(item, current === 'list' && on)}
       >
@@ -100,7 +112,11 @@ export function ViewSwitch({
       </Link>
       <Link
         to="/pipelines/timeline"
-        search={{ env }}
+        search={(previous) => ({
+          ...previous,
+          env,
+          range: previous.range === '7d' ? '7d' : '24h',
+        })}
         aria-current={current === 'timeline' ? 'page' : undefined}
         className={cn(item, current === 'timeline' && on)}
       >

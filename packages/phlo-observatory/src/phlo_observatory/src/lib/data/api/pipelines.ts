@@ -18,6 +18,10 @@ const jobSchema = z.object({
   id: z.string(),
   repository_name: z.string(),
   description: z.string().nullable(),
+  domain: z.string().nullable(),
+  owners: z.array(z.string()),
+  source: z.string().nullable(),
+  feeds_batch_release: z.boolean(),
   selected_assets: z.array(z.array(z.string())),
 })
 export const runSchema = z.object({
@@ -29,6 +33,7 @@ export const runSchema = z.object({
   ended_at: z.string().nullable(),
   duration_seconds: z.number().nonnegative().nullable(),
   selected_assets: z.array(z.array(z.string())),
+  tags: z.record(z.string(), z.string()).optional(),
 })
 export const jobsSchema = z.object({
   env: environmentSchema,
@@ -72,16 +77,61 @@ const jobRequest = z.object({
 
 export type ApiRun = z.infer<typeof runSchema>
 
+export const maintenanceSchema = z.object({
+  env: environmentSchema,
+  status: z.enum(['configured', 'unavailable']),
+  items: z.array(
+    z.object({
+      id: z.string(),
+      starts_at: z.string(),
+      ends_at: z.string(),
+      description: z.string().nullable(),
+    }),
+  ),
+})
+
+export async function collectRunPages(
+  read: (cursor: string | null) => Promise<z.infer<typeof runsSchema>>,
+) {
+  const items: Array<ApiRun> = []
+  const seen = new Set<string>()
+  let cursor: string | null = null
+  do {
+    const page = await read(cursor)
+    items.push(...page.items)
+    cursor = page.next_cursor
+    if (cursor && seen.has(cursor))
+      throw new Error('Run history cursor did not advance.')
+    if (cursor) seen.add(cursor)
+  } while (cursor)
+  return items
+}
+
+function readRuns(env: z.infer<typeof environmentSchema>, jobId?: string) {
+  const base = `api/v1/runs?env=${env}&limit=100${jobId ? `&job_id=${encodeURIComponent(jobId)}` : ''}`
+  return collectRunPages((cursor) =>
+    phloApi(
+      `${base}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+      runsSchema,
+      { env },
+    ),
+  )
+}
+
 export const getPipelineList = createServerFn({ method: 'GET' })
   .inputValidator(environmentSchema)
   .handler(async ({ data: env }) => {
-    const [jobs, runs] = await Promise.all([
+    const [jobs, runs, maintenance] = await Promise.all([
       phloApi(`api/v1/jobs?env=${env}`, jobsSchema, { env }),
-      phloApi(`api/v1/runs?env=${env}&limit=100`, runsSchema, { env }),
+      readRuns(env),
+      phloApi(`api/v1/maintenance-windows?env=${env}`, maintenanceSchema, {
+        env,
+      }),
     ])
     return {
       jobs: jobs.items,
-      runs: runs.items,
+      runs,
+      maintenance,
       env,
       observed_at: new Date().toISOString(),
     }
@@ -94,37 +144,81 @@ export const getPipelineJob = createServerFn({ method: 'GET' })
       `api/v1/jobs/${encodeURIComponent(id)}?env=${env}`,
       jobSchema,
     )
-    const [runs, schedules] = await Promise.all([
-      phloApi(
-        `api/v1/runs?env=${env}&job_id=${encodeURIComponent(id)}&limit=100`,
-        runsSchema,
-        { env },
-      ),
-      phloApi(
-        `api/v1/jobs/${encodeURIComponent(id)}/schedules?env=${env}`,
-        schedulesSchema,
-        { env },
-      ),
-    ])
+    const [runs, schedules, summary, patterns, jobs, maintenance] =
+      await Promise.all([
+        readRuns(env, id),
+        phloApi(
+          `api/v1/jobs/${encodeURIComponent(id)}/schedules?env=${env}`,
+          schedulesSchema,
+          { env },
+        ),
+        phloApi(
+          `api/v1/jobs/${encodeURIComponent(id)}/summary?env=${env}`,
+          z.object({
+            env: environmentSchema,
+            scanned_runs: z.number(),
+            counts_by_status: z.record(z.string(), z.number()),
+            duration_histogram_seconds: z.record(z.string(), z.number()),
+          }),
+          { env },
+        ),
+        phloApi(
+          `api/v1/jobs/${encodeURIComponent(id)}/patterns?env=${env}`,
+          z.object({
+            env: environmentSchema,
+            scanned_runs: z.number(),
+            items: z.array(
+              z.object({
+                kind: z.enum(['failure', 'slow_run']),
+                count: z.number(),
+                run_ids: z.array(z.string()),
+              }),
+            ),
+          }),
+          { env },
+        ),
+        phloApi(`api/v1/jobs?env=${env}`, jobsSchema, { env }),
+        phloApi(`api/v1/maintenance-windows?env=${env}`, maintenanceSchema, {
+          env,
+        }),
+      ])
     const selected = run
       ? await phloApi(
           `api/v1/runs/${encodeURIComponent(run)}?env=${env}`,
           runSchema,
         )
-      : (runs.items[0] ?? null)
+      : (runs[0] ?? null)
     if (selected && selected.job_id !== id)
       throw new Error('The selected run belongs to a different job.')
-    const events = selected
-      ? await phloApi(
-          `api/v1/runs/${encodeURIComponent(selected.run_id)}/timeline?env=${env}&limit=100`,
+    let events: z.infer<typeof eventsSchema> | null = null
+    if (selected) {
+      let cursor: string | null = null
+      const seen = new Set<string>()
+      const items: z.infer<typeof eventsSchema>['items'] = []
+      do {
+        const page: z.infer<typeof eventsSchema> = await phloApi(
+          `api/v1/runs/${encodeURIComponent(selected.run_id)}/timeline?env=${env}&limit=100${cursor ? `&after_cursor=${encodeURIComponent(cursor)}` : ''}`,
           eventsSchema,
           { env },
         )
-      : null
+        items.push(...page.items)
+        events = { ...page, items }
+        cursor = page.truncated ? page.next_cursor : null
+        if (page.truncated && (!cursor || seen.has(cursor)))
+          throw new Error('Run event cursor did not advance.')
+        if (cursor) seen.add(cursor)
+      } while (cursor)
+    }
     return {
       job,
-      runs: runs.items,
+      runs,
       schedules: schedules.items,
+      summary,
+      patterns,
+      siblings: job.domain
+        ? jobs.items.filter((item) => item.domain === job.domain)
+        : [],
+      maintenance,
       selected,
       events,
       env,

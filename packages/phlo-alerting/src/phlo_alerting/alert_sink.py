@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from phlo.plugins.observatory_settings import get_operational_settings
 from phlo_alerting.manager import Alert, AlertSeverity, get_alert_manager
 
 
@@ -30,6 +31,31 @@ class AlertManagerSink:
             ... )
 
     """
+
+    def __init__(self, destinations: list[str] | None = None) -> None:
+        self.destinations = destinations
+
+    def _targets(self) -> list[str]:
+        if self.destinations is not None:
+            return self.destinations
+        settings = get_operational_settings()
+        return [
+            name
+            for name in get_alert_manager().destinations
+            if not name.startswith(("qa_", "owner:", "consumer:"))
+            and not (name == "email" and settings.email_digest)
+        ]
+
+    def validate_delivery(self) -> None:
+        """Preflight configured routes without opening an external connection."""
+        targets = self._targets()
+        manager = get_alert_manager()
+        if not targets or any(name not in manager.destinations for name in targets):
+            raise RuntimeError("Alert destinations are not configured.")
+        for name in targets:
+            recipients = getattr(manager.destinations[name], "recipients", None)
+            if recipients is not None and not recipients:
+                raise RuntimeError("Alert recipients are not configured.")
 
     def send_alert(
         self,
@@ -72,7 +98,13 @@ class AlertManagerSink:
             error_message=error_message,
             timestamp=datetime.now(timezone.utc),
         )
-        return get_alert_manager().send(alert)
+        self.validate_delivery()
+        targets = self._targets()
+        channel = get_operational_settings().chat_channel or None
+        manager = get_alert_manager()
+        if run_id is not None:
+            return manager.send_confirmed(alert, targets, channel=channel)
+        return manager.send(alert, destinations=targets, channel=channel)
 
 
 def _coerce_alert_severity(severity: str | None) -> AlertSeverity:
