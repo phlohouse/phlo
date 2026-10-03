@@ -69,9 +69,18 @@ const layersSchema = z.object({
   items: z.array(
     z.object({
       group_name: z.string().nullable(),
+      layer: z.enum(['bronze', 'silver', 'gold']).nullable().optional(),
       asset_count: z.number().int().nonnegative(),
       materialized_asset_count: z.number().int().nonnegative(),
       latest_materialization_at: z.string().nullable(),
+      freshness_counts: z
+        .object({
+          fresh: z.number().int().nonnegative(),
+          stale: z.number().int().nonnegative(),
+          unknown: z.number().int().nonnegative(),
+        })
+        .nullable()
+        .optional(),
     }),
   ),
   next_cursor: z.string().nullable(),

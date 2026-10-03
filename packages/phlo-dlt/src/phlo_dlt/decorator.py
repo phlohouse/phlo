@@ -337,6 +337,7 @@ def phlo_ingestion(  # noqa: C901
     capabilities: dict[str, str] | None = None,
     partitioned: bool = True,
     quality_checks: Sequence[Callable[[pd.DataFrame], str | None]] | None = None,
+    layer: Literal["bronze", "silver", "gold"] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Register a function as a DLT-backed ingestion asset.
 
@@ -377,6 +378,8 @@ def phlo_ingestion(  # noqa: C901
           monitoring; `sla` carries additional freshness/quality alerting metadata.
         - `consumers` lists downstream consumers (strings or `Consumer` objects)
           for lineage and impact analysis; `owner` records the owning team.
+        - `layer` declares bronze, silver, or gold independently of the asset
+          group. An omitted layer makes no lakehouse-layer declaration.
         - `partitioned=False` marks the asset as unpartitioned: the run does not
           require a partition key, and the source function receives an empty
           string. Use it for reference-style sources that ignore partitions.
@@ -477,6 +480,8 @@ def phlo_ingestion(  # noqa: C901
     """
     _validate_unique_key_in_schema(unique_key, validation_schema)
     _validate_merge_config(merge_strategy, unique_key, merge_config)
+    if layer is not None and layer not in ("bronze", "silver", "gold"):
+        raise PhloConfigError(message="layer must be bronze, silver, or gold")
 
     merge_cfg = _default_merge_config(merge_strategy, merge_config)
 
@@ -944,6 +949,7 @@ def phlo_ingestion(  # noqa: C901
                 "owner": owner,
                 "consumers": serialize_consumers(normalized_consumers),
                 "sla": serialize_sla(sla),
+                **({"phlo/layer": layer} if layer is not None else {}),
             },
             partitions=PartitionSpec(kind="daily") if partitioned else None,
             capability_overrides=dict(capabilities or {}),

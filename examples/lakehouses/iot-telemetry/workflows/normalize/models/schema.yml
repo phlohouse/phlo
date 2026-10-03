@@ -24,17 +24,38 @@ sources:
 
 models:
   - name: stg_devices
+    config:
+      meta:
+        phlo/layer: silver
+        owner: fleet-management
+        sla:
+          freshness_hours: 192
+          quality_threshold: 1.0
     columns:
       - name: device_id
         tests: [unique, not_null]
       - name: site_id
         tests: [not_null]
   - name: stg_sites
+    config:
+      meta:
+        phlo/layer: silver
+        owner: facilities
+        sla:
+          freshness_hours: 744
+          quality_threshold: 1.0
     columns:
       - name: site_id
         tests: [unique, not_null]
   - name: telemetry_dedup
     description: One row per message with corrections overlaid; arrived_late flags stragglers.
+    config:
+      meta:
+        phlo/layer: silver
+        owner: fleet-operations
+        sla:
+          freshness_hours: 4
+          quality_threshold: 0.995
     columns:
       - name: message_id
         tests: [unique, not_null]

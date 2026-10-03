@@ -93,6 +93,7 @@ export type AdminMember = z.infer<typeof memberSchema>
 export type AdminInvitation = z.infer<typeof invitationSchema>
 export type AdminServiceAccount = z.infer<typeof serviceAccountSchema>
 export type AuditRecord = z.infer<typeof auditRecordSchema>
+export type AuditSignature = z.infer<typeof signatureSchema>
 
 const page = <T extends z.ZodType>(item: T) =>
   z.object({ items: z.array(item) })
@@ -345,22 +346,41 @@ export const revokeServiceAccount = createServerFn({ method: 'POST' })
     }
   })
 
-export const getAuditLog = createServerFn({ method: 'GET' }).handler(
-  async () => {
+const auditFilters = z.object({
+  since: z.iso.datetime({ offset: true }).optional(),
+  until: z.iso.datetime({ offset: true }).optional(),
+  actor_subject: z.string().min(1).optional(),
+  action: z.string().min(1).optional(),
+  signed_only: z.boolean().optional(),
+  after: z.number().int().nonnegative().optional(),
+})
+function auditQuery(data: z.infer<typeof auditFilters>) {
+  const query = new URLSearchParams({ surface: 'phlo-api' })
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) query.set(key, String(value))
+  }
+  return query
+}
+
+export const getAuditLog = createServerFn({ method: 'GET' })
+  .inputValidator(auditFilters)
+  .handler(async ({ data }) => {
+    const query = auditQuery(data)
+    query.set('limit', '500')
     const [records, verification, signatures] = await Promise.all([
-      phloApi(
-        'api/v1/admin/audit/records?surface=phlo-api&limit=500',
-        auditPageSchema,
-      ),
+      phloApi(`api/v1/admin/audit/records?${query}`, auditPageSchema),
       phloApi('api/v1/admin/audit/verify?surface=phlo-api', verificationSchema),
       phloApi('api/v1/signatures', page(signatureSchema)),
     ])
     return { ...records, verification, signatures: signatures.items }
-  },
-)
+  })
 
-export const exportAuditLog = createServerFn({ method: 'GET' }).handler(() =>
-  phloApi('api/v1/admin/audit/export?surface=phlo-api&limit=5000', z.string(), {
-    responseType: 'text',
-  }),
-)
+export const exportAuditLog = createServerFn({ method: 'GET' })
+  .inputValidator(auditFilters)
+  .handler(({ data }) => {
+    const query = auditQuery(data)
+    query.set('limit', '5000')
+    return phloApi(`api/v1/admin/audit/export?${query}`, z.string(), {
+      responseType: 'text',
+    })
+  })

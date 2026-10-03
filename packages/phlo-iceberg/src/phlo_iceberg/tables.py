@@ -52,6 +52,7 @@ from pyiceberg.table import Table
 from phlo.capabilities import SAFE_MIN_RETENTION_HOURS, resolve_capability
 from phlo.helpers import deduplicate_arrow_by_unique_key
 from phlo.logging import get_logger
+from phlo.plugins.observatory_settings import get_operational_settings
 import phlo.telemetry as phlo_observe
 from phlo_iceberg.catalog import create_namespace, get_catalog
 
@@ -63,6 +64,14 @@ warnings.filterwarnings(
 )
 
 logger = get_logger(__name__)
+
+
+def _require_direct_write(ref: str) -> None:
+    """Keep protected main changes on branches until a governed merge."""
+    if ref == "main" and get_operational_settings().protect_main:
+        raise PermissionError(
+            "Direct writes to main are protected; write to a branch and use a signed merge."
+        )
 
 
 def _current_snapshot_id(table) -> str | None:
@@ -183,6 +192,7 @@ def ensure_table(
                 ref="main"
             )
     """
+    _require_direct_write(ref)
     catalog = get_catalog(ref=ref)
 
     parts = table_name.split(".")
@@ -287,6 +297,7 @@ def append_to_table(
                 ref="main"
             )
     """
+    _require_direct_write(ref)
     source_path = str(data_path)
     source_row_count = 0
     rows_inserted = 0
@@ -431,6 +442,7 @@ def merge_to_table(
         return the actual number of rows removed, only the number of unique
         keys processed.
     """
+    _require_direct_write(ref)
     source_path = str(data_path)
     source_row_count = 0
     rows_deleted = 0
@@ -610,6 +622,7 @@ def overwrite_table(
     See Also:
         :func:`merge_to_table`: For partial updates without full replacement.
     """
+    _require_direct_write(ref)
     source_path = str(data_path)
     source_row_count = 0
     rows_inserted = 0
@@ -726,6 +739,7 @@ def delete_rows_from_table(
                 predicate="account_status = 'deleted'"
             )
     """
+    _require_direct_write(ref)
     logger.info(
         "iceberg_table_delete_started",
         table_name=table_name,
@@ -788,15 +802,22 @@ def list_table_snapshots(
     return results
 
 
+class StaleTableRevision(ValueError):
+    """The table changed since the caller confirmed its revision."""
+
+
 def rollback_table_to_snapshot(
     table_name: str,
     snapshot_id: int,
     ref: str = "main",
+    *,
+    expected_metadata_location: str | None = None,
 ) -> dict:
     """Roll back an Iceberg table to a previous snapshot.
 
     Returns a dict with the ``rolled_back_to`` snapshot ID.
     """
+    _require_direct_write(ref)
     logger.info(
         "iceberg_table_rollback_started",
         table_name=table_name,
@@ -807,6 +828,11 @@ def rollback_table_to_snapshot(
     try:
         catalog = get_catalog(ref=ref)
         table = catalog.load_table(table_name)
+        if (
+            expected_metadata_location is not None
+            and table.metadata_location != expected_metadata_location
+        ):
+            raise StaleTableRevision("Table revision changed; refresh snapshot history.")
         table.manage_snapshots().rollback_to_snapshot(snapshot_id).commit()
     except Exception as exc:
         logger.error(
@@ -861,6 +887,7 @@ def delete_table(table_name: str, ref: str = "main") -> None:
     See Also:
         :func:`remove_orphan_files`: To clean up underlying storage files.
     """
+    _require_direct_write(ref)
     catalog = get_catalog(ref=ref)
     catalog.drop_table(table_name)
 

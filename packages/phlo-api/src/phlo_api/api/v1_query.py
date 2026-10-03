@@ -85,12 +85,15 @@ class QueryEngines(WireModel):
 class QueryRequest(WireModel):
     sql: str = Field(min_length=1, max_length=64 * 1024)
     row_limit: int = Field(default=100, ge=1, le=100)
+    engine: Literal["trino"] = "trino"
 
 
 class QuerySessionView(WireModel):
     id: str
     env: Environment
     nessie_ref: str
+    engine: Literal["trino"] = "trino"
+    evidence_available: bool = False
     status: Literal["queued", "running", "cancelling", "completed", "failed", "cancelled"]
     sql_hash: str
     created_at: datetime
@@ -168,6 +171,7 @@ class QuerySession:
         self.trino_query_id: str | None = None
         self.active_uri: str | None = None
         self.task: asyncio.Task[None] | None = None
+        self.evidence_available = False
 
 
 _QUERY_SESSIONS: dict[str, QuerySession] = {}
@@ -214,6 +218,7 @@ def _query_view(session: QuerySession) -> QuerySessionView:
         id=session.id,
         env=session.env,
         nessie_ref=session.nessie_ref,
+        evidence_available=session.evidence_available,
         status=session.status,
         sql_hash=hashlib.sha256(session.sql.encode()).hexdigest(),
         created_at=session.created_at,
@@ -287,6 +292,21 @@ async def _execute_session(session: QuerySession) -> None:
             on_progress=progress,
             should_cancel=lambda: session.cancel_requested,
         )
+        if os.environ.get("PHLO_RUN_EVIDENCE_DB_URL"):
+            from phlo_api.incidents import persist_query_execution
+
+            await asyncio.to_thread(
+                persist_query_execution,
+                query_id=session.id,
+                env=session.env,
+                actor=session.actor,
+                nessie_ref=session.nessie_ref,
+                statement=session.sql,
+                executed_statement=statement,
+                result=session.result,
+                provider_query_id=session.trino_query_id,
+            )
+            session.evidence_available = True
         session.status = "completed"
     except asyncio.CancelledError:
         session.status = "cancelled"
@@ -481,6 +501,24 @@ async def v1_query_explain(
 
 def _session_for_actor(query_id: str, request: Request, env: Environment) -> QuerySession:
     session = _QUERY_SESSIONS.get(query_id)
+    if session is None and os.environ.get("PHLO_RUN_EVIDENCE_DB_URL"):
+        from phlo_api.incidents import load_query_execution
+
+        record = load_query_execution(query_id, env, _actor(request))
+        if record is not None:
+            session = QuerySession(
+                query_id=query_id,
+                actor=_actor(request),
+                env=env,
+                nessie_ref=record["nessie_ref"],
+                sql=record["statement"],
+                catalog="",
+                row_limit=100,
+            )
+            session.status = "completed"
+            session.result = record["result"]
+            session.created_at = session.updated_at = record["completed_at"]
+            session.evidence_available = True
     if session is None or session.actor != _actor(request) or session.env != env:
         raise HTTPException(status_code=404, detail={"error": "query_not_found"})
     return session

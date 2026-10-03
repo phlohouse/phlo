@@ -1,5 +1,6 @@
 /** Collects and validates an asset backfill request. */
 import * as React from 'react'
+import { MaterializeDialog } from './materialize-dialog'
 import type { Env } from '@/lib/data/types'
 import { backfillAsset } from '@/lib/data/api/assets'
 import { Mono } from '@/components/phlo/status'
@@ -159,6 +160,43 @@ function BackfillRequestFields({
 }
 
 export function BackfillDialog({
+  open,
+  onClose,
+  assetId,
+  env,
+  jobs,
+}: {
+  open: boolean
+  onClose: () => void
+  assetId: string
+  env: Env
+  jobs: Array<string>
+}) {
+  const [explicit, setExplicit] = React.useState(false)
+  if (explicit)
+    return (
+      <ExplicitPartitionBackfillDialog
+        open={open}
+        onClose={onClose}
+        assetId={assetId}
+        env={env}
+        jobs={jobs}
+      />
+    )
+  return (
+    <MaterializeDialog
+      open={open}
+      onClose={onClose}
+      assetId={assetId}
+      env={env}
+      jobs={jobs}
+      initialMode="backfill"
+      onExplicitPartitions={() => setExplicit(true)}
+    />
+  )
+}
+
+function ExplicitPartitionBackfillDialog({
   open,
   onClose,
   assetId,

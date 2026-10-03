@@ -1,11 +1,13 @@
 /** Defines the SQL workspace for running, explaining, and saving queries. */
 import * as React from 'react'
 import { createFileRoute } from '@tanstack/react-router'
+import { z } from 'zod'
 import {
   CircleCheckIcon,
   DownloadIcon,
   GitBranchIcon,
   Loader2Icon,
+  PinIcon,
   PlayIcon,
   PlusIcon,
   SquareIcon,
@@ -13,13 +15,16 @@ import {
   Trash2Icon,
 } from 'lucide-react'
 import type { QuerySession, SavedQuery } from '@/lib/data/api/query'
+import type { IncidentRecord } from '@/lib/data/api/incidents'
 import {
   cancelQuery,
   deleteSavedQuery,
   downloadQueryCsv,
   explainQuery,
+  getQueryIncidentTargets,
   getQuerySession,
   getQueryWorkspace,
+  pinQueryToIncident,
   saveQuery,
   submitQuery,
 } from '@/lib/data/api/query'
@@ -33,12 +38,36 @@ import {
 import { EmptyState } from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
 import { Button, buttonVariants } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/menu'
 import { Segmented } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
+import { incidentOperationKey } from '@/lib/data/api/incidents'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Select } from '@/components/ui/select'
 
 export const Route = createFileRoute('/_app/query')({
-  loaderDeps: ({ search }) => ({ env: search.env }),
+  validateSearch: z.object({
+    sql: z
+      .string()
+      .max(64 * 1024)
+      .optional(),
+  }),
+  loaderDeps: ({ search }) => ({ env: search.env, sql: search.sql }),
   loader: ({ deps }) => getQueryWorkspace({ data: deps }),
   head: () => ({ meta: [{ title: 'Query · phlo' }] }),
   component: QueryPage,
@@ -52,12 +81,52 @@ type Tab = {
   session?: QuerySession
   mode: 'results' | 'plan'
   error?: string
+  pinnedIncident?: string
 }
 const terminal = new Set<QuerySession['status']>([
   'completed',
   'failed',
   'cancelled',
 ])
+
+function QueryStatusMessage({
+  tab,
+  isSubmitting,
+  running,
+  result,
+  cancelled,
+}: Pick<
+  Parameters<typeof QueryStatus>[0],
+  'tab' | 'isSubmitting' | 'running' | 'result' | 'cancelled'
+>) {
+  if (isSubmitting)
+    return (
+      <>
+        <Loader2Icon className="size-3.5 animate-spin" /> Submitting…
+      </>
+    )
+  if (running)
+    return (
+      <>
+        <Loader2Icon className="size-3.5 animate-spin" />
+        {tab.session?.status}…
+        {tab.error ? (
+          <span className="text-bad-text">
+            Status check failed: {tab.error}; retrying…
+          </span>
+        ) : null}
+      </>
+    )
+  if (tab.error) return <span className="text-bad-text">{tab.error}</span>
+  if (result)
+    return (
+      <>
+        <CircleCheckIcon className="size-3.5 text-ok-text" />{' '}
+        {result.rows.length} rows{result.has_more ? ' (more available)' : ''}
+      </>
+    )
+  return <span>{cancelled ? 'Cancelled' : 'Not run yet'}</span>
+}
 
 function QueryStatus({
   tab,
@@ -66,6 +135,7 @@ function QueryStatus({
   result,
   cancelled,
   csv,
+  pin,
 }: {
   tab: Tab
   isSubmitting: boolean
@@ -73,40 +143,42 @@ function QueryStatus({
   result: QuerySession['result'] | null
   cancelled: boolean
   csv: () => Promise<void>
+  pin: () => void
 }) {
   return (
     <div
       role="status"
       className="flex min-h-10 items-center gap-2 border-y border-line bg-raised px-4 text-[12.5px] text-muted-foreground"
     >
-      {isSubmitting ? (
-        <>
-          <Loader2Icon className="size-3.5 animate-spin" /> Submitting…
-        </>
-      ) : running ? (
-        <>
-          <Loader2Icon className="size-3.5 animate-spin" />{' '}
-          {tab.session?.status}…
-          {tab.error ? (
-            <span className="text-bad-text">
-              Status check failed: {tab.error}; retrying…
-            </span>
-          ) : null}
-        </>
-      ) : tab.error ? (
-        <span className="text-bad-text">{tab.error}</span>
-      ) : result ? (
-        <>
-          <CircleCheckIcon className="size-3.5 text-ok-text" />{' '}
-          {result.rows.length} rows{result.has_more ? ' (more available)' : ''}
-        </>
-      ) : (
-        <span>{cancelled ? 'Cancelled' : 'Not run yet'}</span>
-      )}
+      <QueryStatusMessage
+        tab={tab}
+        isSubmitting={isSubmitting}
+        running={running}
+        result={result}
+        cancelled={cancelled}
+      />
       <Button
         variant="outline"
         size="sm"
         className="ml-auto"
+        disabled={
+          !result || !tab.session?.evidence_available || tab.mode === 'plan'
+        }
+        title={
+          tab.session?.evidence_available
+            ? 'Pin the completed execution, not unsaved SQL edits'
+            : 'Pinning requires durable query evidence storage'
+        }
+        onClick={pin}
+      >
+        <PinIcon />{' '}
+        {tab.pinnedIncident
+          ? `Pinned to #${tab.pinnedIncident}`
+          : 'Pin to incident'}
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
         disabled={!result || tab.mode === 'plan'}
         onClick={csv}
       >
@@ -302,15 +374,26 @@ function QueryToolbar(props: QueryToolbarProps) {
           <GitBranchIcon className="text-branch" />
           <Mono>{refName ?? env}</Mono>
         </span>
-        <span
-          title="Engine selection is fixed by the environment"
-          className={cn(
-            buttonVariants({ variant: 'outline' }),
-            'hidden md:inline-flex',
-          )}
-        >
-          {engineId ?? 'No engine'}
-        </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label={`Engine: ${engineId ?? 'none'}`}
+            className={cn(
+              buttonVariants({ variant: 'outline' }),
+              'inline-flex',
+            )}
+          >
+            {engineId === 'trino' ? 'Trino' : 'No engine'}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem disabled>Trino · configured</DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              DuckDB · no scoped provider
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              Spark SQL · not configured
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         {tab.saved ? (
           <Button
             variant="outline"
@@ -367,15 +450,148 @@ function firstCatalogTable(
 }
 
 function QueryPage() {
+  const { env, sql } = Route.useSearch()
+  return <QueryWorkspace key={JSON.stringify([env, sql])} />
+}
+
+function PinQueryDialog({
+  env,
+  session,
+  open,
+  onOpenChange,
+  onPinned,
+}: {
+  env: 'prod' | 'staging'
+  session?: QuerySession
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onPinned: (id: string) => void
+}) {
+  const [targets, setTargets] = React.useState<Array<IncidentRecord>>([])
+  const [target, setTarget] = React.useState('')
+  const [error, setError] = React.useState<string>()
+  const [busy, setBusy] = React.useState(false)
+  React.useEffect(() => {
+    if (!open) return
+    let stopped = false
+    setBusy(true)
+    setError(undefined)
+    setTarget('')
+    getQueryIncidentTargets({ data: { env } }).then(
+      (page) => {
+        if (!stopped) {
+          setTargets(page.incidents)
+          setBusy(false)
+        }
+      },
+      (caught) => {
+        if (!stopped) {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : 'Could not load incidents.',
+          )
+          setBusy(false)
+        }
+      },
+    )
+    return () => {
+      stopped = true
+    }
+  }, [open, env])
+  const pin = async () => {
+    const incident = targets.find((item) => item.id === target)
+    if (!incident || !session || session.env !== env) return
+    setBusy(true)
+    setError(undefined)
+    try {
+      const updated = await pinQueryToIncident({
+        data: {
+          env,
+          id: session.id,
+          incident_id: incident.id,
+          version: incident.version,
+          idempotency_key: incidentOperationKey(
+            env,
+            incident.id,
+            'pin',
+            `${session.id}:${incident.version}`,
+          ),
+        },
+      })
+      setTargets((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      )
+      onPinned(updated.id)
+      onOpenChange(false)
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not pin query evidence.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>Pin query to incident</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <p className="m-0 text-sm text-muted-foreground">
+            Pins the completed {session?.engine} execution in {env}. Incident
+            readers see execution identity, not confidential SQL or result rows.
+          </p>
+          <label className="text-sm" htmlFor="pin-incident">
+            Incident
+          </label>
+          <Select
+            id="pin-incident"
+            value={target}
+            onValueChange={setTarget}
+            options={[
+              { value: '', label: busy ? 'Loading…' : 'Choose an incident' },
+              ...targets.map((item) => ({
+                value: item.id,
+                label: `#${item.id} · ${item.title}`,
+              })),
+            ]}
+          />
+          {!busy && !targets.length && !error ? (
+            <p className="text-sm">No incidents in this environment.</p>
+          ) : null}
+          {error ? (
+            <p role="alert" className="text-sm text-bad-text">
+              {error}
+            </p>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button disabled={busy || !target} onClick={pin}>
+            {busy ? 'Working…' : 'Pin execution'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function QueryWorkspace() {
   const data = Route.useLoaderData()
-  const { env } = Route.useSearch()
+  const { env, sql: suppliedSql } = Route.useSearch()
   const firstTable = firstCatalogTable(data.catalog.catalogs)
   const [savedQueries, setSavedQueries] = React.useState(data.saved)
   const [tabs, setTabs] = React.useState<Array<Tab>>(() => [
     {
       id: 'new-1',
       name: 'Untitled 1',
-      sql: initialSql(firstTable),
+      sql: suppliedSql ?? initialSql(firstTable),
       mode: 'results',
     },
   ])
@@ -384,6 +600,14 @@ function QueryPage() {
   React.useEffect(() => setChart(false), [activeId, env])
   const [selected, setSelected] = React.useState(firstTable)
   const [treeOpen, setTreeOpen] = React.useState(false)
+  const [pinOpen, setPinOpen] = React.useState(false)
+  const mounted = React.useRef(true)
+  React.useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   const submitting = React.useRef(new Set<string>())
   const [pending, setPending] = React.useState<Array<string>>([])
   const tab = tabs.find((item) => item.id === activeId) ?? tabs[0]
@@ -402,7 +626,7 @@ function QueryPage() {
       {
         id: initialId,
         name: 'Untitled 1',
-        sql: initialSql(firstTable),
+        sql: suppliedSql ?? initialSql(firstTable),
         mode: 'results',
       },
     ])
@@ -410,7 +634,8 @@ function QueryPage() {
     setSelected(firstTable)
     submitting.current.clear()
     setPending([])
-  }, [env])
+    setPinOpen(false)
+  }, [env, suppliedSql])
 
   React.useEffect(() => {
     const session = tab.session
@@ -450,7 +675,12 @@ function QueryPage() {
     setChart(showChart)
     submitting.current.add(tab.id)
     setPending((items) => [...items, tab.id])
-    patch(tab.id, { mode, session: undefined, error: undefined })
+    patch(tab.id, {
+      mode,
+      session: undefined,
+      error: undefined,
+      pinnedIncident: undefined,
+    })
     try {
       const session = await (mode === 'plan' ? explainQuery : submitQuery)({
         data: { env, sql: tab.sql },
@@ -565,6 +795,7 @@ function QueryPage() {
     if (!tab.session) return
     try {
       const text = await downloadQueryCsv({ data: { env, id: tab.session.id } })
+      if (!mounted.current) return
       const url = URL.createObjectURL(
         new Blob([text], { type: 'text/csv;charset=utf-8' }),
       )
@@ -664,6 +895,7 @@ function QueryPage() {
             result={result}
             cancelled={cancelled}
             csv={csv}
+            pin={() => setPinOpen(true)}
           />
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2">
             <Segmented
@@ -699,6 +931,13 @@ function QueryPage() {
           />
         </section>
       </div>
+      <PinQueryDialog
+        env={env}
+        session={tab.session}
+        open={pinOpen}
+        onOpenChange={setPinOpen}
+        onPinned={(id) => patch(tab.id, { pinnedIncident: id })}
+      />
     </>
   )
 }

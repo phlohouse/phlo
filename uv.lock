@@ -4200,6 +4200,7 @@ dependencies = [
     { name = "pandas" },
     { name = "phlo" },
     { name = "psycopg2-binary" },
+    { name = "sqlglot" },
     { name = "trino" },
 ]
 
@@ -4224,6 +4225,7 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "sqlglot", specifier = ">=30.2.1,<31" },
     { name = "trino", specifier = ">=0.336.0" },
 ]
 provides-extras = ["dev", "observatory", "postgres"]

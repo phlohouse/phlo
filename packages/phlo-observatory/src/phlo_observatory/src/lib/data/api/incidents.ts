@@ -2,8 +2,11 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { environmentSchema, phloApi } from './client'
+import { getAssetDetail } from './assets'
+import { runSchema } from './pipelines'
 
 const statusSchema = z.enum(['open', 'acknowledged', 'resolved'])
+export const severitySchema = z.enum(['low', 'medium', 'high'])
 export const incidentSchema = z.object({
   id: z.string().min(1),
   asset_id: z.string().min(1),
@@ -14,6 +17,23 @@ export const incidentSchema = z.object({
   version: z.number().int().nonnegative(),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
+  severity: severitySchema.default('medium'),
+  asset_ids: z.array(z.string()).default([]),
+  layers: z.array(z.string()).default([]),
+  description: z.string().default(''),
+  notify_qa: z.boolean().default(false),
+  pause_downstream: z.boolean().default(false),
+  effects: z
+    .array(
+      z.object({
+        id: z.string(),
+        kind: z.enum(['notification', 'pause']),
+        status: z.enum(['pending', 'delivering', 'delivered', 'failed']),
+        attempts: z.number().int(),
+        error: z.string().nullable(),
+      }),
+    )
+    .default([]),
 })
 const incidentPageSchema = z.object({
   env: environmentSchema,
@@ -121,7 +141,69 @@ export const getIncidentDetail = createServerFn({ method: 'GET' })
         followUpsSchema,
       ),
     ])
-    return { incident, timeline: timeline.items, followUps: followUps.items }
+    const runs = await phloApi(
+      `api/v1/runs?env=${env}&limit=100`,
+      z.object({
+        env: environmentSchema,
+        items: z.array(runSchema),
+        next_cursor: z.string().nullable(),
+      }),
+      { env },
+    )
+      .then((page) => ({
+        items: page.items.filter(
+          (run) =>
+            run.selected_assets.some((key) =>
+              (incident.asset_ids.length
+                ? incident.asset_ids
+                : [incident.asset_id]
+              ).some(
+                (asset) => asset === key.join('/') || asset === key.join('.'),
+              ),
+            ) ||
+            timeline.items.some((event) => {
+              const evidence = event.payload.evidence
+              return (
+                typeof evidence === 'object' &&
+                evidence !== null &&
+                !Array.isArray(evidence) &&
+                (evidence.run_id === run.run_id ||
+                  evidence.successful_run_id === run.run_id)
+              )
+            }),
+        ),
+        truncated: page.next_cursor !== null,
+        error: null,
+      }))
+      .catch((error: unknown) => ({
+        items: [],
+        truncated: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Run history is unavailable.',
+      }))
+    const tab = incident.kind.toLowerCase().includes('schema')
+      ? 'schema'
+      : /audit|check|quality/.test(incident.kind.toLowerCase())
+        ? 'audits'
+        : 'overview'
+    const investigation = await getAssetDetail({
+      data: { env, id: incident.asset_id, tab },
+    }).catch((error: unknown) => ({
+      kind: 'unavailable' as const,
+      message:
+        error instanceof Error
+          ? error.message
+          : 'Asset investigation is unavailable.',
+    }))
+    return {
+      incident,
+      timeline: timeline.items,
+      followUps: followUps.items,
+      runs,
+      investigation,
+    }
   })
 
 export const createIncident = createServerFn({ method: 'POST' })
@@ -134,6 +216,12 @@ export const createIncident = createServerFn({ method: 'POST' })
       title: z.string().min(1).max(500),
       evidence_id: z.string().min(1).max(512),
       evidence: z.record(z.string(), z.json()),
+      severity: severitySchema,
+      owner: z.string().max(512).nullable(),
+      asset_ids: z.array(z.string().min(1).max(512)).min(1).max(100),
+      description: z.string().max(10000),
+      notify_qa: z.boolean(),
+      pause_downstream: z.boolean(),
     }),
   )
   .handler(({ data }) =>
@@ -148,6 +236,12 @@ export const createIncident = createServerFn({ method: 'POST' })
         title: data.title,
         evidence_id: data.evidence_id,
         evidence: data.evidence,
+        severity: data.severity,
+        owner: data.owner,
+        asset_ids: data.asset_ids,
+        description: data.description,
+        notify_qa: data.notify_qa,
+        pause_downstream: data.pause_downstream,
       },
     }),
   )
@@ -178,6 +272,13 @@ const updateInput = z.object({
       owner: z.string().max(512).nullable().optional(),
       comment: z.string().max(10_000).optional(),
       signature_id: z.string().min(1).max(100).optional(),
+      severity: severitySchema.optional(),
+      asset_ids: z.array(z.string().min(1).max(512)).min(1).max(100).optional(),
+      description: z.string().max(10000).optional(),
+      notify_qa: z.boolean().optional(),
+      pause_downstream: z.boolean().optional(),
+      query_id: z.string().min(1).max(100).optional(),
+      retry_effects: z.boolean().optional(),
     })
     .refine((value) => Object.keys(value).length > 0),
 })

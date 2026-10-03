@@ -14,24 +14,54 @@ const adminSettingsSchema = z.object({
   values: z.record(z.string(), settingValueSchema),
 })
 
+const wholeNumber = (max: number) =>
+  z
+    .string()
+    .refine(
+      (value) =>
+        value === '' ||
+        (/^[0-9]+$/.test(value) && Number(value) >= 1 && Number(value) <= max),
+      `Use a whole number between 1 and ${max}, or leave empty.`,
+    )
+const cadence = z
+  .string()
+  .refine(
+    (value) =>
+      value === '' ||
+      /^(Daily|Weekdays|Sundays) (at )?([01][0-9]|2[0-3]):[0-5][0-9]$/.test(
+        value,
+      ),
+    'Use Daily, Weekdays or Sundays followed by HH:MM (UTC).',
+  )
+
 export const settingsSchema = z.object({
-  sla: z.object({ bronze: z.string(), silver: z.string(), gold: z.string() }),
+  sla: z.object({
+    bronze: wholeNumber(525600),
+    silver: wholeNumber(525600),
+    gold: wholeNumber(525600),
+  }),
   openIncidentOnBreach: z.boolean(),
   holdDownstream: z.boolean(),
-  chat: z.string(),
-  digest: z.string(),
+  chat: z
+    .string()
+    .max(120)
+    .refine(
+      (value) => value === '' || /^#[^\s]+$/.test(value),
+      'Use a chat channel such as #data-platform.',
+    ),
+  digest: cadence,
   notifyOwners: z.boolean(),
   notifyConsumers: z.boolean(),
-  fileSize: z.string(),
-  expireDays: z.string(),
-  orphan: z.string(),
+  fileSize: wholeNumber(4096),
+  expireDays: wholeNumber(3650),
+  orphan: cadence,
   keepTagged: z.boolean(),
   compactNightly: z.boolean(),
   protectMain: z.boolean(),
   requireReason: z.boolean(),
   signTags: z.boolean(),
   secondReviewer: z.boolean(),
-  retention: z.string(),
+  retention: wholeNumber(100),
 })
 export type Settings = z.infer<typeof settingsSchema>
 
@@ -82,7 +112,11 @@ function decode(
   values: Record<string, string | number | boolean | null>,
 ): Settings {
   const text = (key: string) =>
-    typeof values[key] === 'string' ? values[key] : ''
+    typeof values[key] === 'string'
+      ? values[key]
+      : typeof values[key] === 'number'
+        ? String(values[key])
+        : ''
   const flag = (key: string) => values[key] === true
   return {
     sla: {

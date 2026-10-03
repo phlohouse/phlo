@@ -22,7 +22,9 @@ from phlo_api.main import app
 from phlo_api import security_manifest
 
 
-def _asset_inventory_response(nodes: list[dict[str, Any]]) -> dict[str, Any]:
+def _asset_inventory_response(
+    nodes: list[dict[str, Any]], *, repository_selector: dict[str, str] | None = None
+) -> dict[str, Any]:
     repositories: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for node in nodes:
         repository = node["repository"]
@@ -42,6 +44,12 @@ def _asset_inventory_response(nodes: list[dict[str, Any]]) -> dict[str, Any]:
                         "assetNodes": assets,
                     }
                     for (name, location), assets in repositories.items()
+                    if repository_selector is None
+                    or (name, location)
+                    == (
+                        repository_selector["repositoryName"],
+                        repository_selector["repositoryLocationName"],
+                    )
                 ],
             }
         }
@@ -189,6 +197,9 @@ def test_identity_and_environment_scoped_services(client):
             "status": "unknown",
             "observed_at": None,
             "response_time_seconds": None,
+            "runtime_state": "unknown",
+            "definition_state": "available",
+            "reason": "no_runtime_evidence",
         }
         assert urls[-1] == f"http://nessie:19120/api/v2/trees/{ref}"
         assert ("service.read", f"env={env}", env) in decisions
@@ -346,7 +357,7 @@ def test_missing_sources_do_not_report_healthy_or_empty(client):
         ] == "unavailable"
         assert {item["id"]: item["status"] for item in response.json()["items"]}[
             "nessie"
-        ] == "unavailable"
+        ] == "unknown"
         assert http.get(f"/api/v1/events?env={env}").status_code == 503
     monkeypatch.setattr(v1.ServiceDiscovery, "discover", lambda self: {})
     assert http.get("/api/v1/services?env=prod").status_code == 503
@@ -717,7 +728,7 @@ def test_asset_cursor_is_environment_bound_and_sources_filter_before_page(client
     assert crossed.status_code == 400
 
 
-def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
+def test_shared_asset_key_preserves_verified_repository_history(client, monkeypatch):
     from types import SimpleNamespace
 
     from phlo_api import incidents
@@ -805,27 +816,27 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
     response = http.get("/api/v1/assets?env=prod")
     assert response.status_code == 200
     item = response.json()["items"][0]
-    assert item["history_scoped"] is False
-    assert item["last_materialization_at"] is None
-    assert item["last_run_id"] is None
+    assert item["history_scoped"] is True
+    assert item["last_materialization_at"] is not None
+    assert item["last_run_id"] == "prod"
     staging = http.get("/api/v1/assets?env=staging")
     assert staging.status_code == 200
-    assert staging.json()["items"][0]["history_scoped"] is False
-    assert staging.json()["items"][0]["last_run_id"] is None
+    assert staging.json()["items"][0]["history_scoped"] is True
+    assert staging.json()["items"][0]["last_run_id"] == "staging"
     run_history = http.get("/api/v1/assets/orders/runs?env=prod")
     assert run_history.status_code == 200
     assert [item["run_id"] for item in run_history.json()["items"]] == ["prod-run"]
-    assert http.get("/api/v1/assets/orders?env=prod").status_code == 503
+    assert http.get("/api/v1/assets/orders?env=prod").json()["description"] == "prod"
     for env in ("prod", "staging"):
         item = http.get(f"/api/v1/assets?env={env}").json()["items"][0]
-        assert item["history_scoped"] is False
-        assert item["last_materialization_at"] is None
+        assert item["history_scoped"] is True
+        assert item["last_materialization_at"] is not None
         overview = http.get(f"/api/v1/overview?env={env}")
         assert overview.status_code == 200
         assert overview.json()["freshness_counts"] == {
             "fresh": 0,
-            "stale": 0,
-            "unknown": 1,
+            "stale": 1,
+            "unknown": 0,
         }
 
 
@@ -851,7 +862,7 @@ def test_asset_and_overview_require_location_success_and_unpartitioned_evidence(
 
     http, *_ = client
     current_location = "production_jobs" if env == "prod" else "testing_jobs"
-    observed_at = datetime.now(UTC).replace(microsecond=123000)
+    observed_at = datetime.now(UTC).replace(microsecond=0)
     materialization = {
         "timestamp": str(int(observed_at.timestamp() * 1000)),
         "runId": "historical-run",
@@ -995,7 +1006,7 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
     async def graphql(url, query, variables=None):
         if "V1AssetDetail" in query:
             return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **detail}}}
-        return _asset_inventory_response([node])
+        return _asset_inventory_response([detail])
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     response = http.get("/api/v1/assets/orders?env=prod")
@@ -1026,15 +1037,19 @@ def test_iceberg_history_is_bound_to_configured_environment_ref(client, monkeypa
 
     def history(table_name, ref, limit):
         refs.append((table_name, ref, limit))
-        return [
-            {
-                "snapshot_id": 91 if ref == "main" else 17,
-                "timestamp_ms": 1780000000000,
-                "operation": "append",
-                "summary": {"added-records": "3"},
-                "parent_id": None,
-            }
-        ]
+        return {
+            "current_snapshot_id": 91 if ref == "main" else 17,
+            "metadata_location": f"{ref}/metadata.json",
+            "items": [
+                {
+                    "snapshot_id": 91 if ref == "main" else 17,
+                    "timestamp_ms": 1780000000000,
+                    "operation": "append",
+                    "summary": {"added-records": "3"},
+                    "parent_id": None,
+                }
+            ],
+        }
 
     monkeypatch.setattr(v1_assets, "_iceberg_history", history)
     prod = http.get("/api/v1/tables/warehouse.orders/snapshots?env=prod&limit=5")
@@ -1044,6 +1059,8 @@ def test_iceberg_history_is_bound_to_configured_environment_ref(client, monkeypa
     assert staging.json()["nessie_ref"] == "candidate"
     assert prod.json()["items"][0]["snapshot_id"] == 91
     assert staging.json()["items"][0]["snapshot_id"] == 17
+    assert staging.json()["current_snapshot_id"] == 17
+    assert staging.json()["metadata_location"] == "candidate/metadata.json"
     assert refs == [
         ("warehouse.orders", "main", 5),
         ("warehouse.orders", "candidate", 5),
@@ -1338,6 +1355,7 @@ def test_query_usage_requires_asset_and_physical_table_read_after_reassignment(c
                 is_source=False,
                 dependencies=[],
                 relation=relation,
+                history_scoped=False,
                 last_materialization_at=None,
                 last_run_id=None,
             )
@@ -1476,7 +1494,7 @@ def test_materialize_action_pins_location_ref_and_replay_key(client, monkeypatch
     }
 
     async def graphql(query, variables=None):
-        if "V1Assets" in query:
+        if "V1Assets" in query or "AssetActionContext" in query:
             return _asset_inventory_response([node])
         return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **node}}}
 
@@ -1601,8 +1619,10 @@ def test_latest_and_all_backfills_are_environment_pinned_and_bounded(client, mon
     provider_calls = []
 
     async def graphql(query, variables=None):
-        if "V1Assets" in query:
-            return _asset_inventory_response(assets)
+        if "V1Assets" in query or "AssetActionContext" in query:
+            return _asset_inventory_response(
+                [{**asset, "jobNames": ["orders_job"]} for asset in assets]
+            )
         key = variables["assetKey"]["path"][-1] if "assetKey" in variables else None
         if "V1AssetDetail" in query:
             location, repository = locations[key]
@@ -1629,23 +1649,34 @@ def test_latest_and_all_backfills_are_environment_pinned_and_bounded(client, mon
                     }
                 }
             }
-        if "V1AssetLatestPartition" in query:
+        if "AssetOperationNode" in query:
             latest_query_variables.append(variables)
-            location, _ = locations[key]
+            selector = variables["selector"]
+            location = selector["repositoryLocationName"]
+            key = "prod_orders" if location == "production_jobs" else "stage_orders"
             prod_selection_count = sum(
-                item["assetKey"]["path"][-1] == "prod_orders" for item in latest_query_variables
+                item["selector"]["repositoryLocationName"] == "production_jobs"
+                for item in latest_query_variables
             )
             partition_key = "2026-09-26" if prod_selection_count > 1 else "2026-09-25"
             return {
                 "data": {
-                    "assetNodeOrError": {
-                        "__typename": "AssetNode",
-                        "repository": {"location": {"name": location}},
-                        "partitionKeyConnection": {
-                            "results": [partition_key if key == "prod_orders" else "2026-09-24"],
-                            "cursor": "",
-                            "hasMore": True,
-                        },
+                    "repositoryOrError": {
+                        "__typename": "Repository",
+                        "name": selector["repositoryName"],
+                        "location": {"name": location},
+                        "assetNodes": [
+                            {
+                                **next(asset for asset in assets if asset["id"] == key),
+                                "partitionKeyConnection": {
+                                    "results": [
+                                        partition_key if key == "prod_orders" else "2026-09-24"
+                                    ],
+                                    "cursor": "",
+                                    "hasMore": True,
+                                },
+                            }
+                        ],
                     }
                 }
             }
@@ -1734,11 +1765,26 @@ def test_latest_and_all_backfills_are_environment_pinned_and_bounded(client, mon
     assert provider_calls[2][1]["all_partitions"] is True
     assert provider_calls[2][1]["repository_location_name"] == "production_jobs"
     assert latest_query_variables == [
-        {"assetKey": {"path": ["warehouse", "prod_orders"]}, "limit": 1, "ascending": False},
-        {"assetKey": {"path": ["warehouse", "stage_orders"]}, "limit": 1, "ascending": False},
-        {"assetKey": {"path": ["warehouse", "prod_orders"]}, "limit": 1, "ascending": False},
+        {
+            "selector": {
+                "repositoryName": "prod_repo",
+                "repositoryLocationName": "production_jobs",
+            },
+            "limit": 1,
+        },
+        {
+            "selector": {"repositoryName": "stage_repo", "repositoryLocationName": "testing_jobs"},
+            "limit": 1,
+        },
+        {
+            "selector": {
+                "repositoryName": "prod_repo",
+                "repositoryLocationName": "production_jobs",
+            },
+            "limit": 1,
+        },
     ]
-    assert "partitionKeysByDimension" not in v1_assets.ASSET_LATEST_PARTITION_QUERY
+    assert "partitionKeysByDimension" not in v1_assets._OPERATION_NODE_QUERY
 
     endpoint = "/api/v1/assets/warehouse/prod_orders/backfill?env=prod"
     dry_request = {
@@ -1786,8 +1832,8 @@ def test_latest_backfill_fails_closed_on_empty_oversized_or_wrong_location(
     provider_calls = []
 
     async def graphql(query, variables=None):
-        if "V1Assets" in query:
-            return _asset_inventory_response([node])
+        if "V1Assets" in query or "AssetActionContext" in query:
+            return _asset_inventory_response([{**node, "jobNames": ["orders_job"]}])
         if "V1AssetDetail" in query:
             return {
                 "data": {
@@ -1813,25 +1859,29 @@ def test_latest_backfill_fails_closed_on_empty_oversized_or_wrong_location(
                     }
                 }
             }
-        if "V1AssetLatestPartition" in query:
+        if "AssetOperationNode" in query:
             if partition_response.get("upstream_failure"):
                 return {"errors": [{"message": "Dagster unavailable"}]}
             return {
                 "data": {
-                    "assetNodeOrError": {
-                        "__typename": "AssetNode",
-                        "repository": {
-                            "location": {
-                                "name": "testing_jobs"
-                                if partition_response.get("wrong_location")
-                                else "production_jobs"
+                    "repositoryOrError": {
+                        "__typename": "Repository",
+                        "name": "prod_repo",
+                        "location": {
+                            "name": "testing_jobs"
+                            if partition_response.get("wrong_location")
+                            else "production_jobs"
+                        },
+                        "assetNodes": [
+                            {
+                                **node,
+                                "partitionKeyConnection": {
+                                    key: value
+                                    for key, value in partition_response.items()
+                                    if key not in {"wrong_location", "upstream_failure"}
+                                },
                             }
-                        },
-                        "partitionKeyConnection": {
-                            key: value
-                            for key, value in partition_response.items()
-                            if key not in {"wrong_location", "upstream_failure"}
-                        },
+                        ],
                     }
                 }
             }
@@ -1871,12 +1921,95 @@ def test_latest_backfill_fails_closed_on_empty_oversized_or_wrong_location(
     assert provider_calls == []
 
 
+@pytest.mark.parametrize(
+    ("local_checks", "foreign_checks", "available"),
+    [
+        (True, True, False),
+        (False, True, False),
+        (True, False, True),
+        (True, None, False),
+        (None, False, False),
+    ],
+)
+def test_check_definitions_require_repository_local_uniqueness_proof(
+    client, monkeypatch, local_checks, foreign_checks, available
+):
+    from types import SimpleNamespace
+
+    from phlo_api import incidents
+
+    http, *_ = client
+    nodes = [
+        {
+            "assetKey": {"path": ["shared"]},
+            "repository": {"name": "repo", "location": {"name": location}},
+            "isMaterializable": location == "production_jobs",
+            "dependencyKeys": [],
+            "assetMaterializations": [],
+            "hasAssetChecks": has_checks,
+        }
+        for location, has_checks in (
+            ("production_jobs", local_checks),
+            ("testing_jobs", foreign_checks),
+        )
+    ]
+    definitions_read = []
+
+    async def graphql(url, query, variables=None):
+        if "V1Assets" in query:
+            assert "hasAssetChecks" in query
+            return _asset_inventory_response(nodes)
+        if "V1AssetChecks" in query:
+            definitions_read.append(variables)
+            return _asset_inventory_response(
+                [
+                    {
+                        **nodes[0],
+                        "assetChecksOrError": {
+                            "__typename": "AssetChecks",
+                            "checks": [{"name": "local-volume"}]
+                            + ([{"name": "foreign-schema"}] if foreign_checks else []),
+                        },
+                    }
+                ],
+                repository_selector=variables["repositorySelector"],
+            )
+        assert "V1AssetCheckExecutions" in query
+        return {"data": {"assetCheckExecutions": []}}
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(v1, "_runs", lambda *args: asyncio.sleep(0, result={}))
+    monkeypatch.setattr(
+        incidents, "incident_stats", lambda request, env: IncidentStatsResponse(env=env, counts={})
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda *args, **kwargs: SimpleNamespace(items=[], next_cursor=None),
+    )
+    direct = http.get("/api/v1/assets/shared/checks?env=prod")
+    assert direct.status_code == (200 if available else 503), direct.text
+    overview = http.get("/api/v1/overview?env=prod")
+    assert overview.status_code == 200, overview.text
+    quality = overview.json()["quality_checks"]
+    if available:
+        assert [item["name"] for item in direct.json()["definitions"]] == ["local-volume"]
+        assert quality["counts"] == {"passing": 0, "total": 1, "unevaluated": 1}
+        assert len(definitions_read) == 2
+    else:
+        assert quality["status"] == "unknown" and quality["counts"] is None
+        assert quality["reason"] == "check_definition_scope_unverified"
+        assert "hasAssetChecks" in direct.text
+        assert definitions_read == []
+
+
 def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monkeypatch):
     http, _, _, _, _ = client
+    check_location = "production_jobs"
     nodes = [
         {
             "assetKey": {"path": ["warehouse", "orders"]},
-            "repository": {"location": {"name": location}},
+            "repository": {"name": "repo", "location": {"name": location}},
             "assetChecksOrError": {
                 "__typename": "AssetChecks",
                 "checks": [{"name": f"quality_{env}", "description": env}],
@@ -1941,6 +2074,7 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
                         "groupName": None,
                         "isMaterializable": True,
                         "repository": {"name": "repo", "location": {"name": location}},
+                        "hasAssetChecks": location == check_location,
                         "dependencyKeys": [],
                         "assetMaterializations": [],
                     }
@@ -1951,7 +2085,10 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
                 ]
             )
         if "V1AssetChecks" in query:
-            return {"data": {"assetNodes": nodes}}
+            assert variables["repositorySelector"]["repositoryName"] == "repo"
+            return _asset_inventory_response(
+                nodes, repository_selector=variables["repositorySelector"]
+            )
         if "V1AssetCheckExecutions" in query:
             return {
                 "data": {
@@ -1964,6 +2101,7 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     prod = http.get("/api/v1/assets/warehouse/orders/checks?env=prod")
+    check_location = "testing_jobs"
     staging = http.get("/api/v1/assets/warehouse/orders/checks?env=staging")
     assert prod.status_code == staging.status_code == 200
     assert prod.json()["definitions"] == [{"name": "quality_prod", "description": "prod"}]
@@ -1973,6 +2111,7 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
     assert prod.json()["executions"][0]["passed"] is True
     assert staging.json()["executions"][0]["passed"] is False
     assert prod.json()["executions"][0]["metadata"] == [{"label": "rows", "value": 9}]
+    check_location = "production_jobs"
     executions[0]["run"]["tags"] = []
     assert http.get("/api/v1/assets/warehouse/orders/checks?env=prod").status_code == 503
 
@@ -2134,7 +2273,7 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
         "status": "unknown",
         "counts": None,
         "failing_assets": None,
-        "reason": "source_unavailable",
+        "reason": "check_definition_scope_unverified",
     }
 
 
@@ -2151,6 +2290,7 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
             "groupName": "warehouse",
             "isMaterializable": True,
             "repository": {"name": "repo", "location": {"name": location}},
+            "hasAssetChecks": location == "production_jobs",
             "dependencyKeys": [],
             "assetMaterializations": [],
         }
@@ -2169,24 +2309,23 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
         if "V1Assets" in query:
             return _asset_inventory_response(nodes)
         if "V1AssetChecks" in query:
-            return {
-                "data": {
-                    "assetNodes": [
-                        {
-                            "assetKey": {"path": ["warehouse", "orders"]},
-                            "repository": {"location": {"name": location}},
-                            "assetChecksOrError": {
-                                "__typename": "AssetChecks",
-                                "checks": [
-                                    {"name": "freshness", "description": None},
-                                    {"name": "volume", "description": None},
-                                ],
-                            },
-                        }
-                        for location in ("production_jobs", "testing_jobs")
-                    ]
-                }
-            }
+            return _asset_inventory_response(
+                [
+                    {
+                        "assetKey": {"path": ["warehouse", "orders"]},
+                        "repository": {"name": "repo", "location": {"name": location}},
+                        "assetChecksOrError": {
+                            "__typename": "AssetChecks",
+                            "checks": [
+                                {"name": "freshness", "description": None},
+                                {"name": "volume", "description": None},
+                            ],
+                        },
+                    }
+                    for location in ("production_jobs", "testing_jobs")
+                ],
+                repository_selector=variables["repositorySelector"],
+            )
         if "V1AssetCheckExecutions" in query:
             check_name = variables["checkName"]
             check_executions = {

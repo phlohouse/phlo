@@ -26,6 +26,7 @@ import {
 } from '@/components/incidents/list'
 import { Segmented } from '@/components/ui/toggle-group'
 import { NewIncidentDialog } from '@/components/incidents/new-incident-dialog'
+import { assetLayer, getAssetList } from '@/lib/data/api/assets'
 
 export const Route = createFileRoute('/_app/incidents/')({
   validateSearch: z.object({
@@ -33,13 +34,34 @@ export const Route = createFileRoute('/_app/incidents/')({
     view: z.enum(['open', 'resolved']).optional(),
   }),
   loaderDeps: ({ search }) => ({ env: search.env }),
-  loader: ({ deps }) => getIncidentList({ data: deps.env }),
+  loader: async ({ deps }) => {
+    const [list, assets] = await Promise.all([
+      getIncidentList({ data: deps.env }),
+      getAssetList({ data: deps.env }).catch(() => null),
+    ])
+    return { ...list, assets: assets?.items ?? [] }
+  },
   head: () => ({ meta: [{ title: 'Incidents · phlo' }] }),
   component: IncidentsPage,
 })
 
 function IncidentsPage() {
-  const { incidents, stats, truncated } = Route.useLoaderData()
+  const data = Route.useLoaderData()
+  const { stats, truncated } = data
+  const incidents = data.incidents.map((incident) => ({
+    ...incident,
+    layers: Array.from(
+      new Set(
+        data.assets
+          .filter(
+            (asset) =>
+              incident.asset_ids.includes(asset.id) ||
+              incident.asset_ids.includes(asset.key.join('.')),
+          )
+          .flatMap((asset) => assetLayer(asset) ?? []),
+      ),
+    ),
+  }))
   const { env, dialog, view = 'open' } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const router = useRouter()
@@ -56,7 +78,11 @@ function IncidentsPage() {
   ).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
   const options = (key: FilterKey) =>
     Array.from(
-      new Set(incidents.map((item) => item[key] ?? 'Unassigned')),
+      new Set(
+        incidents.flatMap((item) =>
+          key === 'layer' ? item.layers : (item[key] ?? 'Unassigned'),
+        ),
+      ),
     ).sort()
   const close = () =>
     navigate({
@@ -70,19 +96,31 @@ function IncidentsPage() {
     try {
       const intent = JSON.stringify(values)
       const key = incidentOperationKey(env, 'new', 'create', intent)
-      await createIncident({
+      const created = await createIncident({
         data: {
           env,
           idempotency_key: key,
-          asset_id: values.assetId,
+          asset_id: values.assets[0],
           kind: values.kind,
           title: values.title,
           evidence_id: `manual:${key}`,
           evidence: { description: values.description, source: 'observatory' },
+          severity: values.severity,
+          owner: values.owner || null,
+          asset_ids: values.assets,
+          description: values.description,
+          notify_qa: values.notifyQa,
+          pause_downstream: values.pauseDownstream,
         },
       })
       close()
       await router.invalidate()
+      if (created.effects.some((effect) => effect.status !== 'delivered'))
+        await navigate({
+          to: '/incidents/$incidentId',
+          params: { incidentId: created.id },
+          search: { env },
+        })
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : 'Could not create incident.',
@@ -158,21 +196,9 @@ function IncidentsPage() {
           role="group"
           aria-label="Filters"
         >
-          <Button
-            variant="outline"
-            disabled
-            title="Severity is not supplied by the incident API."
-          >
-            Severity
-          </Button>
-          <Button
-            variant="outline"
-            disabled
-            title="Asset layers are not supplied by the incident API."
-          >
-            Layer
-          </Button>
-          {(['status', 'kind', 'owner'] as Array<FilterKey>).map((key) => (
+          {(
+            ['severity', 'layer', 'status', 'kind', 'owner'] as Array<FilterKey>
+          ).map((key) => (
             <FilterChip
               key={key}
               label={key[0].toUpperCase() + key.slice(1)}
@@ -221,8 +247,9 @@ function IncidentsPage() {
       </div>
       <NewIncidentDialog
         open={dialog === 'new-incident'}
-        assets={Array.from(
-          new Set(incidents.map((incident) => incident.asset_id)),
+        assets={data.assets.map((asset) => asset.id).sort()}
+        owners={Array.from(
+          new Set(incidents.flatMap((incident) => incident.owner ?? [])),
         ).sort()}
         busy={creating}
         error={error}

@@ -14,6 +14,7 @@ import type { ObservatoryServiceList } from '@/lib/data/api/client'
 import type { ApiRun } from '@/lib/data/api/pipelines'
 import type { Layer } from '@/lib/data/types'
 import type { ChartConfig } from '@/components/ui/chart'
+import { serviceHealthLabel, serviceHealthTone } from '@/lib/data/api/client'
 import { getOverview, overviewRangeSchema } from '@/lib/data/api/core'
 import { Eyebrow, PageBody, PageHeader } from '@/components/phlo/page'
 import { KpiCard } from '@/components/phlo/kpi'
@@ -183,6 +184,8 @@ function allClear(overview: Overview['overview']) {
     fresh.stale === 0 &&
     fresh.fresh === overview.asset_count &&
     quality !== null &&
+    quality.total > 0 &&
+    overview.quality_checks.status === 'available' &&
     quality.unevaluated === 0 &&
     quality.passing === quality.total &&
     (overview.incident_counts.open ?? 0) +
@@ -324,8 +327,8 @@ function OverviewPage() {
           <div className="px-6 pb-4 text-xs text-muted-foreground">
             {overview.asset_count} total assets ·{' '}
             {overview.materialized_asset_count} verified materializations. Layer
-            counts require an explicit Bronze, Silver or Gold group. Other
-            groups remain unclassified.
+            counts require explicit layer metadata or a Bronze, Silver or Gold
+            group. Other groups remain unclassified.
           </div>
         </Card>
         <div className="grid shrink-0 grid-cols-1 gap-4 lg:flex-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
@@ -402,8 +405,22 @@ function OverviewPage() {
 }
 
 function LayerCard({ layer, data }: { layer: Layer; data: Overview }) {
-  const group = data.layers.items.find(
-    (item) => item.group_name?.toLowerCase() === layer,
+  const groups = data.layers.items.filter(
+    (item) => (item.layer ?? item.group_name?.toLowerCase()) === layer,
+  )
+  const count = groups.reduce((sum, group) => sum + group.asset_count, 0)
+  const materialized = groups.reduce(
+    (sum, group) => sum + group.materialized_asset_count,
+    0,
+  )
+  const freshness = groups.reduce(
+    (sum, group) => ({
+      fresh: sum.fresh + (group.freshness_counts?.fresh ?? 0),
+      stale: sum.stale + (group.freshness_counts?.stale ?? 0),
+      unknown:
+        sum.unknown + (group.freshness_counts?.unknown ?? group.asset_count),
+    }),
+    { fresh: 0, stale: 0, unknown: 0 },
   )
   return (
     <Link
@@ -426,16 +443,20 @@ function LayerCard({ layer, data }: { layer: Layer; data: Overview }) {
       </div>
       <div className="flex items-baseline gap-1.5">
         <span className="text-2xl font-medium">
-          {group?.asset_count ?? '—'}
+          {groups.length ? count : '—'}
         </span>
         <span className="text-[13px] text-muted-foreground">assets</span>
       </div>
-      <HealthBar ok={0} bad={0} unknown={group?.asset_count || 1} />
+      <HealthBar
+        ok={freshness.fresh}
+        bad={freshness.stale}
+        unknown={groups.length ? freshness.unknown : 1}
+      />
       <div className="text-[13px] text-muted-foreground">
-        {group
-          ? `${group.materialized_asset_count} verified materializations`
+        {groups.length
+          ? `${materialized} verified materializations`
           : 'Layer not classified'}{' '}
-        · freshness unknown
+        · {freshness.stale} stale · {freshness.unknown} unknown
       </div>
     </Link>
   )
@@ -595,17 +616,21 @@ function ServiceHealth({ services }: { services: Array<Service> }) {
             key={service.id}
             className="flex flex-wrap items-center gap-2 text-sm"
           >
-            <Dot tone={healthTone(service.status)} />
+            <Dot tone={serviceHealthTone(service)} />
             <span className="font-medium">{service.id}</span>
             <span
-              className={`ml-auto text-[13px] ${toneText[healthTone(service.status)]}`}
+              className={`ml-auto text-[13px] ${toneText[serviceHealthTone(service)]}`}
             >
-              {service.status}
+              {serviceHealthLabel(service)}
             </span>
             <span className="basis-full pl-4 text-[13px] text-muted-foreground">
               {service.observed_at
                 ? `Observed ${formatTimestamp(service.observed_at)}`
                 : 'No observation timestamp'}
+              {service.definition_state ? ` · ${service.definition_state}` : ''}
+              {service.runtime_state && service.runtime_state !== 'unknown'
+                ? ` · ${service.runtime_state}`
+                : ''}
             </span>
           </div>
         ))}
@@ -619,13 +644,6 @@ function ServiceHealth({ services }: { services: Array<Service> }) {
       </CardContent>
     </Card>
   )
-}
-
-function healthTone(status: string): 'ok' | 'warn' | 'bad' | 'neutral' {
-  if (status === 'healthy') return 'ok'
-  if (status === 'degraded') return 'warn'
-  if (status === 'unhealthy' || status === 'unavailable') return 'bad'
-  return 'neutral'
 }
 
 function formatTimestamp(value: string) {

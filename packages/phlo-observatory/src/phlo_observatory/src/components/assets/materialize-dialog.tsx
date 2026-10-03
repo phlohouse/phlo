@@ -1,10 +1,20 @@
-/** Collects an asset materialization request and submits it for execution. */
+/** Plans and submits environment-pinned asset operations through their owner. */
 import * as React from 'react'
 import { Link } from '@tanstack/react-router'
 import type { Env } from '@/lib/data/types'
-import { materializeAsset } from '@/lib/data/api/assets'
+import type {
+  MaterializationEstimate,
+  MaterializationInput,
+} from '@/lib/data/api/assets'
+import type { BranchRef } from '@/lib/data/api/branches'
+import {
+  getMaterializationEstimate,
+  materializationInputSchema,
+  materializeAsset,
+} from '@/lib/data/api/assets'
+import { getBranchesPage } from '@/lib/data/api/branches'
 import { Button } from '@/components/ui/button'
-import { CheckLine } from '@/components/ui/checkbox'
+import { CheckLine, OptionCard, RadioGroup } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogBody,
@@ -15,57 +25,178 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { Segmented } from '@/components/ui/toggle-group'
+import { Stat } from '@/components/phlo/kpi'
 import { Mono } from '@/components/phlo/status'
 
 type State =
   | { kind: 'idle' }
   | { kind: 'pending' }
   | { kind: 'failed'; message: string }
-  | { kind: 'accepted'; runId: string; ref: string }
+  | { kind: 'accepted'; response: Awaited<ReturnType<typeof materializeAsset>> }
+type EstimateState =
+  | { kind: 'idle' }
+  | { kind: 'pending'; intent: string }
+  | { kind: 'failed'; intent: string; message: string }
+  | { kind: 'ready'; intent: string; value: MaterializationEstimate }
 
-export function MaterializeDialog({
-  open,
-  onClose,
-  assetId,
-  env,
-  jobs,
-}: {
+type MaterializeDialogProps = {
   open: boolean
   onClose: () => void
   assetId: string
   env: Env
   jobs: Array<string>
-}) {
+  initialMode?: MaterializationInput['mode']
+  onExplicitPartitions?: () => void
+}
+
+function confirmedPlan(
+  inputValid: boolean,
+  ready: MaterializationEstimate | null,
+  confirmed: boolean,
+  mode: MaterializationInput['mode'],
+  destructive: string,
+  assetId: string,
+) {
+  return (
+    inputValid &&
+    Boolean(ready?.plan_hash) &&
+    confirmed &&
+    (mode !== 'full' || destructive === assetId)
+  )
+}
+
+function useMaterialization({
+  open,
+  assetId,
+  env,
+  jobs,
+  initialMode = 'backfill',
+}: MaterializeDialogProps) {
   const [job, setJob] = React.useState(jobs[0] ?? '')
+  const [mode, setMode] = React.useState(initialMode)
+  const [from, setFrom] = React.useState('')
+  const [to, setTo] = React.useState('')
+  const [refs, setRefs] = React.useState<Array<BranchRef>>([])
+  const [refError, setRefError] = React.useState<string | null>(null)
+  const [target, setTarget] = React.useState('')
+  const [rebuild, setRebuild] = React.useState(true)
   const [confirmed, setConfirmed] = React.useState(false)
+  const [destructive, setDestructive] = React.useState('')
   const [state, setState] = React.useState<State>({ kind: 'idle' })
+  const [estimate, setEstimate] = React.useState<EstimateState>({
+    kind: 'idle',
+  })
   const key = React.useRef<string | null>(null)
   const submitting = React.useRef(false)
-  const storageKey = `phlo:materialize:${env}:${assetId}:${job}`
+  React.useEffect(() => {
+    if (!open) return
+    let active = true
+    void getBranchesPage({ data: { env } })
+      .then((page) => {
+        if (!active) return
+        setRefs(page.branches)
+        setTarget(
+          (value) =>
+            value ||
+            page.branches.find((ref) => !ref.protected)?.name ||
+            page.branches[0]?.name ||
+            '',
+        )
+        setRefError(null)
+      })
+      .catch((error: unknown) => {
+        if (active)
+          setRefError(
+            error instanceof Error
+              ? error.message
+              : 'Write references unavailable.',
+          )
+      })
+    return () => {
+      active = false
+    }
+  }, [open, env])
+  const input = materializationInputSchema.safeParse({
+    env,
+    id: assetId,
+    job_name: job,
+    mode,
+    write_ref: target || undefined,
+    rebuild_downstream: rebuild,
+    ...(mode === 'backfill'
+      ? {
+          from_time: from ? `${from}:00Z` : undefined,
+          to_time: to ? `${to}:00Z` : undefined,
+        }
+      : {}),
+  })
+  const intent = JSON.stringify(
+    input.success ? input.data : { job, mode, target, rebuild, from, to },
+  )
+  const intentRef = React.useRef(intent)
+  intentRef.current = intent
+  const ready =
+    estimate.kind === 'ready' && estimate.intent === intent
+      ? estimate.value
+      : null
+  const locked =
+    key.current !== null ||
+    state.kind === 'pending' ||
+    state.kind === 'accepted'
+  const confirmationIntent = React.useRef(intent)
+  React.useEffect(() => {
+    if (confirmationIntent.current !== intent) {
+      confirmationIntent.current = intent
+      setConfirmed(false)
+      setDestructive('')
+    }
+  }, [intent])
+  const storageKey = `phlo:materialize:${env}:${assetId}:${ready?.plan_hash ?? ''}`
+  async function refreshEstimate() {
+    if (!input.success || !target) return
+    setEstimate({ kind: 'pending', intent })
+    try {
+      const value = await getMaterializationEstimate({ data: input.data })
+      if (intentRef.current === intent)
+        setEstimate({ kind: 'ready', intent, value })
+    } catch (error) {
+      if (intentRef.current === intent)
+        setEstimate({
+          kind: 'failed',
+          intent,
+          message:
+            error instanceof Error ? error.message : 'Estimate unavailable.',
+        })
+    }
+  }
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (submitting.current || state.kind === 'accepted' || !confirmed || !job)
+    if (
+      submitting.current ||
+      state.kind === 'accepted' ||
+      !input.success ||
+      !ready?.plan_hash ||
+      !confirmed ||
+      (mode === 'full' && destructive !== assetId)
+    )
       return
     submitting.current = true
     setState({ kind: 'pending' })
     try {
       key.current ??= sessionStorage.getItem(storageKey) ?? crypto.randomUUID()
       sessionStorage.setItem(storageKey, key.current)
-      const result = await materializeAsset({
+      const response = await materializeAsset({
         data: {
-          env,
-          id: assetId,
-          job_name: job,
+          ...input.data,
+          plan_hash: ready.plan_hash,
           idempotency_key: key.current,
           confirmed: true,
         },
       })
-      setState({
-        kind: 'accepted',
-        runId: result.run_id,
-        ref: result.nessie_ref,
-      })
+      setState({ kind: 'accepted', response })
     } catch (error) {
       setState({
         kind: 'failed',
@@ -78,116 +209,422 @@ export function MaterializeDialog({
       submitting.current = false
     }
   }
+  function reset(removeKey: boolean) {
+    if (removeKey) sessionStorage.removeItem(storageKey)
+    key.current = null
+    setConfirmed(false)
+    setEstimate({ kind: 'idle' })
+    setState({ kind: 'idle' })
+  }
+  return {
+    job,
+    setJob,
+    mode,
+    setMode,
+    from,
+    setFrom,
+    to,
+    setTo,
+    refs,
+    refError,
+    target,
+    setTarget,
+    rebuild,
+    setRebuild,
+    confirmed,
+    setConfirmed,
+    destructive,
+    setDestructive,
+    state,
+    estimate,
+    ready,
+    locked,
+    intent,
+    inputValid: input.success,
+    canSubmit: confirmedPlan(
+      input.success,
+      ready,
+      confirmed,
+      mode,
+      destructive,
+      assetId,
+    ),
+    refreshEstimate,
+    submit,
+    reset,
+  }
+}
+
+type Materialization = ReturnType<typeof useMaterialization>
+
+function LoadingFields({
+  operation: op,
+  jobs,
+  onExplicitPartitions,
+}: {
+  operation: Materialization
+  jobs: Array<string>
+  onExplicitPartitions?: () => void
+}) {
+  return (
+    <>
+      {jobs.length > 1 ? (
+        <Field>
+          <FieldLabel>Job</FieldLabel>
+          {op.locked ? (
+            <Mono>{op.job}</Mono>
+          ) : (
+            <Select
+              value={op.job}
+              onValueChange={op.setJob}
+              options={jobs.map((name) => ({ value: name, label: name }))}
+            />
+          )}
+        </Field>
+      ) : null}
+      <div className="flex flex-col gap-1.5">
+        <span id="mz-mode" className="text-[13.5px] font-medium">
+          What to load
+        </span>
+        <RadioGroup
+          aria-labelledby="mz-mode"
+          value={op.mode}
+          disabled={op.locked}
+          onValueChange={(value) => {
+            if (value === 'latest' || value === 'backfill' || value === 'full')
+              op.setMode(value)
+          }}
+          className="flex-col flex-nowrap"
+        >
+          <OptionCard
+            value="latest"
+            title="Next increment only"
+            hint="Runs the latest available partition, or the source's configured incremental load."
+          />
+          <OptionCard
+            value="backfill"
+            title="Backfill a time range"
+            hint="Reloads available time-window partitions using their Dagster configuration."
+          />
+          <OptionCard
+            value="full"
+            title="Full refresh"
+            hint="Rebuilds a dbt table on a work branch. Requires confirmation and recent MFA."
+          />
+        </RadioGroup>
+      </div>
+      {op.mode === 'backfill' ? (
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor="mz-from">From (UTC)</FieldLabel>
+              <Input
+                id="mz-from"
+                type="datetime-local"
+                required
+                disabled={op.locked}
+                value={op.from}
+                onChange={(event) => op.setFrom(event.target.value)}
+                className="min-w-0 font-mono text-[13.5px]"
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="mz-to">To (UTC, exclusive)</FieldLabel>
+              <Input
+                id="mz-to"
+                type="datetime-local"
+                required
+                disabled={op.locked}
+                value={op.to}
+                onChange={(event) => op.setTo(event.target.value)}
+                className="min-w-0 font-mono text-[13.5px]"
+              />
+            </Field>
+          </div>
+          {onExplicitPartitions ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={op.locked}
+              onClick={onExplicitPartitions}
+            >
+              Use explicit partition keys
+            </Button>
+          ) : null}
+        </>
+      ) : null}
+    </>
+  )
+}
+
+function WriteTargetField({
+  operation: op,
+  env,
+}: {
+  operation: Materialization
+  env: Env
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span id="mz-target" className="text-[13.5px] font-medium">
+        Write to
+      </span>
+      {op.locked ? (
+        <Mono>{op.target}</Mono>
+      ) : op.refs.length <= 3 ? (
+        <Segmented
+          aria-label="Write to"
+          value={op.target}
+          onValueChange={op.setTarget}
+          className="self-start max-w-full flex-wrap"
+          options={op.refs.map((ref) => ({
+            value: ref.name,
+            label: <Mono className="text-[12.5px]">{ref.name}</Mono>,
+          }))}
+        />
+      ) : (
+        <Select
+          aria-label="Write to"
+          value={op.target}
+          onValueChange={op.setTarget}
+          options={op.refs.map((ref) => ({ value: ref.name, label: ref.name }))}
+        />
+      )}
+      <p className="m-0 text-[12.5px] leading-snug text-muted-foreground">
+        Only existing branches in {env} are writable. Create a work branch in{' '}
+        <Link to="/branches" search={{ env }}>
+          Branches
+        </Link>{' '}
+        if needed. Protected writes are blocked in regulated mode; merge
+        separately with a signature.
+      </p>
+      {op.refError ? (
+        <p role="alert" className="m-0 text-sm text-bad-text">
+          {op.refError}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function EstimatePanel({ operation: op }: { operation: Materialization }) {
+  const pending =
+    op.estimate.kind === 'pending' && op.estimate.intent === op.intent
+  return (
+    <>
+      <div
+        className="grid grid-cols-2 gap-2.5 sm:grid-cols-4"
+        aria-label="Materialization estimate"
+      >
+        <Stat
+          label="Rows"
+          value="Unavailable"
+          className="[&>span:first-of-type]:text-[15px]"
+        />
+        <Stat
+          label="Runs"
+          value={op.ready?.partition_count ?? 'Unknown'}
+          className="[&>span:first-of-type]:text-[15px]"
+        />
+        <Stat
+          label="Time"
+          value="Unavailable"
+          className="[&>span:first-of-type]:text-[15px]"
+        />
+        <Stat
+          label="Compute"
+          value="Unavailable"
+          className="[&>span:first-of-type]:text-[15px]"
+        />
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={op.locked || !op.inputValid || !op.target || pending}
+        onClick={() => void op.refreshEstimate()}
+      >
+        {pending ? 'Estimating…' : 'Refresh estimate'}
+      </Button>
+      {op.estimate.kind === 'failed' && op.estimate.intent === op.intent ? (
+        <p role="alert" className="m-0 text-sm text-bad-text">
+          {op.estimate.message}
+        </p>
+      ) : null}
+      {op.ready ? (
+        <p
+          role="status"
+          className="m-0 break-words text-[12.5px] text-muted-foreground"
+        >
+          {op.ready.selected_assets.length} assets · {op.ready.partition_count}{' '}
+          runs · {op.ready.nessie_ref}@{op.ready.ref_hash?.slice(0, 12)}. Job
+          revision {op.ready.job_snapshot_id?.slice(0, 12)}. Only run count is
+          estimable.
+        </p>
+      ) : null}
+    </>
+  )
+}
+
+function OperationResult({
+  operation: op,
+  env,
+}: {
+  operation: Materialization
+  env: Env
+}) {
+  if (op.state.kind === 'failed')
+    return (
+      <div role="alert" className="text-sm text-bad-text">
+        {op.state.message} Retry reuses the same operation key. Inspect run
+        history if the response was lost.{' '}
+        <Button type="button" variant="outline" onClick={() => op.reset(false)}>
+          Edit and re-estimate
+        </Button>
+      </div>
+    )
+  if (op.state.kind !== 'accepted') return null
+  const result = op.state.response.result
+  return (
+    <div role="status" className="flex flex-col gap-2 text-sm">
+      {result.accepted
+        ? 'Dagster accepted the planned runs.'
+        : 'Dagster did not accept every planned run. Check the launched runs before starting another operation.'}{' '}
+      Acceptance is not completion.
+      {result.run_ids.map((run) => (
+        <Link
+          key={run}
+          to="/pipelines/$jobName"
+          params={{ jobName: op.job }}
+          search={{ env, run }}
+        >
+          View run {run}
+        </Link>
+      ))}
+      {result.runs
+        .filter((run) => !run.accepted)
+        .map((run, index) => (
+          <p key={index} role="alert">
+            {run.message || 'Run was not accepted.'}
+          </p>
+        ))}
+      <Button type="button" variant="outline" onClick={() => op.reset(true)}>
+        New materialization
+      </Button>
+    </div>
+  )
+}
+
+function OperationFooter({
+  operation: op,
+  onClose,
+}: {
+  operation: Materialization
+  onClose: () => void
+}) {
+  return (
+    <DialogFooter className="flex-wrap">
+      <span className="w-full text-[13px] text-muted-foreground sm:w-auto">
+        Runs in Dagster with a pinned plan
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={op.state.kind === 'pending'}
+        onClick={onClose}
+        size="lg"
+        className="ml-auto h-10 bg-card sm:h-9"
+      >
+        Close
+      </Button>
+      <Button
+        type="submit"
+        size="lg"
+        className="h-10 sm:h-9"
+        disabled={
+          !op.canSubmit ||
+          op.state.kind === 'pending' ||
+          op.state.kind === 'accepted'
+        }
+      >
+        {op.state.kind === 'pending'
+          ? 'Submitting…'
+          : op.state.kind === 'failed'
+            ? 'Retry request'
+            : op.mode === 'latest'
+              ? 'Run now'
+              : op.mode === 'full'
+                ? 'Start full refresh'
+                : 'Start backfill'}
+      </Button>
+    </DialogFooter>
+  )
+}
+
+export function MaterializeDialog(props: MaterializeDialogProps) {
+  const { open, onClose, assetId, env, jobs, onExplicitPartitions } = props
+  const op = useMaterialization(props)
   return (
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        if (!value && state.kind !== 'pending') onClose()
+        if (!value && op.state.kind !== 'pending') onClose()
       }}
     >
       <DialogContent>
         <form
-          onSubmit={(event) => void submit(event)}
+          onSubmit={(event) => void op.submit(event)}
           className="flex min-h-0 flex-col"
         >
           <DialogHeader>
             <DialogTitle>Materialize</DialogTitle>
             <DialogDescription>
-              <Mono>{assetId}</Mono> · {env}
+              <Mono className="text-foreground">{assetId}</Mono> · via{' '}
+              <Mono>{op.job || 'No job'}</Mono> · {env}
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <Field>
-              <FieldLabel>Job</FieldLabel>
-              {key.current !== null ? (
-                <div className="flex h-9 items-center rounded-lg border border-input bg-card px-3 opacity-50">
-                  <Mono>{job}</Mono>
-                </div>
-              ) : (
-                <Select
-                  value={job}
-                  onValueChange={setJob}
-                  className="font-mono text-[13px]"
-                  options={jobs.map((name) => ({ value: name, label: name }))}
-                />
-              )}
-              <FieldDescription>
-                Uses the job's configured Nessie reference.
-              </FieldDescription>
-            </Field>
-            <p className="m-0 text-[12.5px] leading-snug text-muted-foreground">
-              This submits a real Dagster run in {env}, using its configured
-              Nessie reference. Partition backfills and cost estimates are not
-              connected in this dialog.
-            </p>
+            <LoadingFields
+              operation={op}
+              jobs={jobs}
+              onExplicitPartitions={onExplicitPartitions}
+            />
+            <WriteTargetField operation={op} env={env} />
             <CheckLine
-              checked={confirmed}
-              disabled={state.kind === 'pending' || state.kind === 'accepted'}
-              onCheckedChange={setConfirmed}
+              checked={op.rebuild}
+              disabled={op.locked}
+              onCheckedChange={op.setRebuild}
             >
-              I confirm this materialization in {env}.
+              Also rebuild what depends on it in this job
             </CheckLine>
-            {state.kind === 'failed' ? (
-              <div role="alert" className="text-sm text-bad-text">
-                {state.message} Retrying here or after a reload reuses the same
-                operation key. Check the run history if the response was lost.
-              </div>
+            <EstimatePanel operation={op} />
+            {op.mode === 'full' ? (
+              <Field>
+                <FieldLabel htmlFor="mz-confirm">
+                  Type {assetId} to confirm full refresh
+                </FieldLabel>
+                <Input
+                  id="mz-confirm"
+                  disabled={op.locked}
+                  value={op.destructive}
+                  onChange={(event) => op.setDestructive(event.target.value)}
+                />
+                <FieldDescription>
+                  Full refresh replaces data. The API requires a verified human
+                  MFA session from the last five minutes.
+                </FieldDescription>
+              </Field>
             ) : null}
-            {state.kind === 'accepted' ? (
-              <div role="status" className="flex flex-col gap-2 text-sm">
-                Dagster accepted run {state.runId} on ref {state.ref}. This is
-                not a success result.
-                <Link
-                  to="/pipelines/$jobName"
-                  params={{ jobName: job }}
-                  search={{ env, run: state.runId }}
-                >
-                  View run
-                </Link>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    sessionStorage.removeItem(storageKey)
-                    key.current = null
-                    setConfirmed(false)
-                    setState({ kind: 'idle' })
-                  }}
-                >
-                  New materialization
-                </Button>
-              </div>
-            ) : null}
+            <CheckLine
+              checked={op.confirmed}
+              disabled={op.locked || !op.ready}
+              onCheckedChange={op.setConfirmed}
+            >
+              I confirm this operation in {env} on{' '}
+              {op.target || 'the selected branch'}.
+            </CheckLine>
+            <OperationResult operation={op} env={env} />
           </DialogBody>
-          <DialogFooter className="flex-wrap">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={state.kind === 'pending'}
-              onClick={onClose}
-              size="lg"
-              className="ml-auto h-10 bg-card sm:h-9"
-            >
-              Close
-            </Button>
-            <Button
-              type="submit"
-              size="lg"
-              className="h-10 sm:h-9"
-              disabled={
-                !confirmed ||
-                !job ||
-                state.kind === 'pending' ||
-                state.kind === 'accepted'
-              }
-            >
-              {state.kind === 'pending'
-                ? 'Submitting…'
-                : state.kind === 'failed'
-                  ? 'Retry request'
-                  : 'Start materialization'}
-            </Button>
-          </DialogFooter>
+          <OperationFooter operation={op} onClose={onClose} />
         </form>
       </DialogContent>
     </Dialog>

@@ -39,6 +39,7 @@ def read_corrections(corrections_dir: Path = CORRECTIONS_DIR) -> pd.DataFrame:
     unique_key="message_id",
     validation_schema=TelemetryCorrectionSchema,
     group="ingest",
+    layer="bronze",
     freshness_hours=(26, 30),
     merge_strategy="merge",
     strict_validation=True,

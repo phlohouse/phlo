@@ -9,8 +9,10 @@ import {
   ShieldCheckIcon,
   XIcon,
 } from 'lucide-react'
+import { z } from 'zod'
 import type { AuditRecord } from '@/lib/data/api/admin'
-import { exportAuditLog, getAuditLog } from '@/lib/data/api/admin'
+import { getAuditLog } from '@/lib/data/api/admin'
+import { auditLogCsv, signatureEvidence } from '@/lib/audit-log'
 import { PageHeader } from '@/components/phlo/page'
 import { AuditDetail } from '@/components/settings/audit-detail'
 import { SettingsFrame } from '@/components/settings/frame'
@@ -25,7 +27,50 @@ import {
 import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/_app/settings/audit-log')({
-  loader: () => getAuditLog(),
+  validateSearch: z.object({
+    range: z.enum(['week', 'all', 'custom']).default('week'),
+    from: z.iso.date().optional(),
+    to: z.iso.date().optional(),
+    actor: z.string().optional(),
+    action: z.string().optional(),
+    signed: z.boolean().default(false),
+    after: z.number().int().nonnegative().optional(),
+  }),
+  loaderDeps: ({ search }) => ({
+    range: search.range,
+    from: search.from,
+    to: search.to,
+    actor: search.actor,
+    action: search.action,
+    signed: search.signed,
+    after: search.after,
+  }),
+  loader: ({ deps }) => {
+    const today = new Date()
+    today.setUTCHours(0, 0, 0, 0)
+    const since =
+      deps.range === 'week'
+        ? new Date(today.valueOf() - 6 * 86400000).toISOString()
+        : deps.range === 'custom' && deps.from
+          ? `${deps.from}T00:00:00Z`
+          : undefined
+    const until =
+      deps.range === 'custom' && deps.to
+        ? new Date(
+            new Date(`${deps.to}T00:00:00Z`).valueOf() + 86400000,
+          ).toISOString()
+        : undefined
+    return getAuditLog({
+      data: {
+        since,
+        until,
+        actor_subject: deps.actor,
+        action: deps.action,
+        signed_only: deps.signed,
+        after: deps.after,
+      },
+    })
+  },
   head: () => ({ meta: [{ title: 'Audit log · phlo' }] }),
   component: AuditLogPage,
 })
@@ -43,35 +88,18 @@ function AuditLogPage() {
   const [selectedSequence, setSelectedSequence] = React.useState<number | null>(
     data.items[0]?.sequence_number ?? null,
   )
-  const [actor, setActor] = React.useState('')
-  const [action, setAction] = React.useState('')
-  const [signedOnly, setSignedOnly] = React.useState(false)
-  const signatures = new Map(
-    data.signatures.map((signature) => [signature.signature_id, signature]),
-  )
-  const rows = data.items.filter((record) => {
-    const signatureId =
-      typeof record.event.attributes?.signature_id === 'string'
-        ? record.event.attributes.signature_id
-        : null
-    return (
-      (!actor || record.event.actor_subject === actor) &&
-      (!action || record.event.action === action) &&
-      (!signedOnly || signatureId !== null)
-    )
-  })
-  const selected = data.items.find(
-    (record) => record.sequence_number === selectedSequence,
-  )
+  const navigate = Route.useNavigate()
+  const rows = data.items
+  const selected =
+    rows.find((record) => record.sequence_number === selectedSequence) ??
+    rows[0]
 
-  async function downloadExport() {
-    const body = await exportAuditLog()
-    const url = URL.createObjectURL(
-      new Blob([body], { type: 'application/x-ndjson' }),
-    )
+  function downloadExport() {
+    const body = auditLogCsv(rows, data.signatures)
+    const url = URL.createObjectURL(new Blob([body], { type: 'text/csv' }))
     const link = document.createElement('a')
     link.href = url
-    link.download = 'audit-phlo-api.jsonl'
+    link.download = 'phlo-audit-log.csv'
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -90,7 +118,7 @@ function AuditLogPage() {
                 className="h-10 lg:h-8"
                 onClick={downloadExport}
               >
-                <DownloadIcon /> Export JSONL
+                <DownloadIcon /> Export
               </Button>
             </>
           }
@@ -102,47 +130,7 @@ function AuditLogPage() {
           aria-label="Events"
           className="flex min-w-0 flex-1 flex-col xl:overflow-y-auto"
         >
-          <div className="flex shrink-0 items-center gap-2 border-b border-line py-3 pl-4 lg:px-5">
-            <div
-              role="group"
-              aria-label="Filter events"
-              className="flex min-w-0 flex-1 gap-2 overflow-x-auto pr-4 [scrollbar-width:none] lg:pr-0"
-            >
-              <FilterChip
-                label="Actor"
-                value={actor}
-                options={[
-                  ...new Set(
-                    data.items.map((record) => record.event.actor_subject),
-                  ),
-                ]}
-                onChange={setActor}
-              />
-              <FilterChip
-                label="Action"
-                value={action}
-                options={[
-                  ...new Set(data.items.map((record) => record.event.action)),
-                ]}
-                onChange={setAction}
-              />
-              <button
-                type="button"
-                className={cn(chip, signedOnly ? chipOn : chipOff)}
-                aria-pressed={signedOnly}
-                onClick={() => setSignedOnly((value) => !value)}
-              >
-                Signed only
-              </button>
-            </div>
-            <span
-              className="ml-auto text-[13px] text-muted-foreground"
-              aria-live="polite"
-            >
-              {rows.length} shown ·{' '}
-              {data.verification.total_records.toLocaleString('en-GB')} total
-            </span>
-          </div>
+          <AuditLogFilters data={data} />
           <div className="flex flex-col">
             <div
               aria-hidden
@@ -154,28 +142,48 @@ function AuditLogPage() {
               <span>When</span>
               <span>Who</span>
               <span>What</span>
-              <span>Decision</span>
+              <span>Signature</span>
             </div>
             {rows.map((record) => (
               <EventRow
                 key={record.sequence_number}
                 record={record}
-                selected={record.sequence_number === selectedSequence}
+                selected={record.sequence_number === selected?.sequence_number}
+                signatureLabel={
+                  signatureEvidence(record, data.signatures).label
+                }
                 onSelect={() => setSelectedSequence(record.sequence_number)}
               />
             ))}
             {rows.length === 0 ? (
               <p className="m-0 px-5 py-6 text-[13.5px] text-muted-foreground">
-                {data.items.length === 0
-                  ? 'No audit events have been recorded.'
-                  : 'No events match these filters.'}
+                No events match these filters.
               </p>
             ) : null}
             {data.next_after !== null || data.scan_truncated ? (
-              <p className="m-0 px-5 py-3 text-xs text-muted-foreground">
-                Showing the first {data.items.length} records. Export includes
-                up to 5,000 records.
-              </p>
+              <div className="flex flex-wrap items-center gap-3 px-5 py-3 text-xs text-muted-foreground">
+                <span>
+                  Export includes the {rows.length} displayed records.
+                  {data.scan_truncated
+                    ? ' Search scan reached its 5,000-record budget.'
+                    : ''}
+                </span>
+                {data.next_after !== null ? (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      void navigate({
+                        search: (previous) => ({
+                          ...previous,
+                          after: data.next_after ?? undefined,
+                        }),
+                      })
+                    }
+                  >
+                    Next page
+                  </Button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </section>
@@ -187,11 +195,7 @@ function AuditLogPage() {
           {selected ? (
             <AuditDetail
               record={selected}
-              signature={
-                typeof selected.event.attributes?.signature_id === 'string'
-                  ? signatures.get(selected.event.attributes.signature_id)
-                  : undefined
-              }
+              signature={signatureEvidence(selected, data.signatures).signature}
             />
           ) : (
             <p className="m-0 text-[13.5px] text-muted-foreground">
@@ -201,6 +205,188 @@ function AuditLogPage() {
         </aside>
       </div>
     </SettingsFrame>
+  )
+}
+
+function AuditLogFilters({
+  data,
+}: {
+  data: {
+    items: Array<AuditRecord>
+    verification: { total_records: number }
+  }
+}) {
+  const search = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const [customDates, setCustomDates] = React.useState(false)
+  const [dateError, setDateError] = React.useState('')
+  return (
+    <>
+      <div className="flex shrink-0 items-center gap-2 border-b border-line py-3 pl-4 lg:px-5">
+        <div
+          role="group"
+          aria-label="Filter events"
+          className="flex min-w-0 flex-1 gap-2 overflow-x-auto pr-4 [scrollbar-width:none] lg:pr-0"
+        >
+          <button
+            type="button"
+            aria-pressed={search.range === 'week'}
+            className={cn(chip, search.range === 'week' ? chipOn : chipOff)}
+            onClick={() =>
+              void navigate({
+                search: (previous) => ({
+                  ...previous,
+                  range: previous.range === 'week' ? 'all' : 'week',
+                  after: undefined,
+                }),
+              })
+            }
+          >
+            Last 7 days
+          </button>
+          <button
+            type="button"
+            aria-expanded={customDates}
+            className={cn(chip, search.range === 'custom' ? chipOn : chipOff)}
+            onClick={() => setCustomDates((value) => !value)}
+          >
+            {search.range === 'custom'
+              ? `${search.from ?? 'Start'} – ${search.to ?? 'Today'}`
+              : 'Date range'}
+          </button>
+          <FilterChip
+            label="Actor"
+            value={search.actor ?? ''}
+            options={[
+              ...new Set(
+                data.items.map((record) => record.event.actor_subject),
+              ),
+            ]}
+            onChange={(value) =>
+              void navigate({
+                search: (previous) => ({
+                  ...previous,
+                  actor: value || undefined,
+                  after: undefined,
+                }),
+              })
+            }
+          />
+          <FilterChip
+            label="Action"
+            value={search.action ?? ''}
+            options={[
+              ...new Set(data.items.map((record) => record.event.action)),
+            ]}
+            onChange={(value) =>
+              void navigate({
+                search: (previous) => ({
+                  ...previous,
+                  action: value || undefined,
+                  after: undefined,
+                }),
+              })
+            }
+          />
+          <button
+            type="button"
+            className={cn(chip, search.signed ? chipOn : chipOff)}
+            aria-pressed={search.signed}
+            onClick={() =>
+              void navigate({
+                search: (previous) => ({
+                  ...previous,
+                  signed: !previous.signed,
+                  after: undefined,
+                }),
+              })
+            }
+          >
+            Signed only
+          </button>
+        </div>
+        <span
+          className="ml-auto hidden shrink-0 text-[13px] text-muted-foreground sm:inline"
+          aria-live="polite"
+        >
+          {data.items.length} shown ·{' '}
+          {data.verification.total_records.toLocaleString('en-GB')} total
+        </span>
+      </div>
+      {customDates ? (
+        <form
+          className="flex flex-wrap items-end gap-3 border-b border-line px-4 py-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const fields = new FormData(event.currentTarget)
+            const from = String(fields.get('from') ?? '')
+            const to = String(fields.get('to') ?? '')
+            if (from && to && from > to) {
+              setDateError('From must not be later than Through.')
+              return
+            }
+            setDateError('')
+            void navigate({
+              search: (previous) => ({
+                ...previous,
+                range: 'custom',
+                from: from || undefined,
+                to: to || undefined,
+                after: undefined,
+              }),
+            })
+            setCustomDates(false)
+          }}
+        >
+          <label className="flex flex-col gap-1 text-xs">
+            From (UTC)
+            <input
+              name="from"
+              type="date"
+              defaultValue={search.from}
+              className="h-9 rounded-md border border-input bg-card px-2"
+              required
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs">
+            Through (UTC)
+            <input
+              name="to"
+              type="date"
+              defaultValue={search.to}
+              className="h-9 rounded-md border border-input bg-card px-2"
+              required
+            />
+          </label>
+          <Button type="submit" variant="outline">
+            Apply dates
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              void navigate({
+                search: (previous) => ({
+                  ...previous,
+                  range: 'all',
+                  from: undefined,
+                  to: undefined,
+                  after: undefined,
+                }),
+              })
+              setCustomDates(false)
+            }}
+          >
+            Clear dates
+          </Button>
+          {dateError ? (
+            <p role="alert" className="m-0 w-full text-xs text-bad-text">
+              {dateError}
+            </p>
+          ) : null}
+        </form>
+      ) : null}
+    </>
   )
 }
 
@@ -231,10 +417,12 @@ function VerificationStatus({
 function EventRow({
   record,
   selected,
+  signatureLabel,
   onSelect,
 }: {
   record: AuditRecord
   selected: boolean
+  signatureLabel: string
   onSelect: () => void
 }) {
   const date = new Date(record.sealed_at)
@@ -284,19 +472,13 @@ function EventRow({
           </span>
         </span>
         <span>
-          <Badge
-            variant={
-              record.event.decision === 'deny' ||
-              record.event.outcome === 'failure'
-                ? 'bad'
-                : record.event.decision === 'allow' ||
-                    record.event.outcome === 'success'
-                  ? 'ok'
-                  : 'neutral'
-            }
-          >
-            {record.event.decision ?? record.event.outcome ?? 'recorded'}
-          </Badge>
+          {signatureLabel ? (
+            <Badge variant={signatureLabel === 'Linked' ? 'neutral' : 'ok'}>
+              {signatureLabel}
+            </Badge>
+          ) : record.event.decision === 'deny' ? (
+            <Badge variant="bad">Refused</Badge>
+          ) : null}
         </span>
       </button>
     </div>
