@@ -289,6 +289,18 @@ function PipelinePage() {
     'launch' | 'schedule' | null
   >(null)
   const [historyLimit, setHistoryLimit] = React.useState(50)
+  React.useEffect(() => {
+    if (
+      !selected ||
+      ['SUCCESS', 'FAILURE', 'CANCELED'].includes(selected.status)
+    )
+      return
+    const timer = window.setInterval(() => {
+      if (!router.state.isLoading) void router.invalidate()
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [env, job.id, selected?.run_id, selected?.status, router])
+
   return (
     <>
       <PageHeader
@@ -364,9 +376,9 @@ function PipelinePage() {
                         storageKey={`phlo:launch:${env}:${job.id}:${partitionKey.trim()}`}
                         confirmation={`I confirm a new run of ${job.id} in ${env}${partitionKey.trim() ? ` for partition ${partitionKey.trim()}` : ''}.`}
                         actionLabel="Launch run"
-                        acceptedMessage="Dagster accepted the launch. Refresh to observe the run."
+                        acceptedMessage="Dagster accepted the launch. Opening the run…"
                         execute={async (idempotencyKey) => {
-                          await launchJob({
+                          const result = await launchJob({
                             data: {
                               env,
                               job_id: job.id,
@@ -374,6 +386,14 @@ function PipelinePage() {
                               confirmed: true,
                               partition_key: partitionKey.trim() || undefined,
                             },
+                          })
+                          setControlsOpen(null)
+                          await navigate({
+                            search: (previous) => ({
+                              ...previous,
+                              run: result.run_id,
+                            }),
+                            resetScroll: false,
                           })
                         }}
                       />
