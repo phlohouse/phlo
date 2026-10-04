@@ -1,0 +1,9 @@
+coordinator=true
+node-scheduler.include-coordinator=true
+http-server.https.enabled=true
+http-server.https.port=8443
+http-server.https.keystore.path=/etc/trino/secrets/preview-keystore.jks
+http-server.https.keystore.key=${TRINO_HTTPS_KEYSTORE_PASSWORD}
+http-server.authentication.type=PASSWORD
+internal-communication.shared-secret=${TRINO_INTERNAL_SHARED_SECRET}
+discovery.uri=https://localhost:8443

@@ -41,4 +41,4 @@ Partitioned freshness remains unsupported because this phase does not define par
 
 Nessie conflict detection remains unsupported: the current merge interface returns only a boolean, so a false result cannot distinguish a conflict from other merge failures. Abnormal runtime remains unsupported: the known Dagster `dagster/max_runtime` tag applies to an op, not a whole run, and no accepted same-job/environment baseline or run-level threshold policy exists. This detector slice does not cover all audit aggregate records outside Dagster asset-check events. These gaps prevent phase-2 acceptance and must be closed before the phase can be marked complete.
 
-Overview aggregation remains phase 3. Phase 3 should read `/api/v1/incidents/stats` per environment and combine the returned persisted counts with its independently sourced asset, run, and audit evidence; this phase does not mount `/overview`.
+The phase-3 partial asset/overview API is documented in the [phase-3 reference](unified-api-phase-3.md). Its overview reads persisted incident counts and SLA-derived freshness, but does not yet provide complete run/audit evidence or claim phase-3 acceptance.

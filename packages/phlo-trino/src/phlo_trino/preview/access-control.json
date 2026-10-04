@@ -1,0 +1,36 @@
+{
+  "catalogs": [
+    {
+      "user": "phlo_api_preview",
+      "catalog": "iceberg_preview_(prod|staging)",
+      "allow": "read-only"
+    },
+    {
+      "user": "phlo_api_preview",
+      "catalog": ".*",
+      "allow": "none"
+    },
+    {
+      "catalog": ".*",
+      "allow": "all"
+    }
+  ],
+  "system_session_properties": [
+    {
+      "user": "phlo_api_preview",
+      "allow": false
+    },
+    {
+      "allow": true
+    }
+  ],
+  "queries": [
+    {
+      "user": "phlo_api_preview",
+      "allow": ["execute"]
+    },
+    {
+      "allow": ["execute"]
+    }
+  ]
+}
