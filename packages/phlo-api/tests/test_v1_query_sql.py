@@ -1,3 +1,5 @@
+"""Test read-only query validation, catalog isolation, and result bounds."""
+
 import pytest
 
 from phlo_api.api.v1_query_sql import (
