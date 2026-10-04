@@ -37,6 +37,7 @@ dev = [
     "pytest>=7.0",
     "ruff>=0.1.0",
 ]
+iceberg = ["phlo-iceberg>=0.16.0,<0.17"]
 lineage = ["phlo-lineage>=0.1.0"]
 
 [project.readme]
