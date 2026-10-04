@@ -52,6 +52,12 @@ _GUARDED_NON_GET_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/schedules/{schedule_id}/{action}"): "v1_manifest",
     ("POST", "/api/v1/runs/{run_id}/cancel"): "v1_manifest",
     ("POST", "/api/v1/runs/{run_id}/retry"): "v1_manifest",
+    ("POST", "/api/v1/queries"): "v1_manifest",
+    ("POST", "/api/v1/queries/explain"): "v1_manifest",
+    ("POST", "/api/v1/queries/{query_id}/cancel"): "v1_manifest",
+    ("POST", "/api/v1/queries/saved"): "v1_manifest",
+    ("PUT", "/api/v1/queries/saved/{query_id}"): "v1_manifest",
+    ("DELETE", "/api/v1/queries/saved/{query_id}"): "v1_manifest",
     ("POST", "/api/v1/trino/query-completed"): "v1_manifest",
     (
         "POST",

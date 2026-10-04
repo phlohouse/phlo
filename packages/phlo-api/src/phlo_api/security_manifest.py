@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+from hashlib import sha256
 from uuid import uuid4
 from dataclasses import dataclass, replace
 from typing import Any, Iterable, NoReturn
@@ -227,6 +228,34 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_type="run",
         resource_keys=("env", "run_id"),
         resource_sources=(("env", "query"), ("run_id", "path")),
+    ),
+    *_specs(
+        ("v1_query_catalog", "v1_query_refs", "v1_query_engines"),
+        action=CanonicalAction.CATALOG_READ.value,
+        resource_type="catalog",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
+        ("v1_query_result", "v1_query_csv", "v1_saved_queries"),
+        action=CanonicalAction.DATASET_READ.value,
+        resource_type="project",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
+        ("v1_query_submit", "v1_query_explain", "v1_query_cancel"),
+        action=CanonicalAction.DATASET_QUERY.value,
+        resource_type="project",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
+        ("v1_saved_query_create", "v1_saved_query_update", "v1_saved_query_delete"),
+        action=CanonicalAction.OBJECT_WRITE.value,
+        resource_type="project",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
     ),
     *_specs(
         ("list_incidents", "incident_stats", "activity"),
@@ -961,6 +990,29 @@ def _requires_durable_audit(action: str) -> bool:
     return not action.endswith(_READ_ONLY_ACTION_SUFFIXES)
 
 
+async def _audit_denied_query_attempt(request: Request, spec: OperationSpec) -> None:
+    """Record a denied workspace operation without persisting submitted SQL."""
+    if spec.operation_name not in {
+        "v1_query_submit",
+        "v1_query_explain",
+        "v1_query_cancel",
+    }:
+        return
+    from phlo_api.api.operation_controls import audit_operation
+
+    body = await _request_json(request)
+    sql = body.get("sql") if isinstance(body, dict) else None
+    principal = get_request_principal(request)
+    audit_operation(
+        operation="query.authorization_denied",
+        target=f"{request.query_params.get('env', 'unknown')}:{spec.operation_name}",
+        dry_run=False,
+        auth={"subject": principal.subject if principal is not None else "unknown", "scopes": []},
+        payload={"sql_sha256": sha256(sql.encode()).hexdigest() if isinstance(sql, str) else None},
+        result={"outcome": "denied"},
+    )
+
+
 def _validate_v1_principal_and_selection(
     request: Request, spec: OperationSpec, principal: Any
 ) -> None:
@@ -1253,6 +1305,21 @@ def install_manifest_enforcement(app: Any) -> None:
                         path_params,
                     )
             except HTTPException as exc:
+                try:
+                    await _audit_denied_query_attempt(request, spec)
+                except Exception:
+                    logger.exception("phlo_api_query_attempt_audit_unavailable")
+                    response = JSONResponse(
+                        status_code=503,
+                        content={
+                            "error": {
+                                "code": "service_unavailable",
+                                "message": "Query audit recording is unavailable.",
+                            }
+                        },
+                    )
+                    response.headers.setdefault("x-request-id", request_id)
+                    return response
                 detail = exc.detail if isinstance(exc.detail, dict) else {"detail": exc.detail}
                 response = JSONResponse(
                     status_code=exc.status_code,

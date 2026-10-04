@@ -32,9 +32,10 @@ compose:
         PHLO_V1_ENVIRONMENTS: ${PHLO_V1_ENVIRONMENTS:-}
         PHLO_V1_MAINTENANCE_WINDOWS: ${PHLO_V1_MAINTENANCE_WINDOWS:-}
         PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED: ${PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED:-}
-        PHLO_V1_PREVIEW_TRINO_USER: ${PHLO_V1_PREVIEW_TRINO_USER:-}
-        PHLO_V1_PREVIEW_TRINO_PASSWORD: ${PHLO_V1_PREVIEW_TRINO_PASSWORD:-}
+        PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD: ${PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD:-}
+        PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING: ${PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING:-}
         PHLO_V1_PREVIEW_CATALOGS: ${PHLO_V1_PREVIEW_CATALOGS:-}
+        PHLO_V1_QUERY_SINGLE_REPLICA: ${PHLO_V1_QUERY_SINGLE_REPLICA:-}
         PHLO_V1_USAGE_TRINO_SOURCES: ${PHLO_V1_USAGE_TRINO_SOURCES:-}
         PHLO_V1_GIT_REVIEW_REPOSITORY: ${PHLO_V1_GIT_REVIEW_REPOSITORY:-}
         PHLO_V1_GIT_REVIEW_BASE_BRANCH: ${PHLO_V1_GIT_REVIEW_BASE_BRANCH:-}
@@ -94,16 +95,20 @@ env_vars:
     PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED:
         default: ""
         description: Explicit assertion that Trino preview authentication and server-side limits are deployed and verified
-    PHLO_V1_PREVIEW_TRINO_USER:
+    PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD:
         default: ""
-        description: Policy-bound Trino preview identity phlo_api_preview; other identities fail closed
-    PHLO_V1_PREVIEW_TRINO_PASSWORD:
+        description: Password for the prod-only Trino preview identity phlo_api_preview_prod
+        secret: true
+    PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING:
         default: ""
-        description: Password for the dedicated Trino preview identity
+        description: Password for the staging-only Trino preview identity phlo_api_preview_staging
         secret: true
     PHLO_V1_PREVIEW_CATALOGS:
         default: ""
         description: JSON allowlist mapping prod and staging to distinct pre-provisioned Nessie-ref-pinned Trino catalogs
+    PHLO_V1_QUERY_SINGLE_REPLICA:
+        default: ""
+        description: Explicit operator assertion that this API deployment has exactly one replica for query sessions and saved-query writes
     PHLO_V1_GIT_REVIEW_REPOSITORY:
         default: ""
         description: Explicit customer project repository in owner/repo form for source-only check draft PRs
@@ -151,9 +156,10 @@ dev:
         PHLO_V1_ENVIRONMENTS: ${PHLO_V1_ENVIRONMENTS:-}
         PHLO_V1_MAINTENANCE_WINDOWS: ${PHLO_V1_MAINTENANCE_WINDOWS:-}
         PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED: ${PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED:-}
-        PHLO_V1_PREVIEW_TRINO_USER: ${PHLO_V1_PREVIEW_TRINO_USER:-}
-        PHLO_V1_PREVIEW_TRINO_PASSWORD: ${PHLO_V1_PREVIEW_TRINO_PASSWORD:-}
+        PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD: ${PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD:-}
+        PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING: ${PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING:-}
         PHLO_V1_PREVIEW_CATALOGS: ${PHLO_V1_PREVIEW_CATALOGS:-}
+        PHLO_V1_QUERY_SINGLE_REPLICA: ${PHLO_V1_QUERY_SINGLE_REPLICA:-}
         PHLO_V1_GIT_REVIEW_REPOSITORY: ${PHLO_V1_GIT_REVIEW_REPOSITORY:-}
         PHLO_V1_GIT_REVIEW_BASE_BRANCH: ${PHLO_V1_GIT_REVIEW_BASE_BRANCH:-}
         PHLO_V1_GIT_REVIEW_TOKEN: ${PHLO_V1_GIT_REVIEW_TOKEN:-}

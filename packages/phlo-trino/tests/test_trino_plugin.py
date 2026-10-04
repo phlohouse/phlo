@@ -77,14 +77,19 @@ def test_optional_preview_bundle_pins_distinct_read_only_refs_with_budgets():
 
     access = json.loads((preview / "access-control.json").read_text())
     assert access["catalogs"][0] == {
-        "user": "phlo_api_preview",
-        "catalog": "iceberg_preview_(prod|staging)",
+        "user": "phlo_api_preview_prod",
+        "catalog": "iceberg_preview_prod",
         "allow": "read-only",
     }
-    assert access["catalogs"][1]["user"] == "phlo_api_preview"
-    assert access["catalogs"][1]["allow"] == "none"
+    assert access["catalogs"][1] == {
+        "user": "phlo_api_preview_staging",
+        "catalog": "iceberg_preview_staging",
+        "allow": "read-only",
+    }
+    assert access["catalogs"][2]["user"] == "phlo_api_preview_(prod|staging)"
+    assert access["catalogs"][2]["allow"] == "none"
     assert access["system_session_properties"][0] == {
-        "user": "phlo_api_preview",
+        "user": "phlo_api_preview_(prod|staging)",
         "allow": False,
     }
 
