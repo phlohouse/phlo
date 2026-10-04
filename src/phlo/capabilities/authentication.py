@@ -37,6 +37,7 @@ from phlo.infrastructure.config import (
     get_authentication_config,
 )
 from phlo.logging import get_logger
+from phlo.security.oidc_identity import OIDCIdentityValidator
 
 logger = get_logger(__name__)
 
@@ -575,9 +576,9 @@ class ServiceTokenAuthenticationProvider:
 class JWTAuthenticationProvider:
     """JWT Bearer token authentication provider.
 
-    This provider validates JWT tokens signed with HS256 algorithm
-    using a shared secret. It extracts standard OIDC-compatible
-    claims and maps them to AuthPrincipal for regulated deployments.
+    Uses issuer-pinned RS256/JWKS validation when ``jwks_url`` is configured;
+    otherwise retains the explicit HS256 shared-secret mode for existing
+    non-production deployments.
 
     Configuration via phlo.yaml:
         authentication:
@@ -589,14 +590,39 @@ class JWTAuthenticationProvider:
 
     def __init__(
         self,
-        secret: str,
+        secret: str | None = None,
         issuer: str | None = None,
         audience: str | None = None,
         leeway_seconds: int = 60,
+        jwks_url: str | None = None,
+        groups_claim: str = "groups",
+        ca_file: str | None = None,
+        cache_ttl_seconds: int = 300,
+        refresh_min_interval_seconds: int = 5,
+        allow_insecure_loopback_http: bool = False,
     ):
-        if not secret:
-            raise ValueError("JWT secret is required")
-        self._secret = secret.encode("utf-8")
+        if jwks_url:
+            if secret:
+                raise ValueError("JWT secret and JWKS verification are mutually exclusive")
+            if not issuer or not audience:
+                raise ValueError("JWT JWKS verification requires issuer and audience")
+            self._oidc_validator = OIDCIdentityValidator(
+                issuer=issuer,
+                audience=audience,
+                jwks_url=jwks_url,
+                groups_claim=groups_claim,
+                leeway_seconds=leeway_seconds,
+                cache_ttl_seconds=cache_ttl_seconds,
+                refresh_min_interval_seconds=refresh_min_interval_seconds,
+                ca_file=ca_file,
+                allow_insecure_loopback_http=allow_insecure_loopback_http,
+            )
+            self._secret = b""
+        else:
+            if not secret:
+                raise ValueError("JWT secret is required when no JWKS URL is configured")
+            self._secret = secret.encode("utf-8")
+            self._oidc_validator = None
         self._issuer = issuer
         self._audience = audience
         self._leeway = leeway_seconds
@@ -649,6 +675,22 @@ class JWTAuthenticationProvider:
 
     def validate_token(self, token: str) -> AuthenticatedSession | None:
         """Validate a JWT token and return session if valid."""
+        if self._oidc_validator is not None:
+            principal = self._oidc_validator.validate(token)
+            if principal is None:
+                return None
+            return AuthenticatedSession(
+                principal=principal,
+                auth_method="bearer_token",
+                provider_name="jwt",
+                session_id=secrets.token_urlsafe(32),
+                attributes={
+                    "jwt_issuer": self._issuer or "",
+                    "jwt_audience": self._audience or "",
+                    "jwt_issuer_validated": "true",
+                    "jwt_audience_validated": "true",
+                },
+            )
         try:
             header, payload, signature = token.split(".")
             if not all([header, payload, signature]):
@@ -908,30 +950,42 @@ def _load_jwt_config() -> dict[str, Any]:
     """Load JWT authentication configuration from env first, then phlo.yaml."""
     jwt_config = _authentication_subconfig("jwt")
 
-    secret = os.environ.get("PHLO_AUTH_JWT_SECRET")
-    if not secret:
-        secret = jwt_config.get("secret", "")
+    def value(name: str, config_key: str, default: Any = None) -> Any:
+        if name in os.environ:
+            return os.environ[name]
+        return jwt_config.get(config_key, default)
 
-    issuer = os.environ.get("PHLO_AUTH_JWT_ISSUER")
-    if issuer is None:
-        issuer = jwt_config.get("issuer")
+    def integer(name: str, config_key: str, default: int) -> int:
+        raw = value(name, config_key, default)
+        try:
+            return int(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must be an integer") from exc
 
-    audience = os.environ.get("PHLO_AUTH_JWT_AUDIENCE")
-    if audience is None:
-        audience = jwt_config.get("audience")
-
-    env_leeway = os.environ.get("PHLO_AUTH_JWT_LEEWAY")
-    if env_leeway is not None:
-        leeway = int(env_leeway)
-    else:
-        leeway_config = jwt_config.get("leeway_seconds")
-        leeway = int(leeway_config) if leeway_config is not None else 60
+    def optional_string(name: str, config_key: str) -> str | None:
+        raw = value(name, config_key)
+        return None if raw is None or raw == "" else _optional_string(raw, path=name)
 
     return {
-        "secret": secret,
-        "issuer": issuer,
-        "audience": audience,
-        "leeway_seconds": leeway,
+        "secret": value("PHLO_AUTH_JWT_SECRET", "secret", "") or None,
+        "issuer": optional_string("PHLO_AUTH_JWT_ISSUER", "issuer"),
+        "audience": optional_string("PHLO_AUTH_JWT_AUDIENCE", "audience"),
+        "jwks_url": optional_string("PHLO_AUTH_JWT_JWKS_URL", "jwks_url"),
+        "groups_claim": optional_string("PHLO_AUTH_JWT_GROUPS_CLAIM", "groups_claim") or "groups",
+        "ca_file": optional_string("PHLO_AUTH_JWT_CA_FILE", "ca_file"),
+        "leeway_seconds": integer("PHLO_AUTH_JWT_LEEWAY", "leeway_seconds", 60),
+        "cache_ttl_seconds": integer(
+            "PHLO_AUTH_JWT_JWKS_CACHE_TTL_SECONDS", "jwks_cache_ttl_seconds", 300
+        ),
+        "refresh_min_interval_seconds": integer(
+            "PHLO_AUTH_JWT_REFRESH_MIN_INTERVAL_SECONDS", "refresh_min_interval_seconds", 5
+        ),
+        "allow_insecure_loopback_http": str(
+            value("PHLO_AUTH_JWT_ALLOW_INSECURE_HTTP", "allow_insecure_loopback_http", "")
+        )
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"},
     }
 
 
@@ -1064,27 +1118,22 @@ def register_default_capability_providers() -> None:
         env_enabled=os.environ.get("PHLO_AUTH_JWT_ENABLED"),
         config_block=jwt_block,
         selected_provider=selected_provider,
-        configured_payload=jwt_config.get("secret"),
+        configured_payload=jwt_config.get("secret") or jwt_config.get("jwks_url"),
     ):
-        if not jwt_config.get("secret"):
-            logger.error("jwt_provider_requires_secret")
+        if not jwt_config.get("secret") and not jwt_config.get("jwks_url"):
+            logger.error("jwt_provider_requires_secret_or_jwks")
         else:
             register_capability(
                 "authentication_provider",
                 AuthenticationProviderSpec(
                     name="jwt",
-                    provider=JWTAuthenticationProvider(
-                        secret=jwt_config["secret"],
-                        issuer=jwt_config.get("issuer"),
-                        audience=jwt_config.get("audience"),
-                        leeway_seconds=jwt_config.get("leeway_seconds", 60),
-                    ),
+                    provider=JWTAuthenticationProvider(**jwt_config),
                     metadata={
                         "auth_method": "bearer_token",
                         "supports_browser_login": False,
                         "supports_proxy_auth": False,
                         "supports_service_tokens": False,
-                        "algorithm": "HS256",
+                        "algorithm": "RS256" if jwt_config.get("jwks_url") else "HS256",
                     },
                     support=CapabilitySupport(
                         supports_permissions=False,
