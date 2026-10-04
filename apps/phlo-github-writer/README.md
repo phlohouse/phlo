@@ -33,6 +33,11 @@ phlo-agent directly to update that pull request's title or description. On
 GitHub, an owner, member, or collaborator can invoke the same thread by starting
 a new issue, pull request, or review comment with `@phlo-agent`.
 
+Use `phlo-automation-host` for the persistent PR and issue host, not
+`phlo-review`. The host can inspect and refresh its checkout, reload plugins,
+and report to other Amp threads. Webhook-created children still use
+`phlo-review`, which has no shell, reload, or coordination tools.
+
 Set the global Amp plugin configuration key `phloGitHubAutomationHost` to the
 thread ID of the persistent PR and issue automation host before enabling the
 webhook. Keep that host unarchived. The current deployment uses
@@ -71,6 +76,11 @@ Amp project. The URL is the deployed Worker origin. The token must match
 Create two private orb threads in the `phlo-maintenance` agent mode after the
 plugin is active on `main`. Schedule these prompts:
 
+The maintenance agent reads the saved prompt with `get_schedule`. On runtimes
+that expose Amp tools as deferred modules, it uses `tool_search` and
+`code_exec` to call `amp.get_schedule`. This does not grant a shell or permission
+to change schedules.
+
 ### Daily dependency security
 
 Run at `0 2 * * *` UTC:
@@ -96,3 +106,22 @@ Run at `0 8 * * 2,4` UTC:
 
 Keep the webhook owner thread and both maintenance threads unarchived. An
 archived thread does not run its webhook or schedule.
+
+## Update existing automation threads
+
+Do not assume an existing custom-agent thread can switch modes or adopt a new
+agent definition after a plugin reload. Each orb also has its own checkout.
+
+After merging, create a replacement PR and issue host in
+`phlo-automation-host` and two replacement threads in `phlo-maintenance` from
+current `main`. Copy the exact saved prompts, recurrence rules, timezones, and
+run modes from the old maintenance schedules. Verify that the replacements can
+retrieve their saved prompts without running an audit, then pause the old
+schedules to prevent duplicate runs.
+
+Set `phloGitHubAutomationHost` to the replacement host's thread ID. Verify that
+the host can reload plugins and send a status message. Check webhook ownership
+and delivery separately: changing the parent configuration does not transfer
+webhook ownership. Do not delete or recreate a webhook registration without
+operator authorization. Keep the old threads available until cutover is
+verified, and do not archive the active webhook owner.
