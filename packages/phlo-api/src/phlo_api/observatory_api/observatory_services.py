@@ -47,8 +47,8 @@ DOCKER_CLI_CANDIDATES = (
 # When several containers map to one service, the highest-ranked status wins,
 # so a healthy replica outranks a stopped one but never hides an unhealthy one.
 DOCKER_SERVICE_STATUS_RANK: dict[ServiceStatus, int] = {
-    "running": 4,
-    "unhealthy": 3,
+    "running": 3,
+    "unhealthy": 4,
     "starting": 2,
     "stopped": 1,
     "unknown": 0,
@@ -346,6 +346,8 @@ def health_with_runtime_evidence(
     # and reports healthy.
     has_recent_137 = exit_code == 137 or (isinstance(recent_exits, list) and 137 in recent_exits)
     has_restarts = isinstance(restart_count, int) and restart_count > 0
+    if health.state == "error":
+        return health
     if has_recent_137:
         return ObservatoryHealth(
             state="warning",
@@ -357,6 +359,34 @@ def health_with_runtime_evidence(
             message=f"{health.message or 'Running'}; restarted {restart_count} times.",
         )
     return health
+
+
+def scoped_service_observations(
+    compose_project: str, containers: Sequence[Mapping[str, Any]]
+) -> dict[str, tuple[ServiceStatus, ObservatoryHealth]]:
+    """Observe only the explicitly bound project, keeping failed replicas visible."""
+    observations: dict[str, tuple[ServiceStatus, ObservatoryHealth]] = {}
+    for container in containers:
+        labels = container_labels(container)
+        if labels.get("com.docker.compose.project") != compose_project:
+            continue
+        name = labels.get("com.docker.compose.service")
+        if not name:
+            continue
+        status, health = docker_status_from_container(container)
+        metadata = docker_runtime_metadata(container)
+        health = health_with_runtime_evidence(health, metadata)
+        if status == "stopped" and (
+            metadata.get("oom_killed") is True
+            or metadata.get("exit_code") not in {None, 0}
+            or health.state == "warning"
+        ):
+            health = ObservatoryHealth(state="error", message=health.message)
+        current = observations.get(name)
+        rank = {"unknown": 0, "ok": 1, "warning": 2, "error": 3}
+        if current is None or rank[health.state] > rank[current[1].state]:
+            observations[name] = (status, health)
+    return observations
 
 
 def container_labels(container: Mapping[str, Any]) -> dict[str, str]:

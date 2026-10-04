@@ -410,6 +410,9 @@ class DbtTransformer(BaseTransformer):
         if indirect_selection:
             build_args.extend(["--indirect-selection", str(indirect_selection)])
 
+        if parameters.get("full_refresh") is True:
+            build_args.append("--full-refresh")
+
         if partition_key:
             build_args.extend(["--vars", f'{{"partition_date_str": "{partition_key}"}}'])
             log_event(

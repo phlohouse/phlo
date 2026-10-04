@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -12,6 +14,7 @@ from statistics import median
 from typing import Annotated, Any, Literal
 
 import httpx
+from anyio.to_thread import run_sync
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, Field
 
@@ -32,17 +35,26 @@ JOBS_QUERY = """query V1Jobs {
     ... on RepositoryConnection {
       nodes {
         name location { name }
-        pipelines { name description }
+        pipelines {
+          name description tags { key value }
+          owners { ... on UserDefinitionOwner { email } ... on TeamDefinitionOwner { team } }
+          metadataEntries { label ... on TextMetadataEntry { text } ... on JsonMetadataEntry { jsonString } }
+        }
         schedules { id name pipelineName scheduleState { id status } }
       }
     }
   }
 }"""
-ASSET_JOBS_QUERY = """query V1AssetJobs {
-  assetNodes {
+ASSET_JOBS_QUERY = """query V1AssetJobs($pipeline: PipelineSelector) {
+  assetNodes(pipeline: $pipeline) {
     assetKey { path }
     jobNames
-    repository { location { name } }
+    groupName
+    dependencyKeys { path }
+    owners { ... on UserAssetOwner { email } ... on TeamAssetOwner { team } }
+    tags { key value }
+    metadataEntries { label ... on TextMetadataEntry { text } ... on JsonMetadataEntry { jsonString } }
+    repository { name location { name } }
   }
 }"""
 LAUNCH_JOB_MUTATION = """mutation V1LaunchJob($executionParams: ExecutionParams!) {
@@ -73,8 +85,8 @@ SCHEDULE_STOP_MUTATION = """mutation V1ScheduleStop($scheduleId: String!) {
     ... on PythonError { message }
   }
 }"""
-RUNS_QUERY = """query V1Runs($limit: Int!) {
-  runsOrError(limit: $limit) {
+RUNS_QUERY = """query V1Runs($limit: Int!, $cursor: String, $filter: RunsFilter) {
+  runsOrError(limit: $limit, cursor: $cursor, filter: $filter) {
     __typename
     ... on Runs {
       results {
@@ -97,7 +109,14 @@ RUN_QUERY = """query V1Run($runId: ID!, $eventLimit: Int!, $afterCursor: String)
       eventConnection(limit: $eventLimit, afterCursor: $afterCursor) {
         events {
           __typename
-          ... on MessageEvent { eventType message timestamp stepKey }
+          ... on MessageEvent { eventType message timestamp stepKey level }
+          ... on ExecutionStepFailureEvent {
+            error { message className stack causes { message className stack causes { message className stack } } }
+          }
+          ... on RunFailureEvent {
+            error { message className stack causes { message className stack causes { message className stack } } }
+          }
+          ... on LogsCapturedEvent { fileKey stepKeys }
         }
         cursor
         hasMore
@@ -106,12 +125,28 @@ RUN_QUERY = """query V1Run($runId: ID!, $eventLimit: Int!, $afterCursor: String)
     ... on RunNotFoundError { message }
   }
 }"""
+RUN_CAPTURED_LOGS_QUERY = """query V1RunCapturedLogs($runId: ID!, $fileKey: String!) {
+  runOrError(runId: $runId) {
+    __typename
+    ... on Run {
+      ... on PipelineRun {
+        capturedLogs(fileKey: $fileKey) { stdout stderr }
+      }
+    }
+    ... on RunNotFoundError { message }
+  }
+}"""
+_CAPTURED_LOG_BYTES = 256 * 1024
 
 
 class Job(WireModel):
     id: str
     repository_name: str
     description: str | None
+    domain: str | None = None
+    owners: list[str] = Field(default_factory=list)
+    source: str | None = None
+    feeds_batch_release: bool = False
     selected_assets: list[list[str]]
     assets_url: str
     runs_url: str
@@ -146,6 +181,7 @@ class Run(WireModel):
     ended_at: AwareDatetime | None
     duration_seconds: float | None = Field(ge=0)
     selected_assets: list[list[str]]
+    tags: dict[str, str] = Field(default_factory=dict)
     logs_url: str
     resource_id: str
 
@@ -153,7 +189,7 @@ class Run(WireModel):
 class RunPage(WireModel):
     env: Environment
     items: list[Run]
-    next_cursor: None = None
+    next_cursor: str | None = None
 
 
 class RunEvent(WireModel):
@@ -161,6 +197,30 @@ class RunEvent(WireModel):
     message: str
     timestamp: AwareDatetime
     step_key: str | None
+    level: str | None = None
+    error: RunError | None = None
+    captured_file_key: str | None = None
+    captured_step_keys: list[str] = Field(default_factory=list)
+
+
+class RunError(WireModel):
+    message: str
+    class_name: str | None = None
+    stack: list[str] = Field(default_factory=list)
+    causes: list[RunError] = Field(default_factory=list)
+
+
+RunError.model_rebuild()
+RunEvent.model_rebuild()
+
+
+class CapturedRunLogs(WireModel):
+    file_key: str
+    step_keys: list[str]
+    stdout: str | None
+    stderr: str | None
+    available: bool
+    truncated: bool = False
 
 
 class RunTimeline(WireModel):
@@ -175,6 +235,8 @@ class RunLogs(RunTimeline):
     follow_supported: bool = True
     status: RunStatus
     is_terminal: bool
+    captured_logs: list[CapturedRunLogs] = Field(default_factory=list)
+    captured_logs_available: bool = True
 
 
 class RunPattern(WireModel):
@@ -218,6 +280,7 @@ class JobLaunchRequest(WireModel):
     dry_run: bool = True
     confirmed: bool = False
     run_config: dict[str, Any] = Field(default_factory=dict)
+    partition_key: str | None = Field(default=None, min_length=1, max_length=256)
 
 
 class ScheduleActionRequest(WireModel):
@@ -356,17 +419,106 @@ def _run(row: Any, location: str, ref: str) -> Run | None:
         ended_at=ended,
         duration_seconds=duration,
         selected_assets=_assets(row.get("assetSelection")),
+        tags={
+            tag["key"]: tag["value"]
+            for tag in row["tags"]
+            if tag["key"] in {"dagster/schedule_name", "dagster/sensor_name", "phlo/operation"}
+        },
         logs_url=f"/api/v1/runs/{run_id}/logs",
         resource_id=f"dagster-run:{location}:{run_id}",
     )
 
 
-async def _scoped_runs(location: str, ref: str, limit: int) -> list[Run]:
-    value = _field(await _graphql(RUNS_QUERY, {"limit": limit}), "runsOrError", "Runs")
+async def _run_page(
+    location: str,
+    ref: str,
+    limit: int,
+    cursor: str | None = None,
+    job_id: str | None = None,
+    status: RunStatus | None = None,
+) -> tuple[list[Run], str | None]:
+    filters: dict[str, Any] = {"tags": [{"key": "phlo/ref", "value": ref}]}
+    if job_id is not None:
+        filters["pipelineName"] = job_id
+    if status is not None:
+        filters["statuses"] = [status]
+    value = _field(
+        await _graphql(RUNS_QUERY, {"limit": limit, "cursor": cursor, "filter": filters}),
+        "runsOrError",
+        "Runs",
+    )
     rows = value.get("results")
     if not isinstance(rows, list) or len(rows) > limit:
         raise BadGatewayError("Dagster returned an invalid run list.")
-    return [run for row in rows if (run := _run(row, location, ref)) is not None]
+    items = [run for row in rows if (run := _run(row, location, ref)) is not None]
+    items = [
+        run
+        for run in items
+        if (job_id is None or run.job_id == job_id) and (status is None or run.status == status)
+    ]
+    next_cursor = rows[-1]["runId"] if len(rows) == limit else None
+    if next_cursor == cursor and next_cursor is not None:
+        raise BadGatewayError("Dagster run cursor did not advance.")
+    return items, next_cursor
+
+
+async def _scoped_runs(location: str, ref: str, limit: int, job_id: str | None = None) -> list[Run]:
+    items: list[Run] = []
+    cursor = None
+    while len(items) < limit:
+        page, cursor = await _run_page(location, ref, limit - len(items), cursor, job_id)
+        items.extend(page)
+        if cursor is None:
+            break
+    return items
+
+
+def _definition_metadata(node: dict[str, Any]) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for entry in node.get("metadataEntries", []):
+        if isinstance(entry, dict) and isinstance(entry.get("label"), str):
+            text = entry.get("text", entry.get("jsonString"))
+            if isinstance(text, str) and text:
+                values[entry["label"]] = text
+    for tag in node.get("tags", []):
+        if (
+            isinstance(tag, dict)
+            and isinstance(tag.get("key"), str)
+            and isinstance(tag.get("value"), str)
+        ):
+            values[tag["key"]] = tag["value"]
+    if isinstance(node.get("groupName"), str):
+        values.setdefault("group", node["groupName"])
+    if "source_name" in values:
+        values["source"] = values["source_name"]
+    return values
+
+
+def _definition_owners(node: dict[str, Any]) -> list[str]:
+    owners = [
+        owner.get("email") or owner.get("team")
+        for owner in node.get("owners", [])
+        if isinstance(owner, dict)
+    ]
+    declared = _definition_metadata(node).get("owner")
+    if declared:
+        owners.append(declared)
+    return sorted({owner for owner in owners if isinstance(owner, str) and owner})
+
+
+def _feeds_release(metadata: dict[str, str]) -> bool:
+    try:
+        consumers = json.loads(metadata.get("consumers", "[]"))
+    except ValueError as exc:
+        raise BadGatewayError("Dagster returned invalid consumer metadata.") from exc
+    if not isinstance(consumers, list):
+        raise BadGatewayError("Dagster returned invalid consumer metadata.")
+    return any(
+        (item.get("name") if isinstance(item, dict) else item)
+        in {"batch_release", "Batch release", "batch release"}
+        for item in consumers
+        if isinstance(item, (str, dict))
+    )
 
 
 def _repositories(result: dict[str, Any], location: str) -> list[dict[str, Any]]:
@@ -386,36 +538,71 @@ def _repositories(result: dict[str, Any], location: str) -> list[dict[str, Any]]
 
 async def _job_data(
     request: Request, env: Environment, allowed: frozenset[str]
-) -> tuple[Any, list[dict[str, Any]], dict[str, list[list[str]]]]:
+) -> tuple[Any, list[dict[str, Any]], dict[tuple[str, str], list[list[str]]]]:
     target = _target(request, env, allowed_query=allowed)
     repositories = _repositories(await _graphql(JOBS_QUERY), target.dagster_location)
-    result = await _graphql(ASSET_JOBS_QUERY)
+    assets: dict[tuple[str, str], list[list[str]]] = {}
+    for repository in repositories:
+        pipelines = repository.get("pipelines")
+        if not isinstance(repository.get("name"), str) or not isinstance(pipelines, list):
+            raise BadGatewayError("Dagster returned an invalid job inventory.")
+        for pipeline in pipelines:
+            if not isinstance(pipeline, dict) or not isinstance(pipeline.get("name"), str):
+                raise BadGatewayError("Dagster returned an invalid job.")
+            nodes = await _job_asset_nodes(
+                target.dagster_location, repository["name"], pipeline["name"]
+            )
+            assets[repository["name"], pipeline["name"]] = [
+                _assets([node.get("assetKey")])[0] for node in nodes
+            ]
+            definitions = [_definition_metadata(node) for node in nodes]
+            metadata = _definition_metadata(pipeline)
+            for key in ("domain", "group", "source"):
+                declared = {item[key] for item in definitions if key in item}
+                if key not in metadata and len(declared) == 1:
+                    metadata[key] = declared.pop()
+            pipeline["phlo_metadata"] = metadata
+            pipeline["phlo_owners"] = _definition_owners(pipeline) or sorted(
+                {owner for node in nodes for owner in _definition_owners(node)}
+            )
+            pipeline["phlo_release"] = _feeds_release(metadata) or any(
+                _feeds_release(item) for item in definitions
+            )
+    return target, repositories, assets
+
+
+async def _job_asset_nodes(location: str, repository: str, job: str) -> list[dict[str, Any]]:
+    result = await _graphql(
+        ASSET_JOBS_QUERY,
+        {
+            "pipeline": {
+                "repositoryLocationName": location,
+                "repositoryName": repository,
+                "pipelineName": job,
+            }
+        },
+    )
     data = result.get("data")
     nodes = data.get("assetNodes") if isinstance(data, dict) else None
     if not isinstance(nodes, list) or len(nodes) > _INVENTORY_LIMIT:
         raise BadGatewayError("Dagster returned an invalid asset-job inventory.")
-    assets: dict[str, list[list[str]]] = {}
     for node in nodes:
-        repository = node.get("repository") if isinstance(node, dict) else None
-        location = repository.get("location") if isinstance(repository, dict) else None
-        job_names = node.get("jobNames") if isinstance(node, dict) else None
+        repo = node.get("repository") if isinstance(node, dict) else None
+        origin = repo.get("location") if isinstance(repo, dict) else None
         if (
-            not isinstance(location, dict)
-            or not isinstance(location.get("name"), str)
-            or not isinstance(job_names, list)
-            or any(not isinstance(name, str) for name in job_names)
+            not isinstance(repo, dict)
+            or repo.get("name") != repository
+            or not isinstance(origin, dict)
+            or origin.get("name") != location
         ):
-            raise BadGatewayError("Dagster returned an invalid asset-job record.")
-        if location["name"] != target.dagster_location:
-            continue
-        path = _assets([node.get("assetKey")])[0]
-        for name in job_names:
-            assets.setdefault(name, []).append(path)
-    return target, repositories, assets
+            raise BadGatewayError("Dagster returned an asset outside the selected job scope.")
+    return nodes
 
 
 def _jobs(
-    repositories: list[dict[str, Any]], env: Environment, assets: dict[str, list[list[str]]]
+    repositories: list[dict[str, Any]],
+    env: Environment,
+    assets: dict[tuple[str, str], list[list[str]]],
 ) -> list[Job]:
     items: list[Job] = []
     for repository in repositories:
@@ -426,14 +613,19 @@ def _jobs(
             if not isinstance(pipeline, dict) or not isinstance(pipeline.get("name"), str):
                 raise BadGatewayError("Dagster returned an invalid job.")
             job_id = pipeline["name"]
+            metadata = pipeline.get("phlo_metadata", {})
             items.append(
                 Job(
                     id=job_id,
                     repository_name=name,
+                    domain=metadata.get("domain", metadata.get("group")),
+                    owners=pipeline.get("phlo_owners", []),
+                    source=metadata.get("source"),
+                    feeds_batch_release=pipeline.get("phlo_release", False),
                     description=pipeline.get("description")
                     if isinstance(pipeline.get("description"), str)
                     else None,
-                    selected_assets=assets.get(job_id, []),
+                    selected_assets=assets.get((name, job_id), []),
                     assets_url=f"/api/v1/assets?env={env}",
                     runs_url=f"/api/v1/runs?env={env}&job_id={job_id}",
                     incidents_url=f"/api/v1/incidents?env={env}",
@@ -494,13 +686,41 @@ async def v1_job_schedules(
 
 @router.get("/runs", response_model=RunPage)
 async def v1_runs(
-    request: Request, env: Environment = Query(), limit: Limit = 100, job_id: str | None = None
+    request: Request,
+    env: Environment = Query(),
+    limit: Limit = 100,
+    job_id: str | None = None,
+    status: RunStatus | None = None,
+    cursor: Annotated[str | None, Query(max_length=4096)] = None,
 ) -> RunPage:
-    target = _target(request, env, allowed_query=frozenset({"env", "limit", "job_id"}))
-    items = await _scoped_runs(target.dagster_location, target.nessie_ref, limit)
-    if job_id is not None:
-        items = [item for item in items if item.job_id == job_id]
-    return RunPage(env=env, items=items)
+    target = _target(
+        request, env, allowed_query=frozenset({"env", "limit", "job_id", "status", "cursor"})
+    )
+    scope = [env, target.dagster_location, target.nessie_ref, job_id, status]
+    after = None
+    if cursor is not None:
+        try:
+            payload = json.loads(base64.urlsafe_b64decode(cursor))
+            if (
+                payload["scope"] != scope
+                or not isinstance(payload["after"], str)
+                or not payload["after"]
+            ):
+                raise ValueError
+            after = payload["after"]
+        except (ValueError, TypeError, KeyError, binascii.Error) as exc:
+            raise HTTPException(
+                status_code=422, detail="Run cursor does not match environment and filters."
+            ) from exc
+    items, following = await _run_page(
+        target.dagster_location, target.nessie_ref, limit, after, job_id, status
+    )
+    token = (
+        base64.urlsafe_b64encode(json.dumps({"scope": scope, "after": following}).encode()).decode()
+        if following
+        else None
+    )
+    return RunPage(env=env, items=items, next_cursor=token)
 
 
 async def _run_detail(
@@ -550,6 +770,31 @@ def _events(value: dict[str, Any], limit: int) -> tuple[list[RunEvent], bool, st
     ):
         raise BadGatewayError("Dagster returned invalid run events.")
     events: list[RunEvent] = []
+
+    def parse_error(error: Any, depth: int = 0) -> RunError | None:
+        if error is None:
+            return None
+        if not isinstance(error, dict) or not isinstance(error.get("message"), str):
+            raise BadGatewayError("Dagster returned invalid run error details.")
+        stack = error.get("stack", [])
+        causes = error.get("causes", [])
+        class_name = error.get("className")
+        if (
+            not isinstance(stack, list)
+            or any(not isinstance(line, str) for line in stack)
+            or not isinstance(causes, list)
+            or (class_name is not None and not isinstance(class_name, str))
+        ):
+            raise BadGatewayError("Dagster returned invalid run error details.")
+        return RunError(
+            message=error["message"][:20_000],
+            class_name=class_name,
+            stack=[line[:4_000] for line in stack[:100]],
+            causes=[cause for item in causes[:10] if (cause := parse_error(item, depth + 1))]
+            if depth < 2
+            else [],
+        )
+
     for row in rows[:limit]:
         if not isinstance(row, dict):
             raise BadGatewayError("Dagster returned an invalid run event.")
@@ -564,12 +809,77 @@ def _events(value: dict[str, Any], limit: int) -> tuple[list[RunEvent], bool, st
         step_key = row.get("stepKey")
         if step_key is not None and not isinstance(step_key, str):
             raise BadGatewayError("Dagster returned an invalid run event.")
+        level = row.get("level")
+        file_key = row.get("fileKey")
+        step_keys = row.get("stepKeys") or []
+        if (
+            (level is not None and not isinstance(level, str))
+            or (file_key is not None and not isinstance(file_key, str))
+            or not isinstance(step_keys, list)
+            or any(not isinstance(key, str) for key in step_keys)
+        ):
+            raise BadGatewayError("Dagster returned an invalid run event.")
+        error = parse_error(row.get("error"))
         events.append(
             RunEvent(
-                event_type=event_type, message=row["message"], timestamp=observed, step_key=step_key
+                event_type=event_type,
+                message=row["message"][:20_000],
+                timestamp=observed,
+                step_key=step_key,
+                level=level,
+                error=error,
+                captured_file_key=file_key,
+                captured_step_keys=step_keys[:100],
             )
         )
     return events, has_more, cursor
+
+
+def _bounded_log_text(value: str | None) -> tuple[str | None, bool]:
+    if value is None:
+        return None, False
+    encoded = value.encode("utf-8")
+    return (
+        encoded[:_CAPTURED_LOG_BYTES].decode("utf-8", errors="ignore"),
+        len(encoded) > _CAPTURED_LOG_BYTES,
+    )
+
+
+async def _captured_logs(run_id: str, file_key: str, step_keys: list[str]) -> CapturedRunLogs:
+    try:
+        response = await _graphql(RUN_CAPTURED_LOGS_QUERY, {"runId": run_id, "fileKey": file_key})
+    except Exception:
+        return CapturedRunLogs(
+            file_key=file_key,
+            step_keys=step_keys,
+            stdout=None,
+            stderr=None,
+            available=False,
+        )
+    data = response.get("data")
+    run = data.get("runOrError") if isinstance(data, dict) else None
+    logs = run.get("capturedLogs") if isinstance(run, dict) else None
+    if response.get("errors") or not isinstance(logs, dict):
+        return CapturedRunLogs(
+            file_key=file_key,
+            step_keys=step_keys,
+            stdout=None,
+            stderr=None,
+            available=False,
+        )
+    stdout, stderr = logs.get("stdout"), logs.get("stderr")
+    if any(value is not None and not isinstance(value, str) for value in (stdout, stderr)):
+        raise BadGatewayError("Dagster returned invalid captured logs.")
+    stdout, stdout_truncated = _bounded_log_text(stdout)
+    stderr, stderr_truncated = _bounded_log_text(stderr)
+    return CapturedRunLogs(
+        file_key=file_key,
+        step_keys=step_keys,
+        stdout=stdout,
+        stderr=stderr,
+        available=stdout is not None or stderr is not None,
+        truncated=stdout_truncated or stderr_truncated,
+    )
 
 
 @router.get("/runs/{run_id}/timeline", response_model=RunTimeline)
@@ -601,6 +911,16 @@ async def v1_run_logs(
 ) -> RunLogs:
     run, value = await _run_detail(request, env, run_id, limit, after_cursor)
     items, truncated, cursor = _events(value, limit)
+    capture_events: dict[str, list[str]] = {}
+    for event in items:
+        if event.event_type == "LOGS_CAPTURED" and event.captured_file_key:
+            capture_events.setdefault(event.captured_file_key, event.captured_step_keys)
+    captured = await asyncio.gather(
+        *(
+            _captured_logs(run.run_id, file_key, step_keys)
+            for file_key, step_keys in list(capture_events.items())[:20]
+        )
+    )
     return RunLogs(
         env=env,
         run_id=run.run_id,
@@ -609,6 +929,8 @@ async def v1_run_logs(
         next_cursor=cursor or None,
         status=run.status,
         is_terminal=run.status in {"SUCCESS", "FAILURE", "CANCELED"},
+        captured_logs=captured,
+        captured_logs_available=all(item.available for item in captured),
     )
 
 
@@ -621,7 +943,7 @@ async def v1_job_patterns(request: Request, job_id: str, env: Environment = Quer
     runs = [
         run
         for run in await _scoped_runs(
-            target.dagster_location, target.nessie_ref, _PATTERN_SCAN_LIMIT
+            target.dagster_location, target.nessie_ref, _PATTERN_SCAN_LIMIT, job_id
         )
         if run.job_id == job_id
     ]
@@ -665,7 +987,7 @@ async def v1_job_summary(request: Request, job_id: str, env: Environment = Query
     runs = [
         run
         for run in await _scoped_runs(
-            target.dagster_location, target.nessie_ref, _PATTERN_SCAN_LIMIT
+            target.dagster_location, target.nessie_ref, _PATTERN_SCAN_LIMIT, job_id
         )
         if run.job_id == job_id
     ]
@@ -724,23 +1046,36 @@ async def v1_schedules(request: Request, env: Environment = Query()) -> Schedule
 async def v1_maintenance_windows(
     request: Request, env: Environment = Query()
 ) -> MaintenanceWindowPage:
+    from phlo.plugins.observatory_settings import StorageUnavailableError
+    from phlo_api.observatory_api.settings import get_operational_maintenance_windows
+
     _target(request, env, allowed_query=frozenset({"env"}))
     raw = os.environ.get("PHLO_V1_MAINTENANCE_WINDOWS")
-    if not raw:
-        return MaintenanceWindowPage(env=env, status="unavailable", items=[])
+    windows = []
     try:
-        if len(raw) > 65_536:
-            raise ValueError
-        payload = json.loads(raw)
-        windows = payload[env]
-        if not isinstance(windows, list) or len(windows) > 100:
-            raise ValueError
+        if raw:
+            if len(raw) > 65_536:
+                raise ValueError
+            windows = json.loads(raw)[env]
+            if not isinstance(windows, list) or len(windows) > 100:
+                raise ValueError
+        operational = await run_sync(get_operational_maintenance_windows, env)
+        if operational is not None:
+            if not isinstance(operational, list) or len(operational) > 100:
+                raise ValueError
+            # Operator-defined windows win when the same policy identity appears twice.
+            operator_ids = {window["id"] for window in windows}
+            windows = windows + [
+                window for window in operational if window["id"] not in operator_ids
+            ]
+        if not raw and operational is None:
+            return MaintenanceWindowPage(env=env, status="unavailable", items=[])
         items = [MaintenanceWindow.model_validate_json(json.dumps(item)) for item in windows]
         if any(item.ends_at <= item.starts_at for item in items) or len(
             {item.id for item in items}
         ) != len(items):
             raise ValueError
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, StorageUnavailableError) as exc:
         raise BackendUnavailableError("Configured maintenance windows are unavailable.") from exc
     return MaintenanceWindowPage(env=env, status="configured", items=items)
 
@@ -844,6 +1179,11 @@ async def v1_job_launch(
                             {"key": "phlo/operation", "value": "v1_job_launch"},
                             {"key": "phlo/idempotency_key", "value": payload.idempotency_key},
                         ]
+                        + (
+                            [{"key": "dagster/partition", "value": payload.partition_key}]
+                            if payload.partition_key is not None
+                            else []
+                        )
                     },
                 }
             },
@@ -1068,3 +1408,200 @@ async def v1_run_retry(
     request: Request, run_id: str, payload: RunActionRequest, env: Environment = Query()
 ) -> ActionResult:
     return await _run_action(request, run_id, payload, env, "retry")
+
+
+def _incident_asset_graph(
+    nodes: Any, location_name: str
+) -> tuple[dict[str, dict[str, Any]], dict[str, set[str]]]:
+    """Validate scoped graph identities and derive aliases from exact key paths."""
+    if not isinstance(nodes, list) or len(nodes) > _INVENTORY_LIMIT:
+        raise BadGatewayError("Dagster returned an invalid asset graph.")
+    graph: dict[str, dict[str, Any]] = {}
+    aliases: dict[str, set[str]] = {}
+    for node in nodes:
+        repo = node.get("repository") if isinstance(node, dict) else None
+        if not isinstance(repo, dict):
+            raise BadGatewayError("Dagster returned an invalid asset graph repository.")
+        location = repo.get("location")
+        if not isinstance(location, dict) or not isinstance(location.get("name"), str):
+            raise BadGatewayError("Dagster returned an invalid asset graph identity.")
+        if location["name"] != location_name:
+            continue
+        if (
+            not isinstance(repo.get("name"), str)
+            or not isinstance(node.get("dependencyKeys"), list)
+            or not isinstance(node.get("jobNames"), list)
+        ):
+            raise BadGatewayError("Dagster returned an incomplete asset graph.")
+        path = _assets([node.get("assetKey")])[0]
+        asset_id = "/".join(path)
+        if asset_id in graph:
+            raise BadGatewayError("Dagster returned ambiguous asset identities.")
+        graph[asset_id] = node
+        for alias in {asset_id, ".".join(path)}:
+            aliases.setdefault(alias, set()).add(asset_id)
+    return graph, aliases
+
+
+async def preflight_incident_pause(
+    request: Request, *, env: Environment, asset_ids: list[str]
+) -> list[dict[str, Any]]:
+    """Authorize and resolve exact downstream gold schedules before persisting an effect."""
+    from phlo_api.api.operation_controls import require_scope
+    from phlo_api.api.v1_assets import _asset_nodes
+
+    auth = require_scope(request, "lakehouse:operate")
+    _require_single_replica_actions()
+    target = _target(request, env, allowed_query=frozenset({"env"}))
+    repositories = _repositories(await _graphql(JOBS_QUERY), target.dagster_location)
+    nodes = await _asset_nodes(request, env)
+    graph, aliases = _incident_asset_graph(nodes, target.dagster_location)
+    if not asset_ids or any(asset_id not in aliases for asset_id in asset_ids):
+        raise NotFoundError("Affected assets were not found in the selected environment.")
+    if any(len(aliases[asset_id]) != 1 for asset_id in asset_ids):
+        raise ConflictError("Affected asset identifier is ambiguous in the selected environment.")
+    seeds = {next(iter(aliases[asset_id])) for asset_id in asset_ids}
+    reached = set(seeds)
+    while True:
+        following = {
+            key
+            for key, node in graph.items()
+            if any("/".join(path) in reached for path in _assets(node["dependencyKeys"]))
+        }
+        if following.issubset(reached):
+            break
+        reached.update(following)
+    gold = {
+        key: node
+        for key, node in graph.items()
+        if key in reached - seeds
+        and _definition_metadata(node).get("phlo/layer", node.get("groupName")) == "gold"
+    }
+    targets: list[dict[str, Any]] = []
+    for repo in repositories:
+        for schedule in repo.get("schedules", []):
+            if not isinstance(schedule, dict) or not isinstance(
+                schedule.get("scheduleState"), dict
+            ):
+                raise BadGatewayError("Dagster returned an invalid schedule inventory.")
+            affected = sorted(
+                key
+                for key, node in gold.items()
+                if node["repository"]["name"] == repo["name"]
+                and schedule.get("pipelineName") in node["jobNames"]
+            )
+            if not affected:
+                continue
+            if schedule["scheduleState"].get("status") not in {"RUNNING", "STOPPED"}:
+                raise BackendUnavailableError("Downstream schedule state is unavailable.")
+            targets.append(
+                {
+                    "schedule_id": schedule["name"],
+                    "repository_name": repo["name"],
+                    "job_id": schedule["pipelineName"],
+                    "asset_ids": affected,
+                    "affected_asset_ids": sorted(seeds),
+                    "env": env,
+                    "location": target.dagster_location,
+                    "ref": target.nessie_ref,
+                    "subject": auth["subject"],
+                    "expected_status": schedule["scheduleState"]["status"],
+                }
+            )
+    return sorted(targets, key=lambda item: (item["repository_name"], item["schedule_id"]))
+
+
+async def pause_incident_downstream(
+    request: Request,
+    *,
+    env: Environment,
+    incident_id: str,
+    effect_id: str,
+    targets: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Retry only authorized persisted targets, returning confirmed per-schedule outcomes."""
+    from phlo_api.api.operation_controls import require_scope
+    from phlo_api.errors import PhloApiError
+
+    auth = require_scope(request, "lakehouse:operate")
+    _require_single_replica_actions()
+    scope = _target(request, env, allowed_query=frozenset({"env"}))
+    if not incident_id or not effect_id:
+        raise HTTPException(status_code=422, detail="Incident effect identity is required.")
+    outcomes: list[dict[str, Any]] = []
+    for persisted in targets:
+        outcome = {
+            "schedule_id": persisted.get("schedule_id"),
+            "asset_ids": persisted.get("asset_ids", []),
+        }
+        try:
+            if (
+                persisted.get("env") != env
+                or persisted.get("location") != scope.dagster_location
+                or persisted.get("ref") != scope.nessie_ref
+                or persisted.get("subject") != auth["subject"]
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Incident schedule target does not match the initiating principal and environment.",
+                )
+            current = await preflight_incident_pause(
+                request, env=env, asset_ids=persisted["affected_asset_ids"]
+            )
+            matches = [
+                item
+                for item in current
+                if all(
+                    item[key] == persisted.get(key)
+                    for key in ("schedule_id", "repository_name", "job_id", "asset_ids")
+                )
+            ]
+            if len(matches) != 1:
+                raise ConflictError(
+                    "Downstream schedule definition changed; effect was not applied."
+                )
+            if matches[0]["expected_status"] == "STOPPED":
+                outcomes.append({**outcome, "status": "already_paused"})
+                continue
+            key = hashlib.sha256(
+                json.dumps(
+                    [
+                        incident_id,
+                        effect_id,
+                        env,
+                        scope.dagster_location,
+                        scope.nessie_ref,
+                        persisted["repository_name"],
+                        persisted["schedule_id"],
+                    ]
+                ).encode()
+            ).hexdigest()
+            result = await v1_schedule_action(
+                request,
+                persisted["schedule_id"],
+                "pause",
+                ScheduleActionRequest(
+                    idempotency_key=key,
+                    expected_status=persisted["expected_status"],
+                    confirmed=True,
+                ),
+                env,
+            )
+            if result.status != "accepted" or result.result.get("schedule_status") != "STOPPED":
+                raise BackendUnavailableError("Dagster did not confirm the schedule pause.")
+            confirmed = await preflight_incident_pause(
+                request, env=env, asset_ids=persisted["affected_asset_ids"]
+            )
+            if not any(
+                item["schedule_id"] == persisted["schedule_id"]
+                and item["repository_name"] == persisted["repository_name"]
+                and item["expected_status"] == "STOPPED"
+                for item in confirmed
+            ):
+                raise ConflictError(
+                    "Schedule is not paused after the action; effect remains unconfirmed."
+                )
+            outcomes.append({**outcome, "status": "paused"})
+        except (HTTPException, PhloApiError, KeyError, TypeError, ValueError) as exc:
+            outcomes.append({**outcome, "status": "failed", "error": str(exc)})
+    return outcomes

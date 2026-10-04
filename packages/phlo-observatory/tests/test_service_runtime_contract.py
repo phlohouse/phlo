@@ -6,6 +6,7 @@ discovery, and never mount the host Docker socket.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterator
 from importlib import resources
@@ -85,3 +86,37 @@ def test_observatory_dockerfile_installs_docker_cli() -> None:
     """Container image should include docker CLI for service status discovery."""
     run_commands = [args for verb, args in _dockerfile_instructions() if verb == "RUN"]
     assert any(_APK_ADD_DOCKER_CLI.search(command) for command in run_commands)
+
+
+def test_observatory_bundles_only_the_api_backed_ui() -> None:
+    package = resources.files("phlo_observatory")
+    manifest = json.loads(package.joinpath("package.json").read_text(encoding="utf-8"))
+    assert "workspaces" not in manifest
+    assert manifest["scripts"]["start"] == "node .output/server/index.mjs"
+    for path in (
+        "vite.config.ts",
+        "src/lib/data/api/client.ts",
+        "src/routes/healthz.ts",
+        "scripts/verify-api-client.mjs",
+    ):
+        assert package.joinpath(path).is_file(), path
+    for path in ("select-ui.sh", "replacement/src", "src/observatory", "src/server"):
+        assert not package.joinpath(path).is_file() and not package.joinpath(path).is_dir(), path
+    service = _load_service_document()
+    assert "OBSERVATORY_UI" not in service["env_vars"]
+    assert service["dev"]["command"][:3] == ["npm", "run", "dev"]
+    assert service["compose"]["environment"] == {
+        "NODE_ENV": "production",
+        "HOST": "0.0.0.0",
+        "PORT": 3000,
+        "PHLO_API_URL": "http://phlo-api:4000",
+    }
+    assert service["compose"]["healthcheck"]["test"] == [
+        "CMD-SHELL",
+        "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/healthz",
+    ]
+    instructions = _dockerfile_instructions()
+    assert ("ENV", "PORT=3000") in instructions
+    assert ("COPY", "--from=builder /app/.output /app/.output") in instructions
+    assert ("CMD", '["node", ".output/server/index.mjs"]') in instructions
+    assert not any("replacement" in args or "select-ui" in args for _, args in instructions)

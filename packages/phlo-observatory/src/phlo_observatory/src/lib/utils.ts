@@ -1,4 +1,4 @@
-/** cn() merges conditional Tailwind class lists, resolving conflicts. */
+/** Merges conditional Tailwind class names without conflicts. */
 import { clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { ClassValue } from 'clsx'

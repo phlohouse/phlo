@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import hashlib
 import json
 import os
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Iterator, Literal
@@ -18,15 +19,44 @@ from pydantic import Field, field_validator
 
 from phlo.audit.events import AuditEventType, CanonicalAuditEvent
 from phlo.compliance.signatures.types import SignatureMeaning, SignatureRequest
+from phlo.logging import get_logger
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.errors import BackendUnavailableError
 from phlo_api.v1_contract import Environment, WireModel
 from phlo.run_evidence.redaction import redact_payload
 
-router = APIRouter(tags=["v1 incidents"])
+logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def _effect_lifespan(_application: Any):
+    """Resume authorized notification deliveries after restart, without a user session."""
+
+    async def recover():
+        while True:
+            try:
+                await asyncio.to_thread(recover_incident_notifications)
+            except Exception:
+                logger.warning("incident_notification_recovery_unavailable")
+            await asyncio.sleep(60)
+
+    task = asyncio.create_task(recover()) if os.environ.get("PHLO_RUN_EVIDENCE_DB_URL") else None
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+
+router = APIRouter(tags=["v1 incidents"], lifespan=_effect_lifespan)
 IncidentStatus = Literal["open", "acknowledged", "resolved"]
 SchemaDecisionSide = Literal["source", "target"]
 PageLimit = Annotated[int, Query(ge=1, le=500)]
+Severity = Literal["low", "medium", "high"]
+_INCIDENT_COLUMNS = """incident_id,asset_id,kind,title,status,owner,version,created_at,updated_at,
+severity,asset_ids,description,notify_qa,pause_downstream"""
 
 
 class IncidentInput(WireModel):
@@ -35,6 +65,19 @@ class IncidentInput(WireModel):
     title: str = Field(min_length=1, max_length=500)
     evidence: dict[str, Any]
     evidence_id: str = Field(min_length=1, max_length=512)
+    severity: Severity = "medium"
+    owner: str | None = Field(default=None, max_length=512)
+    asset_ids: list[str] = Field(default_factory=list, max_length=100)
+    description: str = Field(default="", max_length=10000)
+    notify_qa: bool = False
+    pause_downstream: bool = False
+
+    @field_validator("asset_ids")
+    @classmethod
+    def validate_assets(cls, value: list[str]) -> list[str]:
+        if any(not asset.strip() or len(asset) > 512 for asset in value):
+            raise ValueError("asset IDs must contain 1 to 512 non-blank characters")
+        return list(dict.fromkeys(value))
 
 
 class IncidentUpdate(WireModel):
@@ -42,6 +85,18 @@ class IncidentUpdate(WireModel):
     owner: str | None = Field(default=None, max_length=512)
     comment: str | None = Field(default=None, max_length=10000)
     signature_id: str | None = Field(default=None, min_length=1, max_length=100)
+    severity: Severity | None = None
+    asset_ids: list[str] | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=10000)
+    notify_qa: bool | None = None
+    pause_downstream: bool | None = None
+    query_id: str | None = Field(default=None, min_length=1, max_length=100)
+    retry_effects: bool = False
+
+    @field_validator("asset_ids")
+    @classmethod
+    def validate_assets(cls, value: list[str] | None) -> list[str] | None:
+        return IncidentInput.validate_assets(value) if value is not None else None
 
 
 class FollowUpInput(WireModel):
@@ -110,6 +165,13 @@ class IncidentView(WireModel):
     version: int
     created_at: datetime
     updated_at: datetime
+    severity: Severity = "medium"
+    asset_ids: list[str] = Field(default_factory=list)
+    description: str = ""
+    notify_qa: bool = False
+    pause_downstream: bool = False
+    effects: list[dict[str, Any]] = Field(default_factory=list)
+    layers: list[str] = Field(default_factory=list)
 
 
 class IncidentPage(WireModel):
@@ -178,6 +240,9 @@ def initialize_incidents() -> None:
     schema = Path(__file__).parent / "sql" / "001_incidents.sql"
     with _transaction() as connection, connection.cursor() as cursor:
         cursor.execute(schema.read_text(encoding="utf-8"))
+        cursor.execute(
+            schema.with_name("003_incident_query_parity.sql").read_text(encoding="utf-8")
+        )
 
 
 def _actor(request: Request) -> str:
@@ -242,7 +307,7 @@ def _decode_policy_cursor(cursor: str | None, env: Environment) -> str | None:
 
 
 def _row(row: tuple[Any, ...]) -> IncidentView:
-    return IncidentView.model_validate(
+    view = IncidentView.model_validate(
         dict(
             zip(
                 (
@@ -255,12 +320,19 @@ def _row(row: tuple[Any, ...]) -> IncidentView:
                     "version",
                     "created_at",
                     "updated_at",
+                    "severity",
+                    "asset_ids",
+                    "description",
+                    "notify_qa",
+                    "pause_downstream",
                 ),
                 row,
                 strict=True,
             )
         )
     )
+    view.asset_ids = view.asset_ids or [view.asset_id]
+    return view
 
 
 def _view_from_json(value: dict[str, Any]) -> IncidentView:
@@ -347,6 +419,293 @@ def _digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def persist_query_execution(
+    *,
+    query_id: str,
+    env: Environment,
+    actor: str,
+    nessie_ref: str,
+    statement: str,
+    executed_statement: str,
+    result: dict[str, Any],
+    provider_query_id: str | None,
+) -> None:
+    """Record server-produced execution identity, never a browser result snapshot."""
+    with _transaction() as connection, connection.cursor() as cur:
+        cur.execute(
+            """INSERT INTO phlo.query_execution(query_id,env,actor,nessie_ref,engine,statement,
+               statement_sha256,executed_statement,result,result_sha256,provider_query_id,completed_at)
+               VALUES (%s,%s,%s,%s,'trino',%s,%s,%s,%s,%s,%s,now())""",
+            (
+                query_id,
+                env,
+                actor,
+                nessie_ref,
+                statement,
+                hashlib.sha256(statement.encode()).hexdigest(),
+                executed_statement,
+                json.dumps(result, default=str),
+                _digest(result),
+                provider_query_id,
+            ),
+        )
+
+
+def load_query_execution(query_id: str, env: Environment, actor: str) -> dict[str, Any] | None:
+    """Return confidential evidence only to its initiating actor in the same environment."""
+    with _transaction() as connection, connection.cursor() as cur:
+        cur.execute(
+            """SELECT nessie_ref,statement,result,completed_at FROM phlo.query_execution
+               WHERE query_id=%s AND env=%s AND actor=%s""",
+            (query_id, env, actor),
+        )
+        row = cur.fetchone()
+    return (
+        dict(zip(("nessie_ref", "statement", "result", "completed_at"), row, strict=True))
+        if row
+        else None
+    )
+
+
+def _authorize(
+    request: Request, action: str, resource_type: str, identity: str | None = None
+) -> None:
+    from phlo_api.security_manifest import OperationSpec, enforce_http_operation
+
+    key = {"asset": "asset_id", "service": "service_id", "run": "schedule_id"}.get(resource_type)
+    keys = ("env", key) if identity is not None and key else ("env",)
+    sources = (
+        (("env", "query"), (key, "path")) if identity is not None and key else (("env", "query"),)
+    )
+    asyncio.run(
+        enforce_http_operation(
+            request,
+            OperationSpec(
+                operation_name="update_incident",
+                surface="http",
+                action=action,
+                resource_type=resource_type,
+                resource_keys=keys,
+                resource_sources=sources,
+            ),
+            {key: identity} if identity is not None and key else {},
+        )
+    )
+
+
+def _pin_query(
+    cur: Any, request: Request, incident_id: str, env: Environment, query_id: str
+) -> bool:
+    _authorize(request, "dataset.query", "project")
+    cur.execute(
+        """SELECT nessie_ref,engine,statement_sha256,result_sha256,provider_query_id
+           FROM phlo.query_execution WHERE query_id=%s AND env=%s AND actor=%s""",
+        (query_id, env, _actor(request)),
+    )
+    execution = cur.fetchone()
+    if execution is None:
+        raise HTTPException(status_code=404, detail="Completed query execution not found.")
+    cur.execute(
+        """INSERT INTO phlo.incident_query_evidence(env,incident_id,query_id,actor)
+           VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING query_id""",
+        (env, incident_id, query_id, _actor(request)),
+    )
+    if cur.fetchone() is None:
+        return False
+    _event(
+        cur,
+        incident_id,
+        env,
+        _actor(request),
+        "query_evidence",
+        {
+            "query_id": query_id,
+            "env": env,
+            "nessie_ref": execution[0],
+            "engine": execution[1],
+            "statement_sha256": execution[2],
+            "result_sha256": execution[3],
+            "provider_query_id": execution[4],
+        },
+    )
+    return True
+
+
+def _preflight_effects(
+    request: Request,
+    env: Environment,
+    *,
+    asset_ids: list[str],
+    notify_qa: bool,
+    pause_downstream: bool,
+) -> dict[str, dict[str, Any]]:
+    effects: dict[str, dict[str, Any]] = {}
+    if notify_qa:
+        from phlo_api.observatory_api.settings import (
+            NotificationUnavailableError,
+            preflight_incident_notification,
+        )
+
+        _authorize(request, "service.manage", "service", "alerting")
+        try:
+            preflight_incident_notification(notify_qa=True)
+        except NotificationUnavailableError as exc:
+            raise HTTPException(
+                status_code=503, detail="QA notification destination is unavailable."
+            ) from exc
+        effects["notification"] = {}
+    if pause_downstream:
+        from phlo_api.api.v1_jobs import preflight_incident_pause
+
+        targets = asyncio.run(preflight_incident_pause(request, env=env, asset_ids=asset_ids))
+        for target in targets:
+            _authorize(request, "run.manage", "run", target["schedule_id"])
+        effects["pause"] = {"targets": targets}
+    return effects
+
+
+def _enqueue_effects(
+    cur: Any,
+    env: Environment,
+    actor: str,
+    incident: IncidentView,
+    effects: dict[str, dict[str, Any]],
+) -> None:
+    for kind, details in effects.items():
+        payload = {
+            "severity": incident.severity,
+            "owner": incident.owner,
+            "asset_ids": incident.asset_ids,
+            "notify_qa": incident.notify_qa,
+            **details,
+        }
+        cur.execute(
+            """INSERT INTO phlo.incident_effect(effect_id,env,incident_id,incident_version,actor,kind,payload)
+               VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+            (uuid4().hex, env, incident.id, incident.version, actor, kind, json.dumps(payload)),
+        )
+
+
+def recover_incident_notifications() -> None:
+    """Retry bounded due notifications only; a stored preference cannot authorize pipeline control."""
+    with _transaction() as connection, connection.cursor() as cur:
+        cur.execute(
+            """SELECT DISTINCT env,incident_id FROM phlo.incident_effect
+               WHERE kind='notification' AND
+                 (status='pending' OR (status='failed' AND updated_at < now()-interval '1 minute')
+                  OR (status='delivering' AND updated_at < now()-interval '5 minutes')) LIMIT 100"""
+        )
+        due = cur.fetchall()
+    for env, incident_id in due:
+        dispatch_incident_effects(None, env=env, incident_id=incident_id)
+
+
+def dispatch_incident_effects(
+    request: Request | None, *, env: Environment, incident_id: str
+) -> None:
+    """Claim durable attempts, then deliver outside the transaction. Retries are at-least-once.
+
+    User retries are restricted to the initiating actor. A trusted notification worker may
+    pass no request to deliver already authorized notification effects, never pipeline controls.
+    A stale delivering attempt may have reached the sink;
+    its retry retains effect identity but cannot promise exactly-once external delivery.
+    """
+    actor = _actor(request) if request is not None else None
+    with _transaction() as connection, connection.cursor() as cur:
+        cur.execute(
+            """UPDATE phlo.incident_effect SET status='delivering',attempts=attempts+1,updated_at=now()
+               WHERE env=%s AND incident_id=%s AND (actor=%s OR (%s IS NULL AND kind='notification'))
+                 AND (status IN ('pending','failed') OR
+                      (status='delivering' AND updated_at < now()-interval '5 minutes'))
+               RETURNING effect_id,kind,payload,actor,attempts""",
+            (env, incident_id, actor, actor),
+        )
+        attempts = cur.fetchall()
+    for effect_id, kind, payload, initiating_actor, attempt_number in attempts:
+        status, error = "delivered", None
+        try:
+            if kind == "notification":
+                from phlo_api.observatory_api.settings import send_incident_notification
+
+                if request is not None:
+                    _authorize(request, "service.manage", "service", "alerting")
+                confirmed = send_incident_notification(
+                    request,
+                    env=env,
+                    incident_id=incident_id,
+                    effect_id=effect_id,
+                    **payload,
+                )
+                if not confirmed:
+                    raise RuntimeError("Notification delivery was not confirmed.")
+            else:
+                from phlo_api.api.v1_jobs import pause_incident_downstream
+
+                assert request is not None  # No-request workers can only claim notifications.
+                for target in payload["targets"]:
+                    _authorize(request, "run.manage", "run", target["schedule_id"])
+                results = asyncio.run(
+                    pause_incident_downstream(
+                        request,
+                        env=env,
+                        incident_id=incident_id,
+                        effect_id=effect_id,
+                        targets=payload["targets"],
+                    )
+                )
+                if {result["schedule_id"] for result in results} != {
+                    target["schedule_id"] for target in payload["targets"]
+                } or any(
+                    result["status"] not in {"paused", "already_paused"} for result in results
+                ):
+                    raise RuntimeError("Downstream pause was not confirmed for every target.")
+        except Exception:
+            status, error = (
+                "failed",
+                "Delivery failed or is unconfirmed. Retry may repeat external delivery.",
+            )
+        with _transaction() as connection, connection.cursor() as cur:
+            cur.execute(
+                """UPDATE phlo.incident_effect SET status=%s,error=%s,updated_at=now()
+                   WHERE effect_id=%s AND attempts=%s AND status='delivering'""",
+                (status, error, effect_id, attempt_number),
+            )
+            if cur.rowcount:
+                _event(
+                    cur,
+                    incident_id,
+                    env,
+                    initiating_actor,
+                    "effect_delivery",
+                    {
+                        "effect_id": effect_id,
+                        "effect": kind,
+                        "status": status,
+                        "error": error,
+                    },
+                )
+
+
+def _effect_status(cur: Any, incident_id: str, env: Environment) -> list[dict[str, Any]]:
+    cur.execute(
+        """SELECT effect_id,kind,status,attempts,error FROM phlo.incident_effect
+           WHERE incident_id=%s AND env=%s ORDER BY updated_at,effect_id""",
+        (incident_id, env),
+    )
+    return [
+        dict(zip(("id", "kind", "status", "attempts", "error"), row, strict=True))
+        for row in cur.fetchall()
+    ]
+
+
+def _deliver_and_view(request: Request, env: Environment, view: IncidentView) -> IncidentView:
+    if view.notify_qa or view.pause_downstream:
+        dispatch_incident_effects(request, env=env, incident_id=view.id)
+        with _transaction() as connection, connection.cursor() as cur:
+            view.effects = _effect_status(cur, view.id, env)
+    return view
+
+
 @router.get("/incidents", response_model=IncidentPage)
 def list_incidents(
     request: Request,
@@ -359,21 +718,21 @@ def list_incidents(
     with _transaction() as connection, connection.cursor() as cur:
         if decoded:
             cur.execute(
-                """SELECT incident_id,asset_id,kind,title,status,owner,version,created_at,updated_at
+                f"""SELECT {_INCIDENT_COLUMNS}
                    FROM phlo.incident WHERE env=%s AND (updated_at,incident_id)<(%s,%s)
                    ORDER BY updated_at DESC,incident_id DESC LIMIT %s""",
                 (env, *decoded, limit + 1),
             )
         else:
             cur.execute(
-                """SELECT incident_id,asset_id,kind,title,status,owner,version,created_at,updated_at
+                f"""SELECT {_INCIDENT_COLUMNS}
                    FROM phlo.incident WHERE env=%s ORDER BY updated_at DESC,incident_id DESC LIMIT %s""",
                 (env, limit + 1),
             )
         rows = cur.fetchall()
     has_more = len(rows) > limit
     page = rows[:limit]
-    next_cursor = _encode_cursor(env, "incidents", page[-1][-1], page[-1][0]) if has_more else None
+    next_cursor = _encode_cursor(env, "incidents", page[-1][8], page[-1][0]) if has_more else None
     return IncidentPage(env=env, items=[_row(row) for row in page], next_cursor=next_cursor)
 
 
@@ -395,14 +754,20 @@ def create_incident(
     env: Environment = Query(),
 ) -> IncidentView:
     actor = _actor(request)
+    asset_ids = list(dict.fromkeys([body.asset_id, *body.asset_ids]))
+    for asset in asset_ids:
+        if asset != body.asset_id:
+            _authorize(request, "asset.manage", "asset", asset)
+    payload = body.model_dump(mode="json", exclude_defaults=True)
     with _transaction() as connection, connection.cursor() as cur:
         action_target = f"asset:{body.asset_id}:kind:{body.kind}"
-        replay = _idempotent(
-            cur, env, actor, action_target, idempotency_key, body.model_dump(mode="json")
-        )
+        replay = _idempotent(cur, env, actor, action_target, idempotency_key, payload)
         if replay:
-            return _view_from_json(replay)
-        signal_digest = _digest(body.model_dump(mode="json"))
+            return _deliver_and_view(request, env, _view_from_json(replay))
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (f"{env}:{body.evidence_id}",)
+        )
+        signal_digest = _digest(payload)
         cur.execute(
             "SELECT incident_id,payload_sha256 FROM phlo.incident_signal WHERE env=%s AND evidence_id=%s",
             (env, body.evidence_id),
@@ -414,18 +779,40 @@ def create_incident(
                     status_code=409, detail="Evidence identity was reused with different content."
                 )
             cur.execute(
-                "SELECT incident_id,asset_id,kind,title,status,owner,version,created_at,updated_at FROM phlo.incident WHERE incident_id=%s",
+                f"SELECT {_INCIDENT_COLUMNS} FROM phlo.incident WHERE incident_id=%s",
                 (prior_signal[0],),
             )
             result = _row(cur.fetchone()).model_dump(mode="json")
             _store_idempotent_result(cur, env, actor, action_target, idempotency_key, result)
             return _view_from_json(result)
+        effects = _preflight_effects(
+            request,
+            env,
+            asset_ids=asset_ids,
+            notify_qa=body.notify_qa,
+            pause_downstream=body.pause_downstream,
+        )
         incident_id = uuid4().hex
         cur.execute(
-            """INSERT INTO phlo.incident(incident_id,env,asset_id,kind,title,status)
-               VALUES (%s,%s,%s,%s,%s,'open') ON CONFLICT(env,asset_id,kind)
+            """INSERT INTO phlo.incident(incident_id,env,asset_id,kind,title,status,
+                    severity,owner,asset_ids,description,notify_qa,pause_downstream,origin)
+               VALUES (%s,%s,%s,%s,%s,'open',%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT(env,asset_id,kind) WHERE origin='signal'
                DO UPDATE SET updated_at=now() RETURNING incident_id""",
-            (incident_id, env, body.asset_id, body.kind, body.title),
+            (
+                incident_id,
+                env,
+                body.asset_id,
+                body.kind,
+                body.title,
+                body.severity,
+                body.owner,
+                json.dumps(list(dict.fromkeys([body.asset_id, *body.asset_ids]))),
+                body.description,
+                body.notify_qa,
+                body.pause_downstream,
+                "manual" if body.evidence_id.startswith("manual:") else "signal",
+            ),
         )
         incident_id = cur.fetchone()[0]
         cur.execute(
@@ -454,12 +841,14 @@ def create_incident(
                 {"kind": body.kind, "evidence": body.evidence},
             )
         cur.execute(
-            "SELECT incident_id,asset_id,kind,title,status,owner,version,created_at,updated_at FROM phlo.incident WHERE incident_id=%s",
+            f"SELECT {_INCIDENT_COLUMNS} FROM phlo.incident WHERE incident_id=%s",
             (incident_id,),
         )
-        result = _row(cur.fetchone()).model_dump(mode="json")
+        view = _row(cur.fetchone())
+        _enqueue_effects(cur, env, actor, view, effects)
+        result = view.model_dump(mode="json")
         _store_idempotent_result(cur, env, actor, action_target, idempotency_key, result)
-        return _view_from_json(result)
+    return _deliver_and_view(request, env, view)
 
 
 @router.get("/incidents/{incident_id}", response_model=IncidentView)
@@ -467,13 +856,15 @@ def incident_detail(request: Request, incident_id: str, env: Environment = Query
     _actor(request)
     with _transaction() as connection, connection.cursor() as cur:
         cur.execute(
-            "SELECT incident_id,asset_id,kind,title,status,owner,version,created_at,updated_at FROM phlo.incident WHERE incident_id=%s AND env=%s",
+            f"SELECT {_INCIDENT_COLUMNS} FROM phlo.incident WHERE incident_id=%s AND env=%s",
             (incident_id, env),
         )
         row = cur.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Incident not found.")
-    return _row(row)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Incident not found.")
+        view = _row(row)
+        view.effects = _effect_status(cur, incident_id, env)
+    return view
 
 
 @router.get("/incidents/{incident_id}/timeline", response_model=IncidentTimelineResponse)
@@ -608,6 +999,33 @@ def create_schema_decision(
         return result
 
 
+def _validate_incident_update(body: IncidentUpdate, if_match: str | None) -> int:
+    """Validate update fields and return the required optimistic-lock version."""
+    if not body.model_fields_set:
+        raise HTTPException(status_code=422, detail="At least one incident field is required.")
+    for field in (
+        "status",
+        "severity",
+        "asset_ids",
+        "description",
+        "notify_qa",
+        "pause_downstream",
+        "query_id",
+    ):
+        if field in body.model_fields_set and getattr(body, field) is None:
+            raise HTTPException(status_code=422, detail=f"Incident {field} cannot be null.")
+    if body.signature_id is not None and body.status != "resolved":
+        raise HTTPException(status_code=422, detail="Signatures are only accepted for resolution.")
+    if body.status == "resolved" and (not body.signature_id or not body.comment):
+        raise HTTPException(
+            status_code=422,
+            detail="Resolution requires a signature and a non-empty resolution comment.",
+        )
+    if if_match is None or not if_match.isdecimal():
+        raise HTTPException(status_code=428, detail="A numeric If-Match version is required.")
+    return int(if_match)
+
+
 @router.patch("/incidents/{incident_id}", response_model=IncidentView)
 def update_incident(
     request: Request,
@@ -618,20 +1036,7 @@ def update_incident(
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> IncidentView:
     actor = _actor(request)
-    if not body.model_fields_set:
-        raise HTTPException(status_code=422, detail="At least one incident field is required.")
-    if "status" in body.model_fields_set and body.status is None:
-        raise HTTPException(status_code=422, detail="Incident status cannot be null.")
-    if body.signature_id is not None and body.status != "resolved":
-        raise HTTPException(status_code=422, detail="Signatures are only accepted for resolution.")
-    if body.status == "resolved" and (not body.signature_id or not body.comment):
-        raise HTTPException(
-            status_code=422,
-            detail="Resolution requires a signature and a non-empty resolution comment.",
-        )
-    if if_match is None or not if_match.isdecimal():
-        raise HTTPException(status_code=428, detail="A numeric If-Match version is required.")
-    expected_version = int(if_match)
+    expected_version = _validate_incident_update(body, if_match)
     with _transaction() as connection, connection.cursor() as cur:
         action_target = f"incident:{incident_id}"
         replay = _idempotent(
@@ -643,13 +1048,17 @@ def update_incident(
             {
                 "incident_id": incident_id,
                 "version": expected_version,
-                **body.model_dump(mode="json"),
+                **body.model_dump(
+                    mode="json", include={"status", "owner", "comment", "signature_id"}
+                ),
+                **body.model_dump(mode="json", exclude_defaults=True),
             },
         )
         if replay:
             return _view_from_json(replay)
         cur.execute(
-            "SELECT status,owner,version FROM phlo.incident WHERE incident_id=%s AND env=%s FOR UPDATE",
+            """SELECT status,owner,version,severity,asset_ids,description,notify_qa,pause_downstream,asset_id
+               FROM phlo.incident WHERE incident_id=%s AND env=%s FOR UPDATE""",
             (incident_id, env),
         )
         old = cur.fetchone()
@@ -657,6 +1066,31 @@ def update_incident(
             raise HTTPException(status_code=404, detail="Incident not found.")
         if expected_version != old[2]:
             raise HTTPException(status_code=409, detail="Incident version is stale.")
+        asset_ids = body.asset_ids if body.asset_ids is not None else (old[4] or [old[8]])
+        if old[8] not in asset_ids:
+            raise HTTPException(
+                status_code=422, detail="Affected assets must include the primary asset."
+            )
+        if body.asset_ids is not None:
+            for asset in asset_ids:
+                _authorize(request, "asset.manage", "asset", asset)
+        effects = _preflight_effects(
+            request,
+            env,
+            asset_ids=asset_ids,
+            notify_qa=body.notify_qa is True,
+            pause_downstream=body.pause_downstream is True,
+        )
+        if body.query_id is not None:
+            inserted = _pin_query(cur, request, incident_id, env, body.query_id)
+            if not inserted and body.model_fields_set == {"query_id"}:
+                cur.execute(
+                    f"SELECT {_INCIDENT_COLUMNS} FROM phlo.incident WHERE incident_id=%s",
+                    (incident_id,),
+                )
+                result = _row(cur.fetchone()).model_dump(mode="json")
+                _store_idempotent_result(cur, env, actor, action_target, idempotency_key, result)
+                return _view_from_json(result)
         if body.status == "resolved":
             signature_id = body.signature_id
             comment = body.comment
@@ -722,11 +1156,17 @@ def update_incident(
                     detail="Signature is missing, stale, reused, or mismatched.",
                 )
         cur.execute(
-            """UPDATE phlo.incident SET status=%s,owner=%s,version=version+1,updated_at=now()
+            """UPDATE phlo.incident SET status=%s,owner=%s,severity=%s,asset_ids=%s,description=%s,
+                   notify_qa=%s,pause_downstream=%s,version=version+1,updated_at=now()
                WHERE incident_id=%s AND env=%s""",
             (
                 body.status if "status" in body.model_fields_set else old[0],
                 body.owner if "owner" in body.model_fields_set else old[1],
+                body.severity if body.severity is not None else old[3],
+                json.dumps(asset_ids),
+                body.description if body.description is not None else old[5],
+                body.notify_qa if body.notify_qa is not None else old[6],
+                body.pause_downstream if body.pause_downstream is not None else old[7],
                 incident_id,
                 env,
             ),
@@ -740,7 +1180,7 @@ def update_incident(
                 "resolution_comment" if body.status == "resolved" else "comment",
                 {"text": body.comment},
             )
-        if body.status is not None or body.owner is not None:
+        if body.model_fields_set - {"comment", "query_id", "retry_effects"}:
             _event(
                 cur,
                 incident_id,
@@ -753,12 +1193,14 @@ def update_incident(
                 },
             )
         cur.execute(
-            "SELECT incident_id,asset_id,kind,title,status,owner,version,created_at,updated_at FROM phlo.incident WHERE incident_id=%s",
+            f"SELECT {_INCIDENT_COLUMNS} FROM phlo.incident WHERE incident_id=%s",
             (incident_id,),
         )
-        result = _row(cur.fetchone()).model_dump(mode="json")
+        view = _row(cur.fetchone())
+        _enqueue_effects(cur, env, actor, view, effects)
+        result = view.model_dump(mode="json")
         _store_idempotent_result(cur, env, actor, action_target, idempotency_key, result)
-        return _view_from_json(result)
+    return _deliver_and_view(request, env, view)
 
 
 @router.put("/incidents/{incident_id}/subscriptions")

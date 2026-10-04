@@ -92,11 +92,11 @@ Provides Nessie catalog integration and catalog CLI commands. Install with `pip 
 
 ## phlo-observatory
 
-Provides Observatory UI integration, extension loading, run views, and service metadata. Install with `pip install phlo-observatory`. Settings class: `ObservatorySettings`. Service: `observatory`.
+Provides the API-backed Observatory UI, run views, Python extension contracts, and service metadata. The old frontend and browser-extension loader have been removed. Install with `pip install phlo-observatory`. Settings class: `ObservatorySettings`. Service: `observatory`.
 
 ## Durable run-report support boundary
 
-The Observatory surface provides an authenticated durable per-run report API and UI projection at alpha maturity. The support registry records this capability under `phlo-observatory` and `phlo-api`. Authentication and route authorisation remain configuration and deployment concerns described in [Auth and access](auth-and-access.md).
+Phlo API provides an authenticated durable per-run report at alpha maturity. The dedicated report projection in Observatory is pending; pipeline run views are not that durable report. The support registry records this capability under `phlo-observatory` and `phlo-api`. Authentication and route authorisation remain configuration and deployment concerns described in [Auth and access](auth-and-access.md).
 
 ## phlo-pandera
 

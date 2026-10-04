@@ -156,6 +156,7 @@ def test_ingestion_assets_carry_differentiated_contracts() -> None:
     assert readings.run.freshness_hours == (2, 4)
     assert assets["dlt_telemetry_corrections"].metadata["write_mode"] == "merge"
     assert assets["dlt_device_registry"].run.freshness_hours == (168, 192)
+    assert all(asset.metadata["phlo/layer"] == "bronze" for asset in assets.values())
     assert all(asset.checks[0].blocking for asset in assets.values())
 
 
@@ -175,6 +176,11 @@ def test_schedules_cover_ingestion_repair_fleet_and_default_to_stopped() -> None
     assert all(
         schedule.default_status is dg.DefaultScheduleStatus.STOPPED for schedule in registered
     )
+    assert telemetry_schedules.daily_fleet_job.tags == {
+        "group": "iot",
+        "owner": "fleet-operations",
+        "source": "iot_telemetry",
+    }
 
 
 def test_dbt_models_implement_dedup_repair_and_publication() -> None:

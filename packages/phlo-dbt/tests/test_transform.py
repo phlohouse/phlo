@@ -121,6 +121,47 @@ def test_custom_dbt_translator_description_does_not_embed_compiled_sql_by_defaul
     assert "select 1 as x" not in description
 
 
+def test_translator_declares_physical_relation_from_schema_and_alias() -> None:
+    translator = DbtSpecTranslator()
+    props = {
+        "name": "logical_model",
+        "alias": "published_devices",
+        "schema": "fleet",
+        "database": "iceberg",
+        "config": {"materialized": "table"},
+    }
+    assert translator.get_metadata(props)["phlo/relation"] == "fleet.published_devices"
+    assert "phlo/relation" not in translator.get_metadata(
+        {**props, "config": {"materialized": "ephemeral"}}
+    )
+    assert "phlo/relation" not in translator.get_metadata({"name": "unresolved"})
+
+
+def test_translator_preserves_declared_operational_metadata_without_overriding_relation() -> None:
+    translator = DbtSpecTranslator()
+    metadata = translator.get_metadata(
+        {
+            "name": "fleet_summary",
+            "schema": "analytics",
+            "config": {"materialized": "table"},
+            "meta": {
+                "phlo/layer": "gold",
+                "owner": "facilities",
+                "consumers": [{"name": "operations", "usage": "site coverage"}],
+                "sla": {"freshness_hours": 24, "quality_threshold": 0.99},
+                "phlo/reports": ["site_daily_report"],
+                "phlo/relation": "raw.wrong_table",
+            },
+        }
+    )
+    assert metadata["phlo/layer"] == "gold"
+    assert metadata["owner"] == "facilities"
+    assert metadata["consumers"] == [{"name": "operations", "usage": "site coverage"}]
+    assert metadata["sla"] == {"freshness_hours": 24, "quality_threshold": 0.99}
+    assert metadata["phlo/reports"] == ["site_daily_report"]
+    assert metadata["phlo/relation"] == "analytics.fleet_summary"
+
+
 def test_custom_dbt_translator_metadata_compiled_sql_is_capped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

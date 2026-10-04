@@ -62,6 +62,7 @@ def read_readings(telemetry_dir: Path = TELEMETRY_DIR, partition_date: str = "")
     unique_key="message_id",
     validation_schema=TelemetryReadingSchema,
     group="ingest",
+    layer="bronze",
     freshness_hours=(2, 4),
     merge_strategy="append",
     partition_spec=[("event_hour", "identity")],

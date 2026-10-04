@@ -158,6 +158,35 @@ async def test_preview_cancels_latest_continuation_after_row_limit(monkeypatch) 
 
 
 @pytest.mark.anyio
+async def test_query_rejection_reports_a_safe_reason_not_engine_unavailability(monkeypatch) -> None:
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "error": {
+                    "errorName": "NOT_SUPPORTED",
+                    "message": "private SQL and connector details must not be returned",
+                }
+            },
+        )
+
+    monkeypatch.setattr(preview, "resolve_trino_url", lambda: "https://trino:8443")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        monkeypatch.setattr(http_client, "_client", client)
+        with pytest.raises(
+            preview.PreviewQueryRejected,
+            match="This table or operation is not supported by the query engine.",
+        ) as rejected:
+            await preview.execute_preview(
+                "SELECT * FROM information_schema.applicable_roles",
+                catalog="iceberg_prod",
+                disconnected=lambda: _not_disconnected(),
+                limit=10,
+            )
+        assert rejected.value.error_name == "NOT_SUPPORTED"
+
+
+@pytest.mark.anyio
 async def test_preview_cancels_query_when_result_poll_times_out(monkeypatch) -> None:
     calls: list[tuple[str, str]] = []
 

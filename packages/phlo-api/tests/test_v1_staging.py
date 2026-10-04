@@ -125,7 +125,17 @@ def staging_api(
                     {
                         "name": "repo",
                         "location": {"name": location},
-                        "pipelines": [{"name": f"{location}_job", "description": None}],
+                        "pipelines": [
+                            {
+                                "name": f"{location}_job" if location == "prod_loc" else name,
+                                "description": None,
+                            }
+                            for name in (
+                                ("tests", "contracts", "audits")
+                                if location == "stage_loc"
+                                else ("unused",)
+                            )
+                        ],
                     }
                     for location in ("prod_loc", "stage_loc")
                 ],
@@ -136,6 +146,9 @@ def staging_api(
     monkeypatch.setattr(v1_staging, "_nessie", nessie)
     monkeypatch.setattr(v1_staging.v1_jobs, "_graphql", lambda *_args, **_kwargs: _async(jobs))
     monkeypatch.setattr(v1_staging, "resolve_dagster_url", lambda: "http://dagster.invalid")
+    monkeypatch.setattr(
+        v1_staging, "graphql_request", lambda *_args, **_kwargs: _async(_runs_response([]))
+    )
 
     context: dict[str, Any] = {
         "repository": repository,
@@ -236,11 +249,20 @@ def test_candidate_is_opt_in_and_reports_mapped_asymmetric_inventory(staging_api
     assert state["dagster_location"] == "prod_loc"
     assert state["staging_location"] == "stage_loc"
     assert state["code_changes"] == ["M\tcode.py", "A\tstaging-only.py"]
-    assert state["jobs"] == {"prod": ["prod_loc_job"], "staging": ["stage_loc_job"]}
+    assert state["jobs"] == {
+        "prod": ["prod_loc_job"],
+        "staging": ["audits", "contracts", "tests"],
+    }
     assert state["copy_inventory"] == {
         "prod": ["prod.table"],
         "staging": ["stage.table"],
     }
+    assert state["check_configuration_ready"] is True
+    assert [item["status"] for item in state["check_readiness"]] == [
+        "missing_evidence",
+        "missing_evidence",
+        "missing_evidence",
+    ]
     assert state["prod_git_revision"] == context["base"]
     assert state["staging_git_revision"] == context["staging_head"]
 
@@ -312,6 +334,11 @@ def test_check_launch_pins_all_evidence_and_replays_without_running_twice(
     client, _ = staging_api
     state = _candidate(client)
     calls: list[dict[str, Any]] = []
+
+    async def old_failed_evidence(*_args, **_kwargs):
+        return _runs_response([_check_row(state, "tests", "FAILURE")])
+
+    monkeypatch.setattr(v1_staging, "graphql_request", old_failed_evidence)
 
     async def launch(**kwargs):
         calls.append(kwargs)
@@ -385,6 +412,88 @@ def test_check_evidence_requires_latest_exact_location_ref_code_hash_and_candida
     with pytest.raises(Exception) as error:
         asyncio.run(v1_staging._checks(state))
     assert getattr(error.value, "status_code", None) == 409
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        ([], "missing_evidence"),
+        ([], "stale_evidence"),
+    ],
+)
+def test_candidate_readiness_explains_missing_and_stale_evidence(
+    staging_api, monkeypatch: pytest.MonkeyPatch, rows, expected: str
+) -> None:
+    client, _ = staging_api
+    state = _candidate(client)
+    if expected == "stale_evidence":
+        rows = [_check_row(state, "tests", **{"phlo/code_version": "old-revision"})]
+
+    async def evidence(_url, _query, _variables):
+        return _runs_response(rows)
+
+    monkeypatch.setattr(v1_staging, "graphql_request", evidence)
+    readiness = asyncio.run(v1_staging._check_readiness(state))
+    assert readiness[0]["status"] == expected
+    if expected == "stale_evidence":
+        assert "phlo/code_version" in readiness[0]["message"]
+
+
+def test_candidate_readiness_distinguishes_failed_and_current_successful_runs(
+    staging_api, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = staging_api
+    state = _candidate(client)
+
+    async def evidence(rows):
+        return _runs_response(rows)
+
+    monkeypatch.setattr(
+        v1_staging,
+        "graphql_request",
+        lambda *_args, **_kwargs: evidence([_check_row(state, "tests", "FAILURE")]),
+    )
+    failed = asyncio.run(v1_staging._check_readiness(state))
+    assert failed[0]["status"] == "failed"
+    assert failed[0]["run_id"] == "run-tests-FAILURE"
+
+    monkeypatch.setattr(
+        v1_staging,
+        "graphql_request",
+        lambda *_args, **_kwargs: evidence([_check_row(state, "tests")]),
+    )
+    passed = asyncio.run(v1_staging._check_readiness(state))
+    assert passed[0]["status"] == "ready"
+    assert passed[0]["run_id"] == "run-tests-SUCCESS"
+
+    unidentifiable = _check_row(state, "tests")
+    del unidentifiable["runId"]
+    monkeypatch.setattr(
+        v1_staging,
+        "graphql_request",
+        lambda *_args, **_kwargs: evidence([unidentifiable]),
+    )
+    unavailable = asyncio.run(v1_staging._check_readiness(state))
+    assert unavailable[0]["status"] == "unavailable"
+    with pytest.raises(Exception) as error:
+        asyncio.run(v1_staging._checks(state))
+    assert getattr(error.value, "status_code", None) == 409
+
+
+def test_candidate_readiness_identifies_unconfigured_and_missing_jobs(
+    staging_api, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = staging_api
+    state = _candidate(client)
+    monkeypatch.delenv("PHLO_PROMOTION_DAGSTER_CHECK_JOBS")
+    unconfigured = asyncio.run(v1_staging._check_readiness(state))
+    assert [item["status"] for item in unconfigured] == ["unconfigured"] * 3
+
+    monkeypatch.setenv("PHLO_PROMOTION_DAGSTER_CHECK_JOBS", "tests,contracts,audits")
+    state["jobs"]["staging"] = ["tests", "contracts"]
+    missing = asyncio.run(v1_staging._check_readiness(state))
+    assert missing[2]["status"] == "missing_job"
+    assert "audits" in missing[2]["message"]
 
 
 def test_resync_uses_compare_and_assign_then_replays_without_duplicate(staging_api) -> None:

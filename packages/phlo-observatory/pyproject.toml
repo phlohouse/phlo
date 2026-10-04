@@ -52,13 +52,15 @@ phlo_observatory = [
     "prettier.config.js",
     "tsconfig.json",
     "vite.config.ts",
-    "context/**",
+    "vitest.config.ts",
     "public/**",
     "src/**",
+    "scripts/**",
 ]
 
 [tool.setuptools.package-dir]
 "" = "src"
 
 [tool.setuptools.packages.find]
+include = ["phlo_observatory"]
 where = ["src"]

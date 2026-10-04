@@ -29,10 +29,12 @@ Examples:
 
 from __future__ import annotations
 
+from copy import copy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
+from threading import RLock
 
 from phlo.logging import get_logger
 
@@ -168,6 +170,8 @@ class AlertManager:
         """
         self.destinations: dict[str, AlertDestination] = {}
         self._sent_alerts: set[str] = set()
+        self._confirmed_deliveries: set[tuple[str, str]] = set()
+        self._delivery_lock = RLock()
         self._dedup_window_minutes = 60
 
     def register_destination(self, name: str, destination: AlertDestination) -> None:
@@ -189,7 +193,9 @@ class AlertManager:
         self.destinations[name] = destination
         logger.info("alert_destination_registered", destination_name=name)
 
-    def send(self, alert: Alert, destinations: Optional[list[str]] = None) -> bool:
+    def send(
+        self, alert: Alert, destinations: Optional[list[str]] = None, *, channel: str | None = None
+    ) -> bool:
         """Send an alert to specified or all registered destinations.
 
         Returns True if the alert was delivered to at least one destination;
@@ -204,6 +210,8 @@ class AlertManager:
                     False
 
         """
+        from phlo_alerting.destinations.slack import SlackAlertDestination
+
         # Check for duplicates
         alert_key = self._get_alert_key(alert)
         if self._is_duplicate(alert_key):
@@ -211,7 +219,15 @@ class AlertManager:
             return False
 
         # Determine which destinations to use
-        targets = destinations or list(self.destinations.keys())
+        targets = (
+            destinations
+            if destinations is not None
+            else [
+                name
+                for name in self.destinations
+                if not name.startswith(("qa_", "owner:", "consumer:"))
+            ]
+        )
 
         # Send to each destination
         sent = False
@@ -222,6 +238,9 @@ class AlertManager:
 
             try:
                 dest = self.destinations[dest_name]
+                if channel and dest_name == "slack" and isinstance(dest, SlackAlertDestination):
+                    dest = copy(dest)
+                    dest.channel = channel
                 if dest.send(alert):
                     sent = True
                     logger.info(
@@ -237,6 +256,41 @@ class AlertManager:
             self._sent_alerts.add(alert_key)
 
         return sent
+
+    def send_confirmed(
+        self, alert: Alert, destinations: list[str], *, channel: str | None = None
+    ) -> bool:
+        """Confirm every outbox route, preserving successful routes across retries.
+
+        Receipts are process-local. After restart a durable outbox may send
+        again, so callers must describe delivery as at-least-once.
+        """
+        from phlo_alerting.destinations.slack import SlackAlertDestination
+
+        if not destinations:
+            return False
+        with self._delivery_lock:
+            confirmed = True
+            for name in destinations:
+                key = (f"{alert.run_id}:{self._get_alert_key(alert)}", name)
+                if key in self._confirmed_deliveries:
+                    continue
+                destination = self.destinations.get(name)
+                if destination is None:
+                    confirmed = False
+                    continue
+                if channel and name == "slack" and isinstance(destination, SlackAlertDestination):
+                    destination = copy(destination)
+                    destination.channel = channel
+                try:
+                    delivered = destination.send(alert)
+                except Exception:
+                    delivered = False
+                if delivered is True:
+                    self._confirmed_deliveries.add(key)
+                else:
+                    confirmed = False
+            return confirmed
 
     def _get_alert_key(self, alert: Alert) -> str:
         """Build the dedup key from asset name, error message, and severity.
@@ -354,6 +408,24 @@ def _register_default_destinations(manager: AlertManager) -> None:
                 recipients=config.phlo_alert_email_recipients,
             )
             manager.register_destination("email", email)
+            routes = {"qa_email": config.phlo_alert_qa_email_recipients}
+            routes.update(
+                {
+                    f"owner:{name}": recipients
+                    for name, recipients in config.phlo_alert_owner_recipients.items()
+                }
+            )
+            routes.update(
+                {
+                    f"consumer:{name}": recipients
+                    for name, recipients in config.phlo_alert_consumer_recipients.items()
+                }
+            )
+            for name, recipients in routes.items():
+                if recipients:
+                    destination = copy(email)
+                    destination.recipients = recipients
+                    manager.register_destination(name, destination)
         except Exception:
             logger.warning(
                 "alert_destination_register_failed", destination_name="email", exc_info=True

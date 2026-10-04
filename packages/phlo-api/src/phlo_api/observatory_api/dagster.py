@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import ModuleType
 from typing import Any
 
+from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from phlo.config.env import project_env_value
@@ -262,6 +263,7 @@ class MaterializeAssetRequest(BaseModel):
 
     dry_run: bool = True
     partition_key: str | None = None
+    asset_selection: list[str] | None = None
     job_name: str | None = None
     repository_location_name: str | None = None
     repository_name: str | None = None
@@ -487,6 +489,67 @@ async def get_materialization_history(
         return {"error": str(e)}
 
 
+_ASSET_OPERATION_PERMISSION_QUERY = """query AssetOperationPermission($selector: RepositorySelector!) {
+  repositoryOrError(repositorySelector: $selector) {
+    __typename
+    ... on Repository {
+      name location { name }
+      assetNodes {
+        assetKey { path } hasMaterializePermission opNames jobNames
+        repository { name location { name } }
+      }
+    }
+  }
+}"""
+
+
+async def _materialize_asset_details(
+    asset_key_path: str, payload: MaterializeAssetRequest
+) -> AssetDetails | dict[str, Any]:
+    if payload.repository_name is None and payload.repository_location_name is None:
+        return await get_asset_details(asset_key_path)
+    if not payload.repository_name or not payload.repository_location_name:
+        raise HTTPException(status_code=422, detail="Both repository identity fields are required.")
+    selector = {
+        "repositoryName": payload.repository_name,
+        "repositoryLocationName": payload.repository_location_name,
+    }
+    result = await graphql_request(
+        resolve_dagster_url(), _ASSET_OPERATION_PERMISSION_QUERY, {"selector": selector}
+    )
+    repository = (result.get("data") or {}).get("repositoryOrError") or {}
+    if result.get("errors"):
+        raise HTTPException(status_code=502, detail="Dagster action permissions are unavailable.")
+    if (
+        repository.get("__typename") != "Repository"
+        or repository.get("name") != payload.repository_name
+        or repository.get("location", {}).get("name") != payload.repository_location_name
+    ):
+        raise HTTPException(status_code=404, detail="Asset repository was not found.")
+    nodes = repository.get("assetNodes")
+    if not isinstance(nodes, list):
+        raise HTTPException(status_code=502, detail="Dagster returned invalid action permissions.")
+    matches = [
+        node for node in nodes if node.get("assetKey", {}).get("path") == asset_key_path.split("/")
+    ]
+    if len(matches) != 1:
+        raise HTTPException(
+            status_code=404, detail="Asset definition was not found in this repository."
+        )
+    node = matches[0]
+    origin = node.get("repository") or {}
+    if (
+        origin.get("name") != payload.repository_name
+        or origin.get("location", {}).get("name") != payload.repository_location_name
+        or payload.job_name not in node.get("jobNames", [])
+    ):
+        raise HTTPException(status_code=404, detail="Asset was not found in this repository job.")
+    return {
+        "has_materialize_permission": node.get("hasMaterializePermission") is True,
+        "op_names": node.get("opNames") or [],
+    }
+
+
 async def materialize_asset(
     asset_key_path: str,
     payload: MaterializeAssetRequest,
@@ -495,7 +558,7 @@ async def materialize_asset(
     if not asset_key_path:
         return {"error": "Asset key is required"}
 
-    details = await get_asset_details(asset_key_path)
+    details = await _materialize_asset_details(asset_key_path, payload)
     if isinstance(details, dict) and details.get("error"):
         return details
     if isinstance(details, dict):
@@ -504,6 +567,26 @@ async def materialize_asset(
     else:
         has_permission = details.has_materialize_permission
         op_names = details.op_names
+
+    if payload.asset_selection is not None:
+        if (
+            not payload.asset_selection
+            or asset_key_path not in payload.asset_selection
+            or len(set(payload.asset_selection)) != len(payload.asset_selection)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Asset selection must be unique and include the requested asset.",
+            )
+        for selected in payload.asset_selection:
+            if selected == asset_key_path:
+                continue
+            selected_details = await _materialize_asset_details(selected, payload)
+            if isinstance(selected_details, dict):
+                allowed = selected_details.get("has_materialize_permission") is True
+            else:
+                allowed = selected_details.has_materialize_permission
+            has_permission = has_permission and allowed
 
     if not payload.dry_run:
         if not has_permission:
@@ -539,6 +622,7 @@ async def materialize_asset(
             run_config=payload.run_config,
             idempotency_key=payload.idempotency_key,
             tags=payload.tags,
+            asset_selection=payload.asset_selection,
         )
         return DagsterOperationResponse(**result.to_dict())
 

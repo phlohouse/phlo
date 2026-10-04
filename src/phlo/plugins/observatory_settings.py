@@ -8,14 +8,19 @@ never imports a provider package and contains no database driver or SQL code.
 
 from __future__ import annotations
 
+import json
+import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from threading import RLock
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from jsonschema import ValidationError, validate
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, field_validator
+from pydantic import ValidationError as ModelValidationError
 
 from phlo.config.base import BaseConfig
 from phlo.logging import get_logger
@@ -214,3 +219,165 @@ def _reset_memory_service() -> None:
     """Clear the memory-mode singleton (test helper)."""
     global _memory_service
     _memory_service = None
+
+
+ADMIN_SETTINGS_NAMESPACE = "phlo.identity.admin-settings"
+OPERATIONAL_SETTINGS_PREFIX = "observatory.settings."
+
+
+class OperationalSettings(BaseModel):
+    """Validated settings read by owning services on every evaluation.
+
+    Empty numeric inputs mean no default, never a fabricated SLA. Credentials
+    remain in provider configuration; these values contain no secret material.
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    _revision: int = PrivateAttr(default=0)
+    bronze_minutes: int | None = Field(None, alias="freshness.bronze_minutes", ge=1, le=525600)
+    silver_minutes: int | None = Field(None, alias="freshness.silver_minutes", ge=1, le=525600)
+    gold_minutes: int | None = Field(None, alias="freshness.gold_minutes", ge=1, le=525600)
+    open_incident_on_breach: bool = Field(
+        False, alias="freshness.open_incident_on_breach", strict=True
+    )
+    hold_downstream: bool = Field(False, alias="freshness.hold_downstream", strict=True)
+    chat_channel: str = Field("", alias="alerts.chat_channel", max_length=120)
+    email_digest: str = Field("", alias="alerts.email_digest", max_length=80)
+    notify_owners: bool = Field(False, alias="alerts.notify_owners", strict=True)
+    notify_consumers: bool = Field(False, alias="alerts.notify_consumers", strict=True)
+    target_file_size_mb: int | None = Field(
+        None, alias="maintenance.target_file_size_mb", ge=1, le=4096
+    )
+    expire_snapshots_days: int | None = Field(
+        None, alias="maintenance.expire_snapshots_days", ge=1, le=3650
+    )
+    orphan_cleanup: str = Field("", alias="maintenance.orphan_cleanup", max_length=80)
+    keep_tagged_snapshots: bool = Field(
+        False, alias="maintenance.keep_tagged_snapshots", strict=True
+    )
+    compact_nightly: bool = Field(False, alias="maintenance.compact_nightly", strict=True)
+    protect_main: bool = Field(False, alias="audit.protect_main", strict=True)
+    require_merge_reason: bool = Field(False, alias="audit.require_merge_reason", strict=True)
+    sign_release_tags: bool = Field(False, alias="audit.sign_release_tags", strict=True)
+    second_gold_reviewer: bool = Field(False, alias="audit.second_gold_reviewer", strict=True)
+    retention_years: int | None = Field(None, alias="audit.retention_years", ge=1, le=100)
+
+    @property
+    def settings_revision(self) -> int:
+        """Revision evaluated by the consumer, not an initiating actor identity."""
+        return self._revision
+
+    @field_validator(
+        "bronze_minutes",
+        "silver_minutes",
+        "gold_minutes",
+        "target_file_size_mb",
+        "expire_snapshots_days",
+        "retention_years",
+        mode="before",
+    )
+    @classmethod
+    def numeric_input(cls, value: object) -> object:
+        if value == "" or value is None:
+            return None
+        if type(value) is int:
+            return value
+        if isinstance(value, str) and value.isascii() and value.isdigit():
+            return int(value)
+        raise ValueError("Use a positive whole number or leave the value empty.")
+
+    @field_validator("chat_channel")
+    @classmethod
+    def channel_input(cls, value: str) -> str:
+        if value and (not value.startswith("#") or any(c.isspace() for c in value)):
+            raise ValueError("Chat channel must be a channel name such as #data-platform.")
+        return value
+
+    @field_validator("email_digest", "orphan_cleanup")
+    @classmethod
+    def schedule_input(cls, value: str) -> str:
+        if value and not re.fullmatch(
+            r"(?:Daily|Weekdays|Sundays) (?:at )?(?:[01][0-9]|2[0-3]):[0-5][0-9]", value
+        ):
+            raise ValueError("Use Daily, Weekdays or Sundays followed by HH:MM (UTC).")
+        return value
+
+    def freshness_sla_seconds(self, layer: str | None) -> int | None:
+        """Return a declared layer default; unknown layers have no SLA."""
+        if layer is None:
+            return None
+        minutes = {
+            "bronze": self.bronze_minutes,
+            "silver": self.silver_minutes,
+            "gold": self.gold_minutes,
+        }.get(layer)
+        return minutes * 60 if minutes is not None else None
+
+
+def parse_operational_settings(values: dict[str, Any]) -> OperationalSettings:
+    """Validate the owned keys without changing other admin settings."""
+    return OperationalSettings.model_validate(
+        {
+            key.removeprefix(OPERATIONAL_SETTINGS_PREFIX): value
+            for key, value in values.items()
+            if key.startswith(OPERATIONAL_SETTINGS_PREFIX)
+        }
+    )
+
+
+def get_operational_settings() -> OperationalSettings:
+    """Read the current authorised revision, failing closed on malformed storage."""
+    record = get_settings_service().get(SettingsScope.GLOBAL, ADMIN_SETTINGS_NAMESPACE)
+    if record is None:
+        return OperationalSettings()
+    try:
+        values = record.settings["values"]
+        revision = record.settings.get("version")
+        if not isinstance(values, dict) or type(revision) is not int or revision < 0:
+            raise ValueError("invalid settings values")
+        settings = parse_operational_settings(values)
+        settings._revision = revision
+        return settings
+    except (KeyError, ValueError, ModelValidationError) as exc:
+        raise StorageCorruptionError("Stored operational settings are malformed.") from exc
+
+
+def operational_schedule_slot(schedule: str, at: datetime) -> datetime | None:
+    """Return today's due UTC slot for a validated schedule, or no slot."""
+    if not schedule:
+        return None
+    OperationalSettings.schedule_input(schedule)
+    now = at.astimezone(UTC)
+    if schedule.startswith("Weekdays") and now.weekday() >= 5:
+        return None
+    if schedule.startswith("Sundays") and now.weekday() != 6:
+        return None
+    hour, minute = map(int, schedule.split()[-1].split(":"))
+    slot = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return slot if slot <= now else None
+
+
+def operational_environment_target(env: str) -> tuple[str, str]:
+    """Resolve an operator-bound consumer location/ref, never a default branch."""
+    try:
+        targets = json.loads(os.environ["PHLO_V1_ENVIRONMENTS"])
+        if env not in {"prod", "staging"} or set(targets) != {"prod", "staging"}:
+            raise ValueError
+        if (
+            len({targets[name]["dagster_location"] for name in targets}) != 2
+            or len({targets[name]["nessie_ref"] for name in targets}) != 2
+        ):
+            raise ValueError
+        location, ref = targets[env]["dagster_location"], targets[env]["nessie_ref"]
+        if (
+            not isinstance(location, str)
+            or not location
+            or not isinstance(ref, str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+", ref)
+        ):
+            raise ValueError
+        return location, ref
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StorageUnavailableError(
+            "Operational consumer environment binding is unavailable."
+        ) from exc

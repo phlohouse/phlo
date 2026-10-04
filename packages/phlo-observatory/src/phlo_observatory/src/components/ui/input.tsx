@@ -1,18 +1,20 @@
-/**
- * Text input wrapping the Base UI input with the shared field styling.
- */
+/** Provides styled text input and textarea controls. */
 import * as React from 'react'
 import { Input as InputPrimitive } from '@base-ui/react/input'
-
+import { Field as FieldPrimitive } from '@base-ui/react/field'
 import { cn } from '@/lib/utils'
 
-function Input({ className, type, ...props }: React.ComponentProps<'input'>) {
+function Input({
+  className,
+  ...props
+}: React.ComponentProps<typeof InputPrimitive>) {
   return (
     <InputPrimitive
-      type={type}
       data-slot="input"
       className={cn(
-        'dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 disabled:bg-input/50 dark:disabled:bg-input/80 h-8 rounded-none border bg-transparent px-2.5 py-1 text-xs transition-colors file:h-6 file:text-xs file:font-medium focus-visible:ring-1 aria-invalid:ring-1 md:text-xs file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+        'h-9 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-sm text-foreground outline-none placeholder:text-faint',
+        'focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary-soft focus-visible:outline-none',
+        'disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-bad',
         className,
       )}
       {...props}
@@ -20,4 +22,18 @@ function Input({ className, type, ...props }: React.ComponentProps<'input'>) {
   )
 }
 
-export { Input }
+function Textarea({ className, ...props }: React.ComponentProps<'textarea'>) {
+  return (
+    <FieldPrimitive.Control
+      render={<textarea {...props} />}
+      data-slot="textarea"
+      className={cn(
+        'w-full resize-none rounded-lg border border-input bg-card px-3 py-2.5 text-sm leading-normal text-foreground outline-none placeholder:text-faint',
+        'focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary-soft focus-visible:outline-none',
+        className,
+      )}
+    />
+  )
+}
+
+export { Input, Textarea }

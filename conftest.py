@@ -131,6 +131,12 @@ def reset_test_env(monkeypatch):
     """Reset environment variables before each test."""
     monkeypatch.setenv("PHLO_ENV", "test")
     monkeypatch.setenv("PHLO_LOG_LEVEL", "DEBUG")
+    # Provider mutation unit tests need isolated governance settings, not a
+    # connection to the production-default PostgreSQL settings store.
+    monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "memory")
+    settings = sys.modules.get("phlo.plugins.observatory_settings")
+    if settings is not None:
+        settings._reset_memory_service()
     # Disable DLT telemetry
     monkeypatch.setenv("DLT__RUNTIME__DLTHUB_TELEMETRY", "False")
     monkeypatch.setenv("DLT_TELEMETRY_DISABLED", "1")

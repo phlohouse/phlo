@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from datetime import UTC, datetime
 from typing import Any
@@ -10,7 +11,13 @@ from urllib.parse import urlencode
 
 import dagster as dg
 import requests
+from dagster._core.definitions.freshness import TimeWindowFreshnessPolicy
 
+from phlo.plugins.observatory_settings import (
+    OperationalSettings,
+    get_operational_settings,
+    operational_environment_target,
+)
 from phlo.security.mode import requires_http_authorization
 from phlo.security.service_identity import (
     build_scoped_service_headers,
@@ -212,6 +219,12 @@ def _latest_successful_materialization(
                 )
             if run_environment != environment:
                 continue
+            expected_location, expected_ref = operational_environment_target(environment)
+            if (
+                location != expected_location
+                or getattr(run, "tags", {}).get("phlo/ref") != expected_ref
+            ):
+                continue
             if str(getattr(getattr(run, "status", None), "value", "")).upper() != "SUCCESS":
                 continue
             dagster_event = getattr(entry, "dagster_event", None)
@@ -236,16 +249,65 @@ def _latest_successful_materialization(
     return None
 
 
+def _definition_freshness_sla(
+    metadata: dict[str, Any],
+    freshness_policy: dg.FreshnessPolicy | None,
+    settings: OperationalSettings,
+) -> int | float | None:
+    """Resolve declared SLA, native fail window, then the explicit-layer default."""
+    sla = metadata.get("sla")
+    hours = sla.get("freshness_hours") if isinstance(sla, dict) else None
+    if hours is not None:
+        if type(hours) not in {int, float} or not math.isfinite(hours) or hours <= 0:
+            raise ValueError("Invalid declared freshness SLA")
+        return hours * 3600
+    if isinstance(freshness_policy, TimeWindowFreshnessPolicy):
+        return freshness_policy.fail_window.to_timedelta().total_seconds()
+    return settings.freshness_sla_seconds(metadata.get("phlo/layer"))
+
+
 def _detect_freshness_breaches(
     context: dg.SensorEvaluationContext,
     api_url: str,
     environments: dict[str, str],
 ) -> None:
+    settings = get_operational_settings()
+    if not settings.open_incident_on_breach:
+        return
     for environment in sorted(set(environments.values())):
-        for policy in _asset_policies(api_url, environment):
+        policies = {policy["asset_id"]: policy for policy in _asset_policies(api_url, environment)}
+        # Definitions are local to this code server. Only its operator-bound
+        # environment may use declaration/layer defaults; overrides stay scoped.
+        if (
+            os.environ.get("PHLO_OBSERVATORY_ENVIRONMENT") == environment
+            and context.repository_def is not None
+        ):
+            graph = context.repository_def.asset_graph
+            for key in graph.get_all_asset_keys():
+                node = graph.get(key)
+                if node.is_partitioned:
+                    continue
+                asset_id = _asset_id_for_key(key)
+                if policies.get(asset_id, {}).get("freshness_sla_seconds") is not None:
+                    continue
+                metadata = {name: _metadata_value(value) for name, value in node.metadata.items()}
+                seconds = _definition_freshness_sla(metadata, node.freshness_policy, settings)
+                if seconds is not None:
+                    policies[asset_id] = {
+                        **policies.get(asset_id, {}),
+                        "asset_id": asset_id,
+                        "freshness_sla_seconds": seconds,
+                    }
+        for policy in policies.values():
             asset_id = policy.get("asset_id")
             sla_seconds = policy.get("freshness_sla_seconds")
-            if not isinstance(asset_id, str) or type(sla_seconds) is not int or sla_seconds <= 0:
+            if (
+                not isinstance(asset_id, str)
+                or sla_seconds is None
+                or type(sla_seconds) not in {int, float}
+                or not math.isfinite(sla_seconds)
+                or sla_seconds <= 0
+            ):
                 continue
             asset_key = _asset_key_for_policy(context, asset_id)
             if asset_key is None:
@@ -270,6 +332,7 @@ def _detect_freshness_breaches(
                     "asset_id": asset_id,
                     "kind": "freshness_breach",
                     "title": f"Freshness SLA breached: {asset_id}",
+                    **({"pause_downstream": True} if settings.hold_downstream else {}),
                     "evidence": {
                         "repository_location": evidence["location"],
                         "successful_run_id": evidence["run_id"],
@@ -278,6 +341,7 @@ def _detect_freshness_breaches(
                             "materialized_at"
                         ].isoformat(),
                         "freshness_sla_seconds": sla_seconds,
+                        "settings_revision": settings.settings_revision,
                     },
                 },
             )

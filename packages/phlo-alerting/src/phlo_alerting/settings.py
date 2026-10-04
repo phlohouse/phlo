@@ -76,6 +76,9 @@ class AlertingSettings(BaseConfig):
     phlo_alert_email_recipients: list[str] = Field(
         default_factory=list, description="Email recipients for alerts"
     )
+    phlo_alert_qa_email_recipients: list[str] = Field(default_factory=list)
+    phlo_alert_owner_recipients: dict[str, list[str]] = Field(default_factory=dict)
+    phlo_alert_consumer_recipients: dict[str, list[str]] = Field(default_factory=dict)
 
 
 @project_root_cached

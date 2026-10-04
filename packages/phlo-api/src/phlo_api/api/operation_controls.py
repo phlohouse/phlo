@@ -27,9 +27,15 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 
+from phlo.plugins.observatory_settings import (
+    OperationalSettings,
+    StorageUnavailableError,
+    get_operational_settings,
+)
 from phlo.security.mode import requires_http_authorization
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.authorization import get_authorization_mode
+from phlo_api.errors import BackendUnavailableError
 
 _TOKEN_CONFIG_ENV = "PHLO_API_TOKENS"
 _DEFAULT_IDEMPOTENCY_RETENTION_HOURS = 24
@@ -72,6 +78,16 @@ class IdempotencyConflict(HTTPException):
 def project_root() -> Path:
     """Resolve the Phlo project root from PHLO_PROJECT_PATH, defaulting to the cwd."""
     return Path(os.environ.get("PHLO_PROJECT_PATH", ".")).resolve()
+
+
+def load_operational_settings() -> OperationalSettings:
+    """Translate unavailable or corrupt governance storage to the API's 503 boundary."""
+    try:
+        return get_operational_settings()
+    except StorageUnavailableError as exc:
+        raise BackendUnavailableError(
+            "Governance settings are unavailable; restore durable settings storage before retrying."
+        ) from exc
 
 
 def require_scope(request: Request, required_scope: str) -> dict[str, Any]:
@@ -210,6 +226,15 @@ def _rotate_audit_log(path: Path) -> None:
         return
     oldest = path.with_name(f"{path.name}.{max_files}")
     if oldest.exists():
+        settings = get_operational_settings()
+        if settings.retention_years is not None:
+            # This journal has no legal-hold or authenticated archive protocol.
+            # A retention minimum is not permission to delete older evidence.
+            raise StorageUnavailableError(
+                f"Audit retention requires at least {settings.retention_years} years of preservation. "
+                "Rotation cannot discard evidence; configure a larger journal capacity or "
+                "an operator-reviewed archive before retrying. Sealed audit records are not expired."
+            )
         oldest.unlink()
     for index in range(max_files - 1, 0, -1):
         candidate = path.with_name(f"{path.name}.{index}")

@@ -1,5 +1,5 @@
 {
-  "field_count": 177,
+  "field_count": 180,
   "model_count": 28,
   "models": [
     {
@@ -354,6 +354,14 @@
       "class": "AlertingSettings",
       "fields": [
         {
+          "alias": "phlo_alert_consumer_recipients",
+          "annotation": "dict[str, list[str]]",
+          "default": "<factory:dict>",
+          "description": null,
+          "name": "phlo_alert_consumer_recipients",
+          "required": false
+        },
+        {
           "alias": "phlo_alert_email_recipients",
           "annotation": "list[str]",
           "default": "<factory:list>",
@@ -394,11 +402,27 @@
           "required": false
         },
         {
+          "alias": "phlo_alert_owner_recipients",
+          "annotation": "dict[str, list[str]]",
+          "default": "<factory:dict>",
+          "description": null,
+          "name": "phlo_alert_owner_recipients",
+          "required": false
+        },
+        {
           "alias": "phlo_alert_pagerduty_key",
           "annotation": "str | None",
           "default": null,
           "description": "PagerDuty Events API v2 integration key",
           "name": "phlo_alert_pagerduty_key",
+          "required": false
+        },
+        {
+          "alias": "phlo_alert_qa_email_recipients",
+          "annotation": "list[str]",
+          "default": "<factory:list>",
+          "description": null,
+          "name": "phlo_alert_qa_email_recipients",
           "required": false
         },
         {

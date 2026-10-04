@@ -28,7 +28,9 @@ from datetime import datetime
 import requests
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
+from phlo.capabilities.interfaces import IndependentReviewRequired
 from phlo.logging import get_logger
+from phlo.plugins.observatory_settings import get_operational_settings
 from phlo_nessie.settings import get_settings
 
 logger = get_logger(__name__)
@@ -315,7 +317,9 @@ class NessieResource:
         )
         return new_hash
 
-    def merge_branch(self, source: str, target: str = "main") -> bool:
+    def merge_branch(
+        self, source: str, target: str = "main", *, message: str | None = None
+    ) -> bool:
         """Merge source branch into target branch.
 
         Example:
@@ -324,6 +328,14 @@ class NessieResource:
             True
 
         """
+        governance = get_operational_settings()
+        if governance.require_merge_reason and target == "main" and not (message or "").strip():
+            raise PermissionError("A non-blank message explaining the merge into main is required.")
+        if governance.second_gold_reviewer:
+            raise IndependentReviewRequired(
+                "Independent review is required. This catalog merge cannot prove non-gold "
+                "classification or consume human review evidence; use a governed review workflow."
+            )
         logger.info(
             "nessie_resource_merge_branch_requested",
             source=source,
@@ -346,7 +358,7 @@ class NessieResource:
             json={
                 "fromRefName": source,
                 "fromHash": source_hash,
-                "message": f"Merge {source} into {target}",
+                "message": message if message is not None else f"Merge {source} into {target}",
             },
             timeout=30,
         )

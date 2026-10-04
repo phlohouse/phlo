@@ -110,6 +110,7 @@ def _run_dbt_model(
         parameters={
             "select": [model_name, *test_names],
             "indirect_selection": "empty",
+            "full_refresh": runtime.tags.get("phlo/full_refresh_asset") == asset_key,
         },
     )
 

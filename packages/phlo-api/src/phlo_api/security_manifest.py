@@ -105,6 +105,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
             "v1_branch_commits",
             "v1_branch_diff",
             "v1_branch_compare",
+            "v1_wap_runs",
         ),
         action=CanonicalAction.CATALOG_READ.value,
         resource_type="catalog",
@@ -226,6 +227,13 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"), ("asset_id", "path")),
     ),
     *_specs(
+        ("v1_asset_exact_row_count",),
+        action=CanonicalAction.DATASET_QUERY.value,
+        resource_type="asset",
+        resource_keys=("env", "asset_id"),
+        resource_sources=(("env", "query"), ("asset_id", "path")),
+    ),
+    *_specs(
         ("v1_asset_materialize", "v1_asset_backfill"),
         action=CanonicalAction.ASSET_MANAGE.value,
         resource_type="asset",
@@ -236,6 +244,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         (
             "v1_asset_audit_proposal",
             "v1_asset_audit_proposal_detail",
+            "v1_asset_audit_proposal_test",
             "v1_asset_audit_proposal_pull_request",
         ),
         action=CanonicalAction.ASSET_MANAGE.value,
@@ -261,6 +270,13 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         ("v1_table_snapshots", "v1_table_schema_history"),
         action=CanonicalAction.ASSET_READ.value,
         resource_type="asset",
+        resource_keys=("env", "table_name"),
+        resource_sources=(("env", "query"), ("table_name", "path")),
+    ),
+    *_specs(
+        ("v1_table_rollback",),
+        action=CanonicalAction.DATASET_WRITE.value,
+        resource_type="dataset",
         resource_keys=("env", "table_name"),
         resource_sources=(("env", "query"), ("table_name", "path")),
     ),

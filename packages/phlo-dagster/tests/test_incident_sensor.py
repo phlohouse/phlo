@@ -8,8 +8,39 @@ from types import SimpleNamespace
 
 import dagster as dg
 import pytest
+import requests
 
+from phlo.plugins import observatory_settings as storage
 from phlo_dagster import incident_sensor
+
+
+@pytest.fixture(autouse=True)
+def operational_settings(monkeypatch):
+    monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "memory")
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps(
+            {
+                "prod": {"dagster_location": "prod-location", "nessie_ref": "main"},
+                "staging": {"dagster_location": "staging-location", "nessie_ref": "dev"},
+            }
+        ),
+    )
+    storage._reset_memory_service()
+
+    def save(**values):
+        storage.get_settings_service().put(
+            storage.SettingsScope.GLOBAL,
+            storage.ADMIN_SETTINGS_NAMESPACE,
+            {
+                "version": 9,
+                "values": {f"observatory.settings.{key}": value for key, value in values.items()},
+            },
+        )
+
+    save(**{"freshness.open_incident_on_breach": True})
+    yield save
+    storage._reset_memory_service()
 
 
 def _entry(
@@ -219,6 +250,7 @@ def test_freshness_uses_explicit_sla_and_latest_success_in_same_environment(
     )
     instance.get_run_by_id = lambda run_id: SimpleNamespace(
         status=SimpleNamespace(value=runs[run_id][0]),
+        tags={"phlo/ref": "main" if runs[run_id][1] == "prod-location" else "dev"},
         remote_job_origin=SimpleNamespace(
             repository_origin=SimpleNamespace(
                 code_location_origin=SimpleNamespace(location_name=runs[run_id][1])
@@ -277,6 +309,116 @@ def test_partitioned_asset_policy_is_not_used_for_freshness(
     repository = dg.Definitions(assets=[partitioned_orders]).get_repository_def()
     context = dg.build_sensor_context(repository_def=repository)
     assert incident_sensor._asset_key_for_policy(context, "partitioned_orders") is None
+
+
+def test_durable_freshness_defaults_precedence_and_hold_request(operational_settings, monkeypatch):
+    monkeypatch.setenv("PHLO_OBSERVATORY_ENVIRONMENT", "prod")
+    operational_settings(
+        **{
+            "freshness.open_incident_on_breach": True,
+            "freshness.bronze_minutes": "60",
+            "freshness.hold_downstream": True,
+        }
+    )
+
+    @dg.asset(metadata={"sla": {"freshness_hours": 1}, "phlo/layer": "bronze"})
+    def overridden():
+        return 1
+
+    @dg.asset(
+        metadata={"sla": {"freshness_hours": 1}},
+        freshness_policy=dg.FreshnessPolicy.time_window(fail_window=timedelta(hours=8)),
+    )
+    def declared():
+        return 1
+
+    @dg.asset(
+        metadata={"phlo/layer": "bronze"},
+        freshness_policy=dg.FreshnessPolicy.time_window(fail_window=timedelta(hours=3)),
+    )
+    def native_policy():
+        return 1
+
+    @dg.asset(metadata={"phlo/layer": "bronze"})
+    def defaulted():
+        return 1
+
+    @dg.asset(metadata={"phlo/layer": "bronze"})
+    def missing():
+        return 1
+
+    @dg.asset(group_name="ingest")
+    def unclassified():
+        return 1
+
+    repository = dg.Definitions(
+        assets=[overridden, declared, native_policy, defaulted, missing, unclassified]
+    ).get_repository_def()
+    context = dg.build_sensor_context(repository_def=repository)
+    monkeypatch.setattr(
+        incident_sensor,
+        "_asset_policies",
+        lambda url, env: (
+            [{"asset_id": "overridden", "freshness_sla_seconds": 28800}] if env == "prod" else []
+        ),
+    )
+
+    def materialized(context, key, env, environments):
+        if key.path == ["missing"]:
+            return None
+        return {
+            "location": "prod-location",
+            "storage_id": 91,
+            "run_id": "success",
+            "materialized_at": datetime.now(UTC) - timedelta(hours=2),
+        }
+
+    monkeypatch.setattr(incident_sensor, "_latest_successful_materialization", materialized)
+    calls = []
+
+    def send(*args):
+        calls.append(args)
+
+    monkeypatch.setattr(incident_sensor, "_send_incident", send)
+    mapping = {"prod-location": "prod", "staging-location": "staging"}
+    incident_sensor._detect_freshness_breaches(context, "http://controlled", mapping)
+    assert {call[3]["asset_id"] for call in calls} == {"declared", "defaulted"}
+    assert all(call[1] == "prod" and call[3]["pause_downstream"] is True for call in calls)
+    assert all(call[3]["evidence"]["settings_revision"] == 9 for call in calls)
+    operational_settings(
+        **{"freshness.open_incident_on_breach": False, "freshness.hold_downstream": True}
+    )
+    calls.clear()
+    incident_sensor._detect_freshness_breaches(context, "http://controlled", mapping)
+    assert calls == []
+
+
+def test_requested_hold_surfaces_api_authorization_failure(monkeypatch):
+    monkeypatch.setattr(
+        incident_sensor,
+        "_service_headers",
+        lambda: {"Authorization": "Bearer api-orchestrate-only"},
+    )
+    calls = []
+
+    class Denied:
+        def raise_for_status(self):
+            raise requests.HTTPError("403 independent pause permission required")
+
+    def post(url, **kwargs):
+        calls.append(kwargs)
+        return Denied()
+
+    monkeypatch.setattr(incident_sensor.requests, "post", post)
+    with pytest.raises(requests.HTTPError, match="403"):
+        incident_sensor._send_incident(
+            "http://controlled",
+            "prod",
+            "evidence",
+            {"asset_id": "declared", "pause_downstream": True},
+        )
+    assert calls[0]["headers"]["Authorization"] == "Bearer api-orchestrate-only"
+    assert calls[0]["json"]["pause_downstream"] is True
 
 
 def test_policy_source_outage_fails_sensor_without_fabricating_a_signal(

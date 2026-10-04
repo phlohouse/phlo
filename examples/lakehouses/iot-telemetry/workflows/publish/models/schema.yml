@@ -3,6 +3,16 @@ version: 2
 models:
   - name: device_health_current
     description: Newest hourly health row per device; the consumer-facing health product.
+    config:
+      meta:
+        phlo/layer: gold
+        owner: fleet-operations
+        consumers:
+          - name: reliability
+            usage: current device health monitoring
+        sla:
+          freshness_hours: 4
+          quality_threshold: 0.995
     columns:
       - name: device_id
         tests: [unique, not_null]
@@ -10,6 +20,17 @@ models:
         tests: [not_null]
   - name: site_daily_report
     description: Published daily report per site with reference names and coverage.
+    config:
+      meta:
+        phlo/layer: gold
+        phlo/reports: [site_daily_report]
+        owner: facilities
+        consumers:
+          - name: facilities
+            usage: daily site coverage reporting
+        sla:
+          freshness_hours: 30
+          quality_threshold: 1.0
     columns:
       - name: site_day_key
         tests: [unique, not_null]

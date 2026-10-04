@@ -79,6 +79,7 @@ from phlo.logging import get_logger
 from phlo_iceberg.catalog import get_catalog
 from phlo_iceberg.settings import get_settings
 from phlo_iceberg.tables import (
+    _require_direct_write,
     append_to_table,
     delete_rows_from_table,
     ensure_table,
@@ -1071,6 +1072,8 @@ class IcebergResource:
         not deduplicate. Raises ValueError when the table identifier is invalid.
         """
         branch = override_ref or self.ref
+        if not dry_run:
+            _require_direct_write(branch)
         quoted_table_name = _validate_compaction_table_name(table_name)
 
         try:
@@ -1965,6 +1968,8 @@ class IcebergResource:
     ) -> dict[str, object]:
         """Plan or execute guarded provider-neutral snapshot expiry."""
         branch = override_ref or self.ref
+        if not dry_run:
+            _require_direct_write(branch)
         _validate_compaction_table_name(table_name)
         effective_minimum = max(minimum_retention_hours, SAFE_MIN_RETENTION_HOURS)
         if retention_hours < effective_minimum or retain_last < 1:
@@ -2062,6 +2067,8 @@ class IcebergResource:
     ) -> dict[str, object]:
         """Plan or execute guarded provider-neutral orphan-file cleanup."""
         branch = override_ref or self.ref
+        if not dry_run:
+            _require_direct_write(branch)
         _validate_compaction_table_name(table_name)
         effective_minimum = max(minimum_retention_hours, SAFE_MIN_RETENTION_HOURS)
         if retention_hours < effective_minimum:

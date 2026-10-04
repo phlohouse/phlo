@@ -125,6 +125,63 @@ def test_catalog_refs_and_engines_are_resolved_from_each_environment(query_api):
     assert client.get("/api/v1/query/catalog?env=invalid").status_code == 422
 
 
+@pytest.mark.parametrize("supported", [False, True])
+def test_catalog_probes_only_role_tables_and_retains_supported_metadata(
+    query_api, monkeypatch, supported
+):
+    client, calls = query_api
+    tables = ["roles", "applicable_roles", "enabled_roles", "columns", "tables"]
+
+    async def execute(sql, *, catalog, disconnected, limit):
+        calls.append((sql, catalog, limit))
+        if "SELECT table_schema" in sql:
+            return {
+                "rows": [{"table_schema": "information_schema", "table_name": t} for t in tables]
+                + [{"table_schema": "raw", "table_name": "roles"}],
+                "has_more": False,
+            }
+        if sql.endswith('."roles" LIMIT 1') and not supported:
+            raise v1_query.PreviewQueryRejected("unsupported", error_name="NOT_SUPPORTED")
+        if sql.endswith('."applicable_roles" LIMIT 1'):
+            raise v1_query.PreviewQueryRejected("denied", error_name="PERMISSION_DENIED")
+        if sql.endswith('."enabled_roles" LIMIT 1'):
+            raise v1_query.PreviewUnavailable("outage")
+        return {"rows": [], "has_more": False}
+
+    monkeypatch.setattr(v1_query, "execute_preview", execute)
+    response = client.get("/api/v1/query/catalog?env=staging")
+    assert response.status_code == 200
+    schemas = response.json()["catalogs"][0]["schemas"]
+    assert schemas == [
+        {"name": "information_schema", "tables": tables if supported else tables[1:]},
+        {"name": "raw", "tables": ["roles"]},
+    ]
+    assert len(calls) == 4
+    assert all(catalog == "warehouse_staging" for _, catalog, _ in calls)
+    assert all(limit == 1 and "LIMIT 1" in sql for sql, _, limit in calls[1:])
+
+
+def test_catalog_role_probe_timeout_cancels_pending_work_without_hiding_tables(monkeypatch):
+    cancelled: list[str] = []
+
+    async def execute(sql, **kwargs):
+        try:
+            await asyncio.sleep(10)
+        finally:
+            cancelled.append(sql)
+
+    monkeypatch.setattr(v1_query, "execute_preview", execute)
+    started = time.monotonic()
+    assert (
+        asyncio.run(
+            v1_query._unsupported_role_tables("warehouse_prod", ["roles", "roles", "orders"])
+        )
+        == set()
+    )
+    assert time.monotonic() - started < 7
+    assert len(cancelled) == 1
+
+
 def test_query_result_is_bounded_owner_scoped_exportable_and_audited(query_api, tmp_path):
     client, calls = query_api
     response = client.post(

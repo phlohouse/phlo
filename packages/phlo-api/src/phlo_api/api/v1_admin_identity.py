@@ -31,6 +31,7 @@ from phlo.plugins.observatory_settings import (
     SettingsScope,
     StorageUnavailableError,
     get_settings_service,
+    parse_operational_settings,
 )
 from phlo_api.api.authentication import authenticate_request, get_request_principal
 from phlo_api.api.v1_admin_audit import _audit_store
@@ -185,6 +186,7 @@ class AdminSettingsUpdate(WireModel):
                 raise ValueError("String settings cannot exceed 4000 characters.")
             if isinstance(value, float) and not math.isfinite(value):
                 raise ValueError("Numeric settings must be finite.")
+        parse_operational_settings(values)
         return values
 
 

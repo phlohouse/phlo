@@ -165,7 +165,7 @@ def test_verified_query_usage_postgres_http_contract(monkeypatch: pytest.MonkeyP
         async def assets(_request, _env, *, allowed_query):
             return [
                 SimpleNamespace(
-                    id="order_current_state", relation="warehouse.orders", history_scoped=True
+                    id="order_current_state", relation="warehouse.orders", history_scoped=False
                 ),
                 SimpleNamespace(
                     id="warehouse/orders", relation="warehouse.other", history_scoped=True
@@ -235,6 +235,7 @@ def test_verified_query_usage_postgres_http_contract(monkeypatch: pytest.MonkeyP
             assert http.get(stage_url).json()["items"][0]["query_id"] == "q_stage"
             monkeypatch.setenv("PHLO_V1_ENVIRONMENTS", old_map)
             backend.allowed = False
+            assert http.get(prod_url).status_code == 403
             assert (
                 http.post(event_url, json=_event("q_denied", "lake_prod", prod_hash)).status_code
                 == 403
@@ -248,6 +249,7 @@ def test_verified_query_usage_postgres_http_contract(monkeypatch: pytest.MonkeyP
             assert http.post(event_url, json=extra).status_code == 403
             assert ("service.manage", "source_id=cluster") in decisions
             assert ("asset.read", "env=prod|asset_id=order_current_state") in decisions
+            assert ("asset.read", "env=prod|table_name=warehouse.orders") in decisions
         with usage._transaction() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT * FROM phlo.asset_query_usage ORDER BY query_id")
             rows = cursor.fetchall()

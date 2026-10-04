@@ -96,6 +96,24 @@ def test_npm_nested_scopes_and_aliases_preserve_real_package_identity() -> None:
     }
 
 
+def test_npm_workspace_metadata_is_excluded_but_its_dependencies_are_audited() -> None:
+    content = json.dumps(
+        {
+            "lockfileVersion": 3,
+            "packages": {
+                "": {"workspaces": ["replacement"]},
+                "replacement": {"name": "private-ui"},
+                "node_modules/private-ui": {"link": True},
+                "replacement/node_modules/example": {
+                    "version": "2.3.4",
+                    "resolved": "https://registry.npmjs.org/example/-/example-2.3.4.tgz",
+                },
+            },
+        }
+    ).encode()
+    assert delta.parse_lock("package-lock.json", content) == {("npm", "example", "2.3.4")}
+
+
 def test_all_current_product_locks_are_readable() -> None:
     root = Path(__file__).resolve().parents[2]
     for path in delta.LOCKFILES:

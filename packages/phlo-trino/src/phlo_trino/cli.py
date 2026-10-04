@@ -43,7 +43,9 @@ from phlo.cli.output import (
 )
 from phlo.cli.output import missing_query_error
 from phlo.cli.sql import is_mutating_sql
+from phlo.plugins.observatory_settings import StorageUnavailableError, get_operational_settings
 from phlo_trino.authorization import get_trino_cli_adapter
+from phlo_trino.sql_policy import require_governed_sql
 
 
 def _read_query(*, query: str | None, file: Path | None) -> str:
@@ -95,6 +97,11 @@ def trino_group(ctx: click.Context, trino_args: tuple[str, ...]) -> None:
             standalone_mode=False,
         )
         return
+    if get_operational_settings().protect_main:
+        raise click.ClickException(
+            "The unrestricted Trino shell cannot enforce main protection. "
+            "Use phlo trino query for reads or a branch-scoped provider for writes."
+        )
     _require_container_backend()
     enforce_surface_mutation_authorization("trino", get_trino_cli_adapter)
     cmd = _trino_exec_base(tty=True)
@@ -127,6 +134,11 @@ def trino_query(
     sql = _read_query(query=query, file=query_file)
     if is_mutating_sql(sql):
         enforce_surface_mutation_authorization("trino.query", get_trino_cli_adapter)
+    try:
+        # A user-selected catalog is not proof of its backing Nessie ref.
+        require_governed_sql(sql, ref=None, catalog=catalog)
+    except (PermissionError, StorageUnavailableError) as exc:
+        raise click.ClickException(str(exc)) from exc
     _require_container_backend()
     cmd = _trino_exec_base(tty=False)
     if catalog:

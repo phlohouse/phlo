@@ -21,6 +21,7 @@ from phlo.capabilities import AlertSinkSpec
 from phlo.plugins import PluginMetadata, ResourceProviderPlugin
 
 from phlo_alerting.alert_sink import AlertManagerSink
+from phlo_alerting.settings import get_settings
 
 
 class AlertingResourceProvider(ResourceProviderPlugin):
@@ -82,9 +83,26 @@ class AlertingResourceProvider(ResourceProviderPlugin):
             'alerting'
 
         """
-        return [
+        specs = [
             AlertSinkSpec(
                 name="alerting",
                 provider=AlertManagerSink(),
             )
         ]
+        config = get_settings()
+        if config.phlo_alert_email_smtp_host:
+            specs.append(AlertSinkSpec(name="digest", provider=AlertManagerSink(["email"])))
+            if config.phlo_alert_qa_email_recipients:
+                specs.append(AlertSinkSpec(name="qa", provider=AlertManagerSink(["qa_email"])))
+            for category, routes in (
+                ("owner", config.phlo_alert_owner_recipients),
+                ("consumer", config.phlo_alert_consumer_recipients),
+            ):
+                specs.extend(
+                    AlertSinkSpec(
+                        name=f"{category}:{name}", provider=AlertManagerSink([f"{category}:{name}"])
+                    )
+                    for name, recipients in routes.items()
+                    if recipients
+                )
+        return specs

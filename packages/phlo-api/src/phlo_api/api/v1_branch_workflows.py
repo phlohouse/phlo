@@ -15,6 +15,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
+from anyio import to_thread
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import Field
 
@@ -27,6 +28,7 @@ from phlo_api.api.operation_controls import (
     audit_operation,
     enforce_rate_limit,
     idempotency_key_target,
+    load_operational_settings,
     replay_or_execute_async,
     require_scope,
 )
@@ -139,6 +141,8 @@ class BranchMerge(WireModel):
     expected_target_hash: str = Field(min_length=1, max_length=256)
     incident_id: str | None = Field(default=None, min_length=1, max_length=100)
     signature_id: str = Field(min_length=1, max_length=100)
+    reviewer_subject: str | None = Field(default=None, min_length=1, max_length=256)
+    review_signature_id: str | None = Field(default=None, min_length=1, max_length=100)
     message: str = Field(min_length=1, max_length=1000)
 
 
@@ -452,6 +456,88 @@ def _content_id(value: Any) -> str | None:
     content = _object(value, "Nessie returned invalid content metadata.")
     identity = content.get("id")
     return identity if isinstance(identity, str) else None
+
+
+async def _requires_independent_review(
+    request: Request, source: BranchReference, target: BranchReference
+) -> bool:
+    diff = await _diff(source, target, source.env)
+    if diff.truncated:
+        raise BackendUnavailableError("Independent review requires a complete branch diff.")
+    keys = {item.key for item in diff.items}
+    if any(key.split(".")[0] == "gold" for key in keys):
+        return True
+    if not keys:
+        return False
+    # Read only explicit declarations in the selected code location. Model
+    # names such as dim_*, fct_* and staging names are not layer evidence.
+    from phlo_api.api import v1_assets
+
+    nodes = await v1_assets._asset_nodes(request, source.env)
+    layers: dict[str, str | None] = {}
+    for node in nodes:
+        entries = node.get("metadataEntries") or []
+        asset_key = v1_assets._key_path(node.get("assetKey"))
+        matched = keys.intersection({".".join(asset_key), v1_assets._declared_relation(entries)})
+        if not matched:
+            continue
+        declarations = [
+            entry
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("label") == "phlo/layer"
+        ]
+        if len(declarations) > 1:
+            raise BackendUnavailableError("Asset has ambiguous phlo/layer declarations.")
+        declared = declarations[0].get("text") if declarations else node.get("groupName")
+        layer = (
+            declared
+            if isinstance(declared, str) and declared in {"bronze", "silver", "gold"}
+            else None
+        )
+        for key in matched:
+            if key in layers and layers[key] != layer:
+                raise BackendUnavailableError(
+                    "Changed content has conflicting selected layer declarations."
+                )
+            layers[key] = layer
+    # Unknown content is not gold evidence, but cannot prove eligibility for
+    # bypassing the independent review either.
+    return any(layers.get(key, key.split(".")[0]) not in {"bronze", "silver"} for key in keys)
+
+
+def _consume_independent_review(payload: BranchMerge, expected: SignatureRequest) -> None:
+    from dataclasses import replace
+
+    from phlo_api.api import v1_admin_identity
+
+    if (
+        not payload.reviewer_subject
+        or payload.reviewer_subject == expected.signer_subject
+        or not payload.review_signature_id
+        or payload.review_signature_id == payload.signature_id
+    ):
+        raise HTTPException(
+            409, "Gold or unclassified changes require a different reviewer's MFA signature."
+        )
+    authority = v1_admin_identity._authority()
+    member = authority.member(payload.reviewer_subject)
+    if (
+        member is None
+        or not member.active
+        or member.principal_type != "user"
+        or not {"admin", "operator"}.intersection(member.roles)
+    ):
+        raise HTTPException(409, "The gold reviewer must be an active authorised human operator.")
+    reviewed = replace(expected, signer_subject=member.subject, meaning=SignatureMeaning.REVIEWED)
+    review_id = payload.review_signature_id
+    if not v1_admin_identity._identity_call(
+        lambda: authority.consume_signature(
+            payload.signature_id, expected, review=(review_id, reviewed)
+        )
+    ):
+        raise HTTPException(
+            409, "Approval or independent review is missing, stale, reused or invalid."
+        )
 
 
 async def _comparison(
@@ -1426,8 +1512,11 @@ async def v1_branch_merge(
     actor = _action_actor(request, auth)
 
     async def execute() -> dict[str, Any]:
+        settings = await to_thread.run_sync(load_operational_settings)
         source = await _scoped_reference(branch_name, env, target_config, branch_only=True)
         target = await _scoped_reference(payload.target, env, target_config, branch_only=True)
+        if settings.require_merge_reason and target.name == "main" and not payload.message.strip():
+            raise HTTPException(422, "A non-blank reason is required for merges into main.")
         if (
             source.hash != payload.expected_source_hash
             or target.hash != payload.expected_target_hash
@@ -1490,10 +1579,20 @@ async def v1_branch_merge(
             )
             from phlo_api.api import v1_admin_identity
 
-            v1_admin_identity._consume_signature(
-                v1_admin_identity._authority(), payload.signature_id, expected
+            independent_review = (
+                settings.second_gold_reviewer
+                and await _requires_independent_review(request, source, target)
             )
             async with _MERGE_LOCK:
+                current_settings = await to_thread.run_sync(load_operational_settings)
+                if current_settings.settings_revision != settings.settings_revision:
+                    raise HTTPException(409, "Governance settings changed; reload and retry.")
+                if independent_review:
+                    await to_thread.run_sync(_consume_independent_review, payload, expected)
+                else:
+                    v1_admin_identity._consume_signature(
+                        v1_admin_identity._authority(), payload.signature_id, expected
+                    )
                 applied = await _merge_payload(
                     source=source,
                     target=target,
@@ -1531,6 +1630,8 @@ async def v1_branch_merge(
                 "target_hash": target.hash,
                 "resulting_hash": resulting.hash,
                 "details": {
+                    "settings_revision": settings.settings_revision,
+                    "review_signature_id": payload.review_signature_id,
                     "signature_id": payload.signature_id,
                     "checks": [item.model_dump(mode="json") for item in checks],
                     "trial_merge": trial,

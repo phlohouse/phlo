@@ -1,19 +1,20 @@
-/**
- * Router factory built from the generated TanStack route tree, with scroll
- * restoration enabled and the preload cache disabled.
- */
+/** Constructs the client router from the generated route tree. */
 import { createRouter } from '@tanstack/react-router'
-
-// Import the generated route tree
 import { routeTree } from './routeTree.gen'
+import { NotFound, RouteError } from '@/components/phlo/states'
 
-// Create a new router instance
-export const getRouter = () => {
-  const router = createRouter({
+export function getRouter() {
+  return createRouter({
     routeTree,
     scrollRestoration: true,
-    defaultPreloadStaleTime: 0,
+    defaultPreload: 'intent',
+    defaultNotFoundComponent: NotFound,
+    defaultErrorComponent: RouteError,
   })
+}
 
-  return router
+declare module '@tanstack/react-router' {
+  interface Register {
+    router: ReturnType<typeof getRouter>
+  }
 }

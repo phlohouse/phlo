@@ -6,12 +6,13 @@ import json
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Annotated, Any
 
 import psycopg2
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import Field, StringConstraints
+from pydantic import AwareDatetime, Field, StringConstraints
 
 from phlo.compliance.audit.sealed import GENESIS_HASH, compute_record_hash
 from phlo.compliance.audit.sealed import AuditStore
@@ -85,8 +86,18 @@ def _matches(
     action: str | None,
     resource_id: str | None,
     search: str | None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    signed_only: bool = False,
 ) -> bool:
     event = record.event
+    sealed_at = datetime.fromisoformat(record.sealed_at)
+    if since is not None and sealed_at < since:
+        return False
+    if until is not None and sealed_at >= until:
+        return False
+    if signed_only and not isinstance(event.attributes.get("signature_id"), str):
+        return False
     if event_type is not None and event.event_type != event_type:
         return False
     if decision is not None and event.decision != decision:
@@ -115,6 +126,9 @@ def _query_records(
     action: str | None,
     resource_id: str | None,
     search: str | None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    signed_only: bool = False,
 ) -> tuple[list[Any], int | None, bool]:
     items: list[Any] = []
     cursor = after
@@ -139,6 +153,9 @@ def _query_records(
                 action=action,
                 resource_id=resource_id,
                 search=search,
+                since=since,
+                until=until,
+                signed_only=signed_only,
             )
         )
         if len(batch) < batch_limit:
@@ -167,8 +184,13 @@ def v1_admin_audit_records(
     action: FilterValue = None,
     resource_id: FilterValue = None,
     search: SearchValue = None,
+    since: AwareDatetime | None = None,
+    until: AwareDatetime | None = None,
+    signed_only: bool = False,
 ) -> AuditRecordPage:
     """Search one audit surface, with bounded scanning and result size."""
+    if since is not None and until is not None and since >= until:
+        raise HTTPException(status_code=422, detail="since must precede until")
     with _audit_store() as store:
         records, next_after, scan_truncated = _query_records(
             store,
@@ -182,6 +204,9 @@ def v1_admin_audit_records(
             action=action,
             resource_id=resource_id,
             search=search,
+            since=since,
+            until=until,
+            signed_only=signed_only,
         )
         return AuditRecordPage(
             surface=surface,
@@ -240,10 +265,36 @@ def v1_admin_audit_export(
     after: Sequence | None = None,
     before: Sequence | None = None,
     limit: ExportLimit = 1000,
+    event_type: FilterValue = None,
+    decision: FilterValue = None,
+    actor_subject: FilterValue = None,
+    action: FilterValue = None,
+    resource_id: FilterValue = None,
+    search: SearchValue = None,
+    since: AwareDatetime | None = None,
+    until: AwareDatetime | None = None,
+    signed_only: bool = False,
 ) -> StreamingResponse:
-    """Export a bounded sequence range as newline-delimited JSON."""
+    """Export the same bounded filters as the record list, preserving chain evidence."""
+    if since is not None and until is not None and since >= until:
+        raise HTTPException(status_code=422, detail="since must precede until")
     with _audit_store() as store:
-        records = store.query(surface, after=after, before=before, limit=limit)
+        records, next_after, scan_truncated = _query_records(
+            store,
+            surface,
+            after=after,
+            before=before,
+            limit=limit,
+            event_type=event_type,
+            decision=decision,
+            actor_subject=actor_subject,
+            action=action,
+            resource_id=resource_id,
+            search=search,
+            since=since,
+            until=until,
+            signed_only=signed_only,
+        )
         body = "".join(
             f"{json.dumps(record.to_dict(), sort_keys=True, separators=(',', ':'))}\n"
             for record in records
@@ -251,5 +302,9 @@ def v1_admin_audit_export(
     return StreamingResponse(
         iter([body]),
         media_type="application/x-ndjson",
-        headers={"Content-Disposition": f'attachment; filename="audit-{surface}.jsonl"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="audit-{surface}.jsonl"',
+            "X-Audit-Scan-Truncated": str(scan_truncated).lower(),
+            "X-Audit-Next-After": str(next_after) if next_after is not None else "",
+        },
     )

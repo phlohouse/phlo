@@ -49,8 +49,9 @@ def parse_lock(path: str, content: bytes) -> set[Package]:
         lock = json.loads(content)
         if lock.get("lockfileVersion") not in (2, 3):
             raise ValueError(f"Unsupported npm lockfile version in {path}")
+        workspaces = lock["packages"].get("", {}).get("workspaces", [])
         for location, package in lock["packages"].items():
-            if not location or package.get("link"):
+            if not location or package.get("link") or location in workspaces:
                 continue
             if "node_modules/" not in location:
                 raise ValueError(f"Unsupported package location in {path}: {location}")

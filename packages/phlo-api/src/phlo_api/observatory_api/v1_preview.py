@@ -28,6 +28,14 @@ class PreviewUnavailable(RuntimeError):
     """Preview is not configured or Trino did not provide bounded evidence."""
 
 
+class PreviewQueryRejected(PreviewUnavailable):
+    """Trino rejected SQL; the message excludes raw SQL and engine details."""
+
+    def __init__(self, message: str, *, error_name: str | None = None) -> None:
+        super().__init__(message)
+        self.error_name = error_name
+
+
 class PreviewLimitExceeded(RuntimeError):
     """The preview exceeded its response or execution budget."""
 
@@ -206,7 +214,22 @@ async def _collect_pages(
         rows: list[list[Any]] = []
         while True:
             if result.get("error"):
-                raise PreviewUnavailable("Trino could not complete the preview query.")
+                error = result["error"]
+                error_name = error.get("errorName") if isinstance(error, dict) else None
+                reasons = {
+                    "NOT_SUPPORTED": "This table or operation is not supported by the query engine.",
+                    "SYNTAX_ERROR": "The query contains invalid SQL syntax.",
+                    "COLUMN_NOT_FOUND": "A query column does not exist or is not accessible.",
+                    "TABLE_NOT_FOUND": "A query table does not exist or is not accessible.",
+                    "PERMISSION_DENIED": "The query engine denied access to this table or operation.",
+                }
+                raise PreviewQueryRejected(
+                    reasons.get(
+                        error_name if isinstance(error_name, str) else "",
+                        "The query engine rejected the query.",
+                    ),
+                    error_name=error_name if isinstance(error_name, str) else None,
+                )
             if not columns and isinstance(result.get("columns"), list):
                 columns = result["columns"]
             data = result.get("data") or []

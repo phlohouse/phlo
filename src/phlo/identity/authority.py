@@ -435,33 +435,61 @@ class IdentityAuthority:
         self._mutate(insert)
         return result
 
-    def consume_signature(self, signature_id: str, expected: SignatureRequest) -> bool:
-        """Atomically match and consume a signature once for an exact action."""
+    def consume_signature(
+        self,
+        signature_id: str,
+        expected: SignatureRequest,
+        *,
+        review: tuple[str, SignatureRequest] | None = None,
+    ) -> bool:
+        """Consume exact MFA approval and optional independent review atomically."""
         consumed = False
 
         def consume(state: dict[str, Any]) -> dict[str, Any]:
             nonlocal consumed
-            item = state["signatures"].get(signature_id)
-            if item is None or item["consumed_at"] is not None:
-                return state
-            record = _signature_record(item)
-            if (
-                not record.has_valid_hash()
-                or record.authentication_assurance != "mfa"
-                or record.signer_subject != expected.signer_subject
-                or record.meaning != expected.meaning
-                or record.action != expected.action
-                or record.record_type != expected.record_type
-                or record.record_id != expected.record_id
-                or record.record_version != expected.record_version
-                or (
-                    expected.justification is not None
-                    and record.justification != expected.justification
-                )
-            ):
-                return state
+            intents = [(signature_id, expected)]
+            if review is not None:
+                review_id, reviewer = review
+                member = state["members"].get(reviewer.signer_subject)
+                if (
+                    review_id == signature_id
+                    or reviewer.signer_subject == expected.signer_subject
+                    or reviewer.meaning != SignatureMeaning.REVIEWED
+                    or expected.meaning != SignatureMeaning.APPROVED
+                    or reviewer.action != expected.action
+                    or reviewer.record_type != expected.record_type
+                    or reviewer.record_id != expected.record_id
+                    or reviewer.record_version != expected.record_version
+                    or member is None
+                    or not member["active"]
+                    or member["principal_type"] != "user"
+                    or not {"admin", "operator"}.intersection(member["roles"])
+                ):
+                    return state
+                intents.append(review)
+            for identifier, intent in intents:
+                item = state["signatures"].get(identifier)
+                if item is None or item["consumed_at"] is not None:
+                    return state
+                record = _signature_record(item)
+                if (
+                    not record.has_valid_hash()
+                    or record.authentication_assurance != "mfa"
+                    or record.signer_subject != intent.signer_subject
+                    or record.meaning != intent.meaning
+                    or record.action != intent.action
+                    or record.record_type != intent.record_type
+                    or record.record_id != intent.record_id
+                    or record.record_version != intent.record_version
+                    or (
+                        intent.justification is not None
+                        and record.justification != intent.justification
+                    )
+                ):
+                    return state
             consumed = True
-            state["signatures"][signature_id] = {**item, "consumed_at": _timestamp()}
+            for identifier, _ in intents:
+                state["signatures"][identifier]["consumed_at"] = _timestamp()
             return state
 
         self._mutate(consume)

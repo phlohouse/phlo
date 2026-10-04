@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import replace
+import json
 
 import psycopg2
 from fastapi import FastAPI, Request
@@ -189,3 +191,58 @@ def test_unavailable_durable_storage_fails_closed(monkeypatch) -> None:
 
     assert response.status_code == 503
     assert response.json()["error"]["message"] == "Durable audit storage is unavailable."
+
+
+def test_date_filters_precede_pagination_and_match_export(monkeypatch) -> None:
+    store = InMemoryAuditStore()
+    previous = GENESIS_HASH
+    for sequence, time, actor in (
+        (1, "2026-09-30T23:59:59+00:00", "alice"),
+        (2, "2026-10-01T01:00:00+01:00", "alice"),
+        (3, "2026-10-01T12:00:00+00:00", "bob"),
+        (4, "2026-10-02T00:00:00+00:00", "alice"),
+    ):
+        record = replace(_record(sequence, previous, actor=actor), sealed_at=time)
+        store.append(record)
+        previous = record.record_hash
+    client = _client(monkeypatch, store)
+    filters = {
+        "surface": "phlo-api",
+        "since": "2026-10-01T00:00:00Z",
+        "until": "2026-10-02T00:00:00Z",
+        "actor_subject": "alice",
+        "limit": 1,
+    }
+    page = client.get("/api/v1/admin/audit/records", params=filters).json()
+    assert [item["sequence_number"] for item in page["items"]] == [2]
+    assert page["next_after"] == 2
+    next_page = client.get("/api/v1/admin/audit/records", params={**filters, "after": 2}).json()
+    assert next_page["items"] == []
+    exported = client.get("/api/v1/admin/audit/export", params=filters)
+    assert [json.loads(line) for line in exported.text.splitlines()] == page["items"]
+    assert exported.headers["X-Audit-Next-After"] == "2"
+    for since, until in (
+        ("2026-10-01T00:00:00", "2026-10-02T00:00:00Z"),
+        ("2026-10-03T00:00:00Z", "2026-10-02T00:00:00Z"),
+    ):
+        for endpoint in ("records", "export"):
+            assert (
+                client.get(
+                    f"/api/v1/admin/audit/{endpoint}",
+                    params={"surface": "phlo-api", "since": since, "until": until},
+                ).status_code
+                == 422
+            )
+
+
+def test_signed_filter_requires_recorded_signature_evidence(monkeypatch) -> None:
+    store = InMemoryAuditStore()
+    first = _record(1, GENESIS_HASH)
+    store.append(first)
+    event = replace(first.event, attributes={"signature_id": "signature-1"})
+    signed = SealedAuditRecord.seal(event, 2, first.record_hash, hmac_key=_KEY)
+    store.append(signed)
+    response = _client(monkeypatch, store).get(
+        "/api/v1/admin/audit/records", params={"surface": "phlo-api", "signed_only": True}
+    )
+    assert [item["sequence_number"] for item in response.json()["items"]] == [2]

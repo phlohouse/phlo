@@ -221,7 +221,8 @@ class TestTrinoResourceUnit:
             mock_config.trino_port = 8080
             resource = TrinoResource(ref="pipeline-run-1")
 
-            assert resource.get_connection(schema="raw") is query_connection
+            resource.get_connection(schema="raw").close()
+            query_connection.close.assert_called_once_with()
 
         statement = bootstrap_cursor.execute.call_args.args[0]
         assert 'CREATE CATALOG IF NOT EXISTS "iceberg_pipeline-run-1"' in statement
@@ -272,7 +273,8 @@ class TestTrinoResourceUnit:
             mock_config.trino_port = 8080
             resource = TrinoResource(ref="dev")
 
-            assert resource.get_connection(schema="raw") is query_connection
+            resource.get_connection(schema="raw").close()
+            query_connection.close.assert_called_once_with()
 
         connect.assert_called_once()
         assert connect.call_args.kwargs["catalog"] == "iceberg_dev"

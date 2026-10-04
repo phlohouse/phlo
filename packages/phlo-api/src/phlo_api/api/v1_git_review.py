@@ -20,6 +20,7 @@ class AssetAuditPublishRequest(WireModel):
     """Request to publish an existing source-only proposal for human review."""
 
     idempotency_key: str = Field(min_length=1, max_length=128, pattern=r"^\S(?:.*\S)?$")
+    expected_source_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class AssetAuditDraftPullRequest(WireModel):
