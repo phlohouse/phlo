@@ -14,6 +14,7 @@ export default defineConfig({
       router: {
         routeTreeFileHeader: [
           '// phlo: no-header',
+          // reason: TanStack generates this route registry; lint its source routes instead.
           '/* eslint-disable */',
           '// @ts-nocheck',
         ],

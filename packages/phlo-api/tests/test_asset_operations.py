@@ -458,11 +458,17 @@ defs = dg.Definitions(assets=[orders, summary], jobs=[dg.define_asset_job("wareh
             assert plan.status_code == 200, plan.text
             assert plan.json()["partition_keys"] == ["2026-09-25", "2026-09-26"]
             body = action(plan.json()["plan_hash"], write_ref="candidate")
-            response = http.post(
-                "/api/v1/assets/warehouse/orders/materialize?env=staging", json=body
-            )
+            # Dagster warns about the deliberately duplicated workspace asset keys.
+            # Assert that warning while exercising the repository-qualified launch.
+            with pytest.warns(
+                UserWarning,
+                match="Found MATERIALIZATION nodes for some asset keys in multiple code locations",
+            ):
+                response = http.post(
+                    "/api/v1/assets/warehouse/orders/materialize?env=staging", json=body
+                )
             assert response.status_code == 200, response.text
-            assert response.json()["result"]["accepted"] is True
+            assert response.json()["result"]["accepted"] is True, response.text
             assert (
                 http.post(
                     "/api/v1/assets/warehouse/orders/materialize?env=staging", json=body

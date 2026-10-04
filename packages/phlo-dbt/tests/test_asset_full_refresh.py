@@ -16,6 +16,7 @@ def test_dbt_asset_full_refresh_replaces_disposable_incremental_table(tmp_path):
     pytest.importorskip("dbt.adapters.duckdb")
     dbt = shutil.which("dbt")
     if dbt is None:
+        # reason: This disposable integration test requires the optional dbt CLI.
         pytest.skip("dbt CLI is not installed")
     (tmp_path / "models").mkdir()
     (tmp_path / "seeds").mkdir()
