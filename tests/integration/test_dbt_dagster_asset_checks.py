@@ -118,6 +118,7 @@ def test_dbt_asset_runner_emits_dagster_check_events(
             assert kwargs["parameters"] == {
                 "select": ["product_dimension", "not_null_product_dimension_sku"],
                 "indirect_selection": "empty",
+                "full_refresh": False,
             }
             self.build_run_results = json.loads(
                 (target_path / "run_results.json").read_text(encoding="utf-8")

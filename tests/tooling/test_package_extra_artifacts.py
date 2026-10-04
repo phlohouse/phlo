@@ -23,7 +23,7 @@ def _run(*args: str, cwd: Path) -> None:
 
 def test_api_and_pandera_wheels_report_missing_extras(tmp_path: Path) -> None:
     wheels = tmp_path / "wheels"
-    for package in ("phlo", "phlo-api", "phlo-pandera"):
+    for package in ("phlo", "phlo-api", "phlo-pandera", "phlo-postgres"):
         _run("uv", "build", "--wheel", "--package", package, "--out-dir", str(wheels), cwd=ROOT)
 
     for package, provider, extra, code in (
