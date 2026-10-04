@@ -20,7 +20,8 @@ from phlo_postgres.settings_store import PostgresSettingsStore
 def test_resolution_is_signed_versioned_environment_bound_audited_and_idempotent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with PostgresContainer("postgres:18-alpine") as postgres:
+    # Disposable databases must not inherit missing or empty deployment credentials.
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
         dsn = postgres.get_connection_url(driver=None)
         monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", dsn)
         monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_DB_URL", dsn)
