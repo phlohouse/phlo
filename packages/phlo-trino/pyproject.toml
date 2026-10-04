@@ -63,6 +63,10 @@ phlo_trino = [
     "node.properties",
     "catalog/*.properties",
     "observatory_assets/*",
+    "preview/*",
+    "preview/catalog/*",
+    "usage/*",
+    "usage/catalog/*",
 ]
 
 [tool.setuptools.package-dir]

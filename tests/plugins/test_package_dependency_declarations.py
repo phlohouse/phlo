@@ -15,6 +15,7 @@ PACKAGES_DIR = REPO_ROOT / "packages"
 # Existing integration edges. New provider-to-provider imports need explicit review.
 ALLOWED_PROVIDER_EDGES = {
     ("phlo-api", "phlo-dagster"),
+    ("phlo-api", "phlo-iceberg"),
     ("phlo-core-plugins", "phlo-pandera"),
     ("phlo-dbt", "phlo-pandera"),
     ("phlo-observe-plugin", "phlo-dagster"),

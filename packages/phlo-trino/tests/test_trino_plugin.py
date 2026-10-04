@@ -7,9 +7,18 @@ digest with no local build, and that every runtime file copied into
 
 from pathlib import Path
 from fnmatch import fnmatch
+import json
 import tomllib
 
 from phlo_trino.plugin import TrinoServicePlugin
+
+
+def _properties(path: Path) -> dict[str, str]:
+    return dict(
+        line.split("=", 1)
+        for raw in path.read_text(encoding="utf-8").splitlines()
+        if (line := raw.strip()) and not line.startswith("#")
+    )
 
 
 def test_trino_service_definition():
@@ -48,3 +57,68 @@ def test_trino_runtime_files_are_included_in_package_data():
         assert any(fnmatch(source, pattern) for pattern in package_data)
 
     assert "Dockerfile" not in package_data
+
+
+def test_optional_preview_bundle_pins_distinct_read_only_refs_with_budgets():
+    project_root = Path(__file__).parents[1]
+    preview = project_root / "src" / "phlo_trino" / "preview"
+    catalogs = {
+        "prod": _properties(preview / "catalog" / "iceberg_preview_prod.properties"),
+        "staging": _properties(preview / "catalog" / "iceberg_preview_staging.properties"),
+    }
+    assert (
+        catalogs["prod"]["iceberg.rest-catalog.prefix"]
+        != catalogs["staging"]["iceberg.rest-catalog.prefix"]
+    )
+    assert all(
+        catalog["iceberg.security"] == "READ_ONLY" and catalog["iceberg.catalog.type"] == "rest"
+        for catalog in catalogs.values()
+    )
+
+    access = json.loads((preview / "access-control.json").read_text())
+    assert access["catalogs"][0] == {
+        "user": "phlo_api_preview",
+        "catalog": "iceberg_preview_(prod|staging)",
+        "allow": "read-only",
+    }
+    assert access["catalogs"][1]["user"] == "phlo_api_preview"
+    assert access["catalogs"][1]["allow"] == "none"
+    assert access["system_session_properties"][0] == {
+        "user": "phlo_api_preview",
+        "allow": False,
+    }
+
+    groups = json.loads((preview / "resource-groups.json").read_text())
+    assert groups["physicalDataScanQuotaPeriod"] == "1h"
+    api_group = groups["rootGroups"][0]["subGroups"][0]["subGroups"][0]
+    assert api_group["hardConcurrencyLimit"] == 2
+    assert api_group["maxQueued"] == 0
+    assert api_group["hardPhysicalDataScanLimit"] == "1GB"
+
+    session_property_rules = json.loads((preview / "session-property-config.json").read_text())
+    assert session_property_rules == [
+        {
+            "group": "^global\\.preview\\.api$",
+            "sessionProperties": {
+                "query_max_run_time": "20s",
+                "query_max_planning_time": "5s",
+                "query_max_scan_physical_bytes": "256MB",
+            },
+        }
+    ]
+
+    config = _properties(preview / "config.properties.template")
+    assert config["http-server.https.enabled"] == "true"
+    assert config["http-server.authentication.type"] == "PASSWORD"
+    assert config["http-server.https.port"] == "8443"
+    session_config = _properties(preview / "session-property-config.properties")
+    assert session_config["session-property-config.configuration-manager"] == "file"
+    assert session_config["session-property-manager.config-file"] == (
+        "/etc/trino/preview/session-property-config.json"
+    )
+
+
+def test_optional_preview_bundle_is_not_activated_by_the_trino_service():
+    service_definition = TrinoServicePlugin().service_definition
+    runtime_files = {file_spec["source"] for file_spec in service_definition["files"]}
+    assert not any(path.startswith("preview/") for path in runtime_files)

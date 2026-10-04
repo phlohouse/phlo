@@ -3114,6 +3114,9 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+iceberg = [
+    { name = "phlo-iceberg" },
+]
 lineage = [
     { name = "phlo-lineage" },
 ]
@@ -3125,6 +3128,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "phlo", editable = "." },
     { name = "phlo-dagster", marker = "extra == 'dagster'", editable = "packages/phlo-dagster" },
+    { name = "phlo-iceberg", marker = "extra == 'iceberg'", editable = "packages/phlo-iceberg" },
     { name = "phlo-lineage", marker = "extra == 'lineage'", editable = "packages/phlo-lineage" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pydantic", specifier = ">=2.0" },
@@ -3133,7 +3137,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
-provides-extras = ["dagster", "dev", "lineage"]
+provides-extras = ["dagster", "dev", "iceberg", "lineage"]
 
 [[package]]
 name = "phlo-clickhouse"

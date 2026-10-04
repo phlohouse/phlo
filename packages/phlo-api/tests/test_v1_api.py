@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import pytest
@@ -12,6 +14,9 @@ from fastapi.testclient import TestClient
 
 from phlo.capabilities import AuthPrincipal, AuthorizationDecision, Principal
 from phlo_api.api import v1
+from phlo_api.api import v1_assets
+from phlo_api.api.v1_audit_proposals import AssetAuditProposalRequest, generate_check_file
+from phlo_api.api.v1_git_review import AssetAuditDraftPullRequest
 from phlo_api.main import app
 from phlo_api import security_manifest
 
@@ -35,6 +40,7 @@ def client(monkeypatch):
         subject="alice", principal_type="user", email="alice@example.org", groups=("operator",)
     )
     monkeypatch.setattr(security_manifest, "get_request_principal", lambda request: auth)
+    monkeypatch.setattr(v1_assets, "get_request_principal", lambda request: auth)
     monkeypatch.setattr(v1, "get_request_principal", lambda request: auth)
     from phlo_api import incidents
 
@@ -87,11 +93,13 @@ def client(monkeypatch):
                         {
                             "runId": "p-run",
                             "status": "STARTED",
+                            "tags": [{"key": "phlo/ref", "value": "main"}],
                             "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
                         },
                         {
                             "runId": "s-run",
                             "status": "FAILURE",
+                            "tags": [{"key": "phlo/ref", "value": "candidate"}],
                             "repositoryOrigin": {"repositoryLocationName": "testing_jobs"},
                         },
                     ],
@@ -218,6 +226,8 @@ def test_invalid_selection_missing_identity_policy_and_mapping_fail_closed(clien
         response = http.get(path)
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "unprocessable_input"
+    repeated = http.get("/api/v1/assets?env=prod&env=staging")
+    assert repeated.status_code == 422
     assert http.get("/api/v1/services?env=prod&nessie_ref=candidate").status_code == 400
     monkeypatch.setattr(security_manifest, "get_request_principal", lambda request: None)
     assert http.get("/api/v1/me").status_code == 401
@@ -382,8 +392,35 @@ def test_run_location_validation_never_returns_an_empty_success(client):
 
 
 def test_run_source_filters_asymmetric_locations(client):
-    assert asyncio.run(v1._runs("production_jobs")) == {"p-run": "STARTED"}
-    assert asyncio.run(v1._runs("testing_jobs")) == {"s-run": "FAILURE"}
+    assert asyncio.run(v1._runs("production_jobs", "main")) == {"p-run": "STARTED"}
+    assert asyncio.run(v1._runs("testing_jobs", "candidate")) == {"s-run": "FAILURE"}
+
+
+def test_recent_runs_require_ref_even_with_matching_location(client, monkeypatch):
+    http, *_ = client
+    rows = [
+        {
+            "runId": "other-ref",
+            "status": "FAILURE",
+            "tags": [{"key": "phlo/ref", "value": "candidate"}],
+            "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+        },
+        {
+            "runId": "main-ref",
+            "status": "STARTED",
+            "tags": [{"key": "phlo/ref", "value": "main"}],
+            "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+        },
+    ]
+
+    async def graphql(url, query):
+        return {"data": {"runsOrError": {"__typename": "Runs", "results": rows}}}
+
+    monkeypatch.setattr(v1, "graphql_request", graphql)
+    assert asyncio.run(v1._runs("production_jobs", "main")) == {"main-ref": "STARTED"}
+    rows[1]["tags"] = []
+    monkeypatch.setattr(v1_assets, "_assets", lambda *args, **kwargs: asyncio.sleep(0, result=[]))
+    assert http.get("/api/v1/overview?env=prod").status_code == 503
 
 
 def test_events_openapi_advertises_sse():
@@ -432,8 +469,9 @@ def test_events_emit_real_scoped_changes_and_reject_resume(client):
 
     runs_seen = itertools.count()
 
-    async def runs(location):
+    async def runs(location, ref):
         n = next(runs_seen)
+        assert ref == ("main" if location == "production_jobs" else "candidate")
         return {
             "p-run" if location == "production_jobs" else "s-run": "STARTED"
             if n == 0
@@ -486,7 +524,8 @@ def test_events_emit_service_down_before_error(client):
                 )
             ]
 
-        async def runs(location):
+        async def runs(location, ref):
+            assert location == "production_jobs" and ref == "main"
             return {"p-run": "STARTED"}
 
         async def immediate(_):
@@ -503,3 +542,1858 @@ def test_events_emit_service_down_before_error(client):
         assert f'"status":"{down_status}"' in response.text
         assert response.text.index("event: service.status") < response.text.index("event: error")
         assert '"code":"backend_unavailable"' in response.text
+
+
+def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch):
+    http, decisions, _, _, backend = client
+    nodes = [
+        {
+            "id": "p-orders",
+            "assetKey": {"path": ["orders"]},
+            "description": "prod orders",
+            "computeKind": "dbt",
+            "groupName": "warehouse",
+            "isMaterializable": True,
+            "isPartitioned": False,
+            "repository": {"name": "repo", "location": {"name": "production_jobs"}},
+            "dependencyKeys": [],
+            "assetMaterializations": [
+                {
+                    "timestamp": "1780000000",
+                    "runId": "p-run",
+                    "partition": None,
+                    "runOrError": {
+                        "__typename": "Run",
+                        "runId": "p-run",
+                        "status": "SUCCESS",
+                        "tags": [{"key": "phlo/ref", "value": "main"}],
+                        "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                    },
+                }
+            ],
+        },
+        {
+            "id": "s-orders",
+            "assetKey": {"path": ["staging_orders"]},
+            "description": "staging orders",
+            "computeKind": "dbt",
+            "groupName": "warehouse",
+            "isMaterializable": False,
+            "isPartitioned": False,
+            "repository": {"name": "repo", "location": {"name": "testing_jobs"}},
+            "dependencyKeys": [],
+            "assetMaterializations": [
+                {
+                    "timestamp": "1781000000",
+                    "runId": "s-run",
+                    "partition": None,
+                    "runOrError": {
+                        "__typename": "Run",
+                        "runId": "s-run",
+                        "status": "SUCCESS",
+                        "tags": [{"key": "phlo/ref", "value": "candidate"}],
+                        "repositoryOrigin": {"repositoryLocationName": "testing_jobs"},
+                    },
+                }
+            ],
+        },
+    ]
+
+    async def graphql(url, query, *args, **kwargs):
+        return {"data": {"assetNodes": nodes}}
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    prod = http.get("/api/v1/assets?env=prod&limit=1")
+    staging = http.get("/api/v1/assets?env=staging")
+    assert prod.status_code == staging.status_code == 200
+    assert [item["description"] for item in prod.json()["items"]] == ["prod orders"]
+    assert prod.json()["items"][0]["last_run_id"] == "p-run"
+    assert [item["description"] for item in staging.json()["items"]] == ["staging orders"]
+    assert prod.json()["next_cursor"] is None
+    assert ("asset.read", "env=prod", "prod") in decisions
+    assert ("asset.read", "env=staging", "staging") in decisions
+
+    backend.explain_decision = lambda *args: AuthorizationDecision(
+        allowed=False, reason_code="explicit_deny"
+    )
+    denied = http.get("/api/v1/assets?env=prod")
+    assert denied.status_code == 403
+
+
+def test_asset_cursor_is_environment_bound_and_sources_filter_before_page(client, monkeypatch):
+    http, _, _, _, _ = client
+    nodes = [
+        {
+            "id": key,
+            "assetKey": {"path": [key]},
+            "description": key,
+            "computeKind": None,
+            "groupName": None,
+            "isMaterializable": not source,
+            "repository": {"name": "repo", "location": {"name": "production_jobs"}},
+            "dependencyKeys": [],
+            "assetMaterializations": [],
+        }
+        for key, source in (("a", False), ("b", True), ("c", True))
+    ]
+
+    async def graphql(url, query, *args, **kwargs):
+        return {"data": {"assetNodes": nodes}}
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    first = http.get("/api/v1/sources?env=prod&limit=1")
+    assert [item["id"] for item in first.json()["items"]] == ["b"]
+    cursor = first.json()["next_cursor"]
+    second = http.get(f"/api/v1/sources?env=prod&limit=1&cursor={cursor}")
+    assert [item["id"] for item in second.json()["items"]] == ["c"]
+    wrong_collection = http.get(f"/api/v1/assets?env=prod&cursor={cursor}")
+    assert wrong_collection.status_code == 400
+    crossed = http.get(f"/api/v1/assets?env=staging&cursor={cursor}")
+    assert crossed.status_code == 400
+
+
+def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from phlo_api import incidents
+
+    http, _, _, _, _ = client
+    nodes = [
+        {
+            "id": env,
+            "assetKey": {"path": ["orders"]},
+            "description": env,
+            "computeKind": None,
+            "groupName": None,
+            "isMaterializable": True,
+            "isPartitioned": False,
+            "repository": {"name": "repo", "location": {"name": location}},
+            "dependencyKeys": [],
+            "assetMaterializations": [
+                {
+                    "timestamp": "1780000000",
+                    "runId": env,
+                    "partition": None,
+                    "runOrError": {
+                        "__typename": "Run",
+                        "runId": env,
+                        "status": "SUCCESS",
+                        "tags": [
+                            {"key": "phlo/ref", "value": "main" if env == "prod" else "candidate"}
+                        ],
+                        "repositoryOrigin": {"repositoryLocationName": location},
+                    },
+                }
+            ],
+        }
+        for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
+    ]
+
+    async def graphql(url, query, *args, **kwargs):
+        if "V1AssetRuns" in query:
+            return {
+                "data": {
+                    "runsFeedOrError": {
+                        "__typename": "RunsFeedConnection",
+                        "results": [
+                            {
+                                "__typename": "Run",
+                                "runId": "prod-run",
+                                "status": "SUCCESS",
+                                "tags": [{"key": "phlo/ref", "value": "main"}],
+                                "creationTime": 1780000000,
+                                "startTime": None,
+                                "endTime": None,
+                                "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                                "assetSelection": [{"path": ["orders"]}],
+                            },
+                            {
+                                "__typename": "Run",
+                                "runId": "staging-run",
+                                "status": "SUCCESS",
+                                "tags": [{"key": "phlo/ref", "value": "candidate"}],
+                                "creationTime": 1780000000,
+                                "startTime": None,
+                                "endTime": None,
+                                "repositoryOrigin": {"repositoryLocationName": "testing_jobs"},
+                                "assetSelection": [{"path": ["orders"]}],
+                            },
+                        ],
+                        "cursor": "",
+                        "hasMore": False,
+                    }
+                }
+            }
+        return {"data": {"assetNodes": nodes}}
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(
+        incidents, "incident_stats", lambda request, env: {"env": env, "counts": {}}
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda request, env, limit, cursor: SimpleNamespace(
+            items=[{"asset_id": "orders", "freshness_sla_seconds": 60}], next_cursor=None
+        ),
+    )
+    response = http.get("/api/v1/assets?env=prod")
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["history_scoped"] is False
+    assert item["last_materialization_at"] is None
+    assert item["last_run_id"] is None
+    run_history = http.get("/api/v1/assets/orders/runs?env=prod")
+    assert run_history.status_code == 200
+    assert [item["run_id"] for item in run_history.json()["items"]] == ["prod-run"]
+    assert http.get("/api/v1/assets/orders?env=prod").status_code == 503
+    for env in ("prod", "staging"):
+        item = http.get(f"/api/v1/assets?env={env}").json()["items"][0]
+        assert item["history_scoped"] is False
+        assert item["last_materialization_at"] is None
+        overview = http.get(f"/api/v1/overview?env={env}")
+        assert overview.status_code == 200
+        assert overview.json()["freshness_counts"] == {
+            "fresh": 0,
+            "stale": 0,
+            "unknown": 1,
+        }
+
+
+@pytest.mark.parametrize(
+    ("env", "run_location", "status", "partitioned", "event_partition", "trusted", "run_ref"),
+    [
+        ("prod", "production_jobs", "SUCCESS", False, None, True, "main"),
+        ("prod", "testing_jobs", "SUCCESS", False, None, False, "main"),
+        ("staging", "production_jobs", "SUCCESS", False, None, False, "candidate"),
+        ("prod", "production_jobs", "FAILURE", False, None, False, "main"),
+        ("prod", "production_jobs", "SUCCESS", True, "2026-09-25", False, "main"),
+        ("prod", "production_jobs", "SUCCESS", False, "2026-09-25", False, "main"),
+        ("prod", "production_jobs", "SUCCESS", False, None, False, "candidate"),
+        ("prod", "production_jobs", "SUCCESS", False, None, False, None),
+    ],
+)
+def test_asset_and_overview_require_location_success_and_unpartitioned_evidence(
+    client, monkeypatch, env, run_location, status, partitioned, event_partition, trusted, run_ref
+):
+    from types import SimpleNamespace
+
+    from phlo_api import incidents
+
+    http, *_ = client
+    current_location = "production_jobs" if env == "prod" else "testing_jobs"
+    materialization = {
+        "timestamp": str(datetime.now(UTC).timestamp()),
+        "runId": "historical-run",
+        "partition": event_partition,
+        "runOrError": {
+            "__typename": "Run",
+            "runId": "historical-run",
+            "status": status,
+            "tags": [{"key": "phlo/ref", "value": run_ref}] if run_ref else [],
+            "repositoryOrigin": {"repositoryLocationName": run_location},
+        },
+        "metadataEntries": [
+            {"schema": {"columns": [{"name": "from_event", "type": "INT", "description": None}]}}
+        ],
+    }
+    node = {
+        "id": "current-definition",
+        "assetKey": {"path": ["orders"]},
+        "description": None,
+        "computeKind": None,
+        "groupName": "warehouse",
+        "isMaterializable": True,
+        "isPartitioned": partitioned,
+        "repository": {"name": "repo", "location": {"name": current_location}},
+        "dependencyKeys": [],
+        "assetMaterializations": [materialization],
+        "metadataEntries": [
+            {
+                "schema": {
+                    "columns": [{"name": "from_definition", "type": "BIGINT", "description": None}]
+                }
+            }
+        ],
+    }
+
+    async def graphql(url, query, variables=None):
+        if "V1AssetDetail" in query:
+            return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **node}}}
+        return {"data": {"assetNodes": [node]}}
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(
+        incidents, "incident_stats", lambda request, selected: {"env": selected, "counts": {}}
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda request, selected, limit, cursor: SimpleNamespace(
+            items=[{"asset_id": "orders", "freshness_sla_seconds": 60}], next_cursor=None
+        ),
+    )
+
+    listed = http.get(f"/api/v1/assets?env={env}")
+    detail = http.get(f"/api/v1/assets/orders?env={env}")
+    layers = http.get(f"/api/v1/layers?env={env}")
+    overview = http.get(f"/api/v1/overview?env={env}")
+    for response in (listed, detail, layers, overview):
+        assert response.status_code == 200, response.text
+    assert (listed.json()["items"][0]["last_run_id"] is not None) is trusted
+    assert (detail.json()["schema_observed_at"] is not None) is trusted
+    assert detail.json()["columns"][0]["name"] == ("from_event" if trusted else "from_definition")
+    assert (layers.json()["items"][0]["latest_materialization_at"] is not None) is trusted
+    assert overview.json()["freshness_counts"] == (
+        {"fresh": 1, "stale": 0, "unknown": 0}
+        if trusted
+        else {"fresh": 0, "stale": 0, "unknown": 1}
+    )
+
+
+def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client, monkeypatch):
+    http, _, _, _, _ = client
+    node = {
+        "id": "p-orders",
+        "assetKey": {"path": ["orders"]},
+        "description": "orders",
+        "computeKind": "dbt",
+        "groupName": "warehouse",
+        "isMaterializable": True,
+        "isPartitioned": False,
+        "repository": {"name": "repo", "location": {"name": "production_jobs"}},
+        "dependencyKeys": [],
+        "assetMaterializations": [
+            {
+                "timestamp": "1780000000",
+                "runId": "p-run",
+                "partition": None,
+                "runOrError": {
+                    "__typename": "Run",
+                    "runId": "p-run",
+                    "status": "SUCCESS",
+                    "tags": [{"key": "phlo/ref", "value": "main"}],
+                    "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                },
+            }
+        ],
+        "metadataEntries": [],
+    }
+    detail = {
+        **node,
+        "assetMaterializations": [
+            {
+                "timestamp": "1780000000",
+                "runId": "p-run",
+                "partition": None,
+                "runOrError": {
+                    "__typename": "Run",
+                    "runId": "p-run",
+                    "status": "SUCCESS",
+                    "tags": [{"key": "phlo/ref", "value": "main"}],
+                    "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                },
+                "metadataEntries": [
+                    {
+                        "schema": {
+                            "columns": [{"name": "id", "type": "BIGINT", "description": None}]
+                        }
+                    },
+                    {
+                        "lineage": [
+                            {
+                                "columnName": "id",
+                                "columnDeps": [
+                                    {"assetKey": {"path": ["raw", "orders"]}, "columnName": "id"}
+                                ],
+                            }
+                        ]
+                    },
+                ],
+            }
+        ],
+    }
+
+    async def graphql(url, query, variables=None):
+        if "V1AssetDetail" in query:
+            return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **detail}}}
+        return {"data": {"assetNodes": [node]}}
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    response = http.get("/api/v1/assets/orders?env=prod")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["columns"] == [{"name": "id", "type": "BIGINT", "description": None}]
+    assert payload["schema_observed_at"] is not None
+    assert payload["column_lineage"] == {
+        "id": [{"asset_key": ["raw", "orders"], "column_name": "id"}]
+    }
+
+
+def test_asset_routes_report_dagster_outage_without_empty_success(client, monkeypatch):
+    http, _, _, _, _ = client
+
+    async def unavailable(*args, **kwargs):
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(v1_assets, "graphql_request", unavailable)
+    response = http.get("/api/v1/assets?env=prod")
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "backend_unavailable"
+
+
+def test_iceberg_history_is_bound_to_configured_environment_ref(client, monkeypatch):
+    http, _, _, _, _ = client
+    refs = []
+
+    def history(table_name, ref, limit):
+        refs.append((table_name, ref, limit))
+        return [
+            {
+                "snapshot_id": 91 if ref == "main" else 17,
+                "timestamp_ms": 1780000000000,
+                "operation": "append",
+                "summary": {"added-records": "3"},
+                "parent_id": None,
+            }
+        ]
+
+    monkeypatch.setattr(v1_assets, "_iceberg_history", history)
+    prod = http.get("/api/v1/tables/warehouse.orders/snapshots?env=prod&limit=5")
+    staging = http.get("/api/v1/tables/warehouse.orders/snapshots?env=staging&limit=5")
+    assert prod.status_code == staging.status_code == 200
+    assert prod.json()["nessie_ref"] == "main"
+    assert staging.json()["nessie_ref"] == "candidate"
+    assert prod.json()["items"][0]["snapshot_id"] == 91
+    assert staging.json()["items"][0]["snapshot_id"] == 17
+    assert refs == [
+        ("warehouse.orders", "main", 5),
+        ("warehouse.orders", "candidate", 5),
+    ]
+
+
+def test_iceberg_history_rejects_invalid_table_and_propagates_unavailable(client, monkeypatch):
+    http, _, _, _, _ = client
+    assert http.get("/api/v1/tables/warehouse.orders;drop/snapshots?env=prod").status_code == 400
+
+    def unavailable(*args):
+        raise OSError("catalog unavailable")
+
+    monkeypatch.setattr(v1_assets, "_iceberg_history", unavailable)
+    response = http.get("/api/v1/tables/warehouse.orders/snapshots?env=prod")
+    assert response.status_code == 503
+
+
+def test_schema_history_uses_environment_ref_and_limits_versions(client, monkeypatch):
+    http, _, _, _, _ = client
+    refs = []
+
+    def schema(table_name, ref):
+        refs.append((table_name, ref))
+        return 3, [{"schema_id": index, "fields": []} for index in range(4)]
+
+    monkeypatch.setattr(v1_assets, "_iceberg_schema", schema)
+    response = http.get("/api/v1/tables/warehouse.orders/schema-history?env=staging&limit=2")
+    assert response.status_code == 200, response.text
+    assert response.json()["nessie_ref"] == "candidate"
+    assert response.json()["current_schema_id"] == 3
+    assert [version["schema_id"] for version in response.json()["items"]] == [2, 3]
+    assert refs == [("warehouse.orders", "candidate")]
+
+
+def test_materialization_estimate_reports_cost_unavailable_not_fabricated(client, monkeypatch):
+    http, _, _, _, _ = client
+    monkeypatch.setattr(
+        v1_assets,
+        "_assets",
+        lambda *args, **kwargs: asyncio.sleep(
+            0,
+            result=[
+                v1_assets.AssetView(
+                    id="warehouse/orders",
+                    key=["warehouse", "orders"],
+                    description=None,
+                    compute_kind=None,
+                    group_name=None,
+                    is_source=False,
+                    dependencies=[],
+                    last_materialization_at=None,
+                    last_run_id=None,
+                )
+            ],
+        ),
+    )
+    response = http.get(
+        "/api/v1/assets/warehouse/orders/materialization-estimate?env=prod&partition_count=3"
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["partition_count"] == 3
+    assert response.json()["estimated_cost"] is None
+    assert response.json()["estimated_bytes"] is None
+    assert response.json()["estimated_duration_seconds"] is None
+    assert "no cost source" in response.json()["cost_status"]
+    assert "no workload source" in response.json()["workload_status"]
+
+
+def test_asset_preview_uses_exact_environment_catalog_and_ref(client, monkeypatch, tmp_path):
+    from phlo_api.api import operation_controls
+
+    http, *_ = client
+    calls = []
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    relation = "warehouse.orders"
+
+    async def graphql(query, variables=None):
+        return {
+            "data": {
+                "assetNodes": [
+                    {
+                        "id": "orders-id",
+                        "assetKey": {"path": ["order_current_state"]},
+                        "description": None,
+                        "computeKind": "python",
+                        "groupName": "warehouse",
+                        "isMaterializable": True,
+                        "repository": {
+                            "name": "repo",
+                            "location": {"name": "production_jobs"},
+                        },
+                        "dependencyKeys": [],
+                        "metadataEntries": (
+                            [{"label": "target_table", "text": relation}] if relation else []
+                        ),
+                        "assetMaterializations": [],
+                    }
+                ]
+            }
+        }
+
+    async def preview(sql, *, catalog, disconnected, limit):
+        calls.append((sql, catalog, limit))
+        return {
+            "columns": [{"name": "id", "type": "bigint"}],
+            "rows": [{"id": 7}],
+            "has_more": False,
+        }
+
+    monkeypatch.setattr(v1_assets, "_graphql", graphql)
+    monkeypatch.setattr(v1_assets, "execute_preview", preview)
+    monkeypatch.setenv("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "1")
+    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_USER", "phlo_api_preview")
+    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD", "secret")
+    monkeypatch.setenv(
+        "PHLO_V1_PREVIEW_CATALOGS",
+        json.dumps(
+            {
+                "prod": {"catalog": "iceberg_prod", "nessie_ref": "main"},
+                "staging": {"catalog": "iceberg_stage", "nessie_ref": "candidate"},
+            }
+        ),
+    )
+    prod = http.get("/api/v1/assets/order_current_state/preview?env=prod&limit=1")
+    assert prod.status_code == 200, prod.text
+    assert prod.json()["nessie_ref"] == "main"
+    assert calls[0][1] == "iceberg_prod"
+    assert calls[0][0] == 'SELECT * FROM "iceberg_prod"."warehouse"."orders" LIMIT 2'
+    record = json.loads((tmp_path / ".phlo" / "audit" / "operations.jsonl").read_text())
+    assert record["operation"] == "v1_asset_preview"
+    assert record["payload"] == {
+        "env": "prod",
+        "asset_id": "order_current_state",
+        "nessie_ref": "main",
+    }
+    assert record["result"] == {"returned_row_count": 1, "has_more": False}
+    assert "rows" not in record and "secret" not in json.dumps(record)
+    usage = http.get("/api/v1/assets/order_current_state/usage?env=prod")
+    assert usage.status_code == 200, usage.text
+    assert usage.json()["source"] == "api_preview"
+    assert usage.json()["status"] == "partial"
+    assert usage.json()["items"][0]["returned_row_count"] == 1
+
+    def unavailable_audit(**kwargs):
+        raise OSError("test sink unavailable")
+
+    monkeypatch.setattr(operation_controls, "audit_operation", unavailable_audit)
+    assert http.get("/api/v1/assets/order_current_state/preview?env=prod").status_code == 503
+    assert len(calls) == 2  # Trino finished; the API refuses to return unrecorded data.
+    assert len((tmp_path / ".phlo" / "audit" / "operations.jsonl").read_text().splitlines()) == 1
+    relation = ""
+    assert http.get("/api/v1/assets/order_current_state/preview?env=prod").status_code == 503
+    relation = "warehouse.orders;DELETE"
+    assert http.get("/api/v1/assets/order_current_state/preview?env=prod").status_code == 503
+    assert len(calls) == 2
+
+
+def test_asset_relation_declarations_reject_conflicts():
+    from phlo_api.errors import BackendUnavailableError
+
+    assert (
+        v1_assets._declared_relation([{"label": "target_table", "text": "raw.orders"}])
+        == "raw.orders"
+    )
+    assert (
+        v1_assets._declared_relation(
+            [
+                {"label": "target_table", "text": "raw.orders"},
+                {"label": "phlo/relation", "text": "raw.orders"},
+            ]
+        )
+        == "raw.orders"
+    )
+    for entries in (
+        [
+            {"label": "target_table", "text": "raw.orders"},
+            {"label": "phlo/relation", "text": "raw.other"},
+        ],
+        [{"label": "target_table", "text": "raw.orders;DROP TABLE raw.orders"}],
+        [
+            {"label": "target_table", "text": "raw.orders"},
+            {"label": "target_table", "text": "raw.other"},
+        ],
+    ):
+        with pytest.raises(BackendUnavailableError):
+            v1_assets._declared_relation(entries)
+
+
+def test_preview_usage_is_ref_scoped_authorized_paginated_and_fail_closed(
+    client, monkeypatch, tmp_path
+):
+    from phlo_api.api.operation_controls import audit_operation
+
+    http, decisions, _, _, backend = client
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_API_AUDIT_MAX_BYTES", "1")
+
+    async def assets(*args, **kwargs):
+        return [
+            v1_assets.AssetView(
+                id="warehouse/orders",
+                key=["warehouse", "orders"],
+                description=None,
+                compute_kind=None,
+                group_name=None,
+                is_source=False,
+                dependencies=[],
+                last_materialization_at=None,
+                last_run_id=None,
+            )
+        ]
+
+    monkeypatch.setattr(v1_assets, "_assets", assets)
+    url = "/api/v1/assets/warehouse/orders/usage"
+    empty = http.get(f"{url}?env=prod")
+    assert empty.status_code == 200
+    assert empty.json()["status"] == "unavailable" and empty.json()["items"] == []
+    assert empty.json()["reason"] == "no_retained_preview_evidence"
+
+    def access(env, asset, ref, count):
+        audit_operation(
+            operation="v1_asset_preview",
+            target=f"{env}:{asset}@{ref}",
+            dry_run=False,
+            auth={"subject": "alice", "scopes": []},
+            payload={"env": env, "asset_id": asset, "nessie_ref": ref},
+            result={"returned_row_count": count, "has_more": False},
+        )
+
+    access("prod", "warehouse/orders", "main", 7)
+    access("staging", "warehouse/orders", "candidate", 2)
+    access("prod", "warehouse/orders", "old-ref", 40)
+    access("prod", "warehouse/other", "main", 60)
+    access("prod", "warehouse/orders", "main", 9)
+    assert (tmp_path / ".phlo" / "audit" / "operations.jsonl.4").exists()
+    first = http.get(f"{url}?env=prod&limit=1")
+    assert first.status_code == 200, first.text
+    assert [item["returned_row_count"] for item in first.json()["items"]] == [9]
+    cursor = first.json()["next_cursor"]
+    assert cursor
+    second = http.get(f"{url}?env=prod&limit=1&cursor={cursor}")
+    assert [item["returned_row_count"] for item in second.json()["items"]] == [7]
+    assert second.json()["next_cursor"] is None
+    assert http.get(f"{url}?env=staging&cursor={cursor}").status_code == 400
+    staging = http.get(f"{url}?env=staging")
+    assert [item["returned_row_count"] for item in staging.json()["items"]] == [2]
+    assert ("asset.read", "env=prod|asset_id=warehouse/orders", "prod") in decisions
+
+    backend.explain_decision = lambda principal, action, resource, context: AuthorizationDecision(
+        allowed=False, reason_code="explicit_deny"
+    )
+    assert http.get(f"{url}?env=prod").status_code == 403
+    backend.explain_decision = lambda principal, action, resource, context: AuthorizationDecision(
+        allowed=True, reason_code="explicit_allow"
+    )
+    access("prod", "warehouse/orders", "main", 11)
+    assert http.get(f"{url}?env=prod&cursor={cursor}").status_code == 400
+    audit_path = tmp_path / ".phlo" / "audit" / "operations.jsonl"
+    audit_path.write_text("not-json\n")
+    assert http.get(f"{url}?env=prod").status_code == 503
+    audit_path.write_text(
+        json.dumps(
+            {
+                "operation": "v1_asset_preview",
+                "surface": "phlo-api",
+                "payload": [],
+                "result": {"returned_row_count": 999, "has_more": False},
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+        + "\n"
+    )
+    assert http.get(f"{url}?env=prod").status_code == 503
+    audit_path.write_text(json.dumps({"operation": "unrelated"}) + "\n")
+    (tmp_path / ".phlo" / "audit" / "operations.jsonl.1").write_text("invalid-archive\n")
+    assert http.get(f"{url}?env=prod").status_code == 503
+
+
+def test_query_usage_requires_asset_and_physical_table_read_after_reassignment(client, monkeypatch):
+    from phlo.security.adapters import EnforcementResult
+    from phlo_api.usage import ObservedQuery, QueryUsagePage
+
+    http, decisions, _, _, backend = client
+
+    async def assets(*args, **kwargs):
+        return [
+            v1_assets.AssetView(
+                id=asset_id,
+                key=[asset_id],
+                description=None,
+                compute_kind=None,
+                group_name=None,
+                is_source=False,
+                dependencies=[],
+                relation=relation,
+                last_materialization_at=None,
+                last_run_id=None,
+            )
+            for asset_id, relation in (
+                ("asset_a", "warehouse.orders"),
+                ("asset_b", "warehouse.other"),
+            )
+        ]
+
+    reads = []
+
+    def read(env, ref, asset_id, table_id, limit, cursor):
+        reads.append((env, ref, asset_id, table_id))
+        return QueryUsagePage(
+            env=env,
+            asset_id=asset_id,
+            table_name="warehouse.orders",
+            nessie_ref=ref,
+            status="partial",
+            items=[
+                ObservedQuery(
+                    query_id="b_era_query",
+                    source_id="trino",
+                    occurred_at=datetime.now(UTC),
+                    query_state="FINISHED",
+                )
+            ],
+            next_cursor=None,
+        )
+
+    monkeypatch.setattr(v1_assets, "_assets", assets)
+    monkeypatch.setattr(v1_assets, "read_query_usage", read)
+    table_allowed = False
+
+    def decision(principal, action, resource, context):
+        decisions.append((action, resource.resource_id, context.environment))
+        allowed = resource.resource_id == "env=prod|asset_id=asset_a" or (
+            table_allowed and resource.resource_id == "env=prod|table_name=warehouse.orders"
+        )
+        return AuthorizationDecision(
+            allowed=allowed, reason_code="explicit_allow" if allowed else "explicit_deny"
+        )
+
+    backend.explain_decision = decision
+    assert http.get("/api/v1/assets/asset_b/query-usage?env=prod").status_code == 403
+    url = "/api/v1/assets/asset_a/query-usage?env=prod"
+    assert http.get(url).status_code == 403
+    assert reads == []
+    assert ("asset.read", "env=prod|asset_id=asset_a", "prod") in decisions
+    assert ("asset.read", "env=prod|table_name=warehouse.orders", "prod") in decisions
+    backend.explain_decision = lambda principal, action, resource, context: (
+        AuthorizationDecision(allowed=False, reason_code="backend_unavailable")
+        if resource.resource_id == "env=prod|table_name=warehouse.orders"
+        else AuthorizationDecision(allowed=True, reason_code="explicit_allow")
+    )
+    assert http.get(url).status_code == 503
+    assert reads == []
+    backend.explain_decision = decision
+    table_allowed = True
+    allowed = http.get(url)
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["table_name"] == "warehouse.orders"
+    assert allowed.json()["items"][0]["query_id"] == "b_era_query"
+    assert reads == [("prod", "main", "asset_a", "warehouse/orders")]
+    monkeypatch.setattr(security_manifest, "is_regulated", lambda: True)
+
+    def enforce_call(**kwargs):
+        if kwargs["resource"].resource_id == "env=prod|table_name=warehouse.orders":
+            return EnforcementResult.deny(reason_code="explicit_deny")
+        return EnforcementResult.allow()
+
+    monkeypatch.setattr(security_manifest, "enforce", enforce_call)
+    assert http.get(url).status_code == 403
+    assert len(reads) == 1
+    monkeypatch.setattr(
+        security_manifest,
+        "enforce",
+        lambda **kwargs: (
+            EnforcementResult.error(reason_code="backend_unavailable")
+            if kwargs["resource"].resource_id == "env=prod|table_name=warehouse.orders"
+            else EnforcementResult.allow()
+        ),
+    )
+    assert http.get(url).status_code == 503
+    assert len(reads) == 1
+
+
+def test_asset_preview_refuses_same_key_from_multiple_locations(client, monkeypatch):
+    http, *_ = client
+
+    async def graphql(query, variables=None):
+        return {
+            "data": {
+                "assetNodes": [
+                    {
+                        "id": f"{location}-orders",
+                        "assetKey": {"path": ["warehouse", "orders"]},
+                        "description": None,
+                        "computeKind": "python",
+                        "groupName": "warehouse",
+                        "isMaterializable": True,
+                        "repository": {"name": "repo", "location": {"name": location}},
+                        "dependencyKeys": [],
+                        "assetMaterializations": [],
+                    }
+                    for location in ("production_jobs", "testing_jobs")
+                ]
+            }
+        }
+
+    async def unexpected_preview(*args, **kwargs):
+        raise AssertionError("ambiguous cross-location asset must not reach Trino")
+
+    monkeypatch.setattr(v1_assets, "_graphql", graphql)
+    monkeypatch.setattr(v1_assets, "execute_preview", unexpected_preview)
+    response = http.get("/api/v1/assets/warehouse/orders/preview?env=prod")
+
+    assert response.status_code == 503
+
+
+def test_materialize_action_pins_location_ref_and_replay_key(client, monkeypatch, tmp_path):
+    http, *_ = client
+    from phlo_api.api import operation_controls
+    from phlo_api.observatory_api import orchestrator_operations
+    from phlo_api.observatory_api import run_action_contract
+
+    node = {
+        "id": "orders-id",
+        "assetKey": {"path": ["warehouse", "orders"]},
+        "description": None,
+        "computeKind": "python",
+        "groupName": "warehouse",
+        "isMaterializable": True,
+        "repository": {"name": "prod_repo", "location": {"name": "production_jobs"}},
+        "jobNames": ["warehouse_job"],
+        "dependencyKeys": [],
+        "assetMaterializations": [],
+    }
+
+    async def graphql(query, variables=None):
+        if "V1Assets" in query:
+            return {"data": {"assetNodes": [node]}}
+        return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **node}}}
+
+    calls = []
+
+    class Provider:
+        async def materialize_asset(self, asset_id, request):
+            calls.append((asset_id, request))
+            return {"accepted": True, "dry_run": request["dry_run"]}
+
+    monkeypatch.setattr(v1_assets, "_graphql", graphql)
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_PROCESS", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_REF_TAG_CONTRACT", "1")
+    monkeypatch.setattr(
+        operation_controls,
+        "require_scope",
+        lambda *_: {"subject": "alice", "scopes": ["lakehouse:operate"]},
+    )
+    monkeypatch.setattr(operation_controls, "enforce_rate_limit", lambda *_: None)
+    monkeypatch.setattr(run_action_contract, "require_idempotency_key", lambda key: key)
+    monkeypatch.setattr(
+        orchestrator_operations, "resolve_orchestrator_operations", lambda: Provider()
+    )
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+
+    response = http.post(
+        "/api/v1/assets/warehouse/orders/materialize?env=prod",
+        json={"job_name": "warehouse_job", "idempotency_key": "req-1"},
+    )
+    replayed = http.post(
+        "/api/v1/assets/warehouse/orders/materialize?env=prod",
+        json={"job_name": "warehouse_job", "idempotency_key": "req-1"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json() == response.json()
+    assert len(calls) == 1
+    assert response.json()["nessie_ref"] == "main"
+    asset_id, action = calls[0]
+    assert asset_id == "warehouse/orders"
+    assert action["repository_location_name"] == "production_jobs"
+    assert action["repository_name"] == "prod_repo"
+    assert action["tags"] == {"environment": "prod", "phlo/ref": "main"}
+    assert action["idempotency_key"] == "req-1"
+    audit_log = tmp_path / ".phlo" / "audit" / "operations.jsonl"
+    assert len(audit_log.read_text().splitlines()) == 1
+
+    endpoint = "/api/v1/assets/warehouse/orders/materialize?env=prod"
+    for change in (
+        {"dry_run": False},
+        {"partition_key": "2026-09-25"},
+        {"run_config": {"ops": {"warehouse_job": {"config": {"size": 2}}}}},
+    ):
+        conflict = http.post(
+            endpoint,
+            json={"job_name": "warehouse_job", "idempotency_key": "req-1", **change},
+        )
+        assert conflict.status_code == 409
+    assert len(calls) == 1
+
+    live = http.post(
+        endpoint,
+        json={"job_name": "warehouse_job", "idempotency_key": "req-live", "dry_run": False},
+    )
+    assert live.status_code == 200
+    assert (
+        http.post(
+            endpoint,
+            json={"job_name": "warehouse_job", "idempotency_key": "req-live"},
+        ).status_code
+        == 409
+    )
+    assert len(calls) == 2
+    assert len(audit_log.read_text().splitlines()) == 2
+
+
+def test_backfill_action_requires_bounded_explicit_partitions(client, monkeypatch):
+    http, *_ = client
+
+    async def unexpected_graphql(*args, **kwargs):
+        raise AssertionError("the single-replica gate must fail before provider discovery")
+
+    monkeypatch.setattr(v1_assets, "_graphql", unexpected_graphql)
+    disabled = http.post(
+        "/api/v1/assets/warehouse/orders/backfill?env=prod",
+        json={
+            "job_name": "orders_job",
+            "partition_set_name": "daily",
+            "partitions": ["2026-09-25"],
+            "idempotency_key": "req-2",
+        },
+    )
+    assert disabled.status_code == 503
+
+
+def test_latest_and_all_backfills_are_environment_pinned_and_bounded(client, monkeypatch, tmp_path):
+    http, *_ = client
+    from phlo_api.api import operation_controls
+    from phlo_api.observatory_api import orchestrator_operations, run_action_contract
+
+    locations = {
+        "prod_orders": ("production_jobs", "prod_repo"),
+        "stage_orders": ("testing_jobs", "stage_repo"),
+    }
+    assets = [
+        {
+            "id": key,
+            "assetKey": {"path": ["warehouse", key]},
+            "description": None,
+            "computeKind": "python",
+            "groupName": "warehouse",
+            "isMaterializable": True,
+            "repository": {"name": repository, "location": {"name": location}},
+            "dependencyKeys": [],
+            "assetMaterializations": [],
+        }
+        for key, (location, repository) in locations.items()
+    ]
+    latest_query_variables = []
+    provider_calls = []
+
+    async def graphql(query, variables=None):
+        if "V1Assets" in query:
+            return {"data": {"assetNodes": assets}}
+        key = variables["assetKey"]["path"][-1] if "assetKey" in variables else None
+        if "V1AssetDetail" in query:
+            location, repository = locations[key]
+            return {
+                "data": {
+                    "assetNodeOrError": {
+                        "__typename": "AssetNode",
+                        **next(asset for asset in assets if asset["id"] == key),
+                        "jobNames": ["orders_job"],
+                    }
+                }
+            }
+        if "V1BackfillPartitionSet" in query:
+            selector = variables["repositorySelector"]
+            return {
+                "data": {
+                    "partitionSetOrError": {
+                        "__typename": "PartitionSet",
+                        "pipelineName": "orders_job",
+                        "repositoryOrigin": {
+                            "repositoryLocationName": selector["repositoryLocationName"],
+                            "repositoryName": selector["repositoryName"],
+                        },
+                    }
+                }
+            }
+        if "V1AssetLatestPartition" in query:
+            latest_query_variables.append(variables)
+            location, _ = locations[key]
+            prod_selection_count = sum(
+                item["assetKey"]["path"][-1] == "prod_orders" for item in latest_query_variables
+            )
+            partition_key = "2026-09-26" if prod_selection_count > 1 else "2026-09-25"
+            return {
+                "data": {
+                    "assetNodeOrError": {
+                        "__typename": "AssetNode",
+                        "repository": {"location": {"name": location}},
+                        "partitionKeyConnection": {
+                            "results": [partition_key if key == "prod_orders" else "2026-09-24"],
+                            "cursor": "",
+                            "hasMore": True,
+                        },
+                    }
+                }
+            }
+        raise AssertionError("unexpected Dagster query")
+
+    class Provider:
+        async def backfill_asset(self, asset_id, request):
+            provider_calls.append((asset_id, request))
+            return {"accepted": True, "all_partitions": request["all_partitions"]}
+
+    monkeypatch.setattr(v1_assets, "_graphql", graphql)
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_PROCESS", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_REF_TAG_CONTRACT", "1")
+    monkeypatch.setattr(
+        operation_controls,
+        "require_scope",
+        lambda *_: {"subject": "alice", "scopes": ["lakehouse:operate"]},
+    )
+    monkeypatch.setattr(operation_controls, "enforce_rate_limit", lambda *_: None)
+    monkeypatch.setattr(run_action_contract, "require_idempotency_key", lambda key: key)
+    monkeypatch.setattr(
+        orchestrator_operations, "resolve_orchestrator_operations", lambda: Provider()
+    )
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+
+    prod_latest = http.post(
+        "/api/v1/assets/warehouse/prod_orders/backfill?env=prod",
+        json={
+            "job_name": "orders_job",
+            "partition_set_name": "orders_daily",
+            "selection": "latest",
+            "idempotency_key": "prod-latest",
+        },
+    )
+    stage_latest = http.post(
+        "/api/v1/assets/warehouse/stage_orders/backfill?env=staging",
+        json={
+            "job_name": "orders_job",
+            "partition_set_name": "orders_daily",
+            "selection": "latest",
+            "idempotency_key": "stage-latest",
+        },
+    )
+    prod_latest_replay = http.post(
+        "/api/v1/assets/warehouse/prod_orders/backfill?env=prod",
+        json={
+            "job_name": "orders_job",
+            "partition_set_name": "orders_daily",
+            "selection": "latest",
+            "idempotency_key": "prod-latest",
+        },
+    )
+    full = http.post(
+        "/api/v1/assets/warehouse/prod_orders/backfill?env=prod",
+        json={
+            "job_name": "orders_job",
+            "partition_set_name": "orders_daily",
+            "selection": "all",
+            "idempotency_key": "prod-full",
+        },
+    )
+
+    assert (
+        prod_latest.status_code
+        == stage_latest.status_code
+        == prod_latest_replay.status_code
+        == full.status_code
+        == 200
+    )
+    assert prod_latest_replay.json() == prod_latest.json()
+    assert [call[1]["partitions"] for call in provider_calls] == [
+        ["2026-09-25"],
+        ["2026-09-24"],
+        [],
+    ]
+    assert provider_calls[0][1]["repository_location_name"] == "production_jobs"
+    assert provider_calls[0][1]["tags"] == {
+        "environment": "prod",
+        "phlo/ref": "main",
+        "phlo/job": "orders_job",
+        "phlo/selection": "latest",
+    }
+    assert provider_calls[1][1]["repository_location_name"] == "testing_jobs"
+    assert provider_calls[1][1]["tags"]["phlo/ref"] == "candidate"
+    assert provider_calls[2][1]["all_partitions"] is True
+    assert provider_calls[2][1]["repository_location_name"] == "production_jobs"
+    assert latest_query_variables == [
+        {"assetKey": {"path": ["warehouse", "prod_orders"]}, "limit": 1, "ascending": False},
+        {"assetKey": {"path": ["warehouse", "stage_orders"]}, "limit": 1, "ascending": False},
+        {"assetKey": {"path": ["warehouse", "prod_orders"]}, "limit": 1, "ascending": False},
+    ]
+    assert "partitionKeysByDimension" not in v1_assets.ASSET_LATEST_PARTITION_QUERY
+
+    endpoint = "/api/v1/assets/warehouse/prod_orders/backfill?env=prod"
+    dry_request = {
+        "job_name": "orders_job",
+        "partition_set_name": "orders_daily",
+        "selection": "all",
+        "idempotency_key": "prod-full",
+    }
+    assert http.post(endpoint, json={**dry_request, "dry_run": False}).status_code == 409
+    live_request = {**dry_request, "idempotency_key": "prod-live", "dry_run": False}
+    assert http.post(endpoint, json=live_request).status_code == 200
+    assert http.post(endpoint, json={**live_request, "dry_run": True}).status_code == 409
+    assert len(provider_calls) == 4
+
+
+@pytest.mark.parametrize(
+    ("partition_response", "expected_status"),
+    [
+        ({"results": [], "cursor": "", "hasMore": False}, 503),
+        ({"results": ["p1", "p2"], "cursor": "next", "hasMore": True}, 502),
+        ({"wrong_location": True, "results": ["p1"], "cursor": "", "hasMore": False}, 404),
+        ({"wrong_partition_location": True}, 404),
+        ({"wrong_job": True}, 404),
+        ({"upstream_failure": True}, 502),
+    ],
+)
+def test_latest_backfill_fails_closed_on_empty_oversized_or_wrong_location(
+    client, monkeypatch, tmp_path, partition_response, expected_status
+):
+    http, *_ = client
+    from phlo_api.api import operation_controls
+    from phlo_api.observatory_api import orchestrator_operations, run_action_contract
+
+    node = {
+        "id": "orders",
+        "assetKey": {"path": ["warehouse", "orders"]},
+        "description": None,
+        "computeKind": "python",
+        "groupName": "warehouse",
+        "isMaterializable": True,
+        "repository": {"name": "prod_repo", "location": {"name": "production_jobs"}},
+        "dependencyKeys": [],
+        "assetMaterializations": [],
+    }
+    provider_calls = []
+
+    async def graphql(query, variables=None):
+        if "V1Assets" in query:
+            return {"data": {"assetNodes": [node]}}
+        if "V1AssetDetail" in query:
+            return {
+                "data": {
+                    "assetNodeOrError": {
+                        "__typename": "AssetNode",
+                        **node,
+                        "jobNames": ["orders_job"],
+                    }
+                }
+            }
+        if "V1BackfillPartitionSet" in query:
+            selector = variables["repositorySelector"]
+            if partition_response.get("wrong_partition_location"):
+                selector = {**selector, "repositoryLocationName": "testing_jobs"}
+            return {
+                "data": {
+                    "partitionSetOrError": {
+                        "__typename": "PartitionSet",
+                        "pipelineName": (
+                            "other_job" if partition_response.get("wrong_job") else "orders_job"
+                        ),
+                        "repositoryOrigin": selector,
+                    }
+                }
+            }
+        if "V1AssetLatestPartition" in query:
+            if partition_response.get("upstream_failure"):
+                return {"errors": [{"message": "Dagster unavailable"}]}
+            return {
+                "data": {
+                    "assetNodeOrError": {
+                        "__typename": "AssetNode",
+                        "repository": {
+                            "location": {
+                                "name": "testing_jobs"
+                                if partition_response.get("wrong_location")
+                                else "production_jobs"
+                            }
+                        },
+                        "partitionKeyConnection": {
+                            key: value
+                            for key, value in partition_response.items()
+                            if key not in {"wrong_location", "upstream_failure"}
+                        },
+                    }
+                }
+            }
+        raise AssertionError("unexpected Dagster query")
+
+    class Provider:
+        async def backfill_asset(self, asset_id, request):
+            provider_calls.append(request)
+            return {"accepted": True}
+
+    monkeypatch.setattr(v1_assets, "_graphql", graphql)
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_PROCESS", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_REF_TAG_CONTRACT", "1")
+    monkeypatch.setattr(
+        operation_controls,
+        "require_scope",
+        lambda *_: {"subject": "alice", "scopes": ["lakehouse:operate"]},
+    )
+    monkeypatch.setattr(operation_controls, "enforce_rate_limit", lambda *_: None)
+    monkeypatch.setattr(run_action_contract, "require_idempotency_key", lambda key: key)
+    monkeypatch.setattr(
+        orchestrator_operations, "resolve_orchestrator_operations", lambda: Provider()
+    )
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+
+    response = http.post(
+        "/api/v1/assets/warehouse/orders/backfill?env=prod",
+        json={
+            "job_name": "orders_job",
+            "partition_set_name": "orders_daily",
+            "selection": "latest",
+            "idempotency_key": "latest-test",
+        },
+    )
+    assert response.status_code == expected_status, response.text
+    assert provider_calls == []
+
+
+def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monkeypatch):
+    http, _, _, _, _ = client
+    nodes = [
+        {
+            "assetKey": {"path": ["warehouse", "orders"]},
+            "repository": {"location": {"name": location}},
+            "assetChecksOrError": {
+                "__typename": "AssetChecks",
+                "checks": [{"name": f"quality_{env}", "description": env}],
+            },
+        }
+        for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
+    ]
+    executions: list[dict[str, Any]] = [
+        {
+            "status": "SUCCEEDED",
+            "runId": run_id,
+            "timestamp": 1780000000,
+            "checkName": f"quality_{env}",
+            "evaluation": {
+                "success": env == "prod",
+                "severity": "ERROR",
+                "metadataEntries": [
+                    {"__typename": "IntMetadataEntry", "label": "rows", "intValue": count}
+                ],
+            },
+            "run": {
+                "runId": run_id,
+                "tags": [{"key": "phlo/ref", "value": "main" if env == "prod" else "candidate"}],
+                "repositoryOrigin": {
+                    "repositoryLocationName": "production_jobs" if env == "prod" else "testing_jobs"
+                },
+            },
+        }
+        for env, run_id, count in (("prod", "p-run", 9), ("staging", "s-run", 2))
+    ]
+    executions.append(
+        {
+            **executions[0],
+            "runId": "wrong-ref",
+            "run": {
+                **executions[0]["run"],
+                "runId": "wrong-ref",
+                "tags": [{"key": "phlo/ref", "value": "candidate"}],
+            },
+        }
+    )
+    executions.append(
+        {
+            "status": "SUCCEEDED",
+            "runId": "",
+            "timestamp": 1780000000,
+            "checkName": "quality_prod",
+            "evaluation": {"success": True, "severity": "ERROR", "metadataEntries": []},
+            "run": None,
+        }
+    )
+
+    async def graphql(url, query, variables=None):
+        if "V1Assets" in query:
+            return {
+                "data": {
+                    "assetNodes": [
+                        {
+                            "id": env,
+                            "assetKey": {"path": ["warehouse", "orders"]},
+                            "description": env,
+                            "computeKind": None,
+                            "groupName": None,
+                            "isMaterializable": True,
+                            "repository": {"name": "repo", "location": {"name": location}},
+                            "dependencyKeys": [],
+                            "assetMaterializations": [],
+                        }
+                        for env, location in (
+                            ("prod", "production_jobs"),
+                            ("staging", "testing_jobs"),
+                        )
+                    ]
+                }
+            }
+        if "V1AssetChecks" in query:
+            return {"data": {"assetNodes": nodes}}
+        if "V1AssetCheckExecutions" in query:
+            return {
+                "data": {
+                    "assetCheckExecutions": [
+                        row for row in executions if row["checkName"] == variables["checkName"]
+                    ]
+                }
+            }
+        raise AssertionError("unexpected Dagster query")
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    prod = http.get("/api/v1/assets/warehouse/orders/checks?env=prod")
+    staging = http.get("/api/v1/assets/warehouse/orders/checks?env=staging")
+    assert prod.status_code == staging.status_code == 200
+    assert prod.json()["definitions"] == [{"name": "quality_prod", "description": "prod"}]
+    assert staging.json()["definitions"] == [{"name": "quality_staging", "description": "staging"}]
+    assert [item["run_id"] for item in prod.json()["executions"]] == ["p-run"]
+    assert [item["run_id"] for item in staging.json()["executions"]] == ["s-run"]
+    assert prod.json()["executions"][0]["passed"] is True
+    assert staging.json()["executions"][0]["passed"] is False
+    assert prod.json()["executions"][0]["metadata"] == [{"label": "rows", "value": 9}]
+    executions[0]["run"]["tags"] = []
+    assert http.get("/api/v1/assets/warehouse/orders/checks?env=prod").status_code == 503
+
+
+def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client, monkeypatch):
+    http, *_ = client
+    feed_cursors = []
+    missing_ref = False
+    asset_nodes = [
+        {
+            "id": env,
+            "assetKey": {"path": ["warehouse", "orders"]},
+            "description": env,
+            "computeKind": None,
+            "groupName": None,
+            "isMaterializable": True,
+            "repository": {"name": "repo", "location": {"name": location}},
+            "dependencyKeys": [],
+            "assetMaterializations": [],
+        }
+        for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
+    ]
+
+    def run(run_id, location, selection, status="SUCCESS", ref=None):
+        return {
+            "__typename": "Run",
+            "runId": run_id,
+            "status": status,
+            "tags": [
+                {
+                    "key": "phlo/ref",
+                    "value": ref or ("main" if location == "production_jobs" else "candidate"),
+                }
+            ],
+            "creationTime": 1780000000,
+            "startTime": 1780000001,
+            "endTime": 1780000002,
+            "repositoryOrigin": {"repositoryLocationName": location},
+            "assetSelection": [{"path": selection}],
+        }
+
+    async def graphql(url, query, variables=None):
+        if "V1Assets" in query:
+            return {"data": {"assetNodes": asset_nodes}}
+        if "V1AssetRuns" in query:
+            feed_cursors.append(variables["cursor"])
+            results = (
+                [
+                    run("prod-success", "production_jobs", ["warehouse", "orders"]),
+                    run("wrong-ref", "production_jobs", ["warehouse", "orders"], ref="candidate"),
+                ]
+                if variables["cursor"] is None
+                else [
+                    run(
+                        "prod-failure",
+                        "production_jobs",
+                        ["warehouse", "orders"],
+                        "FAILURE",
+                    )
+                ]
+            )
+            if missing_ref:
+                results[0]["tags"] = []
+            next_cursor = "dagster-page-1" if variables["cursor"] is None else "dagster-page-2"
+            return {
+                "data": {
+                    "runsFeedOrError": {
+                        "__typename": "RunsFeedConnection",
+                        "results": results,
+                        "cursor": next_cursor,
+                        "hasMore": variables["cursor"] is None,
+                    }
+                }
+            }
+        raise AssertionError("unexpected Dagster query")
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    first = http.get("/api/v1/assets/warehouse/orders/runs?env=prod&limit=2")
+    assert first.status_code == 200, first.text
+    assert [item["run_id"] for item in first.json()["items"]] == ["prod-success"]
+    cursor = first.json()["next_cursor"]
+    second = http.get(f"/api/v1/assets/warehouse/orders/runs?env=prod&limit=2&cursor={cursor}")
+    assert second.status_code == 200, second.text
+    assert [item["run_id"] for item in second.json()["items"]] == ["prod-failure"]
+    assert second.json()["items"][0]["status"] == "FAILURE"
+    assert second.json()["next_cursor"] is None
+    assert feed_cursors == [None, "dagster-page-1"]
+    assert (
+        http.get(f"/api/v1/assets/warehouse/orders/runs?env=staging&cursor={cursor}").status_code
+        == 400
+    )
+    missing_ref = True
+    assert http.get("/api/v1/assets/warehouse/orders/runs?env=prod").status_code == 503
+
+
+def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
+    from types import SimpleNamespace
+
+    http, _, _, _, _ = client
+    nodes = [
+        {
+            "id": key,
+            "assetKey": {"path": [key]},
+            "description": key,
+            "computeKind": None,
+            "groupName": "warehouse",
+            "isMaterializable": True,
+            "isPartitioned": False,
+            "repository": {"name": "repo", "location": {"name": "production_jobs"}},
+            "dependencyKeys": [],
+            "assetMaterializations": [
+                {
+                    "timestamp": "1780000000",
+                    "runId": "run-1",
+                    "partition": None,
+                    "runOrError": {
+                        "__typename": "Run",
+                        "runId": "run-1",
+                        "status": "SUCCESS",
+                        "tags": [{"key": "phlo/ref", "value": "main"}],
+                        "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                    },
+                }
+            ]
+            if key == "orders"
+            else [],
+        }
+        for key in ("orders", "unmaterialized")
+    ]
+
+    async def graphql(url, query, *args, **kwargs):
+        return {"data": {"assetNodes": nodes}}
+
+    from phlo_api import incidents
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(
+        incidents, "incident_stats", lambda request, env: {"env": env, "counts": {"open": 2}}
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda request, env, limit, cursor: SimpleNamespace(
+            items=[{"asset_id": "orders", "freshness_sla_seconds": 60}], next_cursor=None
+        ),
+    )
+    response = http.get("/api/v1/overview?env=prod")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["asset_count"] == 2
+    assert body["materialized_asset_count"] == 1
+    assert body["incident_counts"] == {"open": 2}
+    assert body["freshness_counts"] == {"fresh": 0, "stale": 1, "unknown": 1}
+    assert body["run_status_counts"] == {"STARTED": 1}
+    assert body["run_history_truncated"] is False
+    assert body["quality_checks"] == {
+        "status": "unknown",
+        "counts": None,
+        "failing_assets": None,
+        "reason": "source_unavailable",
+    }
+
+
+def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, monkeypatch):
+    from types import SimpleNamespace
+
+    http, *_ = client
+    nodes = [
+        {
+            "id": env,
+            "assetKey": {"path": ["warehouse", "orders"]},
+            "description": env,
+            "computeKind": None,
+            "groupName": "warehouse",
+            "isMaterializable": True,
+            "repository": {"name": "repo", "location": {"name": location}},
+            "dependencyKeys": [],
+            "assetMaterializations": [],
+        }
+        for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
+    ]
+    runless = {
+        "status": "SUCCEEDED",
+        "runId": "",
+        "timestamp": 1780000300,
+        "evaluation": {"success": True, "severity": "ERROR", "metadataEntries": []},
+        "run": None,
+    }
+    missing_ref = False
+
+    async def graphql(url, query, variables=None):
+        if "V1Assets" in query:
+            return {"data": {"assetNodes": nodes}}
+        if "V1AssetChecks" in query:
+            return {
+                "data": {
+                    "assetNodes": [
+                        {
+                            "assetKey": {"path": ["warehouse", "orders"]},
+                            "repository": {"location": {"name": location}},
+                            "assetChecksOrError": {
+                                "__typename": "AssetChecks",
+                                "checks": [
+                                    {"name": "freshness", "description": None},
+                                    {"name": "volume", "description": None},
+                                ],
+                            },
+                        }
+                        for location in ("production_jobs", "testing_jobs")
+                    ]
+                }
+            }
+        if "V1AssetCheckExecutions" in query:
+            check_name = variables["checkName"]
+            check_executions = {
+                "freshness": (
+                    ("prod-pass", 1780000200, True, "production_jobs"),
+                    ("stage-fail", 1780000250, False, "testing_jobs"),
+                ),
+                "volume": (
+                    ("prod-fail", 1780000260, False, "production_jobs"),
+                    ("stage-pass", 1780000270, True, "testing_jobs"),
+                ),
+            }[check_name]
+            return {
+                "data": {
+                    "assetCheckExecutions": [
+                        {
+                            "status": "SUCCEEDED",
+                            "runId": run_id,
+                            "timestamp": timestamp,
+                            "evaluation": {
+                                "success": passed,
+                                "severity": "ERROR",
+                                "metadataEntries": [],
+                            },
+                            "run": {
+                                "runId": run_id,
+                                "tags": (
+                                    []
+                                    if missing_ref and run_id == "prod-pass"
+                                    else [
+                                        {
+                                            "key": "phlo/ref",
+                                            "value": "main"
+                                            if location == "production_jobs"
+                                            else "candidate",
+                                        }
+                                    ]
+                                ),
+                                "repositoryOrigin": {"repositoryLocationName": location},
+                            },
+                        }
+                        for run_id, timestamp, passed, location in check_executions
+                    ]
+                    + [runless]
+                }
+            }
+        raise AssertionError("unexpected Dagster query")
+
+    from phlo_api import incidents
+    from phlo_api.api import v1
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(v1, "_runs", lambda location, ref: asyncio.sleep(0, result={}))
+    monkeypatch.setattr(
+        incidents,
+        "incident_stats",
+        lambda request, env: {"env": env, "counts": {"open": 0}},
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda request, env, limit, cursor: SimpleNamespace(items=[], next_cursor=None),
+    )
+
+    response = http.get("/api/v1/overview?env=prod")
+    assert response.status_code == 200, response.text
+    assert response.json()["quality_checks"] == {
+        "status": "available",
+        "counts": {"passing": 1, "total": 2, "unevaluated": 0},
+        "failing_assets": ["warehouse/orders"],
+        "reason": None,
+    }
+    missing_ref = True
+    unknown = http.get("/api/v1/overview?env=prod")
+    assert unknown.status_code == 200
+    assert unknown.json()["quality_checks"]["status"] == "unknown"
+    assert unknown.json()["quality_checks"]["counts"] is None
+
+
+def test_audit_proposal_generator_emits_only_validated_declarative_checks():
+    payload = AssetAuditProposalRequest.model_validate(
+        {
+            "check_name": "orders_quality",
+            "rules": [
+                {"kind": "unique", "column": "order_id"},
+                {"kind": "range", "column": "total", "minimum": 0, "maximum": 1000},
+            ],
+            "idempotency_key": "proposal-1",
+        }
+    )
+
+    path, source = generate_check_file(["warehouse", "orders"], payload.check_name, payload.rules)
+
+    assert path == "workflows/quality/warehouse_orders_orders_quality.py"
+    assert 'table="warehouse.orders"' in source
+    assert 'UniqueCheck(columns=["order_id"])' in source
+    assert 'RangeCheck(column="total", min_value=0.0, max_value=1000.0)' in source
+    assert "exec(" not in source
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "check_name": "unsafe-name",
+            "rules": [{"kind": "unique", "column": "id"}],
+            "idempotency_key": "proposal-1",
+        },
+        {
+            "check_name": "valid",
+            "rules": [{"kind": "range", "column": "id", "minimum": 10, "maximum": 1}],
+            "idempotency_key": "proposal-1",
+        },
+        {
+            "check_name": "valid",
+            "rules": [{"kind": "custom_sql", "sql": "drop table orders"}],
+            "idempotency_key": "proposal-1",
+        },
+    ],
+)
+def test_audit_proposal_rejects_unsafe_declarations(payload):
+    with pytest.raises(ValueError):
+        AssetAuditProposalRequest.model_validate(payload)
+
+
+def test_audit_proposal_is_audited_idempotent_and_reviewable_without_git_integration(
+    client, tmp_path, monkeypatch
+):
+    http, *_ = client
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_AUTHORIZATION_MODE", "required")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_ACTIONS_SINGLE_PROCESS", "1")
+    monkeypatch.setenv(
+        "PHLO_API_TOKENS",
+        '{"writer":{"subject":"alice","scopes":["project:write"]},'
+        '"reader":{"subject":"reader","scopes":["project:read"]}}',
+    )
+
+    async def assets(*args, **kwargs):
+        return [
+            v1_assets.AssetView(
+                id="warehouse/orders",
+                key=["warehouse", "orders"],
+                description=None,
+                compute_kind="sql",
+                group_name="warehouse",
+                is_source=False,
+                dependencies=[],
+                last_materialization_at=None,
+                last_run_id=None,
+            )
+        ]
+
+    async def detail(*args, **kwargs):
+        return v1_assets.AssetDetail(
+            id="warehouse/orders",
+            key=["warehouse", "orders"],
+            description=None,
+            compute_kind="sql",
+            group_name="warehouse",
+            is_source=False,
+            dependencies=[],
+            last_materialization_at=None,
+            last_run_id=None,
+            columns=[v1_assets.AssetColumn(name="order_id", type="string", description=None)],
+            schema_observed_at=None,
+        )
+
+    monkeypatch.setattr(v1_assets, "_assets", assets)
+    monkeypatch.setattr(v1_assets, "v1_asset_detail", detail)
+    body = {
+        "check_name": "orders_quality",
+        "rules": [{"kind": "unique", "column": "order_id"}],
+        "idempotency_key": "review-1",
+    }
+    headers = {"Authorization": "Bearer writer"}
+    url = "/api/v1/assets/warehouse/orders/audits?env=prod"
+
+    denied = http.post(
+        url,
+        json=body,
+        headers={"Authorization": "Bearer reader"},
+    )
+    assert denied.status_code == 403
+
+    first = http.post(url, json=body, headers=headers)
+    replay = http.post(url, json=body, headers=headers)
+
+    assert first.status_code == replay.status_code == 202
+    assert first.json() == replay.json()
+    proposal = first.json()
+    assert proposal["status"] == "pending_review"
+    assert proposal["env"] == "prod"
+    assert proposal["nessie_ref"] == "main"
+    assert proposal["file_path"] == "workflows/quality/warehouse_orders_orders_quality.py"
+    assert proposal["source_digest"]
+    assert proposal["patch"].startswith("--- /dev/null\n+++ b/workflows/quality/")
+    assert 'UniqueCheck(columns=["order_id"])' in proposal["patch"]
+    audit_path = tmp_path / ".phlo" / "audit" / "operations.jsonl"
+    records = audit_path.read_text(encoding="utf-8").splitlines()
+    assert len(records) == 1
+    assert '"status": "pending_review"' in records[0]
+    assert not (tmp_path / "workflows").exists()
+
+    retrieved = http.get(
+        f"/api/v1/assets/warehouse/orders/audits/{proposal['proposal_id']}?env=prod",
+        headers=headers,
+    )
+    assert retrieved.status_code == 200
+    assert retrieved.json() == proposal
+    wrong_env = http.get(
+        f"/api/v1/assets/warehouse/orders/audits/{proposal['proposal_id']}?env=staging",
+        headers=headers,
+    )
+    assert wrong_env.status_code == 404
+
+    publish_url = (
+        f"/api/v1/assets/warehouse/orders/audits/{proposal['proposal_id']}/pull-request?env=prod"
+    )
+    for name in (
+        "PHLO_V1_GIT_REVIEW_REPOSITORY",
+        "PHLO_V1_GIT_REVIEW_BASE_BRANCH",
+        "PHLO_V1_GIT_REVIEW_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    unconfigured = http.post(
+        publish_url,
+        json={"idempotency_key": "draft-pr-unconfigured"},
+        headers=headers,
+    )
+    assert unconfigured.status_code == 503
+    assert "not configured" in unconfigured.json()["error"]["message"]
+
+    monkeypatch.setenv("PHLO_V1_GIT_REVIEW_REPOSITORY", "project-data/orders")
+    monkeypatch.setenv("PHLO_V1_GIT_REVIEW_BASE_BRANCH", "main")
+    monkeypatch.setenv("PHLO_V1_GIT_REVIEW_TOKEN", "test-only-token")
+
+    async def publish_pr(client, config, audit_proposal):
+        assert config.repository == "project-data/orders"
+        assert audit_proposal.proposal_id == proposal["proposal_id"]
+        return AssetAuditDraftPullRequest(
+            proposal_id=audit_proposal.proposal_id,
+            repository=config.repository,
+            base_branch=config.base_branch,
+            head_branch=f"phlo/asset-check-{audit_proposal.proposal_id}",
+            pull_request_number=42,
+            pull_request_url="https://github.com/project-data/orders/pull/42",
+        )
+
+    monkeypatch.setattr(v1_assets, "publish_project_draft_pr", publish_pr)
+    published = http.post(
+        publish_url,
+        json={"idempotency_key": "draft-pr-1"},
+        headers=headers,
+    )
+    published_replay = http.post(
+        publish_url,
+        json={"idempotency_key": "draft-pr-1"},
+        headers=headers,
+    )
+    assert published.status_code == published_replay.status_code == 202
+    assert published.json() == published_replay.json()
+    assert published.json()["status"] == "pending_review"
+    assert published.json()["pull_request_url"] == "https://github.com/project-data/orders/pull/42"
+    records = audit_path.read_text(encoding="utf-8").splitlines()
+    assert len(records) == 2
+
+    changed = {**body, "check_name": "another_quality"}
+    conflict = http.post(url, json=changed, headers=headers)
+    assert conflict.status_code == 409
+
+    def fail_storage(**kwargs):
+        raise RuntimeError("storage backend details must not reach clients")
+
+    monkeypatch.setattr(v1_assets, "create_audit_proposal", fail_storage)
+    storage_failure = http.post(
+        url,
+        json={**body, "idempotency_key": "review-storage-failure"},
+        headers=headers,
+    )
+    assert storage_failure.status_code == 503
+    assert storage_failure.json()["error"]["message"] == "Audit proposal storage is unavailable."
+    assert "storage backend details" not in storage_failure.text

@@ -159,12 +159,43 @@ def test_phlo_api_service_passes_clickstack_query_env() -> None:
         assert env["CLICKSTACK_QUERY_PASSWORD"] == "${CLICKSTACK_QUERY_PASSWORD:-}"
 
 
+def test_phlo_api_service_passes_v1_operator_gates_without_enabling_them() -> None:
+    service_defn = _load_packaged_definition("service.yaml")
+    operator_settings = (
+        "PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED",
+        "PHLO_V1_PREVIEW_TRINO_USER",
+        "PHLO_V1_PREVIEW_TRINO_PASSWORD",
+        "PHLO_V1_PREVIEW_CATALOGS",
+        "PHLO_V1_ACTIONS_SINGLE_REPLICA",
+        "PHLO_V1_ACTIONS_SINGLE_PROCESS",
+        "PHLO_V1_ACTIONS_REF_TAG_CONTRACT",
+    )
+
+    for environment in (
+        service_defn["compose"]["environment"],
+        service_defn["dev"]["environment"],
+    ):
+        for setting in operator_settings:
+            assert environment[setting] == f"${{{setting}:-}}"
+
+    assert service_defn["compose"]["environment"]["TRINO_URL"] == "${TRINO_URL:-http://trino:8080}"
+    assert service_defn["env_vars"]["PHLO_V1_PREVIEW_TRINO_PASSWORD"]["secret"] is True
+
+
 def test_phlo_api_service_does_not_mount_docker_socket_by_default() -> None:
     service_defn = _load_packaged_definition("service.yaml")
     compose_config = service_defn["compose"]
 
     mounts = [*compose_config.get("volumes", []), *compose_config.get("devices", [])]
     assert not any("/var/run/docker.sock" in str(mount) for mount in mounts)
+
+
+def test_phlo_api_service_persists_operation_audit_beside_idempotency_state() -> None:
+    volumes = _load_packaged_definition("service.yaml")["compose"]["volumes"]
+
+    assert "../:/app:ro" in volumes
+    assert "../.phlo/state:/app/.phlo/state" in volumes
+    assert "../.phlo/audit:/app/.phlo/audit" in volumes
 
 
 def test_phlo_api_service_build_context_is_package_portable() -> None:

@@ -174,6 +174,35 @@ def _append_audit_record(path: Path, record: dict[str, Any]) -> None:
             os.fsync(handle.fileno())
 
 
+def read_operation_audit(operation: str) -> list[dict[str, Any]]:
+    """Read the bounded, retained API audit segments in append order."""
+    audit_dir = project_root() / ".phlo" / "audit"
+    if not audit_dir.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    with _audit_write_lock(audit_dir):
+        max_files = int(os.environ.get("PHLO_API_AUDIT_MAX_FILES", "5"))
+        if not 1 <= max_files <= 20:
+            raise ValueError("Audit retention exceeds the supported read bound.")
+        path = audit_dir / "operations.jsonl"
+        paths = [path.with_name(f"{path.name}.{index}") for index in range(max_files, 0, -1)]
+        paths.append(path)
+        size = sum(segment.stat().st_size for segment in paths if segment.exists())
+        if size > 64 * 1024 * 1024:
+            raise ValueError("Audit history exceeds the supported read bound.")
+        for segment in paths:
+            if not segment.exists():
+                continue
+            with segment.open(encoding="utf-8") as handle:
+                for line in handle:
+                    record = json.loads(line)
+                    if not isinstance(record, dict):
+                        raise ValueError("Audit history contains an invalid record.")
+                    if record.get("operation") == operation:
+                        records.append(record)
+    return records
+
+
 def _rotate_audit_log(path: Path) -> None:
     max_bytes = int(os.environ.get("PHLO_API_AUDIT_MAX_BYTES", str(10 * 1024 * 1024)))
     max_files = int(os.environ.get("PHLO_API_AUDIT_MAX_FILES", "5"))
