@@ -75,6 +75,9 @@ class SignatureRequest:
     record_version: str
     """Version hash or state hash of the record being signed."""
 
+    action: str = ""
+    """Exact action this signature authorizes."""
+
     justification: str | None = None
     """Optional justification for the signature."""
 
@@ -104,6 +107,9 @@ class SignatureRecord:
 
     record_version: str
     """Version hash or state hash of the record at signing time."""
+
+    action: str = ""
+    """Exact action this signature authorizes."""
 
     justification: str | None = None
     """Justification provided at signing time."""
@@ -135,24 +141,39 @@ class SignatureRecord:
             record_type=request.record_type,
             record_id=request.record_id,
             record_version=request.record_version,
+            action=request.action,
             justification=request.justification,
             authentication_assurance=authentication_assurance,
         )
 
-        canonical = json.dumps(
-            {
-                "signature_id": record.signature_id,
-                "signer_subject": record.signer_subject,
-                "meaning": record.meaning,
-                "record_type": record.record_type,
-                "record_id": record.record_id,
-                "record_version": record.record_version,
-                "signed_at": record.signed_at,
-                "authentication_assurance": record.authentication_assurance,
-            },
-            sort_keys=True,
-        )
         hmac_key = _get_signature_hmac_key()
-        signature_hash = _hmac.new(hmac_key, canonical.encode(), hashlib.sha256).hexdigest()
+        signature_hash = _hmac.new(hmac_key, _canonical_payload(record), hashlib.sha256).hexdigest()
 
         return _dataclass_replace(record, signature_hash=signature_hash)
+
+    def has_valid_hash(self) -> bool:
+        """Verify the stored HMAC over actor, intent, action, target, and version."""
+        if not self.signature_hash:
+            return False
+        expected = _hmac.new(
+            _get_signature_hmac_key(), _canonical_payload(self), hashlib.sha256
+        ).hexdigest()
+        return _hmac.compare_digest(expected, self.signature_hash)
+
+
+def _canonical_payload(record: SignatureRecord) -> bytes:
+    return json.dumps(
+        {
+            "signature_id": record.signature_id,
+            "signer_subject": record.signer_subject,
+            "meaning": record.meaning,
+            "record_type": record.record_type,
+            "record_id": record.record_id,
+            "record_version": record.record_version,
+            "action": record.action,
+            "justification": record.justification,
+            "signed_at": record.signed_at,
+            "authentication_assurance": record.authentication_assurance,
+        },
+        sort_keys=True,
+    ).encode()

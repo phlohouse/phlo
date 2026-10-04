@@ -27,6 +27,13 @@ from phlo_postgres.settings import get_settings as get_postgres_settings
 logger = get_logger(__name__)
 
 
+class _MutationCallbackFailure(Exception):
+    """Carry a user mutation exception through storage error translation."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+
 def _get_psycopg2():
     try:
         import psycopg2
@@ -160,7 +167,10 @@ class PostgresSettingsStore:
                         (scope.value, namespace),
                     )
                     row = cursor.fetchone()
-                    settings = mutation(row[0] if row else None)
+                    try:
+                        settings = mutation(row[0] if row else None)
+                    except Exception as exc:
+                        raise _MutationCallbackFailure(exc) from exc
                     cursor.execute(
                         """
                         INSERT INTO phlo_settings (scope, namespace, settings, updated_at)
@@ -179,6 +189,8 @@ class PostgresSettingsStore:
                         settings=stored_settings,
                         updated_at=updated_at.isoformat() if updated_at else None,
                     )
+        except _MutationCallbackFailure as exc:
+            raise exc.error
         except Exception as exc:
             if isinstance(exc, StorageUnavailableError):
                 raise
