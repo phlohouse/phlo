@@ -109,17 +109,19 @@ archived thread does not run its webhook or schedule.
 
 ## Update existing automation threads
 
-After merging a plugin change, refresh each persistent thread's checkout to
-current `main` and reload its project plugins. A reload in another thread does
-not update these orbs. If a restricted thread cannot refresh or reload itself,
-temporarily select a built-in mode with those tools for the update.
+Do not assume an existing custom-agent thread can switch modes or adopt a new
+agent definition after a plugin reload. Each orb also has its own checkout.
 
-Select `phlo-automation-host` for the existing PR and issue host, and reselect
-`phlo-maintenance` for both scheduled threads so they use the new definitions.
-Keep the existing thread IDs and saved schedules. Changing the parent
-configuration alone does not change an agent mode or transfer webhook ownership.
+After merging, create a replacement PR and issue host in
+`phlo-automation-host` and two replacement threads in `phlo-maintenance` from
+current `main`. Copy the exact saved prompts, recurrence rules, timezones, and
+run modes from the old maintenance schedules. Verify that the replacements can
+retrieve their saved prompts without running an audit, then pause the old
+schedules to prevent duplicate runs.
 
-Check that each maintenance thread can retrieve its saved prompt without
-running the audit. Check that the host can reload plugins and send a status
-message. Do not delete or recreate a webhook registration without operator
-authorization.
+Set `phloGitHubAutomationHost` to the replacement host's thread ID. Verify that
+the host can reload plugins and send a status message. Check webhook ownership
+and delivery separately: changing the parent configuration does not transfer
+webhook ownership. Do not delete or recreate a webhook registration without
+operator authorization. Keep the old threads available until cutover is
+verified, and do not archive the active webhook owner.
