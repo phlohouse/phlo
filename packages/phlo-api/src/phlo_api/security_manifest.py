@@ -111,6 +111,69 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"),),
     ),
     *_specs(
+        ("list_incidents", "incident_stats", "activity"),
+        action=CanonicalAction.RUN_READ.value,
+        resource_type="run",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
+        ("incident_detail", "incident_timeline"),
+        action=CanonicalAction.RUN_READ.value,
+        resource_type="run",
+        resource_keys=("env", "incident_id"),
+        resource_sources=(("env", "query"), ("incident_id", "path")),
+    ),
+    *_specs(
+        ("create_incident",),
+        action=CanonicalAction.ASSET_MANAGE.value,
+        resource_type="asset",
+        resource_keys=("env", "asset_id"),
+        resource_sources=(("env", "query"), ("asset_id", "body")),
+    ),
+    *_specs(
+        ("update_incident", "subscribe_incident"),
+        action=CanonicalAction.RUN_MANAGE.value,
+        resource_type="run",
+        resource_keys=("env", "incident_id"),
+        resource_sources=(("env", "query"), ("incident_id", "path")),
+    ),
+    *_specs(
+        ("list_follow_ups",),
+        action=CanonicalAction.RUN_READ.value,
+        resource_type="run",
+        resource_keys=("env", "incident_id"),
+        resource_sources=(("env", "query"), ("incident_id", "path")),
+    ),
+    *_specs(
+        ("create_follow_up", "update_follow_up"),
+        action=CanonicalAction.RUN_MANAGE.value,
+        resource_type="run",
+        resource_keys=("env", "incident_id"),
+        resource_sources=(("env", "query"), ("incident_id", "path")),
+    ),
+    *_specs(
+        ("list_asset_incident_policies",),
+        action=CanonicalAction.ASSET_READ.value,
+        resource_type="asset",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
+        ("get_asset_incident_policy",),
+        action=CanonicalAction.ASSET_READ.value,
+        resource_type="asset",
+        resource_keys=("env", "asset_id"),
+        resource_sources=(("env", "query"), ("asset_id", "path")),
+    ),
+    *_specs(
+        ("put_asset_incident_policy",),
+        action=CanonicalAction.ASSET_MANAGE.value,
+        resource_type="asset",
+        resource_keys=("env", "asset_id"),
+        resource_sources=(("env", "query"), ("asset_id", "path")),
+    ),
+    *_specs(
         (
             "openapi",
             "swagger_ui_html",
@@ -749,6 +812,28 @@ def _enforce_scoped_run_report_service_identity(
 
 
 _READ_ONLY_ACTION_SUFFIXES = (".read", ".query")
+_INCIDENT_ROUTE_NAMES = frozenset(
+    {
+        "list_incidents",
+        "incident_stats",
+        "incident_detail",
+        "incident_timeline",
+        "activity",
+        "create_incident",
+        "update_incident",
+        "subscribe_incident",
+        "list_follow_ups",
+        "create_follow_up",
+        "update_follow_up",
+        "get_asset_incident_policy",
+        "list_asset_incident_policies",
+        "put_asset_incident_policy",
+    }
+)
+
+
+def _is_v1_operation(operation_name: str) -> bool:
+    return operation_name.startswith("v1_") or operation_name in _INCIDENT_ROUTE_NAMES
 
 
 def _requires_durable_audit(action: str) -> bool:
@@ -762,7 +847,8 @@ def _validate_v1_principal_and_selection(
     request: Request, spec: OperationSpec, principal: Any
 ) -> None:
     """Reject scoped tokens and ambiguous selectors before policy resolution."""
-    if not spec.operation_name.startswith("v1_"):
+    is_v1 = _is_v1_operation(spec.operation_name)
+    if not is_v1:
         return
     if (
         principal.principal_type == "service"
@@ -771,7 +857,10 @@ def _validate_v1_principal_and_selection(
         raise HTTPException(
             status_code=403, detail={"error": "forbidden", "reason": "run_report_scope_mismatch"}
         )
-    if spec.operation_name in {"v1_services", "v1_events"}:
+    if (
+        spec.operation_name in {"v1_services", "v1_events"}
+        or spec.operation_name in _INCIDENT_ROUTE_NAMES
+    ):
         selections = request.query_params.getlist("env")
         if len(selections) != 1 or selections[0] not in {"prod", "staging"}:
             raise HTTPException(
@@ -794,7 +883,7 @@ async def enforce_http_operation(
     # keeps the historical behavior: RBAC is skipped, but run-scoped service
     # tokens remain confined to their single report.
     if (
-        not spec.operation_name.startswith("v1_")
+        not _is_v1_operation(spec.operation_name)
         and not is_regulated()
         and not requires_http_authorization()
     ):
@@ -819,7 +908,8 @@ async def enforce_http_operation(
     resource = await resolve_resource(request, spec, path_params)
     _enforce_scoped_run_report_service_identity(auth_principal, spec, resource)
     context: DecisionContext = create_decision_context(
-        request, request.query_params.get("env") if spec.operation_name.startswith("v1_") else None
+        request,
+        request.query_params.get("env") if _is_v1_operation(spec.operation_name) else None,
     )
     correlation_id = get_request_correlation_id(request)
 
@@ -1058,7 +1148,7 @@ def install_manifest_enforcement(app: Any) -> None:
                                 "message": detail.get("reason", "Access denied."),
                             }
                         }
-                        if spec.operation_name.startswith("v1_")
+                        if _is_v1_operation(spec.operation_name)
                         else detail
                     ),
                     headers=exc.headers,
@@ -1079,7 +1169,7 @@ def install_manifest_enforcement(app: Any) -> None:
                                 "message": "Authorization is unavailable.",
                             }
                         }
-                        if spec.operation_name.startswith("v1_")
+                        if _is_v1_operation(spec.operation_name)
                         else {
                             "error": "service_unavailable",
                             "reason": "authorization_unavailable",
