@@ -50,6 +50,7 @@ from phlo.logging import get_logger
 from phlo.references import LogicalRelation, quote_identifier
 from phlo_trino._errors import iter_exception_chain
 from phlo_trino.settings import get_settings as get_trino_settings
+from phlo_trino.sql_policy import require_governed_sql
 from phlo_trino.type_mapping import apply_schema_types
 
 logger = get_logger(__name__)
@@ -74,10 +75,20 @@ class _ObservedCursor:
     not workload queries.
     """
 
-    def __init__(self, cursor: Any, *, catalog: str | None, schema: str | None) -> None:
+    def __init__(
+        self,
+        cursor: Any,
+        *,
+        catalog: str | None,
+        schema: str | None,
+        ref: str | None = None,
+        connection: Any = None,
+    ) -> None:
         self._cursor = cursor
         self._catalog = catalog
         self._schema = schema
+        self._ref = ref
+        self._connection = connection
         self._query_scope: Any = None
         self._query_event: Any = None
 
@@ -88,6 +99,7 @@ class _ObservedCursor:
         so the scope stays open until the result set is consumed or the
         cursor closes — fetch-time errors and full duration are observed.
         """
+        require_governed_sql(sql, ref=self._ref, catalog=self._catalog)
         self._finish_query(None)
         scope = phlo_observe.trino_query(sql=sql, catalog=self._catalog, schema=self._schema)
         evt = scope.__enter__()
@@ -106,6 +118,17 @@ class _ObservedCursor:
         # chained ``.execute()`` calls observed instead of leaking the
         # inner cursor past the wrapper.
         return self
+
+    def executemany(self, sql: str, params: Iterable[Iterable[object]]) -> _ObservedCursor:
+        """Protect batch submission just like individual statements."""
+        require_governed_sql(sql, ref=self._ref, catalog=self._catalog)
+        self._cursor.executemany(sql, params)
+        return self
+
+    @property
+    def connection(self) -> Any:
+        """Return the governed connection rather than an unprotected escape."""
+        return self._connection
 
     def _exit_scope(self, scope: Any, exc_info: tuple[Any, Any, Any] | None) -> None:
         """Exit a query scope; scope failure must never mask the caller's."""
@@ -196,6 +219,35 @@ class _ObservedCursor:
             return self._cursor.close()
         finally:
             self._finish_query(None)
+
+
+class _GovernedConnection:
+    """Apply the same SQL policy to direct DB-API connection cursors."""
+
+    def __init__(self, connection: Any, *, ref: str | None, catalog: str, schema: str | None):
+        self._connection = connection
+        self._ref = ref
+        self._catalog = catalog
+        self._schema = schema
+
+    def cursor(self, *args: Any, **kwargs: Any) -> _ObservedCursor:
+        return _ObservedCursor(
+            self._connection.cursor(*args, **kwargs),
+            ref=self._ref,
+            catalog=self._catalog,
+            schema=self._schema,
+            connection=self,
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._connection, name)
+
+    def __enter__(self) -> _GovernedConnection:
+        self._connection.__enter__()
+        return self
+
+    def __exit__(self, *exc: Any) -> Any:
+        return self._connection.__exit__(*exc)
 
 
 class _ConfigFacade:
@@ -367,12 +419,15 @@ class TrinoResource:
         `schema` optionally scopes the connection.
         """
         self._provision_resolved_catalog()
-        return connect(
+        connection = connect(
             host=self.host or config.trino_host,
             port=self.port or config.trino_port,
             user=self.user,
             catalog=self._resolved_catalog(),
             schema=schema,
+        )
+        return _GovernedConnection(
+            connection, ref=self._resolved_ref(), catalog=self._resolved_catalog(), schema=schema
         )
 
     def for_ref(self, ref: str) -> TrinoResource:
@@ -396,7 +451,15 @@ class TrinoResource:
         """
         conn = self.get_connection(schema=schema)
         try:
-            cursor = _ObservedCursor(conn.cursor(), catalog=self._resolved_catalog(), schema=schema)
+            cursor = conn.cursor()
+            if not isinstance(cursor, _ObservedCursor):
+                cursor = _ObservedCursor(
+                    cursor,
+                    ref=self._resolved_ref(),
+                    catalog=self._resolved_catalog(),
+                    schema=schema,
+                    connection=conn,
+                )
             try:
                 yield cursor
             finally:

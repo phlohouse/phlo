@@ -7,11 +7,14 @@ on its own; they document the intended automation cadences.
 import dagster as dg
 
 iot_telemetry_wap_job = dg.define_asset_job(
-    name="iot_telemetry_wap_job", selection=dg.AssetSelection.all()
+    name="iot_telemetry_wap_job",
+    selection=dg.AssetSelection.all(),
+    tags={"group": "iot", "owner": "fleet-operations", "source": "iot_telemetry"},
 )
 hourly_ingestion_job = dg.define_asset_job(
     name="iot_telemetry_hourly_ingestion_job",
     selection=dg.AssetSelection.assets("dlt_telemetry_readings"),
+    tags={"group": "iot", "owner": "fleet-operations", "source": "iot_telemetry"},
 )
 rolling_repair_job = dg.define_asset_job(
     name="iot_telemetry_rolling_repair_job",
@@ -21,6 +24,7 @@ rolling_repair_job = dg.define_asset_job(
         "device_health_hourly",
         "device_health_current",
     ),
+    tags={"group": "iot", "owner": "fleet-operations", "source": "iot_telemetry"},
 )
 daily_fleet_job = dg.define_asset_job(
     name="iot_telemetry_daily_fleet_job",
@@ -30,6 +34,7 @@ daily_fleet_job = dg.define_asset_job(
         "fleet_daily_summary",
         "site_daily_report",
     ),
+    tags={"group": "iot", "owner": "fleet-operations", "source": "iot_telemetry"},
 )
 
 hourly_ingestion_schedule = dg.ScheduleDefinition(

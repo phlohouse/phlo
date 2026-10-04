@@ -3,6 +3,13 @@ version: 2
 models:
   - name: device_health_hourly
     description: Hourly per-device health over deduplicated readings.
+    config:
+      meta:
+        phlo/layer: silver
+        owner: fleet-operations
+        sla:
+          freshness_hours: 4
+          quality_threshold: 0.995
     columns:
       - name: health_key
         tests: [unique, not_null]
@@ -12,6 +19,13 @@ models:
         tests: [not_null]
   - name: fleet_daily_summary
     description: Daily per-site fleet coverage and condition.
+    config:
+      meta:
+        phlo/layer: silver
+        owner: facilities
+        sla:
+          freshness_hours: 30
+          quality_threshold: 1.0
     columns:
       - name: site_day_key
         tests: [unique, not_null]

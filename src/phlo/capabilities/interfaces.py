@@ -164,6 +164,10 @@ class TableStore(Protocol):
         raise NotImplementedError
 
 
+class IndependentReviewRequired(PermissionError):
+    """A catalog cannot prove classification or consume required human review."""
+
+
 @runtime_checkable
 class VersionedCatalog(Protocol):
     """Protocol for optional catalog/versioning providers.
@@ -184,8 +188,10 @@ class VersionedCatalog(Protocol):
         """Create a new branch from an existing reference."""
         ...
 
-    def merge_branch(self, source: str, target: str = "main") -> bool:
-        """Merge a source branch into a target branch."""
+    def merge_branch(
+        self, source: str, target: str = "main", *, message: str | None = None
+    ) -> bool:
+        """Merge a source branch with an optional explicit governance reason."""
         ...
 
     def delete_branch(self, name: str) -> bool:

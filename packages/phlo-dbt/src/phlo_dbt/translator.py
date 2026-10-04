@@ -322,6 +322,23 @@ class DbtSpecTranslator:
         if isinstance(config, Mapping):
             materialized = str(config.get("materialized") or "")
 
+        meta = dbt_resource_props.get("meta")
+        if isinstance(meta, Mapping):
+            metadata.update(
+                {
+                    key: meta[key]
+                    for key in (
+                        "phlo/layer",
+                        "owner",
+                        "source_name",
+                        "consumers",
+                        "sla",
+                        "phlo/reports",
+                    )
+                    if key in meta
+                }
+            )
+
         if alias:
             metadata["table"] = alias
             metadata["table_name"] = alias
@@ -335,6 +352,8 @@ class DbtSpecTranslator:
             metadata["relation"] = relation_name
         if materialized:
             metadata["materialized"] = materialized
+        if schema and alias and materialized != "ephemeral":
+            metadata["phlo/relation"] = f"{schema}.{alias}"
         metadata["format"] = "dbt"
 
         columns = dbt_resource_props.get("columns", {})

@@ -143,6 +143,7 @@ async def launch_materialize(
     idempotency_key: str | None = None,
     tags: dict[str, str] | None = None,
     access_token: str | None = None,
+    asset_selection: list[str] | None = None,
 ) -> DagsterOperationResult:
     """Launch a Dagster materialization run for one asset, reusing a prior run
     tagged with the same idempotency key so client retries never double-materialize.
@@ -150,6 +151,9 @@ async def launch_materialize(
     Raises RuntimeError when Dagster rejects the launch or returns a malformed
     existing-run payload.
     """
+    selection = asset_selection if asset_selection is not None else [asset_key_path]
+    if not selection or asset_key_path not in selection or len(set(selection)) != len(selection):
+        raise ValueError("Asset selection must be unique and include the requested asset")
     execution_tags = {"phlo/operation": "materialize_asset", "phlo/asset_key": asset_key_path}
     if idempotency_key:
         execution_tags["phlo/idempotency_key"] = idempotency_key
@@ -197,7 +201,7 @@ async def launch_materialize(
             )
     selector: dict[str, Any] = {
         "pipelineName": job_name,
-        "assetSelection": [{"path": asset_key_path.split("/")}],
+        "assetSelection": [{"path": key.split("/")} for key in selection],
     }
     if repository_location_name:
         selector["repositoryLocationName"] = repository_location_name

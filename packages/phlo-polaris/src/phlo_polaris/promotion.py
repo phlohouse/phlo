@@ -33,9 +33,10 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from phlo.capabilities.interfaces import CandidateSnapshot, ReleaseRecord
+from phlo.capabilities.interfaces import CandidateSnapshot, IndependentReviewRequired, ReleaseRecord
 from phlo.exceptions import PhloTableError
 from phlo.logging import get_logger
+from phlo.plugins.observatory_settings import get_operational_settings
 from phlo_polaris.catalog_backend import current_snapshot_id
 
 logger = get_logger(__name__)
@@ -410,6 +411,11 @@ class PolarisSnapshotPromotionCatalog:
     ) -> list[ReleaseRecord]:
         """Publish audited snapshots while holding the warehouse publication lock."""
         with self.store.publication_lock():
+            if get_operational_settings().second_gold_reviewer:
+                raise IndependentReviewRequired(
+                    "Independent review is required. Snapshot promotion cannot prove non-gold "
+                    "classification or consume human review evidence; retain the candidates."
+                )
             return self._promote_candidates(
                 namespace=namespace,
                 release_id=release_id,

@@ -57,6 +57,7 @@ import dagster as dg
 
 from phlo._correlation import ProjectIdentity, resolve_project_identity
 from phlo.capabilities.interfaces import (
+    IndependentReviewRequired,
     RefQueryCatalogManager,
     SnapshotPromotionCatalog,
     VersionedCatalog,
@@ -66,6 +67,7 @@ from phlo._attempt import attempt_from_tags
 from phlo.hooks import HookCorrelation, QualityResultEvent, get_hook_bus
 from phlo.logging import get_logger
 from phlo.config import get_settings
+from phlo.plugins.observatory_settings import StorageUnavailableError, get_operational_settings
 from phlo.run_evidence import (
     RequiredEvidenceProfile,
     RunReconciler,
@@ -899,6 +901,17 @@ def _advance_snapshot_promotion(
                 expected_revision=expected_revision,
             )
             merged = bool(promoted_records)
+        except IndependentReviewRequired as exc:
+            write_wap_report(
+                logical_run_id,
+                status="promotion_blocked",
+                merge_state="review_required",
+                branch=branch_name,
+                failure_reason="independent_gold_review_required",
+                review_required=True,
+                review_message=str(exc),
+            )
+            return None
         except Exception:
             logger.warning(
                 "wap_promotion_raise_failed",
@@ -1298,6 +1311,36 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):  # noqa: C90
 
         logical_run_id = _logical_run_id(run)
         prior_report = _read_wap_report(logical_run_id)
+        merge_message = None
+        if not prior_report or prior_report.get("merge_state") != "merged":
+            try:
+                governance = get_operational_settings()
+            except StorageUnavailableError:
+                write_wap_report(
+                    logical_run_id,
+                    status="promotion_blocked",
+                    branch=branch_name,
+                    failure_reason="governance_settings_unavailable",
+                )
+                blocked += 1
+                continue
+            if governance.second_gold_reviewer:
+                # Neither catalog strategy can prove non-gold classification
+                # or carry independent human review. Do not persist merge intent.
+                write_wap_report(
+                    logical_run_id,
+                    status="promotion_blocked",
+                    branch=branch_name,
+                    failure_reason="independent_gold_review_required",
+                    review_required=True,
+                    settings_revision=governance.settings_revision,
+                    review_message="Automatic promotion cannot prove non-gold content. "
+                    "Retain the branch and use an operator-reviewed promotion process.",
+                )
+                blocked += 1
+                continue
+            if governance.require_merge_reason:
+                merge_message = f"Publish validated WAP run {logical_run_id}: all required quality checks passed."
         if report_strategy == WAP_STRATEGY_SNAPSHOT:
             advance = _advance_snapshot_promotion(
                 catalog=catalog,
@@ -1367,7 +1410,25 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):  # noqa: C90
             ):
                 logger.warning("wap_promotion_outbox_write_failed", run_id=run.run_id)
                 continue
-            merged = catalog.merge_branch(source=branch_name, target="main")
+            try:
+                if merge_message is not None:
+                    merged = catalog.merge_branch(
+                        source=branch_name, target="main", message=merge_message
+                    )
+                else:
+                    merged = catalog.merge_branch(source=branch_name, target="main")
+            except IndependentReviewRequired as exc:
+                write_wap_report(
+                    logical_run_id,
+                    status="promotion_blocked",
+                    merge_state="review_required",
+                    branch=branch_name,
+                    failure_reason="independent_gold_review_required",
+                    review_required=True,
+                    review_message=str(exc),
+                )
+                blocked += 1
+                continue
         if not merged:
             write_wap_report(
                 logical_run_id,
@@ -1674,6 +1735,9 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
             continue
 
         report = _read_wap_report(logical_run_id)
+        if report and report.get("review_required"):
+            skipped += 1
+            continue
         if report and report.get("merge_state") == "merge_started":
             # Retention cannot resolve a lost acknowledgement. This ref may
             # still be the only recoverable copy of an unpublished batch.
@@ -1775,6 +1839,9 @@ def wap_candidate_cleanup_sensor(context: dg.SensorEvaluationContext):
     skipped = 0
 
     for report in _iter_snapshot_strategy_reports():
+        if report.get("review_required"):
+            skipped += 1
+            continue
         namespace = report.get("branch")
         logical_run_id = report.get("run_id")
         if not namespace or not logical_run_id:

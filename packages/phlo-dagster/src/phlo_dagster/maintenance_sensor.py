@@ -9,6 +9,7 @@ runs through the plan/token/journal contract.
 import os
 import re
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from importlib import import_module
 from typing import Any
@@ -24,6 +25,11 @@ from phlo.capabilities import (
     resolve_capability,
 )
 from phlo.logging import get_logger
+from phlo.plugins.observatory_settings import (
+    get_operational_settings,
+    operational_environment_target,
+    operational_schedule_slot,
+)
 from phlo.operations.journal import (
     OperationJournalState,
     OperationJournalStore,
@@ -45,6 +51,8 @@ from phlo_dagster.iceberg_maintenance_utils import (
 )
 from phlo_dagster.maintenance_policy import (
     NamespacePolicy,
+    OptimizePolicy,
+    ExpireSnapshotsPolicy,
     TableAction,
     evaluate_table,
     load_policies,
@@ -91,6 +99,7 @@ def _evaluate_namespace(
     policy: NamespacePolicy,
     get_table_stats: Any,
     context: dg.SensorEvaluationContext,
+    minimum_file_count: int = 0,
 ) -> list[TableAction]:
     """Evaluate all tables in a namespace against a policy.
 
@@ -108,6 +117,8 @@ def _evaluate_namespace(
             continue
 
         action = evaluate_table(table_name, stats, policy)
+        if action.optimize and stats.get("file_count", 0) < minimum_file_count:
+            action = replace(action, optimize=False)
         if action.expire_snapshots or action.optimize:
             actions.append(action)
 
@@ -120,6 +131,7 @@ class OptimizeConfig(dg.Config):
     table_names: list[str]
     ref: str = "main"
     dry_run: bool = False
+    settings_revision: int | None = None
 
 
 def _load_optimize_maintenance_executor() -> MaintenanceExecutor:
@@ -232,6 +244,12 @@ def optimize_table_files(
     config: OptimizeConfig,
 ) -> dict[str, Any]:
     """Run the shared Iceberg compaction operation for selected tables."""
+    if config.settings_revision is not None:
+        settings = get_operational_settings()
+        if settings.settings_revision != config.settings_revision or not settings.compact_nightly:
+            raise RuntimeError(
+                "Maintenance settings changed before execution; reevaluate the policy."
+            )
     table_store = _load_optimize_table_store()
     journal = _durable_maintenance_journal() if not config.dry_run else None
     executor = (
@@ -332,6 +350,7 @@ def optimize_tables_job():
 
 
 expire_snapshots_job: dg.JobDefinition | None = None
+orphan_cleanup_job: dg.JobDefinition | None = None
 # expire_snapshots_job lives behind an optional dependency (phlo-iceberg).
 # Import it lazily and degrade to optimize-only maintenance when absent.
 try:
@@ -340,12 +359,19 @@ try:
     )
     if isinstance(candidate_job, dg.JobDefinition):
         expire_snapshots_job = candidate_job
+    orphan_candidate = getattr(
+        import_module("phlo_dagster.iceberg_maintenance"), "orphan_cleanup_job", None
+    )
+    if isinstance(orphan_candidate, dg.JobDefinition):
+        orphan_cleanup_job = orphan_candidate
 except Exception:  # noqa: BLE001 - optional dependency integration
     pass
 
 _SENSOR_TARGET_JOBS: list[dg.JobDefinition] = [optimize_tables_job]
 if expire_snapshots_job is not None:
     _SENSOR_TARGET_JOBS.insert(0, expire_snapshots_job)
+if orphan_cleanup_job is not None:
+    _SENSOR_TARGET_JOBS.append(orphan_cleanup_job)
 
 
 @dg.sensor(
@@ -370,9 +396,55 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
         return
 
     get_table_stats = _load_iceberg_stats()
+    env = os.environ.get("PHLO_OBSERVATORY_ENVIRONMENT")
+    settings = get_operational_settings() if env else None
+    scoped_ref = operational_environment_target(env)[1] if env else None
+    now = datetime.now(timezone.utc)
+    nightly_slot = operational_schedule_slot("Daily at 02:00", now) if settings else None
+    orphan_slot = operational_schedule_slot(settings.orphan_cleanup, now) if settings else None
 
     for policy in policies:
-        actions = _evaluate_namespace(policy, get_table_stats, context)
+        if settings is not None:
+            if policy.ref != scoped_ref:
+                continue
+            expiry = (
+                replace(
+                    policy.expire or ExpireSnapshotsPolicy(snapshot_count_gt=0),
+                    older_than_days=settings.expire_snapshots_days,
+                )
+                if settings.expire_snapshots_days is not None and nightly_slot
+                else None
+            )
+            optimize = (
+                OptimizePolicy(avg_file_size_mb_lt=settings.target_file_size_mb or 64)
+                if settings.compact_nightly and nightly_slot
+                else None
+            )
+            policy = replace(policy, expire=expiry, optimize=optimize)
+            if orphan_slot is not None and orphan_cleanup_job is not None:
+                yield dg.RunRequest(
+                    run_key=f"orphan:{env}:{policy.namespace}:{policy.ref}:{orphan_slot.date()}:v{settings.settings_revision}",
+                    job_name="orphan_cleanup_job",
+                    tags={
+                        "environment": env,
+                        "phlo/ref": policy.ref,
+                        "phlo/settings_revision": str(settings.settings_revision),
+                    },
+                    run_config={
+                        "ops": {
+                            "cleanup_orphan_files": {
+                                "config": {
+                                    "namespace": policy.namespace,
+                                    "ref": policy.ref,
+                                    "dry_run": True,
+                                }
+                            }
+                        }
+                    },
+                )
+        actions = _evaluate_namespace(
+            policy, get_table_stats, context, minimum_file_count=200 if settings else 0
+        )
         if not actions:
             continue
 
@@ -395,8 +467,14 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
             # The cursor timestamp in the run key deduplicates re-evaluations
             # within one tick while allowing a fresh trigger on the next tick.
             yield dg.RunRequest(
-                run_key=f"expire_{policy.namespace}_{cursor_key}",
+                run_key=f"expire_{policy.namespace}_{policy.ref}_{nightly_slot.date() if nightly_slot else cursor_key}",
                 job_name="expire_snapshots_job",
+                tags={
+                    "phlo/ref": policy.ref,
+                    "phlo/settings_revision": str(settings.settings_revision),
+                }
+                if settings
+                else {"phlo/ref": policy.ref},
                 run_config=dg.RunConfig(
                     ops={
                         "expire_table_snapshots": {
@@ -410,6 +488,7 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
                                     policy.expire.retain_last if policy.expire else 5
                                 ),
                                 "table_allowlist": expire_tables,
+                                "dry_run": True,
                             }
                         }
                     },
@@ -423,14 +502,31 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
                 table_count=len(optimize_tables),
             )
             yield dg.RunRequest(
-                run_key=f"optimize_{policy.namespace}_{cursor_key}",
+                run_key=f"optimize_{policy.namespace}_{policy.ref}_{nightly_slot.date() if nightly_slot else cursor_key}",
                 job_name="optimize_tables_job",
+                tags={
+                    "phlo/ref": policy.ref,
+                    "phlo/settings_revision": str(settings.settings_revision),
+                }
+                if settings
+                else {"phlo/ref": policy.ref},
                 run_config=dg.RunConfig(
                     ops={
                         "optimize_table_files": {
                             "config": {
                                 "table_names": optimize_tables,
                                 "ref": policy.ref,
+                                **(
+                                    {
+                                        "dry_run": os.environ.get(
+                                            "PHLO_OBSERVATORY_MAINTENANCE_EXECUTE"
+                                        )
+                                        != "1",
+                                        "settings_revision": settings.settings_revision,
+                                    }
+                                    if settings
+                                    else {}
+                                ),
                             }
                         }
                     },
@@ -448,6 +544,8 @@ def get_policy_maintenance_definitions() -> dg.Definitions:
 
     """
     jobs: list[dg.JobDefinition] = [optimize_tables_job]
+    if orphan_cleanup_job is not None:
+        jobs.append(orphan_cleanup_job)
     if expire_snapshots_job is None:
         logger.warning("dagster_policy_maintenance_expire_job_unavailable")
     else:

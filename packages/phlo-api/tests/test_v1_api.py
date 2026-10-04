@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -22,12 +23,17 @@ from phlo_api.main import app
 from phlo_api import security_manifest
 
 
-def _asset_inventory_response(nodes: list[dict[str, Any]]) -> dict[str, Any]:
+def _asset_inventory_response(
+    nodes: list[dict[str, Any]], *, repository_selector: dict[str, str] | None = None
+) -> dict[str, Any]:
     repositories: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for node in nodes:
         repository = node["repository"]
         key = (repository["name"], repository["location"]["name"])
         repositories.setdefault(key, []).append(node)
+    for location in ("production_jobs", "testing_jobs"):
+        if not any(key[1] == location for key in repositories):
+            repositories[("repo", location)] = []
     return {
         "data": {
             "repositoriesOrError": {
@@ -39,6 +45,12 @@ def _asset_inventory_response(nodes: list[dict[str, Any]]) -> dict[str, Any]:
                         "assetNodes": assets,
                     }
                     for (name, location), assets in repositories.items()
+                    if repository_selector is None
+                    or (name, location)
+                    == (
+                        repository_selector["repositoryName"],
+                        repository_selector["repositoryLocationName"],
+                    )
                 ],
             }
         }
@@ -177,6 +189,8 @@ def test_identity_and_environment_scoped_services(client):
         assert response.status_code == 200, response.text
         data = response.json()
         assert data["env"] == env and data["next_cursor"] is None
+        assert data["nessie_ref"] == ref
+        assert data["dagster_location"] == ("production_jobs" if env == "prod" else "testing_jobs")
         services = {item["id"]: item for item in data["items"]}
         assert services["dagster"]["status"] == "healthy"
         assert services["dagster"]["response_time_seconds"] >= 0
@@ -186,6 +200,10 @@ def test_identity_and_environment_scoped_services(client):
             "status": "unknown",
             "observed_at": None,
             "response_time_seconds": None,
+            "runtime_state": "unknown",
+            "definition_state": "available",
+            "reason": "no_environment_binding",
+            "health_origin": None,
         }
         assert urls[-1] == f"http://nessie:19120/api/v2/trees/{ref}"
         assert ("service.read", f"env={env}", env) in decisions
@@ -343,7 +361,7 @@ def test_missing_sources_do_not_report_healthy_or_empty(client):
         ] == "unavailable"
         assert {item["id"]: item["status"] for item in response.json()["items"]}[
             "nessie"
-        ] == "unavailable"
+        ] == "unknown"
         assert http.get(f"/api/v1/events?env={env}").status_code == 503
     monkeypatch.setattr(v1.ServiceDiscovery, "discover", lambda self: {})
     assert http.get("/api/v1/services?env=prod").status_code == 503
@@ -644,6 +662,44 @@ def test_assets_are_location_scoped_paginated_and_authorized(client, monkeypatch
     assert denied.status_code == 403
 
 
+@pytest.mark.parametrize("path", ["assets", "overview", "sources", "layers"])
+def test_missing_code_location_is_unavailable_not_an_empty_inventory(client, monkeypatch, path):
+    from types import SimpleNamespace
+
+    from phlo_api import incidents
+
+    http, *_ = client
+    response = _asset_inventory_response([])
+    # Dagster omits repositories from code locations whose servers failed to load.
+    response["data"]["repositoriesOrError"]["nodes"] = [
+        repository
+        for repository in response["data"]["repositoriesOrError"]["nodes"]
+        if repository["location"]["name"] == "testing_jobs"
+    ]
+
+    async def graphql(*args, **kwargs):
+        return response
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(
+        incidents, "incident_stats", lambda request, env: IncidentStatsResponse(env=env, counts={})
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda *args, **kwargs: SimpleNamespace(items=[], next_cursor=None),
+    )
+    missing = http.get(f"/api/v1/{path}?env=prod")
+    assert missing.status_code == 503, missing.text
+    # An existing, successfully loaded empty location is still a valid empty workspace.
+    empty = http.get(f"/api/v1/{path}?env=staging")
+    assert empty.status_code == 200, empty.text
+    if path == "overview":
+        assert empty.json()["asset_count"] == 0
+    else:
+        assert empty.json()["items"] == []
+
+
 def test_asset_cursor_is_environment_bound_and_sources_filter_before_page(client, monkeypatch):
     http, _, _, _, _ = client
     nodes = [
@@ -676,7 +732,57 @@ def test_asset_cursor_is_environment_bound_and_sources_filter_before_page(client
     assert crossed.status_code == 400
 
 
-def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
+@pytest.mark.parametrize("provider", ["dlt", "airbyte", "sling"])
+def test_sources_include_declared_ingestion_without_disabling_materialization(
+    client, monkeypatch, provider
+):
+    http, *_ = client
+    base = {
+        "description": None,
+        "computeKind": None,
+        "groupName": "ingest",
+        "isMaterializable": True,
+        "repository": {"name": "repo", "location": {"name": "production_jobs"}},
+        "dependencyKeys": [],
+        "assetMaterializations": [],
+    }
+    nodes = [
+        {**base, "assetKey": {"path": ["a_dlt_not_ingestion"]}, "tags": []},
+        {
+            **base,
+            "assetKey": {"path": ["b_registry"]},
+            "tags": [
+                {"key": "asset_type", "value": "ingestion"},
+                {"key": "provider", "value": provider},
+            ],
+        },
+        {**base, "assetKey": {"path": ["c_external"]}, "isMaterializable": False},
+        {
+            **base,
+            "assetKey": {"path": ["b_registry"]},
+            "repository": {"name": "repo", "location": {"name": "testing_jobs"}},
+            "tags": [{"key": "asset_type", "value": "transformation"}],
+        },
+    ]
+
+    async def graphql(url, query, *args, **kwargs):
+        return _asset_inventory_response(nodes)
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    response = http.get("/api/v1/sources?env=prod&limit=1")
+    assert response.status_code == 200, response.text
+    assert [item["id"] for item in response.json()["items"]] == ["b_registry"]
+    ingestion = response.json()["items"][0]
+    assert ingestion["is_source"] is False
+    assert "is_ingestion" not in ingestion
+    cursor = response.json()["next_cursor"]
+    next_page = http.get(f"/api/v1/sources?env=prod&limit=1&cursor={cursor}")
+    assert [item["id"] for item in next_page.json()["items"]] == ["c_external"]
+    assert next_page.json()["items"][0]["is_source"] is True
+    assert http.get("/api/v1/sources?env=staging").json()["items"] == []
+
+
+def test_shared_asset_key_preserves_verified_repository_history(client, monkeypatch):
     from types import SimpleNamespace
 
     from phlo_api import incidents
@@ -728,7 +834,11 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
                                 "creationTime": 1780000000,
                                 "startTime": None,
                                 "endTime": None,
-                                "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                                "pipelineName": "orders",
+                                "repositoryOrigin": {
+                                    "repositoryName": "repo",
+                                    "repositoryLocationName": "production_jobs",
+                                },
                                 "assetSelection": [{"path": ["orders"]}],
                             },
                             {
@@ -739,7 +849,11 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
                                 "creationTime": 1780000000,
                                 "startTime": None,
                                 "endTime": None,
-                                "repositoryOrigin": {"repositoryLocationName": "testing_jobs"},
+                                "pipelineName": "orders",
+                                "repositoryOrigin": {
+                                    "repositoryName": "repo",
+                                    "repositoryLocationName": "testing_jobs",
+                                },
                                 "assetSelection": [{"path": ["orders"]}],
                             },
                         ],
@@ -764,27 +878,27 @@ def test_shared_asset_key_does_not_expose_unscoped_history(client, monkeypatch):
     response = http.get("/api/v1/assets?env=prod")
     assert response.status_code == 200
     item = response.json()["items"][0]
-    assert item["history_scoped"] is False
-    assert item["last_materialization_at"] is None
-    assert item["last_run_id"] is None
+    assert item["history_scoped"] is True
+    assert item["last_materialization_at"] is not None
+    assert item["last_run_id"] == "prod"
     staging = http.get("/api/v1/assets?env=staging")
     assert staging.status_code == 200
-    assert staging.json()["items"][0]["history_scoped"] is False
-    assert staging.json()["items"][0]["last_run_id"] is None
+    assert staging.json()["items"][0]["history_scoped"] is True
+    assert staging.json()["items"][0]["last_run_id"] == "staging"
     run_history = http.get("/api/v1/assets/orders/runs?env=prod")
     assert run_history.status_code == 200
     assert [item["run_id"] for item in run_history.json()["items"]] == ["prod-run"]
-    assert http.get("/api/v1/assets/orders?env=prod").status_code == 503
+    assert http.get("/api/v1/assets/orders?env=prod").json()["description"] == "prod"
     for env in ("prod", "staging"):
         item = http.get(f"/api/v1/assets?env={env}").json()["items"][0]
-        assert item["history_scoped"] is False
-        assert item["last_materialization_at"] is None
+        assert item["history_scoped"] is True
+        assert item["last_materialization_at"] is not None
         overview = http.get(f"/api/v1/overview?env={env}")
         assert overview.status_code == 200
         assert overview.json()["freshness_counts"] == {
             "fresh": 0,
-            "stale": 0,
-            "unknown": 1,
+            "stale": 1,
+            "unknown": 0,
         }
 
 
@@ -810,7 +924,7 @@ def test_asset_and_overview_require_location_success_and_unpartitioned_evidence(
 
     http, *_ = client
     current_location = "production_jobs" if env == "prod" else "testing_jobs"
-    observed_at = datetime.now(UTC).replace(microsecond=123000)
+    observed_at = datetime.now(UTC).replace(microsecond=0)
     materialization = {
         "timestamp": str(int(observed_at.timestamp() * 1000)),
         "runId": "historical-run",
@@ -954,17 +1068,406 @@ def test_asset_detail_exposes_typed_columns_and_environment_bound_history(client
     async def graphql(url, query, variables=None):
         if "V1AssetDetail" in query:
             return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **detail}}}
-        return _asset_inventory_response([node])
+        return _asset_inventory_response([detail])
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     response = http.get("/api/v1/assets/orders?env=prod")
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["columns"] == [{"name": "id", "type": "BIGINT", "description": None}]
+    assert payload["columns"] == [
+        {"name": "id", "type": "BIGINT", "description": None, "nullable": None}
+    ]
     assert payload["schema_observed_at"] is not None
     assert payload["column_lineage"] == {
         "id": [{"asset_key": ["raw", "orders"], "column_name": "id"}]
     }
+
+
+def test_asset_list_enriches_only_paged_ref_scoped_table_metadata(client, monkeypatch):
+    http, *_ = client
+    recent_timestamp = str(int(datetime.now(UTC).timestamp() * 1000))
+    nodes = [
+        {
+            "id": name,
+            "assetKey": {"path": [name]},
+            "description": name,
+            "computeKind": None,
+            "groupName": None,
+            "isMaterializable": True,
+            "isPartitioned": False,
+            "repository": {"name": "repo", "location": {"name": "production_jobs"}},
+            "dependencyKeys": [],
+            "jobNames": ["daily"],
+            "metadataEntries": [{"label": "phlo/relation", "text": f"raw.{name}"}],
+            "assetMaterializations": [
+                {
+                    "timestamp": recent_timestamp,
+                    "runId": f"{name}-{index}",
+                    "partition": None,
+                    "runOrError": {
+                        "__typename": "Run",
+                        "runId": f"{name}-{index}",
+                        "status": "SUCCESS",
+                        "tags": [{"key": "phlo/ref", "value": "main"}],
+                        "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+                    },
+                    "metadataEntries": [{"label": "rows_inserted", "intValue": 2}],
+                }
+                for index in range(100 if name == "a" else 0)
+            ],
+        }
+        for name in ("a", "b")
+    ]
+    calls = []
+
+    async def graphql(*args, **kwargs):
+        return _asset_inventory_response(nodes)
+
+    def table_metadata(name, ref):
+        calls.append((name, ref))
+        return {
+            "row_count": 42,
+            "size_bytes": 2048,
+            "snapshot_id": "9007199254740993",
+            "freshness_observed_at": datetime.now(UTC),
+            "freshness_reason": None,
+        }
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(v1_assets, "_iceberg_asset_metadata", table_metadata)
+    first = http.get("/api/v1/assets?env=prod&limit=1")
+    assert first.status_code == 200, first.text
+    first_payload = first.json()
+    assert [item["id"] for item in first_payload["items"]] == ["a"]
+    assert first_payload["items"][0]["row_count"] == 42
+    assert first_payload["items"][0]["size_bytes"] == 2048
+    assert first_payload["items"][0]["table_metadata_error"] is None
+    assert len(first_payload["items"][0]["materializations"]) == 100
+    assert first_payload["items"][0]["materializations"][0]["rows_inserted"] == 2
+    assert first_payload["items"][0]["materialization_history_truncated"] is True
+    assert first_payload["next_cursor"] is not None
+    assert calls == [("raw.a", "main")]
+
+    second = http.get(f"/api/v1/assets?env=prod&limit=1&cursor={first_payload['next_cursor']}")
+    assert second.status_code == 200, second.text
+    assert [item["id"] for item in second.json()["items"]] == ["b"]
+    assert second.json()["items"][0]["last_materialization_at"] is None
+    assert second.json()["items"][0]["freshness_source"] == "iceberg_snapshot"
+    assert second.json()["items"][0]["freshness_observed_at"] is not None
+    assert second.json()["items"][0]["freshness_reason"] == "missing_sla"
+    assert calls == [("raw.a", "main"), ("raw.b", "main")]
+
+
+def test_asset_list_page_stats_have_a_whole_operation_deadline(client, monkeypatch):
+    http, *_ = client
+    nodes = [
+        {
+            "id": f"asset-{index:02d}",
+            "assetKey": {"path": [f"asset-{index:02d}"]},
+            "description": None,
+            "computeKind": None,
+            "groupName": None,
+            "isMaterializable": True,
+            "isPartitioned": False,
+            "repository": {"name": "repo", "location": {"name": "production_jobs"}},
+            "dependencyKeys": [],
+            "jobNames": [],
+            "metadataEntries": [{"label": "phlo/relation", "text": f"raw.asset_{index}"}],
+            "assetMaterializations": [],
+        }
+        for index in range(9)
+    ]
+
+    async def graphql(*args, **kwargs):
+        return _asset_inventory_response(nodes)
+
+    def slow_table_metadata(name, ref):
+        time.sleep(0.05)
+        return {"row_count": 42, "size_bytes": 2048}
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(v1_assets, "_iceberg_asset_metadata", slow_table_metadata)
+    monkeypatch.setattr(v1_assets, "_ASSET_PAGE_STATS_TIMEOUT_SECONDS", 0.01)
+
+    response = http.get("/api/v1/assets?env=prod&limit=9")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert len(payload["items"]) == 9
+    assert all(item["row_count"] is None for item in payload["items"])
+    assert all(item["size_bytes"] is None for item in payload["items"])
+    assert all("page read time budget" in item["table_metadata_error"] for item in payload["items"])
+
+
+@pytest.mark.parametrize(
+    "env,location,ref,total",
+    [
+        ("prod", "production_jobs", "main", 31),
+        ("staging", "testing_jobs", "candidate", 47),
+    ],
+)
+def test_asset_overview_reads_declared_and_ref_scoped_table_evidence(
+    client, monkeypatch, env, location, ref, total
+):
+    http, *_ = client
+    node = {
+        "id": "directory-definition",
+        "assetKey": {"path": ["directory"]},
+        "description": "directory",
+        "computeKind": None,
+        "kinds": ["table_store", "dlt"],
+        "groupName": "registry",
+        "isMaterializable": True,
+        "isPartitioned": False,
+        "repository": {"name": "repo", "location": {"name": location}},
+        "dependencyKeys": [],
+        "metadataEntries": [
+            {"label": "owner", "text": "facilities"},
+            {"label": "source_name", "text": "site_directory"},
+            {"label": "schema_ref", "text": "DirectoryContract"},
+            {"label": "sla", "jsonString": '{"freshness_hours": 744}'},
+            {"label": "phlo/relation", "text": "raw.directory"},
+        ],
+        "assetMaterializations": [
+            {
+                "timestamp": "1780000000000",
+                "runId": "local-run",
+                "partition": None,
+                "runOrError": {
+                    "__typename": "Run",
+                    "runId": "local-run",
+                    "status": "SUCCESS",
+                    "pipelineName": "wap_partition_job",
+                    "tags": [{"key": "phlo/ref", "value": ref}],
+                    "repositoryOrigin": {"repositoryLocationName": location},
+                },
+                "metadataEntries": [
+                    {"label": "rows_inserted", "intValue": 7},
+                    {"label": "rows_deleted", "intValue": 2},
+                ],
+            }
+        ],
+    }
+    fleet_run = {
+        **node["assetMaterializations"][0],
+        "timestamp": "1780000001000",
+        "runId": "fleet-run",
+        "runOrError": {
+            "__typename": "Run",
+            "runId": "fleet-run",
+            "status": "SUCCESS",
+            "pipelineName": "daily_fleet_job",
+            "tags": [{"key": "phlo/ref", "value": ref}],
+            "repositoryOrigin": {"repositoryLocationName": location},
+        },
+        "metadataEntries": [{"label": "rows_inserted", "intValue": 11}],
+    }
+    missing_job = {
+        **node["assetMaterializations"][0],
+        "timestamp": "1780000002000",
+        "runId": "unknown-job-run",
+        "runOrError": {
+            "__typename": "Run",
+            "runId": "unknown-job-run",
+            "status": "SUCCESS",
+            "pipelineName": None,
+            "tags": [{"key": "phlo/ref", "value": ref}],
+            "repositoryOrigin": {"repositoryLocationName": location},
+        },
+        "metadataEntries": [{"label": "rows_inserted", "intValue": 3}],
+    }
+    malformed_job = {
+        **node["assetMaterializations"][0],
+        "timestamp": "1780000003000",
+        "runId": "malformed-job-run",
+        "runOrError": {
+            "__typename": "Run",
+            "runId": "malformed-job-run",
+            "status": "SUCCESS",
+            "pipelineName": ["not", "a", "job"],
+            "tags": [{"key": "phlo/ref", "value": ref}],
+            "repositoryOrigin": {"repositoryLocationName": location},
+        },
+        "metadataEntries": [{"label": "rows_inserted", "intValue": 4}],
+    }
+    node["assetMaterializations"].extend([fleet_run, missing_job, malformed_job])
+    foreign = {
+        **node["assetMaterializations"][0],
+        "runId": "foreign-run",
+        "runOrError": {
+            "__typename": "Run",
+            "runId": "foreign-run",
+            "status": "SUCCESS",
+            "tags": [{"key": "phlo/ref", "value": "other"}],
+            "repositoryOrigin": {"repositoryLocationName": "foreign_jobs"},
+        },
+        "metadataEntries": [{"label": "rows_inserted", "intValue": 999}],
+    }
+    node["assetMaterializations"].insert(0, foreign)
+
+    async def graphql(*args, **kwargs):
+        return _asset_inventory_response([node])
+
+    catalog_calls = []
+
+    def table_metadata(name, selected_ref):
+        catalog_calls.append((name, selected_ref))
+        return {
+            "columns": [{"name": "site_id", "type": "string", "description": None}],
+            "row_count": total,
+            "size_bytes": 4096,
+            "sort_order": [],
+            "snapshot_id": "9223372036854775806",
+        }
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(v1_assets, "_iceberg_asset_metadata", table_metadata, raising=False)
+    response = http.get(f"/api/v1/assets/directory?env={env}")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["owner"] == "facilities"
+    assert payload["source_name"] == "site_directory"
+    assert payload["schema_contract"] == "DirectoryContract"
+    assert payload["compute_kind"] == "dlt · table_store"
+    assert payload["freshness_sla_seconds"] == 744 * 3600
+    assert payload["columns"][0]["name"] == "site_id"
+    assert payload["schema_source"] == "catalog"
+    assert payload["row_count"] == total
+    assert payload["size_bytes"] == 4096
+    assert payload["current_snapshot_id"] == "9223372036854775806"
+    assert payload["sort_order"] == []
+    assert payload["materializations"] == [
+        {
+            "run_id": "local-run",
+            "job_id": "wap_partition_job",
+            "timestamp": "2026-05-28T20:26:40Z",
+            "rows_inserted": 7,
+            "rows_deleted": 2,
+        },
+        {
+            "run_id": "fleet-run",
+            "job_id": "daily_fleet_job",
+            "timestamp": "2026-05-28T20:26:41Z",
+            "rows_inserted": 11,
+            "rows_deleted": None,
+        },
+        {
+            "run_id": "unknown-job-run",
+            "job_id": None,
+            "timestamp": "2026-05-28T20:26:42Z",
+            "rows_inserted": 3,
+            "rows_deleted": None,
+        },
+        {
+            "run_id": "malformed-job-run",
+            "job_id": None,
+            "timestamp": "2026-05-28T20:26:43Z",
+            "rows_inserted": 4,
+            "rows_deleted": None,
+        },
+    ]
+    assert catalog_calls == [("raw.directory", ref)]
+
+    def unavailable_metadata(name, selected_ref):
+        raise OSError("catalog unavailable")
+
+    monkeypatch.setattr(v1_assets, "_iceberg_asset_metadata", unavailable_metadata)
+    response = http.get(f"/api/v1/assets/directory?env={env}")
+    assert response.status_code == 200, response.text
+    unavailable = response.json()
+    assert unavailable["owner"] == "facilities"
+    assert unavailable["materializations"] == payload["materializations"]
+    assert unavailable["columns"] == []
+    assert unavailable["schema_source"] == "unavailable"
+    assert unavailable["row_count"] is None
+    assert unavailable["size_bytes"] is None
+    assert unavailable["sort_order"] is None
+    assert "catalog connection" in unavailable["table_metadata_error"]
+
+
+@pytest.mark.parametrize(
+    "deletes,expected_rows",
+    [
+        ({"total-position-deletes": "0", "total-equality-deletes": "0"}, 31),
+        ({"total-position-deletes": "1", "total-equality-deletes": "0"}, None),
+        ({"total-position-deletes": "0", "total-equality-deletes": "2"}, None),
+        ({}, None),
+    ],
+)
+def test_catalog_row_count_requires_proven_absence_of_deletes(monkeypatch, deletes, expected_rows):
+    from types import SimpleNamespace
+
+    from phlo_iceberg import catalog
+
+    table = SimpleNamespace(
+        current_snapshot=lambda: SimpleNamespace(
+            summary=SimpleNamespace(
+                additional_properties={"total-records": "31", "total-files-size": "8192", **deletes}
+            )
+        ),
+        schema=lambda: SimpleNamespace(fields=[]),
+        sort_order=lambda: SimpleNamespace(fields=[]),
+    )
+    monkeypatch.setattr(
+        catalog, "get_catalog", lambda **kwargs: SimpleNamespace(load_table=lambda name: table)
+    )
+    metadata = v1_assets._iceberg_asset_metadata("raw.directory", "candidate")
+    assert metadata["row_count"] == expected_rows
+    assert metadata["size_bytes"] == 8192
+
+
+def test_catalog_freshness_uses_selected_ref_and_lossless_snapshot_identity(monkeypatch):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from phlo_iceberg import catalog
+
+    calls = []
+    tables = {
+        "main": SimpleNamespace(
+            current_snapshot=lambda: SimpleNamespace(
+                snapshot_id=9_223_372_036_854_775_806,
+                timestamp_ms=1790942400000,
+                summary=None,
+            ),
+            schema=lambda: SimpleNamespace(fields=[]),
+            sort_order=lambda: SimpleNamespace(fields=[]),
+        ),
+        "candidate": SimpleNamespace(
+            current_snapshot=lambda: SimpleNamespace(
+                snapshot_id=9_223_372_036_854_775_805,
+                timestamp_ms=1790942460000,
+                summary=None,
+            ),
+            schema=lambda: SimpleNamespace(fields=[]),
+            sort_order=lambda: SimpleNamespace(fields=[]),
+        ),
+    }
+
+    def get_catalog(*, ref):
+        calls.append(ref)
+        return SimpleNamespace(load_table=lambda name: tables[ref])
+
+    monkeypatch.setattr(catalog, "get_catalog", get_catalog)
+    prod = v1_assets._iceberg_asset_metadata("raw.device_health_current", "main")
+    staging = v1_assets._iceberg_asset_metadata("raw.device_health_current", "candidate")
+
+    assert prod["snapshot_id"] == "9223372036854775806"
+    assert staging["snapshot_id"] == "9223372036854775805"
+    assert prod["freshness_observed_at"] == datetime.fromtimestamp(1790942400, UTC)
+    assert staging["freshness_observed_at"] == datetime.fromtimestamp(1790942460, UTC)
+    assert calls == ["main", "candidate"]
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"label": "phlo/owner", "__typename": "NullMetadataEntry"},
+        {"label": "phlo/owner", "__typename": "JsonMetadataEntry", "jsonString": "null"},
+    ],
+)
+def test_unset_declared_asset_metadata_stays_unknown(entry):
+    assert v1_assets._declared_text([entry], "phlo/owner") is None
 
 
 def test_asset_routes_report_dagster_outage_without_empty_success(client, monkeypatch):
@@ -985,15 +1488,19 @@ def test_iceberg_history_is_bound_to_configured_environment_ref(client, monkeypa
 
     def history(table_name, ref, limit):
         refs.append((table_name, ref, limit))
-        return [
-            {
-                "snapshot_id": 91 if ref == "main" else 17,
-                "timestamp_ms": 1780000000000,
-                "operation": "append",
-                "summary": {"added-records": "3"},
-                "parent_id": None,
-            }
-        ]
+        return {
+            "current_snapshot_id": 91 if ref == "main" else 17,
+            "metadata_location": f"{ref}/metadata.json",
+            "items": [
+                {
+                    "snapshot_id": 91 if ref == "main" else 17,
+                    "timestamp_ms": 1780000000000,
+                    "operation": "append",
+                    "summary": {"added-records": "3"},
+                    "parent_id": None,
+                }
+            ],
+        }
 
     monkeypatch.setattr(v1_assets, "_iceberg_history", history)
     prod = http.get("/api/v1/tables/warehouse.orders/snapshots?env=prod&limit=5")
@@ -1003,6 +1510,8 @@ def test_iceberg_history_is_bound_to_configured_environment_ref(client, monkeypa
     assert staging.json()["nessie_ref"] == "candidate"
     assert prod.json()["items"][0]["snapshot_id"] == 91
     assert staging.json()["items"][0]["snapshot_id"] == 17
+    assert staging.json()["current_snapshot_id"] == 17
+    assert staging.json()["metadata_location"] == "candidate/metadata.json"
     assert refs == [
         ("warehouse.orders", "main", 5),
         ("warehouse.orders", "candidate", 5),
@@ -1297,6 +1806,7 @@ def test_query_usage_requires_asset_and_physical_table_read_after_reassignment(c
                 is_source=False,
                 dependencies=[],
                 relation=relation,
+                history_scoped=False,
                 last_materialization_at=None,
                 last_run_id=None,
             )
@@ -1435,7 +1945,7 @@ def test_materialize_action_pins_location_ref_and_replay_key(client, monkeypatch
     }
 
     async def graphql(query, variables=None):
-        if "V1Assets" in query:
+        if "V1Assets" in query or "AssetActionContext" in query:
             return _asset_inventory_response([node])
         return {"data": {"assetNodeOrError": {"__typename": "AssetNode", **node}}}
 
@@ -1560,8 +2070,10 @@ def test_latest_and_all_backfills_are_environment_pinned_and_bounded(client, mon
     provider_calls = []
 
     async def graphql(query, variables=None):
-        if "V1Assets" in query:
-            return _asset_inventory_response(assets)
+        if "V1Assets" in query or "AssetActionContext" in query:
+            return _asset_inventory_response(
+                [{**asset, "jobNames": ["orders_job"]} for asset in assets]
+            )
         key = variables["assetKey"]["path"][-1] if "assetKey" in variables else None
         if "V1AssetDetail" in query:
             location, repository = locations[key]
@@ -1588,23 +2100,34 @@ def test_latest_and_all_backfills_are_environment_pinned_and_bounded(client, mon
                     }
                 }
             }
-        if "V1AssetLatestPartition" in query:
+        if "AssetOperationNode" in query:
             latest_query_variables.append(variables)
-            location, _ = locations[key]
+            selector = variables["selector"]
+            location = selector["repositoryLocationName"]
+            key = "prod_orders" if location == "production_jobs" else "stage_orders"
             prod_selection_count = sum(
-                item["assetKey"]["path"][-1] == "prod_orders" for item in latest_query_variables
+                item["selector"]["repositoryLocationName"] == "production_jobs"
+                for item in latest_query_variables
             )
             partition_key = "2026-09-26" if prod_selection_count > 1 else "2026-09-25"
             return {
                 "data": {
-                    "assetNodeOrError": {
-                        "__typename": "AssetNode",
-                        "repository": {"location": {"name": location}},
-                        "partitionKeyConnection": {
-                            "results": [partition_key if key == "prod_orders" else "2026-09-24"],
-                            "cursor": "",
-                            "hasMore": True,
-                        },
+                    "repositoryOrError": {
+                        "__typename": "Repository",
+                        "name": selector["repositoryName"],
+                        "location": {"name": location},
+                        "assetNodes": [
+                            {
+                                **next(asset for asset in assets if asset["id"] == key),
+                                "partitionKeyConnection": {
+                                    "results": [
+                                        partition_key if key == "prod_orders" else "2026-09-24"
+                                    ],
+                                    "cursor": "",
+                                    "hasMore": True,
+                                },
+                            }
+                        ],
                     }
                 }
             }
@@ -1693,11 +2216,26 @@ def test_latest_and_all_backfills_are_environment_pinned_and_bounded(client, mon
     assert provider_calls[2][1]["all_partitions"] is True
     assert provider_calls[2][1]["repository_location_name"] == "production_jobs"
     assert latest_query_variables == [
-        {"assetKey": {"path": ["warehouse", "prod_orders"]}, "limit": 1, "ascending": False},
-        {"assetKey": {"path": ["warehouse", "stage_orders"]}, "limit": 1, "ascending": False},
-        {"assetKey": {"path": ["warehouse", "prod_orders"]}, "limit": 1, "ascending": False},
+        {
+            "selector": {
+                "repositoryName": "prod_repo",
+                "repositoryLocationName": "production_jobs",
+            },
+            "limit": 1,
+        },
+        {
+            "selector": {"repositoryName": "stage_repo", "repositoryLocationName": "testing_jobs"},
+            "limit": 1,
+        },
+        {
+            "selector": {
+                "repositoryName": "prod_repo",
+                "repositoryLocationName": "production_jobs",
+            },
+            "limit": 1,
+        },
     ]
-    assert "partitionKeysByDimension" not in v1_assets.ASSET_LATEST_PARTITION_QUERY
+    assert "partitionKeysByDimension" not in v1_assets._OPERATION_NODE_QUERY
 
     endpoint = "/api/v1/assets/warehouse/prod_orders/backfill?env=prod"
     dry_request = {
@@ -1745,8 +2283,8 @@ def test_latest_backfill_fails_closed_on_empty_oversized_or_wrong_location(
     provider_calls = []
 
     async def graphql(query, variables=None):
-        if "V1Assets" in query:
-            return _asset_inventory_response([node])
+        if "V1Assets" in query or "AssetActionContext" in query:
+            return _asset_inventory_response([{**node, "jobNames": ["orders_job"]}])
         if "V1AssetDetail" in query:
             return {
                 "data": {
@@ -1772,25 +2310,29 @@ def test_latest_backfill_fails_closed_on_empty_oversized_or_wrong_location(
                     }
                 }
             }
-        if "V1AssetLatestPartition" in query:
+        if "AssetOperationNode" in query:
             if partition_response.get("upstream_failure"):
                 return {"errors": [{"message": "Dagster unavailable"}]}
             return {
                 "data": {
-                    "assetNodeOrError": {
-                        "__typename": "AssetNode",
-                        "repository": {
-                            "location": {
-                                "name": "testing_jobs"
-                                if partition_response.get("wrong_location")
-                                else "production_jobs"
+                    "repositoryOrError": {
+                        "__typename": "Repository",
+                        "name": "prod_repo",
+                        "location": {
+                            "name": "testing_jobs"
+                            if partition_response.get("wrong_location")
+                            else "production_jobs"
+                        },
+                        "assetNodes": [
+                            {
+                                **node,
+                                "partitionKeyConnection": {
+                                    key: value
+                                    for key, value in partition_response.items()
+                                    if key not in {"wrong_location", "upstream_failure"}
+                                },
                             }
-                        },
-                        "partitionKeyConnection": {
-                            key: value
-                            for key, value in partition_response.items()
-                            if key not in {"wrong_location", "upstream_failure"}
-                        },
+                        ],
                     }
                 }
             }
@@ -1830,12 +2372,99 @@ def test_latest_backfill_fails_closed_on_empty_oversized_or_wrong_location(
     assert provider_calls == []
 
 
+@pytest.mark.parametrize(
+    ("local_checks", "foreign_checks", "available"),
+    [
+        (True, True, False),
+        (False, True, False),
+        (True, False, True),
+        (True, None, False),
+        (None, False, False),
+    ],
+)
+def test_check_definitions_require_repository_local_uniqueness_proof(
+    client, monkeypatch, local_checks, foreign_checks, available
+):
+    from types import SimpleNamespace
+
+    from phlo_api import incidents
+
+    http, *_ = client
+    nodes = [
+        {
+            "assetKey": {"path": ["shared"]},
+            "repository": {"name": "repo", "location": {"name": location}},
+            "isMaterializable": location == "production_jobs",
+            "dependencyKeys": [],
+            "assetMaterializations": [],
+            "hasAssetChecks": has_checks,
+        }
+        for location, has_checks in (
+            ("production_jobs", local_checks),
+            ("testing_jobs", foreign_checks),
+        )
+    ]
+    definitions_read = []
+
+    async def graphql(url, query, variables=None):
+        if "V1Assets" in query:
+            assert "hasAssetChecks" in query
+            return _asset_inventory_response(nodes)
+        if "V1AssetChecks" in query:
+            definitions_read.append(variables)
+            assert variables["includeLegacy"] is available
+            repository_node = {**nodes[0]}
+            if variables["includeLegacy"]:
+                repository_node["assetChecksOrError"] = {
+                    "__typename": "AssetChecks",
+                    "checks": [{"name": "local-volume"}]
+                    + ([{"name": "foreign-schema"}] if foreign_checks else []),
+                }
+            return _asset_inventory_response(
+                [repository_node],
+                repository_selector=variables["repositorySelector"],
+            )
+        assert "V1AssetCheckExecutions" in query
+        return {"data": {"assetCheckExecutions": []}}
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    monkeypatch.setattr(v1, "_runs", lambda *args: asyncio.sleep(0, result={}))
+    monkeypatch.setattr(
+        incidents, "incident_stats", lambda request, env: IncidentStatsResponse(env=env, counts={})
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda *args, **kwargs: SimpleNamespace(items=[], next_cursor=None),
+    )
+    direct = http.get("/api/v1/assets/shared/checks?env=prod")
+    assert direct.status_code == (200 if available else 503), direct.text
+    overview = http.get("/api/v1/overview?env=prod")
+    assert overview.status_code == 200, overview.text
+    quality = overview.json()["quality_checks"]
+    if available:
+        assert [item["name"] for item in direct.json()["definitions"]] == ["local-volume"]
+        assert quality["counts"] == {"passing": 0, "total": 1, "unevaluated": 1}
+        assert len(definitions_read) == 2
+    else:
+        assert quality["status"] == "unknown" and quality["counts"] is None
+        assert quality["reason"] == "check_definition_scope_unverified"
+        assert "Repository-local asset-check export is unavailable" in direct.text
+        assert len(definitions_read) == 2
+        assert all(
+            call["repositorySelector"]
+            == {"repositoryLocationName": "production_jobs", "repositoryName": "repo"}
+            for call in definitions_read
+        )
+
+
 def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monkeypatch):
     http, _, _, _, _ = client
+    check_location = "production_jobs"
     nodes = [
         {
             "assetKey": {"path": ["warehouse", "orders"]},
-            "repository": {"location": {"name": location}},
+            "repository": {"name": "repo", "location": {"name": location}},
             "assetChecksOrError": {
                 "__typename": "AssetChecks",
                 "checks": [{"name": f"quality_{env}", "description": env}],
@@ -1860,7 +2489,10 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
                 "runId": run_id,
                 "tags": [{"key": "phlo/ref", "value": "main" if env == "prod" else "candidate"}],
                 "repositoryOrigin": {
-                    "repositoryLocationName": "production_jobs" if env == "prod" else "testing_jobs"
+                    "repositoryLocationName": "production_jobs"
+                    if env == "prod"
+                    else "testing_jobs",
+                    "repositoryName": "repo",
                 },
             },
         }
@@ -1879,12 +2511,67 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
     )
     executions.append(
         {
+            **executions[0],
+            "runId": "wrong-repository",
+            "run": {
+                **executions[0]["run"],
+                "runId": "wrong-repository",
+                "repositoryOrigin": {
+                    "repositoryLocationName": "production_jobs",
+                    "repositoryName": "another_repo",
+                },
+            },
+        }
+    )
+    wrong_location_run_id_mismatch = {
+        **executions[0],
+        "runId": "wrong-location-execution-id",
+        "run": {
+            **executions[0]["run"],
+            "repositoryOrigin": {
+                "repositoryLocationName": "testing_jobs",
+                "repositoryName": "repo",
+            },
+        },
+    }
+    wrong_repository_run_id_mismatch = {
+        **executions[0],
+        "runId": "wrong-repository-execution-id",
+        "run": {
+            **executions[0]["run"],
+            "repositoryOrigin": {
+                "repositoryLocationName": "production_jobs",
+                "repositoryName": "another_repo",
+            },
+        },
+    }
+    executions.extend([wrong_location_run_id_mismatch, wrong_repository_run_id_mismatch])
+    for row in (wrong_location_run_id_mismatch, wrong_repository_run_id_mismatch):
+        normalized, verified = v1_assets._normalize_check_execution(
+            row, "production_jobs", "repo", "main", "quality_prod"
+        )
+        assert normalized is None and not verified
+    malformed_run = {**executions[0], "run": ["not a GrapheneRun object"]}
+    assert v1_assets._normalize_check_execution(
+        malformed_run, "production_jobs", "repo", "main", "quality_prod"
+    ) == (None, False)
+    executions.append(
+        {
             "status": "SUCCEEDED",
-            "runId": "",
+            "runId": "missing-origin-sensitive-run",
             "timestamp": 1780000000,
             "checkName": "quality_prod",
-            "evaluation": {"success": True, "severity": "ERROR", "metadataEntries": []},
-            "run": None,
+            "evaluation": {
+                "success": False,
+                "severity": "ERROR",
+                "metadataEntries": [
+                    {"__typename": "TextMetadataEntry", "label": "private", "text": "hidden"}
+                ],
+            },
+            "run": {
+                "runId": "missing-origin-sensitive-run",
+                "tags": [{"key": "phlo/ref", "value": "main"}],
+            },
         }
     )
 
@@ -1900,6 +2587,7 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
                         "groupName": None,
                         "isMaterializable": True,
                         "repository": {"name": "repo", "location": {"name": location}},
+                        "hasAssetChecks": location == check_location,
                         "dependencyKeys": [],
                         "assetMaterializations": [],
                     }
@@ -1910,7 +2598,10 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
                 ]
             )
         if "V1AssetChecks" in query:
-            return {"data": {"assetNodes": nodes}}
+            assert variables["repositorySelector"]["repositoryName"] == "repo"
+            return _asset_inventory_response(
+                nodes, repository_selector=variables["repositorySelector"]
+            )
         if "V1AssetCheckExecutions" in query:
             return {
                 "data": {
@@ -1923,17 +2614,221 @@ def test_asset_check_history_filters_duplicate_key_runs_by_location(client, monk
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     prod = http.get("/api/v1/assets/warehouse/orders/checks?env=prod")
+    check_location = "testing_jobs"
     staging = http.get("/api/v1/assets/warehouse/orders/checks?env=staging")
     assert prod.status_code == staging.status_code == 200
     assert prod.json()["definitions"] == [{"name": "quality_prod", "description": "prod"}]
     assert staging.json()["definitions"] == [{"name": "quality_staging", "description": "staging"}]
-    assert [item["run_id"] for item in prod.json()["executions"]] == ["p-run"]
+    assert prod.json()["executions"] == []
+    assert prod.json()["history"] == {
+        "status": "partial",
+        "unverifiable_checks": ["quality_prod"],
+    }
     assert [item["run_id"] for item in staging.json()["executions"]] == ["s-run"]
-    assert prod.json()["executions"][0]["passed"] is True
+    assert "missing-origin-sensitive-run" not in prod.text
+    assert "hidden" not in prod.text
+    assert staging.json()["history"] == {"status": "complete", "unverifiable_checks": []}
     assert staging.json()["executions"][0]["passed"] is False
-    assert prod.json()["executions"][0]["metadata"] == [{"label": "rows", "value": 9}]
+    assert staging.json()["executions"][0]["metadata"] == [{"label": "rows", "value": 2}]
+    check_location = "production_jobs"
     executions[0]["run"]["tags"] = []
-    assert http.get("/api/v1/assets/warehouse/orders/checks?env=prod").status_code == 503
+    malformed_ref = http.get("/api/v1/assets/warehouse/orders/checks?env=prod")
+    assert malformed_ref.status_code == 200
+    assert malformed_ref.json()["history"]["status"] == "partial"
+
+
+def test_local_check_export_resolves_duplicate_repository_keys_and_scopes_history(
+    client, monkeypatch
+):
+    from types import SimpleNamespace
+
+    import hashlib
+
+    http, *_ = client
+    key = ["shared"]
+
+    def export(checks):
+        checks = sorted(checks, key=lambda item: item["name"])
+        payload = {"version": 1, "asset_key": key, "complete": True, "checks": checks}
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        payload["digest"] = hashlib.sha256(encoded).hexdigest()
+        return {"label": "phlo/asset-check-inventory", "jsonString": json.dumps(payload)}
+
+    repositories = [
+        ("iot_prod", "production_jobs", "main", ["shared_quality", "production_only"]),
+        ("iot_staging", "testing_jobs", "candidate", ["shared_quality", "staging_only"]),
+    ]
+    nodes = [
+        {
+            "assetKey": {"path": key},
+            "repository": {"name": name, "location": {"name": location}},
+            "isMaterializable": True,
+            "dependencyKeys": [],
+            "assetMaterializations": [],
+            "hasAssetChecks": True,
+            "metadataEntries": [
+                export(
+                    [
+                        {"name": check_name, "description": f"{name}:{check_name}"}
+                        for check_name in checks
+                    ]
+                )
+            ],
+        }
+        for name, location, _, checks in repositories
+    ]
+
+    def execution(name, location, ref, check_name, passed, run_id):
+        return {
+            "status": "SUCCEEDED",
+            "runId": run_id,
+            "timestamp": 1780000000,
+            "checkName": check_name,
+            "evaluation": {"success": passed, "severity": "ERROR", "metadataEntries": []},
+            "run": {
+                "runId": run_id,
+                "tags": [{"key": "phlo/ref", "value": ref}],
+                "repositoryOrigin": {"repositoryName": name, "repositoryLocationName": location},
+            },
+        }
+
+    history = [
+        execution("iot_prod", "production_jobs", "main", "shared_quality", True, "prod-shared"),
+        execution(
+            "iot_staging", "testing_jobs", "candidate", "shared_quality", False, "stage-shared"
+        ),
+        execution("iot_prod", "production_jobs", "main", "production_only", True, "prod-only"),
+        execution("iot_staging", "testing_jobs", "candidate", "staging_only", False, "stage-only"),
+        execution("other_repo", "production_jobs", "main", "shared_quality", False, "wrong-repo"),
+        execution("iot_prod", "production_jobs", "candidate", "shared_quality", False, "wrong-ref"),
+    ]
+
+    async def graphql(url, query, variables=None):
+        if "V1Assets" in query:
+            return _asset_inventory_response(nodes)
+        if "V1AssetChecks" in query:
+            assert "@include(if: $includeLegacy)" in query
+            assert variables["includeLegacy"] is False
+            selector = variables["repositorySelector"]
+            selected = next(
+                node for node in nodes if node["repository"]["name"] == selector["repositoryName"]
+            )
+            # A collision-prone native check resolver is deliberately omitted.
+            return _asset_inventory_response(
+                [selected],
+                repository_selector=selector,
+            )
+        if "V1AssetCheckExecutions" in query:
+            return {
+                "data": {
+                    "assetCheckExecutions": [
+                        row for row in history if row["checkName"] == variables["checkName"]
+                    ]
+                }
+            }
+        raise AssertionError("unexpected Dagster query")
+
+    monkeypatch.setattr(v1_assets, "graphql_request", graphql)
+    from phlo_api import incidents
+
+    monkeypatch.setattr(v1, "_runs", lambda *args: asyncio.sleep(0, result={}))
+    monkeypatch.setattr(
+        incidents,
+        "incident_stats",
+        lambda request, env: IncidentStatsResponse(env=env, counts={"open": 0}),
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda *args, **kwargs: SimpleNamespace(items=[], next_cursor=None),
+    )
+    prod = http.get("/api/v1/assets/shared/checks?env=prod")
+    staging = http.get("/api/v1/assets/shared/checks?env=staging")
+    assert prod.status_code == staging.status_code == 200, (
+        f"prod={prod.text}; staging={staging.text}"
+    )
+    assert prod.json()["definitions"] == [
+        {"name": "production_only", "description": "iot_prod:production_only"},
+        {"name": "shared_quality", "description": "iot_prod:shared_quality"},
+    ]
+    assert staging.json()["definitions"] == [
+        {"name": "shared_quality", "description": "iot_staging:shared_quality"},
+        {"name": "staging_only", "description": "iot_staging:staging_only"},
+    ]
+    assert {row["run_id"] for row in prod.json()["executions"]} == {
+        "prod-shared",
+        "prod-only",
+    }
+    assert {row["run_id"] for row in staging.json()["executions"]} == {
+        "stage-shared",
+        "stage-only",
+    }
+    production_overview = http.get("/api/v1/overview?env=prod")
+    staging_overview = http.get("/api/v1/overview?env=staging")
+    assert production_overview.status_code == staging_overview.status_code == 200
+    assert production_overview.json()["quality_checks"]["counts"] == {
+        "passing": 2,
+        "total": 2,
+        "unevaluated": 0,
+    }
+    assert staging_overview.json()["quality_checks"]["counts"] == {
+        "passing": 0,
+        "total": 2,
+        "unevaluated": 0,
+    }
+
+
+def test_local_check_export_rejects_missing_malformed_and_incomplete_proofs():
+    import hashlib
+
+    from phlo_api.api.v1_assets import _local_check_export
+    from phlo_api.errors import BackendUnavailableError, BadGatewayError
+
+    key = ["orders"]
+
+    def node(payload):
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        payload["digest"] = hashlib.sha256(encoded).hexdigest()
+        return {
+            "metadataEntries": [
+                {
+                    "label": "phlo/asset-check-inventory",
+                    "jsonString": json.dumps(payload),
+                }
+            ]
+        }
+
+    assert _local_check_export({}, key) is None
+    assert _local_check_export({"metadataEntries": []}, key) is None
+    with pytest.raises(BadGatewayError):
+        _local_check_export({"metadataEntries": None}, key)
+    with pytest.raises(BadGatewayError):
+        _local_check_export(
+            {"metadataEntries": [{"label": "phlo/asset-check-inventory", "jsonString": "{"}]},
+            key,
+        )
+    with pytest.raises(BackendUnavailableError):
+        _local_check_export(
+            node({"version": 1, "asset_key": key, "complete": False, "checks": []}), key
+        )
+    for version in (True, 1.0):
+        with pytest.raises(BadGatewayError):
+            _local_check_export(
+                node({"version": version, "asset_key": key, "complete": True, "checks": []}),
+                key,
+            )
+    with pytest.raises(BackendUnavailableError):
+        _local_check_export(
+            {
+                "metadataEntries": [
+                    {
+                        "label": "phlo/asset-check-inventory",
+                        "jsonString": " " * (16_385),
+                    }
+                ]
+            },
+            key,
+        )
 
 
 def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client, monkeypatch):
@@ -1944,6 +2839,7 @@ def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client,
         {
             "id": env,
             "assetKey": {"path": ["warehouse", "orders"]},
+            "jobNames": ["orders"],
             "description": env,
             "computeKind": None,
             "groupName": None,
@@ -1955,7 +2851,7 @@ def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client,
         for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
     ]
 
-    def run(run_id, location, selection, status="SUCCESS", ref=None):
+    def run(run_id, location, selection, status="SUCCESS", ref=None, repository="repo"):
         return {
             "__typename": "Run",
             "runId": run_id,
@@ -1969,8 +2865,29 @@ def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client,
             "creationTime": 1780000000,
             "startTime": 1780000001,
             "endTime": 1780000002,
-            "repositoryOrigin": {"repositoryLocationName": location},
+            "repositoryOrigin": {
+                "repositoryName": repository,
+                "repositoryLocationName": location,
+            },
+            "pipelineName": "orders",
             "assetSelection": [{"path": selection}],
+        }
+
+    def whole_job(run_id, location, repository_name="repo"):
+        return {
+            "__typename": "Run",
+            "runId": run_id,
+            "status": "SUCCESS",
+            "tags": [{"key": "phlo/ref", "value": "main"}],
+            "creationTime": 1780000000,
+            "startTime": 1780000001,
+            "endTime": 1780000002,
+            "repositoryOrigin": {
+                "repositoryName": repository_name,
+                "repositoryLocationName": location,
+            },
+            "pipelineName": "orders",
+            "assetSelection": None,
         }
 
     async def graphql(url, query, variables=None):
@@ -1978,31 +2895,39 @@ def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client,
             return _asset_inventory_response(asset_nodes)
         if "V1AssetRuns" in query:
             feed_cursors.append(variables["cursor"])
-            results = (
-                [
+            results_by_cursor = {
+                None: [
                     run("prod-success", "production_jobs", ["warehouse", "orders"]),
                     run("wrong-ref", "production_jobs", ["warehouse", "orders"], ref="candidate"),
-                ]
-                if variables["cursor"] is None
-                else [
+                ],
+                "dagster-page-1": [
+                    whole_job("whole-job", "production_jobs"),
                     run(
-                        "prod-failure",
+                        "foreign-repo",
                         "production_jobs",
                         ["warehouse", "orders"],
-                        "FAILURE",
-                    )
-                ]
-            )
+                        repository="foreign",
+                    ),
+                ],
+                "dagster-page-2": [
+                    run("prod-failure", "production_jobs", ["warehouse", "orders"], "FAILURE"),
+                ],
+            }
+            results = results_by_cursor[variables["cursor"]]
             if missing_ref:
                 results[0]["tags"] = []
-            next_cursor = "dagster-page-1" if variables["cursor"] is None else "dagster-page-2"
+            next_cursor = {
+                None: "dagster-page-1",
+                "dagster-page-1": "dagster-page-2",
+                "dagster-page-2": "dagster-page-3",
+            }[variables["cursor"]]
             return {
                 "data": {
                     "runsFeedOrError": {
                         "__typename": "RunsFeedConnection",
                         "results": results,
                         "cursor": next_cursor,
-                        "hasMore": variables["cursor"] is None,
+                        "hasMore": variables["cursor"] != "dagster-page-2",
                     }
                 }
             }
@@ -2012,13 +2937,22 @@ def test_asset_run_history_uses_asset_selection_location_and_feed_cursor(client,
     first = http.get("/api/v1/assets/warehouse/orders/runs?env=prod&limit=2")
     assert first.status_code == 200, first.text
     assert [item["run_id"] for item in first.json()["items"]] == ["prod-success"]
+    assert first.json()["items"][0]["job_id"] == "orders"
+    assert first.json()["items"][0]["duration_seconds"] == 1
+    assert first.json()["items"][0]["selected_assets"] == [["warehouse", "orders"]]
     cursor = first.json()["next_cursor"]
     second = http.get(f"/api/v1/assets/warehouse/orders/runs?env=prod&limit=2&cursor={cursor}")
     assert second.status_code == 200, second.text
-    assert [item["run_id"] for item in second.json()["items"]] == ["prod-failure"]
-    assert second.json()["items"][0]["status"] == "FAILURE"
-    assert second.json()["next_cursor"] is None
-    assert feed_cursors == [None, "dagster-page-1"]
+    assert [item["run_id"] for item in second.json()["items"]] == ["whole-job"]
+    assert second.json()["items"][0]["selected_assets"] == []
+    third = http.get(
+        f"/api/v1/assets/warehouse/orders/runs?env=prod&limit=2&cursor={second.json()['next_cursor']}"
+    )
+    assert third.status_code == 200, third.text
+    assert [item["run_id"] for item in third.json()["items"]] == ["prod-failure"]
+    assert third.json()["items"][0]["status"] == "FAILURE"
+    assert third.json()["next_cursor"] is None
+    assert feed_cursors == [None, "dagster-page-1", "dagster-page-2"]
     assert (
         http.get(f"/api/v1/assets/warehouse/orders/runs?env=staging&cursor={cursor}").status_code
         == 400
@@ -2062,7 +2996,11 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
         for key in ("orders", "unmaterialized")
     ]
 
-    async def graphql(url, query, *args, **kwargs):
+    async def graphql(url, query, variables=None):
+        if "V1AssetChecks" in query:
+            return _asset_inventory_response(
+                nodes, repository_selector=variables["repositorySelector"]
+            )
         return _asset_inventory_response(nodes)
 
     from phlo_api import incidents
@@ -2093,7 +3031,7 @@ def test_overview_uses_incident_and_explicit_sla_evidence(client, monkeypatch):
         "status": "unknown",
         "counts": None,
         "failing_assets": None,
-        "reason": "source_unavailable",
+        "reason": "check_definition_scope_unverified",
     }
 
 
@@ -2110,42 +3048,42 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
             "groupName": "warehouse",
             "isMaterializable": True,
             "repository": {"name": "repo", "location": {"name": location}},
+            "hasAssetChecks": location == "production_jobs",
             "dependencyKeys": [],
             "assetMaterializations": [],
         }
         for env, location in (("prod", "production_jobs"), ("staging", "testing_jobs"))
     ]
-    runless = {
+    unverifiable = {
         "status": "SUCCEEDED",
-        "runId": "",
+        "runId": "unverified-history-run",
         "timestamp": 1780000300,
         "evaluation": {"success": True, "severity": "ERROR", "metadataEntries": []},
-        "run": None,
+        "run": {"runId": "unverified-history-run", "tags": [{"key": "phlo/ref", "value": "main"}]},
     }
-    missing_ref = False
+    include_unverifiable = False
 
     async def graphql(url, query, variables=None):
         if "V1Assets" in query:
             return _asset_inventory_response(nodes)
         if "V1AssetChecks" in query:
-            return {
-                "data": {
-                    "assetNodes": [
-                        {
-                            "assetKey": {"path": ["warehouse", "orders"]},
-                            "repository": {"location": {"name": location}},
-                            "assetChecksOrError": {
-                                "__typename": "AssetChecks",
-                                "checks": [
-                                    {"name": "freshness", "description": None},
-                                    {"name": "volume", "description": None},
-                                ],
-                            },
-                        }
-                        for location in ("production_jobs", "testing_jobs")
-                    ]
-                }
-            }
+            return _asset_inventory_response(
+                [
+                    {
+                        "assetKey": {"path": ["warehouse", "orders"]},
+                        "repository": {"name": "repo", "location": {"name": location}},
+                        "assetChecksOrError": {
+                            "__typename": "AssetChecks",
+                            "checks": [
+                                {"name": "freshness", "description": None},
+                                {"name": "volume", "description": None},
+                            ],
+                        },
+                    }
+                    for location in ("production_jobs", "testing_jobs")
+                ],
+                repository_selector=variables["repositorySelector"],
+            )
         if "V1AssetCheckExecutions" in query:
             check_name = variables["checkName"]
             check_executions = {
@@ -2172,24 +3110,23 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
                             },
                             "run": {
                                 "runId": run_id,
-                                "tags": (
-                                    []
-                                    if missing_ref and run_id == "prod-pass"
-                                    else [
-                                        {
-                                            "key": "phlo/ref",
-                                            "value": "main"
-                                            if location == "production_jobs"
-                                            else "candidate",
-                                        }
-                                    ]
-                                ),
-                                "repositoryOrigin": {"repositoryLocationName": location},
+                                "tags": [
+                                    {
+                                        "key": "phlo/ref",
+                                        "value": "main"
+                                        if location == "production_jobs"
+                                        else "candidate",
+                                    }
+                                ],
+                                "repositoryOrigin": {
+                                    "repositoryLocationName": location,
+                                    "repositoryName": "repo",
+                                },
                             },
                         }
                         for run_id, timestamp, passed, location in check_executions
                     ]
-                    + [runless]
+                    + ([unverifiable] if include_unverifiable else [])
                 }
             }
         raise AssertionError("unexpected Dagster query")
@@ -2218,11 +3155,15 @@ def test_overview_check_counts_are_location_scoped_and_exclude_runless(client, m
         "failing_assets": ["warehouse/orders"],
         "reason": None,
     }
-    missing_ref = True
+    include_unverifiable = True
     unknown = http.get("/api/v1/overview?env=prod")
     assert unknown.status_code == 200
-    assert unknown.json()["quality_checks"]["status"] == "unknown"
-    assert unknown.json()["quality_checks"]["counts"] is None
+    assert unknown.json()["quality_checks"] == {
+        "status": "unknown",
+        "counts": None,
+        "failing_assets": None,
+        "reason": "check_history_scope_unverified",
+    }
 
 
 def test_audit_proposal_generator_emits_only_validated_declarative_checks():
