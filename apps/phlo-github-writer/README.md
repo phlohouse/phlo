@@ -33,6 +33,11 @@ phlo-agent directly to update that pull request's title or description. On
 GitHub, an owner, member, or collaborator can invoke the same thread by starting
 a new issue, pull request, or review comment with `@phlo-agent`.
 
+Use `phlo-automation-host` for the persistent PR and issue host, not
+`phlo-review`. The host can inspect and refresh its checkout, reload plugins,
+and report to other Amp threads. Webhook-created children still use
+`phlo-review`, which has no shell, reload, or coordination tools.
+
 Set the global Amp plugin configuration key `phloGitHubAutomationHost` to the
 thread ID of the persistent PR and issue automation host before enabling the
 webhook. Keep that host unarchived. The current deployment uses
@@ -71,6 +76,11 @@ Amp project. The URL is the deployed Worker origin. The token must match
 Create two private orb threads in the `phlo-maintenance` agent mode after the
 plugin is active on `main`. Schedule these prompts:
 
+The maintenance agent reads the saved prompt with `get_schedule`. On runtimes
+that expose Amp tools as deferred modules, it uses `tool_search` and
+`code_exec` to call `amp.get_schedule`. This does not grant a shell or permission
+to change schedules.
+
 ### Daily dependency security
 
 Run at `0 2 * * *` UTC:
@@ -96,3 +106,26 @@ Run at `0 8 * * 2,4` UTC:
 
 Keep the webhook owner thread and both maintenance threads unarchived. An
 archived thread does not run its webhook or schedule.
+
+## Update existing automation threads
+
+After merging a plugin change, refresh each persistent thread's checkout to
+current `main` and reload its project plugins. A reload in another thread does
+not update these orbs. If a restricted thread cannot refresh or reload itself,
+temporarily select a built-in mode with those tools for the update.
+
+Select `phlo-automation-host` for the existing PR and issue host, and reselect
+`phlo-maintenance` for both scheduled threads so they use the new definitions.
+Keep the existing thread IDs and saved schedules. Changing the parent
+configuration alone does not change an agent mode or transfer webhook ownership.
+
+Check that each maintenance thread can retrieve its saved prompt without
+running the audit. Check that the host can reload plugins and send a status
+message. Do not delete or recreate a webhook registration without operator
+authorization.
+
+Run the plugin regression tests before opening a plugin change:
+
+```bash
+node --experimental-strip-types --test .amp/plugins/phlo-github/*.test.*
+```
