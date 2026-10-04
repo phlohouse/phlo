@@ -495,7 +495,7 @@ def load_schema_decisions(
             f"""SELECT {_SCHEMA_DECISION_COLUMNS} FROM phlo.incident_schema_decision
                 WHERE incident_id=%s AND env=%s AND source_ref=%s AND target_ref=%s
                   AND source_hash=%s AND target_hash=%s
-                ORDER BY table_key,decision_id""",  # noqa: S608 - static column list
+                ORDER BY table_key,decision_id""",  # noqa: S608  # reason: Fixed column list; values are bound.
             (incident_id, env, source_ref, target_ref, source_hash, target_hash),
         )
         return [_schema_decision_row(row) for row in cur.fetchall()]
@@ -515,7 +515,7 @@ def list_schema_decisions(
             raise HTTPException(status_code=404, detail="Incident not found.")
         cur.execute(
             f"""SELECT {_SCHEMA_DECISION_COLUMNS} FROM phlo.incident_schema_decision
-                WHERE incident_id=%s AND env=%s ORDER BY created_at,decision_id LIMIT 500""",  # noqa: S608 - static column list
+                WHERE incident_id=%s AND env=%s ORDER BY created_at,decision_id LIMIT 500""",  # noqa: S608  # reason: Fixed column list; values are bound.
             (incident_id, env),
         )
         items = [_schema_decision_row(row) for row in cur.fetchall()]
