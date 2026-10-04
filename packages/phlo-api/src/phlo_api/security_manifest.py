@@ -185,6 +185,50 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"),),
     ),
     *_specs(
+        (
+            "v1_jobs",
+            "v1_job",
+            "v1_job_schedules",
+            "v1_runs",
+            "v1_job_patterns",
+            "v1_job_summary",
+            "v1_schedules",
+            "v1_maintenance_windows",
+        ),
+        action=CanonicalAction.RUN_READ.value,
+        resource_type="run",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
+        ("v1_run", "v1_run_timeline", "v1_run_logs"),
+        action=CanonicalAction.RUN_READ.value,
+        resource_type="run",
+        resource_keys=("env", "run_id"),
+        resource_sources=(("env", "query"), ("run_id", "path")),
+    ),
+    *_specs(
+        ("v1_job_launch",),
+        action=CanonicalAction.RUN_MANAGE.value,
+        resource_type="run",
+        resource_keys=("env", "job_id"),
+        resource_sources=(("env", "query"), ("job_id", "path")),
+    ),
+    *_specs(
+        ("v1_schedule_action",),
+        action=CanonicalAction.RUN_MANAGE.value,
+        resource_type="run",
+        resource_keys=("env", "schedule_id"),
+        resource_sources=(("env", "query"), ("schedule_id", "path")),
+    ),
+    *_specs(
+        ("v1_run_cancel", "v1_run_retry"),
+        action=CanonicalAction.RUN_MANAGE.value,
+        resource_type="run",
+        resource_keys=("env", "run_id"),
+        resource_sources=(("env", "query"), ("run_id", "path")),
+    ),
+    *_specs(
         ("list_incidents", "incident_stats", "activity"),
         action=CanonicalAction.RUN_READ.value,
         resource_type="run",
@@ -931,10 +975,7 @@ def _validate_v1_principal_and_selection(
         raise HTTPException(
             status_code=403, detail={"error": "forbidden", "reason": "run_report_scope_mismatch"}
         )
-    if (
-        spec.operation_name in {"v1_services", "v1_events"}
-        or spec.operation_name in _INCIDENT_ROUTE_NAMES
-    ):
+    if "env" in spec.resource_keys:
         selections = request.query_params.getlist("env")
         if len(selections) != 1 or selections[0] not in {"prod", "staging"}:
             raise HTTPException(

@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 144,
+  "endpoint_count": 159,
   "endpoints": [
     {
       "method": "GET",
@@ -1201,11 +1201,74 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_jobs_api_v1_jobs_get",
+      "path": "/api/v1/jobs",
+      "summary": "V1 Jobs",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_job_api_v1_jobs__job_id__get",
+      "path": "/api/v1/jobs/{job_id}",
+      "summary": "V1 Job",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_job_launch_api_v1_jobs__job_id__launch_post",
+      "path": "/api/v1/jobs/{job_id}/launch",
+      "summary": "V1 Job Launch",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_job_patterns_api_v1_jobs__job_id__patterns_get",
+      "path": "/api/v1/jobs/{job_id}/patterns",
+      "summary": "V1 Job Patterns",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_job_schedules_api_v1_jobs__job_id__schedules_get",
+      "path": "/api/v1/jobs/{job_id}/schedules",
+      "summary": "V1 Job Schedules",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_job_summary_api_v1_jobs__job_id__summary_get",
+      "path": "/api/v1/jobs/{job_id}/summary",
+      "summary": "V1 Job Summary",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "v1_layers_api_v1_layers_get",
       "path": "/api/v1/layers",
       "summary": "V1 Layers",
       "tags": [
         "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_maintenance_windows_api_v1_maintenance_windows_get",
+      "path": "/api/v1/maintenance-windows",
+      "summary": "V1 Maintenance Windows",
+      "tags": [
+        "v1 jobs and runs"
       ]
     },
     {
@@ -1224,6 +1287,78 @@
       "summary": "V1 Overview",
       "tags": [
         "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_runs_api_v1_runs_get",
+      "path": "/api/v1/runs",
+      "summary": "V1 Runs",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_run_api_v1_runs__run_id__get",
+      "path": "/api/v1/runs/{run_id}",
+      "summary": "V1 Run",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_run_cancel_api_v1_runs__run_id__cancel_post",
+      "path": "/api/v1/runs/{run_id}/cancel",
+      "summary": "V1 Run Cancel",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_run_logs_api_v1_runs__run_id__logs_get",
+      "path": "/api/v1/runs/{run_id}/logs",
+      "summary": "V1 Run Logs",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_run_retry_api_v1_runs__run_id__retry_post",
+      "path": "/api/v1/runs/{run_id}/retry",
+      "summary": "V1 Run Retry",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_run_timeline_api_v1_runs__run_id__timeline_get",
+      "path": "/api/v1/runs/{run_id}/timeline",
+      "summary": "V1 Run Timeline",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_schedules_api_v1_schedules_get",
+      "path": "/api/v1/schedules",
+      "summary": "V1 Schedules",
+      "tags": [
+        "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_schedule_action_api_v1_schedules__schedule_id___action__post",
+      "path": "/api/v1/schedules/{schedule_id}/{action}",
+      "summary": "V1 Schedule Action",
+      "tags": [
+        "v1 jobs and runs"
       ]
     },
     {

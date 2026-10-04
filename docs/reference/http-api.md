@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (144)
+## Endpoints (159)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -147,9 +147,24 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `PATCH` | `/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}` | Update Follow Up | `v1 incidents` |
 | `PUT` | `/api/v1/incidents/{incident_id}/subscriptions` | Subscribe Incident | `v1 incidents` |
 | `GET` | `/api/v1/incidents/{incident_id}/timeline` | Incident Timeline | `v1 incidents` |
+| `GET` | `/api/v1/jobs` | V1 Jobs | `v1 jobs and runs` |
+| `GET` | `/api/v1/jobs/{job_id}` | V1 Job | `v1 jobs and runs` |
+| `POST` | `/api/v1/jobs/{job_id}/launch` | V1 Job Launch | `v1 jobs and runs` |
+| `GET` | `/api/v1/jobs/{job_id}/patterns` | V1 Job Patterns | `v1 jobs and runs` |
+| `GET` | `/api/v1/jobs/{job_id}/schedules` | V1 Job Schedules | `v1 jobs and runs` |
+| `GET` | `/api/v1/jobs/{job_id}/summary` | V1 Job Summary | `v1 jobs and runs` |
 | `GET` | `/api/v1/layers` | V1 Layers | `v1 assets` |
+| `GET` | `/api/v1/maintenance-windows` | V1 Maintenance Windows | `v1 jobs and runs` |
 | `GET` | `/api/v1/me` | V1 Me | `v1` |
 | `GET` | `/api/v1/overview` | V1 Overview | `v1 assets` |
+| `GET` | `/api/v1/runs` | V1 Runs | `v1 jobs and runs` |
+| `GET` | `/api/v1/runs/{run_id}` | V1 Run | `v1 jobs and runs` |
+| `POST` | `/api/v1/runs/{run_id}/cancel` | V1 Run Cancel | `v1 jobs and runs` |
+| `GET` | `/api/v1/runs/{run_id}/logs` | V1 Run Logs | `v1 jobs and runs` |
+| `POST` | `/api/v1/runs/{run_id}/retry` | V1 Run Retry | `v1 jobs and runs` |
+| `GET` | `/api/v1/runs/{run_id}/timeline` | V1 Run Timeline | `v1 jobs and runs` |
+| `GET` | `/api/v1/schedules` | V1 Schedules | `v1 jobs and runs` |
+| `POST` | `/api/v1/schedules/{schedule_id}/{action}` | V1 Schedule Action | `v1 jobs and runs` |
 | `GET` | `/api/v1/services` | V1 Services | `v1` |
 | `GET` | `/api/v1/sources` | V1 Sources | `v1 assets` |
 | `GET` | `/api/v1/tables/{table_name}/schema-history` | V1 Table Schema History | `v1 assets` |
