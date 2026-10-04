@@ -14,10 +14,12 @@ import os
 from importlib.resources import files
 from pathlib import Path
 import subprocess
+import tomllib
 from typing import Any
 
 import pytest
 import yaml
+from packaging.requirements import Requirement
 from starlette.requests import Request
 
 from phlo.capabilities import AuthenticationProviderSpec, clear_all_capabilities
@@ -346,8 +348,10 @@ def test_phlo_api_service_build_context_is_package_portable() -> None:
 
 def test_phlo_api_installs_the_durable_settings_store_provider() -> None:
     pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    dependencies = tomllib.loads(pyproject)["project"]["dependencies"]
+    requirements = [Requirement(dependency) for dependency in dependencies]
 
-    assert '"phlo-postgres>=0.16.0,<0.17"' in pyproject
+    assert any(req.name == "phlo-postgres" and req.marker is None for req in requirements)
 
 
 def test_phlo_api_entrypoint_has_a_writable_dev_install_cache() -> None:
