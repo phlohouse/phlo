@@ -17,7 +17,8 @@ def test_shared_authorities_serialize_invitation_acceptance_and_signature_use(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Separate store instances share state and atomically consume one-time rights."""
-    with PostgresContainer("postgres:18-alpine") as postgres:
+    # Disposable databases must not inherit missing or empty deployment credentials.
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
         monkeypatch.setenv(
             "PHLO_OBSERVATORY_SETTINGS_DB_URL", postgres.get_connection_url(driver=None)
         )

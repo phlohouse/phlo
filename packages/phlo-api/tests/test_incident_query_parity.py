@@ -26,7 +26,8 @@ from phlo_api.api import v1_query
 
 @pytest.fixture(scope="module")
 def database():
-    with PostgresContainer("postgres:18-alpine") as postgres:
+    # Disposable databases must not inherit missing or empty deployment credentials.
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
         yield postgres.get_connection_url(driver=None)
 
 

@@ -152,7 +152,19 @@ def test_releasex_prepares_derived_workspace_versions_transactionally() -> None:
         },
         {
             "dependency": "phlo-postgres",
-            "dependents": ["packages/phlo-polaris"],
+            "dependents": ["packages/phlo-api", "packages/phlo-polaris"],
+            "when": "dependency_selected",
+            "range": ">={version},<{next_minor}",
+        },
+        {
+            "dependency": "phlo-pandera",
+            "dependents": ["packages/phlo-api"],
+            "when": "dependency_selected",
+            "range": ">={version},<{next_minor}",
+        },
+        {
+            "dependency": "phlo-iceberg",
+            "dependents": ["packages/phlo-api"],
             "when": "dependency_selected",
             "range": ">={version},<{next_minor}",
         },

@@ -35,6 +35,7 @@ COPY --from=phlo-build-context /opt/phlo-build-context/wheelhouse /opt/phlo-whee
 
 # Phlo currently pins the unpublished observe packages by URL. uv requires
 # transitive URL dependencies to be repeated as direct installation inputs.
+# Keep the if block outside an && chain, which would disable set -e inside it.
 RUN set -eux; \
     PHLO_REQUIREMENT="phlo"; \
     if [ -n "$PHLO_VERSION" ]; then PHLO_REQUIREMENT="phlo==$PHLO_VERSION"; fi; \
@@ -54,7 +55,8 @@ RUN set -eux; \
         uv pip install --system --no-deps phlo; \
         python -c 'import importlib.metadata as md; print("\n".join(r.split(";", 1)[0].strip() for r in (md.metadata("phlo").get_all("Requires-Dist") or []) if " @ " in r))' > /tmp/phlo-url-requirements.txt; \
         uv pip install --system --requirement /tmp/phlo-url-requirements.txt phlo "$PHLO_API_REQUIREMENT"; \
-    fi && apk del .build-deps
+    fi; \
+    apk del .build-deps
 
 # Do not retain uv's downloaded archives in the runtime image; they are not needed to run Phlo.
 RUN rm -rf /root/.cache/uv

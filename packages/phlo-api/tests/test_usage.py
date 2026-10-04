@@ -132,7 +132,8 @@ def test_mixed_default_catalog_does_not_hide_verified_input(
 
 @pytest.mark.integration
 def test_verified_query_usage_postgres_http_contract(monkeypatch: pytest.MonkeyPatch) -> None:
-    with PostgresContainer("postgres:18-alpine") as postgres:
+    # Disposable databases must not inherit missing or empty deployment credentials.
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
         _config(monkeypatch)
         monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", postgres.get_connection_url(driver=None))
         usage.initialize_usage()

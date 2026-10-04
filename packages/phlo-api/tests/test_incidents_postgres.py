@@ -17,7 +17,8 @@ def test_incident_transactions_group_concurrent_signals_and_isolate_environments
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """PostgreSQL uniqueness and idempotency hold under overlapping writers."""
-    with PostgresContainer("postgres:18-alpine") as postgres:
+    # Disposable databases must not inherit missing or empty deployment credentials.
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
         monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", postgres.get_connection_url(driver=None))
         monkeypatch.setattr(
             incidents,

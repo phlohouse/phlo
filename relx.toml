@@ -254,7 +254,19 @@ range = ">={version},<{next_minor}"
 
 [[workspace.dependencies.rules]]
 dependency = "phlo-postgres"
-dependents = ["packages/phlo-polaris"]
+dependents = ["packages/phlo-api", "packages/phlo-polaris"]
+when = "dependency_selected"
+range = ">={version},<{next_minor}"
+
+[[workspace.dependencies.rules]]
+dependency = "phlo-pandera"
+dependents = ["packages/phlo-api"]
+when = "dependency_selected"
+range = ">={version},<{next_minor}"
+
+[[workspace.dependencies.rules]]
+dependency = "phlo-iceberg"
+dependents = ["packages/phlo-api"]
 when = "dependency_selected"
 range = ">={version},<{next_minor}"
 

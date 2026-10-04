@@ -22,8 +22,16 @@ from phlo.compliance.signatures import (
     StepUpResult,
 )
 from phlo.compliance.signatures.step_up import StepUpAuthChallenge
+from phlo.identity.authority import IdentityAuthority
+from phlo.plugins.observatory_settings import InMemorySettingsService
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture
+def signature_repository() -> IdentityAuthority:
+    """Give each integration test an isolated signature authority."""
+    return IdentityAuthority(InMemorySettingsService())
 
 
 class _VerifiedStepUpChallenge(StepUpAuthChallenge):
@@ -45,7 +53,7 @@ def _signature_config(actions: frozenset[str]) -> SignatureServiceConfig:
 class TestSignatureEnforcement:
     """Integration tests for electronic signature enforcement."""
 
-    def test_critical_action_requires_signature(self) -> None:
+    def test_critical_action_requires_signature(self, signature_repository) -> None:
         """Critical actions are blocked without a valid signature."""
         events_emitted: list[CanonicalAuditEvent] = []
 
@@ -56,6 +64,7 @@ class TestSignatureEnforcement:
         service = SignatureService(
             config=_signature_config(frozenset(["dataset.publish", "config.update"])),
             audit_emitter=MockAuditEmitter(),
+            signature_repository=signature_repository,
         )
 
         session = AuthenticatedSession(
@@ -73,6 +82,7 @@ class TestSignatureEnforcement:
             record_type="dataset",
             record_id="dataset-123",
             record_version="v1",
+            action="dataset.publish",
             justification="Approved for release",
         )
 
@@ -108,7 +118,7 @@ class TestSignatureEnforcement:
         result = service.require_signature("dataset.read", "dataset")
         assert result is False
 
-    def test_signature_creates_audit_event(self) -> None:
+    def test_signature_creates_audit_event(self, signature_repository) -> None:
         """Signing creates an audit event in the chain."""
         events_emitted: list[CanonicalAuditEvent] = []
 
@@ -119,6 +129,7 @@ class TestSignatureEnforcement:
         service = SignatureService(
             config=_signature_config(frozenset(["dataset.publish"])),
             audit_emitter=MockAuditEmitter(),
+            signature_repository=signature_repository,
         )
 
         session = AuthenticatedSession(
@@ -136,6 +147,7 @@ class TestSignatureEnforcement:
             record_type="dataset",
             record_id="dataset-456",
             record_version="v1",
+            action="dataset.publish",
             justification="Approved for production",
         )
 
@@ -166,16 +178,18 @@ class TestSignatureEnforcement:
             record_type="dataset",
             record_id="dataset-789",
             record_version="v1",
+            action="dataset.publish",
             justification="Approved",
         )
 
         with pytest.raises(ValueError, match="Signer subject mismatch"):
             service.sign(request, session)
 
-    def test_signature_record_contains_required_fields(self) -> None:
+    def test_signature_record_contains_required_fields(self, signature_repository) -> None:
         """Signature record captures all required fields."""
         service = SignatureService(
             config=_signature_config(frozenset(["dataset.publish"])),
+            signature_repository=signature_repository,
         )
 
         session = AuthenticatedSession(
@@ -193,6 +207,7 @@ class TestSignatureEnforcement:
             record_type="dataset",
             record_id="dataset-release",
             record_version="v2.0.0",
+            action="dataset.publish",
             justification="Released to production",
         )
 
@@ -203,10 +218,12 @@ class TestSignatureEnforcement:
         assert record.record_type == "dataset"
         assert record.record_id == "dataset-release"
         assert record.record_version == "v2.0.0"
+        assert record.action == "dataset.publish"
         assert record.signature_hash != ""
         assert record.signed_at != ""
+        assert signature_repository.signatures("alice@example.com")[0].record == record
 
-    def test_signature_enters_tamper_evident_chain(self) -> None:
+    def test_signature_enters_tamper_evident_chain(self, signature_repository) -> None:
         """Signature events are part of the tamper-evident chain."""
         store = InMemoryAuditStore()
         sink = TamperEvidentAuditSink(store)
@@ -218,6 +235,7 @@ class TestSignatureEnforcement:
         service = SignatureService(
             config=_signature_config(frozenset(["dataset.publish"])),
             audit_emitter=ChainEmitter(),
+            signature_repository=signature_repository,
         )
 
         session = AuthenticatedSession(
@@ -236,6 +254,7 @@ class TestSignatureEnforcement:
                 record_type="dataset",
                 record_id=f"dataset-{i}",
                 record_version="v1",
+                action="dataset.publish",
                 justification="Approved",
             )
             service.sign(request, session)

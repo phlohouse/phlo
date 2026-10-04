@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import tomllib
 from pathlib import Path
@@ -23,6 +24,37 @@ def _workspace_versions() -> dict[str, str]:
 def _replacements() -> list[dict[str, Any]]:
     config = tomllib.loads((ROOT / "relx.toml").read_text(encoding="utf-8"))
     return config["release"]["replacements"]
+
+
+def test_release_rewrites_every_bounded_workspace_requirement() -> None:
+    versions = _workspace_versions()
+    config = tomllib.loads((ROOT / "relx.toml").read_text(encoding="utf-8"))
+    rules = config["workspace"]["dependencies"]["rules"]
+
+    for path in sorted((ROOT / "packages").glob("*/pyproject.toml")):
+        project = tomllib.loads(path.read_text(encoding="utf-8"))["project"]
+        groups = {
+            "dependencies": project.get("dependencies", []),
+            **project.get("optional-dependencies", {}),
+        }
+        dependent = path.parent.relative_to(ROOT).as_posix()
+        for group, specs in groups.items():
+            for spec in specs:
+                requirement = Requirement(spec)
+                if requirement.name not in versions or not any(
+                    item.operator in {"<", "<=", "==", "~=", "==="}
+                    for item in requirement.specifier
+                ):
+                    continue
+                matching = [
+                    rule
+                    for rule in rules
+                    if rule["dependency"] == requirement.name
+                    and any(fnmatch.fnmatchcase(dependent, glob) for glob in rule["dependents"])
+                ]
+                assert len(matching) == 1, f"{dependent} [{group}]: no unique rule for {spec}"
+                assert matching[0]["when"] == "dependency_selected"
+                assert matching[0]["range"] == ">={version},<{next_minor}"
 
 
 def test_release_replaces_every_lakehouse_workspace_pin() -> None:

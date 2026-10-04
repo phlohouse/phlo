@@ -97,7 +97,9 @@ ENV PATH="/opt/phlo-project-venv/bin:${PATH}"
 # run for them. Phlo currently pins the unpublished observe packages by URL;
 # uv requires transitive URL dependencies to be repeated as direct inputs, so
 # the non-lock path reads those requirements from the installed Phlo wheel.
-RUN if [ "$PHLO_UV_LOCKED" != "true" ]; then \
+# Keep install conditionals outside && chains so set -e applies inside them.
+RUN set -e; \
+    if [ "$PHLO_UV_LOCKED" != "true" ]; then \
     PHLO_DBT_REQUIREMENT="phlo-dbt"; \
     if [ -n "$PHLO_DBT_VERSION" ]; then PHLO_DBT_REQUIREMENT="phlo-dbt==$PHLO_DBT_VERSION"; fi; \
     PHLO_DAGSTER_REQUIREMENT="phlo-dagster"; \
@@ -127,9 +129,9 @@ RUN if [ "$PHLO_UV_LOCKED" != "true" ]; then \
         fi; \
     else \
         uv pip install --system --requirement /tmp/phlo-url-requirements.txt "phlo[defaults]" "$PHLO_DBT_REQUIREMENT" "dbt-core<1.12" dagster-webserver dagster-postgres "psycopg[binary]" "sqlalchemy>=2.0,<2.1"; \
-    fi \
-    && uv pip install --system --requirement /tmp/phlo-url-requirements.txt "$PHLO_DAGSTER_REQUIREMENT" "PyJWT[crypto]>=2.13.0" "cryptography>=48.0.1" \
-    && if [ -n "$PHLO_WHEELHOUSE" ]; then \
+    fi; \
+    uv pip install --system --requirement /tmp/phlo-url-requirements.txt "$PHLO_DAGSTER_REQUIREMENT" "PyJWT[crypto]>=2.13.0" "cryptography>=48.0.1"; \
+    if [ -n "$PHLO_WHEELHOUSE" ]; then \
         uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "phlo==$PHLO_VERSION" "$PHLO_DAGSTER_REQUIREMENT"; \
     fi; \
     fi
