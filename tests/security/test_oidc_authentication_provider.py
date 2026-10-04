@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import time
+from collections.abc import Iterator
 from typing import Any
 
 import jwt
@@ -28,7 +29,7 @@ class _Response:
     def __exit__(self, *_: object) -> None:
         return None
 
-    def iter_bytes(self):  # noqa: ANN201
+    def iter_bytes(self) -> Iterator[bytes]:
         yield self._content
 
     def raise_for_status(self) -> None:

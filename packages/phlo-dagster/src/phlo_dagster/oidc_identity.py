@@ -6,6 +6,7 @@ import os
 
 import httpx
 
+from phlo.capabilities import AuthPrincipal
 from phlo.security.oidc_identity import (
     OIDCIdentityValidator as CoreOIDCIdentityValidator,
     OIDCVerificationUnavailable,
@@ -73,7 +74,7 @@ class OIDCIdentityValidator(CoreOIDCIdentityValidator):
         """Maintain the historical unconfigured Dagster validator state."""
         return bool(self.issuer and self.audience and self.jwks_url)
 
-    def validate(self, token: str):  # noqa: ANN201
+    def validate(self, token: str) -> AuthPrincipal | None:
         """Reject tokens when the optional Dagster OIDC mode is unconfigured."""
         if not self.configured:
             return None

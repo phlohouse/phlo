@@ -192,6 +192,7 @@ class OIDCIdentityValidator:
             self._negative_kids[kid] = now + self.refresh_min_interval
         return key
 
+    # reason: Keep bounded fetching, key replacement, and refresh backoff under one lock.
     def _refresh_keys(self, *, force: bool = False) -> bool:  # noqa: C901
         with self._lock:
             now = time.monotonic()
