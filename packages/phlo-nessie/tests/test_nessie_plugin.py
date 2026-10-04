@@ -33,6 +33,16 @@ def test_nessie_service_uses_pinned_upstream_image() -> None:
     assert not definition.get("files")
 
 
+def test_nessie_jdbc_schema_does_not_follow_the_database_user() -> None:
+    definition = NessieServicePlugin().service_definition
+
+    assert definition["compose"]["environment"]["QUARKUS_DATASOURCE_JDBC_URL"] == (
+        "jdbc:postgresql://postgres:5432/${POSTGRES_DB:-phlo}"
+        "?currentSchema=${NESSIE_JDBC_SCHEMA:-public}"
+    )
+    assert definition["env_vars"]["NESSIE_JDBC_SCHEMA"]["default"] == "public"
+
+
 def test_nessie_resource_provider_registers_catalog_capability() -> None:
     """Nessie should register as a versioned catalog capability."""
     provider = NessieResourceProvider()

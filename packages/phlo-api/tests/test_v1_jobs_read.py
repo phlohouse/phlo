@@ -259,6 +259,59 @@ def test_timeline_logs_and_patterns_are_derived_from_scoped_runs(api):
     ]
 
 
+def test_timeline_requests_common_fields_for_engine_and_materialization_events(api):
+    client, _, monkeypatch = api
+
+    async def graphql(url, query, variables=None):
+        # Both types implement MessageEvent, but were missing from the concrete fragments.
+        assert "... on MessageEvent { eventType message timestamp stepKey }" in query
+        return {
+            "data": {
+                "runOrError": {
+                    "__typename": "Run",
+                    **_run("prod-run", "prod_loc", "main"),
+                    "eventConnection": {
+                        "events": [
+                            {
+                                "__typename": typename,
+                                "eventType": event_type,
+                                "message": message,
+                                "timestamp": timestamp,
+                                "stepKey": step,
+                            }
+                            for typename, event_type, message, timestamp, step in (
+                                ("EngineEvent", "ENGINE_EVENT", "worker started", "1250", None),
+                                (
+                                    "MaterializationEvent",
+                                    "ASSET_MATERIALIZATION",
+                                    "table written",
+                                    "2750",
+                                    "orders",
+                                ),
+                            )
+                        ],
+                        "cursor": "events-end",
+                        "hasMore": False,
+                    },
+                }
+            }
+        }
+
+    monkeypatch.setattr(v1_jobs, "graphql_request", graphql)
+    for endpoint in ("timeline", "logs"):
+        response = client.get(f"/api/v1/runs/prod-run/{endpoint}?env=prod&limit=2")
+        assert response.status_code == 200
+        assert [item["event_type"] for item in response.json()["items"]] == [
+            "ENGINE_EVENT",
+            "ASSET_MATERIALIZATION",
+        ]
+        assert [item["timestamp"] for item in response.json()["items"]] == [
+            "1970-01-01T00:00:01.250000Z",
+            "1970-01-01T00:00:02.750000Z",
+        ]
+        assert response.json()["items"][1]["step_key"] == "orders"
+
+
 def test_job_summary_histogram_and_maintenance_windows_are_explicitly_scoped(api, monkeypatch):
     client, state, _ = api
     state["runs"] = [

@@ -72,6 +72,9 @@ _GUARDED_NON_GET_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/branches"): "v1_manifest",
     ("DELETE", "/api/v1/branches/{branch_name}"): "v1_manifest",
     ("POST", "/api/v1/branches/{branch_name}/rebase"): "v1_manifest",
+    ("POST", "/api/v1/staging/promotions/candidate/checks"): "v1_manifest",
+    ("POST", "/api/v1/staging/resync"): "v1_manifest",
+    ("POST", "/api/v1/staging/promotions"): "v1_manifest",
     ("POST", "/api/v1/trino/query-completed"): "v1_manifest",
     (
         "POST",

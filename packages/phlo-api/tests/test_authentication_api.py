@@ -10,8 +10,10 @@ context, no unauthenticated Traefik route).
 
 from __future__ import annotations
 
+import os
 from importlib.resources import files
 from pathlib import Path
+import subprocess
 from typing import Any
 
 import pytest
@@ -214,6 +216,96 @@ def test_phlo_api_service_build_context_is_package_portable() -> None:
 
     assert service_defn["env_vars"]["PHLO_VERSION"]["package"] == "phlo"
     assert service_defn["env_vars"]["PHLO_API_VERSION"]["package"] == "phlo-api"
+
+
+def test_phlo_api_installs_the_durable_settings_store_provider() -> None:
+    pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert '"phlo-postgres>=0.16.0,<0.17"' in pyproject
+
+
+def test_phlo_api_entrypoint_has_a_writable_dev_install_cache() -> None:
+    entrypoint = (
+        Path(__file__).resolve().parents[1] / "src" / "phlo_api" / "entrypoint.sh"
+    ).read_text(encoding="utf-8")
+
+    assert 'export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/phlo-uv-cache}"' in entrypoint
+    assert 'cp -R "$PHLO_DEV_ROOT/packages/phlo-postgres"' in entrypoint
+    assert 'install_editable "$DEV_INSTALL_ROOT/packages/phlo-postgres"' in entrypoint
+    assert "for package_dir in /opt/phlo-dev/packages/phlo-*" not in entrypoint
+
+
+def test_phlo_api_entrypoint_stages_read_only_dev_sources_before_installing(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    api_source = workspace / "packages" / "phlo-api"
+    postgres_source = workspace / "packages" / "phlo-postgres"
+    (api_source / "src" / "phlo_api").mkdir(parents=True)
+    (postgres_source / "src" / "phlo_postgres").mkdir(parents=True)
+    (workspace / "pyproject.toml").write_text("[project]\nname = 'phlo'\n")
+    (api_source / "pyproject.toml").write_text("[project]\nname = 'phlo-api'\n")
+    (api_source / "src" / "phlo_api" / "__init__.py").write_text("# local API source\n")
+    (postgres_source / "pyproject.toml").write_text("[project]\nname = 'phlo-postgres'\n")
+    (postgres_source / "src" / "phlo_postgres" / "__init__.py").write_text(
+        "# local provider source\n"
+    )
+    for path in workspace.rglob("*"):
+        path.chmod(0o555 if path.is_dir() else 0o444)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    install_log = tmp_path / "install-paths"
+    fake_uv = bin_dir / "uv"
+    fake_uv.write_text(
+        "#!/bin/sh\n"
+        "[ \"$1 $2 $3\" = 'pip install --target' ] || exit 2\n"
+        '[ -d "$4" ] && [ -w "$4" ] || exit 2\n'
+        '[ "$4" != "$PHLO_DEV_ROOT/site-packages" ] || exit 3\n'
+        "[ \"$5 $6\" = '--reinstall -e' ] || exit 2\n"
+        'printf \'%s\\n\' "$7" >> "$INSTALL_LOG"\n'
+        '[ "$7" != "$PHLO_DEV_ROOT/packages/phlo-api" ] || exit 3\n'
+        '[ "$7" != "$PHLO_DEV_ROOT/packages/phlo-postgres" ] || exit 3\n'
+    )
+    fake_uv.chmod(0o755)
+    entrypoint = Path(__file__).resolve().parents[1] / "src" / "phlo_api" / "entrypoint.sh"
+
+    result = subprocess.run(
+        ["sh", str(entrypoint), "true"],
+        env={
+            **os.environ,
+            "PHLO_DEV_MODE": "true",
+            "PHLO_DEV_ROOT": str(workspace),
+            "TMPDIR": str(tmp_path),
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "INSTALL_LOG": str(install_log),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    install_paths = install_log.read_text().splitlines()
+    assert len(install_paths) == 2
+    assert all(Path(path).is_dir() for path in install_paths)
+    assert all(workspace not in Path(path).parents for path in install_paths)
+    assert all(Path(path).stat().st_mode & 0o200 for path in install_paths)
+
+
+def test_phlo_api_passes_postgres_settings_to_durable_storage() -> None:
+    service = _load_packaged_definition("service.yaml")
+    compose_env = service["compose"]["environment"]
+    dev_env = service["dev"]["environment"]
+
+    assert compose_env["POSTGRES_HOST"] == "postgres"
+    assert compose_env["POSTGRES_PORT"] == "5432"
+    assert dev_env["POSTGRES_HOST"] == "127.0.0.1"
+    assert dev_env["POSTGRES_PORT"] == "${POSTGRES_PORT:-10000}"
+    for environment in (compose_env, dev_env):
+        assert environment["POSTGRES_USER"] == "${POSTGRES_USER:-phlo}"
+        assert environment["POSTGRES_PASSWORD"] == "${POSTGRES_PASSWORD:-phlo}"
+        assert environment["POSTGRES_DB"] == "${POSTGRES_DB:-phlo}"
 
 
 def test_phlo_api_service_does_not_publish_unauthenticated_traefik_route() -> None:

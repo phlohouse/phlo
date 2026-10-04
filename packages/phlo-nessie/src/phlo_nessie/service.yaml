@@ -21,7 +21,7 @@ compose:
     traefik.http.services.nessie.loadbalancer.server.port: "19120"
   environment:
     NESSIE_VERSION_STORE_TYPE: JDBC
-    QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-phlo}
+    QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-phlo}?currentSchema=${NESSIE_JDBC_SCHEMA:-public}
     QUARKUS_DATASOURCE_USERNAME: ${POSTGRES_USER:-phlo}
     QUARKUS_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-phlo}
     nessie.catalog.default-warehouse: warehouse
@@ -60,6 +60,9 @@ env_vars:
   NESSIE_PORT:
     default: 10003
     description: Nessie API host port
+  NESSIE_JDBC_SCHEMA:
+    default: public
+    description: PostgreSQL schema containing the Nessie tables; use the existing schema when upgrading
   ICEBERG_S3_ENDPOINT:
     default: http://minio:9000/
     description: S3 endpoint advertised by the Nessie Iceberg REST catalog
