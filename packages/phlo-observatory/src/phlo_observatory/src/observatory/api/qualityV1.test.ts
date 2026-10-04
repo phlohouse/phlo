@@ -1,3 +1,4 @@
+// Verify quality observations come from asset checks rather than inferred passes.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiGet = vi.fn()

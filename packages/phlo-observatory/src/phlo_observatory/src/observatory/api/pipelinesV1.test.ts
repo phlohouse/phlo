@@ -1,3 +1,4 @@
+// Verify jobs, schedules, and run reads use the environment-scoped v1 contracts.
 import { describe, expect, it, vi } from 'vitest'
 
 const apiGet = vi.fn()

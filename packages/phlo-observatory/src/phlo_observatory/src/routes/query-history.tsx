@@ -1,3 +1,4 @@
+// Explain the missing shared query-history contract without fabricating records.
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Clock3 } from 'lucide-react'
 

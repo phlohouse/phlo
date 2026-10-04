@@ -1,3 +1,4 @@
+// Verify table projections use v1 asset evidence and retain unavailable states.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 

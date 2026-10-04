@@ -1,3 +1,4 @@
+// Exercise settings server functions through the canonical API boundary.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type Middleware = (options: {

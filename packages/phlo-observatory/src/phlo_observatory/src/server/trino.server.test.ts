@@ -1,3 +1,4 @@
+// Verify query submission uses the API and preserves environment and session identity.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { apiGet, apiPost } = vi.hoisted(() => ({

@@ -1,3 +1,4 @@
+// Prevent asset inventory from being presented as a governed Dataset contract.
 import { describe, expect, it } from 'vitest'
 
 import { datasetV1Unavailable } from './datasetsV1'

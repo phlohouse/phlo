@@ -1,3 +1,4 @@
+// Verify bounded run-log reads retain the requested environment and run identity.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiGet = vi.fn()

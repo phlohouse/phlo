@@ -1,3 +1,4 @@
+// Check bundled client endpoints against the API routes during the v1 cutover.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 

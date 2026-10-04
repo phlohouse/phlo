@@ -1,3 +1,4 @@
+// Verify lineage joins retain asset identity across tables, checks, and run logs.
 import { describe, expect, it } from 'vitest'
 
 import type {
