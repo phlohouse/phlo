@@ -1,3 +1,5 @@
+"""Test ref-bound schema decisions, merge preparation, and cleanup guards."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
