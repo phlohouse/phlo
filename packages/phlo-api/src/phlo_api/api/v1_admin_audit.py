@@ -230,7 +230,11 @@ def v1_admin_audit_verify(surface: Surface) -> AuditChainVerification:
         )
 
 
-@router.get("/admin/audit/export", response_class=StreamingResponse)
+@router.get(
+    "/admin/audit/export",
+    response_class=StreamingResponse,
+    responses={200: {"content": {"application/x-ndjson": {"schema": {"type": "string"}}}}},
+)
 def v1_admin_audit_export(
     surface: Surface,
     after: Sequence | None = None,

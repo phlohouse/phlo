@@ -524,6 +524,8 @@ async def _run_check_job(
     branch: BranchReference,
     check_name: BranchCheckName,
     job_name: str,
+    additional_tags: dict[str, str] | None = None,
+    timeout_seconds: int = _CHECK_TIMEOUT_SECONDS,
 ) -> BranchCheck:
     from phlo_api.api import v1_jobs
 
@@ -558,6 +560,10 @@ async def _run_check_job(
                         {"key": "phlo/branch_hash", "value": branch.hash},
                         {"key": "phlo/branch_check", "value": check_name},
                         {"key": "phlo/operation", "value": "v1_branch_check"},
+                        *[
+                            {"key": key, "value": value}
+                            for key, value in (additional_tags or {}).items()
+                        ],
                     ]
                 },
             }
@@ -580,7 +586,7 @@ async def _run_check_job(
         ... on RunNotFoundError { message }
       }
     }"""
-    deadline = time.monotonic() + _CHECK_TIMEOUT_SECONDS
+    deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         checked = await v1_jobs._graphql(query, {"runId": run_id})
         data = checked.get("data")
@@ -614,6 +620,7 @@ async def _run_check_job(
                 or tag_map.get("phlo/ref") != branch.name
                 or tag_map.get("phlo/branch_hash") != branch.hash
                 or tag_map.get("phlo/branch_check") != check_name
+                or any(tag_map.get(key) != value for key, value in (additional_tags or {}).items())
             ):
                 return BranchCheck(
                     name=check_name,
@@ -780,8 +787,8 @@ async def _merge_payload(
         "fromHash": source.hash,
         "message": message,
         "isDryRun": dry_run,
-        "returnConflictAsResult": True,
-        "fetchAdditionalInfo": True,
+        "isReturnConflictAsResult": True,
+        "isFetchAdditionalInfo": True,
     }
     if key_merge_modes:
         body["keyMergeModes"] = list(key_merge_modes)
@@ -1163,96 +1170,73 @@ async def v1_branch_rebase(
             "/api/v1/trees/tree",
             body={"name": temporary_name, "type": "BRANCH", "hash": target.hash},
         )
-        dry_run_body = {
+        transplant_body = {
             "fromRefName": source.name,
             "hashesToTransplant": commits_to_replay,
-            "isDryRun": True,
-            "returnConflictAsResult": True,
-            "fetchAdditionalInfo": True,
+            "isDryRun": False,
+            "isReturnConflictAsResult": True,
+            "isFetchAdditionalInfo": True,
         }
         transplant_path = (
             f"/api/v2/trees/{quote(temporary_name, safe='')}@{quote(target.hash, safe='')}"
             "/history/transplant"
         )
-        trial = _object(
-            await _nessie("POST", transplant_path, body=dry_run_body),
-            "Nessie returned an invalid rebase trial result.",
-        )
-        conflicts = trial.get("details", [])
-        if trial.get("wasSuccessful") is not True or trial.get("wasApplied") is not False:
-            await _nessie(
-                "DELETE",
-                f"/api/v1/trees/branch/{quote(temporary_name, safe='')}",
-                params={"expectedHash": target.hash},
+        try:
+            # Nessie 0.108 dry runs misreport create-then-update transplants. Replay on
+            # the isolated ref instead; neither user branch changes until source CAS.
+            applied = _object(
+                await _nessie("POST", transplant_path, body=transplant_body),
+                "Nessie returned an invalid rebase result.",
             )
+            result_hash = applied.get("resultantTargetHash")
+            if applied.get("wasSuccessful") is not True or applied.get("wasApplied") is not True:
+                return {
+                    "env": env,
+                    "operation": operation,
+                    "branch": source.name,
+                    "target": target.name,
+                    "status": "conflict",
+                    "source_hash": source.hash,
+                    "target_hash": target.hash,
+                    "resulting_hash": None,
+                    "details": {"mode": "transplant", "result": applied},
+                }
+            if not isinstance(result_hash, str) or not result_hash:
+                raise BadGatewayError("Nessie rebase response omitted its resulting hash.")
+            await _nessie(
+                "PUT",
+                f"/api/v1/trees/branch/{quote(source.name, safe='')}",
+                params={"expectedHash": source.hash},
+                body={"name": source.name, "type": "BRANCH", "hash": result_hash},
+            )
+            rebased = await _scoped_reference(source.name, env, target_config, branch_only=True)
+            if rebased.hash != result_hash:
+                raise BackendUnavailableError("Nessie did not confirm the rebased branch head.")
             return {
                 "env": env,
                 "operation": operation,
                 "branch": source.name,
                 "target": target.name,
-                "status": "conflict",
+                "status": "succeeded",
                 "source_hash": source.hash,
                 "target_hash": target.hash,
-                "resulting_hash": None,
-                "details": {"mode": "transplant", "trial": trial, "conflicts": conflicts},
+                "resulting_hash": rebased.hash,
+                "details": {
+                    "mode": "transplant",
+                    "merge_base": source_history[source_ahead].hash,
+                    "transplanted_commits": commits_to_replay,
+                    "result": applied,
+                    "temporary_ref_removed": True,
+                },
             }
-        applied_body = {**dry_run_body, "isDryRun": False}
-        applied = _object(
-            await _nessie("POST", transplant_path, body=applied_body),
-            "Nessie returned an invalid rebase result.",
-        )
-        result_hash = applied.get("resultantTargetHash")
-        if applied.get("wasSuccessful") is not True or applied.get("wasApplied") is not True:
-            await _nessie(
-                "DELETE",
-                f"/api/v1/trees/branch/{quote(temporary_name, safe='')}",
-                params={"expectedHash": target.hash},
-            )
-            return {
-                "env": env,
-                "operation": operation,
-                "branch": source.name,
-                "target": target.name,
-                "status": "conflict",
-                "source_hash": source.hash,
-                "target_hash": target.hash,
-                "resulting_hash": None,
-                "details": {"mode": "transplant", "result": applied},
-            }
-        if not isinstance(result_hash, str) or not result_hash:
-            raise BadGatewayError("Nessie rebase response omitted its resulting hash.")
-        await _nessie(
-            "PUT",
-            f"/api/v1/trees/branch/{quote(source.name, safe='')}",
-            params={"expectedHash": source.hash},
-            body={"name": source.name, "type": "BRANCH", "hash": result_hash},
-        )
-        rebased = await _scoped_reference(source.name, env, target_config, branch_only=True)
-        if rebased.hash != result_hash:
-            raise BackendUnavailableError("Nessie did not confirm the rebased branch head.")
-        await _nessie(
-            "DELETE",
-            f"/api/v1/trees/branch/{quote(temporary_name, safe='')}",
-            params={"expectedHash": result_hash},
-        )
-        return {
-            "env": env,
-            "operation": operation,
-            "branch": source.name,
-            "target": target.name,
-            "status": "succeeded",
-            "source_hash": source.hash,
-            "target_hash": target.hash,
-            "resulting_hash": rebased.hash,
-            "details": {
-                "mode": "transplant",
-                "merge_base": source_history[source_ahead].hash,
-                "transplanted_commits": commits_to_replay,
-                "trial": trial,
-                "result": applied,
-                "temporary_ref_removed": True,
-            },
-        }
+        finally:
+            temporary = await _reference(temporary_name)
+            if temporary is not None:
+                await _nessie(
+                    "DELETE",
+                    f"/api/v1/trees/branch/{quote(temporary_name, safe='')}",
+                    params={"expectedHash": temporary["hash"]},
+                )
 
     outcome = await replay_or_execute_async(
         idempotency_key=key,

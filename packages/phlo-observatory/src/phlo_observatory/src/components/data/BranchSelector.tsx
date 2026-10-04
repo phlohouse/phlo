@@ -4,9 +4,13 @@
  * rest of the page stays usable.
  */
 import { GitBranch, Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useReducer } from 'react'
+import { useEffect, useMemo, useReducer, useState } from 'react'
 
 import type { Branch, NessieConfig } from '@/observatory/api/nessie'
+import {
+  environmentChangeEvent,
+  selectedEnvironment,
+} from '@/observatory/api/environment'
 import { checkNessieConnection, getBranches } from '@/observatory/api/nessie'
 
 interface BranchSelectorProps {
@@ -15,6 +19,7 @@ interface BranchSelectorProps {
 }
 
 export function BranchSelector({ branch, onChange }: BranchSelectorProps) {
+  const [environment, setEnvironment] = useState(selectedEnvironment)
   const [{ branches, connection, loading }, dispatch] = useReducer(
     (
       state: {
@@ -39,15 +44,34 @@ export function BranchSelector({ branch, onChange }: BranchSelectorProps) {
     },
     { branches: [], connection: null, loading: true },
   )
+
+  useEffect(() => {
+    const updateEnvironment = () => setEnvironment(selectedEnvironment())
+    window.addEventListener(environmentChangeEvent(), updateEnvironment)
+    return () =>
+      window.removeEventListener(environmentChangeEvent(), updateEnvironment)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
 
     async function load() {
       dispatch({ type: 'loading' })
+      if (!environment) {
+        dispatch({
+          type: 'loaded',
+          connection: {
+            connected: false,
+            error: 'Select Production or Staging to load branches.',
+          },
+          branches: [],
+        })
+        return
+      }
       try {
         const [conn, refs] = await Promise.all([
-          checkNessieConnection({ data: {} }),
-          getBranches({ data: {} }),
+          checkNessieConnection({ data: { env: environment } }),
+          getBranches({ data: { env: environment } }),
         ])
 
         if (cancelled) return
@@ -71,7 +95,7 @@ export function BranchSelector({ branch, onChange }: BranchSelectorProps) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [environment])
 
   const options = useMemo(() => {
     const names = new Set(branches.map((b) => b.name))

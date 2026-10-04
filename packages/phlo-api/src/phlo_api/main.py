@@ -95,6 +95,7 @@ _ROUTERS = [
     ("phlo_api.api.v1_admin_audit", "/api/v1"),
     ("phlo_api.api.v1_admin_identity", "/api/v1"),
     ("phlo_api.api.v1_branch_workflows", "/api/v1"),
+    ("phlo_api.api.v1_staging", "/api/v1"),
     ("phlo_api.api.v1_jobs", "/api/v1"),
     ("phlo_api.api.v1_query", "/api/v1"),
     ("phlo_api.incidents", "/api/v1"),
@@ -142,7 +143,11 @@ def _register_observatory_routers() -> None:
                 else:
                     app.include_router(router)
         except ImportError as e:
-            logger.debug("Failed to import API router %s: %s", module_name, e)
+            logger.warning(
+                "api_router_import_failed",
+                module=module_name,
+                missing_module=getattr(e, "name", None),
+            )
 
 
 _register_observatory_routers()

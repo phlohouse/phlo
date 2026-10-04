@@ -100,27 +100,19 @@ def test_optional_preview_bundle_pins_distinct_read_only_refs_with_budgets():
     assert api_group["maxQueued"] == 0
     assert api_group["hardPhysicalDataScanLimit"] == "1GB"
 
-    session_property_rules = json.loads((preview / "session-property-config.json").read_text())
-    assert session_property_rules == [
-        {
-            "group": "^global\\.preview\\.api$",
-            "sessionProperties": {
-                "query_max_run_time": "20s",
-                "query_max_planning_time": "5s",
-                "query_max_scan_physical_bytes": "256MB",
-            },
-        }
-    ]
-
     config = _properties(preview / "config.properties.template")
     assert config["http-server.https.enabled"] == "true"
     assert config["http-server.authentication.type"] == "PASSWORD"
     assert config["http-server.https.port"] == "8443"
-    session_config = _properties(preview / "session-property-config.properties")
-    assert session_config["session-property-config.configuration-manager"] == "file"
-    assert session_config["session-property-manager.config-file"] == (
-        "/etc/trino/preview/session-property-config.json"
-    )
+    assert config["query.max-run-time"] == "20s"
+    assert config["query.max-planning-time"] == "5s"
+    assert config["query.max-scan-physical-bytes"] == "256MB"
+    assert config["http-server.https.keystore.key"] == "${ENV:TRINO_HTTPS_KEYSTORE_PASSWORD}"
+    assert config["internal-communication.shared-secret"] == "${ENV:TRINO_INTERNAL_SHARED_SECRET}"
+    # Trino 483 authorizes manager defaults like user overrides, so a deny rule
+    # rejects ordinary SELECTs if the bundle installs a session-property manager.
+    assert not (preview / "session-property-config.properties").exists()
+    assert not (preview / "session-property-config.json").exists()
 
 
 def test_optional_preview_bundle_is_not_activated_by_the_trino_service():

@@ -2253,7 +2253,7 @@ wheels = [
 
 [[package]]
 name = "phlo"
-version = "0.16.2"
+version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -2265,9 +2265,9 @@ dependencies = [
     { name = "rich" },
     { name = "structlog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2d/3c/ccaeada477f952195691e4c4e3225456f7bf955d3a3fb46a50f32f349f8f/phlo-0.16.2.tar.gz", hash = "sha256:d1518e1010251f4ba2538d948fe62b3d50d2b886c5328311ed8401f13b2cdc77", size = 512258, upload-time = "2026-09-10T09:02:48.354Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/43/e0b92605436ae8a8c1024c13a41c6acdf575adcac54f48936fe019519890/phlo-0.17.0.tar.gz", hash = "sha256:c4235ebfda384503d191aaab29a4da46bbb8aaf55431973cca34ada1e26f987a", size = 534632, upload-time = "2026-09-23T11:23:12.043Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/39/dc/ee7c4acc17be93158cc576e077fd1540f2e53ed033b0dd769b0696ecdde8/phlo-0.16.2-py3-none-any.whl", hash = "sha256:c5d6da544522cbcf60d168d39f2fea86589f12e9a95bb4147cf4ceb502b748da", size = 649844, upload-time = "2026-09-10T09:02:15.547Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/1d/bf95be39ecf70814335df6c58c2b674052e394e6d1b35d319675ec5650cc/phlo-0.17.0-py3-none-any.whl", hash = "sha256:036380ebd8d9e281f25e2a2a0e48caf45b56d2deac5c7a6c5894cb6f6d07672b", size = 673959, upload-time = "2026-09-23T11:22:33.887Z" },
 ]
 
 [package.optional-dependencies]
@@ -2281,6 +2281,7 @@ defaults = [
     { name = "phlo-minio" },
     { name = "phlo-nessie" },
     { name = "phlo-observatory" },
+    { name = "phlo-observe-plugin" },
     { name = "phlo-pandera" },
     { name = "phlo-postgres" },
     { name = "phlo-trino" },
@@ -2288,7 +2289,7 @@ defaults = [
 
 [[package]]
 name = "phlo-api"
-version = "0.16.2"
+version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -2300,27 +2301,27 @@ dependencies = [
     { name = "pyyaml" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/82/f0/4ab6b0a14839f2b183baffced63c88022729d4b8eebbc4df68d9909c06ce/phlo_api-0.16.2.tar.gz", hash = "sha256:f8bcebb69eebd899a45d123e39291eb7b52b1200a1f47b294cdbd6bdfed7bee4", size = 268915, upload-time = "2026-09-10T09:02:50.714Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c8/17/307edaf11f4f7ec38ec62a1ab77da1042dbec3239dd5f1c9cfd15e83ac21/phlo_api-0.17.0.tar.gz", hash = "sha256:50b95781ab5f6dd9af7185d4c661c725b98e43f2d4ec5b296f97cb7db9113ead", size = 269475, upload-time = "2026-09-23T11:23:14.812Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ba/81/7993e57164bcd526103827777a8a5d95ffcb8c32e82d5e46d4fe37adc6a4/phlo_api-0.16.2-py3-none-any.whl", hash = "sha256:9fa7efa2d8177d9af1b37949a49461efd74e4c80aafa1f421240a0187dd48cad", size = 201226, upload-time = "2026-09-10T09:02:19.061Z" },
+    { url = "https://files.pythonhosted.org/packages/07/2b/d6d4161191cd03c42a314bb8c98e3dae6c3d172593cf80250d47dfea6d05/phlo_api-0.17.0-py3-none-any.whl", hash = "sha256:84d02e1beb66a76af7457095fe5682fb1885df4925476184f52b09b815f878a8", size = 201845, upload-time = "2026-09-23T11:22:38.126Z" },
 ]
 
 [[package]]
 name = "phlo-core-plugins"
-version = "0.15.4"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "phlo" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/58/5b/98dcb4d735046f5539c5cf9dbb6bb495b8a098974d1741b1d74e35e74ecd/phlo_core_plugins-0.15.4.tar.gz", hash = "sha256:319338804acd54619d3266a38659f4526ccb320d635d4ba805b76c9ea4625b20", size = 12097, upload-time = "2026-09-10T09:02:52.677Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/7a/bd0dbaec5529c0f03afb7c5489479c94ddfab738dd412eb9ce804744d5a8/phlo_core_plugins-0.16.0.tar.gz", hash = "sha256:2428ae641e85edfbc04eece5685e36829c781b2c63f10faf8629ec47751e26e7", size = 12064, upload-time = "2026-09-23T11:23:16.727Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b5/66/e0e85cb02e08e69e085d9df4a10cf6f25adbe33c5c4d3419c97f6eed2c28/phlo_core_plugins-0.15.4-py3-none-any.whl", hash = "sha256:a5674191354c05c1aa0d92756596d76ad08224ec44ad12bb166e30dc96b6d5fd", size = 12505, upload-time = "2026-09-10T09:02:21.81Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/b1/88ec5cd2ad9ac76a0846a805f51dc17f405d0dd3b2612650ac209c6ce07d/phlo_core_plugins-0.16.0-py3-none-any.whl", hash = "sha256:b95d37da89f18cebb9cb28e5ff77eff878d570d745dd0183e9cecc4333215c48", size = 12503, upload-time = "2026-09-23T11:22:41.232Z" },
 ]
 
 [[package]]
 name = "phlo-dagster"
-version = "0.16.2"
+version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
@@ -2333,14 +2334,14 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c9/c0/f2a0beedb5c94ddd8e398e053c8f447e8b53ca3d145066050cb2086b115b/phlo_dagster-0.16.2.tar.gz", hash = "sha256:dfa2bd950c6ea96033901dbf8dc7566f6a4f093aeb9718ec8e76e143ff6bfecd", size = 181093, upload-time = "2026-09-10T09:02:53.358Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a0/b2/394d98029a95a451374e3dd172ebbc510154d239e12cdf9906a94f3c1d87/phlo_dagster-0.17.0.tar.gz", hash = "sha256:4b7ebdf2704c7c68db2921821a04c0e9c1f9272d820cda0ad63503c9006dfcc9", size = 189358, upload-time = "2026-09-23T11:23:17.324Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/01/913da89571a3f545460592e68ca063d9c4f92bd87544f3e2c73b9fb9838a/phlo_dagster-0.16.2-py3-none-any.whl", hash = "sha256:ef2c1a77316b48cd827d49b5458b289913a1f7284319973c767d8426eafabb5a", size = 136443, upload-time = "2026-09-10T09:02:22.642Z" },
+    { url = "https://files.pythonhosted.org/packages/03/42/80a7647285e3fcf5c679ae8d3bdd9acab82b7ff53d21630684c3fa969069/phlo_dagster-0.17.0-py3-none-any.whl", hash = "sha256:6db5352981f9074cf618a0f4dd23811629cc303bf26f98850be14188ed84ed6f", size = 140594, upload-time = "2026-09-23T11:22:42.156Z" },
 ]
 
 [[package]]
 name = "phlo-dbt"
-version = "0.15.4"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dbt-core" },
@@ -2348,14 +2349,14 @@ dependencies = [
     { name = "dbt-trino" },
     { name = "phlo" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d5/03/51c736987dad9dd73e8d5ce4a770821ffd724f6b93e48eab6d3d4316130b/phlo_dbt-0.15.4.tar.gz", hash = "sha256:2140791e495e7f25a9f7f953190364e3015bca4186415110bf67c18165d00a46", size = 69175, upload-time = "2026-09-10T09:02:54.122Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/97/acf112d8bbda5fe0918645e4001a78ee42cd1bda8a16da6e071cc0fad195/phlo_dbt-0.16.0.tar.gz", hash = "sha256:53bcd0831e3e21f0fab24e42dee544a698ef298cb399bbd7d76586dfd04a6178", size = 69775, upload-time = "2026-09-23T11:23:18.091Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4a/cf/9922cab2a627eb90a0b8a290579ed0c7337e003511ee5640cdf170d72dda/phlo_dbt-0.15.4-py3-none-any.whl", hash = "sha256:be2a8881fb20e1e17508a001173bc35f495b14a90bfb8dd73886249a415777e4", size = 54578, upload-time = "2026-09-10T09:02:23.763Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/6f/a718cd8c389aa58ce0d9a5efc97e95eb9d71f6d60ea175fe4712add7cb7e/phlo_dbt-0.16.0-py3-none-any.whl", hash = "sha256:fe0b2069792fe21efdf034a303fe98499b4917488b69a1fca7d4da56ddc382d6", size = 54937, upload-time = "2026-09-23T11:22:43.936Z" },
 ]
 
 [[package]]
 name = "phlo-dlt"
-version = "0.15.4"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dlt" },
@@ -2365,9 +2366,9 @@ dependencies = [
     { name = "pyiceberg" },
     { name = "python-ulid" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/86/1227d901f9d6b5cde15d5c8ddfe9432a5b8ddaf169bcc3c44cb851dc49be/phlo_dlt-0.15.4.tar.gz", hash = "sha256:630044cb21ed961487da2fe0263fa08331122ce29a22176aee9098959f7a12a6", size = 66744, upload-time = "2026-09-10T09:02:55.343Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/7b/9c878a7cd7f842fd7479c9b749136238292d24e0a68dc51b62b87e189ca8/phlo_dlt-0.16.0.tar.gz", hash = "sha256:a6dc2f01f2d7b4c228ca6241d095e678420aadcc9cc422dffac097004c9c5655", size = 68437, upload-time = "2026-09-23T11:23:19.404Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/27/c500c15ac5574a932444c54aebec37112684849fe3dcfb43ecc396794220/phlo_dlt-0.15.4-py3-none-any.whl", hash = "sha256:8f8065d606f973cd977ce372bbcc207f3c690d551d51f9dca2d747aaf8ebf007", size = 53332, upload-time = "2026-09-10T09:02:25.414Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/66/2c157ed69dc37a86e8fca54fcfad3ce8ddeb9b1b51ae88a9cf451381f53b/phlo_dlt-0.16.0-py3-none-any.whl", hash = "sha256:1d9c4beced233372c3052cbdd333bca7017e73ffc3d97b7756d2f7daa297da8b", size = 54049, upload-time = "2026-09-23T11:22:45.95Z" },
 ]
 
 [[package]]
@@ -2395,10 +2396,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "pandas", specifier = ">=2.3,<3.1" },
-    { name = "phlo", extras = ["defaults"], specifier = "==0.16.2" },
-    { name = "phlo-dagster", specifier = "==0.16.2" },
-    { name = "phlo-dbt", specifier = "==0.15.4" },
-    { name = "phlo-sling", specifier = "==0.15.4" },
+    { name = "phlo", extras = ["defaults"], specifier = "==0.17.0" },
+    { name = "phlo-dagster", specifier = "==0.17.0" },
+    { name = "phlo-dbt", specifier = "==0.16.0" },
+    { name = "phlo-sling", specifier = "==0.16.0" },
     { name = "psycopg2-binary", specifier = ">=2.9,<3.1" },
 ]
 
@@ -2406,14 +2407,14 @@ requires-dist = [
 dev = [
     { name = "dbt-duckdb", specifier = ">=1.10,<1.12" },
     { name = "duckdb", specifier = ">=1.4,<1.6" },
-    { name = "phlo-pandera", specifier = "==0.15.4" },
+    { name = "phlo-pandera", specifier = "==0.16.0" },
     { name = "pytest" },
     { name = "ruff" },
 ]
 
 [[package]]
 name = "phlo-iceberg"
-version = "0.15.4"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pandera", extra = ["pandas"] },
@@ -2421,26 +2422,26 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pyiceberg", extra = ["s3fs"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/19/c6/767cd89ead7392c0f8724e4780c76b0156b1ed2f4d1761d31ad5b21d013c/phlo_iceberg-0.15.4.tar.gz", hash = "sha256:ced61e37cbf290281776cdc466ba59759f622619864b32a785e152555b43b522", size = 67453, upload-time = "2026-09-10T09:02:57.426Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/30/d7/3f1b6ba32690c15938242efb5dedff9a239c9f7377c4c2aa168e7c499a9a/phlo_iceberg-0.16.0.tar.gz", hash = "sha256:2445a8b082ac745d661c80b69eda3d5cb5ff6d14e5c350deb112abedff50bc7f", size = 69595, upload-time = "2026-09-23T11:23:21.311Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9a/76/d8bea1ceec5fbadbe1985b2c054d43123b8cfb55935ab07d6661b3d78859/phlo_iceberg-0.15.4-py3-none-any.whl", hash = "sha256:1eca8de69b19f2c7f815a63cd568d10a60c80f275c135ab8997518d6f893fbaf", size = 48385, upload-time = "2026-09-10T09:02:28.113Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/db/20e88bb37ff4bbcd2d8b3d45ccaaec87116462a3b10e756b27eb431c2804/phlo_iceberg-0.16.0-py3-none-any.whl", hash = "sha256:2c9c8b3a4b2caad075a59713c8d3aa5ff18ae85229ed4756b46d1181cac20b0b", size = 49301, upload-time = "2026-09-23T11:22:48.999Z" },
 ]
 
 [[package]]
 name = "phlo-minio"
-version = "0.15.4"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "phlo" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/58/d8/4363cf847298f722253df8434a5c23b89c9141817d04ee02aba8dad7e83b/phlo_minio-0.15.4.tar.gz", hash = "sha256:46d402b6001d7d0c605610ad957c9c46359b73465c17c57da70e0e2ce9c0903d", size = 23903, upload-time = "2026-09-10T09:03:00.294Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/62/032e6084fd1f29f88d26858fc24042c164b31c9bbfb3a6461a3dee4a514d/phlo_minio-0.16.0.tar.gz", hash = "sha256:7618b598ed0012c6736f5402893f401767a8a56ed26f1b48ffacce06bce782d1", size = 26491, upload-time = "2026-09-23T11:23:24.285Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d3/5d/45f273d89762cb6b2896d0b495862477f803da9cede9899e58bbca6ff27b/phlo_minio-0.15.4-py3-none-any.whl", hash = "sha256:22870f6949764ebae1bcd7611e0e52d08f8094b1c02122909e6e1a1623d05e91", size = 17658, upload-time = "2026-09-10T09:02:32.523Z" },
+    { url = "https://files.pythonhosted.org/packages/50/b6/379be563cffab26eb7d5defcc9a522eb4d5db8d193d21a98ca4421c74671/phlo_minio-0.16.0-py3-none-any.whl", hash = "sha256:a08f6b5bfa3ed808d6106a2b3e4a540ff4b9a0e7592b9aa50cbdb1b1b8632310", size = 21080, upload-time = "2026-09-23T11:22:53.76Z" },
 ]
 
 [[package]]
 name = "phlo-nessie"
-version = "0.15.4"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "marshmallow" },
@@ -2448,26 +2449,82 @@ dependencies = [
     { name = "pynessie" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/92/83/2fe73d93c2603778c1b90f0d7f63228c278f2810831346e5ad430c791c4a/phlo_nessie-0.15.4.tar.gz", hash = "sha256:ce134e735b8356d8509d372f1991c653f274d021a0289a528ae23220831b05c9", size = 38874, upload-time = "2026-09-10T09:03:00.845Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/d1/741dc84e2020ecf160274234b1194a8a3e7c67c86f637d5cae4993cc322c/phlo_nessie-0.16.0.tar.gz", hash = "sha256:9039d17e95834f56e528219daeeb733ea014f0e577de15e64534cd4c72d69fd1", size = 42097, upload-time = "2026-09-23T11:23:24.871Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/75/3d10a7bfe7c4b3fb49b5e95bf94cd979cd867fb48aa5f9f2061b57580f7e/phlo_nessie-0.15.4-py3-none-any.whl", hash = "sha256:4038080655ab85a7e072e7961dd4439dd7d3233decb14dd433f92adabdd16c51", size = 34352, upload-time = "2026-09-10T09:02:33.461Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/33/dab978f027708a4eba6449411df516103289ae2b10046eaacc5ded3afbc8/phlo_nessie-0.16.0-py3-none-any.whl", hash = "sha256:dbb87790effb338bd04dc463381c272b3d9bce5fe96af2a8f2dc319fbcc8536c", size = 38076, upload-time = "2026-09-23T11:22:54.68Z" },
 ]
 
 [[package]]
 name = "phlo-observatory"
-version = "0.16.2"
+version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "phlo" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/10/491b1990bb2fa3d0645538b4f7706d6ae49b8e6b94a855a9f6063315b1c6/phlo_observatory-0.16.2.tar.gz", hash = "sha256:274659a77c828b9838759546894348e3aec39d4507f47f8e7155e133f5908bd7", size = 752512, upload-time = "2026-09-10T09:03:02.097Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/30/6b07cf85c5ac6b5b656f5f8b0fa85002bfaf0c904d74b308a08246ae52d5/phlo_observatory-0.17.0.tar.gz", hash = "sha256:068b9fd9ca8b5411a37448529c143fde2141b49fb4e8f6e4a7d35c48378ba4b4", size = 752678, upload-time = "2026-09-23T11:23:26.017Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4c/df/f71f217ecf028dfd1e61ec079934919a21e4459802f2fe08ed31a09e5e71/phlo_observatory-0.16.2-py3-none-any.whl", hash = "sha256:2294142b5acedd9f822fb35a0565007e45405c77988c81b7d2c6b99ffd819756", size = 834676, upload-time = "2026-09-10T09:02:35.162Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/7d/4b43e54e363da0eba2a48359c4ab3cd4289789d9ccc93707103bd3fe29f5/phlo_observatory-0.17.0-py3-none-any.whl", hash = "sha256:bb3c2227ac233f05c0568fbabcca84a4ea2bb44e705e0f55d9f04d0cb7f8f0e7", size = 834842, upload-time = "2026-09-23T11:22:56.481Z" },
+]
+
+[[package]]
+name = "phlo-observe"
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "phlo-observe-core" },
+    { name = "phlo-observe-query" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/85/27/b4b9050461845b51438b5162c2d40bb925f4348836fee1226ceec8ab8fb1/phlo_observe-0.2.3.tar.gz", hash = "sha256:663add9e32b208c8ada8b6d608a78bca411335a764129ab5dbec26423db09ac4", size = 16064, upload-time = "2026-09-22T21:17:54.448Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/30/8d/98268c5c8c53ab09cec45d1beca816850407a6e9116b4d6effb3f9ba54ae/phlo_observe-0.2.3-py3-none-any.whl", hash = "sha256:1c3984bab4dc9bd01750224cb2b14331afb9d67269546bdb2e0ce9bbed189e94", size = 23611, upload-time = "2026-09-22T21:17:53.291Z" },
+]
+
+[[package]]
+name = "phlo-observe-core"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "orjson" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/09/51/0a8bb73ab9a6db2235b193c00043e1f5ece55fca88d26a76480838a93a8b/phlo_observe_core-0.4.0.tar.gz", hash = "sha256:e4c24c4019e76cdae170c715977afca3a230f86144711adee9cfb5480b7f613f", size = 73758, upload-time = "2026-09-22T21:17:48.996Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/32/738565ade6817472abfbfdd1990605cde5b16d370a1c2aaa8e74a2adc56b/phlo_observe_core-0.4.0-py3-none-any.whl", hash = "sha256:5b4b9321f16edd8463b7c7b76b25452d3b3f4df1312461ace31d93dbe93bae5f", size = 90707, upload-time = "2026-09-22T21:17:47.796Z" },
+]
+
+[[package]]
+name = "phlo-observe-plugin"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "phlo" },
+    { name = "phlo-dagster" },
+    { name = "phlo-observe" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fc/b7/fe8ce35dfd0796356814477563cb8000e3932d0969f3a700b2ec45796340/phlo_observe_plugin-0.2.0.tar.gz", hash = "sha256:28336dec31b2c26a17bf63c73e5c88b8cb0390e088db34639a72afc66ce2b86a", size = 27450, upload-time = "2026-09-23T11:23:27.672Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/74/7acea0073ddf6d580ed9b6661113f4f5068c0b01c2d049ac3b2b608a1950/phlo_observe_plugin-0.2.0-py3-none-any.whl", hash = "sha256:efc8da70fb7acedc5a660bb5eaa8bd07a0f088086b0796068e926586400a2103", size = 20237, upload-time = "2026-09-23T11:22:58.322Z" },
+]
+
+[[package]]
+name = "phlo-observe-query"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cf/69/893799f4231f7a178c8ec35ffb9d053b603a5a2b6afaee5f96faed6f21ce/phlo_observe_query-0.3.0.tar.gz", hash = "sha256:4e111a2e3a404ff60d87813700e0a04ea37117a2a65870617bbecbeaad752aa3", size = 3730, upload-time = "2026-09-22T21:17:54.711Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/38/799a1c25495cabce66aaf3e6f8c6548b31598d4af3546631ee2cf93db4bb/phlo_observe_query-0.3.0-py3-none-any.whl", hash = "sha256:29a56c882175d29225539dd7c5d4eca619652b8fbe3c409372858420b2bd4aae", size = 5300, upload-time = "2026-09-22T21:17:53.617Z" },
 ]
 
 [[package]]
 name = "phlo-pandera"
-version = "0.15.4"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -2476,41 +2533,41 @@ dependencies = [
     { name = "phlo" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/01/ea/b1637655650ffd553a2bac0d08d459d6ea3b8e91772ee54b0b4f87f1edcf/phlo_pandera-0.15.4.tar.gz", hash = "sha256:6829791e9ec7b9b7c28210d6301074e2aaf0fa35fe84d457afd7fb2a46bf00f5", size = 81543, upload-time = "2026-09-10T09:03:04.681Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/05/c5/e8a9b9dd6f94d17904698f2142b7843239f202a98fc67b4077b56fa103f3/phlo_pandera-0.16.0.tar.gz", hash = "sha256:ea7f0ea0bdf364d2bb2e345f79c87a1c21a7f0175f62d0e41a5f5c070e758601", size = 81544, upload-time = "2026-09-23T11:23:29.495Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/18/82/655aa23f0fbc05b6e1a58fb559dda2f451c6e0cefc88f665f58e89c81af5/phlo_pandera-0.15.4-py3-none-any.whl", hash = "sha256:4fe686d363f2e3ad021aa1742d98015808a5c59bdc35ce900fc5cb8286260bd9", size = 74602, upload-time = "2026-09-10T09:02:38.521Z" },
+    { url = "https://files.pythonhosted.org/packages/56/62/2f14093085b60e91e63051e22c47b1253b74ab191b53fdf6a1b207fc75c1/phlo_pandera-0.16.0-py3-none-any.whl", hash = "sha256:db22b391fb1983e8dac6e0152e5bd20cda95e26ccca2541915b40b6994f03dfe", size = 74601, upload-time = "2026-09-23T11:23:01.03Z" },
 ]
 
 [[package]]
 name = "phlo-postgres"
-version = "0.15.4"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "phlo" },
     { name = "psycopg2-binary" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/29/c7/8d624fcbda45d05bc7fa116d6cc99d0e2084b8bc7fe1d6ffd5760c97a14e/phlo_postgres-0.15.4.tar.gz", hash = "sha256:2d385c52a205f28c851936641269458d6cd71383cfd88aefa49b9e687d2040b3", size = 40864, upload-time = "2026-09-10T09:03:06.48Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e6/10/18a37edb27c03566f5201c809d3e2dacd0642abe62839515ced3d7a1b851/phlo_postgres-0.16.0.tar.gz", hash = "sha256:78d8d8360b443c1545b01764e715f33a1bdebcf51ee2779955c7630f7353814a", size = 43801, upload-time = "2026-09-23T11:23:31.274Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e9/f8/003bd39d7a8374464fa3be8c0bf62bace466cf45f775eb725eeb4df67b30/phlo_postgres-0.15.4-py3-none-any.whl", hash = "sha256:a6e5907095696de04839c2925e82378e6e0d7a57bff452ce8b56d6f7333fc505", size = 31196, upload-time = "2026-09-10T09:02:41.165Z" },
+    { url = "https://files.pythonhosted.org/packages/fc/be/fa28d93f3e46c6af673a0d8820af6ce11a2892a59b81da70b3c2841eca5c/phlo_postgres-0.16.0-py3-none-any.whl", hash = "sha256:9fe1ebde3d4b8249c3ce8617fc7606421c59beefb096fb47082ac1d36af9d474", size = 34549, upload-time = "2026-09-23T11:23:03.475Z" },
 ]
 
 [[package]]
 name = "phlo-sling"
-version = "0.15.4"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "phlo" },
     { name = "pyarrow" },
     { name = "sling" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bf/d7/14897787272ea59db006dc5c77c4b0891cae969fd6eec3d72b15727cdd81/phlo_sling-0.15.4.tar.gz", hash = "sha256:8a7277e67b0a50d64beeb03d0646ce15c6d2a3d33b77901e8ca81b3110c1d8fa", size = 30744, upload-time = "2026-09-10T09:03:08.908Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/7c/00ab7cd35f4161d1ad6889a6dad3c84a9e90ec823e7785966aaf43af0650/phlo_sling-0.16.0.tar.gz", hash = "sha256:36c10f2a3a14e951e23856ef789d603e963251c874d1b6975281a5908bb323dc", size = 30753, upload-time = "2026-09-23T11:23:33.579Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/79/602ce059fccd6dbf8f47f8d192473deabfeb405577f4d19ac77e0c90226b/phlo_sling-0.15.4-py3-none-any.whl", hash = "sha256:51d9bb0efef176053bd6bfc747206a86d0a2b3764e855dbc5d310e84e2875885", size = 25314, upload-time = "2026-09-10T09:02:44.328Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/53/ddd035c9a4f6d1fb06bab281918d7623acab843bc7c0d85a8d0dc525fd25/phlo_sling-0.16.0-py3-none-any.whl", hash = "sha256:8a71a9b6216f8f41636f3f27cfab5a77dcc8117cc01b641957b3bbca382eb2cc", size = 25312, upload-time = "2026-09-23T11:23:07.024Z" },
 ]
 
 [[package]]
 name = "phlo-trino"
-version = "0.15.4"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pandas" },
@@ -2518,9 +2575,9 @@ dependencies = [
     { name = "psycopg2-binary" },
     { name = "trino" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/10/19/4067ba463ba20522930c42e9f1465810300a9c220c1fa57dd064c342e303/phlo_trino-0.15.4.tar.gz", hash = "sha256:7c6032474041eb65cc4b29961afc091e36ab4e268c56a468d97cd591593b5937", size = 42377, upload-time = "2026-09-10T09:03:11.103Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a5/90/05b00aacd5ef60bc6d82d1b66ae90d8d57742503f26ccc9ce16a60dfea6c/phlo_trino-0.16.0.tar.gz", hash = "sha256:4e7fe1c18a28514a18184cd207f369121501baa78a667b668f2bcdd6c4c1c6cb", size = 46402, upload-time = "2026-09-23T11:23:36.687Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/45/603bf90dc9b75cd5000d77676dbe9edeecc878286beb931cd4b49e438a51/phlo_trino-0.15.4-py3-none-any.whl", hash = "sha256:5d42d639606f972c0bf53fc5613b47c3eb6564bba810d7c22a30e3018e644fdf", size = 32849, upload-time = "2026-09-10T09:02:47.414Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/3f/93fb4d9fac10717ca92909f3edff3c08aa9f3bdaf12acffbf63a8aa80b9b/phlo_trino-0.16.0-py3-none-any.whl", hash = "sha256:91b5c14a7c340b03d13a5f0e551a4f236625a0308f90aa26ccce165bfc917705", size = 34363, upload-time = "2026-09-23T11:23:10.931Z" },
 ]
 
 [[package]]

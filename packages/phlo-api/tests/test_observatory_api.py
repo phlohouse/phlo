@@ -2438,11 +2438,10 @@ def test_observatory_overview_endpoint_returns_canonical_home_rows(
         ),
     ]
 
-    monkeypatch.setattr(observatory, "load_project_docker_containers", lambda _root: [])
     monkeypatch.setattr(
         observatory,
-        "_runtime_services_from_containers",
-        lambda _containers, _disabled, _root: [service],
+        "_load_services",
+        lambda: [service],
     )
     observatory_loaders(operations=[operation], logs=logs)
     monkeypatch.setattr(
@@ -2455,6 +2454,8 @@ def test_observatory_overview_endpoint_returns_canonical_home_rows(
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["counters"]["services"] == 1
+    assert payload["health"]["state"] == "ok"
     attention = payload["attention"]
     events = payload["events"]
 

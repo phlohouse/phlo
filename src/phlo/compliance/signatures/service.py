@@ -5,6 +5,8 @@ Provides the core signature service for critical action signing in regulated dep
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -22,6 +24,15 @@ class SignatureRepository(Protocol):
 
     def save_signature(self, record: SignatureRecord) -> None:
         """Persist an issued signature."""
+
+    def save_signature_idempotent(
+        self,
+        record: SignatureRecord,
+        *,
+        idempotency_key: str | None,
+        request_digest: str | None,
+    ) -> SignatureRecord:
+        """Persist or return the original signature for an idempotent request."""
 
     def consume_signature(self, signature_id: str, expected: SignatureRequest) -> bool:
         """Match and atomically consume the signature for the expected action."""
@@ -80,6 +91,8 @@ class SignatureService:
         self,
         request: SignatureRequest,
         session: AuthenticatedSession,
+        *,
+        idempotency_key: str | None = None,
     ) -> SignatureRecord:
         """Create an electronic signature for a record.
 
@@ -109,7 +122,29 @@ class SignatureService:
         )
         if self._signature_repository is None:
             raise RuntimeError("Durable signature storage is not configured")
-        self._signature_repository.save_signature(record)
+        if idempotency_key is None:
+            self._signature_repository.save_signature(record)
+        else:
+            request_digest = hashlib.sha256(
+                json.dumps(
+                    {
+                        "signer_subject": request.signer_subject,
+                        "meaning": request.meaning,
+                        "record_type": request.record_type,
+                        "record_id": request.record_id,
+                        "record_version": request.record_version,
+                        "action": request.action,
+                        "justification": request.justification,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+            record = self._signature_repository.save_signature_idempotent(
+                record,
+                idempotency_key=idempotency_key,
+                request_digest=request_digest,
+            )
 
         self._emit_signature_event(record, session)
 

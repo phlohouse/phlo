@@ -1,7 +1,7 @@
 /**
  * /lineage route. Asset-level lineage rendered on the flow canvas, plus
- * table previews, quality checks, and recent operations for the selected
- * asset.
+ * ref-aware catalog tables, quality checks, and recent operations for the
+ * selected asset.
  */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
@@ -19,23 +19,29 @@ import type { ReactNode } from 'react'
 import type {
   ObservatoryAsset,
   ObservatoryLogEvent,
+  ObservatoryMetadata,
   ObservatoryOperation,
   ObservatoryQualityCheck,
   ObservatoryTable,
-  ObservatoryTablePreview,
 } from '@/observatory/api/types'
+import type { V1QualityAsset } from '@/observatory/api/qualityV1'
+import type { V1AssetPreview } from '@/observatory/api/tablesV1'
 import type {
   ObservatoryFlowEdge,
   ObservatoryFlowNode,
 } from '@/observatory/components/ObservatoryFlowCanvas'
 import {
   getObservatoryAssetRecords,
-  getObservatoryLogRecords,
   getObservatoryOperationRecords,
-  getObservatoryQualityRecords,
-  getObservatoryTablePreview,
-  getObservatoryTableRecords,
+  getObservatoryQueryCatalogTables,
 } from '@/observatory/api/resources'
+import { getV1QualitySnapshot } from '@/observatory/api/qualityV1'
+import { getV1AssetPreview } from '@/observatory/api/tablesV1'
+import {
+  environmentChangeEvent,
+  selectedEnvironment,
+} from '@/observatory/api/environment'
+import { getSelectedV1RunLogRecords } from '@/observatory/api/logsV1'
 import { ObservatoryFlowCanvas } from '@/observatory/components/ObservatoryFlowCanvas'
 import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { ObservatoryIndexTable } from '@/observatory/components/ObservatoryTable'
@@ -55,20 +61,26 @@ function LineageIndex() {
     120_000,
     'observatory:assets',
   )
+  const [environment, setEnvironment] = useState(selectedEnvironment)
+  useEffect(() => {
+    const update = () => setEnvironment(selectedEnvironment())
+    window.addEventListener(environmentChangeEvent(), update)
+    return () => window.removeEventListener(environmentChangeEvent(), update)
+  }, [])
   const tablesResult = useLiveResource(
-    getObservatoryTableRecords,
+    getObservatoryQueryCatalogTables,
     120_000,
-    'observatory:tables',
+    'observatory:query-catalog-tables',
   )
   const qualityResult = useLiveResource(
-    getObservatoryQualityRecords,
+    getLineageQualityRecords,
     120_000,
-    'observatory:quality',
+    'observatory:quality-v1',
   )
   const logsResult = useLiveResource(
-    getObservatoryLogRecords,
+    getSelectedV1RunLogRecords,
     120_000,
-    'observatory:logs',
+    'observatory:run-logs',
   )
   const operationsResult = useLiveResource(
     getObservatoryOperationRecords,
@@ -143,7 +155,7 @@ function LineageIndex() {
   const primaryTable = detail?.tables[0] ?? null
   const [preview, setPreview] = useState<{
     tableId: string | null
-    data: ObservatoryTablePreview | null
+    data: V1AssetPreview | null
     error: string | null
   }>({ tableId: null, data: null, error: null })
 
@@ -154,21 +166,30 @@ function LineageIndex() {
     }
 
     let cancelled = false
-    getObservatoryTablePreview({
-      data: { tableId: primaryTable.id, limit: 5 },
+    if (!environment || !selected) {
+      setPreview({
+        tableId: primaryTable.id,
+        data: null,
+        error: 'Select prod or staging before loading table preview.',
+      })
+      return
+    }
+
+    getV1AssetPreview({
+      data: { environment, assetId: selected.id },
     }).then((response) => {
       if (cancelled) return
       setPreview({
         tableId: primaryTable.id,
-        data: response.data,
-        error: response.error,
+        data: response.kind === 'available' ? response.data : null,
+        error: response.kind === 'unavailable' ? response.message : null,
       })
     })
 
     return () => {
       cancelled = true
     }
-  }, [primaryTable?.id])
+  }, [environment, primaryTable?.id, selected?.id])
 
   const selectedPreview =
     preview.tableId === primaryTable?.id ? preview.data : null
@@ -200,7 +221,11 @@ function LineageIndex() {
       description="Trace Dataset dependencies, downstream blast radius, quality evidence, tables, and operational activity."
       action={
         <span className="phlo-observatory-pill">
-          {isLoading ? 'Loading' : `${assets.length} mapped dependencies`}
+          {isLoading
+            ? 'Loading'
+            : result.error
+              ? 'Unavailable'
+              : `${assets.length} mapped dependencies`}
         </span>
       }
     >
@@ -209,12 +234,18 @@ function LineageIndex() {
           icon={<Database className="size-4" />}
           label="Selected dependency"
           value={
-            isLoading ? 'Loading' : (selected?.name ?? 'No dependency selected')
+            isLoading
+              ? 'Loading'
+              : result.error
+                ? 'Unavailable'
+                : (selected?.name ?? 'No dependency selected')
           }
           detail={
             isLoading
               ? 'Reading live lineage graph'
-              : (selected?.id ?? `${assets.length} mapped dependencies`)
+              : result.error
+                ? 'Asset inventory unavailable'
+                : (selected?.id ?? `${assets.length} mapped dependencies`)
           }
         />
         <LineageSummaryCell
@@ -223,12 +254,18 @@ function LineageIndex() {
           value={
             isLoading
               ? 'Loading'
-              : impact
-                ? `${impact.upstream} up / ${impact.downstream} down`
-                : dependencies
+              : result.error
+                ? 'Unavailable'
+                : impact
+                  ? `${impact.upstream} up / ${impact.downstream} down`
+                  : dependencies
           }
           detail={
-            isLoading ? 'Reading dependencies' : `${dependencies} total links`
+            isLoading
+              ? 'Reading dependencies'
+              : result.error
+                ? 'Dependency links unavailable'
+                : `${dependencies} total links`
           }
         />
         <LineageSummaryCell
@@ -238,7 +275,9 @@ function LineageIndex() {
           value={
             isLoading
               ? 'Loading'
-              : (impact?.qualityLabel ?? `${qualityChecks} checks`)
+              : qualityResult.error
+                ? 'Unavailable'
+                : (impact?.qualityLabel ?? `${qualityChecks} checks`)
           }
           detail="Open triage evidence"
         />
@@ -247,12 +286,18 @@ function LineageIndex() {
           icon={<Table2 className="size-4" />}
           label="Bound table"
           value={
-            isLoading ? 'Loading' : (primaryTable?.id ?? 'No table linked')
+            isLoading
+              ? 'Loading'
+              : tablesResult.error
+                ? 'Unavailable'
+                : (primaryTable?.id ?? 'No table linked')
           }
           detail={
             isLoading
               ? 'Reading tables'
-              : (selectedTableStats?.format ?? `${groups} groups`)
+              : tablesResult.error
+                ? 'Table inventory unavailable'
+                : (selectedTableStats?.format ?? `${groups} groups`)
           }
         />
         <LineageSummaryCell
@@ -262,7 +307,9 @@ function LineageIndex() {
           value={
             isLoading
               ? 'Loading'
-              : (impact?.activityLabel ?? 'No linked activity')
+              : logsResult.error || operationsResult.error
+                ? 'Unavailable'
+                : (impact?.activityLabel ?? 'No linked activity')
           }
           detail="Open run or log evidence"
         />
@@ -293,7 +340,9 @@ function LineageIndex() {
               <div className="phlo-observatory-empty-state">
                 {isLoading
                   ? 'Reading live dependency and impact evidence.'
-                  : 'No dependencies match the current search.'}
+                  : result.error
+                    ? 'Inventory unavailable.'
+                    : 'No dependencies match the current search.'}
               </div>
             }
             rows={filteredAssets.map((asset) => ({
@@ -317,14 +366,22 @@ function LineageIndex() {
               Neighborhood
             </span>
             <span className="phlo-observatory-pill">
-              {isLoading ? 'Loading' : `${graph.edges.length} links`}
+              {isLoading
+                ? 'Loading'
+                : result.error
+                  ? 'Unavailable'
+                  : `${graph.edges.length} links`}
             </span>
           </div>
-          {isLoading ? (
+          {isLoading || result.error ? (
             <div className="phlo-observatory-flow-canvas">
               <div className="phlo-observatory-flow-empty">
                 <Database className="size-4" />
-                <span>Reading live lineage graph</span>
+                <span>
+                  {isLoading
+                    ? 'Reading live lineage graph'
+                    : 'Lineage graph is unavailable'}
+                </span>
               </div>
             </div>
           ) : (
@@ -436,16 +493,90 @@ function LineageIndex() {
             <p>
               {isLoading
                 ? 'Loading dependency detail and evidence.'
-                : 'No dependency evidence is available yet.'}
+                : result.error
+                  ? 'Dependency detail is unavailable because the asset inventory could not be loaded.'
+                  : 'No dependency evidence is available yet.'}
             </p>
           )}
           {result.error && (
             <div className="phlo-observatory-panel-footer">{result.error}</div>
           )}
+          {qualityResult.error && (
+            <div className="phlo-observatory-panel-footer">
+              {qualityResult.error}
+            </div>
+          )}
         </aside>
       </section>
     </ObservatoryPage>
   )
+}
+
+async function getLineageQualityRecords() {
+  const environment = selectedEnvironment()
+  if (!environment) {
+    return {
+      data: null,
+      error: 'Select prod or staging before loading quality evidence.',
+    }
+  }
+
+  const snapshot = await getV1QualitySnapshot({ data: { environment } })
+  if (snapshot.kind === 'unavailable') {
+    return { data: null, error: snapshot.message }
+  }
+
+  const unavailableAssets = snapshot.data.assets.filter(
+    (asset) => asset.kind === 'unavailable',
+  )
+  const data = snapshot.data.assets.flatMap((asset) =>
+    asset.kind === 'available' ? lineageChecksForAsset(asset) : [],
+  )
+  const incomplete = [
+    unavailableAssets.length
+      ? `Checks unavailable for ${unavailableAssets.length} assets.`
+      : null,
+    snapshot.data.truncated ? 'Asset check inventory is truncated.' : null,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return { data, error: incomplete || null }
+}
+
+export function lineageChecksForAsset(
+  asset: Extract<V1QualityAsset, { kind: 'available' }>,
+): Array<ObservatoryQualityCheck> {
+  return asset.checks.definitions.map((definition) => {
+    const execution = asset.checks.executions
+      .filter((item) => item.check_name === definition.name)
+      .sort(
+        (left, right) =>
+          Date.parse(right.timestamp) - Date.parse(left.timestamp),
+      )[0]
+    const metadata: ObservatoryMetadata = execution
+      ? {
+          run_id: execution.run_id,
+          timestamp: execution.timestamp,
+          status: execution.status,
+        }
+      : {}
+    return {
+      id: `${asset.assetId}:${definition.name}`,
+      name: definition.name,
+      asset_id: asset.assetId,
+      status:
+        execution?.passed === true
+          ? 'passing'
+          : execution?.passed === false
+            ? 'failing'
+            : 'unknown',
+      severity: execution?.severity,
+      blocking: false,
+      description: definition.description,
+      metadata,
+    }
+  })
 }
 
 type AssetDetailTab = 'overview' | 'tables' | 'quality' | 'activity'
@@ -486,7 +617,7 @@ function AssetDetailPanel({
 }: {
   active: AssetDetailTab
   detail: AssetDetailModel
-  preview: ObservatoryTablePreview | null
+  preview: V1AssetPreview | null
   selected: ObservatoryAsset
 }) {
   if (active === 'tables') {
@@ -506,13 +637,12 @@ function AssetDetailPanel({
                   : table.name}
               </span>
               <small>
-                {table.id === preview?.table.id
+                {preview &&
+                (table.id === preview.asset_id ||
+                  table.asset_id === preview.asset_id)
                   ? [
                       table.format,
-                      preview.row_count === null ||
-                      preview.row_count === undefined
-                        ? null
-                        : `${preview.row_count} records`,
+                      `${preview.rows.length} sample rows`,
                       `${preview.columns.length} columns`,
                     ]
                       .filter(Boolean)
@@ -737,12 +867,9 @@ function buildAssetDetail(
     downstream: assets.filter((asset) =>
       asset.dependencies.includes(selected.id),
     ),
-    tables: tables.filter((table) => table.asset_id === selected.id),
+    tables: tablesForAsset(selected, tables),
     quality: quality.filter((check) => check.asset_id === selected.id),
-    logs: logs.filter(
-      (log) =>
-        log.resource?.kind === 'asset' && log.resource.id === selected.id,
-    ),
+    logs: latestRunLogsForAsset(selected, logs),
     operations: operations.filter(
       (operation) =>
         operation.target?.id === selected.id &&
@@ -751,6 +878,33 @@ function buildAssetDetail(
           operation.target.kind === 'dataset'),
     ),
   }
+}
+
+export function tablesForAsset(
+  asset: ObservatoryAsset,
+  tables: Array<ObservatoryTable>,
+): Array<ObservatoryTable> {
+  const relation = asset.metadata.relation
+  const [schemaName, tableName, ...extra] =
+    typeof relation === 'string' ? relation.split('.') : []
+  return tables.filter(
+    (table) =>
+      table.asset_id === asset.id ||
+      (schemaName !== undefined &&
+        tableName !== undefined &&
+        extra.length === 0 &&
+        table.schema_name === schemaName &&
+        table.name === tableName),
+  )
+}
+
+export function latestRunLogsForAsset(
+  asset: ObservatoryAsset,
+  logs: Array<ObservatoryLogEvent>,
+): Array<ObservatoryLogEvent> {
+  const runId = asset.metadata.last_run_id
+  if (typeof runId !== 'string') return []
+  return logs.filter((log) => log.metadata.run_id === runId)
 }
 
 function buildLineageImpact(detail: AssetDetailModel): {
@@ -957,7 +1111,7 @@ function Fact({
 
 function tableStats(
   table: ObservatoryTable,
-  preview: ObservatoryTablePreview | null,
+  preview: V1AssetPreview | null,
   error: string | null,
 ): {
   records: string | number
@@ -966,7 +1120,7 @@ function tableStats(
   namespace: string
 } {
   const records =
-    preview?.row_count ??
+    (preview ? `${preview.rows.length} sample rows` : null) ??
     readMetric(table.metadata, 'records') ??
     readMetric(table.metadata, 'row_count') ??
     (error ? 'unavailable' : 'unknown')

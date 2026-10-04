@@ -22,23 +22,24 @@ configured environment refs. Never select a ref with SQL or a session property.
 
 ## Install only after review
 
-1. Review the installation's existing Trino configuration and clients. Merge
-   the HTTPS and password-authentication settings from `config.properties.template`
-   into its existing config. Do not replace other settings such as dynamic catalog
-   management or existing client access. Supply a keystore password and random
-   internal communication secret through the installation's secret store. Update
-   the health check to authenticated HTTPS with a trusted CA; do not use `curl -k`.
+1. Use a dedicated preview coordinator for this Trino 483 bundle. Its server-level
+   query budgets apply to every identity. Do not copy them onto a shared coordinator
+   or replace existing client settings. Configure HTTPS and password authentication
+   from `config.properties.template`. Supply the keystore password and a random
+   internal communication secret through the installation's secret store.
+   Keep the HTTP discovery port private. With password authentication enabled,
+   Trino rejects external query requests over HTTP. Use authenticated HTTPS with a
+   trusted CA for the health check; do not use `curl -k`.
 2. Provision the two dedicated identities shown in the example, with different
-   strong passwords. If other clients use the same Trino service, retain their
-   authentication paths and credentials. Do not reuse an operator account for
-   previews.
+   strong passwords. Do not reuse an operator account for previews.
 3. Integrate the sample password authenticator, access-control, resource-group,
-   and session-property policies with the installation's existing policies.
+   and server-level query budgets with the dedicated coordinator's configuration.
    Trino uses one configuration manager of each type; copying these sample
-   files over existing ones can block other clients. Adapt catalog names and
+   files over existing ones can block clients. Adapt catalog names and
    the matching user-specific catalog rules together; do not grant either
    preview user access to the other environment. The preview catalogs set
    `iceberg.security=READ_ONLY`. Confirm their Nessie refs and storage mapping.
+   Do not install a session-property configuration manager on this coordinator.
 4. Configure the API with the HTTPS endpoint, the two API identity passwords, and
    exact `prod`/`staging` -> catalog/ref mapping. The API enforces small request
    limits and cancels Trino queries when it times out, is disconnected, or
@@ -46,9 +47,17 @@ configured environment refs. Never select a ref with SQL or a session property.
 5. Apply configuration and restart services through the installation's own
    deployment process. This PR starts and restarts no services.
 
-The session-property manager fixes `query.max-scan-physical-bytes` and max
-run/planning times for the preview resource group. System access control denies
-that identity all session-property overrides, and the API sends none. The resource-group
+The coordinator sets `query.max-run-time=20s`, `query.max-planning-time=5s`, and
+`query.max-scan-physical-bytes=256MB`. System access control denies preview
+identities all session-property overrides, and the API sends none. In Trino 483,
+session-property manager defaults undergo the same authorization check as user
+overrides. Combining manager defaults with that denial rejects ordinary queries.
+Server-level defaults avoid this conflict. See Trino's
+[session property manager documentation](https://trino.io/docs/current/admin/session-property-managers.html).
+
+Trino checks elapsed time and reported physical scan bytes periodically. These
+limits do not guarantee a byte-exact object-store or Iceberg-manifest cutoff.
+The resource-group
 `hardPhysicalDataScanLimit` is a per-quota-period admission/queueing quota, not a
 strict per-query object-store or Iceberg-manifest byte ceiling. Trino does not
 provide a hard kill guarantee for that quota once a query is running. The API

@@ -140,6 +140,115 @@ def test_signature_api_requires_recent_verified_mfa(monkeypatch) -> None:
     assert len(authority.signatures("admin-id")) == 1
 
 
+def test_signature_idempotency_replays_only_the_same_actor_and_intent(monkeypatch) -> None:
+    authority = IdentityAuthority(InMemorySettingsService())
+    client = _client(monkeypatch, authority)
+    payload = {
+        "action": "staging.promote",
+        "target_type": "promotion",
+        "target_id": "feature-to-main",
+        "target_version": "source:target:merge-digest",
+        "meaning": "approved",
+        "justification": "Promotion reviewed",
+    }
+    headers = {"Idempotency-Key": "persistent-signature-key"}
+
+    created = client.post("/api/v1/signatures", json=payload, headers=headers)
+    replayed = client.post("/api/v1/signatures", json=payload, headers=headers)
+
+    assert created.status_code == replayed.status_code == 201
+    assert replayed.json()["signature_id"] == created.json()["signature_id"]
+    assert len(authority.signatures("admin-id")) == 1
+
+    request = SignatureRequest(
+        signer_subject="admin-id",
+        meaning=SignatureMeaning.APPROVED,
+        action=payload["action"],
+        record_type=payload["target_type"],
+        record_id=payload["target_id"],
+        record_version=payload["target_version"],
+        justification=payload["justification"],
+    )
+    assert authority.consume_signature(created.json()["signature_id"], request) is True
+    consumed_replay = client.post("/api/v1/signatures", json=payload, headers=headers)
+    assert consumed_replay.json()["signature_id"] == created.json()["signature_id"]
+    assert consumed_replay.json()["consumed_at"] is not None
+
+    changed = client.post(
+        "/api/v1/signatures",
+        json={**payload, "target_version": "different-merge-digest"},
+        headers=headers,
+    )
+    assert changed.status_code == 409
+
+    other_actor = AuthPrincipal(
+        subject="other-admin",
+        principal_type="user",
+        groups=("admin",),
+        claims={"auth_time": time.time(), "amr": ["mfa"]},
+    )
+    other_session = AuthenticatedSession(
+        principal=other_actor,
+        auth_method="bearer_token",
+        provider_name="jwt",
+        attributes={
+            "jwt_issuer": "https://issuer.example",
+            "jwt_audience": "phlo-api",
+            "jwt_issuer_validated": "true",
+            "jwt_audience_validated": "true",
+        },
+    )
+    monkeypatch.setattr(
+        v1_admin_identity,
+        "authenticate_request",
+        lambda _request: AuthResult(
+            authenticated=True, principal=other_actor, session=other_session
+        ),
+    )
+    other = client.post("/api/v1/signatures", json=payload, headers=headers)
+    assert other.status_code == 201
+    assert other.json()["signature_id"] != created.json()["signature_id"]
+
+
+def test_signature_idempotency_does_not_bypass_failed_verification(monkeypatch) -> None:
+    authority = IdentityAuthority(InMemorySettingsService())
+    client = _client(monkeypatch, authority)
+    payload = {
+        "action": "branch.merge",
+        "target_type": "branch",
+        "target_id": "feature",
+        "target_version": "merge-digest",
+        "meaning": "approved",
+        "justification": "Merge reviewed",
+    }
+    headers = {"Idempotency-Key": "merge-signature-key"}
+    created = client.post("/api/v1/signatures", json=payload, headers=headers)
+    assert created.status_code == 201
+
+    unverified_session = AuthenticatedSession(
+        principal=AuthPrincipal(
+            subject="admin-id",
+            principal_type="user",
+            claims={"auth_time": time.time(), "amr": ["mfa"]},
+        ),
+        auth_method="bearer_token",
+        provider_name="static",
+    )
+    monkeypatch.setattr(
+        v1_admin_identity,
+        "authenticate_request",
+        lambda _request: AuthResult(
+            authenticated=True,
+            principal=unverified_session.principal,
+            session=unverified_session,
+        ),
+    )
+
+    rejected = client.post("/api/v1/signatures", json=payload, headers=headers)
+    assert rejected.status_code == 403
+    assert len(authority.signatures("admin-id")) == 1
+
+
 def test_signature_api_rejects_static_sessions_even_with_claims(monkeypatch) -> None:
     authority = IdentityAuthority(InMemorySettingsService())
     client = _client(monkeypatch, authority)

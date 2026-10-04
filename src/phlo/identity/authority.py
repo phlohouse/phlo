@@ -376,6 +376,16 @@ class IdentityAuthority:
 
     def save_signature(self, record: SignatureRecord) -> None:
         """Persist a valid signature bound to its actor, action, target, and version."""
+        self.save_signature_idempotent(record, idempotency_key=None, request_digest=None)
+
+    def save_signature_idempotent(
+        self,
+        record: SignatureRecord,
+        *,
+        idempotency_key: str | None,
+        request_digest: str | None,
+    ) -> SignatureRecord:
+        """Atomically persist or replay a signature for the same actor, key, and intent."""
         if (
             not record.action
             or not record.record_type
@@ -384,16 +394,46 @@ class IdentityAuthority:
             or not record.has_valid_hash()
         ):
             raise ValueError("Signature is incomplete or invalid.")
+        if idempotency_key is not None and (not idempotency_key.strip() or not request_digest):
+            raise ValueError("A request digest is required when using an idempotency key.")
         item = _signature_data(record)
         item["consumed_at"] = None
+        operation_id = (
+            hashlib.sha256(
+                f"signature\0{record.signer_subject}\0{idempotency_key}".encode()
+            ).hexdigest()
+            if idempotency_key is not None
+            else None
+        )
+        result = record
 
         def insert(state: dict[str, Any]) -> dict[str, Any]:
+            nonlocal result
+            if operation_id is not None:
+                prior = state["operations"].get(operation_id)
+                if prior is not None:
+                    if prior["request_digest"] != request_digest:
+                        raise IdentityConflictError(
+                            "Idempotency key was already used for a different signature request."
+                        )
+                    stored = state["signatures"].get(prior["signature_id"])
+                    if stored is None:
+                        raise StorageCorruptionError("Identity authority state is unavailable")
+                    result = _signature_record(stored)
+                    return state
             if record.signature_id in state["signatures"]:
                 raise IdentityConflictError("Signature already exists.")
             state["signatures"][record.signature_id] = item
+            if operation_id is not None:
+                state["operations"][operation_id] = {
+                    "request_digest": request_digest,
+                    "signature_id": record.signature_id,
+                    "completed_at": _timestamp(),
+                }
             return state
 
         self._mutate(insert)
+        return result
 
     def consume_signature(self, signature_id: str, expected: SignatureRequest) -> bool:
         """Atomically match and consume a signature once for an exact action."""

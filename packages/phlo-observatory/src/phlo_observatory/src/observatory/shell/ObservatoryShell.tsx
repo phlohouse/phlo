@@ -36,8 +36,8 @@ import type {
   ObservatoryCapabilities,
   ObservatoryCapabilityPage,
   ObservatoryResourceResult,
-  ObservatoryTable,
 } from '@/observatory/api/types'
+import type { ObservatoryEnvironment } from '@/observatory/api/environment'
 import type { ObservatoryThemeMode } from '@/observatory/shell/theme'
 import {
   Tooltip,
@@ -56,14 +56,16 @@ import {
   getObservatoryCapabilities,
   getObservatoryDatasetRecords,
   getObservatoryGovernanceItems,
-  getObservatoryLogRecords,
   getObservatoryPipelineRecords,
   getObservatoryQualityRecords,
   getObservatoryRunRecords,
   getObservatoryServices,
-  getObservatoryTablePreview,
-  getObservatoryTableRecords,
 } from '@/observatory/api/resources'
+import { getSelectedV1RunLogRecords } from '@/observatory/api/logsV1'
+import {
+  selectEnvironment,
+  selectedEnvironment,
+} from '@/observatory/api/environment'
 import { loadCachedResource } from '@/observatory/routes/liveResource'
 
 const ObservatoryCommandPalette = lazy(() =>
@@ -171,7 +173,6 @@ const navGroupDefinitions = [
   sections: Array<{ label?: string; ids: Array<string> }>
 }>
 
-const warmPreviewLimit = 100
 const platformTrustPageIds = new Set([
   'extensions',
   'storage',
@@ -214,7 +215,7 @@ const navSubtitleByPageId: Record<string, string> = {
   workspace: 'Authored resources and project objects.',
   recents: 'Recently visited Observatory resources.',
   queries: 'Saved SQL and read-only query workspace.',
-  'query-history': 'Browser-local query execution evidence.',
+  'query-history': 'Shared history is unavailable from the current API.',
   ingestion: 'Source onboarding, freshness, and next actions.',
   services: 'Runtime services and stack status.',
   operations: 'Failed work, recovery evidence, and next actions.',
@@ -258,6 +259,9 @@ function useObservatoryShell({ children }: { children: ReactNode }) {
   })
   const [searchOpen, setSearchOpen] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [environment, setEnvironment] = useState<ObservatoryEnvironment | null>(
+    null,
+  )
   const [{ hydrated, systemPrefersDark, themeMode }, setThemeState] = useState({
     hydrated: false,
     systemPrefersDark: false,
@@ -294,6 +298,7 @@ function useObservatoryShell({ children }: { children: ReactNode }) {
       systemPrefersDark: media?.matches ?? false,
       themeMode: readObservatoryThemeMode(window.localStorage),
     })
+    setEnvironment(selectedEnvironment())
     if (!media) return
 
     const update = () =>
@@ -406,6 +411,24 @@ function useObservatoryShell({ children }: { children: ReactNode }) {
             className="phlo-observatory-nav-actions"
             style={{ borderLeft: 0, paddingLeft: 0 }}
           >
+            <label className="phlo-observatory-nav-link">
+              <span className="sr-only">Environment</span>
+              <select
+                aria-label="Environment"
+                onChange={(event) => {
+                  const next = event.target.value as ObservatoryEnvironment
+                  selectEnvironment(next)
+                  setEnvironment(next)
+                }}
+                value={environment ?? ''}
+              >
+                <option disabled value="">
+                  Select environment
+                </option>
+                <option value="prod">Production</option>
+                <option value="staging">Staging</option>
+              </select>
+            </label>
             <button
               aria-expanded={mobileNavOpen}
               aria-label={
@@ -483,7 +506,22 @@ function useObservatoryShell({ children }: { children: ReactNode }) {
             pathname={pathname}
           />
           <section className="phlo-observatory-sheet">
-            {pagePending ? (
+            {environment === null ? (
+              <section aria-live="polite" className="phlo-observatory-content">
+                <header className="phlo-observatory-section-header">
+                  <div>
+                    <div className="phlo-observatory-kicker">Environment</div>
+                    <h1 className="phlo-observatory-title">
+                      Select an environment
+                    </h1>
+                    <p className="phlo-observatory-subtitle">
+                      Choose Production or Staging to load environment-scoped
+                      data. No environment has been selected.
+                    </p>
+                  </div>
+                </header>
+              </section>
+            ) : pagePending ? (
               <PendingCapabilityPage />
             ) : pageUnavailable ? (
               <UnavailablePage page={activePage} />
@@ -732,11 +770,6 @@ function warmRouteResources(capabilities: ObservatoryCapabilities | null) {
   void loadCachedResource('observatory:services', getObservatoryServices, {
     staleMs: 120_000,
   })
-  if (features.tables) {
-    void loadCachedResource('observatory:tables', getObservatoryTableRecords, {
-      staleMs: 120_000,
-    }).then((result) => warmDefaultTablePreview(result.data ?? []))
-  }
   if (features.lineage) {
     void loadCachedResource('observatory:assets', getObservatoryAssetRecords, {
       staleMs: 120_000,
@@ -757,9 +790,11 @@ function warmRouteResources(capabilities: ObservatoryCapabilities | null) {
     )
   }
   if (features.logs) {
-    void loadCachedResource('observatory:logs', getObservatoryLogRecords, {
-      staleMs: 120_000,
-    })
+    void loadCachedResource(
+      'observatory:run-logs',
+      getSelectedV1RunLogRecords,
+      { staleMs: 120_000 },
+    )
   }
   if (features.datasets || features.publishing) {
     void loadCachedResource(
@@ -788,53 +823,6 @@ function warmRouteResources(capabilities: ObservatoryCapabilities | null) {
       },
     )
   }
-}
-
-function warmDefaultTablePreview(tables: Array<ObservatoryTable>) {
-  const table = choosePreviewTable(tables)
-  if (!table) return
-  void loadCachedResource(
-    `observatory:table-preview:${table.id}:${warmPreviewLimit}:0:0`,
-    () =>
-      getObservatoryTablePreview({
-        data: { tableId: table.id, limit: warmPreviewLimit, offset: 0 },
-      }),
-    { staleMs: 120_000 },
-  )
-}
-
-function choosePreviewTable(
-  tables: Array<ObservatoryTable>,
-): ObservatoryTable | null {
-  return (
-    tables.find((table) => isQueryableTable(table) && hasRowCount(table)) ??
-    tables.find(
-      (table) => isQueryableTable(table) && tableLane(table) === 'silver',
-    ) ??
-    tables.find(isQueryableTable) ??
-    tables.find((table) => tableLane(table) === 'silver') ??
-    tables[0] ??
-    null
-  )
-}
-
-function isQueryableTable(table: ObservatoryTable): boolean {
-  const state = table.metadata.catalog_state
-  if (state === 'queryable') return true
-  if (state === 'model_only') return false
-  return table.metadata.catalog_present === true
-}
-
-function hasRowCount(table: ObservatoryTable): boolean {
-  return (
-    table.metadata.rows !== undefined ||
-    table.metadata.records !== undefined ||
-    table.metadata.row_count !== undefined
-  )
-}
-
-function tableLane(table: ObservatoryTable): string {
-  return String(table.namespace ?? table.schema_name ?? '').toLowerCase()
 }
 
 function PendingCapabilityPage() {

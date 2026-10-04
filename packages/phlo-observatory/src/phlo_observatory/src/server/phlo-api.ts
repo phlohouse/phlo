@@ -11,6 +11,7 @@ type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 interface RequestOptions {
   authorization?: string
+  headers?: HeadersInit
   method?: HttpMethod
   params?: Record<string, string | number | boolean | undefined>
   body?: unknown
@@ -46,8 +47,11 @@ async function request<T>(
     }
   }
 
-  const headers = new Headers()
-  const hasHeaders = Boolean(authorization) || body !== undefined
+  const headers = new Headers(options.headers)
+  const hasHeaders =
+    Boolean(authorization) ||
+    body !== undefined ||
+    [...headers.keys()].length > 0
   if (authorization !== undefined) {
     // Never forward a header-injection vector. A credential containing a
     // line break is malformed, not "credential-like"; reject it outright.
@@ -93,12 +97,14 @@ export async function apiPost<T>(
   body?: unknown,
   timeoutMs = 30000,
   authorization?: string,
+  headers?: HeadersInit,
 ): Promise<T> {
   return request<T>(endpoint, {
     method: 'POST',
     body,
     timeoutMs,
     authorization,
+    headers,
   })
 }
 

@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 200,
+  "endpoint_count": 205,
   "endpoints": [
     {
       "method": "GET",
@@ -1746,6 +1746,51 @@
       "summary": "V1 Sources",
       "tags": [
         "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_staging_promotions_api_v1_staging_promotions_get",
+      "path": "/api/v1/staging/promotions",
+      "summary": "V1 Staging Promotions",
+      "tags": [
+        "v1 staging"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_staging_promote_api_v1_staging_promotions_post",
+      "path": "/api/v1/staging/promotions",
+      "summary": "V1 Staging Promote",
+      "tags": [
+        "v1 staging"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_staging_candidate_api_v1_staging_promotions_candidate_get",
+      "path": "/api/v1/staging/promotions/candidate",
+      "summary": "V1 Staging Candidate",
+      "tags": [
+        "v1 staging"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_staging_checks_api_v1_staging_promotions_candidate_checks_post",
+      "path": "/api/v1/staging/promotions/candidate/checks",
+      "summary": "V1 Staging Checks",
+      "tags": [
+        "v1 staging"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_staging_resync_api_v1_staging_resync_post",
+      "path": "/api/v1/staging/resync",
+      "summary": "V1 Staging Resync",
+      "tags": [
+        "v1 staging"
       ]
     },
     {

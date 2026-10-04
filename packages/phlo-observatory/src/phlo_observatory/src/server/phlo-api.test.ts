@@ -24,7 +24,7 @@ function mockFetch(status: number, body: unknown) {
     text: () => Promise.resolve(JSON.stringify(body)),
     json: () => Promise.resolve(body),
   })
-  globalThis.fetch = fetchMock as unknown as typeof fetch
+  globalThis.fetch = fetchMock
   return fetchMock
 }
 
@@ -43,6 +43,24 @@ describe('phlo-api server transport', () => {
       'Bearer token-1',
     )
     expect(init.body).toContain('action_id')
+  })
+
+  it('forwards idempotency headers on POST', async () => {
+    const fetchMock = mockFetch(201, { id: 'saved-query-1' })
+    await apiPost(
+      '/api/v1/queries/saved?env=prod',
+      { env: 'prod', name: 'Orders', sql: 'SELECT 1' },
+      8000,
+      'Bearer token-5',
+      { 'Idempotency-Key': 'saved-query-create-1' },
+    )
+    const [_url, init] = fetchMock.mock.calls[0]
+    expect(new Headers(init.headers).get('idempotency-key')).toBe(
+      'saved-query-create-1',
+    )
+    expect(new Headers(init.headers).get('authorization')).toBe(
+      'Bearer token-5',
+    )
   })
 
   it('forwards a bearer credential on PUT', async () => {

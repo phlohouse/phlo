@@ -1,90 +1,182 @@
 /**
- * /workspace route. Live resource counts across datasets, tables, pipelines,
- * branches, and saved queries as a landing index.
+ * /workspace route. Environment-scoped v1 inventory for supported resources.
  */
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Boxes, Database, FileCode2, GitBranch, Workflow } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 
+import { getBranchReferences } from '@/observatory/api/branches'
 import {
-  getObservatoryBranchRecords,
-  getObservatoryDatasetRecords,
-  getObservatoryPipelineRecords,
-  getObservatorySavedQueries,
-  getObservatoryTableRecords,
-} from '@/observatory/api/resources'
+  environmentChangeEvent,
+  selectedEnvironment,
+} from '@/observatory/api/environment'
+import { getV1PipelineSnapshot } from '@/observatory/api/pipelinesV1'
+import { getV1AssetsPage } from '@/observatory/api/tablesV1'
+import { getSavedQueries } from '@/observatory/api/trino'
 import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { useLiveResource } from '@/observatory/routes/liveResource'
 
 export const Route = createFileRoute('/workspace')({ component: Workspace })
 
+type WorkspaceLoad<T> = { data: Array<T> | null; error: string | null }
+const environmentRequired = {
+  data: null,
+  error: 'Select prod or staging before loading environment-scoped inventory.',
+}
+
+function knownCount<T>(
+  result: WorkspaceLoad<T>,
+  count: (data: Array<T>) => number = (data) => data.length,
+): number | null | undefined {
+  if (result.error) return null
+  return result.data ? count(result.data) : undefined
+}
+
 export function Workspace() {
-  const datasets = useLiveResource(
-    getObservatoryDatasetRecords,
-    60_000,
-    'observatory:datasets',
+  const [environment, setEnvironment] = useState(selectedEnvironment)
+
+  useEffect(() => {
+    const update = () => setEnvironment(selectedEnvironment())
+    window.addEventListener(environmentChangeEvent(), update)
+    return () => window.removeEventListener(environmentChangeEvent(), update)
+  }, [])
+
+  const loadTables = useCallback(
+    () =>
+      environment
+        ? getV1AssetsPage({ data: { environment, cursor: null } }).then(
+            (result) =>
+              result.kind === 'available'
+                ? result.data.next_cursor === null
+                  ? { data: result.data.items, error: null }
+                  : {
+                      data: null,
+                      error:
+                        'Table inventory spans multiple pages; the total count is unavailable.',
+                    }
+                : { data: null, error: result.message },
+          )
+        : Promise.resolve(environmentRequired),
+    [environment],
   )
   const tables = useLiveResource(
-    getObservatoryTableRecords,
+    loadTables,
     60_000,
-    'observatory:tables',
+    `observatory:workspace:tables:${environment ?? 'unselected'}`,
+  )
+  const loadPipelines = useCallback(
+    () =>
+      environment
+        ? getV1PipelineSnapshot({ data: { environment } }).then((result) => ({
+            data: result.data === null ? null : [result.data],
+            error: result.error,
+          }))
+        : Promise.resolve(environmentRequired),
+    [environment],
   )
   const pipelines = useLiveResource(
-    getObservatoryPipelineRecords,
+    loadPipelines,
     60_000,
-    'observatory:pipelines',
+    `observatory:workspace:pipelines:${environment ?? 'unselected'}`,
+  )
+  const loadBranches = useCallback(
+    () =>
+      environment
+        ? getBranchReferences({ data: { env: environment } }).then((result) =>
+            result.kind === 'available'
+              ? { data: result.data, error: null }
+              : { data: null, error: result.message },
+          )
+        : Promise.resolve(environmentRequired),
+    [environment],
   )
   const branches = useLiveResource(
-    getObservatoryBranchRecords,
+    loadBranches,
     60_000,
-    'observatory:branches',
+    `observatory:workspace:branches:${environment ?? 'unselected'}`,
+  )
+  const loadQueries = useCallback(
+    () =>
+      environment
+        ? getSavedQueries({ data: { environment } })
+            .then((data) =>
+              data.every((query) => query.env === environment)
+                ? { data, error: null }
+                : {
+                    data: null,
+                    error:
+                      'phlo-api returned saved queries for another environment.',
+                  },
+            )
+            .catch((error: unknown) => ({
+              data: null,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Saved queries are unavailable.',
+            }))
+        : Promise.resolve(environmentRequired),
+    [environment],
   )
   const queries = useLiveResource(
-    getObservatorySavedQueries,
+    loadQueries,
     30_000,
-    'observatory:saved-queries',
+    `observatory:workspace:saved-queries:${environment ?? 'unselected'}`,
   )
-  const loading = [datasets, tables, pipelines, branches, queries].some(
+  const loading = [tables, pipelines, branches, queries].some(
     (item) => item.isLoading,
   )
 
   const resources = [
     {
       label: 'Datasets',
-      detail: 'Governed and candidate data products',
-      count: datasets.data?.length ?? 0,
+      detail: 'Dataset contract unavailable.',
+      count: null,
       href: '/datasets',
       icon: Boxes,
     },
     {
       label: 'Tables',
-      detail: 'Queryable physical inventory',
-      count: tables.data?.length ?? 0,
+      detail: tables.error ?? 'Queryable physical inventory',
+      count: knownCount(tables),
       href: '/tables',
       icon: Database,
     },
     {
       label: 'Pipelines',
-      detail: 'Dataset refresh and stage definitions',
-      count: pipelines.data?.length ?? 0,
+      detail: pipelines.error ?? 'Jobs, schedules, and recent run evidence',
+      count: knownCount(
+        pipelines,
+        (snapshots) => snapshots[0]?.jobs.items.length ?? 0,
+      ),
       href: '/pipelines',
       icon: Workflow,
     },
     {
       label: 'Saved queries',
-      detail: 'Read-only SQL workspace objects',
-      count: queries.data?.length ?? 0,
+      detail: queries.error ?? 'Read-only SQL workspace objects',
+      count: knownCount(queries),
       href: '/queries',
       icon: FileCode2,
     },
     {
       label: 'Change reviews',
-      detail: 'Branches and proposed lakehouse changes',
-      count: branches.data?.length ?? 0,
+      detail: branches.error ?? 'Branches and proposed lakehouse changes',
+      count: knownCount(
+        branches,
+        (references) =>
+          references.filter((reference) => reference.type === 'BRANCH').length,
+      ),
       href: '/branches',
       icon: GitBranch,
     },
   ]
-  const total = resources.reduce((sum, item) => sum + item.count, 0)
+  const total = resources.every(
+    (resource): resource is (typeof resources)[number] & { count: number } =>
+      typeof resource.count === 'number',
+  )
+    ? resources.reduce((sum, resource) => sum + resource.count, 0)
+    : null
 
   return (
     <ObservatoryPage
@@ -93,7 +185,13 @@ export function Workspace() {
       description="Authored project resources, governed objects, and active change surfaces available through the current Phlo project."
       action={
         <span className="phlo-observatory-pill">
-          {loading ? 'Loading' : `${total} objects`}
+          {!environment
+            ? 'Select an environment'
+            : loading
+              ? 'Loading'
+              : total === null
+                ? 'Inventory incomplete'
+                : `${total} objects reported`}
         </span>
       }
     >
@@ -104,8 +202,8 @@ export function Workspace() {
               <FolderTitle />
               Project inventory
             </span>
-            <Link className="phlo-observatory-map-action" to="/workflows/new">
-              Create workflow
+            <Link className="phlo-observatory-map-action" to="/pipelines">
+              Open pipelines
             </Link>
           </div>
           <div className="phlo-observatory-workspace-object-grid">
@@ -122,7 +220,13 @@ export function Workspace() {
                     <strong>{resource.label}</strong>
                     <small>{resource.detail}</small>
                   </span>
-                  <strong>{loading ? '—' : resource.count}</strong>
+                  <strong>
+                    {resource.count === null
+                      ? 'Unavailable'
+                      : loading || resource.count === undefined
+                        ? '—'
+                        : resource.count}
+                  </strong>
                 </Link>
               )
             })}
@@ -141,7 +245,7 @@ export function Workspace() {
           <div className="phlo-observatory-detail-list">
             <div className="phlo-observatory-mini-row">
               <span>Next action</span>
-              <small>Create or inspect an authored workflow</small>
+              <small>Inspect environment-scoped pipeline jobs</small>
             </div>
             <div className="phlo-observatory-mini-row">
               <span>Runtime evidence</span>

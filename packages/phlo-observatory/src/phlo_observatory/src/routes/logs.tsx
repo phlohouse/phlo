@@ -1,33 +1,19 @@
-/**
- * /logs route. Log explorer with facet-driven level, source, and query
- * filtering; all view state lives in a single reducer.
- */
+/** /logs route. Run-event explorer with level, source, and query filtering. */
 import { createFileRoute } from '@tanstack/react-router'
 import { AlertCircle, FileText, Radio, Search, Terminal } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useReducer } from 'react'
 
-import type {
-  ObservatoryLogEvent,
-  ObservatoryLogFacets,
-  ObservatoryResourceResult,
-} from '@/observatory/api/types'
-import {
-  getObservatoryLogFacets,
-  getObservatoryLogRecords,
-} from '@/observatory/api/resources'
+import type { ObservatoryLogEvent } from '@/observatory/api/types'
+import { getSelectedV1RunLogRecords } from '@/observatory/api/logsV1'
 import { ObservatoryPage } from '@/observatory/components/ObservatoryPage'
 import { platformMetadataRows } from '@/observatory/platformMetadata'
-import {
-  loadCachedResource,
-  useLiveResource,
-} from '@/observatory/routes/liveResource'
+import { useLiveResource } from '@/observatory/routes/liveResource'
 
 export const Route = createFileRoute('/logs')({
   component: Logs,
 })
 
 type LogsState = {
-  facets: ObservatoryResourceResult<ObservatoryLogFacets>
   level: string
   query: string
   selectedId: string | null
@@ -35,7 +21,6 @@ type LogsState = {
 }
 
 type LogsAction =
-  | { type: 'facets'; facets: ObservatoryResourceResult<ObservatoryLogFacets> }
   | { type: 'level'; level: string }
   | { type: 'query'; query: string }
   | { type: 'selected'; selectedId: string | null }
@@ -43,8 +28,6 @@ type LogsAction =
 
 function logsReducer(state: LogsState, action: LogsAction): LogsState {
   switch (action.type) {
-    case 'facets':
-      return { ...state, facets: action.facets }
     case 'level':
       return { ...state, level: action.level }
     case 'query':
@@ -58,26 +41,16 @@ function logsReducer(state: LogsState, action: LogsAction): LogsState {
 
 export function Logs() {
   const result = useLiveResource(
-    getObservatoryLogRecords,
+    getSelectedV1RunLogRecords,
     120_000,
     'observatory:logs',
   )
   const rawLogs = result.data ?? []
   const logs = useMemo(() => collapseRepeatedLogs(rawLogs), [rawLogs])
   const isLoading = result.isLoading
-  const [{ facets, level, query, selectedId, source }, dispatch] = useReducer(
+  const [{ level, query, selectedId, source }, dispatch] = useReducer(
     logsReducer,
-    {
-      data: null,
-      error: null,
-    },
-    (initialFacets): LogsState => ({
-      facets: initialFacets,
-      level: 'all',
-      query: '',
-      selectedId: null,
-      source: 'all',
-    }),
+    { level: 'all', query: '', selectedId: null, source: 'all' },
   )
   const sources = new Set(logs.map((log) => log.source ?? 'platform'))
   const levels = new Set(logs.map((log) => log.level))
@@ -103,12 +76,6 @@ export function Logs() {
   }, [])
 
   useEffect(() => {
-    void loadCachedResource('observatory:log-facets', getObservatoryLogFacets, {
-      staleMs: 120_000,
-    }).then((nextFacets) => dispatch({ type: 'facets', facets: nextFacets }))
-  }, [])
-
-  useEffect(() => {
     if (typeof window === 'undefined') return
     const requested = new URLSearchParams(window.location.search).get('logId')
     if (!requested || requested === selectedId) return
@@ -121,7 +88,7 @@ export function Logs() {
     <ObservatoryPage
       kicker="Logs"
       title="Evidence console"
-      description="Triage platform events, inspect structured payloads, and jump back to the affected target."
+      description="Inspect recent run events from the selected environment. Global platform logs and facets are not available in the v1 contract."
       action={
         <span className="phlo-observatory-pill">
           {isLoading ? 'Loading' : `${sources.size} sources`}
@@ -221,7 +188,7 @@ export function Logs() {
             ))}
             {isLoading ? (
               <div className="phlo-observatory-empty-state">
-                Reading live platform event evidence.
+                Reading recent run event evidence.
               </div>
             ) : (
               filtered.length === 0 && (
@@ -289,23 +256,19 @@ export function Logs() {
               <h2>{isLoading ? 'Loading evidence' : 'No events'}</h2>
               <p>
                 {isLoading
-                  ? 'Reading live platform events and structured log fields.'
-                  : 'Logs will appear here as Phlo and stack services emit events.'}
+                  ? 'Reading recent run events from the selected environment.'
+                  : 'No run events were returned for the selected environment.'}
               </p>
             </>
           )}
           <div className="phlo-observatory-detail-list">
             <div className="phlo-observatory-mini-row">
-              <span>Facets</span>
+              <span>Loaded fields</span>
               <small>
-                {sources.size} sources · {levels.size} levels ·{' '}
-                {facets.data?.resources.length ?? 0} targets
+                {sources.size} run source · {levels.size} event types
               </small>
             </div>
           </div>
-          {facets.error && (
-            <div className="phlo-observatory-panel-footer">{facets.error}</div>
-          )}
           {result.error && (
             <div className="phlo-observatory-panel-footer">{result.error}</div>
           )}
@@ -327,6 +290,9 @@ function routeHrefForResource(
   }
   if (resource.kind === 'table') {
     return `/tables?tableId=${encodeURIComponent(resource.id)}`
+  }
+  if (resource.kind === 'run') {
+    return `/runs?runId=${encodeURIComponent(resource.id)}`
   }
   return null
 }

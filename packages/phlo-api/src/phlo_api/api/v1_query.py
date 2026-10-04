@@ -501,7 +501,10 @@ async def v1_query_cancel(query_id: str, request: Request, env: Environment) -> 
     return _query_view(session)
 
 
-@router.get("/queries/{query_id}/csv")
+@router.get(
+    "/queries/{query_id}/csv",
+    responses={200: {"content": {"text/csv": {"schema": {"type": "string"}}}}},
+)
 async def v1_query_csv(query_id: str, request: Request, env: Environment) -> Response:
     session = _session_for_actor(query_id, request, env)
     if session.status != "completed" or session.result is None:
