@@ -24,6 +24,13 @@ def test_parse_compose_port_with_env_var() -> None:
     assert container_port == "5432"
 
 
+def test_parse_compose_port_with_bind_address_and_env_var() -> None:
+    spec = ports_module._parse_compose_port_spec("127.0.0.1:${POSTGRES_PORT:-10000}:5432")
+    assert spec.env_var == "POSTGRES_PORT"
+    assert spec.host_port == "10000"
+    assert spec.container_port == "5432"
+
+
 def test_parse_compose_port_with_default_only() -> None:
     env_var, container_port = ports_module._parse_compose_port("${POSTGRES_PORT}:5432")
     assert env_var == "POSTGRES_PORT"

@@ -72,9 +72,10 @@ def project(tmp_path: Path) -> Path:
             ".phlo/.env.local",
             "POSTGRES_PASSWORD=postgres-independent-secret\n"
             "MINIO_ROOT_PASSWORD=minio-independent-secret\n"
-            "PHLO_AUTH_JWT_SECRET=jwt-secret-value\n"
+            "PHLO_AUTHENTICATION_PROVIDER=jwt\n"
             "PHLO_AUTH_JWT_ISSUER=https://issuer.example\n"
             "PHLO_AUTH_JWT_AUDIENCE=phlo-api\n"
+            "PHLO_AUTH_JWT_JWKS_URL=https://issuer.example/.well-known/jwks.json\n"
             "PHLO_AUDIT_HMAC_KEY=audit-key-value\n"
             "PHLO_SIGNATURE_HMAC_KEY=signature-key-value\n",
         ),

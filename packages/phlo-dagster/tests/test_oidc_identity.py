@@ -83,6 +83,40 @@ def test_unknown_kids_refresh_once_then_global_cooldown(monkeypatch) -> None:
     assert fetches == 2
 
 
+def test_shared_verifier_accepts_access_token_without_optional_nbf(monkeypatch) -> None:
+    private_key, jwks = key_and_jwks()
+    _configure(monkeypatch)
+    monkeypatch.setattr(
+        "phlo_dagster.oidc_identity.httpx.stream",
+        lambda *_args, **_kwargs: JWKSResponse(jwks),
+    )
+
+    principal = OIDCIdentityValidator().validate(token(private_key, omit_claims={"nbf"}))
+
+    assert principal is not None
+    assert principal.subject == "viewer@example.com"
+
+
+def test_shared_verifier_rejects_invalid_signature_and_required_claims(monkeypatch) -> None:
+    private_key, jwks = key_and_jwks()
+    wrong_key, _ = key_and_jwks()
+    _configure(monkeypatch)
+    monkeypatch.setattr(
+        "phlo_dagster.oidc_identity.httpx.stream",
+        lambda *_args, **_kwargs: JWKSResponse(jwks),
+    )
+    validator = OIDCIdentityValidator()
+    invalid_tokens = (
+        token(private_key, issuer="https://wrong-issuer.test"),
+        token(private_key, audience="wrong-audience"),
+        token(private_key, expires_in=-60),
+        token(private_key, omit_claims={"sub"}),
+        token(wrong_key),
+    )
+
+    assert all(validator.validate(value) is None for value in invalid_tokens)
+
+
 def test_unknown_kid_refreshes_for_key_rotation(monkeypatch) -> None:
     private_a, jwks_a = key_and_jwks()
     private_b, _ = key_and_jwks()

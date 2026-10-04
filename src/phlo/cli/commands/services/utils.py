@@ -734,9 +734,26 @@ def get_profile_service_names(profile_names: tuple[str, ...]) -> list[str]:
     return service_names
 
 
+def inline_service_definitions(config: dict | None) -> list[ServiceDefinition]:
+    """Return inline services declared in the project's ``services`` mapping."""
+    services_config = config.get("services", {}) if isinstance(config, dict) else {}
+    if not isinstance(services_config, dict):
+        return []
+
+    return [
+        ServiceDefinition.from_inline(name, service_config)
+        for name, service_config in services_config.items()
+        if isinstance(name, str)
+        and isinstance(service_config, dict)
+        and service_config.get("type") == "inline"
+    ]
+
+
 def expand_service_dependencies(
     discovery: ServiceDiscovery,
     services: list[ServiceDefinition],
+    *,
+    additional_services: list[ServiceDefinition] | None = None,
 ) -> list[ServiceDefinition]:
     """Expand a list of services with their transitive dependencies and setup companions.
 
@@ -745,9 +762,13 @@ def expand_service_dependencies(
     if not services:
         return []
 
-    all_services = list(discovery.discover().values())
+    all_services = {
+        **discovery.discover(),
+        **{service.name: service for service in additional_services or []},
+        **{service.name: service for service in services},
+    }
     return ServiceManifestResolver.expand_dependencies(
-        all_services,
+        list(all_services.values()),
         [service.name for service in services],
     )
 

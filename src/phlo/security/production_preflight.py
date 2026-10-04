@@ -429,13 +429,12 @@ def _check_http_authorization_required(context: _CheckContext) -> ProductionRead
             remediation="Disable the development authentication bypass for production.",
             source=source,
         )
-    shared_secret = bool(effective_env.get(_AUTH_JWT_SECRET_ENV))
     issuer_audience_jwks = bool(
         effective_env.get(_AUTH_JWT_ISSUER_ENV)
         and effective_env.get(_AUTH_JWT_AUDIENCE_ENV)
         and effective_env.get(_AUTH_JWT_JWKS_URL_ENV)
     )
-    has_verified_path = shared_secret or issuer_audience_jwks
+    has_verified_path = issuer_audience_jwks
     if has_verified_path:
         return ProductionReadinessCheck(
             id=ProductionReadinessCheckId.HTTP_AUTHORIZATION_REQUIRED,
@@ -456,15 +455,15 @@ def _check_http_authorization_required(context: _CheckContext) -> ProductionRead
 def _check_authn_provider(context: _CheckContext) -> ProductionReadinessCheck:
     source = "effective environment"
     effective_env = context["effective_env"]
-    secret = effective_env.get(_AUTH_JWT_SECRET_ENV, "")
     issuer = effective_env.get(_AUTH_JWT_ISSUER_ENV, "")
     audience = effective_env.get(_AUTH_JWT_AUDIENCE_ENV, "")
-    configured = [bool(secret), bool(issuer), bool(audience)]
+    jwks_url = effective_env.get(_AUTH_JWT_JWKS_URL_ENV, "")
+    configured = [bool(issuer), bool(audience), bool(jwks_url)]
     if all(configured):
         return ProductionReadinessCheck(
             id=ProductionReadinessCheckId.AUTHN_PROVIDER,
             state=ProductionReadinessState.PASSED,
-            message="a verified JWT authentication provider is configured",
+            message="a verified OIDC/JWKS authentication provider is configured",
             remediation="",
             source=source,
         )
@@ -473,10 +472,10 @@ def _check_authn_provider(context: _CheckContext) -> ProductionReadinessCheck:
             id=ProductionReadinessCheckId.AUTHN_PROVIDER,
             state=ProductionReadinessState.FAILED,
             message=(
-                "the JWT authentication provider is partially configured; "
-                "secret, issuer, and audience must all be set"
+                "the JWT/OIDC authentication provider is partially configured; "
+                "issuer, audience, and JWKS URL must all be set"
             ),
-            remediation=f"Set {_AUTH_JWT_SECRET_ENV}, {_AUTH_JWT_ISSUER_ENV}, and {_AUTH_JWT_AUDIENCE_ENV} together.",
+            remediation=f"Set {_AUTH_JWT_ISSUER_ENV}, {_AUTH_JWT_AUDIENCE_ENV}, and {_AUTH_JWT_JWKS_URL_ENV} together.",
             source=source,
         )
     proxy_only = any(
@@ -490,14 +489,14 @@ def _check_authn_provider(context: _CheckContext) -> ProductionReadinessCheck:
             id=ProductionReadinessCheckId.AUTHN_PROVIDER,
             state=ProductionReadinessState.FAILED,
             message="only development proxy/static authentication is configured",
-            remediation="Configure the verified JWT provider (issuer, audience, and secret or JWKS).",
+            remediation="Configure the verified JWT provider (issuer, audience, and JWKS URL).",
             source=source,
         )
     return ProductionReadinessCheck(
         id=ProductionReadinessCheckId.AUTHN_PROVIDER,
         state=ProductionReadinessState.FAILED,
         message="no production authentication provider is configured",
-        remediation="Configure the verified JWT provider (issuer, audience, and secret or JWKS).",
+        remediation="Configure the verified JWT provider (issuer, audience, and JWKS URL).",
         source=source,
     )
 
@@ -611,9 +610,7 @@ def _check_oidc_issuer_audience_jwks(context: _CheckContext) -> ProductionReadin
     issuer = effective_env.get(_AUTH_JWT_ISSUER_ENV, "").strip()
     audience = effective_env.get(_AUTH_JWT_AUDIENCE_ENV, "").strip()
     jwks_url = effective_env.get(_AUTH_JWT_JWKS_URL_ENV, "").strip()
-    secret = effective_env.get(_AUTH_JWT_SECRET_ENV, "").strip()
-    verification_material = bool(jwks_url) or bool(secret)
-    if issuer and audience and verification_material:
+    if issuer and audience and jwks_url:
         return ProductionReadinessCheck(
             id=ProductionReadinessCheckId.OIDC_ISSUER_AUDIENCE_JWKS,
             state=ProductionReadinessState.PASSED,
@@ -632,8 +629,8 @@ def _check_oidc_issuer_audience_jwks(context: _CheckContext) -> ProductionReadin
     return ProductionReadinessCheck(
         id=ProductionReadinessCheckId.OIDC_ISSUER_AUDIENCE_JWKS,
         state=ProductionReadinessState.FAILED,
-        message="OIDC verification material (JWKS URL or shared secret) is not configured",
-        remediation=f"Set {_AUTH_JWT_JWKS_URL_ENV} or {_AUTH_JWT_SECRET_ENV}.",
+        message="OIDC JWKS verification URL is not configured",
+        remediation=f"Set {_AUTH_JWT_JWKS_URL_ENV}.",
         source=source,
     )
 

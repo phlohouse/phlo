@@ -26,7 +26,7 @@ from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
 
 logger = get_logger(__name__)
 
-PORT_PATTERN = re.compile(r"\$\{([^}:]+)(?::-([^}]*))?\}:(\d+)")
+PORT_PATTERN = re.compile(r"(?:[^:]+:)?\$\{([^}:]+)(?::-([^}]*))?\}:(\d+)")
 DEFAULT_PORT_PATTERN = re.compile(r"\$\{([^}:]+):-(\d+)\}")
 
 

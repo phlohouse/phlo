@@ -49,9 +49,17 @@ _PRODUCTION_PASSWORD_DEFAULTS = {
 def _expand_selected_services(
     discovery: ServiceDiscovery,
     services: list[ServiceDefinition],
+    *,
+    additional_services: list[ServiceDefinition] | None = None,
 ) -> list[ServiceDefinition]:
     """Expand selected services with declared dependencies and setup companions."""
-    return expand_service_dependencies(discovery, services)
+    if not additional_services:
+        return expand_service_dependencies(discovery, services)
+    return expand_service_dependencies(
+        discovery,
+        services,
+        additional_services=additional_services,
+    )
 
 
 def _is_uninitialized_phlo_dir(phlo_dir: Path) -> bool:
@@ -410,7 +418,11 @@ def init_cmd(  # noqa: C901
     deduped_services: dict[str, ServiceDefinition] = {}
     for service in [*selection_plan.selected_services, *inline_services]:
         deduped_services[service.name] = service
-    services_to_install = _expand_selected_services(discovery, list(deduped_services.values()))
+    services_to_install = _expand_selected_services(
+        discovery,
+        list(deduped_services.values()),
+        additional_services=inline_services,
+    )
     _warn_secret_env_overrides(env_overrides, services_to_install)
 
     # Generate docker-compose.yml
