@@ -4,11 +4,11 @@
 
 ## Contract
 
-The API reports version `0.1.0` in OpenAPI. Paths do not use a version prefix. Treat the API as alpha because the support manifest marks the current release as alpha.
+The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongside unchanged legacy paths. Treat the API as alpha because the support manifest marks the current release as alpha.
 
-`/health` is public. The security manifest classifies every other route as protected. Authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
+`/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (107)
+## Endpoints (111)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -118,4 +118,8 @@ The API reports version `0.1.0` in OpenAPI. Paths do not use a version prefix. T
 | `GET` | `/api/registry` | Get Registry | none |
 | `GET` | `/api/services` | Get Services | none |
 | `GET` | `/api/services/{name}` | Get Service Info | none |
+| `GET` | `/api/v1/environments` | V1 Environments | `v1` |
+| `GET` | `/api/v1/events` | V1 Events | `v1` |
+| `GET` | `/api/v1/me` | V1 Me | `v1` |
+| `GET` | `/api/v1/services` | V1 Services | `v1` |
 | `GET` | `/health` | Health | none |
