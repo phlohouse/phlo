@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (186)
+## Endpoints (200)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -146,6 +146,18 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/assets/{asset_id}/query-usage` | V1 Asset Query Usage | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/runs` | V1 Asset Runs | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/usage` | V1 Asset Usage | `v1 assets` |
+| `GET` | `/api/v1/branches` | V1 Branches | `v1 branches` |
+| `POST` | `/api/v1/branches` | V1 Branch Create | `v1 branches` |
+| `GET` | `/api/v1/branches/refs` | V1 Branch Refs | `v1 branches` |
+| `DELETE` | `/api/v1/branches/{branch_name}` | V1 Branch Delete | `v1 branches` |
+| `GET` | `/api/v1/branches/{branch_name}` | V1 Branch Detail | `v1 branches` |
+| `POST` | `/api/v1/branches/{branch_name}/checks` | V1 Branch Checks | `v1 branches` |
+| `GET` | `/api/v1/branches/{branch_name}/commits` | V1 Branch Commits | `v1 branches` |
+| `GET` | `/api/v1/branches/{branch_name}/compare` | V1 Branch Compare | `v1 branches` |
+| `GET` | `/api/v1/branches/{branch_name}/diff` | V1 Branch Diff | `v1 branches` |
+| `POST` | `/api/v1/branches/{branch_name}/merge` | V1 Branch Merge | `v1 branches` |
+| `POST` | `/api/v1/branches/{branch_name}/rebase` | V1 Branch Rebase | `v1 branches` |
+| `POST` | `/api/v1/branches/{branch_name}/trial-merge` | V1 Branch Trial Merge | `v1 branches` |
 | `GET` | `/api/v1/environments` | V1 Environments | `v1` |
 | `GET` | `/api/v1/events` | V1 Events | `v1` |
 | `GET` | `/api/v1/incident-policies` | List Asset Incident Policies | `v1 incidents` |
@@ -157,6 +169,8 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/incidents/{incident_id}/follow-ups` | List Follow Ups | `v1 incidents` |
 | `POST` | `/api/v1/incidents/{incident_id}/follow-ups` | Create Follow Up | `v1 incidents` |
 | `PATCH` | `/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}` | Update Follow Up | `v1 incidents` |
+| `GET` | `/api/v1/incidents/{incident_id}/schema-decisions` | List Schema Decisions | `v1 incidents` |
+| `POST` | `/api/v1/incidents/{incident_id}/schema-decisions` | Create Schema Decision | `v1 incidents` |
 | `PUT` | `/api/v1/incidents/{incident_id}/subscriptions` | Subscribe Incident | `v1 incidents` |
 | `GET` | `/api/v1/incidents/{incident_id}/timeline` | Incident Timeline | `v1 incidents` |
 | `POST` | `/api/v1/invitations/accept` | V1 Invitation Accept | `v1 admin identity` |

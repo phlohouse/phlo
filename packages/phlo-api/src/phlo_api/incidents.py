@@ -14,7 +14,7 @@ from uuid import uuid4
 
 import psycopg2
 from fastapi import APIRouter, Header, HTTPException, Query, Request
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from phlo.audit.events import AuditEventType, CanonicalAuditEvent
 from phlo.compliance.signatures.types import SignatureMeaning, SignatureRequest
@@ -25,6 +25,7 @@ from phlo.run_evidence.redaction import redact_payload
 
 router = APIRouter(tags=["v1 incidents"])
 IncidentStatus = Literal["open", "acknowledged", "resolved"]
+SchemaDecisionSide = Literal["source", "target"]
 PageLimit = Annotated[int, Query(ge=1, le=500)]
 
 
@@ -55,6 +56,48 @@ class FollowUpUpdate(WireModel):
 class AssetIncidentPolicyInput(WireModel):
     owner: str | None = Field(max_length=512)
     freshness_sla_seconds: int | None = Field(default=None, gt=0)
+
+
+class SchemaDecisionInput(WireModel):
+    source_ref: str = Field(min_length=1, max_length=256)
+    target_ref: str = Field(min_length=1, max_length=256)
+    source_hash: str = Field(min_length=1, max_length=256)
+    target_hash: str = Field(min_length=1, max_length=256)
+    table_key: str = Field(min_length=1, max_length=512)
+    columns: dict[str, SchemaDecisionSide] = Field(min_length=1, max_length=500)
+    justification: str = Field(min_length=1, max_length=4000)
+
+    @field_validator(
+        "source_ref", "target_ref", "source_hash", "target_hash", "table_key", "justification"
+    )
+    @classmethod
+    def reject_blank_values(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("value cannot be blank")
+        return value
+
+    @field_validator("columns")
+    @classmethod
+    def validate_column_names(
+        cls, value: dict[str, SchemaDecisionSide]
+    ) -> dict[str, SchemaDecisionSide]:
+        if any(not name.strip() or len(name) > 512 for name in value):
+            raise ValueError("column names must contain 1 to 512 non-blank characters")
+        return value
+
+
+class SchemaDecision(SchemaDecisionInput):
+    id: str
+    incident_id: str
+    env: Environment
+    actor: str
+    created_at: datetime
+
+
+class SchemaDecisionPage(WireModel):
+    env: Environment
+    incident_id: str
+    items: list[SchemaDecision]
 
 
 class IncidentView(WireModel):
@@ -205,6 +248,35 @@ def _row(row: tuple[Any, ...]) -> IncidentView:
 
 def _view_from_json(value: dict[str, Any]) -> IncidentView:
     return IncidentView.model_validate_json(json.dumps(value, default=str))
+
+
+def _schema_decision_from_json(value: dict[str, Any]) -> SchemaDecision:
+    return SchemaDecision.model_validate_json(json.dumps(value, default=str))
+
+
+def _schema_decision_row(row: tuple[Any, ...]) -> SchemaDecision:
+    return SchemaDecision.model_validate(
+        dict(
+            zip(
+                (
+                    "id",
+                    "incident_id",
+                    "env",
+                    "source_ref",
+                    "target_ref",
+                    "source_hash",
+                    "target_hash",
+                    "table_key",
+                    "columns",
+                    "actor",
+                    "justification",
+                    "created_at",
+                ),
+                row,
+                strict=True,
+            )
+        )
+    )
 
 
 def _event(
@@ -403,6 +475,118 @@ def incident_timeline(
                 for r in cur.fetchall()
             ]
         }
+
+
+_SCHEMA_DECISION_COLUMNS = """decision_id,incident_id,env,source_ref,target_ref,source_hash,
+target_hash,table_key,columns,actor,justification,created_at"""
+
+
+def load_schema_decisions(
+    incident_id: str,
+    env: Environment,
+    source_ref: str,
+    target_ref: str,
+    source_hash: str,
+    target_hash: str,
+) -> list[SchemaDecision]:
+    """Load decisions only when every incident and branch revision binding matches."""
+    with _transaction() as connection, connection.cursor() as cur:
+        cur.execute(
+            f"""SELECT {_SCHEMA_DECISION_COLUMNS} FROM phlo.incident_schema_decision
+                WHERE incident_id=%s AND env=%s AND source_ref=%s AND target_ref=%s
+                  AND source_hash=%s AND target_hash=%s
+                ORDER BY table_key,decision_id""",  # noqa: S608  # reason: Fixed column list; values are bound.
+            (incident_id, env, source_ref, target_ref, source_hash, target_hash),
+        )
+        return [_schema_decision_row(row) for row in cur.fetchall()]
+
+
+@router.get("/incidents/{incident_id}/schema-decisions", response_model=SchemaDecisionPage)
+def list_schema_decisions(
+    request: Request, incident_id: str, env: Environment = Query()
+) -> SchemaDecisionPage:
+    _actor(request)
+    with _transaction() as connection, connection.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM phlo.incident WHERE incident_id=%s AND env=%s",
+            (incident_id, env),
+        )
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Incident not found.")
+        cur.execute(
+            f"""SELECT {_SCHEMA_DECISION_COLUMNS} FROM phlo.incident_schema_decision
+                WHERE incident_id=%s AND env=%s ORDER BY created_at,decision_id LIMIT 500""",  # noqa: S608  # reason: Fixed column list; values are bound.
+            (incident_id, env),
+        )
+        items = [_schema_decision_row(row) for row in cur.fetchall()]
+    return SchemaDecisionPage(env=env, incident_id=incident_id, items=items)
+
+
+@router.post(
+    "/incidents/{incident_id}/schema-decisions",
+    status_code=201,
+    response_model=SchemaDecision,
+)
+def create_schema_decision(
+    request: Request,
+    incident_id: str,
+    body: SchemaDecisionInput,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=200)],
+    env: Environment = Query(),
+) -> SchemaDecision:
+    actor = _actor(request)
+    payload = body.model_dump(mode="json")
+    action_target = f"incident:{incident_id}:schema-decision"
+    with _transaction() as connection, connection.cursor() as cur:
+        replay = _idempotent(cur, env, actor, action_target, idempotency_key, payload)
+        if replay:
+            return _schema_decision_from_json(replay)
+        cur.execute(
+            "SELECT 1 FROM phlo.incident WHERE incident_id=%s AND env=%s FOR KEY SHARE",
+            (incident_id, env),
+        )
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Incident not found.")
+        decision_id = uuid4().hex
+        cur.execute(
+            """INSERT INTO phlo.incident_schema_decision(
+                   decision_id,incident_id,env,source_ref,target_ref,source_hash,target_hash,
+                   table_key,columns,actor,justification)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (incident_id,env,source_ref,target_ref,source_hash,target_hash,table_key)
+               DO NOTHING RETURNING created_at""",
+            (
+                decision_id,
+                incident_id,
+                env,
+                body.source_ref,
+                body.target_ref,
+                body.source_hash,
+                body.target_hash,
+                body.table_key,
+                json.dumps(body.columns),
+                actor,
+                body.justification,
+            ),
+        )
+        inserted = cur.fetchone()
+        if inserted is None:
+            raise HTTPException(
+                status_code=409,
+                detail="An immutable decision already exists for this table and revision tuple.",
+            )
+        result = SchemaDecision(
+            id=decision_id,
+            incident_id=incident_id,
+            env=env,
+            actor=actor,
+            created_at=inserted[0],
+            **body.model_dump(),
+        )
+        result_json = result.model_dump(mode="json")
+        _event(cur, incident_id, env, actor, "schema_decision", result_json)
+        _store_idempotent_result(cur, env, actor, action_target, idempotency_key, result_json)
+        return result
 
 
 @router.patch("/incidents/{incident_id}", response_model=IncidentView)

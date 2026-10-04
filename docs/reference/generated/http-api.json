@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 186,
+  "endpoint_count": 200,
   "endpoints": [
     {
       "method": "GET",
@@ -1192,6 +1192,114 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_branches_api_v1_branches_get",
+      "path": "/api/v1/branches",
+      "summary": "V1 Branches",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_branch_create_api_v1_branches_post",
+      "path": "/api/v1/branches",
+      "summary": "V1 Branch Create",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_branch_refs_api_v1_branches_refs_get",
+      "path": "/api/v1/branches/refs",
+      "summary": "V1 Branch Refs",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "operation_id": "v1_branch_delete_api_v1_branches__branch_name__delete",
+      "path": "/api/v1/branches/{branch_name}",
+      "summary": "V1 Branch Delete",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_branch_detail_api_v1_branches__branch_name__get",
+      "path": "/api/v1/branches/{branch_name}",
+      "summary": "V1 Branch Detail",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_branch_checks_api_v1_branches__branch_name__checks_post",
+      "path": "/api/v1/branches/{branch_name}/checks",
+      "summary": "V1 Branch Checks",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_branch_commits_api_v1_branches__branch_name__commits_get",
+      "path": "/api/v1/branches/{branch_name}/commits",
+      "summary": "V1 Branch Commits",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_branch_compare_api_v1_branches__branch_name__compare_get",
+      "path": "/api/v1/branches/{branch_name}/compare",
+      "summary": "V1 Branch Compare",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_branch_diff_api_v1_branches__branch_name__diff_get",
+      "path": "/api/v1/branches/{branch_name}/diff",
+      "summary": "V1 Branch Diff",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_branch_merge_api_v1_branches__branch_name__merge_post",
+      "path": "/api/v1/branches/{branch_name}/merge",
+      "summary": "V1 Branch Merge",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_branch_rebase_api_v1_branches__branch_name__rebase_post",
+      "path": "/api/v1/branches/{branch_name}/rebase",
+      "summary": "V1 Branch Rebase",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_branch_trial_merge_api_v1_branches__branch_name__trial_merge_post",
+      "path": "/api/v1/branches/{branch_name}/trial-merge",
+      "summary": "V1 Branch Trial Merge",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "v1_environments_api_v1_environments_get",
       "path": "/api/v1/environments",
       "summary": "V1 Environments",
@@ -1285,6 +1393,24 @@
       "operation_id": "update_follow_up_api_v1_incidents__incident_id__follow_ups__follow_up_id__patch",
       "path": "/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}",
       "summary": "Update Follow Up",
+      "tags": [
+        "v1 incidents"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "list_schema_decisions_api_v1_incidents__incident_id__schema_decisions_get",
+      "path": "/api/v1/incidents/{incident_id}/schema-decisions",
+      "summary": "List Schema Decisions",
+      "tags": [
+        "v1 incidents"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "create_schema_decision_api_v1_incidents__incident_id__schema_decisions_post",
+      "path": "/api/v1/incidents/{incident_id}/schema-decisions",
+      "summary": "Create Schema Decision",
       "tags": [
         "v1 incidents"
       ]

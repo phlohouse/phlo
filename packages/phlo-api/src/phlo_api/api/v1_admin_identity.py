@@ -46,6 +46,7 @@ SignedAction = Literal[
     "admin.service_account.create",
     "admin.service_account.revoke",
     "incident.resolve",
+    "branch.merge",
 ]
 SignatureMeaningValue = Literal["approved", "released", "reviewed", "acknowledged", "authored"]
 _SETTINGS_KEY = "phlo.identity.admin-settings"
@@ -130,7 +131,7 @@ class ServiceAccountCreated(WireModel):
 
 class SignatureCreate(WireModel):
     action: SignedAction
-    target_type: Literal["member", "invitation", "service_account", "incident"]
+    target_type: Literal["member", "invitation", "service_account", "incident", "branch"]
     target_id: str = Field(min_length=1, max_length=512)
     target_version: str = Field(min_length=1, max_length=256)
     meaning: SignatureMeaningValue = "approved"
