@@ -12,6 +12,7 @@ dependencies = [
     "httpx>=0.28.1",
     "anyio>=4.14.2",
     "psycopg2-binary>=2.9.11",
+    "phlo-pandera>=0.16.0,<0.17",
     "phlo-postgres>=0.16.0,<0.17",
     "pydantic>=2.0",
     "pyyaml>=6.0.1",
