@@ -6,6 +6,7 @@ Provides the core signature service for critical action signing in regulated dep
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from phlo.audit.events import AuditEventEmitter, AuditEventType, CanonicalAuditEvent
 from phlo.capabilities.interfaces import AuthenticatedSession
@@ -14,6 +15,17 @@ from phlo.compliance.signatures.types import SignatureRecord, SignatureRequest
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class SignatureRepository(Protocol):
+    """Durable signature persistence and atomic single-use verification."""
+
+    def save_signature(self, record: SignatureRecord) -> None:
+        """Persist an issued signature."""
+
+    def consume_signature(self, signature_id: str, expected: SignatureRequest) -> bool:
+        """Match and atomically consume the signature for the expected action."""
+
 
 DEFAULT_CRITICAL_ACTIONS = frozenset(
     [
@@ -48,6 +60,7 @@ class SignatureService:
         self,
         config: SignatureServiceConfig | None = None,
         audit_emitter: AuditEventEmitter | None = None,
+        signature_repository: SignatureRepository | None = None,
     ) -> None:
         """Initialize the signature service.
 
@@ -56,6 +69,7 @@ class SignatureService:
         """
         self._config = config or SignatureServiceConfig()
         self._audit_emitter = audit_emitter
+        self._signature_repository = signature_repository
         self._step_up = self._config.step_up_challenge or SessionConfirmChallenge()
 
     def require_signature(self, action: str, resource_type: str) -> bool:
@@ -77,6 +91,13 @@ class SignatureService:
             raise ValueError(
                 f"Signer subject mismatch: request={request.signer_subject}, session={session.principal.subject}"
             )
+        if (
+            not request.action
+            or not request.record_type
+            or not request.record_id
+            or not request.record_version
+        ):
+            raise ValueError("Signature action, target, and target version are required")
 
         step_up_result = self._step_up.challenge(session)
         if not step_up_result.success:
@@ -86,6 +107,9 @@ class SignatureService:
             request,
             authentication_assurance=step_up_result.assurance_level,
         )
+        if self._signature_repository is None:
+            raise RuntimeError("Durable signature storage is not configured")
+        self._signature_repository.save_signature(record)
 
         self._emit_signature_event(record, session)
 
@@ -125,6 +149,7 @@ class SignatureService:
             attributes={
                 "signature_id": record.signature_id,
                 "meaning": record.meaning,
+                "action": record.action,
                 "record_version": record.record_version,
                 "authentication_assurance": record.authentication_assurance,
                 "signature_hash": record.signature_hash,
@@ -133,14 +158,8 @@ class SignatureService:
         )
         self._audit_emitter.emit(event)
 
-    def verify_signature(
-        self,
-        record_id: str,
-        record_version: str,
-    ) -> bool:
-        """Deny verification until a signature record can be consulted.
-
-        Signature records are not persisted or consulted yet, so this service
-        cannot confirm that a record was signed or that its version matches.
-        """
-        return False
+    def verify_signature(self, signature_id: str, expected: SignatureRequest) -> bool:
+        """Atomically consume a valid signature bound to the exact action/target."""
+        if self._signature_repository is None:
+            return False
+        return self._signature_repository.consume_signature(signature_id, expected)

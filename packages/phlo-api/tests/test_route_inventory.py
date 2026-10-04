@@ -58,6 +58,13 @@ _GUARDED_NON_GET_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/queries/saved"): "v1_manifest",
     ("PUT", "/api/v1/queries/saved/{query_id}"): "v1_manifest",
     ("DELETE", "/api/v1/queries/saved/{query_id}"): "v1_manifest",
+    ("PUT", "/api/v1/admin/settings"): "v1_manifest",
+    ("PATCH", "/api/v1/admin/members/{subject}/roles"): "v1_manifest",
+    ("POST", "/api/v1/admin/invitations"): "v1_manifest",
+    ("POST", "/api/v1/invitations/accept"): "v1_manifest",
+    ("POST", "/api/v1/admin/service-accounts"): "v1_manifest",
+    ("DELETE", "/api/v1/admin/service-accounts/{subject}"): "v1_manifest",
+    ("POST", "/api/v1/signatures"): "v1_manifest",
     ("POST", "/api/v1/trino/query-completed"): "v1_manifest",
     (
         "POST",

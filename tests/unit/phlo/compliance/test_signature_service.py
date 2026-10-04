@@ -6,6 +6,8 @@ construction, record creation, and step-up authentication challenges.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from phlo.capabilities.interfaces import AuthenticatedSession, AuthPrincipal
@@ -17,7 +19,13 @@ from phlo.compliance.signatures import (
     SignatureServiceConfig,
     StepUpResult,
 )
-from phlo.compliance.signatures.step_up import SessionConfirmChallenge, StepUpAuthChallenge
+from phlo.compliance.signatures.step_up import (
+    RecentMfaClaimsChallenge,
+    SessionConfirmChallenge,
+    StepUpAuthChallenge,
+)
+from phlo.identity.authority import IdentityAuthority
+from phlo.plugins.observatory_settings import InMemorySettingsService
 
 
 class TestSignatureServiceConfig:
@@ -48,6 +56,7 @@ class TestSignatureRequest:
             record_type="dataset",
             record_id="dataset-123",
             record_version="abc123",
+            action="dataset.publish",
         )
         assert request.signer_subject == "alice@example.com"
         assert request.meaning == SignatureMeaning.APPROVED
@@ -64,6 +73,7 @@ class TestSignatureRequest:
             record_type="dataset",
             record_id="dataset-123",
             record_version="abc123",
+            action="dataset.publish",
             justification="Approved for production use",
         )
         assert request.justification == "Approved for production use"
@@ -80,6 +90,7 @@ class TestSignatureRecord:
             record_type="dataset",
             record_id="dataset-123",
             record_version="abc123",
+            action="dataset.publish",
         )
 
         record = SignatureRecord.from_request(request)
@@ -105,6 +116,7 @@ class TestSignatureRecord:
             record_type="dataset",
             record_id="dataset-123",
             record_version="abc123",
+            action="dataset.publish",
         )
 
         with pytest.raises(RuntimeError, match="PHLO_SIGNATURE_HMAC_KEY or PHLO_AUDIT_HMAC_KEY"):
@@ -186,6 +198,9 @@ class TestSignatureService:
             provider_name="test",
         )
 
+    def _repository(self) -> IdentityAuthority:
+        return IdentityAuthority(InMemorySettingsService())
+
     def test_require_signature_for_critical_action(self) -> None:
         """Critical actions require signatures."""
         service = SignatureService()
@@ -206,6 +221,7 @@ class TestSignatureService:
                 step_up_challenge=MockStepUpChallenge(success=True),
             ),
             audit_emitter=None,
+            signature_repository=self._repository(),
         )
         session = self._make_session()
         request = SignatureRequest(
@@ -214,6 +230,7 @@ class TestSignatureService:
             record_type="dataset",
             record_id="dataset-123",
             record_version="abc123",
+            action="dataset.publish",
         )
 
         record = service.sign(request, session)
@@ -244,6 +261,7 @@ class TestSignatureService:
                 critical_actions=frozenset(["dataset.publish"]),
                 step_up_challenge=MockStepUpChallenge(success=False),
             ),
+            signature_repository=self._repository(),
         )
         session = self._make_session()
         request = SignatureRequest(
@@ -252,6 +270,7 @@ class TestSignatureService:
             record_type="dataset",
             record_id="dataset-123",
             record_version="abc123",
+            action="dataset.publish",
         )
 
         with pytest.raises(PermissionError, match="Step-up authentication failed"):
@@ -264,6 +283,7 @@ class TestSignatureService:
                 critical_actions=frozenset(["dataset.publish"]),
                 step_up_challenge=MockStepUpChallenge(success=True, assurance="re-authenticated"),
             ),
+            signature_repository=self._repository(),
         )
         session = self._make_session()
         request = SignatureRequest(
@@ -272,6 +292,7 @@ class TestSignatureService:
             record_type="dataset",
             record_id="dataset-123",
             record_version="abc123",
+            action="dataset.publish",
         )
 
         record = service.sign(request, session)
@@ -283,7 +304,15 @@ class TestSignatureService:
         """No stored signature cannot verify either original or changed content."""
         service = SignatureService()
 
-        assert service.verify_signature("dataset-123", record_version) is False
+        expected = SignatureRequest(
+            signer_subject="alice@example.com",
+            meaning=SignatureMeaning.APPROVED,
+            record_type="dataset",
+            record_id="dataset-123",
+            record_version=record_version,
+            action="dataset.publish",
+        )
+        assert service.verify_signature("missing-signature", expected) is False
 
 
 class TestSessionConfirmChallenge:
@@ -303,6 +332,82 @@ class TestSessionConfirmChallenge:
         assert result.success is False
         assert result.assurance_level == "none"
         assert result.message is not None
+
+
+class TestRecentMfaClaimsChallenge:
+    """Tests for step-up claims supplied by a validated JWT provider."""
+
+    def _session(self, *, provider: str = "jwt", principal_type: str = "user", claims=None):
+        return AuthenticatedSession(
+            principal=AuthPrincipal(
+                subject="alice@example.com",
+                principal_type=principal_type,
+                claims=claims or {},
+            ),
+            auth_method="bearer_token",
+            provider_name=provider,
+            attributes={
+                "jwt_issuer": "https://issuer.example",
+                "jwt_audience": "phlo-api",
+                "jwt_issuer_validated": "true",
+                "jwt_audience_validated": "true",
+            },
+        )
+
+    def test_accepts_recent_verified_mfa_claims(self) -> None:
+        """Only recent MFA claims from the configured JWT provider qualify."""
+        from datetime import UTC, datetime
+
+        session = self._session(
+            claims={"auth_time": datetime.now(UTC).timestamp() - 30, "amr": ["pwd", "mfa"]}
+        )
+
+        result = RecentMfaClaimsChallenge().challenge(session)
+
+        assert result.success is True
+        assert result.assurance_level == "mfa"
+
+    @pytest.mark.parametrize(
+        ("provider", "principal_type", "claims"),
+        [
+            ("static", "user", {"auth_time": 0, "amr": ["mfa"]}),
+            ("jwt", "service", {"auth_time": 0, "amr": ["mfa"]}),
+            ("jwt", "user", {"auth_time": 0, "amr": ["pwd"]}),
+            ("jwt", "user", {"auth_time": True, "amr": ["mfa"]}),
+            ("jwt", "user", {"auth_time": float("nan"), "amr": ["mfa"]}),
+        ],
+    )
+    def test_rejects_untrusted_or_incomplete_claims(self, provider, principal_type, claims) -> None:
+        """Non-JWT, non-human, stale, and malformed claims cannot step up."""
+        result = RecentMfaClaimsChallenge().challenge(
+            self._session(provider=provider, principal_type=principal_type, claims=claims)
+        )
+
+        assert result.success is False
+        assert result.assurance_level == "none"
+
+    def test_rejects_future_authentication_time(self) -> None:
+        """A future auth_time is invalid rather than fresh."""
+        from datetime import UTC, datetime
+
+        session = self._session(
+            claims={"auth_time": datetime.now(UTC).timestamp() + 5, "amr": ["mfa"]}
+        )
+
+        assert RecentMfaClaimsChallenge().challenge(session).success is False
+
+    def test_requires_configured_issuer_and_audience_validation(self) -> None:
+        from datetime import UTC, datetime
+
+        session = self._session(claims={"auth_time": datetime.now(UTC).timestamp(), "amr": ["mfa"]})
+
+        assert (
+            RecentMfaClaimsChallenge().challenge(replace(session, attributes={})).success is False
+        )
+
+    def test_requires_positive_maximum_age(self) -> None:
+        with pytest.raises(ValueError, match="must be positive"):
+            RecentMfaClaimsChallenge(max_age_seconds=0)
 
 
 class TestSignatureMeaning:

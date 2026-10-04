@@ -688,6 +688,8 @@ class JWTAuthenticationProvider:
                 attributes={
                     "jwt_issuer": claims.get("iss", ""),
                     "jwt_audience": str(claims.get("aud", "")),
+                    "jwt_issuer_validated": "true" if self._issuer else "false",
+                    "jwt_audience_validated": "true" if self._audience else "false",
                 },
             )
         except (ValueError, KeyError) as e:

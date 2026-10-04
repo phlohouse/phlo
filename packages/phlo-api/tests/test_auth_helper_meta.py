@@ -50,6 +50,14 @@ def _is_explicit_development_test(function: ast.FunctionDef | ast.AsyncFunctionD
     return "unregulated" in function.name and _contains_status_assertion(function, 200)
 
 
+def _is_isolated_router_test(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Storage failure tests may mount a router without the app auth middleware."""
+    return any(
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "FastAPI"
+        for node in ast.walk(function)
+    ) and _contains_status_assertion(function, 503)
+
+
 def test_protected_testclient_calls_name_an_auth_helper_or_401() -> None:
     test_root = Path(__file__).parent
     violations: list[str] = []
@@ -74,6 +82,7 @@ def test_protected_testclient_calls_name_an_auth_helper_or_401() -> None:
                     has_headers
                     or _contains_status_assertion(function, 401)
                     or _is_explicit_development_test(function)
+                    or _is_isolated_router_test(function)
                 ):
                     continue
                 violations.append(f"{path.name}:{call.lineno} {method} {route_path}")
