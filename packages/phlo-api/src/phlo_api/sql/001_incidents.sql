@@ -61,6 +61,22 @@ CREATE TABLE IF NOT EXISTS phlo.incident_follow_up (
     completed_at timestamptz
 );
 
+CREATE TABLE IF NOT EXISTS phlo.incident_schema_decision (
+    decision_id text PRIMARY KEY,
+    incident_id text NOT NULL REFERENCES phlo.incident,
+    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    source_ref text NOT NULL,
+    target_ref text NOT NULL,
+    source_hash text NOT NULL,
+    target_hash text NOT NULL,
+    table_key text NOT NULL,
+    columns jsonb NOT NULL CHECK (jsonb_typeof(columns) = 'object' AND columns <> '{}'::jsonb),
+    actor text NOT NULL,
+    justification text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (incident_id, env, source_ref, target_ref, source_hash, target_hash, table_key)
+);
+
 CREATE TABLE IF NOT EXISTS phlo.asset_incident_policy (
     env text NOT NULL CHECK (env IN ('prod', 'staging')),
     asset_id text NOT NULL,

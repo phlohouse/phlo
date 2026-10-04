@@ -45,6 +45,7 @@ compose:
         PHLO_V1_ACTIONS_SINGLE_REPLICA: ${PHLO_V1_ACTIONS_SINGLE_REPLICA:-}
         PHLO_V1_ACTIONS_SINGLE_PROCESS: ${PHLO_V1_ACTIONS_SINGLE_PROCESS:-}
         PHLO_V1_ACTIONS_REF_TAG_CONTRACT: ${PHLO_V1_ACTIONS_REF_TAG_CONTRACT:-}
+        PHLO_V1_BRANCH_CHECK_JOBS: ${PHLO_V1_BRANCH_CHECK_JOBS:-}
         TRINO_URL: ${TRINO_URL:-http://trino:8080}
         DAGSTER_GRAPHQL_URL: ${DAGSTER_GRAPHQL_URL:-http://dagster:3000/graphql}
         NESSIE_URL: ${NESSIE_URL:-http://nessie:19120/api/v2}
@@ -137,6 +138,9 @@ env_vars:
     PHLO_V1_ACTIONS_REF_TAG_CONTRACT:
         default: ""
         description: Operator assertion that Dagster locations enforce environment and Nessie-ref run tags
+    PHLO_V1_BRANCH_CHECK_JOBS:
+        default: ""
+        description: JSON map of prod and staging to Dagster test, contract and audit check job names
 
 files:
     - source: Dockerfile
@@ -176,6 +180,7 @@ dev:
         PHLO_V1_ACTIONS_SINGLE_REPLICA: ${PHLO_V1_ACTIONS_SINGLE_REPLICA:-}
         PHLO_V1_ACTIONS_SINGLE_PROCESS: ${PHLO_V1_ACTIONS_SINGLE_PROCESS:-}
         PHLO_V1_ACTIONS_REF_TAG_CONTRACT: ${PHLO_V1_ACTIONS_REF_TAG_CONTRACT:-}
+        PHLO_V1_BRANCH_CHECK_JOBS: ${PHLO_V1_BRANCH_CHECK_JOBS:-}
         TRINO_URL: "http://127.0.0.1:${TRINO_PORT:-10005}"
         TRINO_USER: ${PHLO_API_TRINO_USER:-phlo-api}
         TRINO_ROLE: ${PHLO_API_TRINO_ROLE:-}
