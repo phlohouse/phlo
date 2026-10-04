@@ -123,9 +123,3 @@ Check that each maintenance thread can retrieve its saved prompt without
 running the audit. Check that the host can reload plugins and send a status
 message. Do not delete or recreate a webhook registration without operator
 authorization.
-
-Run the plugin regression tests before opening a plugin change:
-
-```bash
-node --experimental-strip-types --test .amp/plugins/phlo-github/*.test.*
-```

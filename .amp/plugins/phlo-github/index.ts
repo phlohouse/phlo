@@ -16,7 +16,7 @@ import {
   parseGitHubMention,
   reviewParentThreadID,
   verifyGitHubSignature,
-} from './lib.ts'
+} from './lib'
 
 export const description = 'Runs Phlo GitHub review, triage, and scheduled maintenance in Amp.'
 
