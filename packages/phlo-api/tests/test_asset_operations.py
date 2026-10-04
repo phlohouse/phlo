@@ -434,7 +434,7 @@ defs = dg.Definitions(assets=[orders, summary], jobs=[dg.define_asset_job("wareh
             "class": "DefaultRunCoordinator",
         }
     }
-    with dg.DagsterInstance.local_temp(str(instance_dir), overrides=overrides) as instance:
+    with dg.instance_for_test(temp_dir=str(instance_dir), overrides=overrides) as instance:
         with WorkspaceProcessContext(instance, CompositeTarget(targets)) as workspace:
             context = workspace.create_request_context()
 
@@ -640,7 +640,7 @@ defs = dg.Definitions(assets=[orders, summary])
             "class": "DefaultRunCoordinator",
         }
     }
-    with dg.DagsterInstance.local_temp(str(instance_dir), overrides=overrides) as instance:
+    with dg.instance_for_test(temp_dir=str(instance_dir), overrides=overrides) as instance:
         target = PythonFileTarget(str(definitions), "defs", str(tmp_path), "production_jobs")
         with WorkspaceProcessContext(instance, target) as workspace:
             context = workspace.create_request_context()

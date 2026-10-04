@@ -38,7 +38,7 @@ defs = dg.Definitions(assets=[orders, summary], jobs=[dg.define_asset_job("order
             "class": "DefaultRunCoordinator",
         }
     }
-    with dg.DagsterInstance.local_temp(str(tmp_path / "instance"), overrides=overrides) as instance:
+    with dg.instance_for_test(temp_dir=str(tmp_path / "instance"), overrides=overrides) as instance:
         target = PythonFileTarget(
             python_file=str(definitions),
             attribute="defs",

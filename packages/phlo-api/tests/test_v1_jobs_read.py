@@ -893,7 +893,7 @@ def definitions():
     monkeypatch.setattr(
         operation_controls, "require_scope", lambda request, scope: {"subject": "operator"}
     )
-    with dg.DagsterInstance.local_temp() as instance:
+    with dg.instance_for_test() as instance:
         with WorkspaceProcessContext(
             instance, WorkspaceFileTarget(paths=[str(workspace)])
         ) as process:
