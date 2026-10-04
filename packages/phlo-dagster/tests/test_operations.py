@@ -68,6 +68,7 @@ def test_launch_materialize_posts_asset_selection(monkeypatch) -> None:
 def test_launch_backfill_uses_native_all_partitions_and_pins_repository(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
+    # reason: Match AsyncClient.post's mock call shape; only the captured request is asserted.
     async def fake_post(self, url, json=None, headers=None):  # noqa: ANN001, ANN202, ARG001
         captured["json"] = json
         return httpx.Response(
@@ -101,6 +102,7 @@ def test_launch_backfill_uses_native_all_partitions_and_pins_repository(monkeypa
 
     assert result.accepted is True
     assert result.details == {"partitions": [], "partition_count": None, "all_partitions": True}
+    # reason: The mocked GraphQL request above captures this exact nested JSON shape.
     params = captured["json"]["variables"]["backfillParams"]  # type: ignore[index]
     assert params["selector"] == {
         "partitionSetName": "orders_daily",
