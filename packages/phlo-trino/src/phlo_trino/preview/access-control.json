@@ -1,12 +1,17 @@
 {
   "catalogs": [
     {
-      "user": "phlo_api_preview",
-      "catalog": "iceberg_preview_(prod|staging)",
+      "user": "phlo_api_preview_prod",
+      "catalog": "iceberg_preview_prod",
       "allow": "read-only"
     },
     {
-      "user": "phlo_api_preview",
+      "user": "phlo_api_preview_staging",
+      "catalog": "iceberg_preview_staging",
+      "allow": "read-only"
+    },
+    {
+      "user": "phlo_api_preview_(prod|staging)",
       "catalog": ".*",
       "allow": "none"
     },
@@ -17,7 +22,7 @@
   ],
   "system_session_properties": [
     {
-      "user": "phlo_api_preview",
+      "user": "phlo_api_preview_(prod|staging)",
       "allow": false
     },
     {
@@ -26,7 +31,7 @@
   ],
   "queries": [
     {
-      "user": "phlo_api_preview",
+      "user": "phlo_api_preview_(prod|staging)",
       "allow": ["execute"]
     },
     {
