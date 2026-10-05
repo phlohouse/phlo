@@ -313,7 +313,64 @@ def plan_upgrade(
     )
 
 
-def upgrade_apply(  # noqa: C901
+def _run_upgrade_steps(
+    plan: UpgradePlan,
+    contributors: Mapping[str, Any],
+    journal: OperationJournalStore,
+    operation_id: str,
+) -> tuple[list[UpgradeStepResult], UpgradeResult | None]:
+    steps: list[UpgradeStepResult] = []
+    try:
+        for index, defn in enumerate(UPGRADE_PIPELINE):
+            contributor = contributors.get(defn.owner)
+            result = (
+                UpgradeStepResult.not_applicable(defn)
+                if contributor is None
+                else contributor.upgrade_step(
+                    defn, plan.target, plan.from_version, plan.to_version, plan.plan_token
+                )
+            )
+            steps.append(result)
+            if result.state is not UpgradeStepState.FAILED:
+                continue
+            rollback_safe = index <= _max_rollback_safe_index() and defn.rollback_safe
+            failure = {
+                "reason": (
+                    "upgrade failed before rollback boundary"
+                    if rollback_safe
+                    else "upgrade failed after rollback boundary"
+                ),
+                "failed_step": defn.name,
+            }
+            if rollback_safe:
+                return steps, _finish_failed(
+                    journal,
+                    operation_id,
+                    plan,
+                    steps,
+                    rollback_action="restore",
+                    failure=failure,
+                )
+            return steps, _finish_failed(
+                journal,
+                operation_id,
+                plan,
+                steps,
+                forward_repair=_forward_repair(index, plan),
+                failure=failure,
+            )
+    except Exception as exc:
+        return steps, _finish_failed(
+            journal,
+            operation_id,
+            plan,
+            steps,
+            failure={"reason": redact_message(str(exc))},
+        )
+    return steps, None
+
+
+def upgrade_apply(
     *,
     plan: UpgradePlan,
     confirmation_token: str,
@@ -354,51 +411,9 @@ def upgrade_apply(  # noqa: C901
     except OperationJournalError as exc:
         raise UpgradeError(exc.code, exc.identifiers) from exc
 
-    steps: list[UpgradeStepResult] = []
-    try:
-        for index, defn in enumerate(UPGRADE_PIPELINE):
-            contributor = contributors.get(defn.owner)
-            result: UpgradeStepResult
-            if contributor is None:
-                result = UpgradeStepResult.not_applicable(defn)
-            else:
-                result = contributor.upgrade_step(
-                    defn, plan.target, plan.from_version, plan.to_version, plan.plan_token
-                )
-            steps.append(result)
-            if result.state is UpgradeStepState.FAILED:
-                rollback_safe = index <= _max_rollback_safe_index()
-                if rollback_safe and defn.rollback_safe:
-                    return _finish_failed(
-                        journal,
-                        operation_id,
-                        plan,
-                        steps,
-                        rollback_action="restore",
-                        failure={
-                            "reason": "upgrade failed before rollback boundary",
-                            "failed_step": defn.name,
-                        },
-                    )
-                return _finish_failed(
-                    journal,
-                    operation_id,
-                    plan,
-                    steps,
-                    forward_repair=_forward_repair(index, plan),
-                    failure={
-                        "reason": "upgrade failed after rollback boundary",
-                        "failed_step": defn.name,
-                    },
-                )
-    except Exception as exc:
-        return _finish_failed(
-            journal,
-            operation_id,
-            plan,
-            steps,
-            failure={"reason": redact_message(str(exc))},
-        )
+    steps, failed_result = _run_upgrade_steps(plan, contributors, journal, operation_id)
+    if failed_result is not None:
+        return failed_result
 
     checks: dict[str, bool] = {}
     reasons: list[str] = []

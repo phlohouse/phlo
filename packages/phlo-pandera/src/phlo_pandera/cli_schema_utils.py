@@ -68,12 +68,43 @@ def validate_schema_file(schema_path: Path) -> None:
         raise ValueError(f"Schema validation failed for {schema_path}: {', '.join(failed)}")
 
 
-def discover_pandera_schemas(  # noqa: C901
+def _scan_schema_file(path: Path, py_file: Path, data_frame_model: type, schemas: dict) -> None:
+    import inspect
+
+    try:
+        parts = py_file.relative_to(path.parent).parts[:-1] + (py_file.stem,)
+        module_name = ".".join(parts)
+        module_parts = module_name.split(".")
+        for index in range(1, len(module_parts) + 1):
+            sys.modules.pop(".".join(module_parts[:index]), None)
+
+        try:
+            module = import_module(module_name)
+        except (ImportError, ModuleNotFoundError):
+            logger.debug("schema_discovery_import_failed", module_name=module_name)
+            return
+
+        for name, obj in inspect.getmembers(module):
+            if (
+                inspect.isclass(obj)
+                and issubclass(obj, data_frame_model)
+                and obj is not data_frame_model
+                and obj.__module__ == module.__name__
+            ):
+                setattr(obj, "__phlo_schema_source_path__", str(py_file.resolve()))
+                schemas[name] = obj
+    except Exception:
+        logger.warning(
+            "schema_discovery_file_scan_failed",
+            search_path=str(path),
+            schema_file=str(py_file),
+        )
+
+
+def discover_pandera_schemas(
     search_paths: Optional[list[str]] = None,
 ) -> dict[str, type]:
     """Discover DataFrameModel subclasses under the search paths, mapping name to class."""
-    import inspect
-
     from pandera.pandas import DataFrameModel
 
     if search_paths is None:
@@ -101,46 +132,7 @@ def discover_pandera_schemas(  # noqa: C901
             for py_file in path.glob("**/schemas/*.py"):
                 if py_file.name.startswith("_"):
                     continue
-
-                try:
-                    parts = py_file.relative_to(path.parent).parts[:-1] + (py_file.stem,)
-                    module_name = ".".join(parts)
-                    module_parts = module_name.split(".")
-                    # Purge this module and its parent packages so the import
-                    # below re-executes the file rather than reusing a module
-                    # cached by a previous scan.
-                    for index in range(1, len(module_parts) + 1):
-                        sys.modules.pop(".".join(module_parts[:index]), None)
-
-                    try:
-                        module = import_module(module_name)
-                    except (ImportError, ModuleNotFoundError):
-                        logger.debug(
-                            "schema_discovery_import_failed",
-                            module_name=module_name,
-                        )
-                        continue
-
-                    for name, obj in inspect.getmembers(module):
-                        if (
-                            inspect.isclass(obj)
-                            and issubclass(obj, DataFrameModel)
-                            and obj is not DataFrameModel
-                            and obj.__module__ == module.__name__
-                        ):
-                            # Tag the class with its source file so later
-                            # commands (e.g. schema diff) can reload the
-                            # definition without re-discovering it.
-                            setattr(obj, "__phlo_schema_source_path__", str(py_file.resolve()))
-                            schemas[name] = obj
-
-                except Exception:
-                    logger.warning(
-                        "schema_discovery_file_scan_failed",
-                        search_path=str(path),
-                        schema_file=str(py_file),
-                    )
-                    continue
+                _scan_schema_file(path, py_file, DataFrameModel, schemas)
         finally:
             for module_name in set(sys.modules) - set(old_modules):
                 sys.modules.pop(module_name, None)

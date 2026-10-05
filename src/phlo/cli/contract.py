@@ -133,16 +133,7 @@ def _configure(command: click.Command) -> None:
 class _InvocationBoundary(click.Command):
     """Own machine serialization once, at the outermost invoked command."""
 
-    def main(self, args=None, prog_name=None, complete_var=None, standalone_mode=True, **extra):  # noqa: C901
-        args = list(sys.argv[1:] if args is None else args)
-        if not _requests_json(self, args):
-            return super().main(
-                args=args,
-                prog_name=prog_name,
-                complete_var=complete_var,
-                standalone_mode=standalone_mode,
-                **extra,
-            )
+    def _execute_json(self, args, prog_name, complete_var, extra):
         stdout = io.StringIO()
         error = None
         exit_code = 0
@@ -155,7 +146,6 @@ class _InvocationBoundary(click.Command):
                     standalone_mode=False,
                     **extra,
                 )
-                # Click returns the code for Context.exit with standalone mode off.
                 if isinstance(result, int):
                     exit_code = result
         except click.ClickException as exc:
@@ -167,7 +157,6 @@ class _InvocationBoundary(click.Command):
         except SystemExit as exc:
             exit_code = exc.code if isinstance(exc.code, int) else 1
         except Exception as exc:
-            # Internal details may contain credentials; record only the exception type.
             logging.getLogger(__name__).error(
                 "cli_unexpected_failure", extra={"error_type": type(exc).__name__}
             )
@@ -177,10 +166,12 @@ class _InvocationBoundary(click.Command):
                 run="phlo doctor",
             )
             exit_code = 1
-        content = stdout.getvalue().strip()
-        payload: dict[str, Any]
+        return stdout.getvalue().strip(), error, exit_code
+
+    @staticmethod
+    def _build_json_payload(args, content, error, exit_code):
         if error is not None:
-            payload = json.loads(
+            return json.loads(
                 json_envelope(
                     errors=[error.format_message()],
                     reason_code=getattr(
@@ -193,44 +184,53 @@ class _InvocationBoundary(click.Command):
                     else "error",
                     next_steps=getattr(error, "next_steps", []),
                 )
+            ), exit_code
+
+        try:
+            data = json.loads(content)
+        except ValueError:
+            if "--help" in args or "--version" in args:
+                return json.loads(json_envelope(data={"help": content})), exit_code
+            payload = json.loads(
+                json_envelope(
+                    errors=[
+                        "Command failed" if exit_code else "Command did not produce a JSON result"
+                    ],
+                    reason_code="operation_failed" if exit_code else "invalid_json_output",
+                )
             )
+            return payload, exit_code or 1
+
+        if isinstance(data, dict) and {"data", "warnings", "errors"} <= data.keys():
+            payload = data
+            payload.setdefault("schema_version", 1)
+            payload.setdefault("status", "error" if exit_code or data["errors"] else "success")
+            payload.setdefault("reason_code", None)
+            payload.setdefault("next_steps", [])
         else:
-            try:
-                data = json.loads(content)
-            except ValueError:
-                if "--help" in args or "--version" in args:
-                    payload = json.loads(json_envelope(data={"help": content}))
-                else:
-                    payload = json.loads(
-                        json_envelope(
-                            errors=[
-                                "Command failed"
-                                if exit_code
-                                else "Command did not produce a JSON result"
-                            ],
-                            reason_code="operation_failed" if exit_code else "invalid_json_output",
-                        )
-                    )
-                    exit_code = exit_code or 1
-            else:
-                if isinstance(data, dict) and {"data", "warnings", "errors"} <= data.keys():
-                    payload = data
-                    payload.setdefault("schema_version", 1)
-                    payload.setdefault(
-                        "status", "error" if exit_code or data["errors"] else "success"
-                    )
-                    payload.setdefault("reason_code", None)
-                    payload.setdefault("next_steps", [])
-                else:
-                    payload = json.loads(
-                        json_envelope(data=data, status="error" if exit_code else "success")
-                    )
-                if exit_code and payload["status"] == "success":
-                    payload["status"] = "error"
-                if payload["status"] in {"error", "partial", "cancelled"} or payload["errors"]:
-                    exit_code = exit_code or 1
-                if exit_code and not payload.get("reason_code"):
-                    payload["reason_code"] = "operation_failed"
+            payload = json.loads(
+                json_envelope(data=data, status="error" if exit_code else "success")
+            )
+        if exit_code and payload["status"] == "success":
+            payload["status"] = "error"
+        if payload["status"] in {"error", "partial", "cancelled"} or payload["errors"]:
+            exit_code = exit_code or 1
+        if exit_code and not payload.get("reason_code"):
+            payload["reason_code"] = "operation_failed"
+        return payload, exit_code
+
+    def main(self, args=None, prog_name=None, complete_var=None, standalone_mode=True, **extra):
+        args = list(sys.argv[1:] if args is None else args)
+        if not _requests_json(self, args):
+            return super().main(
+                args=args,
+                prog_name=prog_name,
+                complete_var=complete_var,
+                standalone_mode=standalone_mode,
+                **extra,
+            )
+        content, error, exit_code = self._execute_json(args, prog_name, complete_var, extra)
+        payload, exit_code = self._build_json_payload(args, content, error, exit_code)
         payload["exit_code"] = exit_code
         click.echo(json.dumps(payload, indent=2, sort_keys=True))
         if standalone_mode:

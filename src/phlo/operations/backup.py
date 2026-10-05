@@ -230,7 +230,79 @@ def create_backup_set(
     return result
 
 
-def verify_backup_set(  # noqa: C901
+def _provider_verification_reasons(manifest: BackupSetManifest) -> list[str]:
+    declared_providers = [record.provider for record in manifest.contributors]
+    reasons = [
+        BackupVerificationReason.MISSING_PROVIDER.value
+        for provider in BACKUP_PROVIDER_ORDER
+        if provider not in declared_providers
+    ]
+    for provider in declared_providers:
+        if provider not in BACKUP_PROVIDER_ORDER:
+            reasons.append(BackupVerificationReason.UNKNOWN_PROVIDER.value)
+        if declared_providers.count(provider) > 1:
+            reasons.append(BackupVerificationReason.MIXED_RUN.value)
+    return reasons
+
+
+def _manifest_verification_reasons(
+    manifest: BackupSetManifest, expected_deployment_id: str | None
+) -> list[str]:
+    reasons: list[str] = []
+    if not manifest.complete or any(
+        record.state is not BackupContributorState.SUCCEEDED for record in manifest.contributors
+    ):
+        reasons.append(BackupVerificationReason.PARTIAL_SET.value)
+    if not manifest.source_deployment_id or (
+        expected_deployment_id is not None
+        and manifest.source_deployment_id != expected_deployment_id
+    ):
+        reasons.append(BackupVerificationReason.WRONG_OWNER.value)
+    if not manifest.versions.get("phlo"):
+        reasons.append(BackupVerificationReason.INCOMPATIBLE_VERSION.value)
+    operation_ids = {record.operation_id for record in manifest.contributors if record.operation_id}
+    if len(operation_ids) > 1 or any(
+        record.operation_id and record.operation_id != f"backup.create:{manifest.set_id}"
+        for record in manifest.contributors
+    ):
+        reasons.append(BackupVerificationReason.MIXED_RUN.value)
+    return reasons
+
+
+def _artifact_verification_reasons(set_dir: Path, manifest: BackupSetManifest) -> list[str]:
+    reasons: list[str] = []
+    declared_paths: set[str] = set()
+    for artifact in manifest.artifacts:
+        declared_paths.add(artifact.relative_path)
+        raw_path = set_dir / artifact.relative_path
+        if raw_path.is_symlink():
+            reasons.append(BackupVerificationReason.SYMLINK.value)
+            continue
+        try:
+            path = validate_contained_path(set_dir, artifact.relative_path)
+        except BackupSetError:
+            reasons.append(BackupVerificationReason.PATH_ESCAPE.value)
+            continue
+        if not path.is_file():
+            reasons.append(BackupVerificationReason.MISSING_ARTIFACT.value)
+            continue
+        if path.stat().st_size != artifact.size_bytes:
+            reasons.append(BackupVerificationReason.SIZE_MISMATCH.value)
+        if sha256_file(path) != artifact.sha256:
+            reasons.append(BackupVerificationReason.DIGEST_MISMATCH.value)
+
+    disk_paths = {
+        path.relative_to(set_dir).as_posix()
+        for path in set_dir.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    }
+    expected_paths = declared_paths | {SET_MANIFEST_NAME}
+    if disk_paths - expected_paths:
+        reasons.append(BackupVerificationReason.EXTRA_ARTIFACT.value)
+    return reasons
+
+
+def verify_backup_set(
     set_dir: Path,
     *,
     expected_deployment_id: str | None = None,
@@ -261,65 +333,9 @@ def verify_backup_set(  # noqa: C901
         return _verify_failed(set_id, (reason.value,), None)
 
     reasons: list[str] = []
-    declared_providers = [record.provider for record in manifest.contributors]
-    for provider in BACKUP_PROVIDER_ORDER:
-        if provider not in declared_providers:
-            reasons.append(BackupVerificationReason.MISSING_PROVIDER.value)
-    for provider in declared_providers:
-        if provider not in BACKUP_PROVIDER_ORDER:
-            reasons.append(BackupVerificationReason.UNKNOWN_PROVIDER.value)
-        if declared_providers.count(provider) > 1:
-            reasons.append(BackupVerificationReason.MIXED_RUN.value)
-
-    if not manifest.complete or any(
-        record.state is not BackupContributorState.SUCCEEDED for record in manifest.contributors
-    ):
-        reasons.append(BackupVerificationReason.PARTIAL_SET.value)
-
-    if not manifest.source_deployment_id or (
-        expected_deployment_id is not None
-        and manifest.source_deployment_id != expected_deployment_id
-    ):
-        reasons.append(BackupVerificationReason.WRONG_OWNER.value)
-
-    if not manifest.versions.get("phlo"):
-        reasons.append(BackupVerificationReason.INCOMPATIBLE_VERSION.value)
-
-    operation_ids = {record.operation_id for record in manifest.contributors if record.operation_id}
-    if len(operation_ids) > 1 or any(
-        record.operation_id and record.operation_id != f"backup.create:{manifest.set_id}"
-        for record in manifest.contributors
-    ):
-        reasons.append(BackupVerificationReason.MIXED_RUN.value)
-
-    declared_paths: set[str] = set()
-    for artifact in manifest.artifacts:
-        declared_paths.add(artifact.relative_path)
-        raw_path = set_dir / artifact.relative_path
-        if raw_path.is_symlink():
-            reasons.append(BackupVerificationReason.SYMLINK.value)
-            continue
-        try:
-            path = validate_contained_path(set_dir, artifact.relative_path)
-        except BackupSetError:
-            reasons.append(BackupVerificationReason.PATH_ESCAPE.value)
-            continue
-        if not path.is_file():
-            reasons.append(BackupVerificationReason.MISSING_ARTIFACT.value)
-            continue
-        if path.stat().st_size != artifact.size_bytes:
-            reasons.append(BackupVerificationReason.SIZE_MISMATCH.value)
-        if sha256_file(path) != artifact.sha256:
-            reasons.append(BackupVerificationReason.DIGEST_MISMATCH.value)
-
-    disk_paths = {
-        path.relative_to(set_dir).as_posix()
-        for path in set_dir.rglob("*")
-        if path.is_file() and not path.is_symlink()
-    }
-    expected_paths = declared_paths | {SET_MANIFEST_NAME}
-    if disk_paths - expected_paths:
-        reasons.append(BackupVerificationReason.EXTRA_ARTIFACT.value)
+    reasons.extend(_provider_verification_reasons(manifest))
+    reasons.extend(_manifest_verification_reasons(manifest, expected_deployment_id))
+    reasons.extend(_artifact_verification_reasons(set_dir, manifest))
 
     reasons = list(dict.fromkeys(reasons))
     if reasons:

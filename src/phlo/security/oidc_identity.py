@@ -192,8 +192,7 @@ class OIDCIdentityValidator:
             self._negative_kids[kid] = now + self.refresh_min_interval
         return key
 
-    # reason: Keep bounded fetching, key replacement, and refresh backoff under one lock.
-    def _refresh_keys(self, *, force: bool = False) -> bool:  # noqa: C901
+    def _refresh_keys(self, *, force: bool = False) -> bool:
         with self._lock:
             now = time.monotonic()
             if not force and self._keys and now - self._keys_fetched_at < self.cache_ttl:
@@ -205,32 +204,7 @@ class OIDCIdentityValidator:
                 return False
             self._last_refresh_attempt = now
             try:
-                with self._stream(
-                    "GET",
-                    self.jwks_url,
-                    verify=self.ca_file or True,
-                    timeout=5.0,
-                    follow_redirects=False,
-                ) as response:
-                    if 300 <= response.status_code < 400:
-                        raise ValueError("OIDC JWKS redirects are not allowed")
-                    chunks: list[bytes] = []
-                    total = 0
-                    for chunk in response.iter_bytes():
-                        total += len(chunk)
-                        if total > _MAX_JWKS_BYTES:
-                            raise ValueError("OIDC JWKS response is too large")
-                        chunks.append(chunk)
-                    response.raise_for_status()
-                payload = json.loads(b"".join(chunks))
-                keys = payload.get("keys") if isinstance(payload, dict) else None
-                if not isinstance(keys, list) or len(keys) > _MAX_JWKS_KEYS:
-                    raise ValueError("OIDC JWKS contains an invalid number of keys")
-                parsed: dict[str, dict[str, Any]] = {}
-                for key in keys:
-                    self._add_signing_key(parsed, key)
-                if not parsed:
-                    raise ValueError("OIDC JWKS contains no usable signing keys")
+                parsed = self._fetch_signing_keys()
                 self._keys, self._keys_fetched_at = parsed, now
                 self._refresh_backoff_until = 0.0
                 self._negative_kids.clear()
@@ -239,6 +213,35 @@ class OIDCIdentityValidator:
                 self._refresh_backoff_until = now + self.refresh_min_interval
                 logger.warning("oidc_jwks_refresh_failed", exc_info=True)
                 return False
+
+    def _fetch_signing_keys(self) -> dict[str, dict[str, Any]]:
+        with self._stream(
+            "GET",
+            self.jwks_url,
+            verify=self.ca_file or True,
+            timeout=5.0,
+            follow_redirects=False,
+        ) as response:
+            if 300 <= response.status_code < 400:
+                raise ValueError("OIDC JWKS redirects are not allowed")
+            chunks: list[bytes] = []
+            total = 0
+            for chunk in response.iter_bytes():
+                total += len(chunk)
+                if total > _MAX_JWKS_BYTES:
+                    raise ValueError("OIDC JWKS response is too large")
+                chunks.append(chunk)
+            response.raise_for_status()
+        payload = json.loads(b"".join(chunks))
+        keys = payload.get("keys") if isinstance(payload, dict) else None
+        if not isinstance(keys, list) or len(keys) > _MAX_JWKS_KEYS:
+            raise ValueError("OIDC JWKS contains an invalid number of keys")
+        parsed: dict[str, dict[str, Any]] = {}
+        for key in keys:
+            self._add_signing_key(parsed, key)
+        if not parsed:
+            raise ValueError("OIDC JWKS contains no usable signing keys")
+        return parsed
 
     @staticmethod
     def _add_signing_key(parsed: dict[str, dict[str, Any]], key: Any) -> None:

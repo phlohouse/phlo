@@ -159,7 +159,74 @@ def _read_dbt_asset_checks(
     ]
 
 
-def _build_project_asset_specs(  # noqa: C901
+def _load_project_manifest(
+    project_path: Path, profiles_path: Path, manifest_path: Path
+) -> Mapping[str, Any]:
+    if not ensure_dbt_manifest(project_path, profiles_path):
+        _raise_required_dbt_setup_error(
+            reason="manifest_unavailable",
+            dbt_project_path=project_path,
+            dbt_profiles_path=profiles_path,
+            manifest_path=manifest_path,
+        )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        _raise_required_dbt_setup_error(
+            reason="manifest_read_failed",
+            dbt_project_path=project_path,
+            dbt_profiles_path=profiles_path,
+            manifest_path=manifest_path,
+        )
+    if not isinstance(manifest, Mapping):
+        _raise_required_dbt_setup_error(
+            reason="manifest_not_mapping",
+            dbt_project_path=project_path,
+            dbt_profiles_path=profiles_path,
+            manifest_path=manifest_path,
+        )
+    return manifest
+
+
+def _build_asset_key_map(
+    translator: DbtSpecTranslator, nodes: Mapping[str, Any], sources: Mapping[str, Any]
+) -> dict[str, str]:
+    asset_keys: dict[str, str] = {}
+    for unique_id, props in {**nodes, **sources}.items():
+        if not isinstance(props, Mapping):
+            continue
+        try:
+            asset_key = translator.get_asset_key(props)
+        except Exception:
+            logger.exception(
+                "dbt_asset_specs_asset_key_translate_failed",
+                unique_id=str(unique_id),
+            )
+            continue
+        asset_keys[str(unique_id)] = str(asset_key)
+    return asset_keys
+
+
+def _manifest_nodes_sources(
+    manifest: Mapping[str, Any], project_path: Path, profiles_path: Path, manifest_path: Path
+) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    nodes = manifest.get("nodes")
+    sources = manifest.get("sources")
+    if nodes is None:
+        nodes = {}
+    if sources is None:
+        sources = {}
+    if not isinstance(nodes, Mapping) or not isinstance(sources, Mapping):
+        _raise_required_dbt_setup_error(
+            reason="manifest_shape_invalid",
+            dbt_project_path=project_path,
+            dbt_profiles_path=profiles_path,
+            manifest_path=manifest_path,
+        )
+    return nodes, sources
+
+
+def _build_project_asset_specs(
     *,
     project_path: Path,
     project_name: str,
@@ -187,60 +254,12 @@ def _build_project_asset_specs(  # noqa: C901
 
     ensure_dbt_profile(profiles_path, project_dir=project_path)
 
-    if not ensure_dbt_manifest(project_path, profiles_path):
-        _raise_required_dbt_setup_error(
-            reason="manifest_unavailable",
-            dbt_project_path=project_path,
-            dbt_profiles_path=profiles_path,
-            manifest_path=manifest_path,
-        )
-
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        _raise_required_dbt_setup_error(
-            reason="manifest_read_failed",
-            dbt_project_path=project_path,
-            dbt_profiles_path=profiles_path,
-            manifest_path=manifest_path,
-        )
-
-    if not isinstance(manifest, Mapping):
-        _raise_required_dbt_setup_error(
-            reason="manifest_not_mapping",
-            dbt_project_path=project_path,
-            dbt_profiles_path=profiles_path,
-            manifest_path=manifest_path,
-        )
+    manifest = _load_project_manifest(project_path, profiles_path, manifest_path)
 
     translator = DbtSpecTranslator(project_dir=project_path, key_prefix=key_prefix)
-    nodes = manifest.get("nodes")
-    sources = manifest.get("sources")
-    if nodes is None:
-        nodes = {}
-    if sources is None:
-        sources = {}
-    if not isinstance(nodes, Mapping) or not isinstance(sources, Mapping):
-        _raise_required_dbt_setup_error(
-            reason="manifest_shape_invalid",
-            dbt_project_path=project_path,
-            dbt_profiles_path=profiles_path,
-            manifest_path=manifest_path,
-        )
+    nodes, sources = _manifest_nodes_sources(manifest, project_path, profiles_path, manifest_path)
 
-    asset_keys: dict[str, str] = {}
-    for unique_id, props in {**nodes, **sources}.items():
-        if not isinstance(props, Mapping):
-            continue
-        try:
-            asset_key = translator.get_asset_key(props)
-        except Exception:
-            logger.exception(
-                "dbt_asset_specs_asset_key_translate_failed",
-                unique_id=str(unique_id),
-            )
-            continue
-        asset_keys[str(unique_id)] = str(asset_key)
+    asset_keys = _build_asset_key_map(translator, nodes, sources)
 
     specs: list[AssetSpec] = []
     check_specs = dbt_asset_check_specs(manifest, translator=translator)
