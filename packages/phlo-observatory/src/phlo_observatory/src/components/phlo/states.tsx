@@ -47,6 +47,8 @@ export function PageSkeleton() {
   return (
     <div
       className="flex flex-1 flex-col gap-5 p-6"
+      role="status"
+      aria-live="polite"
       aria-busy="true"
       aria-label="Loading"
     >
@@ -98,12 +100,14 @@ export function RouteError({ error, reset }: ErrorComponentProps) {
   return (
     <div className="flex flex-1 items-center justify-center p-8">
       <div className="flex max-w-md flex-col gap-3 rounded-xl border border-bad-line bg-bad-wash p-5 text-bad-ink">
-        <div className="flex items-center gap-2 font-medium">
-          <TriangleAlertIcon className="size-4" /> Couldn't load this page
+        <div role="alert">
+          <div className="flex items-center gap-2 font-medium">
+            <TriangleAlertIcon className="size-4" /> Couldn't load this page
+          </div>
+          <pre className="m-0 overflow-auto font-mono text-xs whitespace-pre-wrap">
+            {error instanceof Error ? error.message : String(error)}
+          </pre>
         </div>
-        <pre className="m-0 overflow-auto font-mono text-xs whitespace-pre-wrap">
-          {error instanceof Error ? error.message : String(error)}
-        </pre>
         <div>
           <Button
             variant="outline"
