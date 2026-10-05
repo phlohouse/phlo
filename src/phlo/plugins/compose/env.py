@@ -55,7 +55,7 @@ def generate_local_secret(var_name: str | None = None) -> str:
     return f"phlo_{secrets.token_urlsafe(32)}"
 
 
-def render_env(  # noqa: C901
+def render_env(
     services: list[ServiceDefinition],
     *,
     env_overrides: dict[str, Any] | None,
@@ -70,68 +70,10 @@ def render_env(  # noqa: C901
     overrides = normalize_env_overrides(env_overrides or {})
     existing_values = existing_values or {}
 
-    # Group env vars by category
-    categories: dict[str, list[tuple[str, dict[str, Any]]]] = {}
-    seen_vars: set[str] = set()
-
-    for service in services:
-        category = service.category
-        if category not in categories:
-            categories[category] = []
-
-        for var_name, var_config in service.env_vars.items():
-            if var_name in seen_vars:
-                continue
-            seen_vars.add(var_name)
-            categories[category].append((var_name, var_config))
-
-    # Write grouped env vars
-    category_titles = {
-        "core": "Core Infrastructure",
-        "orchestration": "Orchestration",
-        "bi": "Business Intelligence",
-        "admin": "Admin Tools",
-        "api": "API Layer",
-        "observability": "Observability",
-    }
-
-    for category, vars_list in categories.items():
-        if not vars_list:
-            continue
-
-        section_lines: list[str] = []
-        title = category_titles.get(category, category.title())
-        section_lines.append(f"# {title}")
-
-        for var_name, var_config in vars_list:
-            is_secret = bool(var_config.get("secret", False))
-            if is_secret and not include_secrets:
-                continue
-            if not is_secret and not include_non_secrets:
-                continue
-
-            default = var_config.get("default", "")
-            package_name = var_config.get("package")
-            if package_name and not default:
-                default = _default_package_version(str(package_name))
-            elif var_name == "PHLO_VERSION" and not default:
-                default = _default_package_version("phlo")
-            description = var_config.get("description", "")
-            value = overrides.get(var_name, normalize_env_value(default))
-
-            if is_secret and var_name in existing_values:
-                value = existing_values[var_name]
-            elif is_secret and include_secrets and var_name not in overrides:
-                value = generate_local_secret(var_name)
-
-            if description:
-                section_lines.append(f"# {description}")
-            section_lines.append(f"{var_name}={value}")
-
-        if len(section_lines) > 1:
-            lines.extend(section_lines)
-            lines.append("")
-
+    categories, seen_vars = _group_env_vars(services)
+    _append_env_sections(
+        lines, categories, overrides, existing_values, include_secrets, include_non_secrets
+    )
     if include_non_secrets:
         extra_overrides = {k: v for k, v in overrides.items() if k not in seen_vars}
         if extra_overrides:
@@ -157,6 +99,89 @@ def render_env(  # noqa: C901
             lines.append("")
 
     return "\n".join(lines)
+
+
+def _group_env_vars(
+    services: list[ServiceDefinition],
+) -> tuple[dict[str, list[tuple[str, dict[str, Any]]]], set[str]]:
+    categories: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    seen_vars: set[str] = set()
+
+    for service in services:
+        category = service.category
+        if category not in categories:
+            categories[category] = []
+
+        for var_name, var_config in service.env_vars.items():
+            if var_name in seen_vars:
+                continue
+            seen_vars.add(var_name)
+            categories[category].append((var_name, var_config))
+    return categories, seen_vars
+
+
+def _append_env_sections(
+    lines: list[str],
+    categories: dict[str, list[tuple[str, dict[str, Any]]]],
+    overrides: dict[str, str],
+    existing_values: dict[str, str],
+    include_secrets: bool,
+    include_non_secrets: bool,
+) -> None:
+    category_titles = {
+        "core": "Core Infrastructure",
+        "orchestration": "Orchestration",
+        "bi": "Business Intelligence",
+        "admin": "Admin Tools",
+        "api": "API Layer",
+        "observability": "Observability",
+    }
+
+    for category, vars_list in categories.items():
+        if not vars_list:
+            continue
+
+        section_lines: list[str] = []
+        title = category_titles.get(category, category.title())
+        section_lines.append(f"# {title}")
+        for var_name, var_config in vars_list:
+            is_secret = bool(var_config.get("secret", False))
+            if is_secret and not include_secrets:
+                continue
+            if not is_secret and not include_non_secrets:
+                continue
+            section_lines.extend(
+                _render_env_variable(var_name, var_config, overrides, existing_values, is_secret)
+            )
+
+        if len(section_lines) > 1:
+            lines.extend(section_lines)
+            lines.append("")
+
+
+def _render_env_variable(
+    var_name: str,
+    var_config: dict[str, Any],
+    overrides: dict[str, str],
+    existing_values: dict[str, str],
+    is_secret: bool,
+) -> list[str]:
+    default = var_config.get("default", "")
+    package_name = var_config.get("package")
+    if package_name and not default:
+        default = _default_package_version(str(package_name))
+    elif var_name == "PHLO_VERSION" and not default:
+        default = _default_package_version("phlo")
+    value = overrides.get(var_name, normalize_env_value(default))
+    if is_secret and var_name in existing_values:
+        value = existing_values[var_name]
+    elif is_secret and var_name not in overrides:
+        value = generate_local_secret(var_name)
+    lines = []
+    if description := var_config.get("description", ""):
+        lines.append(f"# {description}")
+    lines.append(f"{var_name}={value}")
+    return lines
 
 
 def generate_env(
