@@ -642,21 +642,24 @@ function Inventory({
     <Card className={`p-4 lg:p-5 ${className ?? ''}`}>
       <h2 className="m-0 text-[15px] font-medium">{title}</h2>
       {items.length ? (
-        <ul
+        <div
+          role="region"
           aria-label={title}
           tabIndex={0}
-          className="mt-2 max-h-64 list-none overflow-y-auto p-0 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring"
+          className="mt-2 max-h-64 overflow-y-auto focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring"
         >
-          {items.map((item) => (
-            <li
-              key={`${item.note}:${item.name}`}
-              className="flex gap-2 border-t border-line-soft py-2 text-sm"
-            >
-              <Badge variant="outline">{item.note}</Badge>
-              <Mono className="break-all text-xs">{item.name}</Mono>
-            </li>
-          ))}
-        </ul>
+          <ul className="m-0 list-none p-0">
+            {items.map((item) => (
+              <li
+                key={`${item.note}:${item.name}`}
+                className="flex gap-2 border-t border-line-soft py-2 text-sm"
+              >
+                <Badge variant="outline">{item.note}</Badge>
+                <Mono className="break-all text-xs">{item.name}</Mono>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : (
         <p className="mb-0 text-sm text-muted-foreground">{empty}</p>
       )}

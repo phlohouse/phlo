@@ -55,6 +55,8 @@ function FieldDescription({
 
 function Label({ className, ...props }: React.ComponentProps<'label'>) {
   return (
+    // reason: This generic primitive's consumer supplies the associated control.
+    // eslint-disable-next-line jsx-a11y/label-has-associated-control
     <label
       data-slot="label"
       className={cn('text-[13.5px] font-medium text-foreground', className)}

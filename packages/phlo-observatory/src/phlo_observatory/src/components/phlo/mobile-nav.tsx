@@ -51,7 +51,7 @@ export function MobileTabBar({
 }) {
   return (
     <nav
-      aria-label="Primary"
+      aria-label="Mobile navigation"
       className="grid h-16 shrink-0 grid-cols-5 border-t border-line bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
       {navItems
