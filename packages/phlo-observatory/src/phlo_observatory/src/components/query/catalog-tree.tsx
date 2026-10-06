@@ -79,7 +79,12 @@ export function CatalogTree({
               return null
             const expanded = needle.length > 0 || open.has(key)
             return (
-              <li key={key} role="treeitem" aria-expanded={expanded}>
+              <li
+                key={key}
+                role="treeitem"
+                aria-expanded={expanded}
+                aria-selected={false}
+              >
                 <button
                   type="button"
                   className={row}

@@ -164,7 +164,7 @@ export function Sidebar({
   const visibleServices = environmentServices(services)
   return (
     <nav
-      aria-label="Primary"
+      aria-label="Primary navigation"
       className="flex h-full w-[248px] shrink-0 flex-col gap-[18px] px-2.5 py-3.5"
     >
       <EnvSwitcher env={env} />

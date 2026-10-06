@@ -49,6 +49,12 @@ function AppLayout() {
   return (
     <CommandPaletteProvider env={env}>
       <div className="flex h-dvh overflow-hidden bg-background">
+        <a
+          href="#main-content"
+          className="fixed top-2 left-2 z-[100] -translate-y-16 rounded-md bg-card px-4 py-2 font-medium text-foreground shadow-dialog focus:translate-y-0 focus:outline-2 focus:outline-offset-2 focus:outline-ring"
+        >
+          Skip to main content
+        </a>
         <div className="hidden lg:flex">
           <Sidebar
             env={env}
@@ -60,7 +66,11 @@ function AppLayout() {
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
           <MobileTopBar env={env} />
-          <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card lg:my-2 lg:mr-2 lg:rounded-xl lg:border lg:border-border-card">
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card outline-none lg:my-2 lg:mr-2 lg:rounded-xl lg:border lg:border-border-card"
+          >
             {env === 'staging' ? <div className="env-stripe" /> : null}
             <Outlet key={actor} />
           </main>

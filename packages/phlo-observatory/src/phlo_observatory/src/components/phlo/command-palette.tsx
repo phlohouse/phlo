@@ -224,7 +224,6 @@ function CommandPalette({
           <div className="flex items-center gap-2.5 border-b border-line px-4">
             <SearchIcon className="size-4 text-muted-foreground" />
             <input
-              autoFocus
               role="combobox"
               aria-autocomplete="list"
               aria-expanded={open}
