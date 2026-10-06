@@ -23,6 +23,10 @@ updates those pins through a reviewable pull request.
 
 ## Reporting
 
-Please report vulnerabilities privately through GitHub's security advisory
-feature for this repository. Do not include secrets in issues, logs, scan
-reports, or waiver records.
+Do not report vulnerabilities in public issues. GitHub private vulnerability
+reporting is not enabled for this repository, and Phlo does not currently
+publish another private reporting channel or a response-time commitment.
+
+Maintainers must enable a private reporting channel and document the contact
+method before asking users to submit reports. Do not include secrets in issues,
+logs, scan reports, or waiver records.

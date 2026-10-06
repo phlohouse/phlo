@@ -50,7 +50,7 @@ When `--profile` is specified without `--service`, the `start` command should on
 
 ### Core CLI
 
-#### [MODIFY] [services.py](file:///Users/garethprice/Developer/phlo/src/phlo/cli/services.py)
+#### Modify `src/phlo/cli/services.py` (historical path)
 
 1. Add new `restart` command (~50-70 lines):
    - Accept `--profile`, `--service`, `--build`, `--dev` options
@@ -67,7 +67,7 @@ When `--profile` is specified without `--service`, the `start` command should on
 
 ### Tests
 
-#### [MODIFY] [test_cli_services.py](file:///Users/garethprice/Developer/phlo/tests/test_cli_services.py)
+#### Modify `tests/test_cli_services.py` (historical path)
 
 Add tests for:
 

@@ -9,6 +9,8 @@ TY_CHECK_SCOPE := src/phlo $(wildcard packages/*/src)
 CHECK_CMD := scripts/run-parallel \
 	"support manifest" "python3 scripts/validate_support_manifest.py" \
 	"version drift" "python3 scripts/check_version_drift.py" \
+	"markdown links" "python3 scripts/check_markdown_links.py" \
+	"ADR index" "python3 scripts/check_adr_index.py" \
 	"reference docs" "uv run --locked python scripts/generate_reference_docs.py --check" \
 	"py lint" "uv run --locked ruff check ." \
 	"py complexity" "uv run --locked ruff check --config pyproject.toml --select C901 ." \
@@ -25,7 +27,7 @@ LANE ?= all
 PYMDX_DOCS_DIR ?= docs-site
 PYMDX_DOCS_PORT ?= 3000
 
-.PHONY: setup install test \
+.PHONY: setup setup-js install test \
 	dagster superset hub minio pgweb trino nessie grafana prometheus api hasura openmetadata catalog docs-open \
 	check lint lint-sql lint-python format-python typecheck-python \
 	dependency-refresh dependency-refresh-check \
@@ -35,9 +37,15 @@ PYMDX_DOCS_PORT ?= 3000
 	docs-generate docs-dev docs-build docs-serve docs-clean
 
 setup: venv install
+	$(MAKE) setup-js
+
+setup-js:
+	node -e 'if (Number(process.versions.node.split(".")[0]) < 24) { console.error("Node.js 24 or later is required"); process.exit(1) }'
+	npm ci --prefix $(OBSERVATORY_DIR)
+	npm ci --prefix apps/phlo-github-writer
 
 venv:
-	uv venv
+	uv venv --python 3.12 --allow-existing
 
 install:
 	uv sync --locked
