@@ -96,7 +96,10 @@ Replace all "Cascade" references with "Phlo".
 
 ## Implementation
 
-See [implementation-roadmap.md](../goals/implementation-roadmap.md) for detailed phases.
+The original implementation roadmap and plugin-DX planning documents are no
+longer maintained in this repository. Use the current
+[engineering map](../../contributing/engineering-map.md) to locate package and
+source ownership.
 
 ### Core vs Packages Model
 
@@ -187,6 +190,5 @@ docker ps | grep superset  # Should not appear
 
 ## Related
 
-- Goals: [plugin-dx.md](../goals/plugin-dx.md)
-- Roadmap: [implementation-roadmap.md](../goals/implementation-roadmap.md)
+- Current package map: [engineering map](../../contributing/engineering-map.md)
 - Prior: [ADR 0030 - Unified Plugin System](./0030-unified-plugin-system-with-registry.md)

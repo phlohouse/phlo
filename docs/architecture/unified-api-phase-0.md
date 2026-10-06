@@ -17,7 +17,7 @@ Rules apply to **each method and path** matching the listed prefix, including pa
 | `/api/maintenance/*` (2) | Keep maintenance status and metrics distinct from individual service health. | Existing operational clients may use them. |
 | `/api/observability/*` (9) | Migrate service status to `/api/v1/services`; keep platform health, metrics, alerts, dashboard links, log/metric links, and trace queries as distinct v1 observability capabilities. | `phlo-mcp` uses service status, health, alerts, dashboards, traces, and links. `/api/services` is discovery, not live health. |
 | `/api/services*` (2) | Migrate discovery and service detail to canonical `/api/v1/services` identity plus observed health. | `phlo-mcp` uses both; do not turn missing health evidence into a healthy status. |
-| `/api/observatory/*` (67) | Apply the detailed rules below. Every legacy URL is retained until its caller migrates; no Observatory-only v1 namespace. | Bundled UI consumes this family; `phlo-mcp` also consumes assets, runs, search, operations, quality, lineage, actions, and package install. |
+| `/api/observatory/*` (67) | Apply the detailed rules below. Every legacy URL is retained until its caller migrates; no Observatory-only v1 namespace. | Phase-0 inventory: the then-separate UI and `phlo-mcp` were recorded as consumers. This is historical; see the current client description below. |
 
 Within `/api/observatory/*`, the **resource identity**, not the old path grouping, decides its future. These rules partition all 67 mounted endpoints; the parenthesized counts come from the generated inventory:
 
@@ -31,13 +31,15 @@ Within `/api/observatory/*`, the **resource identity**, not the old path groupin
 | `services*`, `overview`, `operations*`, `storage`, `observability`, `logs*`, `apis`, `bi`, `search` | 13 | Migrate service/overview/operation/search read models to canonical resources; keep storage, observability, logs, API integrations, and BI as distinct capabilities. Do not copy old presentation aggregates as authoritative v1 facts. |
 | `settings`, `preferences*`, `workflow-wizard*`, `extensions*`, `extension-manifests`, `capabilities`, `capability-inventory`, `surface-capabilities`, `packages/install` | 16 | Keep preferences, wizard, extensions, capability discovery, and package installation as distinct capabilities; migrate settings to canonical administration. Package install stays an administrator action. |
 
-The counts are a coverage aid, not endpoint definitions. For exact methods and paths use the generated [HTTP API reference](../reference/http-api.md). The detailed rules classify retained **capabilities** and the legacy URLs to retire after caller migration; they do not authorize deleting one of the 107 URLs now.
+The counts are a coverage aid, not endpoint definitions. For exact methods and paths use the generated [HTTP API reference](../reference/http-api.md). The detailed rules classify retained **capabilities** and the legacy URLs to retire after caller migration; they do not authorize deleting one of the 107 URLs now. The consumer descriptions record the phase-0 inventory and are not a current frontend architecture description.
 
 ## Client demand and v1 resource plan
 
-The bundled Observatory calls `/api/observatory/*`, `/api/continuity/*`, and related log/observability routes from `packages/phlo-observatory/src/phlo_observatory/src/observatory/api/`. `packages/phlo-mcp/src/phlo_mcp/api_client.py` calls the platform, authoring, service, log, and Observatory families noted above. Migrate both before retiring their URLs. The standalone `phlohouse/phlo-observatory` has fixture-backed TanStack `createServerFn` GETs and local-only fake mutations; it is **not** yet a live HTTP consumer. Its typed fixtures mix display strings with domain data. It needs these planned v1 slices, with no endpoints mounted in phase 0:
+The phase-0 inventory described the then-separate `phlohouse/phlo-observatory` frontend as a fixture-backed client. That frontend was removed by #1051. The only replacement is bundled in `packages/phlo-observatory`; its authenticated Node-side API adapters call `/api/v1` and validate API responses. It is not a fixture-backed client or a pure SPA. See the [Observatory package README](../../packages/phlo-observatory/README.md) for its runtime configuration. `packages/phlo-mcp/src/phlo_mcp/api_client.py` remains another caller of the API. The legacy route inventory above is historical phase-0 context, not a statement that the current UI still calls those routes.
 
-| Phase | Planned v1 resource families (illustrative paths, not mounted) |
+The following table preserves the original phase-0 proposal. Phase 0 mounted none of these paths. This is not the current route roadmap; implemented routes are documented in the [generated HTTP API reference](../reference/http-api.md) and the [phase references](../reference/unified-api-phase-1.md):
+
+| Phase | Proposed v1 resource families at phase 0 |
 | --- | --- |
 | 1 | `/me`, `/environments`, `/services`, `/events` |
 | 2 | `/incidents`, `/activity` with durable incident lifecycle and evidence |
@@ -48,7 +50,7 @@ The bundled Observatory calls `/api/observatory/*`, `/api/continuity/*`, and rel
 | 7 | `/branches` with checks, trial merge, and signed merge |
 | 8 | `/staging`, `/promotions` with explicit code/config promotion separate from branch merge |
 
-The standalone GET shapes are screen aggregates, not canonical API schemas: duplicate asset list/detail handlers, a fixture query workspace, and a pipeline UI that displays jobs do not justify parallel v1 endpoints. Its incident creation, branch merge, query execution, materialization, schedule toggle, settings save, invitations, and promotion controls have no durable backend yet. Do not advertise them as mounted or successful operations.
+The old frontend's GET shapes and fake mutations are retained here only as history. They do not describe the bundled Observatory client or the current `/api/v1` implementation.
 
 ## `/api/v1` conventions for implementing phases
 

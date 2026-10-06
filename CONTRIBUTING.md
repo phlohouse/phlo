@@ -1,9 +1,19 @@
 # Contributing to Phlo
 
 Thank you for contributing to Phlo. Please discuss substantial changes in an
-issue before opening a pull request. Start with `make check`, then use the
-[verification matrix](docs/contributing/verification-matrix.md) to select the
-checks for the surfaces you changed.
+issue before opening a pull request.
+
+## Set up a development checkout
+
+Install Python 3.12, `uv`, and Node.js 24 or later. Clone the repository, then
+run `make setup` from its root. This creates the Python environment and installs
+the locked Observatory and Phlo GitHub writer dependencies. Run `make check`
+for the local baseline. Use the [verification matrix](docs/contributing/verification-matrix.md)
+to select additional checks for the surfaces you changed.
+
+The [release workflow](.github/workflows/release.yml) and [release promotion
+contract](docs/architecture/decisions/0050-freeze-release-promotion-contract.md)
+describe the release process.
 
 ## Contribution licence
 
@@ -17,22 +27,22 @@ Licence Agreement so that Phlo can also offer commercial licences.
 
 Phlo follows a concise, technically direct commenting style inspired by the
 Redis source tree: comments explain why, contracts state guarantees, and
-obvious code stays uncommented. The full style guide lives in the
-`redis-style-code-comments` agent skill; the binding rules are below.
+obvious code stays uncommented. The binding rules are below.
 
-### Module headers (enforced)
+### Module headers
 
-Every tracked `.py`, `.ts`, `.tsx`, `.js`, `.sql`, and `.sh` file starts with
-a top-of-file block. For Python this is a module docstring as the first
-statement; for TypeScript a `/** ... */` block; for SQL `--` lines; for shell
-a `#` block directly after the shebang.
+Add a top-of-file block when you create or change a `.py`, `.ts`, `.tsx`, `.js`,
+`.sql`, or `.sh` file. For Python use a module docstring as the first
+statement; for TypeScript use a `/** ... */` block; for SQL use `--` lines;
+for shell use a `#` block directly after the shebang.
 
 - One sentence of purpose, then only facts evident from the code: contracts,
   invariants, ownership, ordering or failure semantics. Never invent intent.
 - Two to six lines for substantive modules; one honest line for thin ones.
 - Vendored or generated files may opt out with `phlo: no-header` on line 1.
 
-The `check-file-headers` pre-commit hook enforces presence on changed files.
+The `check-file-headers` pre-commit hook checks changed files for a header.
+It does not check every tracked file.
 
 ### Function and class docstrings
 

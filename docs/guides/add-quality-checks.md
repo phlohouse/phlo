@@ -92,7 +92,7 @@ The rules provider turns these declarations into a quality asset check, and the 
 | `not_null("column")` | No null values in the named column. |
 | `unique("column")` | No duplicate values in the named column or column tuple. |
 | `accepted_values("column", values)` | Every value belongs to the supplied list. |
-| `range_between("column", min_value, max_value)` | Values stay within the inclusive bounds supplied. |
+| `range_between("column", min_value=..., max_value=...)` | Values stay within the inclusive bounds supplied. |
 | `freshness("column", hours=24)` | The newest timestamp is within the allowed age. |
 
 ## 4. Choose blocking behaviour
