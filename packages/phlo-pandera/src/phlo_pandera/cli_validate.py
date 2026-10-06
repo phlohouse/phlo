@@ -441,7 +441,37 @@ def _extract_decorator_params(func: Any) -> dict:
     return {}
 
 
-def _validate_workflow_function(  # noqa: C901
+def _display_workflow_findings(issues: list[str], warnings: list[str]) -> bool:
+    if issues or warnings:
+        for issue in issues:
+            console.print(f"    [red]✗ {issue}[/red]")
+        for warning in warnings:
+            console.print(f"    [yellow]⚠ {warning}[/yellow]")
+        return len(issues) == 0
+    console.print("    [green]✓ No issues found[/green]")
+    return True
+
+
+def _check_partition_date_parameter(
+    func_obj: Any, params: list[str], signature: Any, warnings: list[str]
+) -> None:
+    import inspect
+
+    if "partition_date" not in params and "partition_date" not in str(signature):
+        warnings.append(
+            "Missing 'partition_date: str' parameter - ingestion functions should accept partition_date"
+        )
+        return
+    try:
+        if inspect.getsource(func_obj).count("partition_date") <= 1:
+            warnings.append(
+                "partition_date is declared but appears unused - consider using it for date-based filtering or remove if not needed"
+            )
+    except (OSError, TypeError):
+        pass
+
+
+def _validate_workflow_function(
     func_name: str,
     func_obj: Any,
     decorator_params: dict,
@@ -497,25 +527,7 @@ def _validate_workflow_function(  # noqa: C901
         sig = inspect.signature(func_obj)
         params = list(sig.parameters.keys())
 
-        if "partition_date" not in params and "partition_date" not in str(sig):
-            warnings.append(
-                "Missing 'partition_date: str' parameter - ingestion functions should accept partition_date"
-            )
-        else:
-            # Check if partition_date is declared but not used in the function body
-            try:
-                func_source = inspect.getsource(func_obj)
-                # Count occurrences excluding the parameter declaration itself
-                # Simple heuristic: if partition_date appears only once (in the signature),
-                # it's likely unused
-                occurrences = func_source.count("partition_date")
-                if occurrences <= 1:
-                    warnings.append(
-                        "partition_date is declared but appears unused - consider using it for date-based filtering or remove if not needed"
-                    )
-            except (OSError, TypeError):
-                # Can't get source, skip this check
-                pass
+        _check_partition_date_parameter(func_obj, params, sig, warnings)
 
         # Check for type hints
         annotations = getattr(func_obj, "__annotations__", {})
@@ -531,16 +543,7 @@ def _validate_workflow_function(  # noqa: C901
         )
         console.print("    [yellow]⚠ Could not fully validate source[/yellow]")
 
-    # Display results
-    if issues or warnings:
-        for issue in issues:
-            console.print(f"    [red]✗ {issue}[/red]")
-        for warning in warnings:
-            console.print(f"    [yellow]⚠ {warning}[/yellow]")
-        return len(issues) == 0
-    else:
-        console.print("    [green]✓ No issues found[/green]")
-        return True
+    return _display_workflow_findings(issues, warnings)
 
 
 def _validate_decorator_params(

@@ -1113,6 +1113,53 @@ def check_generated_containers(  # noqa: C901
     }
 
 
+def _render_plugin_check_results(validation_results: dict[str, Any], containers: bool) -> None:
+    valid = validation_results.get("valid", [])
+    invalid = validation_results.get("invalid", [])
+    logger.info(
+        "plugin_check_completed",
+        valid_count=len(valid),
+        invalid_count=len(invalid),
+        output_json=False,
+    )
+    console.print(f"\n[green]✓ Valid Plugins: {len(valid)}[/green]")
+    if valid:
+        for plugin_id in valid:
+            console.print(f"  [green]✓[/green] {plugin_id}")
+    if invalid:
+        logger.warning("plugin_check_validation_failed", invalid_count=len(invalid))
+        console.print(f"\n[red]✗ Invalid Plugins: {len(invalid)}[/red]")
+        for plugin_id in invalid:
+            console.print(f"  [red]✗[/red] {plugin_id}")
+        sys.exit(1)
+
+    console.print("\n[green]All plugins are valid![/green]")
+    if not containers:
+        return
+    checked = validation_results.get("containers")
+    if not isinstance(checked, dict):
+        raise RuntimeError("Container validation did not return a result mapping")
+    console.print(
+        f"\n[green]Generated container checks passed:[/green] "
+        f"{len(checked['dockerfiles'])} Dockerfile(s)"
+    )
+    for service in checked["services"]:
+        if service["status"] == "waived":
+            waiver_line = Text("  ")
+            waiver_line.append("⚠ WAIVED", style="yellow")
+            waiver_line.append(
+                f" {service['package']} / {service['service']} → "
+                f"{service['image']}: {service['vulnerability_waiver']}"
+            )
+            console.print(waiver_line)
+            console.print(Text(f"    {service['detail']}", style="yellow"))
+            continue
+        console.print(
+            f"  [green]✓[/green] {service['package']} / {service['service']} "
+            f"→ {service['image']} ({service['status']})"
+        )
+
+
 @click.command(name="check", cls=PhloCommand)
 @click.option(
     "--json",
@@ -1138,7 +1185,7 @@ def check_generated_containers(  # noqa: C901
     metavar="SERVICE=IMAGE=EVIDENCE_SHA256=REASON",
     help="Waive one exact HIGH/CRITICAL finding set for one generated service image.",
 )
-def check_cmd(  # noqa: C901
+def check_cmd(
     output_json: bool,
     containers: bool,
     remote_images: bool,
@@ -1188,52 +1235,7 @@ def check_cmd(  # noqa: C901
                 raise SystemExit(1)
             return
 
-        # Rich formatted output
-        valid = validation_results.get("valid", [])
-        invalid = validation_results.get("invalid", [])
-        logger.info(
-            "plugin_check_completed",
-            valid_count=len(valid),
-            invalid_count=len(invalid),
-            output_json=output_json,
-        )
-
-        console.print(f"\n[green]✓ Valid Plugins: {len(valid)}[/green]")
-        if valid:
-            for plugin_id in valid:
-                console.print(f"  [green]✓[/green] {plugin_id}")
-
-        if invalid:
-            logger.warning("plugin_check_validation_failed", invalid_count=len(invalid))
-            console.print(f"\n[red]✗ Invalid Plugins: {len(invalid)}[/red]")
-            for plugin_id in invalid:
-                console.print(f"  [red]✗[/red] {plugin_id}")
-            sys.exit(1)
-        else:
-            console.print("\n[green]All plugins are valid![/green]")
-            if containers:
-                checked = validation_results.get("containers")
-                if not isinstance(checked, dict):
-                    raise RuntimeError("Container validation did not return a result mapping")
-                console.print(
-                    f"\n[green]Generated container checks passed:[/green] "
-                    f"{len(checked['dockerfiles'])} Dockerfile(s)"
-                )
-                for service in checked["services"]:
-                    if service["status"] == "waived":
-                        waiver_line = Text("  ")
-                        waiver_line.append("⚠ WAIVED", style="yellow")
-                        waiver_line.append(
-                            f" {service['package']} / {service['service']} → "
-                            f"{service['image']}: {service['vulnerability_waiver']}"
-                        )
-                        console.print(waiver_line)
-                        console.print(Text(f"    {service['detail']}", style="yellow"))
-                        continue
-                    console.print(
-                        f"  [green]✓[/green] {service['package']} / {service['service']} "
-                        f"→ {service['image']} ({service['status']})"
-                    )
+        _render_plugin_check_results(validation_results, containers)
 
     except SystemExit:
         raise

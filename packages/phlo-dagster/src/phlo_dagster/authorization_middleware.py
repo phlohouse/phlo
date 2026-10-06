@@ -268,7 +268,7 @@ class DagsterGraphQLAuthorizationMiddleware:
         spec = resolve_graphql_operation("mutation", mutation_field_name)
         return spec.resource_type, None
 
-    def _extract_principal(self, info: Any) -> AuthPrincipal | None:  # noqa: C901
+    def _extract_principal(self, info: Any) -> AuthPrincipal | None:
         """Extract the authenticated principal from request headers or websocket auth.
 
         Prefers the middleware-authenticated ASGI scope principal, then the
@@ -304,17 +304,28 @@ class DagsterGraphQLAuthorizationMiddleware:
                 return None
             return self._oidc_validator.validate(token)
 
-        headers: dict[str, str] = {}
+        headers = self._request_headers(request)
+        auth_header = headers.get("authorization", "")
+        if AUTHORIZATION_HEADER_RE.match(auth_header):
+            return self._principal_from_authorization(auth_header)
+        access_token = headers.get("x-auth-request-access-token") or headers.get(
+            "x-forwarded-access-token"
+        )
+        return self._oidc_validator.validate(access_token) if access_token else None
+
+    @staticmethod
+    def _request_headers(request: Any) -> dict[str, str]:
         if hasattr(request, "headers"):
-            headers = {str(k).lower(): str(v) for k, v in request.headers.items()}
-        elif hasattr(request, "META"):
-            headers = {
+            return {str(k).lower(): str(v) for k, v in request.headers.items()}
+        if hasattr(request, "META"):
+            return {
                 k.lower().replace("http_", "").replace("_", "-"): v
                 for k, v in request.META.items()
                 if k.startswith("HTTP_")
             }
+        return {}
 
-        auth_header = headers.get("authorization", "")
+    def _principal_from_authorization(self, auth_header: str) -> AuthPrincipal | None:
         match = AUTHORIZATION_HEADER_RE.match(auth_header)
         if match:
             token = match.group(1)
@@ -360,14 +371,6 @@ class DagsterGraphQLAuthorizationMiddleware:
             oidc_principal = self._oidc_validator.validate(token)
             if oidc_principal is not None:
                 return oidc_principal
-            return None
-
-        access_token = headers.get("x-auth-request-access-token") or headers.get(
-            "x-forwarded-access-token"
-        )
-        if access_token:
-            return self._oidc_validator.validate(access_token)
-
         return None
 
     @staticmethod

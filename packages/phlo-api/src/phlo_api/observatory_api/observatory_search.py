@@ -23,7 +23,48 @@ from phlo_api.observatory_api.observatory_models import (
 )
 
 
-def search_results(  # noqa: C901
+def _matches(needle: str, fields: Sequence[str]) -> bool:
+    return needle in " ".join(fields).lower()
+
+
+def _append_dataset_results(
+    results: list[ObservatorySearchResult], needle: str, datasets: Sequence[ObservatoryDataset]
+) -> None:
+    for dataset in datasets:
+        if not _matches(
+            needle,
+            [
+                dataset.id,
+                dataset.name,
+                dataset.description or "",
+                dataset.owner or "",
+                *dataset.classifications,
+                *dataset.kinds,
+                *(ref.label for ref in dataset.source_refs),
+            ],
+        ):
+            continue
+        metadata: dict[str, Any] = {
+            "classifications": dataset.classifications,
+            "candidate": dataset.candidate,
+            "publication_state": dataset.publication_state,
+            "readiness_state": dataset.readiness_state,
+        }
+        if dataset.owner:
+            metadata["owner"] = dataset.owner
+        results.append(
+            ObservatorySearchResult(
+                id=f"dataset:{dataset.id}",
+                label=dataset.name,
+                kind="dataset",
+                summary=f"{dataset.publication_state} · {dataset.readiness_state}",
+                href=f"/datasets/{route_path_segment(dataset.id)}",
+                metadata=metadata,
+            )
+        )
+
+
+def search_results(
     *,
     query: str,
     services: Sequence[ObservatoryService],
@@ -44,42 +85,10 @@ def search_results(  # noqa: C901
         return []
 
     results: list[ObservatorySearchResult] = []
-
-    for dataset in datasets:
-        haystack = " ".join(
-            [
-                dataset.id,
-                dataset.name,
-                dataset.description or "",
-                dataset.owner or "",
-                *dataset.classifications,
-                *dataset.kinds,
-                *(ref.label for ref in dataset.source_refs),
-            ]
-        ).lower()
-        if needle in haystack:
-            metadata: dict[str, Any] = {
-                "classifications": dataset.classifications,
-                "candidate": dataset.candidate,
-                "publication_state": dataset.publication_state,
-                "readiness_state": dataset.readiness_state,
-            }
-            if dataset.owner:
-                metadata["owner"] = dataset.owner
-            results.append(
-                ObservatorySearchResult(
-                    id=f"dataset:{dataset.id}",
-                    label=dataset.name,
-                    kind="dataset",
-                    summary=f"{dataset.publication_state} · {dataset.readiness_state}",
-                    href=f"/datasets/{route_path_segment(dataset.id)}",
-                    metadata=metadata,
-                )
-            )
+    _append_dataset_results(results, needle, datasets)
 
     for service in services:
-        haystack = " ".join([service.id, service.name, service.kind, service.status]).lower()
-        if needle in haystack:
+        if _matches(needle, [service.id, service.name, service.kind, service.status]):
             results.append(
                 ObservatorySearchResult(
                     id=f"service:{service.id}",
@@ -91,10 +100,9 @@ def search_results(  # noqa: C901
             )
 
     for asset in assets:
-        haystack = " ".join(
-            [asset.id, asset.name, asset.group or "", asset.description or "", *asset.kinds]
-        ).lower()
-        if needle in haystack:
+        if _matches(
+            needle, [asset.id, asset.name, asset.group or "", asset.description or "", *asset.kinds]
+        ):
             results.append(
                 ObservatorySearchResult(
                     id=f"asset:{asset.id}",
@@ -106,10 +114,10 @@ def search_results(  # noqa: C901
             )
 
     for table in tables:
-        haystack = " ".join(
-            [table.id, table.name, table.namespace or "", table.format or "", table.branch or ""]
-        ).lower()
-        if needle in haystack:
+        if _matches(
+            needle,
+            [table.id, table.name, table.namespace or "", table.format or "", table.branch or ""],
+        ):
             results.append(
                 ObservatorySearchResult(
                     id=f"table:{table.id}",
@@ -121,10 +129,7 @@ def search_results(  # noqa: C901
             )
 
     for operation in operations:
-        haystack = " ".join(
-            [operation.id, operation.name, operation.kind, operation.status]
-        ).lower()
-        if needle in haystack:
+        if _matches(needle, [operation.id, operation.name, operation.kind, operation.status]):
             results.append(
                 ObservatorySearchResult(
                     id=f"operation:{operation.id}",
@@ -136,10 +141,9 @@ def search_results(  # noqa: C901
             )
 
     for check in quality:
-        haystack = " ".join(
-            [check.id, check.name, check.asset_id, check.status, check.severity or ""]
-        ).lower()
-        if needle in haystack:
+        if _matches(
+            needle, [check.id, check.name, check.asset_id, check.status, check.severity or ""]
+        ):
             results.append(
                 ObservatorySearchResult(
                     id=f"quality:{check.id}",
@@ -151,8 +155,7 @@ def search_results(  # noqa: C901
             )
 
     for extension in extensions:
-        haystack = " ".join([extension.id, extension.name, extension.version or ""]).lower()
-        if needle in haystack:
+        if _matches(needle, [extension.id, extension.name, extension.version or ""]):
             results.append(
                 ObservatorySearchResult(
                     id=f"extension:{extension.id}",

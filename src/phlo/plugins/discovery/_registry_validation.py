@@ -28,8 +28,27 @@ from phlo.plugins.base import (
 )
 from phlo.plugins.hooks import HookPlugin
 
+_REQUIRED_METHODS: tuple[tuple[type[Plugin], str], ...] = (
+    (SourceConnectorPlugin, "fetch_data"),
+    (QualityCheckPlugin, "create_check"),
+    (QualityProviderPlugin, "get_decorator"),
+    (IngestionProviderPlugin, "get_decorator"),
+    (TransformationPlugin, "transform"),
+    (TransformationProviderPlugin, "get_asset_retriever"),
+)
+_OTHER_REQUIRED_METHODS: tuple[tuple[type[Plugin], str], ...] = (
+    (HookPlugin, "get_hooks"),
+    (AssetProviderPlugin, "get_assets"),
+    (ResourceProviderPlugin, "get_resources"),
+    (OrchestratorAdapterPlugin, "build_definitions"),
+)
 
-def validate_plugin_interface(plugin: Plugin, logger: Any) -> bool:  # noqa: C901
+
+def _has_callable(plugin: Plugin, attribute: str) -> bool:
+    return hasattr(plugin, attribute) and callable(getattr(plugin, attribute))
+
+
+def validate_plugin_interface(plugin: Plugin, logger: Any) -> bool:
     """Validate plugin interface compliance."""
     if not hasattr(plugin, "metadata"):
         return False
@@ -42,18 +61,9 @@ def validate_plugin_interface(plugin: Plugin, logger: Any) -> bool:  # noqa: C90
         logger.debug("plugin_validation_metadata_access_failed", exc_info=True)
         return False
 
-    if isinstance(plugin, SourceConnectorPlugin):
-        return hasattr(plugin, "fetch_data") and callable(plugin.fetch_data)
-    if isinstance(plugin, QualityCheckPlugin):
-        return hasattr(plugin, "create_check") and callable(plugin.create_check)
-    if isinstance(plugin, QualityProviderPlugin):
-        return hasattr(plugin, "get_decorator") and callable(plugin.get_decorator)
-    if isinstance(plugin, IngestionProviderPlugin):
-        return hasattr(plugin, "get_decorator") and callable(plugin.get_decorator)
-    if isinstance(plugin, TransformationPlugin):
-        return hasattr(plugin, "transform") and callable(plugin.transform)
-    if isinstance(plugin, TransformationProviderPlugin):
-        return hasattr(plugin, "get_asset_retriever") and callable(plugin.get_asset_retriever)
+    for plugin_type, method in _REQUIRED_METHODS:
+        if isinstance(plugin, plugin_type):
+            return _has_callable(plugin, method)
     if isinstance(plugin, ServicePlugin):
         try:
             service_definition = plugin.service_definition
@@ -61,18 +71,13 @@ def validate_plugin_interface(plugin: Plugin, logger: Any) -> bool:  # noqa: C90
             logger.debug("plugin_validation_service_definition_failed", exc_info=True)
             return False
         return isinstance(service_definition, dict)
-    if isinstance(plugin, HookPlugin):
-        return hasattr(plugin, "get_hooks") and callable(plugin.get_hooks)
-    if isinstance(plugin, AssetProviderPlugin):
-        return hasattr(plugin, "get_assets") and callable(plugin.get_assets)
-    if isinstance(plugin, ResourceProviderPlugin):
-        return hasattr(plugin, "get_resources") and callable(plugin.get_resources)
-    if isinstance(plugin, OrchestratorAdapterPlugin):
-        return hasattr(plugin, "build_definitions") and callable(plugin.build_definitions)
+    for plugin_type, method in _OTHER_REQUIRED_METHODS:
+        if isinstance(plugin, plugin_type):
+            return _has_callable(plugin, method)
     if isinstance(plugin, CatalogPlugin):
         has_catalog = hasattr(plugin, "catalog_name")
         has_targets = hasattr(plugin, "targets")
-        has_properties = hasattr(plugin, "get_properties") and callable(plugin.get_properties)
+        has_properties = _has_callable(plugin, "get_properties")
         return has_catalog and has_targets and has_properties
 
     return True
