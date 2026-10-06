@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import test from 'node:test'
+import type { PluginThread, ThreadMessage } from '@ampcode/plugin'
+import { targetFromThread } from './index.ts'
 import {
   createCapability,
   parseCapability,
@@ -33,6 +35,39 @@ test('round-trips signed review capabilities and rejects tampering', () => {
   assert.deepEqual(parseCapability(`Review Phlo PR #42 @ ${target.headSha}\n${capability}\nReview it.`, secret), target)
   const replacement = capability.endsWith('a') ? 'b' : 'a'
   assert.equal(parseCapability(`${capability.slice(0, -1)}${replacement}`, secret), null)
+})
+
+test('reads signed capabilities through the default message view across pages', async () => {
+  const target: ReviewTarget = {
+    deliveryId: 'delivery-paginated',
+    headSha: 'b'.repeat(40),
+    kind: 'pull_request',
+    number: 1058,
+    receivedAt: '2026-10-05T21:04:07.000Z',
+  }
+  const messages: ThreadMessage[] = [
+    { id: 1, role: 'user', content: [{ type: 'text', text: createCapability(target, secret) }] },
+    ...Array.from({ length: 20 }, (_, index): ThreadMessage => ({
+      id: index + 2, role: 'user', content: [{ type: 'text', text: 'Review progress.' }],
+    })),
+  ]
+  const offsets: number[] = []
+  const thread: Pick<PluginThread, 'messages'> = {
+    async messages(options = {}) {
+      // The affected runtime returns no messages for the full transcript view.
+      if (options.full === true) return []
+      assert.equal(options.from, 'end')
+      assert.equal(options.limit, 20)
+      assert.deepEqual(options.roles, ['user'])
+      const offset = options.offset ?? 0
+      offsets.push(offset)
+      return messages.slice(Math.max(0, messages.length - offset - 20), messages.length - offset)
+    },
+  }
+
+  assert.deepEqual(await targetFromThread(thread, secret), target)
+  assert.deepEqual(offsets, [0, 20])
+  assert.equal(await targetFromThread(thread, 'different-secret'), null)
 })
 
 test('accepts only matching Phlo issue and pull request triggers', () => {
