@@ -16,7 +16,7 @@ import {
   parseGitHubMention,
   reviewParentThreadID,
   verifyGitHubSignature,
-} from './lib'
+} from './lib.ts'
 
 export const description = 'Runs Phlo GitHub review, triage, and scheduled maintenance in Amp.'
 
@@ -55,9 +55,9 @@ function configuredReviewThreads(value: unknown): Record<string, ThreadID> {
   ))
 }
 
-async function targetFromThread(thread: PluginThread, secret: string) {
+export async function targetFromThread(thread: Pick<PluginThread, 'messages'>, secret: string) {
   for (let offset = 0; offset < 1_000; offset += 20) {
-    const messages = await thread.messages({ full: true, from: 'end', limit: 20, offset, roles: ['user'] })
+    const messages = await thread.messages({ from: 'end', limit: 20, offset, roles: ['user'] })
     const target = textFromMessages(messages).reverse()
       .map((message) => parseCapability(message, secret))
       .find((candidate) => candidate !== null)
