@@ -27,9 +27,9 @@ jobs:
       contents: read
       actions: read
       issues: write
-      pull-requests: read
+      pull-requests: write
     steps:
-      # Only protected default-branch code runs with issue-writing permission.
+      # Only protected default-branch code runs with issue/PR-comment permissions.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: main
@@ -40,7 +40,7 @@ jobs:
           SCAN_RUN: ${{ github.event.workflow_run.id }}
           SCAN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           SCAN_SHA: ${{ github.event.workflow_run.head_sha }}
-        # Human-owned, issues-write token enables existing signed webhook intake.
+        # Human-owned, issues/PR-write token enables existing signed webhook intake.
         # Without it, bot issues still record risks but require maintainer triage.
         run: >-
           python3 scripts/report_dependency_risk.py --run-id "$SCAN_RUN"

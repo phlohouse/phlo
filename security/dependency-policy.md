@@ -58,7 +58,7 @@ and reuses matching advisory/package PRs before creating or updating deduplicate
 security issues. PR comments preserve all consumer paths; ordinary version bumps
 do not count as advisory remediation. Unavailable scans create
 maintainer-owned escalation issues. Configure `PHLO_DEPENDENCY_TRIAGE_TOKEN`
-with Issues write, Pull requests read, Actions read and Contents read and a human
+with Issues write, Pull requests write, Actions read and Contents read and a human
 sender to reach existing signed issue webhook intake; its bot filter
 rejects the fallback `github.token` sender. Without this credential, issues are
 recorded but maintainers own triage. Verify live webhook delivery before claiming

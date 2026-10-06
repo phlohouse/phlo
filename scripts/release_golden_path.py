@@ -182,6 +182,9 @@ def compose_command(config: RunConfig, *parts: str) -> list[str]:
     for layer in project_compose_layers(config.project_dir / ".phlo"):
         if layer.is_file():
             cmd.extend(["--file", str(layer)])
+    candidate_layer = config.project_dir / ".phlo" / "compose.candidate.json"
+    if config.bom is not None and candidate_layer.is_file():
+        cmd.extend(["--file", str(candidate_layer)])
     for env_file in project_env_paths(config.project_dir / ".phlo"):
         if env_file.is_file():
             cmd.extend(["--env-file", str(env_file)])
@@ -1301,8 +1304,7 @@ def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dic
                     "candidate mode never consumes a mutable tag"
                 )
             replacement = image
-        if image not in replacements:
-            replacements[image] = replacement
+        replacements[service_name] = replacement
         pinned.append(
             {
                 "kind": entry["kind"]
@@ -1313,33 +1315,24 @@ def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dic
                 "service": service_name,
             }
         )
-    compose_file = config.compose_file
-    lines = compose_file.read_text(encoding="utf-8").splitlines(keepends=True)
-    replaced = 0
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped.startswith("image:"):
-            continue
-        value = stripped[len("image:") :].strip().strip("'\"")
-        if value in replacements:
-            indent = line[: len(line) - len(line.lstrip())]
-            lines[index] = f"{indent}image: {replacements[value]}\n"
-            replaced += 1
-    if replaced != len(replacements):
-        raise CandidateError(
-            f"compose image pinning replaced {replaced} of {len(replacements)} references"
+    candidate_layer = config.project_dir / ".phlo" / "compose.candidate.json"
+    candidate_layer.write_text(
+        json.dumps(
+            {"services": {name: {"image": image} for name, image in replacements.items()}},
+            indent=2,
         )
-    compose_file.write_text("".join(lines), encoding="utf-8")
+        + "\n",
+        encoding="utf-8",
+    )
     normalized = compose_config_json(config)
     normalized_services = normalized.get("services", {})
-    for service_name, service in sorted(normalized_services.items()):  # type: ignore[union-attr]
-        if not isinstance(service, dict):
-            continue
-        image = str(service.get("image", ""))
-        if "@sha256:" not in image:
-            raise CandidateError(
-                f"service {service_name!r} still references mutable image {image!r}"
-            )
+    actual = {
+        name: service.get("image")
+        for name, service in normalized_services.items()  # type: ignore[union-attr]
+        if isinstance(service, dict)
+    }
+    if actual != replacements:
+        raise CandidateError("normalized Compose images do not match the candidate BOM pins")
     return (
         {
             "digest_pinned_images": sorted(set(replacements.values())),

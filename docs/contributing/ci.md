@@ -66,7 +66,7 @@ Renovate; neither owns the scanner verdict or approves its own risk exception.
 
 Existing signed webhook intake ignores bot senders. Configure a human-owned,
 least-privilege `PHLO_DEPENDENCY_TRIAGE_TOKEN` with repository Issues write,
-Pull requests read, Actions read and Contents read to enable that intake. Without
+Pull requests write, Actions read and Contents read to enable that intake. Without
 it, the workflow uses `github.token` to record issues, but maintainers must triage them. Verify a
 real signed webhook delivery before claiming automatic agent handoff. No token,
 webhook or agent schedule is provisioned by this change.

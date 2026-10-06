@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 delta = importlib.import_module("dependency_delta")
@@ -16,6 +17,18 @@ risk = importlib.import_module("report_dependency_risk")
 
 SHA = "a" * 40
 WORKFLOW = {"id": 7, "path": ".github/workflows/security.yml"}
+
+
+def test_handoff_grants_permissions_for_issue_and_advisory_pr_comments():
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/dependency-triage.yml").read_text())
+    permissions = workflow["jobs"]["triage"]["permissions"]
+    assert permissions == {
+        "contents": "read",
+        "actions": "read",
+        "issues": "write",
+        "pull-requests": "write",
+    }
 
 
 class GitHubStore:
