@@ -101,7 +101,7 @@ class NativeProcessManager:
 
         return pattern.sub(repl, value)
 
-    async def start_service(  # noqa: C901
+    async def start_service(
         self,
         service: ServiceDefinition,
         env_overrides: dict[str, str] | None = None,
@@ -110,6 +110,56 @@ class NativeProcessManager:
 
         Return the NativeProcess handle, or None when the service is not supported.
         """
+        prepared = self._prepare_service_start(service, env_overrides)
+        if prepared is None:
+            return None
+        command, env, cwd = prepared
+        launched = self._launch_service_process(service, command, env, cwd)
+        if launched is None:
+            return None
+        process, log_file, previous_signal_mask = launched
+
+        try:
+            health_check_url = service.dev.get("health_check")
+            if isinstance(health_check_url, str):
+                health_check_url = self._expand_env_vars(health_check_url, env)
+            native_process = NativeProcess(
+                name=service.name,
+                process=process,
+                health_check_url=health_check_url,
+                log_file=log_file,
+            )
+            self._processes[service.name] = native_process
+        except BaseException:
+            self._stop_untracked_process(process, log_file)
+            raise
+        finally:
+            if previous_signal_mask is not None:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_signal_mask)
+
+        if not native_process.is_running:
+            logger.warning("service_exited_during_start", service_name=service.name)
+            native_process.close_log_file()
+            del self._processes[service.name]
+            return None
+
+        if health_check_url and not await self._wait_for_health(health_check_url, timeout=30):
+            logger.warning("service_health_check_failed_after_start", service_name=service.name)
+            await self.stop_service(service.name)
+            return None
+
+        if not native_process.is_running:
+            logger.warning("service_exited_during_start", service_name=service.name)
+            native_process.close_log_file()
+            del self._processes[service.name]
+            return None
+        return native_process
+
+    def _prepare_service_start(
+        self,
+        service: ServiceDefinition,
+        env_overrides: dict[str, str] | None,
+    ) -> tuple[list[str], dict[str, str], Path] | None:
         if not self.can_run_dev(service):
             logger.warning("service_dev_mode_not_supported", service_name=service.name)
             return None
@@ -145,38 +195,54 @@ class NativeProcessManager:
         cwd_template = dev_config.get("cwd", ".")
         cwd = self._resolve_path(cwd_template, service)
 
-        # Handle build step if required
-        if dev_config.get("requires_build"):
-            should_build = True
-            build_if_missing = dev_config.get("build_if_missing")
-            if isinstance(build_if_missing, str):
-                build_target = (cwd / build_if_missing).resolve()
-                if build_target.exists():
-                    should_build = False
-            build_cmd = dev_config.get("build_command", [])
-            if build_cmd and should_build:
-                logger.info("service_build_started", service_name=service.name)
-                try:
-                    build_result = subprocess.run(
-                        build_cmd,
-                        cwd=cwd,
-                        env=env,
-                        capture_output=True,
-                        text=True,
-                        timeout=300,  # 5 minute timeout for builds
-                    )
-                    if build_result.returncode != 0:
-                        logger.error(
-                            "service_build_failed",
-                            service_name=service.name,
-                            stderr=build_result.stderr,
-                        )
-                        return None
-                except subprocess.TimeoutExpired:
-                    logger.error("service_build_timed_out", service_name=service.name)
-                    return None
+        if not self._run_service_build(service, dev_config, cwd, env):
+            return None
+        return command, env, cwd
 
-        # Start the process
+    def _run_service_build(
+        self,
+        service: ServiceDefinition,
+        dev_config: dict,
+        cwd: Path,
+        env: dict[str, str],
+    ) -> bool:
+        if not dev_config.get("requires_build"):
+            return True
+        build_if_missing = dev_config.get("build_if_missing")
+        if isinstance(build_if_missing, str) and (cwd / build_if_missing).resolve().exists():
+            return True
+        build_cmd = dev_config.get("build_command", [])
+        if not build_cmd:
+            return True
+        logger.info("service_build_started", service_name=service.name)
+        try:
+            build_result = subprocess.run(
+                build_cmd,
+                cwd=cwd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("service_build_timed_out", service_name=service.name)
+            return False
+        if build_result.returncode:
+            logger.error(
+                "service_build_failed",
+                service_name=service.name,
+                stderr=build_result.stderr,
+            )
+            return False
+        return True
+
+    def _launch_service_process(
+        self,
+        service: ServiceDefinition,
+        command: list[str],
+        env: dict[str, str],
+        cwd: Path,
+    ) -> tuple[subprocess.Popen[str], TextIO | None, set[int] | None] | None:
         logger.info(
             "service_dev_starting",
             service_name=service.name,
@@ -223,49 +289,7 @@ class NativeProcessManager:
                 except Exception:
                     logger.exception("Failed to close log file after start failure")
             return None
-
-        try:
-            health_check_url = dev_config.get("health_check")
-            if isinstance(health_check_url, str):
-                health_check_url = self._expand_env_vars(health_check_url, env)
-            native_process = NativeProcess(
-                name=service.name,
-                process=process,
-                health_check_url=health_check_url,
-                log_file=log_file,
-            )
-            self._processes[service.name] = native_process
-        except BaseException:
-            self._stop_untracked_process(process, log_file)
-            raise
-        finally:
-            if previous_signal_mask is not None:
-                signal.pthread_sigmask(signal.SIG_SETMASK, previous_signal_mask)
-
-        if not native_process.is_running:
-            logger.warning("service_exited_during_start", service_name=service.name)
-            native_process.close_log_file()
-            del self._processes[service.name]
-            return None
-
-        # Wait for health check if configured
-        if health_check_url:
-            healthy = await self._wait_for_health(health_check_url, timeout=30)
-            if not healthy:
-                logger.warning(
-                    "service_health_check_failed_after_start",
-                    service_name=service.name,
-                )
-                await self.stop_service(service.name)
-                return None
-
-        if not native_process.is_running:
-            logger.warning("service_exited_during_start", service_name=service.name)
-            native_process.close_log_file()
-            del self._processes[service.name]
-            return None
-
-        return native_process
+        return process, log_file, previous_signal_mask
 
     async def stop_service(self, name: str, timeout: float = 10) -> bool:
         """Stop a native service, waiting up to ``timeout`` seconds for shutdown.

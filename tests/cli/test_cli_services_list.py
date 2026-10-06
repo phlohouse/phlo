@@ -279,3 +279,38 @@ def test_unavailable_runtime_is_unknown(monkeypatch, tmp_path):
     human = CliRunner().invoke(list_module.list_cmd)
     assert "Unknown" in human.output
     assert "Stopped" not in human.output
+
+
+def test_services_list_text_includes_disabled_and_inline_services(monkeypatch, tmp_path) -> None:
+    from phlo.cli.commands.services import list as list_module
+
+    class ServiceFakeDiscovery(FakeDiscovery):
+        def discover(self) -> dict[str, ServiceDefinition]:
+            return {
+                "core-api": ServiceDefinition(
+                    name="core-api", description="Core API", category="api", core=True
+                )
+            }
+
+    (tmp_path / "phlo.yaml").write_text(
+        "services:\n"
+        "  disabled:\n"
+        "    - core-api\n"
+        "  custom-api:\n"
+        "    type: inline\n"
+        "    description: Custom API\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(list_module, "ServiceDiscovery", ServiceFakeDiscovery)
+    monkeypatch.setattr(list_module, "get_project_name", lambda: "demo")
+    monkeypatch.setattr(list_module, "_get_running_containers", lambda *_args: {})
+
+    result = CliRunner().invoke(list_module.list_cmd)
+
+    assert result.exit_code == 0, result.output
+    assert "core-api" in result.output
+    assert "Disabled" in result.output
+    assert "(disabled in phlo.yaml)" in result.output
+    assert "Custom Services (phlo.yaml):" in result.output
+    assert "custom-api" in result.output
+    assert "(inline)" in result.output

@@ -415,6 +415,13 @@ class TestCredentialFileLoading:
             }
         )
 
+    def test_missing_credentials_reference_loads_empty_rings(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(PHLO_SERVICE_CREDENTIALS_FILE_ENV, raising=False)
+
+        assert load_service_identity_credentials() == ServiceIdentityCredentials({})
+
     def test_world_readable_credential_file_rejected(
         self, tmp_path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
