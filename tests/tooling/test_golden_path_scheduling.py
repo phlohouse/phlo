@@ -1,10 +1,4 @@
-"""Workflow contracts for the scheduled release golden path.
-
-Parses the checked-in GitHub workflows and locks their structure: the
-nightly run owns the release-golden-path job (scheduled and dispatchable),
-the release-candidate workflow delegates to it, and CI carries only the
-Windows contract job.
-"""
+"""Keep nightly maintenance separate from immutable candidate acceptance."""
 
 from pathlib import Path
 
@@ -14,52 +8,19 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
 
 
-def test_release_golden_path_is_required_candidate_evidence() -> None:
+def test_nightly_maintenance_does_not_claim_artifact_qualification() -> None:
     ci = yaml.safe_load((WORKFLOW_ROOT / "ci.yml").read_text(encoding="utf-8"))
     nightly = yaml.safe_load((WORKFLOW_ROOT / "nightly.yml").read_text(encoding="utf-8"))
-    candidate = yaml.safe_load(
-        (WORKFLOW_ROOT / "release-candidate.yml").read_text(encoding="utf-8")
-    )
-
     assert "release-golden-path" not in ci["jobs"]
-    assert candidate["jobs"]["nightly"] == {
-        "name": "release candidate / release evidence",
-        "uses": "./.github/workflows/nightly.yml",
-        "secrets": {
-            "POSTGRES_PASSWORD": "${{ secrets.POSTGRES_PASSWORD }}",
-            "MINIO_ROOT_PASSWORD": "${{ secrets.MINIO_ROOT_PASSWORD }}",
-            "SUPERSET_ADMIN_PASSWORD": "${{ secrets.SUPERSET_ADMIN_PASSWORD }}",
-        },
-    }
     assert ci["jobs"]["windows-release-contract"]["name"] == (
         "windows / release golden path contract"
     )
-    assert nightly["jobs"]["release-golden-path"] == {
-        "name": "python / release golden path",
-        "runs-on": "ubuntu-latest",
-        "timeout-minutes": 45,
-        "steps": [
-            {
-                "uses": "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
-                "with": {"persist-credentials": False},
-            },
-            {
-                "name": "Install uv",
-                "uses": "astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098",
-                "with": {"version": "0.12.1"},
-            },
-            {
-                "name": "Run release artifact golden path",
-                "run": "python3 scripts/release_golden_path.py",
-            },
-        ],
-    }
-    assert nightly["jobs"]["nightly-status"]["needs"] == [
-        "full-integration",
-        "release-golden-path",
-        "release-artifact-acceptance",
-        "operations-evidence",
-    ]
+    report = nightly["jobs"]["release-artifact-acceptance"]
+    assert "artifact-not-staged" in report["steps"][0]["run"]
+    assert "--candidate-bom" not in str(report)
+    summary = nightly["jobs"]["nightly-status"]
+    assert "upstream-compatibility" in summary["needs"]
+    assert "$UPSTREAM_COMPATIBILITY" in summary["steps"][0]["run"]
 
 
 def test_nightly_release_golden_path_keeps_dispatch_and_schedule() -> None:
@@ -68,3 +29,15 @@ def test_nightly_release_golden_path_keeps_dispatch_and_schedule() -> None:
 
     assert "workflow_dispatch" in triggers
     assert {"cron": "0 3 * * *"} in triggers["schedule"]
+
+
+def test_artifact_acceptance_requires_authenticated_staging_without_missing_bom_escape() -> None:
+    workflow = yaml.safe_load(
+        (WORKFLOW_ROOT / "release-artifact-acceptance.yml").read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["acceptance"]["steps"]
+    scripts = [step for step in steps if "run" in step]
+    assert "release_provenance.py collect" in scripts[0]["run"]
+    assert "--candidate-bom" in scripts[1]["run"]
+    assert all("if" not in step for step in scripts)
+    assert steps[-1]["with"]["if-no-files-found"] == "error"

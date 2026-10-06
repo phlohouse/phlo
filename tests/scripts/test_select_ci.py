@@ -20,6 +20,10 @@ def test_docs_only_skips_package_groups() -> None:
         "frontend": False,
         "writer": False,
         "integration": False,
+        "docs": True,
+        "plugin": False,
+        "mutation": False,
+        "reasons": {"docs": "explicit inert documentation", "code": "no executable changes"},
     }
 
 
@@ -61,3 +65,23 @@ def test_writer_only_skips_python_and_package_groups() -> None:
 def test_leaf_package_does_not_run_unrelated_groups() -> None:
     selection = select({"packages/phlo-traefik/src/phlo_traefik/plugin.py"})
     assert [entry["group"] for entry in selection["groups"]] == ["platform"]
+
+
+def test_non_documentation_under_docs_and_unknown_package_inputs_fail_open() -> None:
+    for path in ("docs/example.py", "docs/build.js", "packages/README.txt"):
+        selection = select({path})
+        assert all(
+            selection[lane] for lane in ("python", "frontend", "integration", "docs", "plugin")
+        )
+        assert selection["reasons"]
+
+
+def test_observatory_metadata_selects_frontend() -> None:
+    assert select({"packages/phlo-observatory/pyproject.toml"})["frontend"] is True
+
+
+def test_plugin_only_selects_actual_plugin_checks() -> None:
+    selection = select({".amp/plugins/phlo-github/lib.ts"})
+    assert selection["plugin"] is True
+    assert selection["python"] is False
+    assert selection["groups"] == []

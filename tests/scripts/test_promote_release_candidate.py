@@ -581,6 +581,19 @@ def test_execute_without_authorization_fails_closed(tmp_path: Path) -> None:
     assert code == 1
 
 
+def test_execute_with_hand_written_authorization_cannot_publish(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _, _, bom = _stage_candidate(tmp_path)
+    bundles = _qualifying_bundles(bom)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    code, receipt = _run_promotion(
+        tmp_path, bundles, execute=True, authorization=_authorization(bom, bundles)
+    )
+    assert code == 1
+    assert not receipt.exists()
+
+
 def test_partial_publication_cannot_yield_a_success_receipt(tmp_path: Path) -> None:
     staging, bom_path, bom = _stage_candidate(tmp_path)
     bundles = _qualifying_bundles(bom)

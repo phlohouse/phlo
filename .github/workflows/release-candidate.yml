@@ -1,4 +1,4 @@
-name: Release Candidate
+name: Main source health
 
 on:
   workflow_dispatch:
@@ -11,72 +11,69 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 
 jobs:
-  ci:
-    name: release candidate / CI evidence
-    uses: ./.github/workflows/ci.yml
+  reuse:
+    name: main / verify queue evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      reused: ${{ steps.decision.outputs.reused }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Authenticate exact-SHA full queue evidence
+        id: evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          uv run --no-project --with pyyaml==6.0.3 python scripts/ci_evidence.py reuse
+          --output reuse-decision.json
+      - name: Keep evidence reuse in shadow mode until rollout is enabled
+        id: decision
+        env:
+          VALIDATED: ${{ steps.evidence.outputs.reused }}
+          ENABLED: ${{ vars.CI_REUSE_QUEUE_EVIDENCE }}
+        run: |
+          reused=false
+          if [ "$ENABLED" = true ] && [ "$VALIDATED" = true ]; then reused=true; fi
+          echo "reused=$reused" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: reuse-decision-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: reuse-decision.json
+          if-no-files-found: error
 
-  integration:
-    name: release candidate / integration evidence
-    uses: ./.github/workflows/integration.yml
-    secrets:
-      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-      MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
-      SUPERSET_ADMIN_PASSWORD: ${{ secrets.SUPERSET_ADMIN_PASSWORD }}
-
-  security:
-    name: release candidate / security evidence
-    uses: ./.github/workflows/security.yml
-
-  nightly:
-    name: release candidate / release evidence
-    uses: ./.github/workflows/nightly.yml
-    secrets:
-      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-      MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
-      SUPERSET_ADMIN_PASSWORD: ${{ secrets.SUPERSET_ADMIN_PASSWORD }}
+  full:
+    needs: reuse
+    if: always() && needs.reuse.outputs.reused != 'true'
+    uses: ./.github/workflows/pr.yml
 
   status:
+    # Keep the existing source-health check identity. This is not artifact readiness.
     name: release candidate / status
     if: always()
-    needs: [ci, integration, security, nightly]
+    needs: [reuse, full]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Record candidate evidence
+      - name: Require reused full evidence or a complete full fallback
         env:
-          CI: ${{ needs.ci.result }}
-          INTEGRATION: ${{ needs.integration.result }}
-          SECURITY: ${{ needs.security.result }}
-          RELEASE: ${{ needs.nightly.result }}
-          CANDIDATE_SHA: ${{ github.sha }}
+          REUSED: ${{ needs.reuse.outputs.reused }}
+          REUSE: ${{ needs.reuse.result }}
+          FULL: ${{ needs.full.result }}
         run: |
           set -euo pipefail
-          cat > release-candidate-evidence.json <<EOF
-          {"sha":"${CANDIDATE_SHA}","ci":"${CI}","integration":"${INTEGRATION}","security":"${SECURITY}","release":"${RELEASE}"}
-          EOF
-          cat release-candidate-evidence.json >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload candidate evidence
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: release-candidate-evidence-${{ github.sha }}
-          path: release-candidate-evidence.json
-          if-no-files-found: error
-
-      - name: Require complete evidence for this candidate
-        env:
-          CI: ${{ needs.ci.result }}
-          INTEGRATION: ${{ needs.integration.result }}
-          SECURITY: ${{ needs.security.result }}
-          RELEASE: ${{ needs.nightly.result }}
-        run: |
-          set -euo pipefail
-          for result in "$CI" "$INTEGRATION" "$SECURITY" "$RELEASE"; do
-            if [ "$result" != "success" ]; then
-              echo "::error::Release candidate evidence is incomplete or failed: $result"
-              exit 1
-            fi
-          done
+          if [ "$REUSED" = true ]; then
+            test "$REUSE" = success
+            test "$FULL" = skipped
+          else
+            test "$FULL" = success
+          fi
+          echo 'Source validation complete. Artifact qualification is a separate release decision.' >> "$GITHUB_STEP_SUMMARY"

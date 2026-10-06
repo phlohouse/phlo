@@ -42,6 +42,9 @@ import platform as platform_module  # noqa: E402
 
 import release_candidate_bom as bom_module  # noqa: E402
 import release_evidence  # noqa: E402
+
+# reason: Import candidate helpers after establishing the script path for importlib loads.
+import validate_support_manifest  # noqa: E402
 from golden_path_common import SHARED_LAYOUT_MARKER as SHARED_LAYOUT_MARKER  # noqa: E402
 from golden_path_common import env_destination, project_env_paths  # noqa: E402
 from golden_path_common import read_env_file as parse_env_values  # noqa: E402
@@ -520,8 +523,11 @@ def configure_non_dev_compose(
     )
     destination = config.project_dir / ".phlo" / "wheelhouse"
     shutil.copytree(config.wheelhouse, destination)
-    with (config.repo_root / "pyproject.toml").open("rb") as stream:
-        version = tomllib.load(stream)["project"]["version"]
+    if config.bom is not None:
+        version = bom_release_version(config.bom)
+    else:
+        with (config.repo_root / "pyproject.toml").open("rb") as stream:
+            version = tomllib.load(stream)["project"]["version"]
     env_local = env_secrets_path(config.project_dir / ".phlo")
     with env_local.open("a", encoding="utf-8") as stream:
         stream.write(f"\nPHLO_VERSION={version}\nPHLO_WHEELHOUSE=wheelhouse\n")
@@ -1658,10 +1664,10 @@ def run_supported_upgrade(config: RunConfig, set_dir: Path, target_dir: Path) ->
 
 
 def verify_support_boundary(config: RunConfig) -> dict[str, object]:
-    """Run the committed support validator against the release commit tree."""
+    """Run the trusted validator with the inspected commit tree as data only."""
     bom = config.bom
     assert bom is not None and config.staging_dir is not None
-    release_ref = str(bom.get("release_ref") or bom.get("release_commit"))
+    release_ref = str(bom["release_commit"])
     tree_dir = config.staging_dir.parent / f"release-tree-{str(bom['release_commit'])[:12]}"
     archive_path = tree_dir.with_suffix(".tar")
     if not tree_dir.exists():
@@ -1672,15 +1678,18 @@ def verify_support_boundary(config: RunConfig) -> dict[str, object]:
         tree_dir.mkdir(parents=True, exist_ok=True)
         with tarfile.open(archive_path) as archive:
             archive.extractall(tree_dir, filter="data")  # noqa: S202
-    result = run(
-        command(sys.executable, str(tree_dir / "scripts" / "validate_support_manifest.py")),
-        cwd=tree_dir,
-        capture_output=True,
-    )
+    manifest_path = tree_dir / bom_module.SUPPORT_MANIFEST_PATH
+    expected = bom_artifacts(bom, bom_module.KIND_SUPPORT_MANIFEST)
+    if len(expected) != 1 or bom_module.file_sha256(manifest_path) != expected[0]["digest"]:
+        raise CandidateError("support manifest bytes do not match the BOM")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    errors = validate_support_manifest.validate_manifest(manifest, repo_root=tree_dir)
+    if errors:
+        raise CandidateError(f"support boundary validation failed: {errors!r}")
     return {
         "validator": "scripts/validate_support_manifest.py",
         "release_ref": release_ref,
-        "exit_code": result.returncode,
+        "exit_code": 0,
     }
 
 

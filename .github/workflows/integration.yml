@@ -3,6 +3,7 @@ name: Integration Lane
 on:
   workflow_dispatch:
   workflow_call:
+    # Retained for existing release callers; disposable tests do not use secrets.
     secrets:
       POSTGRES_PASSWORD:
         required: false
@@ -24,126 +25,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/python-workspace
-
-      - name: Run integration suites
-        env:
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'phlo_ci_ephemeral_password' }}
-          MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD || 'phlo_ci_ephemeral_password' }}
-          SUPERSET_ADMIN_PASSWORD: ${{ secrets.SUPERSET_ADMIN_PASSWORD || 'phlo_ci_ephemeral_password' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          results_file="$(mktemp)"
-          failed_count=0
-
-          record_result() {
-            local suite="$1"
-            local result="$2"
-            local detail="$3"
-            printf '%s\t%s\t%s\n' "$suite" "$result" "$detail" >> "$results_file"
-          }
-
-          run_pytest_suite() {
-            local suite="$1"
-            local test_dir="$2"
-
-            echo "::group::integration / ${suite}"
-            if [ ! -d "$test_dir" ]; then
-              reason="missing test directory: $test_dir"
-              echo "[integration][$suite] skipped - $reason"
-              record_result "$suite" "skipped" "$reason"
-              echo "::endgroup::"
-              return 0
-            fi
-
-            set +e
-            uv run --locked pytest -m integration --tb=short "$test_dir"
-            exit_code=$?
-            set -e
-
-            reason="pytest exit $exit_code"
-            if [ "$exit_code" -eq 0 ]; then
-              echo "[integration][$suite] passed - $reason"
-              record_result "$suite" "passed" "$reason"
-            elif [ "$exit_code" -eq 5 ]; then
-              echo "[integration][$suite] skipped - no integration tests selected"
-              record_result "$suite" "skipped" "no integration tests selected"
-            else
-              echo "[integration][$suite] failed - $reason"
-              record_result "$suite" "failed" "$reason"
-              failed_count=$((failed_count + 1))
-            fi
-            echo "::endgroup::"
-          }
-
-          run_capability_case() {
-            local package="$1"
-            local test_path="$2"
-            local extra="${3:-}"
-            local with_reqs="${4:-}"
-
-            local -a run_args
-            run_args=(--locked --package "$package" --with pytest)
-
-            if [ -n "$extra" ]; then
-              run_args+=(--extra "$extra")
-            fi
-
-            if [ -n "$with_reqs" ]; then
-              for requirement in $with_reqs; do
-                run_args+=(--with "$requirement")
-              done
-            fi
-
-            set +e
-            uv run "${run_args[@]}" pytest -m integration --tb=short "$test_path"
-            exit_code=$?
-            set -e
-
-            if [ "$exit_code" -eq 5 ]; then
-              echo "[integration][capabilities] skipped - $test_path (no selected tests)"
-              return 0
-            fi
-            if [ "$exit_code" -ne 0 ]; then
-              return 1
-            fi
-            return 0
-          }
-
-          run_capability_suite() {
-            echo "::group::integration / capabilities"
-            capability_failures=0
-
-            run_capability_case "phlo-dbt" "packages/phlo-dbt/tests/test_quality_asset_checks.py" "quality" "pyarrow" || capability_failures=$((capability_failures + 1))
-            run_capability_case "phlo-pandera" "packages/phlo-pandera/tests/test_cli_004_schema_generate.py" "" "./packages/phlo-dlt pyiceberg" || capability_failures=$((capability_failures + 1))
-            run_capability_case "phlo-iceberg" "packages/phlo-iceberg/tests/test_schema_converter.py" || capability_failures=$((capability_failures + 1))
-            run_capability_case "phlo-dlt" "packages/phlo-dlt/tests/test_ingestion_decorator.py" "" "pyiceberg" || capability_failures=$((capability_failures + 1))
-
-            if [ "$capability_failures" -eq 0 ]; then
-              record_result "capabilities" "passed" "all capability integration cases passed"
-            else
-              record_result "capabilities" "failed" "$capability_failures capability integration case(s) failed"
-              failed_count=$((failed_count + 1))
-            fi
-            echo "::endgroup::"
-          }
-
-          run_pytest_suite "iceberg" "packages/phlo-iceberg/tests"
-          run_pytest_suite "dagster" "packages/phlo-dagster/tests"
-          run_pytest_suite "api" "packages/phlo-api/tests"
-          run_capability_suite
-
-          {
-            echo "### Integration lane summary"
-            echo ""
-            echo "| Suite | Result | Detail |"
-            echo "|---|---|---|"
-            while IFS=$'\t' read -r suite result detail; do
-              echo "| ${suite} | ${result} | ${detail} |"
-            done < "$results_file"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "${failed_count}" -ne 0 ]; then
-            exit 1
-          fi
+      - name: Run named behavioral contracts
+        run: uv run --locked python scripts/run_integration.py
+      - name: Upload required suite results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: integration-results
+          path: test-results/integration/
+          if-no-files-found: error

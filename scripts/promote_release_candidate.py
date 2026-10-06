@@ -46,6 +46,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import release_candidate_bom  # noqa: E402
 import release_evidence  # noqa: E402
 
+# reason: CLI scripts are imported after adding their directory to sys.path.
+import release_provenance  # noqa: E402
+
 AUTHORIZATION_SCHEMA = "phlo.release-promotion-authorization/v1"
 RECEIPT_SCHEMA = "phlo.release-promotion-receipt/v1"
 REJECTION_SCHEMA = "phlo.release-promotion-rejection/v1"
@@ -766,8 +769,22 @@ def promote(  # noqa: C901
         lambda: _verify_staged_bytes(bom, staging_dir),
         public_identity=f"github-release:{tag} (final; assets: bom.json, staged distributions)",
         bound_digests=[str(bom["canonical_candidate_digest"])],
-        commands=[["gh", "release", "edit", tag, "--draft=false"]]
-        + [["gh", "release", "upload", tag, str(path)] for path in final_assets],
+        commands=[
+            [
+                "gh",
+                "release",
+                "create",
+                tag,
+                "--verify-tag",
+                "--draft",
+                "--title",
+                tag,
+                "--notes",
+                "Promoted immutable candidate.",
+            ]
+        ]
+        + [["gh", "release", "upload", tag, str(path)] for path in final_assets]
+        + [["gh", "release", "edit", tag, "--draft=false"]],
         dry_run_detail="dry run: would finalise the draft release attaching BOM + bytes",
     )
     return steps
@@ -1115,6 +1132,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
             authorization = load_authorization(args.authorization)
             validate_authorization(authorization, bom, qualification.checksums)
+            try:
+                release_provenance.verify_live_authorization(authorization)
+            except (ValueError, KeyError, subprocess.CalledProcessError) as exc:
+                raise PromotionGateError(
+                    "not_authorized", f"native release approval failed: {exc}"
+                ) from exc
             print(
                 f"authorization verified: {authorization.get('release_owner')} approved "
                 f"{authorization.get('approval_reference')} at "

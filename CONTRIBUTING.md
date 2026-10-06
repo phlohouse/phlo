@@ -11,7 +11,16 @@ the locked Observatory and Phlo GitHub writer dependencies. Run `make check`
 for the local baseline. Use the [verification matrix](docs/contributing/verification-matrix.md)
 to select additional checks for the surfaces you changed.
 
-The [release workflow](.github/workflows/release.yml) and [release promotion
+For Python-only work, `make install` installs the locked Python environment.
+For JavaScript work, `make setup-js` installs both applications. After bootstrap,
+`make check-changed BASE=origin/main` selects native checks from committed,
+staged, unstaged and untracked changes, including reverse package dependencies.
+Preview its commands with `python3 scripts/check_changed.py --dry-run`.
+Use a focused `uv run --locked pytest <test-path>` during the edit loop;
+selected checks are not a substitute for required CI or release acceptance.
+
+The [CI contracts and rollout](docs/contributing/ci.md),
+[release staging workflow](.github/workflows/release-stage.yml) and [release promotion
 contract](docs/architecture/decisions/0050-freeze-release-promotion-contract.md)
 describe the release process.
 

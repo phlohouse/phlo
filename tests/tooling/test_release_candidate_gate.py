@@ -1,170 +1,98 @@
-"""Contracts for the exact-SHA release-candidate gate.
-
-Reads workflow and ruleset files as data and asserts the gate holds: the
-candidate aggregates every release-critical lane, reusable workflows cannot
-cancel each other, release tags bind to the exact candidate SHA, and manual
-publishing cannot bypass identity checks.
-"""
-
-from __future__ import annotations
+"""Source health and immutable release readiness are separate fail-closed contracts."""
 
 import json
+import os
+import subprocess
 from pathlib import Path
-from typing import Any
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
-GATE_CHECK_NAME = "release candidate / status"
-IDENTITY_SCRIPT = REPO_ROOT / "scripts" / "release_identity.py"
+WORKFLOW_ROOT = REPO_ROOT / ".github/workflows"
 
 
-def _step_run_script(step: dict[str, Any]) -> str:
-    run = step.get("run")
-    return run if isinstance(run, str) else ""
+def workflow(name: str) -> dict:
+    return yaml.safe_load((WORKFLOW_ROOT / name).read_text())
 
 
-def _candidate_gate_steps(job: dict[str, Any]) -> list[dict[str, Any]]:
-    """Run steps that block until the aggregate candidate check concludes."""
-    return [
-        step
-        for step in job.get("steps", [])
-        if GATE_CHECK_NAME in _step_run_script(step) and "check-runs" in _step_run_script(step)
-    ]
-
-
-def test_candidate_status_fails_closed_on_every_release_critical_lane() -> None:
-    candidate = yaml.safe_load((WORKFLOW_ROOT / "release-candidate.yml").read_text())
-
-    triggers = candidate.get("on") or candidate[True]
-    assert "pull_request" not in triggers
-    assert triggers["push"]["branches"] == ["main", "beta"]
-    assert "merge_group" not in triggers
-    assert candidate["jobs"]["status"]["name"] == "release candidate / status"
-    assert candidate["jobs"]["status"]["if"] == "always()"
-    assert candidate["jobs"]["status"]["needs"] == ["ci", "integration", "security", "nightly"]
-    upload = next(
-        step
-        for step in candidate["jobs"]["status"]["steps"]
-        if step.get("uses", "").startswith("actions/upload-artifact@")
-    )
-    assert upload["with"]["name"] == "release-candidate-evidence-${{ github.sha }}"
-    assert upload["with"]["if-no-files-found"] == "error"
-
-
-def test_reusable_evidence_workflows_do_not_cancel_one_another() -> None:
-    for name in ("ci.yml", "integration.yml", "security.yml", "nightly.yml"):
-        workflow = yaml.safe_load((WORKFLOW_ROOT / name).read_text())
-        assert "workflow_call" in (workflow.get("on") or workflow[True])
-        assert "concurrency" not in workflow
-
-
-def test_candidate_passes_only_required_service_secrets_to_reusable_workflows() -> None:
-    candidate = yaml.safe_load((WORKFLOW_ROOT / "release-candidate.yml").read_text())
-
-    expected = {
-        "POSTGRES_PASSWORD": "${{ secrets.POSTGRES_PASSWORD }}",
-        "MINIO_ROOT_PASSWORD": "${{ secrets.MINIO_ROOT_PASSWORD }}",
-        "SUPERSET_ADMIN_PASSWORD": "${{ secrets.SUPERSET_ADMIN_PASSWORD }}",
+def test_main_health_reuses_full_queue_or_calls_the_full_merge_contract():
+    candidate = workflow("release-candidate.yml")
+    events = candidate.get("on") or candidate[True]
+    assert events["push"]["branches"] == ["main", "beta"]
+    assert not {"merge_group", "pull_request"} & set(events)
+    jobs = candidate["jobs"]
+    assert jobs["status"]["name"] == "release candidate / status"
+    assert jobs["status"]["needs"] == ["reuse", "full"]
+    assert jobs["full"]["uses"] == "./.github/workflows/pr.yml"
+    assert "nightly" not in jobs
+    assert candidate["permissions"] == {
+        "contents": "read",
+        "actions": "read",
+        "pull-requests": "read",
     }
-    assert candidate["jobs"]["integration"]["secrets"] == expected
-    assert candidate["jobs"]["nightly"]["secrets"] == expected
-    assert "secrets" not in candidate["jobs"]["ci"]
-    assert "secrets" not in candidate["jobs"]["security"]
+    assert all("secrets" not in job for job in jobs.values())
 
 
-def test_ci_status_includes_every_installed_provider_artifact_shard() -> None:
-    ci = yaml.safe_load((WORKFLOW_ROOT / "ci.yml").read_text())
+@pytest.mark.parametrize(
+    "reused,reuse,full,accepted",
+    [
+        ("true", "success", "skipped", True),
+        ("true", "failure", "skipped", False),
+        ("true", "success", "success", False),
+        ("false", "success", "success", True),
+        ("", "failure", "success", True),
+        ("false", "success", "skipped", False),
+        ("false", "success", "failure", False),
+        ("false", "success", "cancelled", False),
+    ],
+)
+def test_source_health_gate_executes_fail_closed(tmp_path, reused, reuse, full, accepted):
+    script = workflow("release-candidate.yml")["jobs"]["status"]["steps"][0]["run"]
+    result = subprocess.run(
+        ["bash", "-c", script],
+        env=dict(
+            os.environ,
+            REUSED=reused,
+            REUSE=reuse,
+            FULL=full,
+            GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
+        ),
+        capture_output=True,
+    )
+    assert (result.returncode == 0) == accepted
 
-    assert ci["jobs"]["installed-provider-artifacts"]["strategy"]["matrix"]["docker-shard"] == [
-        0,
-        1,
-        2,
-        3,
-    ]
-    assert "installed-provider-artifacts" in ci["jobs"]["ci-status"]["needs"]
-    summary = ci["jobs"]["ci-status"]["steps"][0]
+
+def test_reusable_evidence_workflows_do_not_cancel_one_another():
+    for name in ("ci.yml", "integration.yml", "security.yml", "nightly.yml"):
+        definition = workflow(name)
+        assert "workflow_call" in (definition.get("on") or definition[True])
+        assert "concurrency" not in definition
+
+
+def test_ci_status_includes_every_installed_provider_artifact_shard():
+    ci = workflow("ci.yml")["jobs"]
+    assert ci["installed-provider-artifacts"]["strategy"]["matrix"]["docker-shard"] == [0, 1, 2, 3]
+    assert {"installed-provider-artifacts", "coverage", "windows-portability"} <= set(
+        ci["ci-status"]["needs"]
+    )
     assert (
-        summary["env"]["INSTALLED_PROVIDER_ARTIFACTS"]
+        ci["ci-status"]["steps"][0]["env"]["INSTALLED_PROVIDER_ARTIFACTS"]
         == "${{ needs.installed-provider-artifacts.result }}"
     )
 
 
-def test_release_tag_requires_successful_aggregate_for_its_exact_sha() -> None:
-    release = yaml.safe_load((WORKFLOW_ROOT / "release.yml").read_text())
-    tag_job = release["jobs"]["release-tag"]
-
-    assert tag_job["permissions"]["checks"] == "read"
-
-    gates = _candidate_gate_steps(tag_job)
-    assert len(gates) == 1
-    gate = gates[0]
-    assert gate is tag_job["steps"][0]  # the gate runs before any side effect
-    assert gate["env"] == {
-        "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
-        "CANDIDATE_SHA": "${{ github.sha }}",
-        "REPOSITORY": "${{ github.repository }}",
-    }
-    assert gate["shell"] == "bash"
-    assert gate["run"].lstrip().startswith("set -euo pipefail")
-    assert gate["run"].count("exit 1") >= 2  # failed conclusion and timeout abort
-    assert "if" not in gate
-    assert "continue-on-error" not in gate
-    assert not tag_job.get("continue-on-error")
-
-    identity = next(step for step in tag_job["steps"] if step.get("id") == "release-identity")
-    assert identity["env"]["CANDIDATE_SHA"] == "${{ github.sha }}"
-    assert identity["env"]["RELEASE_BRANCH"] == "${{ github.ref_name }}"
-    assert "scripts/release_identity.py source" in _step_run_script(identity)
-    assert IDENTITY_SCRIPT.is_file()
-
-    verify = next(
-        step
-        for step in tag_job["steps"]
-        if (step.get("env") or {}).get("TAG") == "${{ steps.release-identity.outputs.tag }}"
-    )
-    assert verify["env"]["CANDIDATE_SHA"] == "${{ github.sha }}"
+def test_release_staging_requires_a_fresh_all_findings_assessment():
+    jobs = workflow("release-stage.yml")["jobs"]
+    assert jobs["reserve"]["needs"] == "security"
+    assert jobs["security"]["with"]["mode"] == "release"
+    assert jobs["security"]["with"]["head-sha"] == "${{ inputs.candidate_sha }}"
 
 
-def test_release_publish_validates_the_complete_artifact_manifest() -> None:
-    release = yaml.safe_load((WORKFLOW_ROOT / "release.yml").read_text())
-    publish_job = release["jobs"]["publish"]
-
-    gates = _candidate_gate_steps(publish_job)
-    assert len(gates) == 1
-    gate = gates[0]
-    assert set(gate["env"]) == {"GH_TOKEN", "REPOSITORY"}
-    assert gate["run"].lstrip().startswith("set -euo pipefail")
-    assert "git rev-parse HEAD" in gate["run"]  # SHA is derived from the tag target
-    assert "if" not in gate
-    assert "continue-on-error" not in gate
-    assert not publish_job.get("continue-on-error")
-
-    artifact_validation = any(
-        line.strip().startswith("python scripts/release_identity.py artifacts ")
-        for step in publish_job["steps"]
-        for line in _step_run_script(step).splitlines()
-    )
-    assert artifact_validation
-    assert "git show origin/main:scripts/release_identity.py" in str(publish_job["steps"])
-    assert "publish-plan" in str(publish_job["steps"])
-    assert IDENTITY_SCRIPT.is_file()
-
-
-def test_manual_artifact_workflow_cannot_bypass_release_identity_checks() -> None:
-    workflow = (WORKFLOW_ROOT / "publish.yml").read_text()
-
-    assert "uv publish" not in workflow
-    assert "name: Build Package Artifacts" in workflow
-
-
-def test_versioned_ruleset_requires_review_and_candidate_status() -> None:
+def test_versioned_ruleset_retains_required_merge_identity_without_bypass():
     ruleset = json.loads((REPO_ROOT / "security/release-candidate-ruleset.json").read_text())
-
     assert ruleset["enforcement"] == "active"
     assert ruleset["conditions"]["ref_name"]["include"] == ["refs/heads/main", "refs/heads/beta"]
     assert ruleset["bypass_actors"] == []
-    rule_types = {rule["type"] for rule in ruleset["rules"]}
-    assert {"pull_request", "required_status_checks"} <= rule_types
-    assert "pr / required" in (REPO_ROOT / "security/release-candidate-ruleset.json").read_text()
+    assert {"pull_request", "required_status_checks"} <= {rule["type"] for rule in ruleset["rules"]}
+    assert "pr / required" in str(ruleset)
