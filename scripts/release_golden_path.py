@@ -1326,9 +1326,11 @@ def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dic
     )
     normalized = compose_config_json(config)
     normalized_services = normalized.get("services", {})
+    if not isinstance(normalized_services, dict):
+        raise CandidateError("normalized Compose configuration has no service mapping")
     actual = {
         name: service.get("image")
-        for name, service in normalized_services.items()  # type: ignore[union-attr]
+        for name, service in normalized_services.items()
         if isinstance(service, dict)
     }
     if actual != replacements:
