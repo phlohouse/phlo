@@ -50,46 +50,61 @@ def test_git_paths_include_committed_staged_unstaged_and_untracked(tmp_path: Pat
 
 
 @pytest.mark.parametrize(
-    ("paths", "expected"),
+    ("paths", "expected", "surface"),
     [
         (
             {"README.md"},
             [
-                ["python3", "scripts/check_markdown_links.py"],
-                ["python3", "scripts/check_adr_index.py"],
-                ["make", "docs-build"],
+                "check_markdown_links",
+                "check_adr_index",
+                "docs-build",
             ],
+            "docs",
         ),
         (
             {"apps/phlo-github-writer/src/index.ts"},
-            [
-                ["npm", "--prefix", "apps/phlo-github-writer", "run", task]
-                for task in ("typecheck", "test", "build")
-            ],
+            [f"apps/phlo-github-writer:{task}" for task in ("typecheck", "test", "build")],
+            "writer",
         ),
         (
             {".amp/plugins/phlo-github/lib.ts"},
-            [
-                [
-                    "node",
-                    "--experimental-strip-types",
-                    "--test",
-                    ".amp/plugins/phlo-github/lib.test.ts",
-                ]
-            ],
+            [".amp/plugins/phlo-github/lib.test.ts"],
+            "plugin",
         ),
     ],
 )
-def test_main_executes_only_selected_commands(monkeypatch, capsys, paths, expected) -> None:
+def test_main_executes_only_selected_commands(
+    monkeypatch, capsys, tmp_path, paths, expected, surface
+) -> None:
     monkeypatch.setattr(sys, "argv", ["check_changed.py", "--base", "test-base"])
     monkeypatch.setattr(select_ci, "git_paths", lambda base, **kw: paths)
-    calls = []
-    monkeypatch.setattr(
-        check_changed.subprocess, "run", lambda command, **kw: calls.append(command)
-    )
+    completed = tmp_path / "completed"
+
+    def run(command, *, cwd, check):
+        assert cwd == select_ci.ROOT
+        assert check is True
+        if command[0] == "python3":
+            checks = [Path(command[1]).stem]
+        elif command[0] == "make":
+            checks = command[1:]
+        elif command[0] == "npm":
+            assert command[1] == "--prefix" and command[3] == "run"
+            checks = [f"{command[2]}:{command[4]}"]
+        elif command[0] == "node":
+            assert command[1:3] == ["--experimental-strip-types", "--test"]
+            checks = command[3:]
+        else:
+            raise AssertionError(f"Unexpected native check: {command}")
+        with completed.open("a") as output:
+            output.writelines(f"{check_name}\n" for check_name in checks)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(check_changed.subprocess, "run", run)
     check_changed.main()
-    assert calls == expected
-    assert "Remaining required CI contracts" in capsys.readouterr().out
+    assert completed.read_text().splitlines() == expected
+    output = capsys.readouterr().out
+    assert output.splitlines()[0] == f"Selected: {surface}"
+    assert "Remaining required CI contracts" in output
 
 
 def test_package_commands_follow_selected_groups_and_full_diff() -> None:

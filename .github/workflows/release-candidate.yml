@@ -30,6 +30,8 @@ jobs:
           version: "0.12.1"
       - name: Authenticate exact-SHA full queue evidence
         id: evidence
+        # This optional optimisation cannot replace the required full fallback.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
@@ -45,6 +47,7 @@ jobs:
           if [ "$ENABLED" = true ] && [ "$VALIDATED" = true ]; then reused=true; fi
           echo "reused=$reused" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: steps.evidence.outcome == 'success'
         with:
           name: reuse-decision-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: reuse-decision.json

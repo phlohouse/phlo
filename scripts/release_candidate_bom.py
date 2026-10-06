@@ -173,7 +173,9 @@ def resolve_image_digest(reference: str) -> str:
     return match.group(1)
 
 
-def _pypi_release_files(project: str, version: str) -> dict[str, tuple[str, str]]:
+def _pypi_release_files(
+    project: str, version: str, *, allow_missing: bool = False
+) -> dict[str, tuple[str, str]]:
     """Return {filename: (sha256 hex, download url)} for one PyPI release."""
     url = f"https://pypi.org/pypi/{project}/{version}/json"
     request = urllib.request.Request(url, headers={"Accept": "application/json"})  # noqa: S310
@@ -181,6 +183,8 @@ def _pypi_release_files(project: str, version: str) -> dict[str, tuple[str, str]
         with urllib.request.urlopen(request, timeout=PYPI_TIMEOUT_SECONDS) as response:  # noqa: S310
             payload = json.load(response)
     except urllib.error.HTTPError as exc:
+        if allow_missing and exc.code == 404:
+            return {}
         raise BomError(f"PyPI has no {project} {version} release: HTTP {exc.code}") from exc
     except urllib.error.URLError as exc:
         raise BomError(f"could not query PyPI for {project} {version}: {exc.reason}") from exc

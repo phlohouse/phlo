@@ -15,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -212,11 +213,12 @@ def live_approval() -> dict:
         or run.get("head_branch") != "main"
         or run.get("head_sha") != os.environ.get("GITHUB_SHA")
         or run.get("run_attempt") != int(os.environ["GITHUB_RUN_ATTEMPT"])
+        or run.get("run_attempt") != 1
         or run.get("workflow_id") != workflow["id"]
         or run.get("path", "").split("@")[0] != workflow["path"]
         or run.get("event") != "workflow_dispatch"
     ):
-        raise ValueError("promotion must execute from protected default branch")
+        raise ValueError("promotion requires a fresh dispatch on protected main, never a rerun")
     environment = api(f"repos/{REPOSITORY}/environments/release")
     reviews = api(f"repos/{REPOSITORY}/actions/runs/{run_id}/approvals")
     review = validate_approval(environment, reviews, run["actor"]["login"])
@@ -251,6 +253,24 @@ def authorize(bom_path: Path, evidence: Path, output: Path) -> None:
             "staged_utc"
         ],
     )
+    run = api(f"repos/{REPOSITORY}/actions/runs/{run_id}")
+    with tempfile.TemporaryDirectory() as temporary:
+        artifact = download_artifact(run, f"dry-run-receipt-{run_id}-1", Path(temporary))
+        plan = promotion.validate_receipt(
+            json.loads((artifact / "dry-run-receipt.json").read_text())
+        )
+    if (
+        plan.get("mode") != "dry-run"
+        or plan.get("status") != promotion.STATUS_DRY_RUN
+        or plan["reconciliation"]["status"] != promotion.RECONCILE_MATCHED
+        or plan["candidate"]["release_commit"] != bom["release_commit"]
+        or plan["candidate"]["canonical_candidate_digest"] != bom["canonical_candidate_digest"]
+        or plan["candidate"]["bom_digest"] != release_candidate_bom.file_sha256(bom_path)
+        or plan["evidence"]["bundle_checksums"] != sorted(qualification.checksums)
+    ):
+        raise ValueError(
+            "Candidate or evidence changed after the pre-approval plan; dispatch again"
+        )
     record = {
         "schema": promotion.AUTHORIZATION_SCHEMA,
         "authorized": True,

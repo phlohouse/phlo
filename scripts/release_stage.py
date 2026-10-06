@@ -29,6 +29,43 @@ def validate_candidate(sha: str) -> None:
     subprocess.run(["git", "merge-base", "--is-ancestor", sha, "origin/main"], check=True)
 
 
+def verify_source_health(sha: str) -> None:
+    """Authenticate the latest exact-SHA source aggregate, including a safe full fallback."""
+    workflow = provenance.api(
+        f"repos/{provenance.REPOSITORY}/actions/workflows/release-candidate.yml"
+    )
+    runs = provenance.pages(
+        f"repos/{provenance.REPOSITORY}/actions/workflows/{workflow['id']}/runs?head_sha={sha}",
+        "workflow_runs",
+    )
+    if not runs:
+        raise ValueError("candidate has no exact-SHA source-health run")
+    latest = max(runs, key=lambda run: run["id"])
+    if (
+        latest.get("head_sha") != sha
+        or latest.get("repository", {}).get("full_name") != provenance.REPOSITORY
+        or latest.get("head_repository", {}).get("full_name") != provenance.REPOSITORY
+        or latest.get("path", "").split("@")[0] != workflow["path"]
+        or latest.get("workflow_id") != workflow["id"]
+        or latest.get("status") != "completed"
+        or latest.get("event") != "push"
+        or latest.get("head_branch") != "main"
+    ):
+        raise ValueError("candidate source-health producer is not trusted/completed")
+    jobs = provenance.pages(
+        f"repos/{provenance.REPOSITORY}/actions/runs/{latest['id']}/attempts/{latest['run_attempt']}/jobs",
+        "jobs",
+    )
+    gate = [job for job in jobs if job.get("name") == "release candidate / status"]
+    if len(gate) != 1 or any(
+        job.get("head_sha") != sha
+        or job.get("status") != "completed"
+        or job.get("conclusion") != "success"
+        for job in gate
+    ):
+        raise ValueError("candidate has no successful exact-SHA source-health aggregate")
+
+
 def reserve(sha: str) -> None:
     """Claim the SHA before building; even a failed stage may not be rebuilt."""
     validate_candidate(sha)
@@ -51,28 +88,7 @@ def reserve(sha: str) -> None:
         raise ValueError(
             "candidate has a prior staging attempt; deletion/expiry never permits restaging"
         )
-    workflow = provenance.api(
-        f"repos/{provenance.REPOSITORY}/actions/workflows/release-candidate.yml"
-    )
-    runs = provenance.pages(
-        f"repos/{provenance.REPOSITORY}/actions/workflows/{workflow['id']}/runs?head_sha={sha}",
-        "workflow_runs",
-    )
-    if not runs:
-        raise ValueError("candidate has no exact-SHA source-health run")
-    latest = max(runs, key=lambda run: run["id"])
-    if (
-        latest.get("head_sha") != sha
-        or latest.get("repository", {}).get("full_name") != provenance.REPOSITORY
-        or latest.get("head_repository", {}).get("full_name") != provenance.REPOSITORY
-        or latest.get("path", "").split("@")[0] != workflow["path"]
-        or latest.get("workflow_id") != workflow["id"]
-        or latest.get("status") != "completed"
-        or latest.get("conclusion") != "success"
-        or latest.get("event") != "push"
-        or latest.get("head_branch") != "main"
-    ):
-        raise ValueError("candidate source-health producer is not trusted/completed/successful")
+    verify_source_health(sha)
     # Workflow concurrency serialises claims for one SHA. Keep the draft
     # reservation even after failure, so no later attempt rebuilds it.
     subprocess.run(

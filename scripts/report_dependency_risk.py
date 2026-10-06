@@ -39,9 +39,35 @@ def requests(report: dict, run_url: str) -> dict[str, str]:
 
 
 def publish(report: dict, run: dict) -> None:
-    """Reuse an open security issue instead of competing with existing remediation."""
+    """Reuse a matching advisory PR or security issue before creating agent intake."""
     issues = github.pages(f"repos/{github.REPOSITORY}/issues?state=open&labels=security", "")
+    pulls = github.pages(f"repos/{github.REPOSITORY}/pulls?state=open", "")
     for title, body in requests(report, run["html_url"]).items():
+        matching = _matching_pull(title, pulls)
+        if matching:
+            comments = github.pages(
+                f"repos/{github.REPOSITORY}/issues/{matching['number']}/comments", ""
+            )
+            recorded = "\n".join(
+                comment.get("body") or ""
+                for comment in comments
+                if title in (comment.get("body") or "")
+            )
+            if not recorded or _consumer_paths(body) - _consumer_paths(recorded):
+                subprocess.run(
+                    [
+                        "gh",
+                        "pr",
+                        "comment",
+                        str(matching["number"]),
+                        "--repo",
+                        github.REPOSITORY,
+                        "--body",
+                        f"{title}\n\n{body}",
+                    ],
+                    check=True,
+                )
+            continue
         existing = next(
             (
                 issue
@@ -51,8 +77,8 @@ def publish(report: dict, run: dict) -> None:
             None,
         )
         if existing:
-            paths = set(re.findall(r"^- `([^`]+)`$", body, re.M))
-            old_paths = set(re.findall(r"^- `([^`]+)`$", existing.get("body") or "", re.M))
+            paths = _consumer_paths(body)
+            old_paths = _consumer_paths(existing.get("body") or "")
             if paths - old_paths:
                 body = (existing.get("body") or "") + "\n\nAdditional affected consumer locks:\n"
                 body += "\n".join(f"- `{path}`" for path in sorted(paths - old_paths))
@@ -88,6 +114,26 @@ def publish(report: dict, run: dict) -> None:
             ],
             check=True,
         )
+
+
+def _consumer_paths(body: str) -> set[str]:
+    return set(re.findall(r"^- `([^`]+)`$", body, re.M))
+
+
+def _matching_pull(title: str, pulls: list[dict]) -> dict | None:
+    """An ordinary version bump is not proof that a PR addresses this advisory."""
+    finding = re.fullmatch(r"security\(deps\): (\S+) in ([^/\s]+)/(\S+) (\S+)", title)
+    if not finding:
+        return None
+    advisory, ecosystem, package, _version = finding.groups()
+    # Include ecosystem-qualified names, but do not match another scoped package.
+    package_pattern = rf"(?<![\w@./-])(?:{re.escape(ecosystem)}/)?{re.escape(package)}(?![\w./-])"
+    advisory_pattern = rf"(?<![\w-]){re.escape(advisory)}(?![\w-])"
+    for pull in pulls:
+        text = f"{pull.get('title', '')}\n{pull.get('body') or ''}"
+        if re.search(advisory_pattern, text) and re.search(package_pattern, text):
+            return pull
+    return None
 
 
 def handoff(run_id: int, attempt: int, sha: str) -> None:

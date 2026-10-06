@@ -57,15 +57,17 @@ block every finding. Scanner failure is unavailable evidence, not a clean scan.
 See the [dependency policy](../../security/dependency-policy.md).
 
 The independent daily Security run hands authenticated JSON findings to one
-deduplicated security issue per advisory/package/version. It preserves all
-affected consumer paths. Missing or unavailable assessments create a
+deduplicated security issue per advisory/package/version, or comments on an open
+PR explicitly addressing that advisory and package. Ordinary version updates
+do not suppress intake. It preserves all affected consumer paths without
+repeating unchanged comments. Missing or unavailable assessments create a
 maintainer-owned escalation. Phlo agent owns triage and coordination with
 Renovate; neither owns the scanner verdict or approves its own risk exception.
 
 Existing signed webhook intake ignores bot senders. Configure a human-owned,
 least-privilege `PHLO_DEPENDENCY_TRIAGE_TOKEN` with repository Issues write,
-Actions read and Contents read to enable that intake. Without it, the workflow
-uses `github.token` to record issues, but maintainers must triage them. Verify a
+Pull requests read, Actions read and Contents read to enable that intake. Without
+it, the workflow uses `github.token` to record issues, but maintainers must triage them. Verify a
 real signed webhook delivery before claiming automatic agent handoff. No token,
 webhook or agent schedule is provisioned by this change.
 
@@ -92,6 +94,14 @@ execution; an unprotected environment fails closed. Configure the existing
 `PYPI_API_TOKEN` publication credential separately. Promotion publishes the
 approved staged bytes without rebuilding and reconciles published digests.
 Development images use a separate `-development:<SHA>` namespace.
+
+The pre-approval plan binds the exact BOM bytes and qualifying evidence set.
+Approval reauthenticates both; changes require a fresh dispatch and approval.
+Promotion reruns are rejected because GitHub's approval API does not bind reviews
+to a run attempt. After a partial publication, dispatch again with the same
+staging identity: matching public tags, package files, images and release assets
+are reused; missing ones complete forward. Conflicting bytes or unverifiable
+public digests fail closed. Never restage or rebuild to recover publication.
 
 ## Rollout and measurement
 

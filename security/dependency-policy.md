@@ -54,9 +54,12 @@ has no shell, and permits one bounded issue or draft PR via
 It cannot run scanners, approve risks, change workflows or change live settings.
 The trusted-main `dependency-triage.yml` workflow authenticates the completed
 scheduled Security run and its exact SHA/attempt, verifies its JSON artifact,
-and creates or updates deduplicated security issues. Unavailable scans create
+and reuses matching advisory/package PRs before creating or updating deduplicated
+security issues. PR comments preserve all consumer paths; ordinary version bumps
+do not count as advisory remediation. Unavailable scans create
 maintainer-owned escalation issues. Configure `PHLO_DEPENDENCY_TRIAGE_TOKEN`
-with a human sender to reach existing signed issue webhook intake; its bot filter
+with Issues write, Pull requests read, Actions read and Contents read and a human
+sender to reach existing signed issue webhook intake; its bot filter
 rejects the fallback `github.token` sender. Without this credential, issues are
 recorded but maintainers own triage. Verify live webhook delivery before claiming
 automatic handoff. No competing updater, agent shell permission or shared setting

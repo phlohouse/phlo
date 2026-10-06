@@ -212,10 +212,8 @@ def test_collect_does_not_allow_omitting_failed_attempts(
         record = json.loads(files["provenance.json"])
         record["candidate_sha"] = "c" * 40
         files["provenance.json"] = json.dumps(record).encode()
-    calls = []
 
     def fake_api(path: str):
-        calls.append(path)
         if path.endswith("branches/main"):
             return {"protected": True}
         if path.endswith("workflows/release-stage.yml"):
@@ -232,21 +230,35 @@ def test_collect_does_not_allow_omitting_failed_attempts(
             return acceptance
         raise AssertionError(path)
 
-    def fake_download(run, workflow, sha, title, names, dest):
-        provenance.validate_run(run, workflow, sha, title)
-        if workflow == STAGE_WORKFLOW:
-            for name, value in files.items():
-                path = dest / names[0] / name
+    def fake_download_artifact(run, name, dest):
+        destination = dest / name
+        destination.mkdir(parents=True)
+        if run["id"] == stage["id"]:
+            for filename, value in files.items():
+                path = destination / filename
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(value)
+        else:
+            (destination / "evidence.json").write_text(
+                json.dumps({"run_attempt": run["run_attempt"]})
+            )
+        return destination
 
     monkeypatch.setattr(provenance, "api", fake_api)
     monkeypatch.setattr(provenance, "pages", lambda *a: [acceptance])
-    monkeypatch.setattr(provenance, "download", fake_download)
+    monkeypatch.setattr(provenance, "download_artifact", fake_download_artifact)
     if failure == "passed":
         provenance.collect(SHA, 10, tmp_path, evidence=True)
-        assert any(path.endswith("attempts/1") for path in calls)
-        assert any(path.endswith("attempts/2") for path in calls)
+        assert (
+            json.loads((tmp_path / f"candidate-{SHA}" / "bom.json").read_text())["release_commit"]
+            == SHA
+        )
+        for attempt in (1, 2):
+            for host in ("amd64", "arm64"):
+                path = (
+                    tmp_path / "evidence" / f"evidence-{SHA}-11-{attempt}-{host}" / "evidence.json"
+                )
+                assert json.loads(path.read_text()) == {"run_attempt": attempt}
     else:
         with pytest.raises((ValueError, bom_module.BomError)):
             provenance.collect(SHA, 10, tmp_path, evidence=True)
@@ -421,6 +433,7 @@ def test_support_validation_never_executes_candidate_scripts(tmp_path: Path, mon
         "none",
         "wrong_sha",
         "stale_attempt",
+        "rerun_with_matching_attempt",
         "wrong_workflow",
         "unprotected_branch",
         "unprotected_environment",
@@ -448,6 +461,9 @@ def test_live_approval_uses_current_authenticated_run(monkeypatch, failure: str)
         run["head_sha"] = SHA
     elif failure == "stale_attempt":
         run["run_attempt"] = 2
+    elif failure == "rerun_with_matching_attempt":
+        run["run_attempt"] = 2
+        monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
     elif failure == "wrong_workflow":
         run["workflow_id"] = 99
     elif failure == "self_rerun":
@@ -480,3 +496,48 @@ def test_deleted_draft_does_not_permit_restaging(monkeypatch) -> None:
     monkeypatch.setattr(staging.subprocess, "run", lambda *a, **k: pytest.fail("must not write"))
     with pytest.raises(ValueError, match="prior staging attempt"):
         staging.reserve(SHA)
+
+
+@pytest.mark.parametrize("gate_result", ["success", "failure", "skipped"])
+def test_source_health_uses_required_aggregate_after_optional_evidence_failure(
+    monkeypatch, gate_result
+) -> None:
+    workflow = {"id": 4, "path": ".github/workflows/release-candidate.yml"}
+    run = {
+        **run_record(),
+        "workflow_id": 4,
+        "path": workflow["path"],
+        "head_sha": SHA,
+        "event": "push",
+        "conclusion": "failure",
+    }
+    jobs = [
+        {
+            "name": "Source evidence",
+            "head_sha": SHA,
+            "status": "completed",
+            "conclusion": "failure",
+        },
+        {
+            "name": "release candidate / status",
+            "head_sha": SHA,
+            "status": "completed",
+            "conclusion": gate_result,
+        },
+    ]
+    monkeypatch.setattr(provenance, "api", lambda path: workflow)
+
+    def pages(path, key):
+        if key == "workflow_runs":
+            assert path.endswith(f"/4/runs?head_sha={SHA}")
+            return [run]
+        assert path.endswith("/10/attempts/1/jobs")
+        assert key == "jobs"
+        return jobs
+
+    monkeypatch.setattr(provenance, "pages", pages)
+    if gate_result == "success":
+        staging.verify_source_health(SHA)
+    else:
+        with pytest.raises(ValueError, match="source-health aggregate"):
+            staging.verify_source_health(SHA)
