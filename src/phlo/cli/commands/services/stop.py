@@ -70,7 +70,7 @@ def _remaining_project_containers(project_name: str, backend_name: str | None) -
     help="Container backend for this command.",
 )
 @require_mutation_authorization("services.stop")
-def stop_cmd(  # noqa: C901
+def stop_cmd(
     volumes: bool,
     stop_native: bool,
     profile: tuple[str, ...],
@@ -97,45 +97,7 @@ def stop_cmd(  # noqa: C901
         service_args_count=len(service),
     )
     if stop_native:
-        # Parse comma-separated services for native stop.
-        native_services_list = parse_service_args(service)
-        native_targets = (
-            native_services_list
-            if native_services_list
-            else list(_load_native_state(project_root).keys())
-        )
-        if native_targets:
-            logger.info(
-                "services_stop_native_started",
-                project_name=get_project_name(),
-                service_count=len(native_targets),
-                service_names=native_targets,
-            )
-            _emit_service_lifecycle_events(
-                "pre_stop",
-                native_targets,
-                project_name=get_project_name(),
-                project_root=project_root,
-                request_id=lifecycle_request_id,
-                metadata={"native": True},
-            )
-        _stop_native_processes(project_root, native_services_list or None)
-        if native_targets:
-            logger.info(
-                "services_stop_native_completed",
-                project_name=get_project_name(),
-                service_count=len(native_targets),
-                service_names=native_targets,
-            )
-            _emit_service_lifecycle_events(
-                "post_stop",
-                native_targets,
-                project_name=get_project_name(),
-                project_root=project_root,
-                request_id=lifecycle_request_id,
-                status="success",
-                metadata={"native": True},
-            )
+        _stop_native_services(project_root, service, lifecycle_request_id)
 
     # If --native was explicitly requested, skip Docker unless --volumes, --profile, or --service also given.
     if stop_native and not volumes and not profile and not service:
@@ -143,6 +105,60 @@ def stop_cmd(  # noqa: C901
         click.echo("Stopped native services.")
         return
 
+    _stop_compose_services(
+        volumes, profile, service, backend_name, project_root, lifecycle_request_id
+    )
+
+
+def _stop_native_services(
+    project_root: Path, service: tuple[str, ...], lifecycle_request_id: str
+) -> None:
+    native_services = parse_service_args(service)
+    native_targets = native_services or list(_load_native_state(project_root).keys())
+    if not native_targets:
+        _stop_native_processes(project_root, native_services or None)
+        return
+    project_name = get_project_name()
+    logger.info(
+        "services_stop_native_started",
+        project_name=project_name,
+        service_count=len(native_targets),
+        service_names=native_targets,
+    )
+    _emit_service_lifecycle_events(
+        "pre_stop",
+        native_targets,
+        project_name=project_name,
+        project_root=project_root,
+        request_id=lifecycle_request_id,
+        metadata={"native": True},
+    )
+    _stop_native_processes(project_root, native_services or None)
+    logger.info(
+        "services_stop_native_completed",
+        project_name=project_name,
+        service_count=len(native_targets),
+        service_names=native_targets,
+    )
+    _emit_service_lifecycle_events(
+        "post_stop",
+        native_targets,
+        project_name=project_name,
+        project_root=project_root,
+        request_id=lifecycle_request_id,
+        status="success",
+        metadata={"native": True},
+    )
+
+
+def _stop_compose_services(
+    volumes: bool,
+    profile: tuple[str, ...],
+    service: tuple[str, ...],
+    backend_name: str | None,
+    project_root: Path,
+    lifecycle_request_id: str,
+) -> None:
     require_container_backend(backend_name)
     phlo_dir = ensure_compose_project()
     project_name = get_project_name()

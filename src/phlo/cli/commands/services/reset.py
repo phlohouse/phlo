@@ -51,7 +51,7 @@ logger = get_logger(__name__)
 @click.option("--json", "output_json", is_flag=True, help="Output a structured result.")
 @click.option("--non-interactive", is_flag=True, help="Never prompt; require --yes to reset.")
 @require_mutation_authorization("services.reset")
-def reset_cmd(  # noqa: C901
+def reset_cmd(
     service: tuple[str, ...],
     yes: bool,
     backend_name: str | None,
@@ -98,47 +98,20 @@ def reset_cmd(  # noqa: C901
     }
     next_steps = [{"command": "phlo services start", "when": "Reset completed"}]
 
-    def emit(status, *, errors=None, reason_code=None):
-        if output_json:
-            click.echo(
-                json_envelope(
-                    data=data,
-                    status=status,
-                    errors=errors,
-                    reason_code=reason_code,
-                    next_steps=next_steps,
-                )
-            )
-        elif errors:
-            for error in errors:
-                click.echo(error, err=True)
-
-    if not output_json:
-        click.echo(f"Project: {project_name} ({phlo_dir.resolve()})")
-        click.echo(f"Stop: {', '.join(services_list) if services_list else 'all project services'}")
-        click.echo(f"Delete container volumes: {data['container_volume_scope']}")
-        for path in data["volume_paths"]:
-            click.echo(f"Delete data: {path}")
+    _show_reset_scope(output_json, project_name, phlo_dir, services_list, data)
     if dry_run:
-        reset_args = ["phlo", "services", "reset", "--yes"]
-        if backend_name:
-            reset_args.extend(["--backend", backend_name])
-        for name in services_list:
-            reset_args.extend(["--service", name])
-        next_steps = [
-            {
-                "command": shlex.join(reset_args),
-                "when": f"Approve this deletion scope from {phlo_dir.parent.resolve()}",
-            }
-        ]
-        emit("planned")
-        if not output_json:
-            click.echo("Dry run complete. No services or files changed.")
+        _emit_reset_preview(output_json, data, services_list, backend_name, phlo_dir.parent)
         return
     if not confirm_action(
         "Delete the listed data?", yes=yes, non_interactive=non_interactive or output_json
     ):
-        emit("cancelled", reason_code="confirmation_declined")
+        _emit_reset_result(
+            output_json,
+            data,
+            next_steps,
+            "cancelled",
+            reason_code="confirmation_declined",
+        )
         if not output_json:
             click.echo("Cancelled. No services or files changed.")
         raise click.exceptions.Exit(1)
@@ -150,13 +123,103 @@ def reset_cmd(  # noqa: C901
         logger.warning(
             "services_reset_stop_failed", project_name=project_name, returncode=result.returncode
         )
-        emit(
+        _emit_reset_result(
+            output_json,
+            data,
+            next_steps,
             "error",
             errors=["Could not stop all target services. Local data was not deleted."],
             reason_code="service_stop_failed",
         )
         raise click.exceptions.Exit(1)
 
+    errors = _delete_volume_paths(volumes_dir, volume_dirs, data)
+    if errors:
+        _emit_reset_result(
+            output_json,
+            data,
+            next_steps,
+            "partial",
+            errors=errors,
+            reason_code="volume_deletion_incomplete",
+        )
+        raise click.exceptions.Exit(1)
+    logger.info(
+        "services_reset_completed",
+        project_name=project_name,
+        deleted_count=len(data["deleted_paths"]),
+    )
+    _emit_reset_result(output_json, data, next_steps, "success")
+    if not output_json:
+        click.echo(
+            f"Reset complete. Deleted {len(data['deleted_paths'])} local volume directories."
+        )
+        click.echo("Run: phlo services start")
+
+
+def _emit_reset_result(
+    output_json: bool,
+    data: dict,
+    next_steps: list[dict],
+    status: str,
+    *,
+    errors: list[str] | None = None,
+    reason_code: str | None = None,
+) -> None:
+    if output_json:
+        click.echo(
+            json_envelope(
+                data=data,
+                status=status,
+                errors=errors,
+                reason_code=reason_code,
+                next_steps=next_steps,
+            )
+        )
+    elif errors:
+        for error in errors:
+            click.echo(error, err=True)
+
+
+def _show_reset_scope(
+    output_json: bool,
+    project_name: str,
+    phlo_dir,
+    services_list: list[str],
+    data: dict,
+) -> None:
+    if not output_json:
+        click.echo(f"Project: {project_name} ({phlo_dir.resolve()})")
+        click.echo(f"Stop: {', '.join(services_list) if services_list else 'all project services'}")
+        click.echo(f"Delete container volumes: {data['container_volume_scope']}")
+        for path in data["volume_paths"]:
+            click.echo(f"Delete data: {path}")
+
+
+def _emit_reset_preview(
+    output_json: bool,
+    data: dict,
+    services_list: list[str],
+    backend_name: str | None,
+    project_parent,
+) -> None:
+    reset_args = ["phlo", "services", "reset", "--yes"]
+    if backend_name:
+        reset_args.extend(["--backend", backend_name])
+    for name in services_list:
+        reset_args.extend(["--service", name])
+    preview_steps = [
+        {
+            "command": shlex.join(reset_args),
+            "when": f"Approve this deletion scope from {project_parent.resolve()}",
+        }
+    ]
+    _emit_reset_result(output_json, data, preview_steps, "planned")
+    if not output_json:
+        click.echo("Dry run complete. No services or files changed.")
+
+
+def _delete_volume_paths(volumes_dir, volume_dirs: list, data: dict) -> list[str]:
     errors = []
     # Keep deletion inside the project volumes root: selected symlinks and a
     # replaced root are skipped, and rmtree removes nested links without
@@ -177,17 +240,4 @@ def reset_cmd(  # noqa: C901
                 data["skipped_paths"].append(str(path.absolute()))
         except OSError as exc:
             errors.append(f"Could not delete {path}: {exc}")
-    if errors:
-        emit("partial", errors=errors, reason_code="volume_deletion_incomplete")
-        raise click.exceptions.Exit(1)
-    logger.info(
-        "services_reset_completed",
-        project_name=project_name,
-        deleted_count=len(data["deleted_paths"]),
-    )
-    emit("success")
-    if not output_json:
-        click.echo(
-            f"Reset complete. Deleted {len(data['deleted_paths'])} local volume directories."
-        )
-        click.echo("Run: phlo services start")
+    return errors

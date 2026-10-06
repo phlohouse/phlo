@@ -218,6 +218,49 @@ _TIMESTAMP_ROW_FIELDS = {
 }
 
 
+def _coerce_required_json_fields(result: dict[str, Any], table: str) -> None:
+    for field, expected_type in _JSON_ROW_FIELDS.get(table, {}).items():
+        value = result.get(field)
+        if isinstance(value, (bytes, bytearray)):
+            value = value.decode("utf-8")
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                value = None
+        if value is None:
+            value = [] if expected_type is list else {}
+        if not isinstance(value, expected_type):
+            raise ValueError(f"{table}.{field} must be a {expected_type.__name__}")
+        result[field] = value
+
+
+def _coerce_optional_json_fields(result: dict[str, Any], table: str) -> None:
+    for field in _OPTIONAL_JSON_ROW_FIELDS.get(table, set()):
+        value = result.get(field)
+        if isinstance(value, (bytes, bytearray)):
+            value = value.decode("utf-8")
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{table}.{field} must be JSON") from exc
+        if value is not None and not isinstance(value, dict):
+            raise ValueError(f"{table}.{field} must be an object or null")
+        result[field] = value
+
+
+def _coerce_boolean_fields(result: dict[str, Any], table: str) -> None:
+    for field in _BOOLEAN_ROW_FIELDS.get(table, set()):
+        if result.get(field) is not None:
+            result[field] = bool(result[field])
+
+
+def _coerce_timestamp_fields(result: dict[str, Any], table: str) -> None:
+    for field in _TIMESTAMP_ROW_FIELDS.get(table, set()):
+        result[field] = _canonical_timestamp(result.get(field))
+
+
 class _SqlRunEvidenceStore:
     """Shared SQL implementation; subclasses provide transaction connections."""
 
@@ -557,7 +600,7 @@ class _SqlRunEvidenceStore:
                 tuple(values),
             )
 
-    def reconcile_observation(  # noqa: C901
+    def reconcile_observation(
         self,
         observation: RunObservation,
         profile: RequiredEvidenceProfile,
@@ -617,18 +660,7 @@ class _SqlRunEvidenceStore:
                     ),
                 )
             self._lock_run(cursor, observation.project_id, observation.run_id)
-            for event in () if provider_absent else observation.events:
-                if event.project_id != observation.project_id or event.run_id != observation.run_id:
-                    raise ValueError("event source crossed project/run boundaries")
-                if event.attempt != observation.attempt:
-                    raise ValueError("event source crossed attempt boundaries")
-                self._insert_event(cursor, event)
-            for stage in () if provider_absent else observation.stages:
-                if stage.project_id != observation.project_id or stage.run_id != observation.run_id:
-                    raise ValueError("stage source crossed project/run boundaries")
-                if stage.attempt != observation.attempt:
-                    raise ValueError("stage source crossed attempt boundaries")
-                self._insert_stage(cursor, stage)
+            self._insert_observation_records(cursor, observation, provider_absent)
 
             cursor.execute(
                 f"SELECT * FROM {self._table('pipeline_run')} "
@@ -1652,8 +1684,29 @@ class _SqlRunEvidenceStore:
                 checksum=record_checksum,
             )
 
+    def _insert_observation_records(
+        self,
+        cursor: Any,
+        observation: RunObservation,
+        provider_absent: bool,
+    ) -> None:
+        if provider_absent:
+            return
+        for event in observation.events:
+            if event.project_id != observation.project_id or event.run_id != observation.run_id:
+                raise ValueError("event source crossed project/run boundaries")
+            if event.attempt != observation.attempt:
+                raise ValueError("event source crossed attempt boundaries")
+            self._insert_event(cursor, event)
+        for stage in observation.stages:
+            if stage.project_id != observation.project_id or stage.run_id != observation.run_id:
+                raise ValueError("stage source crossed project/run boundaries")
+            if stage.attempt != observation.attempt:
+                raise ValueError("stage source crossed attempt boundaries")
+            self._insert_stage(cursor, stage)
+
     @staticmethod
-    def _row_dict(cursor: Any, row: Any, *, table: str | None = None) -> dict[str, Any]:  # noqa: C901
+    def _row_dict(cursor: Any, row: Any, *, table: str | None = None) -> dict[str, Any]:
         if hasattr(row, "keys"):
             result = dict(row)
         else:
@@ -1661,37 +1714,10 @@ class _SqlRunEvidenceStore:
             result = dict(zip(columns, row, strict=True))
         if table is None:
             return result
-        for field, expected_type in _JSON_ROW_FIELDS.get(table, {}).items():
-            value = result.get(field)
-            if isinstance(value, (bytes, bytearray)):
-                value = value.decode("utf-8")
-            if isinstance(value, str):
-                try:
-                    value = json.loads(value)
-                except json.JSONDecodeError:
-                    value = None
-            if value is None:
-                value = [] if expected_type is list else {}
-            if not isinstance(value, expected_type):
-                raise ValueError(f"{table}.{field} must be a {expected_type.__name__}")
-            result[field] = value
-        for field in _OPTIONAL_JSON_ROW_FIELDS.get(table, set()):
-            value = result.get(field)
-            if isinstance(value, (bytes, bytearray)):
-                value = value.decode("utf-8")
-            if isinstance(value, str):
-                try:
-                    value = json.loads(value)
-                except json.JSONDecodeError as exc:
-                    raise ValueError(f"{table}.{field} must be JSON") from exc
-            if value is not None and not isinstance(value, dict):
-                raise ValueError(f"{table}.{field} must be an object or null")
-            result[field] = value
-        for field in _BOOLEAN_ROW_FIELDS.get(table, set()):
-            if result.get(field) is not None:
-                result[field] = bool(result[field])
-        for field in _TIMESTAMP_ROW_FIELDS.get(table, set()):
-            result[field] = _canonical_timestamp(result.get(field))
+        _coerce_required_json_fields(result, table)
+        _coerce_optional_json_fields(result, table)
+        _coerce_boolean_fields(result, table)
+        _coerce_timestamp_fields(result, table)
         return result
 
     @staticmethod

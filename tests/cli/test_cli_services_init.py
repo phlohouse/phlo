@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from phlo.cli.commands.services.utils import detect_phlo_source_path
 from phlo.cli.infrastructure.selection import select_services_to_install
+from phlo.config.env import parse_project_env_file
 from phlo.config_schema import ServiceOverride
 from phlo.plugins.compose import generator as generator_module
 from phlo.plugins.compose.env import generate_env, generate_env_local
@@ -1014,6 +1015,14 @@ def test_generate_env_pins_package_versions_for_service_builds(
 
     assert "PHLO_VERSION=9.8.7" in env
     assert "PHLO_API_VERSION=3.2.1" in env
+
+
+def test_generate_env_renders_unrecognized_project_overrides(tmp_path) -> None:
+    env = generate_env([], env_overrides={"CUSTOM_SETTING": "kept"})
+    env_path = tmp_path / ".env"
+    env_path.write_text(env)
+
+    assert parse_project_env_file(env_path)["CUSTOM_SETTING"] == "kept"
 
 
 def test_generate_env_local_keeps_known_non_secret_values_out_of_local_overrides() -> None:

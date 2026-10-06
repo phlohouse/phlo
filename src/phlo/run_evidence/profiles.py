@@ -143,7 +143,7 @@ def _digest(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def compose_evidence_profile(  # noqa: C901
+def compose_evidence_profile(
     profile_id: str,
     profile_version: str,
     required_contribution_ids: Iterable[str],
@@ -159,17 +159,7 @@ def compose_evidence_profile(  # noqa: C901
     if not all(required):
         raise EvidenceProfileCompositionError("blank_contribution_id", required)
 
-    by_id: dict[str, EvidenceProfileContribution] = {}
-    for contribution in contributions:
-        if not isinstance(contribution, EvidenceProfileContribution):
-            raise EvidenceProfileCompositionError("invalid_contribution")
-        if contribution.contribution_id in by_id:
-            raise EvidenceProfileCompositionError(
-                "duplicate_contribution", (contribution.contribution_id,)
-            )
-        if contribution.profile_id != profile_id or contribution.profile_version != profile_version:
-            continue  # exact profile/version match only; never coerce versions.
-        by_id[contribution.contribution_id] = contribution
+    by_id = _matching_contributions(profile_id, profile_version, contributions)
 
     discovered = tuple(sorted(by_id))
     missing = tuple(sorted(set(required) - set(by_id)))
@@ -186,56 +176,8 @@ def compose_evidence_profile(  # noqa: C901
             available=False,
         )
 
-    for contribution in by_id.values():
-        for dependency in contribution.requires_contributions:
-            if dependency not in by_id:
-                raise EvidenceProfileCompositionError(
-                    "missing_dependency", (contribution.contribution_id, dependency)
-                )
-
-    # Topological validation for cycles.
-    visiting: set[str] = set()
-    visited: set[str] = set()
-
-    def visit(contribution_id: str) -> None:
-        if contribution_id in visited:
-            return
-        if contribution_id in visiting:
-            raise EvidenceProfileCompositionError("dependency_cycle", (contribution_id,))
-        visiting.add(contribution_id)
-        for dependency in by_id[contribution_id].requires_contributions:
-            visit(dependency)
-        visiting.remove(contribution_id)
-        visited.add(contribution_id)
-
-    for contribution_id in by_id:
-        visit(contribution_id)
-
-    # Canonical union of requirements.
-    stages: dict[tuple[str, str | None], RequiredEvidenceStage] = {}
-    records: dict[str, RequiredEvidenceRecord] = {}
-    run_fields: set[str] = set()
-    requires_terminal = False
-    conflicts: list[str] = []
-    for contribution in by_id.values():
-        requires_terminal = requires_terminal or contribution.requires_terminal_event
-        for stage in contribution.stages:
-            key = (stage.stage_type, stage.provider)
-            existing = stages.get(key)
-            if existing is not None and existing != stage:
-                conflicts.append(
-                    f"{contribution.contribution_id}:{stage.stage_type} conflicts with existing"
-                )
-            stages[key] = stage
-        for record in contribution.required_records:
-            existing = records.get(record.family)
-            if existing is not None and existing != record:
-                conflicts.append(f"{contribution.contribution_id}:{record.family} conflicts")
-            records[record.family] = record
-        run_fields.update(contribution.required_run_fields)
-
-    if conflicts:
-        raise EvidenceProfileCompositionError("conflicting_requirements", conflicts)
+    _validate_contribution_dependencies(by_id)
+    stages, records, run_fields, requires_terminal = _collect_profile_requirements(by_id)
 
     profile = RequiredEvidenceProfile(
         profile_id=profile_id,
@@ -252,6 +194,89 @@ def compose_evidence_profile(  # noqa: C901
         missing_contribution_ids=(),
         digest=_digest(profile, required, discovered),
     )
+
+
+def _matching_contributions(
+    profile_id: str,
+    profile_version: str,
+    contributions: Iterable[EvidenceProfileContribution],
+) -> dict[str, EvidenceProfileContribution]:
+    by_id: dict[str, EvidenceProfileContribution] = {}
+    for contribution in contributions:
+        if not isinstance(contribution, EvidenceProfileContribution):
+            raise EvidenceProfileCompositionError("invalid_contribution")
+        if contribution.contribution_id in by_id:
+            raise EvidenceProfileCompositionError(
+                "duplicate_contribution", (contribution.contribution_id,)
+            )
+        if (
+            contribution.profile_id == profile_id
+            and contribution.profile_version == profile_version
+        ):
+            by_id[contribution.contribution_id] = contribution
+    return by_id
+
+
+def _validate_contribution_dependencies(
+    contributions: dict[str, EvidenceProfileContribution],
+) -> None:
+    for contribution in contributions.values():
+        for dependency in contribution.requires_contributions:
+            if dependency not in contributions:
+                raise EvidenceProfileCompositionError(
+                    "missing_dependency", (contribution.contribution_id, dependency)
+                )
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(contribution_id: str) -> None:
+        if contribution_id in visited:
+            return
+        if contribution_id in visiting:
+            raise EvidenceProfileCompositionError("dependency_cycle", (contribution_id,))
+        visiting.add(contribution_id)
+        for dependency in contributions[contribution_id].requires_contributions:
+            visit(dependency)
+        visiting.remove(contribution_id)
+        visited.add(contribution_id)
+
+    for contribution_id in contributions:
+        visit(contribution_id)
+
+
+def _collect_profile_requirements(
+    contributions: dict[str, EvidenceProfileContribution],
+) -> tuple[
+    dict[tuple[str, str | None], RequiredEvidenceStage],
+    dict[str, RequiredEvidenceRecord],
+    set[str],
+    bool,
+]:
+    stages: dict[tuple[str, str | None], RequiredEvidenceStage] = {}
+    records: dict[str, RequiredEvidenceRecord] = {}
+    run_fields: set[str] = set()
+    requires_terminal = False
+    conflicts: list[str] = []
+    for contribution in contributions.values():
+        requires_terminal |= contribution.requires_terminal_event
+        for stage in contribution.stages:
+            key = (stage.stage_type, stage.provider)
+            existing = stages.get(key)
+            if existing is not None and existing != stage:
+                conflicts.append(
+                    f"{contribution.contribution_id}:{stage.stage_type} conflicts with existing"
+                )
+            stages[key] = stage
+        for record in contribution.required_records:
+            existing = records.get(record.family)
+            if existing is not None and existing != record:
+                conflicts.append(f"{contribution.contribution_id}:{record.family} conflicts")
+            records[record.family] = record
+        run_fields.update(contribution.required_run_fields)
+    if conflicts:
+        raise EvidenceProfileCompositionError("conflicting_requirements", conflicts)
+    return stages, records, run_fields, requires_terminal
 
 
 def resolve_composed_evidence_profile(

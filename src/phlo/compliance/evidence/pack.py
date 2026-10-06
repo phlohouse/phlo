@@ -234,7 +234,7 @@ def create_evidence_pack(
     return EvidencePack(manifest=pack_manifest, files=files, hmac_key=hmac_key)
 
 
-def verify_evidence_pack(  # noqa: C901
+def verify_evidence_pack(
     zip_path: Path,
     hmac_key: bytes | None = None,
 ) -> dict[str, Any]:
@@ -278,68 +278,15 @@ def verify_evidence_pack(  # noqa: C901
             checksums_data = json.loads(checksums_bytes)
             signature_data = json.loads(zf.read("signature.json"))
 
-            # --- signature structure validation ---
-            sig_version = signature_data.get("version")
-            if sig_version != EVIDENCE_PACK_FORMAT_VERSION:
-                return {
-                    "valid": False,
-                    "error": f"Unsupported pack format version: {sig_version}",
-                    "format_version": sig_version,
-                }
-
-            algorithm = signature_data.get("algorithm")
-            if algorithm != EVIDENCE_PACK_ALGORITHM:
-                return {"valid": False, "error": f"Unsupported algorithm: {algorithm}"}
-
-            stored_envelope_digest = signature_data.get("checksum_envelope_digest")
-            stored_auth_value = signature_data.get("authentication_value")
             stored_key_id = signature_data.get("key_id")
 
-            if not stored_envelope_digest or not stored_auth_value or not stored_key_id:
-                return {"valid": False, "error": "Incomplete signature"}
+            signature_error = _verify_pack_signature(signature_data, checksums_bytes, hmac_key)
+            if signature_error:
+                return signature_error
 
-            # --- key resolution (fail closed) ---
-            try:
-                key = _resolve_evidence_hmac_key(hmac_key)
-            except EvidenceKeyError as exc:
-                return {"valid": False, "error": str(exc)}
-
-            # --- constant-time authentication checks ---
-            # Key identifier first: gives a clear "wrong key" diagnostic
-            # without exposing the key or expected auth value.
-            expected_key_id = _compute_key_id(key)
-            if not _hmac.compare_digest(expected_key_id, stored_key_id):
-                return {"valid": False, "error": "Key identifier mismatch"}
-
-            actual_envelope_digest = hashlib.sha256(checksums_bytes).hexdigest()
-            if not _hmac.compare_digest(actual_envelope_digest, stored_envelope_digest):
-                return {"valid": False, "error": "Checksum envelope digest mismatch"}
-
-            actual_auth_value = _hmac.new(key, checksums_bytes, hashlib.sha256).hexdigest()
-            if not _hmac.compare_digest(actual_auth_value, stored_auth_value):
-                return {"valid": False, "error": "Authentication value mismatch"}
-
-            # --- internal checksum consistency ---
-            actual_manifest_hash = hashlib.sha256(zf.read("manifest.json")).hexdigest()
-            if actual_manifest_hash != checksums_data.get("manifest_hash"):
-                return {"valid": False, "error": "Manifest hash mismatch"}
-
-            expected_files = set(checksums_data.get("files", {}).keys())
-            actual_files = names - _ARCHIVE_META_FILES
-            if expected_files != actual_files:
-                extra = actual_files - expected_files
-                missing = expected_files - actual_files
-                if extra:
-                    return {"valid": False, "error": f"Unexpected files in pack: {extra}"}
-                if missing:
-                    return {"valid": False, "error": f"Missing files from pack: {missing}"}
-
-            for filename, expected_hash in checksums_data.get("files", {}).items():
-                if filename not in zf.namelist():
-                    return {"valid": False, "error": f"Missing file: {filename}"}
-                actual_hash = hashlib.sha256(zf.read(filename)).hexdigest()
-                if actual_hash != expected_hash:
-                    return {"valid": False, "error": f"Hash mismatch for {filename}"}
+            integrity_error = _verify_pack_contents(zf, names, checksums_data)
+            if integrity_error:
+                return {"valid": False, "error": integrity_error}
 
         return {
             "valid": True,
@@ -357,3 +304,62 @@ def verify_evidence_pack(  # noqa: C901
         return {"valid": False, "error": "Invalid JSON in pack"}
     except Exception as e:
         return {"valid": False, "error": str(e)}
+
+
+def _verify_pack_signature(
+    signature: dict[str, Any], checksums_bytes: bytes, hmac_key: bytes | None
+) -> dict[str, Any] | None:
+    version = signature.get("version")
+    if version != EVIDENCE_PACK_FORMAT_VERSION:
+        return {
+            "valid": False,
+            "error": f"Unsupported pack format version: {version}",
+            "format_version": version,
+        }
+    if signature.get("algorithm") != EVIDENCE_PACK_ALGORITHM:
+        return {"valid": False, "error": f"Unsupported algorithm: {signature.get('algorithm')}"}
+
+    envelope_digest = signature.get("checksum_envelope_digest")
+    authentication_value = signature.get("authentication_value")
+    key_id = signature.get("key_id")
+    if not envelope_digest or not authentication_value or not key_id:
+        return {"valid": False, "error": "Incomplete signature"}
+    try:
+        key = _resolve_evidence_hmac_key(hmac_key)
+    except EvidenceKeyError as exc:
+        return {"valid": False, "error": str(exc)}
+    if not _hmac.compare_digest(_compute_key_id(key), key_id):
+        return {"valid": False, "error": "Key identifier mismatch"}
+    actual_digest = hashlib.sha256(checksums_bytes).hexdigest()
+    if not _hmac.compare_digest(actual_digest, envelope_digest):
+        return {"valid": False, "error": "Checksum envelope digest mismatch"}
+    actual_authentication = _hmac.new(key, checksums_bytes, hashlib.sha256).hexdigest()
+    if not _hmac.compare_digest(actual_authentication, authentication_value):
+        return {"valid": False, "error": "Authentication value mismatch"}
+    return None
+
+
+def _verify_pack_contents(
+    archive: zipfile.ZipFile,
+    names: set[str],
+    checksums: dict[str, Any],
+) -> str | None:
+    manifest_hash = hashlib.sha256(archive.read("manifest.json")).hexdigest()
+    if manifest_hash != checksums.get("manifest_hash"):
+        return "Manifest hash mismatch"
+    expected_files = set(checksums.get("files", {}).keys())
+    actual_files = names - _ARCHIVE_META_FILES
+    if expected_files != actual_files:
+        extra = actual_files - expected_files
+        missing = expected_files - actual_files
+        if extra:
+            return f"Unexpected files in pack: {extra}"
+        if missing:
+            return f"Missing files from pack: {missing}"
+    for filename, expected_hash in checksums.get("files", {}).items():
+        if filename not in names:
+            return f"Missing file: {filename}"
+        actual_hash = hashlib.sha256(archive.read(filename)).hexdigest()
+        if actual_hash != expected_hash:
+            return f"Hash mismatch for {filename}"
+    return None

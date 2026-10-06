@@ -50,7 +50,7 @@ def _plugin_name_key(value: str) -> str:
     default=False,
     help="Output as JSON",
 )
-def info_cmd(plugin_name: str, plugin_type: str | None, output_json: bool) -> None:  # noqa: C901
+def info_cmd(plugin_name: str, plugin_type: str | None, output_json: bool) -> None:
     """Show detailed plugin information.
 
     Examples:
@@ -115,30 +115,7 @@ def info_cmd(plugin_name: str, plugin_type: str | None, output_json: bool) -> No
             click.echo(json_envelope(data=info))
             return
 
-        # Rich formatted output
-        console.print(f"\n[bold cyan]{info['name']}[/bold cyan]")
-        console.print(f"Type: {display_type}")
-        console.print(f"Version: {info['version']}")
-
-        if info.get("author"):
-            console.print(f"Author: {info['author']}")
-
-        if info.get("description"):
-            console.print(f"Description: {info['description']}")
-
-        if info.get("license"):
-            console.print(f"License: {info['license']}")
-
-        if info.get("homepage"):
-            console.print(f"Homepage: {info['homepage']}")
-
-        if info.get("tags"):
-            console.print(f"Tags: {', '.join(info['tags'])}")
-
-        if info.get("dependencies"):
-            console.print("Dependencies:")
-            for dep in info["dependencies"]:
-                console.print(f"  - {dep}")
+        _render_plugin_info(info, display_type)
 
     except SystemExit:
         raise
@@ -156,3 +133,19 @@ def info_cmd(plugin_name: str, plugin_type: str | None, output_json: bool) -> No
             reason_code="plugin_info_failed",
             run="phlo plugin info --help",
         ) from e
+
+
+def _render_plugin_info(info: dict, display_type: str) -> None:
+    """Print human-readable plugin metadata."""
+    console.print(f"\n[bold cyan]{info['name']}[/bold cyan]")
+    console.print(f"Type: {display_type}")
+    console.print(f"Version: {info['version']}")
+    for field in ("author", "description", "license", "homepage"):
+        if info.get(field):
+            console.print(f"{field.title()}: {info[field]}")
+    if info.get("tags"):
+        console.print(f"Tags: {', '.join(info['tags'])}")
+    if info.get("dependencies"):
+        console.print("Dependencies:")
+        for dependency in info["dependencies"]:
+            console.print(f"  - {dependency}")

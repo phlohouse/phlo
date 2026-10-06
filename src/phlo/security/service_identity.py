@@ -284,7 +284,7 @@ def _unb64url(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
-def load_service_identity_credentials() -> ServiceIdentityCredentials:  # noqa: C901
+def load_service_identity_credentials() -> ServiceIdentityCredentials:
     """Load caller/audience key rings from the referenced mode-0600 secret file.
 
     The file is a JSON object keyed by caller then audience; each pair holds
@@ -313,6 +313,10 @@ def load_service_identity_credentials() -> ServiceIdentityCredentials:  # noqa: 
     if not isinstance(payload, dict):
         raise RuntimeError("service identity credentials must be a JSON object")
 
+    return ServiceIdentityCredentials(_load_workload_key_rings(payload))
+
+
+def _load_workload_key_rings(payload: dict[str, Any]) -> dict[tuple[str, str], WorkloadKeyRing]:
     rings: dict[tuple[str, str], WorkloadKeyRing] = {}
     for caller, audiences in payload.items():
         if not isinstance(audiences, dict):
@@ -351,7 +355,7 @@ def load_service_identity_credentials() -> ServiceIdentityCredentials:  # noqa: 
                 scp=tuple(sorted(scp_raw)),
                 keys=keys,
             )
-    return ServiceIdentityCredentials(rings)
+    return rings
 
 
 def create_scoped_service_token(

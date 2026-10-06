@@ -625,7 +625,7 @@ def _save_native_state(project_root: Path, state: dict[str, dict]) -> None:
     tmp.replace(path)
 
 
-def _stop_native_processes(project_root: Path, service_names: list[str] | None = None) -> None:  # noqa: C901
+def _stop_native_processes(project_root: Path, service_names: list[str] | None = None) -> None:
     """Stop tracked native service processes and update persisted state."""
     state = _load_native_state(project_root)
     if not state:
@@ -633,70 +633,64 @@ def _stop_native_processes(project_root: Path, service_names: list[str] | None =
 
     target_names = service_names or list(state.keys())
     for name in target_names:
-        entry = state.get(name)
-        if not entry:
-            continue
-        pid = entry.get("pid")
-        if not isinstance(pid, int):
-            state.pop(name, None)
-            continue
-
-        # Termination protocol: SIGTERM the process group first (falling back
-        # to the bare pid if groups are unavailable), allow up to 10 seconds
-        # for the whole group to exit, then SIGKILL that same scope. A leader
-        # exit alone does not prove that a descendant released its port.
-        process_group = True
-        try:
-            os.killpg(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            state.pop(name, None)
-            continue
-        except Exception:
-            process_group = False
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                state.pop(name, None)
-                continue
-
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            if not _native_process_scope_exists(pid, process_group=process_group):
-                state.pop(name, None)
-                break
-            time.sleep(0.25)
-
-        if name not in state:
-            continue
-        if not _native_process_scope_exists(pid, process_group=process_group):
-            state.pop(name, None)
-            continue
-
-        try:
-            if process_group:
-                os.killpg(pid, signal.SIGKILL)
-            else:
-                os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            state.pop(name, None)
-            continue
-        except PermissionError:
-            continue
-        except Exception:
-            logger.warning("process_kill_failed", name=name, pid=pid)
-            continue
-
-        kill_deadline = time.monotonic() + 5
-        while time.monotonic() < kill_deadline:
-            if not _native_process_scope_exists(pid, process_group=process_group):
-                state.pop(name, None)
-                break
-            time.sleep(0.25)
+        _stop_native_process(state, name)
 
     if state:
         _save_native_state(project_root, state)
     else:
         _native_state_path(project_root).unlink(missing_ok=True)
+
+
+def _stop_native_process(state: dict, name: str) -> None:
+    entry = state.get(name)
+    if not entry:
+        return
+    pid = entry.get("pid")
+    if not isinstance(pid, int):
+        state.pop(name, None)
+        return
+
+    process_group = True
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        state.pop(name, None)
+        return
+    except Exception:
+        process_group = False
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            state.pop(name, None)
+            return
+
+    if _wait_for_native_scope_exit(pid, process_group, timeout=10):
+        state.pop(name, None)
+        return
+    try:
+        if process_group:
+            os.killpg(pid, signal.SIGKILL)
+        else:
+            os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        state.pop(name, None)
+        return
+    except PermissionError:
+        return
+    except Exception:
+        logger.warning("process_kill_failed", name=name, pid=pid)
+        return
+    if _wait_for_native_scope_exit(pid, process_group, timeout=5):
+        state.pop(name, None)
+
+
+def _wait_for_native_scope_exit(pid: int, process_group: bool, *, timeout: int) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _native_process_scope_exists(pid, process_group=process_group):
+            return True
+        time.sleep(0.25)
+    return not _native_process_scope_exists(pid, process_group=process_group)
 
 
 def _native_process_scope_exists(pid: int, *, process_group: bool) -> bool:

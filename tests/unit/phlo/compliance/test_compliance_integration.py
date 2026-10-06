@@ -42,6 +42,16 @@ _TEST_KEY = b"test-evidence-hmac-key-0123456789"
 _WRONG_KEY = b"wrong-evidence-hmac-key-9876543210"
 
 
+def test_evidence_pack_verification_rejects_non_zip_file(tmp_path: Path) -> None:
+    pack_path = tmp_path / "invalid.zip"
+    pack_path.write_bytes(b"not a zip archive")
+
+    assert verify_evidence_pack(pack_path, hmac_key=_TEST_KEY) == {
+        "valid": False,
+        "error": "Invalid ZIP file",
+    }
+
+
 class _VerifiedStepUpChallenge(StepUpAuthChallenge):
     """Test-only step-up verifier that supplies independent assurance."""
 
