@@ -15,5 +15,10 @@
     "@types/node": "24.3.0",
     "typescript": "7.0.2",
     "wrangler": "4.144.0"
+  },
+  "overrides": {
+    "miniflare@5.20260926.1-alpha": {
+      "sharp": "0.35.5"
+    }
   }
 }
