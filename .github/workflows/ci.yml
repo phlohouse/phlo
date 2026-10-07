@@ -150,12 +150,32 @@ jobs:
             --docker-shard-count 4 \
             --output provider-artifacts/installed-provider-artifacts.json
 
+      - name: Scan locally built first-party images without publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -r '. as $report | [.images[] |
+            select(.build and (.image | startswith("ghcr.io/phlohouse/phlo-"))) |
+            select(.service as $service | any($report.builds[]; .service == $service and .status == "passed")) |
+            .image] | unique[]' provider-artifacts/installed-provider-artifacts.json > provider-artifacts/local-images.txt
+          while IFS= read -r image; do
+            digest="$(docker image inspect --format '{{.Id}}' "$image")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            report="provider-artifacts/security-${digest#sha256:}.json"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$PWD/provider-artifacts:/work" aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+              image --image-src docker --format json --output "/work/${report##*/}" --scanners vuln "$digest"
+            jq -e --arg digest "$digest" '.SchemaVersion == 2 and .ArtifactType == "container_image" and .Metadata.ImageID == $digest' "$report" > /dev/null
+            uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py \
+              apply-policy --image "$image" --report "$report"
+          done < provider-artifacts/local-images.txt
+
       - name: Upload installed provider artifact evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: installed-provider-artifacts-${{ matrix.docker-shard }}
-          path: provider-artifacts/installed-provider-artifacts.json
+          path: provider-artifacts/
           if-no-files-found: warn
 
   python-quality:

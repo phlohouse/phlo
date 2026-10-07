@@ -39,7 +39,16 @@ def test_promotion_accepts_no_operator_evidence_or_authorization_refs() -> None:
 def test_development_images_cannot_rebuild_release_images() -> None:
     images = workflow("build-core-services.yml")
     triggers = images.get("on") or images[True]
-    assert "release" not in triggers
+    assert set(triggers) == {"workflow_call"}
+    callers = {
+        path.name
+        for path in WORKFLOWS.glob("*.yml")
+        if any(
+            job.get("uses") == "./.github/workflows/build-core-services.yml"
+            for job in workflow(path.name)["jobs"].values()
+        )
+    }
+    assert callers == {"release-stage.yml"}
     assert "-development:" in str(images["jobs"]["prepare"])
     assert "needs.build.result == 'success'" in images["jobs"]["merge"]["if"]
     assert len(images["jobs"]["build"]["strategy"]["matrix"]["architecture"]) == 2

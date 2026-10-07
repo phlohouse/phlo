@@ -22,6 +22,86 @@ def workflow(name):
     return yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
 
 
+@pytest.mark.parametrize(
+    "inspect_status,scan_status,policy_status,correct_report,expected",
+    [
+        (0, 0, 0, True, 0),
+        (13, 0, 0, True, 13),
+        (0, 17, 0, True, 17),
+        (0, 0, 23, True, 23),
+        (0, 0, 0, False, 1),
+    ],
+)
+def test_local_image_scan_uses_built_ids_and_propagates_failures(
+    tmp_path, inspect_status, scan_status, policy_status, correct_report, expected
+):
+    step = next(
+        step
+        for step in workflow("ci.yml")["jobs"]["installed-provider-artifacts"]["steps"]
+        if step.get("name") == "Scan locally built first-party images without publishing"
+    )
+    artifacts = tmp_path / "provider-artifacts"
+    artifacts.mkdir()
+    image = "ghcr.io/phlohouse/phlo-api:0.17.0"
+    (artifacts / "installed-provider-artifacts.json").write_text(
+        json.dumps(
+            {
+                "images": [
+                    {"service": "api", "image": image, "build": {"context": "."}},
+                    {"service": "api-alias", "image": image, "build": {"context": "."}},
+                    {"service": "vendor", "image": "postgres:18", "build": {"context": "."}},
+                    {
+                        "service": "unbuilt",
+                        "image": "ghcr.io/phlohouse/phlo-observatory:0.17.0",
+                        "build": {"context": "."},
+                    },
+                ],
+                "builds": [
+                    {"service": "api", "status": "passed"},
+                    {"service": "api-alias", "status": "passed"},
+                    {"service": "vendor", "status": "passed"},
+                    {"service": "unbuilt", "status": "failed"},
+                ],
+            }
+        )
+    )
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    log = tmp_path / "calls"
+    digest = "sha256:" + "a" * 64
+    scan_report = json.dumps(
+        {
+            "SchemaVersion": 2,
+            "ArtifactType": "container_image",
+            "Metadata": {"ImageID": digest if correct_report else "sha256:" + "b" * 64},
+        }
+    )
+    docker = binary / "docker"
+    docker.write_text(
+        f'#!/bin/sh\nprintf "docker %s\\n" "$*" >> "{log}"\n'
+        f'if [ "$1" = image ]; then echo "{digest}"; exit {inspect_status}; fi\n'
+        f"printf '%s' '{scan_report}' > 'provider-artifacts/security-{'a' * 64}.json'\n"
+        f"exit {scan_status}\n"
+    )
+    uv = binary / "uv"
+    uv.write_text(f'#!/bin/sh\nprintf "uv %s\\n" "$*" >> "{log}"\nexit {policy_status}\n')
+    docker.chmod(0o755)
+    uv.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env=dict(os.environ, PATH=f"{binary}:{os.environ['PATH']}"),
+        capture_output=True,
+    )
+    assert result.returncode == expected
+    calls = log.read_text()
+    assert calls.count("docker image inspect") == 1
+    assert "postgres" not in calls and "observatory" not in calls and "push" not in calls
+    if inspect_status == 0:
+        assert "--image-src docker" in calls and f"--scanners vuln {digest}" in calls
+        assert ("apply-policy" in calls) == (scan_status == 0 and correct_report)
+
+
 def test_one_pr_orchestrator_and_no_candidate_duplication() -> None:
     pr = workflow("pr.yml")
     assert set(pr.get("on") or pr[True]) == {"pull_request", "merge_group", "workflow_call"}
