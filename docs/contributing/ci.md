@@ -94,6 +94,10 @@ execution; an unprotected environment fails closed. Configure the existing
 `PYPI_API_TOKEN` publication credential separately. Promotion publishes the
 approved staged bytes without rebuilding and reconciles published digests.
 Development images use a separate `-development:<SHA>` namespace.
+Only an explicit Release Stage dispatch builds and uploads these staging images.
+Ordinary main pushes cannot invoke the image publisher. PR, queue and main checks
+reuse installed-provider image builds for local scans by image ID, with no
+registry writes or duplicate builds.
 
 The pre-approval plan binds the exact BOM bytes and qualifying evidence set.
 Approval reauthenticates both; changes require a fresh dispatch and approval.
