@@ -10,14 +10,14 @@ permissions:
   contents: read
 
 jobs:
-  waivers:
-    name: containers / waiver register
-    if: always()
+  checks:
+    name: safety / container contracts
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
@@ -36,21 +36,6 @@ jobs:
           uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py render-waivers --output "$RUNNER_TEMP/container-waivers.md"
           cat "$RUNNER_TEMP/container-waivers.md" >> "$GITHUB_STEP_SUMMARY"
 
-  affected:
-    name: containers / affected images
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      matrix: ${{ steps.images.outputs.matrix }}
-      has_images: ${{ steps.images.outputs.has_images }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
       - id: images
         name: Select generated service images
         env:
@@ -70,39 +55,25 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           if [ "$(jq '.include | length' <<< "$matrix")" -gt 0 ]; then echo "has_images=true" >> "$GITHUB_OUTPUT"; else echo "has_images=false" >> "$GITHUB_OUTPUT"; fi
 
-  hadolint:
-    name: containers / lint ${{ matrix.target.service }}
-    needs: affected
-    if: needs.affected.outputs.has_images == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ fromJSON(needs.affected.outputs.matrix).include }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-      - name: Lint generated-service Dockerfile
-        run: docker run --rm -i hadolint/hadolint@sha256:27086352fd5e1907ea2b934eb1023f217c5ae087992eb59fde121dce9c9ff21e < "${{ matrix.target.package }}/${{ matrix.target.dockerfile }}"
-
-  generated-files:
-    name: containers / generated files
-    needs: affected
-    if: needs.affected.outputs.has_images == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-      - name: Validate generated Dockerfiles and Compose configuration
+      - name: Lint generated-service Dockerfiles
+        if: steps.images.outputs.has_images == 'true'
         env:
-          TARGETS: ${{ needs.affected.outputs.matrix }}
+          TARGETS: ${{ steps.images.outputs.matrix }}
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r dockerfile; do
+            echo "::group::$dockerfile"
+            if ! docker run --rm -i hadolint/hadolint@sha256:27086352fd5e1907ea2b934eb1023f217c5ae087992eb59fde121dce9c9ff21e < "$dockerfile"; then
+              failed=1
+            fi
+            echo '::endgroup::'
+          done < <(jq -r '.include[] | .package + "/" + .dockerfile' <<< "$TARGETS")
+          exit "$failed"
+      - name: Validate generated Dockerfiles and Compose configuration
+        if: ${{ !cancelled() && steps.images.outputs.has_images == 'true' }}
+        env:
+          TARGETS: ${{ steps.images.outputs.matrix }}
         run: |
           set -euo pipefail
           uv python install 3.12
@@ -116,27 +87,3 @@ jobs:
           for service in "${services[@]}"; do add_args+=(--service "$service"); done
           uv --project "$GITHUB_WORKSPACE" run --locked phlo services add "${add_args[@]}" --no-start
           docker compose --profile '*' -f "$project/.phlo/docker-compose.yml" --project-directory "$project/.phlo" config --format json > "$RUNNER_TEMP/generated-compose.json"
-
-  status:
-    name: containers / status
-    if: always()
-    needs: [waivers, affected, hadolint, generated-files]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require selected container checks
-        env:
-          WAIVERS: ${{ needs.waivers.result }}
-          AFFECTED: ${{ needs.affected.result }}
-          HAS_IMAGES: ${{ needs.affected.outputs.has_images }}
-          LINT: ${{ needs.hadolint.result }}
-          GENERATED: ${{ needs.generated-files.result }}
-        run: |
-          set -euo pipefail
-          test "$WAIVERS" = success
-          test "$AFFECTED" = success
-          case "$HAS_IMAGES" in
-            true) test "$LINT" = success; test "$GENERATED" = success ;;
-            false) test "$LINT" = skipped; test "$GENERATED" = skipped ;;
-            *) exit 1 ;;
-          esac

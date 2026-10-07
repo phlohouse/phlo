@@ -165,7 +165,7 @@ def test_renovate_config_workflow_validates_the_repository_config() -> None:
     assert config_path.name in validator_runs[0]
 
 
-def test_zizmor_audit_runs_in_the_scheduled_security_lane_not_ci() -> None:
+def test_zizmor_audit_runs_in_scheduled_security_and_required_quality() -> None:
     security = _load_workflow("security.yml")
     ci = _load_workflow("ci.yml")
 
@@ -177,4 +177,7 @@ def test_zizmor_audit_runs_in_the_scheduled_security_lane_not_ci() -> None:
     makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
     assert re.search(r"(?m)^zizmor\s*:", makefile)
 
-    assert all("zizmor" not in script for script in _run_scripts(ci))
+    quality = ci["jobs"]["python-quality"]
+    assert sum(step.get("run") == "make zizmor" for step in quality["steps"]) == 1
+    pr = _load_workflow("pr.yml")
+    assert all(step.get("run") != "make zizmor" for step in pr["jobs"]["security"]["steps"])

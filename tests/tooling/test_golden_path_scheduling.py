@@ -15,9 +15,6 @@ def test_nightly_maintenance_does_not_claim_artifact_qualification(tmp_path: Pat
     ci = yaml.safe_load((WORKFLOW_ROOT / "ci.yml").read_text(encoding="utf-8"))
     nightly = yaml.safe_load((WORKFLOW_ROOT / "nightly.yml").read_text(encoding="utf-8"))
     assert "release-golden-path" not in ci["jobs"]
-    assert ci["jobs"]["windows-release-contract"]["name"] == (
-        "windows / release golden path contract"
-    )
     report = nightly["jobs"]["release-artifact-acceptance"]
     output = tmp_path / "summary"
     result = subprocess.run(
@@ -33,6 +30,50 @@ def test_nightly_maintenance_does_not_claim_artifact_qualification(tmp_path: Pat
     ]
     summary = nightly["jobs"]["nightly-status"]
     assert "upstream-compatibility" in summary["needs"]
+
+
+def test_windows_portability_runs_release_contracts_in_an_isolated_environment() -> None:
+    workflow = yaml.safe_load(
+        (WORKFLOW_ROOT / "windows-compose-portability.yml").read_text(encoding="utf-8")
+    )
+    assert "concurrency" not in workflow
+    ci = yaml.safe_load((WORKFLOW_ROOT / "ci.yml").read_text(encoding="utf-8"))["jobs"]
+    assert ci["windows-portability"]["needs"] == "ci-config"
+    assert ci["windows-portability"]["with"]["reuse-wheelhouse"] is True
+    preparation = workflow["jobs"]["generate-linux-fixture"]["steps"]
+    download = next(
+        step for step in preparation if step.get("name") == "Download the validation wheelhouse"
+    )
+    assert download["if"] == "inputs.reuse-wheelhouse"
+    assert download["with"]["name"] == "provider-wheelhouse"
+    build = next(
+        step for step in preparation if step.get("name") == "Build installed CLI and service wheels"
+    )
+    assert build["if"] == "${{ !inputs.reuse-wheelhouse }}"
+    job = workflow["jobs"]["verify-windows-fixture"]
+    assert job["runs-on"] == "windows-latest"
+    steps = {step["name"]: step for step in job["steps"] if "name" in step}
+    assert steps["Set up Python 3.12"]["with"]["python-version"] == "3.12"
+    install = steps["Install focused Python test dependency"]["run"]
+    assert '"phlo-windows-harness-venv"' in install
+    assert "uv venv --python 3.12 $venv" in install
+    assert "uv pip install --python $python pytest" in install
+    harness = steps["Run focused Python harness tests"]
+    assert harness["shell"] == "pwsh"
+    assert harness["run"] == (
+        "& $env:HARNESS_PYTHON -m pytest tests/scripts/test_release_golden_path.py "
+        "--tb=short --junitxml=test-results/windows.xml"
+    )
+    launcher = steps["Run PowerShell launcher contract tests"]
+    assert launcher["shell"] == "pwsh"
+    assert launcher["run"] == "./tests/scripts/test_release_golden_path.ps1"
+    names = list(steps)
+    assert (
+        names.index("Set up Python 3.12")
+        < names.index("Install focused Python test dependency")
+        < names.index("Run focused Python harness tests")
+        < names.index("Run PowerShell launcher contract tests")
+    )
 
 
 @pytest.mark.parametrize(

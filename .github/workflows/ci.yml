@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   ci-config:
-    name: ci / config
+    name: ci / prepare selection and wheels
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -23,6 +23,7 @@ jobs:
       python: ${{ steps.groups.outputs.python }}
       frontend: ${{ steps.groups.outputs.frontend }}
       writer: ${{ steps.groups.outputs.writer }}
+      plugin: ${{ steps.groups.outputs.plugin }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -50,7 +51,7 @@ jobs:
           if [ -z "$SELECTION" ]; then
             SELECTION="$(python3 scripts/select_ci.py --base HEAD --head HEAD)"
           fi
-          for key in groups python frontend writer; do
+          for key in groups python frontend writer plugin; do
             echo "$key=$(jq -c ".$key" <<< "$SELECTION")" >> "$GITHUB_OUTPUT"
           done
 
@@ -60,53 +61,14 @@ jobs:
       - name: Lint workflows with actionlint
         run: make actionlint
 
-  pre-commit:
-    name: ci / pre-commit
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-      - name: Check private-key hook with a non-allow-listed fixture
-        run: |
-          fixture=ci-private-key-sentinel.pem
-          trap 'rm -f "$fixture"' EXIT
-          printf '%s%s\n' '-----BEGIN ' 'RSA PRIVATE KEY-----' > "$fixture"
-          printf '%s\n' fixture >> "$fixture"
-          printf '%s%s\n' '-----END ' 'RSA PRIVATE KEY-----' >> "$fixture"
-          if uvx --from prek==0.5.3 prek run detect-private-key --files "$fixture"; then
-            echo '::error::Private-key hook did not reject the fixture'
-            exit 1
-          fi
-      - name: Run remaining file hooks
-        env:
-          SKIP: ruff,ruff-complexity,ruff-format,generated-reference-docs,prettier-observatory,zizmor,sqlfluff-dbt
-        run: uvx --from prek==0.5.3 prek run --all-files
-
-  provider-wheelhouse:
-    name: python / provider wheelhouse
-    needs: ci-config
-    if: needs.ci-config.outputs.python == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
       - name: Build wheels and export locked external constraints once
+        if: steps.groups.outputs.python == 'true'
         run: |
           uv build --all-packages --wheel --out-dir provider-wheelhouse
           uv export --all-packages --no-dev --locked --no-emit-workspace --no-hashes \
             --output-file provider-wheelhouse/constraints.txt
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: steps.groups.outputs.python == 'true'
         with:
           name: provider-wheelhouse
           path: provider-wheelhouse/
@@ -114,7 +76,8 @@ jobs:
 
   installed-provider-artifacts:
     name: python / installed provider artifacts (${{ matrix.docker-shard }})
-    needs: provider-wheelhouse
+    needs: ci-config
+    if: needs.ci-config.outputs.python == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -179,9 +142,8 @@ jobs:
           if-no-files-found: warn
 
   python-quality:
-    name: python / quality
+    name: quality / source and file contracts
     needs: ci-config
-    if: needs.ci-config.outputs.python == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -189,28 +151,59 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: ./.github/actions/python-workspace
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Install Python workspace
+        if: needs.ci-config.outputs.python == 'true'
+        run: |
+          uv python install 3.12
+          uv sync --python 3.12 --dev --locked
+
+      - name: Check private-key hook with a non-allow-listed fixture
+        run: |
+          fixture=ci-private-key-sentinel.pem
+          trap 'rm -f "$fixture"' EXIT
+          printf '%s%s\n' '-----BEGIN ' 'RSA PRIVATE KEY-----' > "$fixture"
+          printf '%s\n' fixture >> "$fixture"
+          printf '%s%s\n' '-----END ' 'RSA PRIVATE KEY-----' >> "$fixture"
+          if uvx --from prek==0.5.3 prek run detect-private-key --files "$fixture"; then
+            echo '::error::Private-key hook did not reject the fixture'
+            exit 1
+          fi
+      - name: Run remaining file hooks
+        env:
+          SKIP: ruff,ruff-complexity,ruff-format,generated-reference-docs,prettier-observatory,zizmor,sqlfluff-dbt
+        run: uvx --from prek==0.5.3 prek run --all-files
+      - name: Audit workflow hardening
+        run: make zizmor
 
       - name: Validate fresh release package versions
+        if: needs.ci-config.outputs.python == 'true'
         run: |
           baseline="$(git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD^)"
           uv run --locked python scripts/release_identity.py candidate --base-ref "$baseline"
 
       - name: Lint with ruff
+        if: needs.ci-config.outputs.python == 'true'
         run: |
           uv run --locked ruff check .
           uv run --locked ruff check --config pyproject.toml --select C901 .
 
       - name: Check Python formatting
+        if: needs.ci-config.outputs.python == 'true'
         run: uv run --locked ruff format --check .
 
       - name: Check generated reference documentation
+        if: needs.ci-config.outputs.python == 'true'
         run: make docs-reference-check
 
       - name: Type check with ty
+        if: needs.ci-config.outputs.python == 'true'
         run: make typecheck-python
 
       - name: Lint SQL with sqlfluff
+        if: needs.ci-config.outputs.python == 'true'
         run: |
           set -euo pipefail
           if [ -d "workflows/transforms/dbt" ]; then
@@ -266,224 +259,6 @@ jobs:
           path: test-results/
           if-no-files-found: error
           include-hidden-files: true
-
-  postgres-concurrency-gates:
-    name: python / postgres concurrency gates
-    needs: ci-config
-    if: needs.ci-config.outputs.python == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: phlo_ci
-          POSTGRES_USER: phlo_ci
-          POSTGRES_PASSWORD: phlo_ci_password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U phlo_ci -d phlo_ci"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN: postgresql://phlo_ci:phlo_ci_password@localhost:5432/phlo_ci
-      PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN: postgresql://phlo_ci:phlo_ci_password@localhost:5432/phlo_ci
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/python-workspace
-
-      - name: Preflight PostgreSQL gate dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          for dsn_name in \
-            PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN \
-            PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN; do
-            if [ -z "${!dsn_name:-}" ]; then
-              echo "::error::${dsn_name} must be set for the required PostgreSQL gate"
-              exit 1
-            fi
-          done
-
-          uv run --locked python - <<'PY'
-          import os
-
-          import psycopg2
-
-          for name in (
-              "PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN",
-              "PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN",
-          ):
-              connection = psycopg2.connect(os.environ[name], connect_timeout=5)
-              try:
-                  with connection.cursor() as cursor:
-                      cursor.execute("SELECT 1")
-                      assert cursor.fetchone() == (1,)
-              finally:
-                  connection.close()
-          PY
-
-      - name: Run PostgreSQL concurrency gates
-        shell: bash
-        run: |
-          set -euo pipefail
-          results_file="$(mktemp)"
-          trap 'rm -f "${results_file}"' EXIT
-
-          PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN="${PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN}" \
-          PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN="${PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN}" \
-          uv run --locked pytest --import-mode=importlib \
-            tests/unit/phlo/security/test_service_identity.py::test_postgres_nonce_store_rejects_one_of_two_simultaneous_consumers \
-            tests/observability/test_run_evidence.py::test_postgres_concurrent_duplicate_replay_does_not_apply_loser_run_metadata \
-            tests/observability/test_run_evidence.py::test_true_v2_to_v3_upgrade_is_idempotent_and_compatible_postgres \
-            -q --junitxml=test-results/postgres-concurrency.xml | tee "${results_file}"
-
-          python3 - "${results_file}" <<'PY'
-          import re
-          import sys
-          from pathlib import Path
-
-          output = Path(sys.argv[1]).read_text(encoding="utf-8")
-          summary_lines = [
-              line.strip()
-              for line in output.splitlines()
-              if re.search(r"\b(?:passed|skipped|failed|error|xfailed|xpassed)\b", line)
-          ]
-          summary = summary_lines[-1] if summary_lines else ""
-          passed_match = re.search(r"(\d+) passed\b", summary)
-          skipped_match = re.search(r"(\d+) skipped\b", summary)
-          passed = int(passed_match.group(1)) if passed_match else 0
-          skipped = int(skipped_match.group(1)) if skipped_match else 0
-          if passed != 3 or skipped != 0:
-              raise SystemExit(
-                  f"PostgreSQL concurrency gate expected exactly 3 passed, 0 skipped; got: {summary}"
-              )
-          print(f"PostgreSQL concurrency gates: {passed} passed, {skipped} skipped")
-          PY
-
-      - name: Upload PostgreSQL contract results
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: postgres-concurrency-results
-          path: test-results/postgres-concurrency.xml
-          if-no-files-found: error
-
-  quickstart-smoke:
-    name: python / quickstart smoke
-    needs: ci-config
-    if: needs.ci-config.outputs.python == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/python-workspace
-
-      - name: Run quickstart smoke test
-        shell: bash
-        env:
-          COVERAGE_FILE: quickstart-artifacts/.coverage.quickstart
-        run: |
-          set -euo pipefail
-          mkdir -p quickstart-artifacts
-          PHLO_QUICKSTART_SMOKE_ARTIFACT_DIR="$PWD/quickstart-artifacts" \
-            uv run --locked python -m pytest -p scripts.ci_required tests/cli/test_quickstart_smoke.py --tb=short --junitxml=quickstart-artifacts/results.xml --cov=phlo --cov-report=
-
-      - name: Upload quickstart smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: quickstart-smoke
-          path: quickstart-artifacts/
-          if-no-files-found: error
-          include-hidden-files: true
-
-  recovery-continuity-drill:
-    name: python / recovery continuity drill
-    needs: ci-config
-    if: needs.ci-config.outputs.python == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-
-      - name: Run owned backup and restore drill
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p recovery-artifacts
-          uv run --locked python scripts/recovery_drill.py | tee recovery-artifacts/recovery-drill.json
-
-      - name: Summarize recovery evidence
-        if: always()
-        shell: bash
-        run: |
-          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json
-          from pathlib import Path
-
-          report = Path("recovery-artifacts/recovery-drill.json")
-          print("### Recovery continuity drill")
-          if not report.is_file():
-              print("The drill produced no report; inspect the job log.")
-          else:
-              result = json.loads(report.read_text(encoding="utf-8"))
-              print(f"- Outcome: `{result.get('outcome', 'unknown')}`")
-              print(f"- Backup duration: `{result.get('backup_seconds', 'unavailable')}` seconds")
-              print(f"- Restore duration: `{result.get('restore_seconds', 'unavailable')}` seconds")
-              print("- Scope: owned PostgreSQL run evidence, Nessie/Iceberg catalog state, and object checksum.")
-              print("- This drill records observed durations; it does not assert an RPO or RTO.")
-          PY
-
-      - name: Upload recovery evidence
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: recovery-continuity-drill
-          path: recovery-artifacts/recovery-drill.json
-          if-no-files-found: warn
-
-  windows-release-contract:
-    name: windows / release golden path contract
-    needs: ci-config
-    if: needs.ci-config.outputs.python == 'true'
-    runs-on: windows-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
-        with:
-          python-version: "3.12"
-
-      - name: Install focused Python test dependency
-        shell: pwsh
-        run: python -m pip install --disable-pip-version-check pytest
-
-      - name: Run focused Python harness tests
-        shell: pwsh
-        run: python -m pytest tests/scripts/test_release_golden_path.py --tb=short --junitxml=test-results/windows.xml
-
-      - name: Run PowerShell launcher contract tests
-        shell: pwsh
-        run: ./tests/scripts/test_release_golden_path.ps1
 
   python-package-tests:
     name: python / package tests (${{ matrix.group }}, ${{ matrix.python-version }})
@@ -552,56 +327,18 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
 
-  coverage:
-    name: coverage / combined report
-    needs: [ci-config, python-core-tests, python-package-tests, quickstart-smoke]
-    if: needs.ci-config.outputs.python == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/python-workspace
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          pattern: core-tests-*
-          path: coverage-data/core
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          pattern: package-results-*
-          path: coverage-data/packages
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: quickstart-smoke
-          path: coverage-data/quickstart
-      - name: Combine measured regression, core, package and quickstart coverage
-        run: |
-          set -euo pipefail
-          mapfile -t directories < <(find coverage-data -name '.coverage.*' -printf '%h\n' | sort -u)
-          test "${#directories[@]}" -gt 0
-          uv run --locked coverage combine "${directories[@]}"
-          uv run --locked coverage xml -o coverage.xml
-          uv run --locked coverage json -o coverage.json
-          uv run --locked coverage report >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: combined-coverage
-          path: |
-            coverage.xml
-            coverage.json
-          if-no-files-found: error
-
   windows-portability:
     name: windows / compose portability
     needs: ci-config
     if: needs.ci-config.outputs.python == 'true'
     uses: ./.github/workflows/windows-compose-portability.yml
+    with:
+      reuse-wheelhouse: true
 
   frontend:
-    name: frontend / observatory
+    name: behaviour / JavaScript
     needs: ci-config
-    if: needs.ci-config.outputs.frontend == 'true'
+    if: needs.ci-config.outputs.frontend == 'true' || needs.ci-config.outputs.writer == 'true' || needs.ci-config.outputs.plugin == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -617,58 +354,78 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-          cache-dependency-path: packages/phlo-observatory/src/phlo_observatory/package-lock.json
+          cache-dependency-path: |
+            packages/phlo-observatory/src/phlo_observatory/package-lock.json
+            apps/phlo-github-writer/package-lock.json
 
       - name: Install dependencies
+        if: needs.ci-config.outputs.frontend == 'true'
+        id: observatory_install
         run: npm ci
 
       - name: Check formatting with Prettier
+        if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npx prettier --check .
 
       - name: Lint with ESLint
+        if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npm run lint -- --max-warnings 0
 
       - name: Type check with TypeScript
+        if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npx tsc --noEmit
 
       - name: Build production bundle
+        if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npm run build
 
       - name: Run tests
+        if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npm test
 
-  phlo-github-writer:
-    name: agent / GitHub writer
-    needs: ci-config
-    if: needs.ci-config.outputs.writer == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
+      - name: Install writer dependencies
+        if: ${{ !cancelled() && needs.ci-config.outputs.writer == 'true' }}
+        id: writer_install
         working-directory: apps/phlo-github-writer
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
-        with:
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: apps/phlo-github-writer/package-lock.json
-
-      - name: Install dependencies
         run: npm ci
 
-      - name: Type check
+      - name: Type check writer
+        if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
+        working-directory: apps/phlo-github-writer
         run: npm run typecheck
 
-      - name: Run tests
+      - name: Run writer tests
+        if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
+        working-directory: apps/phlo-github-writer
         run: npm test
 
       - name: Build writer
+        if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
+        working-directory: apps/phlo-github-writer
         run: npm run build
+
+      - name: Run plugin behavior tests
+        if: ${{ !cancelled() && needs.ci-config.outputs.plugin == 'true' }}
+        working-directory: .
+        run: |
+          mkdir -p test-results
+          node --experimental-strip-types --test --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=test-results/plugin.xml \
+            .amp/plugins/phlo-github/lib.test.ts
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          report = ET.parse("test-results/plugin.xml")
+          assert report.findall(".//testcase"), "Plugin suite must execute tests"
+          assert not report.findall(".//skipped"), "Required plugin tests must not skip"
+          PY
+      - name: Upload plugin results
+        if: always() && needs.ci-config.outputs.plugin == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: plugin-results
+          path: test-results/plugin.xml
+          if-no-files-found: error
 
   ci-status:
     name: ci / status
@@ -677,41 +434,28 @@ jobs:
     timeout-minutes: 5
     needs:
       - ci-config
-      - pre-commit
       - installed-provider-artifacts
       - python-quality
       - python-core-tests
-      - quickstart-smoke
-      - postgres-concurrency-gates
-      - recovery-continuity-drill
-      - windows-release-contract
       - python-package-tests
-      - coverage
       - windows-portability
       - frontend
-      - phlo-github-writer
     steps:
       - name: Summarize CI lane results
         shell: bash
         env:
           CI_CONFIG: ${{ needs.ci-config.result }}
-          PRE_COMMIT: ${{ needs.pre-commit.result }}
           INSTALLED_PROVIDER_ARTIFACTS: ${{ needs.installed-provider-artifacts.result }}
           PYTHON_QUALITY: ${{ needs.python-quality.result }}
           PYTHON_CORE_TESTS: ${{ needs.python-core-tests.result }}
-          QUICKSTART_SMOKE: ${{ needs.quickstart-smoke.result }}
-          POSTGRES_CONCURRENCY_GATES: ${{ needs.postgres-concurrency-gates.result }}
-          RECOVERY_CONTINUITY_DRILL: ${{ needs.recovery-continuity-drill.result }}
-          WINDOWS_RELEASE_CONTRACT: ${{ needs.windows-release-contract.result }}
           PYTHON_PACKAGE_TESTS: ${{ needs.python-package-tests.result }}
-          COVERAGE: ${{ needs.coverage.result }}
           WINDOWS_PORTABILITY: ${{ needs.windows-portability.result }}
           FRONTEND: ${{ needs.frontend.result }}
-          PHLO_GITHUB_WRITER: ${{ needs.phlo-github-writer.result }}
           SELECT_PYTHON: ${{ needs.ci-config.outputs.python }}
           SELECT_GROUPS: ${{ needs.ci-config.outputs.groups }}
           SELECT_FRONTEND: ${{ needs.ci-config.outputs.frontend }}
           SELECT_WRITER: ${{ needs.ci-config.outputs.writer }}
+          SELECT_PLUGIN: ${{ needs.ci-config.outputs.plugin }}
         run: |
           set -euo pipefail
 
@@ -721,34 +465,24 @@ jobs:
             echo "| Lane | Result |"
             echo "|---|---|"
             echo "| ci / config | ${CI_CONFIG} |"
-            echo "| ci / pre-commit | ${PRE_COMMIT} |"
             echo "| python / installed provider artifacts | ${INSTALLED_PROVIDER_ARTIFACTS} |"
-            echo "| python / quality | ${PYTHON_QUALITY} |"
+            echo "| quality / source and file contracts | ${PYTHON_QUALITY} |"
             echo "| python / core tests | ${PYTHON_CORE_TESTS} |"
-            echo "| python / quickstart smoke | ${QUICKSTART_SMOKE} |"
-            echo "| python / postgres concurrency gates | ${POSTGRES_CONCURRENCY_GATES} |"
-            echo "| python / recovery continuity drill | ${RECOVERY_CONTINUITY_DRILL} |"
-            echo "| windows / release golden path contract | ${WINDOWS_RELEASE_CONTRACT} |"
+            echo "| integration / Windows contracts | ${WINDOWS_PORTABILITY} |"
             echo "| python / package tests | ${PYTHON_PACKAGE_TESTS} |"
-            echo "| frontend / observatory | ${FRONTEND} |"
-            echo "| agent / GitHub writer | ${PHLO_GITHUB_WRITER} |"
+            echo "| behaviour / JavaScript | ${FRONTEND} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           test "$CI_CONFIG" = success
-          test "$PRE_COMMIT" = success
+          test "$PYTHON_QUALITY" = success
           expected_python=skipped
           expected_groups=skipped
-          expected_frontend=skipped
-          expected_writer=skipped
+          expected_node=skipped
           if [ "$SELECT_PYTHON" = true ]; then expected_python=success; fi
           if [ "$SELECT_GROUPS" != '[]' ]; then expected_groups=success; fi
-          if [ "$SELECT_FRONTEND" = true ]; then expected_frontend=success; fi
-          if [ "$SELECT_WRITER" = true ]; then expected_writer=success; fi
-          for result in "$INSTALLED_PROVIDER_ARTIFACTS" "$PYTHON_QUALITY" "$PYTHON_CORE_TESTS" \
-            "$QUICKSTART_SMOKE" "${POSTGRES_CONCURRENCY_GATES}" "$RECOVERY_CONTINUITY_DRILL" \
-            "$WINDOWS_RELEASE_CONTRACT" "$COVERAGE" "$WINDOWS_PORTABILITY"; do
+          if [ "$SELECT_FRONTEND" = true ] || [ "$SELECT_WRITER" = true ] || [ "$SELECT_PLUGIN" = true ]; then expected_node=success; fi
+          for result in "$INSTALLED_PROVIDER_ARTIFACTS" "$PYTHON_CORE_TESTS" "$WINDOWS_PORTABILITY"; do
             test "$result" = "$expected_python"
           done
           test "$PYTHON_PACKAGE_TESTS" = "$expected_groups"
-          test "$FRONTEND" = "$expected_frontend"
-          test "$PHLO_GITHUB_WRITER" = "$expected_writer"
+          test "$FRONTEND" = "$expected_node"

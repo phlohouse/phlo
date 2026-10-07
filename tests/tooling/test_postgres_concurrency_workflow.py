@@ -2,10 +2,9 @@
 
 Parses the checked-in workflows instead of mirroring their text: CI must run
 the core regression lane through the ``core_regression`` marker filter, keep
-``postgres-concurrency-gates`` as a separately attributable required gate
-whose pytest invocation exercises the documented Postgres lock-contention
-guard suites under an exact pass-count guard, and keep the nightly cron
-trigger untouched.
+the PostgreSQL contract in the required integration caller, and exercise the
+documented Postgres lock-contention guard suites under an exact pass-count
+guard, and keep the nightly cron trigger untouched.
 """
 
 from __future__ import annotations
@@ -19,11 +18,13 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
 CI_WORKFLOW = "ci.yml"
+PR_WORKFLOW = "pr.yml"
+INTEGRATION_WORKFLOW = "integration.yml"
 NIGHTLY_WORKFLOW = "nightly.yml"
 
 CORE_REGRESSION_TARGET = "test-core-regression"
 CORE_REGRESSION_MARKER = "core_regression"
-GATE_JOB = "postgres-concurrency-gates"
+GATE_JOB = "integration"
 GATE_STEP = "Run PostgreSQL concurrency gates"
 GATE_DSN_ENV_VARS = (
     "PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN",
@@ -92,28 +93,32 @@ def test_core_regression_lane_selects_tests_through_the_marker_filter() -> None:
 
 
 def test_postgres_gate_is_required_and_runs_the_lock_guard_suites() -> None:
-    ci = _parse_yaml(WORKFLOW_ROOT / CI_WORKFLOW)
-    jobs = ci["jobs"]
-    assert GATE_JOB in jobs, "postgres-concurrency-gates job must exist"
-    gate = jobs[GATE_JOB]
+    pr = _parse_yaml(WORKFLOW_ROOT / PR_WORKFLOW)
+    caller = pr["jobs"][GATE_JOB]
+    assert caller.get("uses") == f"./.github/workflows/{INTEGRATION_WORKFLOW}"
+    selection = caller.get("if") or ""
+    assert "needs.changes.outputs.integration == 'true'" in selection
+    assert "needs.changes.outputs.python == 'true'" in selection
+    assert "||" in selection, "Python-only changes must also run the integration contracts"
+
+    integration = _parse_yaml(WORKFLOW_ROOT / INTEGRATION_WORKFLOW)
+    gate = integration["jobs"][GATE_JOB]
 
     postgres_service = (gate.get("services") or {}).get("postgres") or {}
     assert postgres_service.get("image") == "postgres:16-alpine"
     for dsn_name in GATE_DSN_ENV_VARS:
         assert dsn_name in (gate.get("env") or {})
 
-    status = jobs["ci-status"]
+    status = pr["jobs"]["required"]
     assert GATE_JOB in (status.get("needs") or [])
     status_steps = [
         step
         for step in _steps(status)
-        if isinstance(step.get("env"), dict) and "POSTGRES_CONCURRENCY_GATES" in step["env"]
+        if isinstance(step.get("env"), dict) and "INTEGRATION" in step["env"]
     ]
-    assert len(status_steps) == 1, "ci-status must map the gate result exactly once"
-    assert status_steps[0]["env"]["POSTGRES_CONCURRENCY_GATES"] == (
-        f"${{{{ needs.{GATE_JOB}.result }}}}"
-    )
-    assert '"${POSTGRES_CONCURRENCY_GATES}"' in (status_steps[0].get("run") or "")
+    assert len(status_steps) == 1, "pr / required must map the integration result exactly once"
+    assert status_steps[0]["env"]["INTEGRATION"] == f"${{{{ needs.{GATE_JOB}.result }}}}"
+    assert 'test "$INTEGRATION" = success' in (status_steps[0].get("run") or "")
 
     gate_script = _step_named(gate, GATE_STEP).get("run") or ""
     assert "uv run --locked pytest" in gate_script
@@ -127,6 +132,42 @@ def test_postgres_gate_is_required_and_runs_the_lock_guard_suites() -> None:
         "gate must hard-fail unless every guard test passed"
     )
     assert re.search(r"skipped\s*!=\s*0\b", gate_script), "gate must reject skipped guards"
+
+
+def test_integration_contracts_share_setup_and_preserve_failure_results() -> None:
+    integration = _parse_yaml(WORKFLOW_ROOT / INTEGRATION_WORKFLOW)
+    gate = integration["jobs"][GATE_JOB]
+    steps = _steps(gate)
+    assert sum("actions/checkout@" in step.get("uses", "") for step in steps) == 1
+    assert _step_named(gate, "Sync complete workspace")["run"] == (
+        "uv sync --all-packages --dev --locked"
+    )
+    assert gate["env"]["UV_PYTHON"] == "3.12"
+    for name in (
+        "Run named behavioral contracts",
+        "Preflight PostgreSQL gate dependencies",
+        GATE_STEP,
+        "Run quickstart smoke test",
+        "Run owned backup and restore drill",
+    ):
+        step = _step_named(gate, name)
+        assert "!cancelled()" in step.get("if", "")
+        assert "outcome == 'success'" in step["if"]
+        assert not step.get("continue-on-error", False)
+    artifacts = {
+        step["with"]["name"]: step["with"]
+        for step in steps
+        if "actions/upload-artifact@" in step.get("uses", "")
+    }
+    assert artifacts["integration-results"]["path"] == "test-results/integration/"
+    assert artifacts["postgres-concurrency-results"]["path"] == (
+        "test-results/postgres-concurrency.xml"
+    )
+    assert artifacts["quickstart-smoke"]["include-hidden-files"] is True
+    assert artifacts["quickstart-smoke"]["path"] == "quickstart-artifacts/"
+    assert artifacts["recovery-continuity-drill"]["path"] == (
+        "recovery-artifacts/recovery-drill.json"
+    )
 
 
 def test_nightly_keeps_its_scheduled_cron_trigger() -> None:

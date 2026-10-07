@@ -76,9 +76,7 @@ def test_reusable_evidence_workflows_do_not_cancel_one_another():
 def test_ci_status_includes_every_installed_provider_artifact_shard():
     ci = workflow("ci.yml")["jobs"]
     assert ci["installed-provider-artifacts"]["strategy"]["matrix"]["docker-shard"] == [0, 1, 2, 3]
-    assert {"installed-provider-artifacts", "coverage", "windows-portability"} <= set(
-        ci["ci-status"]["needs"]
-    )
+    assert {"installed-provider-artifacts", "windows-portability"} <= set(ci["ci-status"]["needs"])
     assert (
         ci["ci-status"]["steps"][0]["env"]["INSTALLED_PROVIDER_ARTIFACTS"]
         == "${{ needs.installed-provider-artifacts.result }}"
