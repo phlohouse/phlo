@@ -28,6 +28,7 @@ class TableStoreSupport:
     supports_snapshots: bool = False
     supports_compaction: bool = False
     supports_vacuum: bool = False
+    schema_policies: frozenset[str] = frozenset()
 
     def supports_partition_transform(self, transform: str) -> bool:
         return transform in self.partition_transforms

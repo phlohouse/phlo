@@ -45,7 +45,7 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from phlo_dlt.settings import get_settings
 
@@ -85,6 +85,11 @@ class TableConfig:
     unique_key: str
     group_name: str
     partition_spec: list[tuple[str, str]] | None = None
+    schema_policy: Literal["strict", "additive", "drop_extra"] = "strict"
+
+    def __post_init__(self) -> None:
+        if self.schema_policy not in ("strict", "additive", "drop_extra"):
+            raise ValueError(f"Unknown schema policy: {self.schema_policy!r}")
 
     @property
     def full_table_name(self) -> str:

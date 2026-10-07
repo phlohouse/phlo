@@ -78,6 +78,7 @@ from phlo.capabilities.interfaces import TableStateObservation
 from phlo.logging import get_logger
 from phlo_iceberg.catalog import get_catalog
 from phlo_iceberg.settings import get_settings
+from phlo_iceberg.schema_alignment import SCHEMA_POLICIES, SchemaPolicy
 from phlo_iceberg.tables import (
     _require_direct_write,
     append_to_table,
@@ -590,6 +591,7 @@ class IcebergResource:
             supports_snapshots=True,
             supports_compaction=True,
             supports_vacuum=False,
+            schema_policies=SCHEMA_POLICIES,
         )
 
     def get_catalog(self, override_ref: str | None = None) -> Catalog:
@@ -670,6 +672,8 @@ class IcebergResource:
         schema: Schema,
         partition_spec: Sequence[tuple[str, str]] | None = None,
         override_ref: str | None = None,
+        *,
+        schema_policy: SchemaPolicy = "strict",
     ) -> Table:
         """Create the table if missing and return its handle.
 
@@ -700,6 +704,7 @@ class IcebergResource:
             schema=schema,
             partition_spec=list(partition_spec) if partition_spec else None,
             ref=branch,
+            schema_policy=schema_policy,
         )
 
     def append_parquet(
@@ -708,6 +713,7 @@ class IcebergResource:
         data_path: str,
         override_ref: str | None = None,
         *,
+        schema_policy: SchemaPolicy = "strict",
         evidence_context: dict[str, Any] | None = None,
     ) -> dict[str, int]:
         """Append Parquet data from ``data_path`` into the table.
@@ -742,7 +748,9 @@ class IcebergResource:
             source=data_path,
         )
         try:
-            result = append_to_table(table_name=table_name, data_path=data_path, ref=branch)
+            result = append_to_table(
+                table_name=table_name, data_path=data_path, ref=branch, schema_policy=schema_policy
+            )
         except Exception as exc:
             logger.error(
                 "iceberg_resource_append_failed",
@@ -792,6 +800,7 @@ class IcebergResource:
         unique_key: str,
         override_ref: str | None = None,
         *,
+        schema_policy: SchemaPolicy = "strict",
         evidence_context: dict[str, Any] | None = None,
         deduplication_method: str | None = None,
         deduplication_order_by: str | None = None,
@@ -844,6 +853,7 @@ class IcebergResource:
                 data_path=data_path,
                 unique_key=unique_key,
                 ref=branch,
+                schema_policy=schema_policy,
                 deduplication_method=deduplication_method,
                 deduplication_order_by=deduplication_order_by,
             )
@@ -897,6 +907,7 @@ class IcebergResource:
         table_name: str,
         data_path: str,
         override_ref: str | None = None,
+        schema_policy: SchemaPolicy = "strict",
         evidence_context: dict[str, Any] | None = None,
     ) -> dict[str, int]:
         """Overwrite the table with staged Parquet data in a new snapshot.
@@ -924,7 +935,9 @@ class IcebergResource:
             source=data_path,
         )
         try:
-            result = overwrite_table(table_name=table_name, data_path=data_path, ref=branch)
+            result = overwrite_table(
+                table_name=table_name, data_path=data_path, ref=branch, schema_policy=schema_policy
+            )
         except Exception as exc:
             logger.error(
                 "iceberg_resource_overwrite_failed",

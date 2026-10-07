@@ -103,6 +103,18 @@ def countries(partition_date: str):
     return load_country_list()
 ```
 
+### Choose a schema policy
+
+Iceberg writes now default to `schema_policy="strict"`. Extra source columns fail the batch instead of disappearing with a warning. This is an intentional compatibility change.
+
+To preserve new nullable columns, set `schema_policy="additive"` on `@phlo.ingest.dlt`. For example, a watering source can add optional `watering_method` without changing existing field IDs. Historical rows contain null in that column. Inspect the resulting schema and rows after the run.
+
+To keep an existing pipeline that deliberately discards extra source columns, set `schema_policy="drop_extra"` on its decorator. This opt-in restores projection, not unsafe casting. Correct source types and supply every required field before retrying a rejected batch.
+
+If you pass an explicit `table_schema`, include the DLT and Phlo metadata columns that your pipeline emits. Alternatively, choose `drop_extra` if you deliberately do not retain those columns. A required metadata column cannot be omitted or filled with null. For derived writes that omit provenance, explicitly migrate those fields to nullable first.
+
+Use an [explicit schema migration](manage-catalog-branches-and-migrations.md) for renames, drops, type changes, or changes to existing nullability. Write policies never apply those migrations automatically. See the [schema-policy reference](../reference/python-api.md#iceberg-write-schema-policies) for compatibility and concurrency rules.
+
 ## 4. Run the asset once
 
 Start the stack if it is not running, then launch a Dagster run for one partition:

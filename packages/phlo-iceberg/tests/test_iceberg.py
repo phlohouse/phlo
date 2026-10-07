@@ -18,8 +18,8 @@ from pyiceberg.types import LongType, NestedField, StringType, TimestampType
 from phlo_iceberg.catalog import create_namespace, get_catalog, list_tables, reset_catalog_cache
 from phlo_iceberg.cli_utils import get_iceberg_catalog
 from phlo_iceberg.resource import IcebergResource
+from phlo_iceberg.schema_alignment import _align_arrow_table_to_target_schema
 from phlo_iceberg.tables import (
-    _align_arrow_table_to_target_schema,
     append_to_table,
     delete_table,
     ensure_table,
@@ -242,6 +242,7 @@ class TestTableOperations:
 
         schema = Schema(NestedField(1, "id", StringType(), required=True))
 
+        mock_existing_table.schema.return_value = schema
         with (
             patch("phlo_iceberg.tables.create_namespace"),
             patch("phlo_iceberg.tables.get_catalog", return_value=mock_catalog),
@@ -271,6 +272,7 @@ class TestTableOperations:
 
         schema = Schema(NestedField(1, "id", LongType(), required=True))
 
+        mock_existing.schema.return_value = schema
         with (
             patch("phlo_iceberg.tables.create_namespace"),
             patch("phlo_iceberg.tables.get_catalog", return_value=mock_catalog),
@@ -350,7 +352,7 @@ class TestTableOperations:
 
         mock_parquet_dataset.assert_called_once_with("/path/to/data_dir")
         mock_dataset.read.assert_called_once()
-        mock_table.append.assert_called_once()
+        mock_table.transaction.return_value.__enter__.return_value.append.assert_called_once()
         assert result["rows_inserted"] == 2
 
     def test_append_to_table_appends_parquet_file_rows(self, tmp_path):
@@ -371,10 +373,10 @@ class TestTableOperations:
 
         assert result["rows_inserted"] == 3
         assert result["rows_deleted"] == 0
-        mock_table.append.assert_called_once()
+        mock_table.transaction.return_value.__enter__.return_value.append.assert_called_once()
 
     def test_append_to_table_drops_columns_outside_the_target_schema(self, tmp_path):
-        """Parquet columns missing from the Iceberg schema are dropped, not rejected."""
+        """Extra source columns are dropped only under the explicit migration policy."""
         mock_catalog = MagicMock()
         mock_table = MagicMock()
         mock_table.schema.return_value = Schema(
@@ -386,7 +388,7 @@ class TestTableOperations:
         pd.DataFrame({"id": [1, 2], "extra_col": ["x", "y"]}).to_parquet(parquet_path)
 
         with patch("phlo_iceberg.tables.get_catalog", return_value=mock_catalog):
-            result = append_to_table("ns.table", parquet_path)
+            result = append_to_table("ns.table", parquet_path, schema_policy="drop_extra")
 
         assert result["rows_inserted"] == 2
 
@@ -530,7 +532,11 @@ class TestIcebergResourceSurface:
         )
 
         mock_ensure_table.assert_called_once_with(
-            table_name="raw.entries", schema=schema, partition_spec=list(partition_spec), ref="dev"
+            table_name="raw.entries",
+            schema=schema,
+            partition_spec=list(partition_spec),
+            ref="dev",
+            schema_policy="strict",
         )
         assert result is mock_table
 
@@ -542,7 +548,10 @@ class TestIcebergResourceSurface:
         )
 
         mock_append_to_table.assert_called_once_with(
-            table_name="raw.entries", data_path="/path/to/data.parquet", ref="dev"
+            table_name="raw.entries",
+            data_path="/path/to/data.parquet",
+            ref="dev",
+            schema_policy="strict",
         )
 
     def test_support_advertises_refs_partition_transforms_and_maintenance_surface(self):

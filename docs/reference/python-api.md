@@ -23,6 +23,7 @@ The public APIs below are defined in `phlo`, `phlo-dlt`, `phlo-sling`, and `phlo
 | `strict_validation` | `bool` | `True` | Make validation failures blocking. |
 | `merge_strategy` | `Literal["append", "merge"]` | `"merge"` | Append rows or merge on `unique_key`. |
 | `merge_config` | `dict[str, Any] \| None` | `None` | Merge behaviour overrides. |
+| `schema_policy` | `Literal["strict", "additive", "drop_extra"]` | `"strict"` | Schema handling for opted-in table stores. See [Iceberg write schema policies](#iceberg-write-schema-policies). |
 | `add_metadata_columns` | `bool` | `True` | Add Phlo metadata columns. |
 | `owner` | `str \| None` | `None` | Owning team. |
 | `consumers` | `list[Consumer \| str] \| None` | `None` | Downstream consumers. |
@@ -43,6 +44,26 @@ import phlo
 def load_events(partition_date: str) -> object:
     return read_events(partition_date)
 ```
+
+### Iceberg write schema policies
+
+`IcebergResource.ensure_table`, `append_parquet`, `merge_parquet`, and `overwrite_parquet` accept the keyword-only `schema_policy` argument. The storage helpers `ensure_table`, `append_to_table`, `merge_to_table`, and `overwrite_table` accept the same argument. All default to `"strict"`.
+
+| Policy | Extra source columns | Existing columns |
+| --- | --- | --- |
+| `strict` | Rejected with an actionable schema error. | Validated and aligned to the target. |
+| `additive` | New nullable columns are added using native Iceberg type conversion. Required additions are rejected. | No automatic type or nullability changes. |
+| `drop_extra` | Discarded explicitly. | The same safety checks as strict mode. |
+
+All three policies order columns by the target schema, fill missing optional columns with typed nulls, and reject missing or null required fields, including metadata fields. Signed integer and floating-point widening are permitted. Numeric narrowing, floating-point-to-integer casts, and string-to-number coercion are rejected, even when current values fit. Integer-to-floating-point casts require Arrow's exact-value safety check. Decimal casts must preserve scale and integer capacity. Timestamp casts preserve timezone semantics and reject lost precision. Nested columns must retain their structure, and required nested values are checked. Unsupported conversions fail before any data write.
+
+Additive schema updates and data changes publish in the same transaction. Existing field IDs remain unchanged, and historical rows read null in added columns. A failed write does not publish staged schema updates. Competing compatible additions refresh and reconcile the complete write, with at most three attempts. Conflicting types or nullability definitions fail explicitly. Ordinary data conflicts without staged additions remain explicit failures.
+
+`ensure_table` validates an existing declaration without evolving it. Actual additive evolution occurs only after the incoming batch passes validation. Declared changes to existing types or nullability require explicit migration. Missing optional source fields do not mean that the target fields are dropped.
+
+Table stores opt in by advertising `TableStoreSupport.schema_policies`. Iceberg advertises all three policies. DLT passes unprojected Parquet to opted-in stores so they can detect drift. Providers without this opt-in retain their existing default behaviour and reject requests for `additive` or `drop_extra`.
+
+This replaces Iceberg's previous implicit extra-column dropping and warning-only cast failures. The documented migration path is [`schema_policy="drop_extra"`](../guides/ingest-data.md#choose-a-schema-policy) for intentional projection, plus corrected input types and explicit schema migrations where necessary. `drop_extra` does not permit lossy casts or missing required fields.
 
 ## phlo.ingest.sling
 
