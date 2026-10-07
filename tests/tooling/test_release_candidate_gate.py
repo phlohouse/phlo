@@ -25,6 +25,9 @@ def test_main_health_reuses_full_queue_or_calls_the_full_merge_contract():
     assert jobs["status"]["name"] == "release candidate / status"
     assert jobs["status"]["needs"] == ["reuse", "full"]
     assert jobs["full"]["uses"] == "./.github/workflows/pr.yml"
+    assert jobs["reuse"]["outputs"]["reused"] == "${{ steps.evidence.outputs.reused }}"
+    assert jobs["full"]["if"] == "always() && needs.reuse.outputs.reused != 'true'"
+    assert "vars." not in str(jobs["reuse"])
     assert "nightly" not in jobs
     assert candidate["permissions"] == {
         "contents": "read",
