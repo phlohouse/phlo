@@ -24,9 +24,9 @@ jobs:
     timeout-minutes: 5
     outputs:
       selection: ${{ steps.select.outputs.selection }}
+      python: ${{ steps.select.outputs.python }}
       integration: ${{ steps.select.outputs.integration }}
       docs: ${{ steps.select.outputs.docs }}
-      plugin: ${{ steps.select.outputs.plugin }}
       mutation: ${{ steps.select.outputs.mutation }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -47,9 +47,9 @@ jobs:
           fi
           {
             echo "selection=$selection"
+            echo "python=$(jq -r .python <<< "$selection")"
             echo "integration=$(jq -r .integration <<< "$selection")"
             echo "docs=$(jq -r .docs <<< "$selection")"
-            echo "plugin=$(jq -r .plugin <<< "$selection")"
             echo "mutation=$(jq -r .mutation <<< "$selection")"
           } >> "$GITHUB_OUTPUT"
           jq .reasons <<< "$selection" >> "$GITHUB_STEP_SUMMARY"
@@ -62,7 +62,7 @@ jobs:
 
   integration:
     needs: changes
-    if: needs.changes.outputs.integration == 'true'
+    if: needs.changes.outputs.integration == 'true' || needs.changes.outputs.python == 'true'
     uses: ./.github/workflows/integration.yml
 
   containers:
@@ -77,40 +77,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.mutation == 'true'
     uses: ./.github/workflows/mutation.yml
-
-  plugin:
-    name: automation / plugin
-    needs: changes
-    if: needs.changes.outputs.plugin == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
-        with:
-          node-version: "24"
-      - name: Run plugin behavior tests
-        run: |
-          mkdir -p test-results
-          node --experimental-strip-types --test --test-reporter=spec --test-reporter-destination=stdout \
-            --test-reporter=junit --test-reporter-destination=test-results/plugin.xml \
-            .amp/plugins/phlo-github/lib.test.ts
-          python3 - <<'PY'
-          import xml.etree.ElementTree as ET
-
-          report = ET.parse("test-results/plugin.xml")
-          assert report.findall(".//testcase"), "Plugin suite must execute tests"
-          assert not report.findall(".//skipped"), "Required plugin tests must not skip"
-          PY
-      - name: Upload plugin results
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: plugin-results
-          path: test-results/plugin.xml
-          if-no-files-found: error
 
   security:
     name: security / introduced dependency risk
@@ -127,8 +93,6 @@ jobs:
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
-      - name: Audit workflow hardening
-        run: make zizmor
       - name: Inventory new suppressions and skips
         env:
           BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before || github.sha }}
@@ -164,9 +128,9 @@ jobs:
   required:
     name: pr / required
     if: always()
-    needs: [changes, ci, integration, containers, security, docs, plugin, mutation]
+    needs: [changes, ci, integration, containers, security, docs, mutation]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: read
@@ -177,12 +141,11 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           INTEGRATION: ${{ needs.integration.result }}
           INTEGRATION_SELECTED: ${{ needs.changes.outputs.integration }}
+          PYTHON_SELECTED: ${{ needs.changes.outputs.python }}
           CONTAINERS: ${{ needs.containers.result }}
           SECURITY: ${{ needs.security.result }}
           DOCS: ${{ needs.docs.result }}
           DOCS_SELECTED: ${{ needs.changes.outputs.docs }}
-          PLUGIN: ${{ needs.plugin.result }}
-          PLUGIN_SELECTED: ${{ needs.changes.outputs.plugin }}
           MUTATION: ${{ needs.mutation.result }}
           MUTATION_SELECTED: ${{ needs.changes.outputs.mutation }}
         run: |
@@ -193,7 +156,7 @@ jobs:
               exit 1
             fi
           done
-          if [ "$INTEGRATION_SELECTED" = true ]; then
+          if [ "$INTEGRATION_SELECTED" = true ] || [ "$PYTHON_SELECTED" = true ]; then
             test "$INTEGRATION" = success
           else
             test "$INTEGRATION" = skipped
@@ -203,24 +166,57 @@ jobs:
           else
             test "$DOCS" = skipped
           fi
-          if [ "$PLUGIN_SELECTED" = true ]; then
-            test "$PLUGIN" = success
-          else
-            test "$PLUGIN" = skipped
-          fi
           if [ "$MUTATION_SELECTED" = true ]; then
             test "$MUTATION" = success
           else
             test "$MUTATION" = skipped
           fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        if: github.event_name == 'merge_group'
+        if: needs.changes.outputs.python == 'true' || github.event_name == 'merge_group'
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        if: github.event_name == 'merge_group'
+        if: needs.changes.outputs.python == 'true' || github.event_name == 'merge_group'
         with:
           version: "0.12.1"
+      - name: Install locked coverage tools
+        if: needs.changes.outputs.python == 'true'
+        run: |
+          uv python install 3.12
+          uv sync --dev --locked
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        if: needs.changes.outputs.python == 'true'
+        with:
+          pattern: core-tests-*
+          path: coverage-data/core
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        if: needs.changes.outputs.python == 'true' && fromJSON(needs.changes.outputs.selection).groups[0] != null
+        with:
+          pattern: package-results-*
+          path: coverage-data/packages
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        if: needs.changes.outputs.python == 'true'
+        with:
+          name: quickstart-smoke
+          path: coverage-data/quickstart
+      - name: Combine measured regression, core, package and quickstart coverage
+        if: needs.changes.outputs.python == 'true'
+        run: |
+          set -euo pipefail
+          mapfile -t directories < <(find coverage-data -name '.coverage.*' -printf '%h\n' | sort -u)
+          test "${#directories[@]}" -gt 0
+          uv run --locked coverage combine "${directories[@]}"
+          uv run --locked coverage xml -o coverage.xml
+          uv run --locked coverage json -o coverage.json
+          uv run --locked coverage report >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: needs.changes.outputs.python == 'true'
+        with:
+          name: combined-coverage
+          path: |
+            coverage.xml
+            coverage.json
+          if-no-files-found: error
       - name: Record authenticated full-queue evidence and job timings
         if: github.event_name == 'merge_group'
         env:

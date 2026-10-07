@@ -59,21 +59,21 @@ NAMED_CLAIM_BINDINGS: dict[str, dict[str, object]] = {
         "required_evidence": [
             "scripts/recovery_drill.py",
             "tests/scripts/test_recovery_drill.py",
-            ".github/workflows/ci.yml",
+            ".github/workflows/integration.yml",
         ],
         "forbidden_evidence": [],
         "forbidden_reason_phrases": [
             "Upgrade and recovery are documentation procedures",
         ],
         "workflow_commands": {
-            ".github/workflows/ci.yml": "scripts/recovery_drill.py",
+            ".github/workflows/integration.yml": "scripts/recovery_drill.py",
         },
     },
     "golden_path_ci": {
         "required_evidence": [
             "scripts/release_golden_path.py",
             "tests/scripts/test_release_golden_path.py",
-            ".github/workflows/ci.yml",
+            ".github/workflows/windows-compose-portability.yml",
         ],
         "forbidden_evidence": [
             "scripts/run_golden_path.py",
@@ -82,7 +82,7 @@ NAMED_CLAIM_BINDINGS: dict[str, dict[str, object]] = {
             "required CI does not invoke",
         ],
         "workflow_commands": {
-            ".github/workflows/ci.yml": "test_release_golden_path",
+            ".github/workflows/windows-compose-portability.yml": "test_release_golden_path",
         },
     },
 }

@@ -1193,7 +1193,7 @@
       "evidence": [
         "scripts/recovery_drill.py",
         "tests/scripts/test_recovery_drill.py",
-        ".github/workflows/ci.yml",
+        ".github/workflows/integration.yml",
         "docs/guides/run-in-production.md"
       ]
     },
@@ -1206,7 +1206,7 @@
       "evidence": [
         "scripts/release_golden_path.py",
         "tests/scripts/test_release_golden_path.py",
-        ".github/workflows/ci.yml"
+        ".github/workflows/windows-compose-portability.yml"
       ]
     }
   ],
