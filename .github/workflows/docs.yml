@@ -12,84 +12,19 @@ on:
       - "scripts/check_adr_index.py"
       - "pymdx.toml"
       - ".github/workflows/docs.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "src/phlo/**"
-      - "packages/**"
-      - "docs/**"
-      - "*.md"
-      - "scripts/check_markdown_links.py"
-      - "scripts/check_adr_index.py"
-      - "pymdx.toml"
-      - ".github/workflows/docs.yml"
+      - ".github/workflows/docs-build.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  PYMDX_VERSION: "0.1.4"
-
 jobs:
   build:
-    name: docs / build
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-
-      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-
-      - name: Install pymdx
-        run: uv tool install "pymdx==${PYMDX_VERSION}"
-
-      - name: Check Markdown links and ADR index
-        run: |
-          python3 scripts/check_markdown_links.py
-          python3 scripts/check_adr_index.py
-
-      - name: Cache bun
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ~/.cache/pymdx/bun
-          key: pymdx-bun-${{ hashFiles('pymdx.toml') }}
-
-      - name: Generate docs site
-        run: pymdx generate src/phlo --docs docs --output docs-site
-
-      - name: Set base path
-        run: |
-          sed -i 's|output: "export",|output: "export",\n  basePath: "/phlo",|' docs-site/next.config.mjs
-
-      - name: Cache node_modules
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: docs-site/node_modules
-          key: docs-node-modules-${{ env.PYMDX_VERSION }}-${{ hashFiles('pymdx.toml') }}
-
-      - name: Build static site
-        run: pymdx build docs-site
-
-      - name: Upload docs site artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: docs-site-out
-          path: docs-site/out
-          if-no-files-found: error
-          retention-days: 7
+    uses: ./.github/workflows/docs-build.yml
 
   deploy:
     name: docs / deploy
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -1068,6 +1068,9 @@ def _compose_services(config: release_golden_path.RunConfig) -> dict[str, object
             services.setdefault(current, {})
         elif stripped.startswith("image:") and current:
             services[current] = {"image": stripped[len("image:") :].strip().strip("'\"")}
+    candidate_layer = config.project_dir / ".phlo" / "compose.candidate.json"
+    if candidate_layer.is_file():
+        services.update(json.loads(candidate_layer.read_text())["services"])
     return {"services": services}
 
 
@@ -1140,7 +1143,7 @@ def test_pin_candidate_images_rewrites_first_party_and_keeps_pinned_providers(
 
     result, pinned = release_golden_path.pin_candidate_images(config)
 
-    rewritten = config.compose_file.read_text(encoding="utf-8")
+    rewritten = (config.project_dir / ".phlo" / "compose.candidate.json").read_text()
     assert "ghcr.io/phlohouse/phlo-api@sha256:" + "d" * 64 in rewritten
     assert "ghcr.io/phlohouse/phlo-api:0.14.0" not in rewritten
     assert "postgres:18.4-alpine3.24@sha256:" + "1" * 64 in rewritten
@@ -1152,6 +1155,49 @@ def test_pin_candidate_images_rewrites_first_party_and_keeps_pinned_providers(
         release_golden_path.bom_module.KIND_FIRST_PARTY_IMAGE,
         release_golden_path.bom_module.KIND_PROVIDER_IMAGE,
     }
+
+
+def test_candidate_pins_duplicate_and_interpolated_services_after_all_layers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path)
+    config.__dict__.update(bom=_candidate_bom())
+    config.compose_file.parent.mkdir(parents=True)
+    provider = "postgres:18.4-alpine3.24@sha256:" + "1" * 64
+    original = (
+        "services:\n"
+        "  api:\n    image: ghcr.io/phlohouse/phlo-api:0.14.0\n"
+        "  api-worker:\n    image: ghcr.io/phlohouse/phlo-api:0.14.0\n"
+        f"  postgres:\n    image: ${{POSTGRES_IMAGE:-{provider}}}\n"
+        f"  setup:\n    image: ${{POSTGRES_IMAGE:-{provider}}}\n"
+    )
+    config.compose_file.write_text(original)
+    local_layer = config.project_dir / ".phlo" / "compose.local.yaml"
+    local_layer.write_text("services:\n  api:\n    image: ghcr.io/phlohouse/phlo-api:0.14.0\n")
+
+    def normalized(cfg):
+        result = _compose_services(cfg)
+        for service in result["services"].values():
+            image = service["image"]
+            if image.startswith("${POSTGRES_IMAGE:-"):
+                service["image"] = image[len("${POSTGRES_IMAGE:-") : -1]
+        return result
+
+    monkeypatch.setattr(release_golden_path, "compose_config_json", normalized)
+    _, pinned = release_golden_path.pin_candidate_images(config)
+    expected = {
+        "api": {"image": "ghcr.io/phlohouse/phlo-api@sha256:" + "d" * 64},
+        "api-worker": {"image": "ghcr.io/phlohouse/phlo-api@sha256:" + "d" * 64},
+        "postgres": {"image": provider},
+        "setup": {"image": provider},
+    }
+    candidate_layer = config.project_dir / ".phlo" / "compose.candidate.json"
+    assert json.loads(candidate_layer.read_text()) == {"services": expected}
+    assert config.compose_file.read_text() == original
+    assert {entry["service"] for entry in pinned} == set(expected)
+    cmd = release_golden_path.compose_command(config, "up", "--no-build")
+    assert cmd.index(str(local_layer)) < cmd.index(str(candidate_layer))
+    assert cmd[-2:] == ["up", "--no-build"]
 
 
 def test_pin_candidate_images_rejects_an_image_outside_the_bom(tmp_path: Path, monkeypatch) -> None:

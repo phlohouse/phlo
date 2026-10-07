@@ -86,81 +86,14 @@ jobs:
         run: python3 scripts/release_golden_path.py
 
   release-artifact-acceptance:
-    name: python / release artifact acceptance (${{ matrix.host.label }})
-    runs-on: ${{ matrix.host.runner }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        # Two runner classes give the same staged candidate bundles from two
-        # distinct hosts (per-VM hostnames) and architectures; distinct UTC
-        # days come from the cron cadence.
-        host:
-          - label: amd64
-            runner: ubuntu-latest
-          - label: arm64
-            runner: ubuntu-24.04-arm
+    name: nightly / artifact staging outcome (not qualification)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-
-      # The nightly only performs non-promoting artifact acceptance:
-      # it only ever consumes one staged, immutable candidate BOM and never
-      # stages, rebuilds, promotes, or authorizes anything. Candidate staging
-      # publication is owned by the release automation, which
-      # attaches bom.json plus every staged distribution to the candidate's
-      # draft GitHub release.
-      - name: Locate the staged candidate BOM
-        id: bom
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Record artifact-not-staged separately from maintenance success
         run: |
-          set -euo pipefail
-          release="candidate-${GITHUB_SHA}"
-          if gh release view "$release" --repo "$GITHUB_REPOSITORY" --json assets \
-              -q '.assets[].name' 2>/dev/null | grep -qx 'bom.json'; then
-            gh release download "$release" --repo "$GITHUB_REPOSITORY" \
-              --pattern '*' --dir "$RUNNER_TEMP/candidate"
-            mkdir -p "$RUNNER_TEMP/candidate/distributions"
-            find "$RUNNER_TEMP/candidate" -maxdepth 1 -type f ! -name 'bom.json' \
-              -exec mv {} "$RUNNER_TEMP/candidate/distributions/" \;
-            echo "bom=$RUNNER_TEMP/candidate/bom.json" >> "$GITHUB_OUTPUT"
-          else
-            echo "bom=" >> "$GITHUB_OUTPUT"
-            echo "::notice::No candidate BOM is staged for ${GITHUB_SHA}; the nightly records a skipped artifact-acceptance run."
-          fi
-
-      - name: Run the artifact-bound golden path
-        if: steps.bom.outputs.bom != ''
-        env:
-          BOM: ${{ steps.bom.outputs.bom }}
-        run: |
-          python3 scripts/release_golden_path.py \
-            --candidate-bom "$BOM" \
-            --evidence-output "$RUNNER_TEMP/release-candidate-evidence.json"
-
-      - name: Validate the evidence bundle
-        if: steps.bom.outputs.bom != ''
-        env:
-          BOM: ${{ steps.bom.outputs.bom }}
-        run: |
-          python3 scripts/validate_release_evidence.py \
-            --bundle "$RUNNER_TEMP/release-candidate-evidence.json" \
-            --candidate-bom "$BOM"
-
-      - name: Upload evidence bundle
-        if: steps.bom.outputs.bom != ''
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: release-candidate-evidence-${{ github.sha }}-${{ matrix.host.label }}
-          path: ${{ runner.temp }}/release-candidate-evidence.json
-          if-no-files-found: error
+          echo 'Artifact qualification: artifact-not-staged. Maintenance does not stage a release candidate.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Use Release Stage and Release Artifact Acceptance for immutable candidate qualification.' >> "$GITHUB_STEP_SUMMARY"
 
   operations-evidence:
     name: python / security + maintenance evidence
@@ -199,6 +132,7 @@ jobs:
     name: nightly / status
     if: always()
     needs:
+      - upstream-compatibility
       - full-integration
       - release-golden-path
       - release-artifact-acceptance
@@ -208,22 +142,27 @@ jobs:
     steps:
       - name: Require every nightly check to succeed
         env:
+          UPSTREAM_COMPATIBILITY: ${{ needs.upstream-compatibility.result }}
+          EVENT_NAME: ${{ github.event_name }}
           FULL_INTEGRATION: ${{ needs.full-integration.result }}
           RELEASE_GOLDEN_PATH: ${{ needs.release-golden-path.result }}
           RELEASE_ARTIFACT_ACCEPTANCE: ${{ needs.release-artifact-acceptance.result }}
           OPERATIONS_EVIDENCE: ${{ needs.operations-evidence.result }}
         run: |
           set -euo pipefail
+          echo "Fresh dependency resolution: $UPSTREAM_COMPATIBILITY" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$EVENT_NAME" = schedule ] && [ "$UPSTREAM_COMPATIBILITY" != success ]; then
+            echo "::error::Scheduled fresh resolution failed: $UPSTREAM_COMPATIBILITY"
+            exit 1
+          fi
           for result in "$FULL_INTEGRATION" "$RELEASE_GOLDEN_PATH" "$OPERATIONS_EVIDENCE"; do
             if [ "$result" != "success" ]; then
               echo "::error::Required nightly check finished with result: $result"
               exit 1
             fi
           done
-          # The artifact-acceptance caller is skipped only when no candidate
-          # BOM is staged for this commit; a run that starts must succeed.
-          if [ "$RELEASE_ARTIFACT_ACCEPTANCE" != "success" ] \
-            && [ "$RELEASE_ARTIFACT_ACCEPTANCE" != "skipped" ]; then
-            echo "::error::Required nightly check finished with result: $RELEASE_ARTIFACT_ACCEPTANCE"
+          echo 'Artifact qualification: artifact-not-staged (not release evidence).' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RELEASE_ARTIFACT_ACCEPTANCE" != "success" ]; then
+            echo "::error::Staging outcome report failed: $RELEASE_ARTIFACT_ACCEPTANCE"
             exit 1
           fi

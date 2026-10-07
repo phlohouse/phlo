@@ -14,6 +14,13 @@ ROOT = Path(__file__).resolve().parents[1]
 DEPENDENCY_PATTERN = re.compile(r"^(phlo(?:-[a-z0-9-]+)?)\b")
 
 
+def inert_doc(path: str) -> bool:
+    """Only known documentation formats can omit executable lanes."""
+    return Path(path).suffix.lower() in {".md", ".mdx", ".rst"} and (
+        path.startswith("docs/") or "/" not in path
+    )
+
+
 def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
     """Fail open for unrecognised paths; expand package changes to their dependents."""
     groups = {
@@ -25,7 +32,7 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
     if not groups:
         raise ValueError("No package test groups found")
     package_names = {package for packages in groups.values() for package in packages}
-    docs = all(path.startswith("docs/") or path.endswith(".md") for path in paths) and bool(paths)
+    docs = all(inert_doc(path) for path in paths) and bool(paths)
     if docs:
         return {
             "groups": [],
@@ -33,6 +40,10 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
             "frontend": False,
             "writer": False,
             "integration": False,
+            "docs": True,
+            "plugin": False,
+            "mutation": False,
+            "reasons": {"docs": "explicit inert documentation", "code": "no executable changes"},
         }
 
     package_changes = {
@@ -43,9 +54,10 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
     broad = (
         not paths
         or bool(package_changes - package_names)
+        or any(path.startswith("packages/") and len(path.split("/")) < 3 for path in paths)
         or any(
-            not path.startswith(("packages/", "docs/", "apps/phlo-github-writer/"))
-            and not path.endswith(".md")
+            not path.startswith(("packages/", "apps/phlo-github-writer/", ".amp/plugins/"))
+            and not inert_doc(path)
             for path in paths
         )
     )
@@ -59,6 +71,10 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
             "frontend": True,
             "writer": True,
             "integration": True,
+            "docs": True,
+            "plugin": True,
+            "mutation": True,
+            "reasons": {"all": "empty diff or unrecognised path requires full validation"},
         }
 
     dependents: dict[str, set[str]] = {package: set() for package in package_names}
@@ -85,9 +101,7 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
         for group, packages in groups.items()
         if affected.intersection(packages)
     ]
-    frontend = any(
-        path.startswith("packages/phlo-observatory/src/phlo_observatory/") for path in paths
-    )
+    frontend = any(path.startswith("packages/phlo-observatory/") for path in paths)
     writer = any(path.startswith("apps/phlo-github-writer/") for path in paths)
     return {
         "groups": selected,
@@ -95,22 +109,46 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
         "frontend": frontend,
         "writer": writer,
         "integration": bool(package_changes),
+        "docs": bool(package_changes) or any(inert_doc(path) for path in paths),
+        "plugin": any(path.startswith(".amp/plugins/") for path in paths),
+        "mutation": "phlo-api" in affected,
+        "reasons": {
+            "packages": "changed packages and reverse dependencies: " + ", ".join(sorted(affected)),
+            "frontend": "all Observatory package inputs" if frontend else "no Observatory changes",
+            "docs": "package API or documentation changes",
+            "plugin": "plugin source changes",
+        },
+    }
+
+
+def git_paths(
+    base: str, head: str = "HEAD", *, working_tree: bool = False, root: Path = ROOT
+) -> set[str]:
+    """Read committed changes, optionally including all local edits and untracked files."""
+    commands = [["git", "diff", "--name-only", "--no-renames", "-z", base, head]]
+    if working_tree:
+        commands.extend(
+            [
+                ["git", "diff", "--name-only", "--no-renames", "-z", "HEAD"],
+                ["git", "diff", "--name-only", "--no-renames", "-z", "--cached"],
+                ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            ]
+        )
+    return {
+        path
+        for command in commands
+        for path in subprocess.check_output(command, cwd=root).decode().split("\0")
+        if path
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True)
-    parser.add_argument("--head", required=True)
+    parser.add_argument("--head", default="HEAD")
+    parser.add_argument("--working-tree", action="store_true")
     args = parser.parse_args()
-    paths = set(
-        subprocess.check_output(
-            ["git", "diff", "--name-only", "-z", args.base, args.head], cwd=ROOT
-        )
-        .decode()
-        .strip("\0")
-        .split("\0")
-    )
+    paths = git_paths(args.base, args.head, working_tree=args.working_tree)
     print(json.dumps(select(paths), separators=(",", ":")))
 
 

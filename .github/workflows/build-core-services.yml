@@ -1,4 +1,4 @@
-name: Publish Generated Service Images
+name: Publish Development Service Images
 
 on:
   push:
@@ -14,8 +14,14 @@ on:
         description: Optional comma-separated generated services to republish
         required: false
         type: string
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      candidate_sha:
+        required: true
+        type: string
+      distributions_artifact:
+        required: true
+        type: string
 
 permissions: {}
 
@@ -25,6 +31,7 @@ concurrency:
 
 jobs:
   prepare:
+    if: github.repository == 'phlohouse/phlo' && github.ref == 'refs/heads/main'
     name: Prepare generated build contexts
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -38,6 +45,26 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Select protected candidate data
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$CANDIDATE_SHA" origin/main
+          # Keep workflow scripts at the trusted workflow commit.
+          mkdir -p "$RUNNER_TEMP/trusted-scripts"
+          cp scripts/generated_image_matrix.py scripts/container_security.py "$RUNNER_TEMP/trusted-scripts/"
+          git checkout --detach "$CANDIDATE_SHA"
+
+      - name: Download build-once candidate distributions
+        if: inputs.distributions_artifact != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: ${{ inputs.distributions_artifact }}
+          path: ${{ runner.temp }}/candidate-distributions
 
       - name: Install uv
         uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
@@ -56,11 +83,13 @@ jobs:
           PUBLISH_SERVICES: ${{ inputs.services || '' }}
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
+          STAGED_DISTRIBUTIONS: ${{ inputs.distributions_artifact }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "push" ]]; then
-            changed="$(uv run --no-project --with pyyaml==6.0.3 python "$GITHUB_WORKSPACE/scripts/container_security.py" affected-images --base "$BEFORE")"
+            changed="$(uv run --no-project --with pyyaml==6.0.3 python "$RUNNER_TEMP/trusted-scripts/container_security.py" affected-images --base "$BEFORE")"
             PUBLISH_SERVICES="$(jq -r '.include[].service' <<< "$changed" | paste -sd, -)"
           fi
           if [[ "$EVENT_NAME" == "push" && -z "$PUBLISH_SERVICES" ]]; then
@@ -86,7 +115,12 @@ jobs:
           # last PyPI release (which can omit modules introduced by the image
           # revision itself).
           wheelhouse="$project/.phlo/wheelhouse"
-          uv --project "$GITHUB_WORKSPACE" build --all-packages --wheel --out-dir "$wheelhouse"
+          if [[ -n "$STAGED_DISTRIBUTIONS" ]]; then
+            mkdir -p "$wheelhouse"
+            cp "$RUNNER_TEMP"/candidate-distributions/*.whl "$wheelhouse/"
+          else
+            uv --project "$GITHUB_WORKSPACE" build --all-packages --wheel --out-dir "$wheelhouse"
+          fi
           phlo_version="$(
             uv --project "$GITHUB_WORKSPACE" run --locked python \
               -c 'from importlib.metadata import version; print(version("phlo"))'
@@ -112,12 +146,14 @@ jobs:
           fi
           matrix="$(
             uv --project "$GITHUB_WORKSPACE" run --locked python \
-              "$GITHUB_WORKSPACE/scripts/generated_image_matrix.py" \
+              "$RUNNER_TEMP/trusted-scripts/generated_image_matrix.py" \
               "$RUNNER_TEMP/generated-compose.json" \
               "$project" \
               "$GITHUB_WORKSPACE" \
               "${matrix_args[@]}"
           )"
+          # Development builds can never mutate a release repository/tag.
+          matrix="$(jq --arg sha "$CANDIDATE_SHA" '.include |= map(.image = ((.image | split("@")[0] | split(":")[0]) + "-development:" + $sha))' <<< "$matrix")"
           echo "targets=$(jq -c '.include' <<< "$matrix")" >> "$GITHUB_OUTPUT"
           echo 'has_targets=true' >> "$GITHUB_OUTPUT"
 
@@ -218,7 +254,7 @@ jobs:
             runtime
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ inputs.candidate_sha || github.sha }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=${{ matrix.target.service }}-${{ matrix.architecture.name }}
@@ -269,7 +305,7 @@ jobs:
   merge:
     name: Publish ${{ matrix.target.service }} manifest
     needs: [prepare, build]
-    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.has_targets == 'true'
+    if: always() && needs.prepare.result == 'success' && needs.build.result == 'success' && needs.prepare.outputs.has_targets == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -311,7 +347,7 @@ jobs:
           set -euo pipefail
           refs=()
           for digest_file in digests/*; do
-            refs+=("$IMAGE@sha256:${digest_file##*/}")
+            refs+=("${IMAGE%:*}@sha256:${digest_file##*/}")
           done
           if [[ "${#refs[@]}" -ne 2 ]]; then
             echo "expected two architecture digests, found ${#refs[@]}" >&2

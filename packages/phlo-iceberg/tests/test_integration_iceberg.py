@@ -20,8 +20,15 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def iceberg_catalog(configured_minio_object_store, monkeypatch):
+def iceberg_catalog(request, monkeypatch):
     """Fixture providing a real Iceberg catalog for testing."""
+    # The required lane provisions a paired catalog and object store. Do not
+    # replace its credentials with a second, unrelated testcontainers MinIO.
+    configured_minio_object_store = (
+        None
+        if os.environ.get("PHLO_CI_REQUIRED") == "true"
+        else request.getfixturevalue("configured_minio_object_store")
+    )
     try:
         from phlo.capabilities import resolve_capability
         from phlo_iceberg.catalog import get_catalog, reset_catalog_cache

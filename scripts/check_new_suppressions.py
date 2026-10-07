@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import io
 import re
@@ -19,6 +20,22 @@ HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 REASON = re.compile(r"(?:#|//|/\*|\*)\s*reason:\s*\S", re.IGNORECASE)
 
 
+def python_suppressions(text: str) -> tuple[set[int], set[int]]:
+    """Locate comments and real skip syntax, excluding strings used as test fixtures."""
+    comments = {
+        token.start[0]
+        for token in tokenize.generate_tokens(io.StringIO(text).readline)
+        if token.type == tokenize.COMMENT
+    }
+    skips = {
+        node.lineno
+        for node in ast.walk(ast.parse(text))
+        if (isinstance(node, ast.Call) and ast.unparse(node.func) == "pytest.skip")
+        or (isinstance(node, ast.Attribute) and ast.unparse(node) == "pytest.mark.skip")
+    }
+    return comments, skips
+
+
 def added_suppressions(diff: str, root: Path) -> list[str]:
     """Report additions with no reason on the same or immediately preceding line."""
     inventory: list[str] = []
@@ -26,6 +43,7 @@ def added_suppressions(diff: str, root: Path) -> list[str]:
     path = ""
     lines: list[str] = []
     comments: set[int] = set()
+    skips: set[int] = set()
     line_no = 0
     for line in diff.splitlines():
         if line.startswith("+++ b/"):
@@ -33,22 +51,15 @@ def added_suppressions(diff: str, root: Path) -> list[str]:
             file = root / path
             lines = file.read_text(encoding="utf-8").splitlines() if file.is_file() else []
             comments = set()
+            skips = set()
             if path.endswith(".py"):
                 with contextlib.suppress(tokenize.TokenError):
-                    comments = {
-                        token.start[0]
-                        for token in tokenize.generate_tokens(
-                            io.StringIO("\n".join(lines)).readline
-                        )
-                        if token.type == tokenize.COMMENT
-                    }
+                    comments, skips = python_suppressions("\n".join(lines))
         elif match := HUNK.match(line):
             line_no = int(match[1])
         elif line.startswith("+") and not line.startswith("+++"):
             is_comment = not path.endswith(".py") or line_no in comments
-            if (is_comment and SUPPRESSION.search(line[1:])) or re.search(
-                r"\bpytest\.skip\s*\(|@pytest\.mark\.skip\b", line[1:]
-            ):
+            if (is_comment and SUPPRESSION.search(line[1:])) or line_no in skips:
                 label = f"{path}:{line_no}: {line[1:].strip()}"
                 inventory.append(label)
                 previous = lines[line_no - 2] if 1 < line_no <= len(lines) else ""

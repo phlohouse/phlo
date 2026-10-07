@@ -1,232 +1,117 @@
 name: Release Promotion
 
-# Promotion moves one staged release candidate to a published channel. This
-# workflow NEVER runs on push, pull_request, or merge_group: it is dispatched
-# explicitly, collects the evidence bundles recorded by
-# the nightly artifact-acceptance runs, gates them through
-# `scripts/promote_release_candidate.py gate` (≥3 qualifying runs, 3 distinct
-# clean hosts, ≥2 distinct UTC days, newest ≤7 days, same canonical candidate
-# digest), and only then promotes the exact staged bytes — never a rebuild —
-# in the fixed order tag → PyPI → images by digest → GitHub Release
-# finalisation, emitting a checksummed promotion receipt.
-#
-# Dry run is the default and publishes nothing. Real publication requires BOTH
-# the `execute` input AND a release-owner authorization record
-# (`phlo.release-promotion-authorization/v1`) naming the candidate identity,
-# the exact qualifying evidence bundle checksums, and the target channel, and
-# the promote job runs behind the `release` environment approval. Without the
-# authorization the workflow fails closed before any publish step.
-
 on:
   workflow_dispatch:
     inputs:
-      candidate_ref:
-        description: Release tag or commit whose staged candidate is being promoted
+      candidate_sha:
+        description: Exact staged release commit SHA
         required: true
         type: string
-      candidate_release:
-        description: Draft release tag holding bom.json plus the staged distributions
+      stage_run:
+        description: Successful immutable release-stage run ID, attempt 1
         required: true
         type: string
-      evidence_runs:
-        description: >-
-          Comma-separated nightly workflow run IDs whose
-          release-candidate-evidence artifacts are the qualifying bundles
-        required: true
-        type: string
-      authorization_ref:
-        description: >-
-          Git ref containing the release-owner authorization record
-          (phlo.release-promotion-authorization/v1) for this promotion
-        required: false
-        type: string
-        default: ""
-      authorization_path:
-        description: Path (within authorization_ref) of the authorization record
-        required: false
-        type: string
-        default: "release-promotion-authorization.json"
       execute:
-        description: >-
-          Really publish (tag, PyPI, images by digest, finalise the release).
-          Requires the authorization record; the default dry run publishes
-          nothing.
-        required: false
+        description: Publish staged bytes after native release-owner approval. Default publishes nothing.
         type: boolean
         default: false
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: release-promotion
+  cancel-in-progress: false
 
 jobs:
-  collect:
-    name: promotion / collect real evidence bundles
+  gate:
+    if: github.repository == 'phlohouse/phlo' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Check out the candidate identity
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: ${{ inputs.candidate_ref }}
           persist-credentials: false
-
-      - name: Download the staged candidate BOM and distributions
+      - name: Authenticate stage and every candidate acceptance attempt
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE: ${{ inputs.candidate_release }}
-        run: |
-          set -euo pipefail
-          dir="$RUNNER_TEMP/candidate"
-          mkdir -p "$dir/distributions"
-          gh release download "$RELEASE" --repo "$GITHUB_REPOSITORY" \
-            --pattern '*' --dir "$dir"
-          find "$dir" -maxdepth 1 -type f ! -name 'bom.json' \
-            -exec mv {} "$dir/distributions/" \;
-          test -f "$dir/bom.json"
-          python3 scripts/release_candidate_bom.py verify --bom "$dir/bom.json"
-          echo "candidate_dir=$dir" >> "$GITHUB_ENV"
-
-      - name: Download the recorded evidence bundles from the nightly runs
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          STAGE_RUN: ${{ inputs.stage_run }}
+        run: >-
+          python3 scripts/release_provenance.py collect --candidate-sha "$CANDIDATE_SHA"
+          --stage-run "$STAGE_RUN" --output inputs --evidence inputs/evidence
+      - name: Apply unchanged repeated-run gate and plan publication
         env:
-          GH_TOKEN: ${{ github.token }}
-          EVIDENCE_RUNS: ${{ inputs.evidence_runs }}
-        run: |
-          set -euo pipefail
-          dir="$RUNNER_TEMP/evidence"
-          mkdir -p "$dir"
-          run_id="$(echo "$EVIDENCE_RUNS" | tr -d ' ')"
-          IFS=',' read -ra RUN_IDS <<< "$run_id"
-          for run in "${RUN_IDS[@]}"; do
-            gh run download "$run" --repo "$GITHUB_REPOSITORY" \
-              --pattern 'release-candidate-evidence-*' \
-              --dir "$dir/run-$run"
-          done
-          count="$(find "$dir" -name '*.json' | wc -l)"
-          if [ "$count" -eq 0 ]; then
-            echo "::error::No real evidence bundles were collected from runs: $EVIDENCE_RUNS"
-            exit 1
-          fi
-          echo "evidence_dir=$dir" >> "$GITHUB_ENV"
-
-      - name: Lock the staged candidate identity (one canonical BOM, immutable)
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/lock"
-          python3 scripts/promote_release_candidate.py lock \
-            --candidate-bom "$candidate_dir/bom.json" \
-            --lock-dir "$RUNNER_TEMP/lock"
-
-      - name: Upload collected promotion inputs
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: >-
+          python3 scripts/promote_release_candidate.py promote
+          --candidate-bom "inputs/candidate-$CANDIDATE_SHA/bom.json"
+          --staging-dir "inputs/candidate-$CANDIDATE_SHA"
+          --staged-utc "$(jq -r .staged_utc "inputs/candidate-$CANDIDATE_SHA/provenance.json")"
+          --evidence inputs/evidence --receipt-output dry-run-receipt.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: promotion-inputs-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/candidate/**
-            ${{ runner.temp }}/evidence/**
+          name: dry-run-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dry-run-receipt.json
           if-no-files-found: error
 
-  gate:
-    name: promotion / gate on qualifying evidence
-    needs: [collect]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Check out the candidate identity
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: ${{ inputs.candidate_ref }}
-          persist-credentials: false
-
-      - name: Download collected promotion inputs
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: promotion-inputs-${{ github.run_id }}
-          path: inputs
-
-      - name: Gate the evidence set (fail closed before any publish step)
-        run: |
-          set -euo pipefail
-          bom="$(find inputs/candidate -name bom.json | head -n 1)"
-          test -n "$bom"
-          python3 scripts/promote_release_candidate.py gate \
-            --candidate-bom "$bom" \
-            --evidence inputs/evidence \
-            --rejection-output promotion-rejection.json
-
   promote:
-    name: promotion / authorized promote (dry run unless authorized)
-    needs: [gate]
-    # The release-owner approval is a human act on the `release`
-    # environment; automation may prepare but never authorise. contents:write
-    # is required only for the authorized push of the release tag.
+    if: inputs.execute
+    needs: gate
     environment: release
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: write
+      actions: read
+      packages: write
     steps:
-      - name: Check out the candidate identity
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: ${{ inputs.candidate_ref }}
           persist-credentials: false
-
-      - name: Download collected promotion inputs
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
-          name: promotion-inputs-${{ github.run_id }}
-          path: inputs
-
-      - name: Fail closed without a release-owner authorization record
-        if: inputs.execute
+          version: "0.12.1"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Reauthenticate all attempts after approval and prove live native protection
         env:
-          AUTHORIZATION_REF: ${{ inputs.authorization_ref }}
-          AUTHORIZATION_PATH: ${{ inputs.authorization_path }}
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          STAGE_RUN: ${{ inputs.stage_run }}
         run: |
           set -euo pipefail
-          if [ -z "$AUTHORIZATION_REF" ]; then
-            echo "::error::Real publication requires a release-owner authorization record; refusing to publish without one"
-            exit 1
-          fi
-          git fetch --depth 1 origin "$AUTHORIZATION_REF"
-          git checkout "$AUTHORIZATION_REF" -- "$AUTHORIZATION_PATH"
-          test -f "$AUTHORIZATION_PATH"
-          python3 - "$AUTHORIZATION_PATH" <<'PY'
-          import json, sys
-          record = json.load(open(sys.argv[1]))
-          assert record.get("schema") == "phlo.release-promotion-authorization/v1", record.get("schema")
-          assert record.get("authorized") is True, "authorization is not an explicit approval"
-          for field in ("release_owner", "target_channel", "approval_reference", "authorized_utc"):
-              assert isinstance(record.get(field), str) and record[field], field
-          print("authorization record is present and well-formed")
-          PY
-
-      - name: Promote (dry run by default; never rebuilds)
+          python3 scripts/release_provenance.py collect --candidate-sha "$CANDIDATE_SHA" \
+            --stage-run "$STAGE_RUN" --output inputs --evidence inputs/evidence
+          python3 scripts/release_provenance.py authorize \
+            --bom "inputs/candidate-$CANDIDATE_SHA/bom.json" \
+            --evidence inputs/evidence --output authorization.json
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish only the approved staged bytes, never rebuild
         env:
-          EXECUTE: ${{ inputs.execute && inputs.authorization_ref != '' && 'true' || 'false' }}
-          AUTHORIZATION_PATH: ${{ inputs.authorization_path }}
+          GH_TOKEN: ${{ github.token }}
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         run: |
           set -euo pipefail
-          bom="$(find inputs/candidate -name bom.json | head -n 1)"
-          staging="$(dirname "$bom")"
-          args=(--candidate-bom "$bom" --staging-dir "$staging" \
-                --evidence inputs/evidence --receipt-output promotion-receipt.json)
-          if [ "$EXECUTE" = "true" ]; then
-            # Real publication: the authorization record was fetched and
-            # checked by the fail-closed step above.
-            args+=(--execute --authorization "$AUTHORIZATION_PATH")
-          else
-            # Bounded non-publishing validation: plans every step, publishes
-            # nothing, and never requires an authorization record.
-            echo "run mode: dry run (no tag, no push, no upload, no finalisation)"
-          fi
-          python3 scripts/promote_release_candidate.py promote "${args[@]}"
-
-      - name: Upload the promotion receipt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          gh auth setup-git
+          python3 scripts/promote_release_candidate.py promote \
+            --candidate-bom "inputs/candidate-$CANDIDATE_SHA/bom.json" \
+            --staging-dir "inputs/candidate-$CANDIDATE_SHA" --evidence inputs/evidence \
+            --staged-utc "$(jq -r .staged_utc "inputs/candidate-$CANDIDATE_SHA/provenance.json")" \
+            --authorization authorization.json --execute --receipt-output promotion-receipt.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: promotion-receipt-${{ github.run_id }}
-          path: promotion-receipt.json
+          name: promotion-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            promotion-receipt.json
+            authorization.json
           if-no-files-found: error

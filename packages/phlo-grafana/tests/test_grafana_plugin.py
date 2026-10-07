@@ -1,12 +1,8 @@
-"""Integration tests for phlo-grafana.
+"""Configuration tests for the Grafana service plugin.
 
 Covers plugin initialization, service definition loading, and that the
-deployed image stays pinned to an upstream Grafana release tag.
+configured image stays pinned to an upstream Grafana release digest.
 """
-
-import pytest
-
-pytestmark = pytest.mark.integration
 
 
 def test_grafana_plugin_initializes():

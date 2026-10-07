@@ -46,6 +46,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import release_candidate_bom  # noqa: E402
 import release_evidence  # noqa: E402
 
+# reason: CLI scripts are imported after adding their directory to sys.path.
+import release_provenance  # noqa: E402
+
 AUTHORIZATION_SCHEMA = "phlo.release-promotion-authorization/v1"
 RECEIPT_SCHEMA = "phlo.release-promotion-receipt/v1"
 REJECTION_SCHEMA = "phlo.release-promotion-rejection/v1"
@@ -498,6 +501,7 @@ class StepResult:
     public_identity: str
     bound_digests: list[str] = field(default_factory=list)
     commands: list[list[str]] = field(default_factory=list)
+    assets: dict[str, str] = field(default_factory=dict)
 
 
 class DryRunExecutor:
@@ -561,6 +565,111 @@ def _verify_staged_bytes(bom: dict[str, object], staging_dir: Path) -> list[Path
         ) from exc
 
 
+def _remote_tag(executor: ExecutingExecutor, tag: str) -> str:
+    output = executor.run(
+        ["git", "ls-remote", "origin", f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}"]
+    )
+    refs = dict(line.split()[::-1] for line in output.splitlines())
+    return refs.get(f"refs/tags/{tag}^{{}}", refs.get(f"refs/tags/{tag}", ""))
+
+
+def _release(executor: ExecutingExecutor, tag: str) -> dict[str, object] | None:
+    releases = json.loads(
+        executor.run(
+            ["gh", "api", "--paginate", "--slurp", "repos/{owner}/{repo}/releases?per_page=100"]
+        )
+    )
+    return next(
+        (release for page in releases for release in page if release["tag_name"] == tag), None
+    )
+
+
+def _check_assets(release: dict[str, object], assets: dict[str, str]) -> set[str]:
+    existing = {asset["name"]: asset.get("digest") for asset in release["assets"]}
+    for name, digest in assets.items():
+        if name in existing and existing[name] != f"sha256:{digest}":
+            raise PublishBlockedError(
+                f"GitHub asset {name} differs from staged bytes or has no digest"
+            )
+    return set(existing)
+
+
+def _missing_pypi(bom: dict[str, object], paths: dict[str, Path]) -> list[str]:
+    missing = []
+    releases = {}
+    for artifact in _distribution_artifacts(bom):
+        key = (str(artifact["name"]), str(artifact["version"]))
+        if key not in releases:
+            releases[key] = release_candidate_bom._pypi_release_files(*key, allow_missing=True)
+        path = paths[str(artifact["digest"])]
+        published = releases[key].get(path.name)
+        if published is None:
+            missing.append(str(path))
+        elif published[0] != artifact["digest"]:
+            raise PublishBlockedError(f"PyPI file {path.name} differs from staged bytes")
+    return missing
+
+
+def _image_commands(bom: dict[str, object], version: str) -> list[list[str]]:
+    commands = []
+    for artifact in _first_party_images(bom):
+        target = f"{artifact['name']}:{version}"
+        try:
+            digest = release_candidate_bom.resolve_image_digest(target)
+        except release_candidate_bom.BomError as exc:
+            if not any(
+                message in str(exc).lower() for message in ("manifest unknown", "not found")
+            ):
+                raise
+        else:
+            if digest != artifact["digest"]:
+                raise PublishBlockedError(f"image {target} differs from candidate digest")
+            continue
+        commands.append(
+            [
+                "docker",
+                "buildx",
+                "imagetools",
+                "create",
+                "-t",
+                target,
+                "--prefer-index=false",
+                f"{artifact['name']}@{artifact['digest']}",
+            ]
+        )
+    return commands
+
+
+def _release_commands(executor: ExecutingExecutor, tag: str, paths: list[str]) -> list[list[str]]:
+    release = _release(executor, tag)
+    assets = {Path(path).name: release_candidate_bom.file_sha256(Path(path)) for path in paths}
+    existing = _check_assets(release, assets) if release else set()
+    commands = (
+        []
+        if release
+        else [
+            [
+                "gh",
+                "release",
+                "create",
+                tag,
+                "--verify-tag",
+                "--draft",
+                "--title",
+                tag,
+                "--notes",
+                "Promoted immutable candidate.",
+            ]
+        ]
+    )
+    commands.extend(
+        ["gh", "release", "upload", tag, path] for path in paths if Path(path).name not in existing
+    )
+    if release is None or release["draft"]:
+        commands.append(["gh", "release", "edit", tag, "--draft=false"])
+    return commands
+
+
 def promote(  # noqa: C901
     bom: dict[str, object],
     bom_path: Path,
@@ -584,19 +693,30 @@ def promote(  # noqa: C901
     tag = f"v{version}"
     distributions_dir = staging_dir / "distributions"
 
-    def verify_tag_absent() -> None:
+    tag_commands = [["git", "tag", tag, commit], ["git", "push", "origin", f"refs/tags/{tag}"]]
+
+    def verify_tag_identity() -> None:
         result = subprocess.run(
-            ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}"],
+            ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{}}"],
             capture_output=True,
             text=True,
             check=False,
         )
-        if result.returncode == 0:
+        if result.returncode == 0 and result.stdout.strip() != commit:
             raise PromotionGateError(
                 "tag_exists",
-                f"ref refs/tags/{tag} already exists; refusing to create or reuse it "
-                "during promotion",
+                f"ref refs/tags/{tag} does not name candidate commit {commit}",
             )
+        if result.returncode == 0:
+            tag_commands.pop(0)
+        if isinstance(executor, ExecutingExecutor):
+            remote = _remote_tag(executor, tag)
+            if remote and remote != commit:
+                raise PublishBlockedError(f"remote tag {tag} does not name candidate commit")
+            if remote:
+                tag_commands.clear()
+
+    _verify_staged_bytes(bom, staging_dir)
 
     def verify_distribution_digests() -> None:
         _verify_staged_bytes(bom, staging_dir)
@@ -627,7 +747,7 @@ def promote(  # noqa: C901
         *,
         public_identity: str,
         bound_digests: list[str],
-        commands: list[list[str]],
+        commands: list[list[str]] | Callable[[], list[list[str]]],
         dry_run_detail: str,
     ) -> None:
         nonlocal aborted
@@ -644,6 +764,7 @@ def promote(  # noqa: C901
             return
         try:
             verify()
+            selected = commands() if callable(commands) else commands
         except PromotionGateError:
             raise
         except Exception as exc:  # noqa: BLE001 - recorded as a step failure
@@ -658,7 +779,7 @@ def promote(  # noqa: C901
                 )
             )
             return
-        recorded = [list(command) for command in commands]
+        recorded = [list(command) for command in selected]
         for command in recorded:
             executor.record(command)
         if isinstance(executor, ExecutingExecutor):
@@ -705,10 +826,10 @@ def promote(  # noqa: C901
     attempt(
         "release_tag",
         1,
-        verify_tag_absent,
+        verify_tag_identity,
         public_identity=f"refs/tags/{tag} -> {commit}",
         bound_digests=[commit],
-        commands=[["git", "tag", tag, commit], ["git", "push", "origin", f"refs/tags/{tag}"]],
+        commands=tag_commands,
         dry_run_detail=f"dry run: would create and push {tag} at {commit}",
     )
 
@@ -725,11 +846,18 @@ def promote(  # noqa: C901
             for artifact in distribution_artifacts
         ),
         bound_digests=[str(artifact["digest"]) for artifact in distribution_artifacts],
-        commands=[
+        commands=(
+            lambda: (
+                [["uv", "publish", *missing]] if (missing := _missing_pypi(bom, by_digest)) else []
+            )
+        )
+        if isinstance(executor, ExecutingExecutor)
+        else [
             ["uv", "publish", *[str(by_digest[str(a["digest"])]) for a in distribution_artifacts]]
         ],
         dry_run_detail="dry run: would upload the exact staged bytes, digest-verified",
     )
+    steps[-1].assets = {path.name: digest for digest, path in by_digest.items()}
 
     # Step 3 — promote first-party images by digest; never re-run a Dockerfile.
     image_artifacts = _first_party_images(bom)
@@ -741,7 +869,9 @@ def promote(  # noqa: C901
             f"{artifact['name']}@{artifact['digest']}" for artifact in image_artifacts
         ),
         bound_digests=[str(artifact["digest"]) for artifact in image_artifacts],
-        commands=[
+        commands=(lambda: _image_commands(bom, version))
+        if isinstance(executor, ExecutingExecutor)
+        else [
             [
                 "docker",
                 "buildx",
@@ -749,6 +879,7 @@ def promote(  # noqa: C901
                 "create",
                 "-t",
                 f"{artifact['name']}:{version}",
+                "--prefer-index=false",
                 f"{artifact['name']}@{artifact['digest']}",
             ]
             for artifact in image_artifacts
@@ -766,11 +897,66 @@ def promote(  # noqa: C901
         lambda: _verify_staged_bytes(bom, staging_dir),
         public_identity=f"github-release:{tag} (final; assets: bom.json, staged distributions)",
         bound_digests=[str(bom["canonical_candidate_digest"])],
-        commands=[["gh", "release", "edit", tag, "--draft=false"]]
-        + [["gh", "release", "upload", tag, str(path)] for path in final_assets],
+        commands=(lambda: _release_commands(executor, tag, final_assets))
+        if isinstance(executor, ExecutingExecutor)
+        else [
+            [
+                "gh",
+                "release",
+                "create",
+                tag,
+                "--verify-tag",
+                "--draft",
+                "--title",
+                tag,
+                "--notes",
+                "Promoted immutable candidate.",
+            ]
+        ]
+        + [["gh", "release", "upload", tag, str(path)] for path in final_assets]
+        + [["gh", "release", "edit", tag, "--draft=false"]],
         dry_run_detail="dry run: would finalise the draft release attaching BOM + bytes",
     )
+    steps[-1].assets = {
+        Path(path).name: release_candidate_bom.file_sha256(Path(path)) for path in final_assets
+    }
     return steps
+
+
+def _verify_public_step(
+    bom: dict[str, object], step: StepResult, executor: ExecutingExecutor
+) -> None:
+    version = next(str(a["version"]) for a in bom["artifacts"] if a["kind"] == "source")
+    tag = f"v{version}"
+    if step.status != STEP_COMPLETED:
+        raise PublishBlockedError("real publication requires a completed step")
+    if step.step_id == "release_tag":
+        if _remote_tag(executor, tag) != bom["release_commit"]:
+            raise PublishBlockedError("public release tag differs from candidate commit")
+    elif step.step_id == "pypi_publish":
+        for artifact in _distribution_artifacts(bom):
+            files = release_candidate_bom._pypi_release_files(
+                str(artifact["name"]), str(artifact["version"])
+            )
+            names = [name for name, digest in step.assets.items() if digest == artifact["digest"]]
+            if not names or any(
+                files.get(name, (None, ""))[0] != artifact["digest"] for name in names
+            ):
+                raise PublishBlockedError("public PyPI files differ from candidate bytes")
+    elif step.step_id == "image_promotion":
+        for artifact in _first_party_images(bom):
+            if (
+                release_candidate_bom.resolve_image_digest(f"{artifact['name']}:{version}")
+                != artifact["digest"]
+            ):
+                raise PublishBlockedError("public image differs from candidate digest")
+    elif step.step_id == "release_finalisation":
+        release = _release(executor, tag)
+        if not release or release["draft"] or not step.assets:
+            raise PublishBlockedError("public GitHub release is missing or not final")
+        existing = _check_assets(release, step.assets)
+        if set(step.assets) - existing:
+            raise PublishBlockedError("public GitHub release is missing candidate assets")
 
 
 def reconcile_publication(
@@ -815,6 +1001,17 @@ def reconcile_publication(
             continue
         unbound = sorted(set(step.bound_digests) - bom_digests)
         matched = not unbound
+        if isinstance(executor, ExecutingExecutor):
+            try:
+                _verify_public_step(bom, step, executor)
+            except (
+                PublishBlockedError,
+                release_candidate_bom.BomError,
+                ValueError,
+                KeyError,
+            ) as exc:
+                matched = False
+                mismatches.append(f"{step.step_id}: {exc}")
         covered.update(step.bound_digests)
         checked.append({"step": step.step_id, "status": step.status, "matched": matched})
         if unbound:
@@ -925,6 +1122,7 @@ def build_receipt(
                 "public_identity": step.public_identity,
                 "bound_digests": step.bound_digests,
                 "commands": step.commands,
+                "assets": step.assets,
             }
             for step in sorted(steps, key=lambda item: item.order)
         ],
@@ -1115,6 +1313,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
             authorization = load_authorization(args.authorization)
             validate_authorization(authorization, bom, qualification.checksums)
+            try:
+                release_provenance.verify_live_authorization(authorization)
+            except (ValueError, KeyError, subprocess.CalledProcessError) as exc:
+                raise PromotionGateError(
+                    "not_authorized", f"native release approval failed: {exc}"
+                ) from exc
             print(
                 f"authorization verified: {authorization.get('release_owner')} approved "
                 f"{authorization.get('approval_reference')} at "

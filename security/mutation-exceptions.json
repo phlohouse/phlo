@@ -1,0 +1,82 @@
+[
+  {
+    "mutant": "phlo.quality_rules.x_range_between__mutmut_5",
+    "diff_sha256": "d28b4dd3046c2536f3b510d488b76afd1ee484056b4a6c69ccb1efb345501b12",
+    "reason": "Only diagnostic wording changes; ValueError and accepted/rejected bounds are unchanged."
+  },
+  {
+    "mutant": "phlo.cli.commands.services.utils.x_get_enabled_disabled_service_names__mutmut_4",
+    "diff_sha256": "6ca5be2bbc802340ad436d648eaca48b64427ed07589f0a5b3ab51315bf7a36f",
+    "reason": "Missing services produce empty sets whether get defaults to None or an empty mapping."
+  },
+  {
+    "mutant": "phlo.cli.commands.services.utils.x_get_enabled_disabled_service_names__mutmut_6",
+    "diff_sha256": "d4320a8eb39d116c812a89f25530de6b34cdd53857ec89a3af177edc605ed183",
+    "reason": "Missing services produce empty sets whether get defaults to None or an empty mapping."
+  },
+  {
+    "mutant": "phlo.security.mode.x_requires_http_authorization__mutmut_8",
+    "diff_sha256": "0327ee43ae75aa1458eff3113bc47b2f53f6680070ee9da84e8fbf8bad0c1a55",
+    "reason": "An unrecognized default environment preserves authorization decisions."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_7",
+    "diff_sha256": "93f3f7cd5af7e4d95c4ec3ee8a1e3d3aaf0f42cde35f2b1b94900c4d7a73d169",
+    "reason": "An unrecognized default Boolean preserves regulated-mode precedence."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_33",
+    "diff_sha256": "becb5a51a0f778b206c6e352c2704cfae0669d17382bae98678039125d9d48d5",
+    "reason": "Only deprecated-environment diagnostics change; Boolean precedence and authorization decisions are unchanged."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_34",
+    "diff_sha256": "689da7d6abec58ce8ddafe436f789d9207769ea5eb0964be174097b0fecfe489",
+    "reason": "Only deprecated-environment diagnostics change; Boolean precedence and authorization decisions are unchanged."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_35",
+    "diff_sha256": "bebc9a7a444d26366a0cfa90dbdf7e1b2f4233ff268f1ac973d846272e352c61",
+    "reason": "Only deprecated-environment diagnostics change; Boolean precedence and authorization decisions are unchanged."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_36",
+    "diff_sha256": "8e58b0862b33d39af462502c4a04c676e8406f1e21914e8c56921331bd74fae6",
+    "reason": "Only deprecated-environment diagnostics change; Boolean precedence and authorization decisions are unchanged."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_37",
+    "diff_sha256": "8c92f033d82907e7570e4d3d2f3f87d04d6d7413309c949e87dc2d51f8dbc3d3",
+    "reason": "Only deprecated-environment diagnostics change; Boolean precedence and authorization decisions are unchanged."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_38",
+    "diff_sha256": "f35dc060bf6fd86f012fa7b87f3187b594b8d4e123dd217283ef1430c3e3dea3",
+    "reason": "Only deprecated-environment diagnostics change; Boolean precedence and authorization decisions are unchanged."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_39",
+    "diff_sha256": "ad8cde9cc70c2eb03ea34f0a18b144c32a6ec49fd0c946fb890b65c1561c33e1",
+    "reason": "Only deprecated-environment diagnostics change; Boolean precedence and authorization decisions are unchanged."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_40",
+    "diff_sha256": "3785215e1bec3862efcd47fe170aacd4741c393425a583e9399e732ca4a33598",
+    "reason": "Only deprecated-environment diagnostics change; Boolean precedence and authorization decisions are unchanged."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_41",
+    "diff_sha256": "f3f04f2329fabd9786e1e4db9ae91b93273d0bd87845dab98bce2a8bd457489b",
+    "reason": "Only deprecated-environment diagnostics change; Boolean precedence and authorization decisions are unchanged."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_42",
+    "diff_sha256": "28597bc86265b6c0bed8e2c46e870a15bd0f70676eebeafc47679e520adf973d",
+    "reason": "Only deprecated-environment diagnostics change; Boolean precedence and authorization decisions are unchanged."
+  },
+  {
+    "mutant": "phlo.security.mode.x_is_regulated__mutmut_43",
+    "diff_sha256": "7d647982bced1a897dfc18fc23edaf2752240430e6cd0a393204146d82b4ad80",
+    "reason": "Only deprecated-environment diagnostics change; Boolean precedence and authorization decisions are unchanged."
+  }
+]

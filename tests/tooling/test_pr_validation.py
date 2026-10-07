@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -23,13 +24,16 @@ def workflow(name):
 
 def test_one_pr_orchestrator_and_no_candidate_duplication() -> None:
     pr = workflow("pr.yml")
-    assert set(pr.get("on") or pr[True]) == {"pull_request", "merge_group"}
+    assert set(pr.get("on") or pr[True]) == {"pull_request", "merge_group", "workflow_call"}
     assert pr["jobs"]["required"]["needs"] == [
         "changes",
         "ci",
         "integration",
         "containers",
         "security",
+        "docs",
+        "plugin",
+        "mutation",
     ]
     for name in (
         "ci.yml",
@@ -37,6 +41,7 @@ def test_one_pr_orchestrator_and_no_candidate_duplication() -> None:
         "security.yml",
         "container-security.yml",
         "release-candidate.yml",
+        "mutation.yml",
     ):
         definition = workflow(name)
         assert not {"pull_request", "merge_group"} & set(definition.get("on") or definition[True])
@@ -46,17 +51,114 @@ def test_one_pr_orchestrator_and_no_candidate_duplication() -> None:
 @pytest.mark.parametrize("bad_result", ["failure", "cancelled", "skipped", "", "success"])
 def test_required_gate_executes_fail_closed(bad_result) -> None:
     step = workflow("pr.yml")["jobs"]["required"]["steps"][0]
-    for lane in ("CHANGES", "CI", "CONTAINERS", "SECURITY", "INTEGRATION"):
+    for lane in (
+        "CHANGES",
+        "CI",
+        "CONTAINERS",
+        "SECURITY",
+        "INTEGRATION",
+        "DOCS",
+        "PLUGIN",
+        "MUTATION",
+    ):
         env = dict(os.environ, **dict.fromkeys(step["env"], "success"))
         env["INTEGRATION_SELECTED"] = "true"
+        env["DOCS_SELECTED"] = "true"
+        env["PLUGIN_SELECTED"] = "true"
+        env["MUTATION_SELECTED"] = "true"
         env[lane] = bad_result
         result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
         assert (result.returncode == 0) == (bad_result == "success")
-    env["INTEGRATION_SELECTED"] = "false"
-    env["INTEGRATION"] = "skipped"
-    assert subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True).returncode == 0
-    env["INTEGRATION"] = "success"
-    assert subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True).returncode != 0
+    env["MUTATION"] = "success"
+    for lane in ("INTEGRATION", "DOCS", "PLUGIN", "MUTATION"):
+        env[f"{lane}_SELECTED"] = "false"
+        env[lane] = "skipped"
+        assert (
+            subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True).returncode
+            == 0
+        )
+        env[lane] = "success"
+        assert (
+            subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True).returncode
+            != 0
+        )
+        env[f"{lane}_SELECTED"] = "true"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "",
+        "import pytest\npytest.skip('local', allow_module_level=True)",
+        "def test_skip():\n import pytest\n pytest.skip('unavailable')",
+        "def test_fail():\n assert False",
+        "import pytest\n@pytest.mark.xfail\ndef test_xfail():\n assert False",
+        "def test_pass():\n assert True\ndef test_skip():\n import pytest\n pytest.skip('local')",
+        "def test_ok():\n assert True",
+    ],
+)
+def test_required_suite_executes_and_rejects_skips(tmp_path, body) -> None:
+    path = tmp_path / "test_contract.py"
+    path.write_text(body)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-p",
+            "scripts.ci_required",
+            str(path),
+            f"--junitxml={tmp_path / 'result.xml'}",
+            "-o",
+            "addopts=",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+    )
+    assert (result.returncode == 0) == ("test_ok" in body), result.stdout
+    assert (tmp_path / "result.xml").exists()
+
+
+def test_merge_queue_executes_full_selection(tmp_path) -> None:
+    step = workflow("pr.yml")["jobs"]["changes"]["steps"][-1]
+    output = tmp_path / "output"
+    summary = tmp_path / "summary"
+    env = dict(
+        os.environ,
+        EVENT_NAME="merge_group",
+        GITHUB_OUTPUT=str(output),
+        GITHUB_STEP_SUMMARY=str(summary),
+    )
+    subprocess.run(["bash", "-c", step["run"]], cwd=ROOT, env=env, check=True)
+    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    selection = json.loads(values["selection"])
+    assert len(selection["groups"]) == 4
+    assert all(
+        selection[lane]
+        for lane in ("python", "frontend", "writer", "integration", "docs", "plugin", "mutation")
+    )
+    assert summary.read_text().strip()
+
+
+def test_local_skip_remains_successful_without_required_plugin(tmp_path) -> None:
+    path = tmp_path / "test_local.py"
+    path.write_text("def test_local():\n import pytest\n pytest.skip('intentional local skip')")
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", str(path), "-o", "addopts="], cwd=ROOT, capture_output=True
+    )
+    assert result.returncode == 0, result.stdout
+
+
+def test_docs_reusable_without_duplicate_pr_trigger_or_queue_deployment() -> None:
+    docs = workflow("docs.yml")
+    events = docs.get("on") or docs[True]
+    assert "pull_request" not in events
+    assert docs["jobs"]["deploy"]["if"] == "github.event_name == 'push'"
+    build = workflow("docs-build.yml")
+    assert set(build.get("on") or build[True]) == {"workflow_call"}
+    assert docs["jobs"]["build"]["uses"] == workflow("pr.yml")["jobs"]["docs"]["uses"]
+    assert build["permissions"] == {"contents": "read"}
 
 
 def test_shards_are_disjoint_complete_and_keep_module_fixtures_together() -> None:

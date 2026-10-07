@@ -24,6 +24,7 @@ CORE_REGRESSION_TEST_PATHS ?= tests
 CORE_REGRESSION_PYTEST_ARGS ?= --tb=short
 QUICKSTART_SMOKE_PYTEST_ARGS ?= --tb=short
 LANE ?= all
+BASE ?= origin/main
 PYMDX_DOCS_DIR ?= docs-site
 PYMDX_DOCS_PORT ?= 3000
 
@@ -152,6 +153,11 @@ format-ts:
 
 typecheck-ts:
 	$(NPM_OBSERVATORY) run typecheck
+
+check-changed:
+	python3 scripts/check_changed.py --base "$(BASE)"
+
+.PHONY: check-changed
 
 check:
 	@$(CHECK_CMD)

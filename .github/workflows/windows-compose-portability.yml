@@ -1,15 +1,7 @@
 name: Windows Compose portability
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/windows-compose-portability.yml"
-      - "docs/getting-started/install.md"
-      - "packages/**"
-      - "pyproject.toml"
-      - "scripts/**"
-      - "src/phlo/**"
-      - "uv.lock"
+  workflow_call:
   workflow_dispatch:
 
 permissions:

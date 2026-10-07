@@ -1,0 +1,70 @@
+name: Release Artifact Acceptance
+run-name: accept ${{ inputs.candidate_sha }} stage ${{ inputs.stage_run }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact full commit SHA bound by the staging BOM
+        required: true
+        type: string
+      stage_run:
+        description: Successful release-stage workflow run ID, attempt 1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  acceptance:
+    if: github.repository == 'phlohouse/phlo' && github.ref == 'refs/heads/main'
+    name: artifact acceptance / ${{ matrix.host.label }}
+    runs-on: ${{ matrix.host.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        host:
+          - label: amd64
+            runner: ubuntu-latest
+          - label: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Authenticate immutable staging producer, fail if BOM is missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          STAGE_RUN: ${{ inputs.stage_run }}
+        run: >-
+          python3 scripts/release_provenance.py collect --candidate-sha "$CANDIDATE_SHA"
+          --stage-run "$STAGE_RUN" --output inputs
+      - name: Accept exact staged artifacts, never source builds
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: >-
+          python3 scripts/release_golden_path.py
+          --candidate-bom "inputs/candidate-$CANDIDATE_SHA/bom.json"
+          --evidence-output "$RUNNER_TEMP/evidence.json"
+      - name: Validate evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: >-
+          python3 scripts/validate_release_evidence.py
+          --bundle "$RUNNER_TEMP/evidence.json"
+          --candidate-bom "inputs/candidate-$CANDIDATE_SHA/bom.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: evidence-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host.label }}
+          path: ${{ runner.temp }}/evidence.json
+          if-no-files-found: error
+          retention-days: 90

@@ -286,7 +286,8 @@ def test_publication_workflow_publishes_attested_images_after_digest_scans() -> 
     triggers = _workflow_triggers(workflow)
     jobs = workflow["jobs"]
 
-    assert {"push", "workflow_dispatch", "release"} <= set(triggers)
+    assert {"push", "workflow_dispatch", "workflow_call"} <= set(triggers)
+    assert "release" not in triggers
     assert "pull_request" not in triggers
 
     prepare_steps = _job_steps(jobs["prepare"])

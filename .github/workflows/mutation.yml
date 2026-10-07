@@ -1,19 +1,7 @@
 name: Mutation tests
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/mutation.yml"
-      - "pyproject.toml"
-      - "packages/phlo-api/pyproject.toml"
-      - "src/phlo/security/mode.py"
-      - "src/phlo/quality_rules.py"
-      - "src/phlo/cli/commands/services/utils.py"
-      - "packages/phlo-api/src/phlo_api/observatory_api/trino.py"
-      - "tests/security/test_mode.py"
-      - "tests/plugins/test_provider_neutral_quality_api.py"
-      - "tests/cli/test_cli_services_utils.py"
-      - "packages/phlo-api/tests/test_trino_sql.py"
+  workflow_call:
   workflow_dispatch:
   schedule:
     - cron: "37 2 * * 6"
@@ -41,19 +29,18 @@ jobs:
 
       - name: Mutate security, quality, and service parsing
         run: |
-          uv run --locked --with mutmut==3.8.0 mutmut run \
-            'phlo.security.mode.x_is_regulated*' \
-            'phlo.security.mode.x_requires_http_authorization*' \
-            'phlo.quality_rules.x_range_between*' \
-            'phlo.cli.commands.services.utils.x_get_enabled_disabled_service_names*' \
-            --max-children 2
+          uv run --locked --with mutmut==3.8.0 python scripts/check_mutation.py \
+            --exceptions security/mutation-exceptions.json \
+            'phlo.security.mode.x_is_regulated__mutmut_*' \
+            'phlo.security.mode.x_requires_http_authorization__mutmut_*' \
+            'phlo.quality_rules.x_range_between__mutmut_*' \
+            'phlo.cli.commands.services.utils.x_get_enabled_disabled_service_names__mutmut_*'
 
       - name: Mutate Trino identifier quoting
         working-directory: packages/phlo-api
         run: >-
-          uv run --locked --with mutmut==3.8.0 mutmut run
-          'phlo_api.observatory_api.trino.x_quote_identifier*'
-          --max-children 2
+          uv run --locked --with mutmut==3.8.0 python ../../scripts/check_mutation.py
+          'phlo_api.observatory_api.trino.x_quote_identifier__mutmut_*'
 
       - name: Collect mutation reports
         if: always()

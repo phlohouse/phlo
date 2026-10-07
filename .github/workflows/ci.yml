@@ -207,6 +207,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       UV_PYTHON: ${{ matrix.python-version }}
+      COVERAGE_FILE: test-results/.coverage.core-${{ matrix.shard }}
     strategy:
       fail-fast: false
       matrix:
@@ -224,6 +225,8 @@ jobs:
       - name: Run core regression suite
         if: matrix.shard == 0
         id: core_regression
+        env:
+          CORE_REGRESSION_PYTEST_ARGS: --tb=short --ignore=tests/cli/test_quickstart_smoke.py --junitxml=test-results/core-regression.xml --cov=phlo --cov-report=
         run: make test-core-regression
 
       - name: Run core tests
@@ -233,7 +236,7 @@ jobs:
           -p scripts.ci_shard --ci-shard-index=${{ matrix.shard }} --ci-shard-count=3
           -o faulthandler_timeout=60 -o faulthandler_exit_on_timeout=true
           --tb=short --durations=25 --junitxml=test-results/core.xml
-          --cov=phlo --cov-report=xml:test-results/coverage.xml
+          --cov=phlo --cov-append --cov-report=xml:test-results/coverage.xml
 
       - name: Upload core test timings and coverage
         if: always()
@@ -242,6 +245,7 @@ jobs:
           name: core-tests-${{ matrix.python-version }}-${{ matrix.shard }}
           path: test-results/
           if-no-files-found: error
+          include-hidden-files: true
 
   postgres-concurrency-gates:
     name: python / postgres concurrency gates
@@ -317,7 +321,7 @@ jobs:
             tests/unit/phlo/security/test_service_identity.py::test_postgres_nonce_store_rejects_one_of_two_simultaneous_consumers \
             tests/observability/test_run_evidence.py::test_postgres_concurrent_duplicate_replay_does_not_apply_loser_run_metadata \
             tests/observability/test_run_evidence.py::test_true_v2_to_v3_upgrade_is_idempotent_and_compatible_postgres \
-            -q | tee "${results_file}"
+            -q --junitxml=test-results/postgres-concurrency.xml | tee "${results_file}"
 
           python3 - "${results_file}" <<'PY'
           import re
@@ -342,6 +346,14 @@ jobs:
           print(f"PostgreSQL concurrency gates: {passed} passed, {skipped} skipped")
           PY
 
+      - name: Upload PostgreSQL contract results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: postgres-concurrency-results
+          path: test-results/postgres-concurrency.xml
+          if-no-files-found: error
+
   quickstart-smoke:
     name: python / quickstart smoke
     needs: ci-config
@@ -356,11 +368,13 @@ jobs:
 
       - name: Run quickstart smoke test
         shell: bash
+        env:
+          COVERAGE_FILE: quickstart-artifacts/.coverage.quickstart
         run: |
           set -euo pipefail
           mkdir -p quickstart-artifacts
           PHLO_QUICKSTART_SMOKE_ARTIFACT_DIR="$PWD/quickstart-artifacts" \
-            uv run --locked pytest tests/cli/test_quickstart_smoke.py --tb=short
+            uv run --locked python -m pytest -p scripts.ci_required tests/cli/test_quickstart_smoke.py --tb=short --junitxml=quickstart-artifacts/results.xml --cov=phlo --cov-report=
 
       - name: Upload quickstart smoke artifacts
         if: always()
@@ -368,7 +382,8 @@ jobs:
         with:
           name: quickstart-smoke
           path: quickstart-artifacts/
-          if-no-files-found: warn
+          if-no-files-found: error
+          include-hidden-files: true
 
   recovery-continuity-drill:
     name: python / recovery continuity drill
@@ -444,7 +459,7 @@ jobs:
 
       - name: Run focused Python harness tests
         shell: pwsh
-        run: python -m pytest tests/scripts/test_release_golden_path.py --tb=short
+        run: python -m pytest tests/scripts/test_release_golden_path.py --tb=short --junitxml=test-results/windows.xml
 
       - name: Run PowerShell launcher contract tests
         shell: pwsh
@@ -491,15 +506,14 @@ jobs:
 
             echo "::group::${package}"
             set +e
-            uv run --python ${{ matrix.python-version }} --locked --package "${package}" --with-editable ./packages/phlo-testing --with pytest \
-              pytest -m "not integration" --tb=short "${test_dir}"
+            COVERAGE_FILE="test-results/.coverage.${package}" \
+              uv run --python ${{ matrix.python-version }} --locked --package "${package}" --with-editable ./packages/phlo-testing --with pytest --with pytest-cov==7.1.0 \
+              pytest -m "not integration" --tb=short "${test_dir}" --junitxml="test-results/${package}.xml" --cov="${package//-/_}" --cov-report=
             exit_code=$?
             set -e
             echo "::endgroup::"
 
-            if [ "${exit_code}" -eq 5 ]; then
-              echo "No tests selected for ${package} under marker filter; skipping."
-            elif [ "${exit_code}" -ne 0 ]; then
+            if [ "${exit_code}" -ne 0 ]; then
               echo "::error::${package} tests failed with exit ${exit_code}"
               failed_count=$((failed_count + 1))
             fi
@@ -508,6 +522,61 @@ jobs:
           if [ "${failed_count}" -ne 0 ]; then
             exit 1
           fi
+
+      - name: Upload package contract results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: package-results-${{ matrix.group }}-${{ matrix.python-version }}
+          path: test-results/
+          if-no-files-found: error
+          include-hidden-files: true
+
+  coverage:
+    name: coverage / combined report
+    needs: [ci-config, python-core-tests, python-package-tests, quickstart-smoke]
+    if: needs.ci-config.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/python-workspace
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: core-tests-*
+          path: coverage-data/core
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: package-results-*
+          path: coverage-data/packages
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: quickstart-smoke
+          path: coverage-data/quickstart
+      - name: Combine measured regression, core, package and quickstart coverage
+        run: |
+          set -euo pipefail
+          mapfile -t directories < <(find coverage-data -name '.coverage.*' -printf '%h\n' | sort -u)
+          test "${#directories[@]}" -gt 0
+          uv run --locked coverage combine "${directories[@]}"
+          uv run --locked coverage xml -o coverage.xml
+          uv run --locked coverage json -o coverage.json
+          uv run --locked coverage report >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: combined-coverage
+          path: |
+            coverage.xml
+            coverage.json
+          if-no-files-found: error
+
+  windows-portability:
+    name: windows / compose portability
+    needs: ci-config
+    if: needs.ci-config.outputs.python == 'true'
+    uses: ./.github/workflows/windows-compose-portability.yml
 
   frontend:
     name: frontend / observatory
@@ -597,6 +666,8 @@ jobs:
       - recovery-continuity-drill
       - windows-release-contract
       - python-package-tests
+      - coverage
+      - windows-portability
       - frontend
       - phlo-github-writer
     steps:
@@ -613,6 +684,8 @@ jobs:
           RECOVERY_CONTINUITY_DRILL: ${{ needs.recovery-continuity-drill.result }}
           WINDOWS_RELEASE_CONTRACT: ${{ needs.windows-release-contract.result }}
           PYTHON_PACKAGE_TESTS: ${{ needs.python-package-tests.result }}
+          COVERAGE: ${{ needs.coverage.result }}
+          WINDOWS_PORTABILITY: ${{ needs.windows-portability.result }}
           FRONTEND: ${{ needs.frontend.result }}
           PHLO_GITHUB_WRITER: ${{ needs.phlo-github-writer.result }}
           SELECT_PYTHON: ${{ needs.ci-config.outputs.python }}
@@ -653,7 +726,7 @@ jobs:
           if [ "$SELECT_WRITER" = true ]; then expected_writer=success; fi
           for result in "$INSTALLED_PROVIDER_ARTIFACTS" "$PYTHON_QUALITY" "$PYTHON_CORE_TESTS" \
             "$QUICKSTART_SMOKE" "${POSTGRES_CONCURRENCY_GATES}" "$RECOVERY_CONTINUITY_DRILL" \
-            "$WINDOWS_RELEASE_CONTRACT"; do
+            "$WINDOWS_RELEASE_CONTRACT" "$COVERAGE" "$WINDOWS_PORTABILITY"; do
             test "$result" = "$expected_python"
           done
           test "$PYTHON_PACKAGE_TESTS" = "$expected_groups"
