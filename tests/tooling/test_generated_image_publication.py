@@ -286,15 +286,17 @@ def test_publication_workflow_publishes_attested_images_after_digest_scans() -> 
     triggers = _workflow_triggers(workflow)
     jobs = workflow["jobs"]
 
-    assert {"push", "workflow_dispatch", "workflow_call"} <= set(triggers)
-    assert "release" not in triggers
-    assert "pull_request" not in triggers
+    assert set(triggers) == {"workflow_call"}
+    assert triggers["workflow_call"]["inputs"]["candidate_sha"]["required"] is True
+    assert triggers["workflow_call"]["inputs"]["distributions_artifact"]["required"] is True
 
     prepare_steps = _job_steps(jobs["prepare"])
     checkout = _step_using(prepare_steps, "actions/checkout@")
     assert (checkout.get("with") or {}).get("fetch-depth") == 0
     matrix_step = _step_with_id(prepare_steps, "matrix")
-    assert "PUBLISH_SERVICES" in (matrix_step.get("env") or {})
+    assert 'uv --project "$GITHUB_WORKSPACE" build' not in matrix_step["run"]
+    download = _step_named(prepare_steps, "Download build-once candidate distributions")
+    assert "if" not in download
     jq_lines = [
         line.strip()
         for line in matrix_step["run"].splitlines()

@@ -1,19 +1,6 @@
-name: Publish Development Service Images
+name: Build Staged Service Images
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "packages/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "scripts/generated_image_matrix.py"
-  workflow_dispatch:
-    inputs:
-      services:
-        description: Optional comma-separated generated services to republish
-        required: false
-        type: string
   workflow_call:
     inputs:
       candidate_sha:
@@ -48,7 +35,7 @@ jobs:
 
       - name: Select protected candidate data
         env:
-          CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/main
@@ -56,11 +43,10 @@ jobs:
           git merge-base --is-ancestor "$CANDIDATE_SHA" origin/main
           # Keep workflow scripts at the trusted workflow commit.
           mkdir -p "$RUNNER_TEMP/trusted-scripts"
-          cp scripts/generated_image_matrix.py scripts/container_security.py "$RUNNER_TEMP/trusted-scripts/"
+          cp scripts/generated_image_matrix.py "$RUNNER_TEMP/trusted-scripts/"
           git checkout --detach "$CANDIDATE_SHA"
 
       - name: Download build-once candidate distributions
-        if: inputs.distributions_artifact != ''
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: ${{ inputs.distributions_artifact }}
@@ -80,23 +66,10 @@ jobs:
       - name: Render every installed service through the public CLI
         id: matrix
         env:
-          PUBLISH_SERVICES: ${{ inputs.services || '' }}
-          EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-          STAGED_DISTRIBUTIONS: ${{ inputs.distributions_artifact }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" == "push" ]]; then
-            changed="$(uv run --no-project --with pyyaml==6.0.3 python "$RUNNER_TEMP/trusted-scripts/container_security.py" affected-images --base "$BEFORE")"
-            PUBLISH_SERVICES="$(jq -r '.include[].service' <<< "$changed" | paste -sd, -)"
-          fi
-          if [[ "$EVENT_NAME" == "push" && -z "$PUBLISH_SERVICES" ]]; then
-            echo 'targets=[]' >> "$GITHUB_OUTPUT"
-            echo 'has_targets=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           project="$RUNNER_TEMP/generated-service-project"
           mkdir -p "$project"
           cd "$project"
@@ -115,12 +88,8 @@ jobs:
           # last PyPI release (which can omit modules introduced by the image
           # revision itself).
           wheelhouse="$project/.phlo/wheelhouse"
-          if [[ -n "$STAGED_DISTRIBUTIONS" ]]; then
-            mkdir -p "$wheelhouse"
-            cp "$RUNNER_TEMP"/candidate-distributions/*.whl "$wheelhouse/"
-          else
-            uv --project "$GITHUB_WORKSPACE" build --all-packages --wheel --out-dir "$wheelhouse"
-          fi
+          mkdir -p "$wheelhouse"
+          cp "$RUNNER_TEMP"/candidate-distributions/*.whl "$wheelhouse/"
           phlo_version="$(
             uv --project "$GITHUB_WORKSPACE" run --locked python \
               -c 'from importlib.metadata import version; print(version("phlo"))'
@@ -140,19 +109,14 @@ jobs:
             --project-directory "$project/.phlo" \
             --env-file "$project/.phlo/.env.local" \
             config --format json > "$RUNNER_TEMP/generated-compose.json"
-          matrix_args=()
-          if [[ -n "$PUBLISH_SERVICES" ]]; then
-            matrix_args+=(--services "$PUBLISH_SERVICES")
-          fi
           matrix="$(
             uv --project "$GITHUB_WORKSPACE" run --locked python \
               "$RUNNER_TEMP/trusted-scripts/generated_image_matrix.py" \
               "$RUNNER_TEMP/generated-compose.json" \
               "$project" \
-              "$GITHUB_WORKSPACE" \
-              "${matrix_args[@]}"
+              "$GITHUB_WORKSPACE"
           )"
-          # Development builds can never mutate a release repository/tag.
+          # Staging can never mutate a release repository/tag.
           matrix="$(jq --arg sha "$CANDIDATE_SHA" '.include |= map(.image = ((.image | split("@")[0] | split(":")[0]) + "-development:" + $sha))' <<< "$matrix")"
           echo "targets=$(jq -c '.include' <<< "$matrix")" >> "$GITHUB_OUTPUT"
           echo 'has_targets=true' >> "$GITHUB_OUTPUT"
@@ -254,7 +218,7 @@ jobs:
             runtime
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ inputs.candidate_sha || github.sha }}
+            org.opencontainers.image.revision=${{ inputs.candidate_sha }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=${{ matrix.target.service }}-${{ matrix.architecture.name }}
