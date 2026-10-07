@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      reused: ${{ steps.decision.outputs.reused }}
+      reused: ${{ steps.evidence.outputs.reused }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -37,15 +37,6 @@ jobs:
         run: >-
           uv run --no-project --with pyyaml==6.0.3 python scripts/ci_evidence.py reuse
           --output reuse-decision.json
-      - name: Keep evidence reuse in shadow mode until rollout is enabled
-        id: decision
-        env:
-          VALIDATED: ${{ steps.evidence.outputs.reused }}
-          ENABLED: ${{ vars.CI_REUSE_QUEUE_EVIDENCE }}
-        run: |
-          reused=false
-          if [ "$ENABLED" = true ] && [ "$VALIDATED" = true ]; then reused=true; fi
-          echo "reused=$reused" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: steps.evidence.outcome == 'success'
         with:

@@ -43,10 +43,10 @@ the producer, artifact checksum, exact attempt and live job results. Selected PR
 evidence, incomplete matrices, changed policies and assessments older than
 24 hours are rejected. Missing evidence always runs full validation.
 
-Reuse starts in **shadow mode**: main still runs full checks and records its
-reuse decision. After comparing real queue/main pairs, an authorised maintainer
-can set repository variable `CI_REUSE_QUEUE_EVIDENCE=true` to omit only the
-identical full source rerun. No variable is changed by this implementation.
+Main automatically reuses authenticated full queue evidence for the identical
+commit. No rollout variable or maintainer action is required. The full fallback
+still runs when evidence is missing, invalid or expired, including direct pushes
+and merges that produce a different SHA.
 
 ## Dependencies and upstream ownership
 
@@ -112,12 +112,12 @@ public digests fail closed. Never restage or rebuild to recover publication.
 1. Merge dependency remediation [#1063](https://github.com/phlohouse/phlo/pull/1063)
    first. Do not grandfather its vulnerable baseline or add resolver overrides.
 2. Merge the CI contract changes through the existing required queue check.
-3. Observe shadow decisions and required job inventories on real GitHub runs.
+3. Observe reuse decisions and required job inventories on real GitHub runs.
    Validate Windows/native arm64 there; an x64 orb cannot prove those platforms.
 4. Configure protected release approval and optional human agent-intake identity.
    Exercise staging, acceptance and dry-run promotion before publishing.
 5. Collect two weeks of timings, queue delay, first actionable failure, cache
-   hit rate and retries before tuning shard weights or enabling evidence reuse.
+   hit rate and retries before tuning shard weights.
 
 Target selected-PR median ≤5 minutes and p95 ≤8; full-queue median ≤8 and p95
 ≤12. These are measurement goals, not verified savings. Preserve behavioural
