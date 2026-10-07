@@ -53,6 +53,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+from pathlib import Path
 import re
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -75,8 +76,10 @@ from phlo.capabilities import (
 from phlo.capabilities.interfaces import MaintenanceExecutor
 from phlo.capabilities.interfaces import TableStoreSupport
 from phlo.capabilities.interfaces import TableStateObservation
+from phlo.capabilities.history import HistoryPolicy, HistoryWriteError
 from phlo.logging import get_logger
 from phlo_iceberg.catalog import get_catalog
+from phlo_iceberg.history import history_to_table
 from phlo_iceberg.settings import get_settings
 from phlo_iceberg.schema_alignment import SCHEMA_POLICIES, SchemaPolicy
 from phlo_iceberg.tables import (
@@ -592,6 +595,7 @@ class IcebergResource:
             supports_compaction=True,
             supports_vacuum=False,
             schema_policies=SCHEMA_POLICIES,
+            supports_history=True,
         )
 
     def get_catalog(self, override_ref: str | None = None) -> Catalog:
@@ -790,6 +794,55 @@ class IcebergResource:
             source=data_path,
             rows_inserted=result.get("rows_inserted", 0),
             rows_deleted=result.get("rows_deleted", 0),
+        )
+        return result
+
+    def history_parquet(
+        self,
+        *,
+        table_name: str,
+        data_paths: list[Path],
+        policy: HistoryPolicy,
+        override_ref: str | None = None,
+        schema_policy: SchemaPolicy = "strict",
+        evidence_context: dict[str, Any] | None = None,
+    ) -> dict[str, int]:
+        """Atomically insert unseen entity/version pairs across all staged files."""
+        branch = override_ref or self.ref
+        before = _safe_table_state(self, branch, table_name, phase="before")
+        try:
+            result = history_to_table(
+                table_name, data_paths, policy, ref=branch, schema_policy=schema_policy
+            )
+        except Exception as exc:
+            metadata: dict[str, Any] = {"outcome": "failed"}
+            metrics = None
+            if isinstance(exc, HistoryWriteError):
+                metrics = exc.metrics
+                if exc.reconciliation is not None:
+                    metadata.update(outcome="unknown", reconciliation=exc.reconciliation)
+            emit_mutation(
+                context=evidence_context,
+                table_name=table_name,
+                ref=branch,
+                operation="history",
+                status="failed",
+                before=before,
+                after=_safe_table_state(self, branch, table_name, phase="after"),
+                metrics=metrics,
+                error=exc,
+                extra_metadata=metadata,
+            )
+            raise
+        emit_mutation(
+            context=evidence_context,
+            table_name=table_name,
+            ref=branch,
+            operation="history",
+            status="success",
+            before=before,
+            after=_safe_table_state(self, branch, table_name, phase="after"),
+            metrics=result,
         )
         return result
 

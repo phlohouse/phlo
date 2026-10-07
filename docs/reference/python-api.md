@@ -9,7 +9,7 @@ The public APIs below are defined in `phlo`, `phlo-dlt`, `phlo-sling`, and `phlo
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `table_name` | `str` | required | Destination table name. |
-| `unique_key` | `str` | required | Merge and deduplication key. |
+| `unique_key` | `str` | required | Merge and deduplication key. History uses explicit identity in `merge_config`. |
 | `group` | `str` | required | Asset group. |
 | `validation_schema` | `type[Any] \| None` | `None` | Pandera validation schema. |
 | `table_schema` | `Any \| None` | `None` | Explicit table-store schema. |
@@ -21,8 +21,8 @@ The public APIs below are defined in `phlo`, `phlo-dlt`, `phlo-sling`, and `phlo
 | `retry_delay_seconds` | `int` | `30` | Delay between retries. |
 | `validate` | `bool` | `True` | Enable validation. |
 | `strict_validation` | `bool` | `True` | Make validation failures blocking. |
-| `merge_strategy` | `Literal["append", "merge"]` | `"merge"` | Append rows or merge on `unique_key`. |
-| `merge_config` | `dict[str, Any] \| None` | `None` | Merge behaviour overrides. |
+| `merge_strategy` | `Literal["append", "merge", "history"]` | `"merge"` | Append rows, upsert on `unique_key`, or insert immutable versions. |
+| `merge_config` | `dict[str, Any] \| None` | `None` | Merge overrides or required [history policy](#immutable-history-mode). |
 | `schema_policy` | `Literal["strict", "additive", "drop_extra"]` | `"strict"` | Schema handling for opted-in table stores. See [Iceberg write schema policies](#iceberg-write-schema-policies). |
 | `add_metadata_columns` | `bool` | `True` | Add Phlo metadata columns. |
 | `owner` | `str \| None` | `None` | Owning team. |
@@ -44,6 +44,35 @@ import phlo
 def load_events(partition_date: str) -> object:
     return read_events(partition_date)
 ```
+
+### Immutable history mode
+
+`merge_strategy="history"` inserts only unseen `(entity_key, version_key)` pairs. It skips committed identical versions and identical duplicates within the batch. Any payload conflict rejects the entire batch before a data or metadata commit. Distinct late versions remain stored regardless of arrival order. An identical replay keeps the first committed row, including its original arrival metadata.
+
+| `merge_config` option | Requirement |
+| --- | --- |
+| `entity_key` | Explicit entity column name. |
+| `version_key` | Explicit immutable version column name, distinct from `entity_key`. |
+| `payload_columns` | Nonempty list of distinct comparison column names. Mutually exclusive with `payload_hash_column`. Order does not affect the policy. |
+| `payload_hash_column` | Column containing a supplied stable string or binary payload hash. Mutually exclusive with `payload_columns`. The project owns hashing and collision risk. |
+
+Every staged file must supply the selected columns. Identity and hash values cannot be null, empty, or non-finite. Identity values must be scalar. Payload values compare after safe schema alignment, with null equal to null and floating-point NaN equal to NaN, including nested values. Reserved `_phlo_` and `_dlt_` columns cannot define history identity or comparison. Other arrival metadata is excluded by selecting only payload fields. No identity generation or latest-version ordering is provided.
+
+All staged files from one ingestion write form one batch. The provider reads them into memory, so batch size must fit available memory. Iceberg scans only identity and comparison fields for incoming version keys, in groups of at most 1,000 keys. Schema-policy validation applies before the history write. Compatible additions, policy binding, and inserted rows publish in one transaction. A replay with no new versions publishes no schema or policy changes.
+
+`IcebergResource.history_parquet` accepts `table_name`, `data_paths`, a `HistoryPolicy` from `phlo.capabilities.history`, `override_ref`, `schema_policy`, and optional `evidence_context`. The storage helper is `phlo_iceberg.history.history_to_table`. Providers opt in with `TableStoreSupport.supports_history` and the optional `HistoryTableStore` protocol. Existing table-store providers need not implement a new mandatory method. Unsupported providers fail explicitly before table creation or writes.
+
+Successful writes report `rows_inserted`, `rows_skipped`, `rows_conflicting`, and `rows_deleted=0` through operation evidence and materialisation metadata. Counts describe incoming rows, not attempts. For an unseen pair repeated three times, one row is inserted and two are skipped. For a committed identical pair repeated three times, all three are skipped. On conflict, `HistoryConflictError.metrics` reports zero inserted rows and counts all incoming rows belonging to conflicting pairs. Nonconflicting replay or duplicate rows contribute to `rows_skipped`; unseen rows rejected with the batch are not counted as inserted or skipped.
+
+**Concurrency.** PyIceberg 0.11.1 append asserts the original snapshot head, including the absence of a snapshot on an empty table. Lookup is pinned to that head and uses the same loaded metadata as the transaction. A definite commit conflict reloads the table and repeats preparation, policy validation, lookup, comparison, and insertion. There are at most three whole-operation attempts. Append alone is never retried. Retry exhaustion fails explicitly.
+
+An ambiguous commit exception, including a lost transport response, triggers fresh policy and version readback. `HistoryCommitUnknownError` then fails the operation, even if the versions are now present. Evidence records observed presence, missing versions, or readback failure under `reconciliation`, with `outcome="unknown"`. It does not invent inserted or skipped counts from an uncertain commit. A subsequent explicit replay performs the complete comparison again.
+
+**Policy metadata and migration.** Iceberg properties `phlo.history.policy` and `phlo.history.policy.sha256` contain the canonical policy and its SHA-256 fingerprint. The definition includes entity and version columns, comparison mode, payload fields, Iceberg field IDs, types, and policy format version. The first nonempty insertion binds these properties atomically. An unmarked nonempty table is rejected rather than adopted. Missing or incompatible policy metadata requires migration.
+
+Policy changes require quiesced writers and validated data/schema migration before rebinding the properties. A snapshot guard does not detect property-only changes. Renames, replaced field IDs, changed comparison types, and altered identity or payload selection cannot silently redefine existing history. Migration must validate uniqueness and payload consistency under the new policy. This API provides no live policy-edit or migration bypass.
+
+The uniqueness guarantee applies to cooperating history writers on the same table/ref. Ordinary append, merge, overwrite, rollback, external writers, and independent refs do not enforce history semantics. They must not mutate a table concurrently with history ingestion or migration.
 
 ### Iceberg write schema policies
 
