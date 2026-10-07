@@ -42,6 +42,9 @@ import platform as platform_module  # noqa: E402
 
 import release_candidate_bom as bom_module  # noqa: E402
 import release_evidence  # noqa: E402
+
+# reason: Import candidate helpers after establishing the script path for importlib loads.
+import validate_support_manifest  # noqa: E402
 from golden_path_common import SHARED_LAYOUT_MARKER as SHARED_LAYOUT_MARKER  # noqa: E402
 from golden_path_common import env_destination, project_env_paths  # noqa: E402
 from golden_path_common import read_env_file as parse_env_values  # noqa: E402
@@ -179,6 +182,9 @@ def compose_command(config: RunConfig, *parts: str) -> list[str]:
     for layer in project_compose_layers(config.project_dir / ".phlo"):
         if layer.is_file():
             cmd.extend(["--file", str(layer)])
+    candidate_layer = config.project_dir / ".phlo" / "compose.candidate.json"
+    if config.bom is not None and candidate_layer.is_file():
+        cmd.extend(["--file", str(candidate_layer)])
     for env_file in project_env_paths(config.project_dir / ".phlo"):
         if env_file.is_file():
             cmd.extend(["--env-file", str(env_file)])
@@ -520,8 +526,11 @@ def configure_non_dev_compose(
     )
     destination = config.project_dir / ".phlo" / "wheelhouse"
     shutil.copytree(config.wheelhouse, destination)
-    with (config.repo_root / "pyproject.toml").open("rb") as stream:
-        version = tomllib.load(stream)["project"]["version"]
+    if config.bom is not None:
+        version = bom_release_version(config.bom)
+    else:
+        with (config.repo_root / "pyproject.toml").open("rb") as stream:
+            version = tomllib.load(stream)["project"]["version"]
     env_local = env_secrets_path(config.project_dir / ".phlo")
     with env_local.open("a", encoding="utf-8") as stream:
         stream.write(f"\nPHLO_VERSION={version}\nPHLO_WHEELHOUSE=wheelhouse\n")
@@ -1295,8 +1304,7 @@ def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dic
                     "candidate mode never consumes a mutable tag"
                 )
             replacement = image
-        if image not in replacements:
-            replacements[image] = replacement
+        replacements[service_name] = replacement
         pinned.append(
             {
                 "kind": entry["kind"]
@@ -1307,33 +1315,26 @@ def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dic
                 "service": service_name,
             }
         )
-    compose_file = config.compose_file
-    lines = compose_file.read_text(encoding="utf-8").splitlines(keepends=True)
-    replaced = 0
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped.startswith("image:"):
-            continue
-        value = stripped[len("image:") :].strip().strip("'\"")
-        if value in replacements:
-            indent = line[: len(line) - len(line.lstrip())]
-            lines[index] = f"{indent}image: {replacements[value]}\n"
-            replaced += 1
-    if replaced != len(replacements):
-        raise CandidateError(
-            f"compose image pinning replaced {replaced} of {len(replacements)} references"
+    candidate_layer = config.project_dir / ".phlo" / "compose.candidate.json"
+    candidate_layer.write_text(
+        json.dumps(
+            {"services": {name: {"image": image} for name, image in replacements.items()}},
+            indent=2,
         )
-    compose_file.write_text("".join(lines), encoding="utf-8")
+        + "\n",
+        encoding="utf-8",
+    )
     normalized = compose_config_json(config)
     normalized_services = normalized.get("services", {})
-    for service_name, service in sorted(normalized_services.items()):  # type: ignore[union-attr]
-        if not isinstance(service, dict):
-            continue
-        image = str(service.get("image", ""))
-        if "@sha256:" not in image:
-            raise CandidateError(
-                f"service {service_name!r} still references mutable image {image!r}"
-            )
+    if not isinstance(normalized_services, dict):
+        raise CandidateError("normalized Compose configuration has no service mapping")
+    actual = {
+        name: service.get("image")
+        for name, service in normalized_services.items()
+        if isinstance(service, dict)
+    }
+    if actual != replacements:
+        raise CandidateError("normalized Compose images do not match the candidate BOM pins")
     return (
         {
             "digest_pinned_images": sorted(set(replacements.values())),
@@ -1658,10 +1659,10 @@ def run_supported_upgrade(config: RunConfig, set_dir: Path, target_dir: Path) ->
 
 
 def verify_support_boundary(config: RunConfig) -> dict[str, object]:
-    """Run the committed support validator against the release commit tree."""
+    """Run the trusted validator with the inspected commit tree as data only."""
     bom = config.bom
     assert bom is not None and config.staging_dir is not None
-    release_ref = str(bom.get("release_ref") or bom.get("release_commit"))
+    release_ref = str(bom["release_commit"])
     tree_dir = config.staging_dir.parent / f"release-tree-{str(bom['release_commit'])[:12]}"
     archive_path = tree_dir.with_suffix(".tar")
     if not tree_dir.exists():
@@ -1672,15 +1673,18 @@ def verify_support_boundary(config: RunConfig) -> dict[str, object]:
         tree_dir.mkdir(parents=True, exist_ok=True)
         with tarfile.open(archive_path) as archive:
             archive.extractall(tree_dir, filter="data")  # noqa: S202
-    result = run(
-        command(sys.executable, str(tree_dir / "scripts" / "validate_support_manifest.py")),
-        cwd=tree_dir,
-        capture_output=True,
-    )
+    manifest_path = tree_dir / bom_module.SUPPORT_MANIFEST_PATH
+    expected = bom_artifacts(bom, bom_module.KIND_SUPPORT_MANIFEST)
+    if len(expected) != 1 or bom_module.file_sha256(manifest_path) != expected[0]["digest"]:
+        raise CandidateError("support manifest bytes do not match the BOM")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    errors = validate_support_manifest.validate_manifest(manifest, repo_root=tree_dir)
+    if errors:
+        raise CandidateError(f"support boundary validation failed: {errors!r}")
     return {
         "validator": "scripts/validate_support_manifest.py",
         "release_ref": release_ref,
-        "exit_code": result.returncode,
+        "exit_code": 0,
     }
 
 

@@ -1,0 +1,128 @@
+name: Release Stage
+run-name: stage ${{ inputs.candidate_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full reviewed main commit SHA. One staging attempt per SHA, never a ref/tag.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-stage-${{ inputs.candidate_sha }}
+  cancel-in-progress: false
+
+jobs:
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      base-sha: ${{ inputs.candidate_sha }}
+      head-sha: ${{ inputs.candidate_sha }}
+      mode: release
+
+  reserve:
+    needs: security
+    if: github.repository == 'phlohouse/phlo' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Reserve candidate without restaging
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: python3 scripts/release_stage.py reserve --candidate-sha "$CANDIDATE_SHA"
+
+  distributions:
+    needs: reserve
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Build candidate distributions once in a read-only job
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$CANDIDATE_SHA" origin/main
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$CANDIDATE_SHA")"
+          export SOURCE_DATE_EPOCH
+          mkdir -p "$RUNNER_TEMP/tree"
+          git archive "$CANDIDATE_SHA" | tar -x -C "$RUNNER_TEMP/tree"
+          uv build --directory "$RUNNER_TEMP/tree" --all-packages --out-dir "$RUNNER_TEMP/distributions"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: distributions-${{ inputs.candidate_sha }}
+          path: ${{ runner.temp }}/distributions
+          if-no-files-found: error
+          retention-days: 90
+
+  images:
+    needs: distributions
+    uses: ./.github/workflows/build-core-services.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      distributions_artifact: distributions-${{ inputs.candidate_sha }}
+
+  pin:
+    needs: [distributions, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: distributions-${{ inputs.candidate_sha }}
+          path: distributions
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: generated-service-images
+          path: images
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Pin the scanned image digests and built distribution bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: >-
+          python3 scripts/release_stage.py pin --candidate-sha "$CANDIDATE_SHA"
+          --images images/generated-service-images.json --distributions distributions --output candidate
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: candidate-${{ inputs.candidate_sha }}
+          path: candidate
+          if-no-files-found: error
+          retention-days: 90

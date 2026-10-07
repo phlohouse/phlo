@@ -21,6 +21,14 @@ permissions:
   contents: read
 
 jobs:
+  assessment:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      mode: queue
+
   dependency-refresh:
     name: dependency refresh / plan
     runs-on: ubuntu-latest
@@ -31,7 +39,9 @@ jobs:
           persist-credentials: false
 
       - name: Print dependency refresh plan
-        run: make dependency-refresh LANE="${{ inputs.lane }}"
+        env:
+          LANE: ${{ inputs.lane }}
+        run: make dependency-refresh LANE="$LANE"
 
       - name: Validate dependency refresh lanes
         run: make dependency-refresh-check

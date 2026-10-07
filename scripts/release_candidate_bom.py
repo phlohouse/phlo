@@ -173,7 +173,9 @@ def resolve_image_digest(reference: str) -> str:
     return match.group(1)
 
 
-def _pypi_release_files(project: str, version: str) -> dict[str, tuple[str, str]]:
+def _pypi_release_files(
+    project: str, version: str, *, allow_missing: bool = False
+) -> dict[str, tuple[str, str]]:
     """Return {filename: (sha256 hex, download url)} for one PyPI release."""
     url = f"https://pypi.org/pypi/{project}/{version}/json"
     request = urllib.request.Request(url, headers={"Accept": "application/json"})  # noqa: S310
@@ -181,6 +183,8 @@ def _pypi_release_files(project: str, version: str) -> dict[str, tuple[str, str]
         with urllib.request.urlopen(request, timeout=PYPI_TIMEOUT_SECONDS) as response:  # noqa: S310
             payload = json.load(response)
     except urllib.error.HTTPError as exc:
+        if allow_missing and exc.code == 404:
+            return {}
         raise BomError(f"PyPI has no {project} {version} release: HTTP {exc.code}") from exc
     except urllib.error.URLError as exc:
         raise BomError(f"could not query PyPI for {project} {version}: {exc.reason}") from exc
@@ -271,6 +275,7 @@ def _build_distributions_from_tree(
     projects: list[str],
     version: str,
     distributions_dir: Path,
+    built_distributions: Path | None = None,
 ) -> list[dict[str, object]]:
     """Build each release-set package once from the pinned tree and stage the bytes.
 
@@ -287,32 +292,27 @@ def _build_distributions_from_tree(
     )
     with tempfile.TemporaryDirectory(prefix="phlo-candidate-build-") as export_dir_name:
         export_dir = Path(export_dir_name)
-        archive = subprocess.run(
-            ["git", "archive", tree.release_ref or "HEAD"],
-            cwd=tree.repo_root,
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            ["tar", "-x", "-C", str(export_dir)],
-            input=archive.stdout,
-            capture_output=True,
-            check=True,
-        )
-        built_dir = export_dir / "dist"
-        built_dir.mkdir(exist_ok=True)
-        subprocess.run(
-            [
-                "uv",
-                "build",
-                "--all-packages",
-                "--out-dir",
-                str(built_dir),
-            ],
-            cwd=export_dir,
-            capture_output=True,
-            check=True,
-        )
+        built_dir = built_distributions or export_dir / "dist"
+        if built_distributions is None:
+            archive = subprocess.run(
+                ["git", "archive", tree.release_ref or "HEAD"],
+                cwd=tree.repo_root,
+                capture_output=True,
+                check=True,
+            )
+            subprocess.run(
+                ["tar", "-x", "-C", str(export_dir)],
+                input=archive.stdout,
+                capture_output=True,
+                check=True,
+            )
+            built_dir.mkdir(exist_ok=True)
+            subprocess.run(
+                ["uv", "build", "--all-packages", "--out-dir", str(built_dir)],
+                cwd=export_dir,
+                capture_output=True,
+                check=True,
+            )
         built = sorted(path for path in built_dir.iterdir() if path.is_file())
 
         staged: list[dict[str, object]] = []
@@ -361,6 +361,8 @@ def build_bom_artifacts(  # noqa: C901
     *,
     distributions_dir: Path | None = None,
     build_from_tree: bool = False,
+    built_distributions: Path | None = None,
+    image_digests: dict[str, str] | None = None,
 ) -> list[dict[str, object]]:
     """Enumerate the exact artifact inventory at the pinned identity."""
     support_bytes = tree.read(SUPPORT_MANIFEST_PATH)
@@ -408,14 +410,16 @@ def build_bom_artifacts(  # noqa: C901
         }
     )
 
-    if build_from_tree:
+    if build_from_tree or built_distributions is not None:
         if distributions_dir is None:
             raise BomError(
                 "staging a candidate BOM requires a distributions directory; "
                 "call stage() rather than enumerating artifacts alone"
             )
         artifacts.extend(
-            _build_distributions_from_tree(tree, package_names, version, distributions_dir)
+            _build_distributions_from_tree(
+                tree, package_names, version, distributions_dir, built_distributions
+            )
         )
     else:
         for project in sorted(package_names):
@@ -458,7 +462,9 @@ def build_bom_artifacts(  # noqa: C901
                     "kind": KIND_FIRST_PARTY_IMAGE,
                     "name": name,
                     "version": tag,
-                    "digest": resolve_image_digest(reference),
+                    "digest": image_digests[name]
+                    if image_digests is not None
+                    else resolve_image_digest(reference),
                     "source": relative_path,
                 }
             else:
@@ -641,6 +647,8 @@ def stage(
     output_dir: Path,
     *,
     build_from_tree: bool = False,
+    built_distributions: Path | None = None,
+    image_digests: dict[str, str] | None = None,
 ) -> StagedCandidate:
     """Stage one immutable candidate BOM into an append-only staging directory."""
     tree = ReleaseTree(repo_root, release_ref)
@@ -650,7 +658,11 @@ def stage(
     distributions_dir = output_dir / "distributions"
     distributions_dir.mkdir(parents=True, exist_ok=True)
     artifacts = build_bom_artifacts(
-        tree, distributions_dir=distributions_dir, build_from_tree=build_from_tree
+        tree,
+        distributions_dir=distributions_dir,
+        build_from_tree=build_from_tree,
+        built_distributions=built_distributions,
+        image_digests=image_digests,
     )
 
     commit = _run_git(

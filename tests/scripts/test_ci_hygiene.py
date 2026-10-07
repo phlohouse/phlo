@@ -60,6 +60,22 @@ def test_header_baseline_only_allows_unchanged_bytes(tmp_path) -> None:
     assert headers.main([str(new)]) == 1
 
 
+def test_skip_guard_ignores_fixture_strings_but_checks_real_calls_and_decorators(tmp_path):
+    source = (
+        "fixture = \"pytest.skip('local')\"\n"
+        "@pytest.mark.skip\ndef test_contract(): pass\n"
+        'pytest.skip("unavailable")\n'
+    )
+    (tmp_path / "module.py").write_text(source)
+    diff = "+++ b/module.py\n@@ -0,0 +1,4 @@\n" + "".join(
+        "+" + line + "\n" for line in source.splitlines()
+    )
+    violations = added_suppressions(diff, tmp_path)
+    assert len(violations) == 2
+    assert violations[0].startswith("module.py:2:")
+    assert violations[1].startswith("module.py:4:")
+
+
 def test_first_party_warning_fails_pytest(tmp_path) -> None:
     warning_test = tmp_path / "test_warning.py"
     warning_test.write_text(

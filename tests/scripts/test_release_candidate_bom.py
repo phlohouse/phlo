@@ -316,3 +316,20 @@ def test_cli_verify_fails_closed_on_a_tampered_bom(tmp_path: Path, capsys) -> No
     exit_code = release_candidate_bom.main(["verify", "--bom", str(bom_path)])
     assert exit_code == 1
     assert "error" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 429, 500])
+def test_pypi_missing_release_is_only_tolerated_for_explicit_404(monkeypatch, status):
+    def unavailable(*args, **kwargs):
+        raise release_candidate_bom.urllib.error.HTTPError(
+            "https://pypi.org/pypi/phlo/0.14.0/json", status, "unavailable", {}, None
+        )
+
+    monkeypatch.setattr(release_candidate_bom.urllib.request, "urlopen", unavailable)
+    with pytest.raises(release_candidate_bom.BomError):
+        release_candidate_bom._pypi_release_files("phlo", "0.14.0")
+    if status == 404:
+        assert release_candidate_bom._pypi_release_files("phlo", "0.14.0", allow_missing=True) == {}
+    else:
+        with pytest.raises(release_candidate_bom.BomError):
+            release_candidate_bom._pypi_release_files("phlo", "0.14.0", allow_missing=True)

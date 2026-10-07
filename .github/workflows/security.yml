@@ -3,6 +3,16 @@ name: Security
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      base-sha:
+        type: string
+        default: ''
+      head-sha:
+        type: string
+        default: ''
+      mode:
+        type: string
+        default: release
   schedule:
     - cron: "0 1 * * *"
 
@@ -17,117 +27,60 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
           enable-cache: false
-
       - name: Audit workflow security with zizmor
         run: make zizmor
 
-  python-dependencies:
-    name: security / python dependencies
+  dependencies:
+    name: security / dependency assessment
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
+      # The caller must be trusted. Inspected revisions are read as Git data only.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-          enable-cache: false
-
-      - name: Audit Python dependencies
-        shell: bash
+          fetch-depth: 0
+      - name: Assess every tracked lock at the exact revision
+        env:
+          BASE_SHA: ${{ inputs.base-sha }}
+          HEAD_SHA: ${{ inputs.head-sha }}
+          MODE: ${{ inputs.mode || 'queue' }}
+          EVENT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          while IFS= read -r lockfile; do
-            project_dir="$(dirname "$lockfile")"
-            echo "::group::Audit $lockfile"
-            uv audit --frozen --project "$project_dir"
-            echo "::endgroup::"
-          done < <(git ls-files "*uv.lock")
-
-  observatory-dependencies:
-    name: security / npm dependencies (${{ matrix.project }})
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [packages/phlo-observatory/src/phlo_observatory, apps/phlo-github-writer]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: ${{ matrix.project }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+          head="${HEAD_SHA:-$EVENT_SHA}"
+          base="${BASE_SHA:-$head}"
+          python3 scripts/dependency_delta.py --base "$base" --head "$head" --mode "$MODE" --output dependency-assessment.json
+      - name: Preserve assessment even when risks block
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
-        with:
-          node-version: "24"
-          package-manager-cache: false
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Audit npm dependencies
-        run: npm audit --audit-level=high
-
-  docs-dependencies:
-    name: security / docs site generation
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-          enable-cache: false
-
-      - name: Install pymdx
-        run: uv tool install "pymdx==0.1.4"
-
-      - name: Generate docs site
-        run: pymdx generate src/phlo --docs docs --output docs-site
-
-      - name: Build docs site
-        run: pymdx build docs-site
+          name: dependency-assessment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dependency-assessment.json
+          if-no-files-found: error
 
   security-status:
     name: security / status
     if: always()
-    needs:
-      - workflow-hardening
-      - python-dependencies
-      - observatory-dependencies
-      - docs-dependencies
+    needs: [workflow-hardening, dependencies]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every security check to succeed
+      - name: Require complete successful independent checks
         env:
-          WORKFLOW_HARDENING: ${{ needs.workflow-hardening.result }}
-          PYTHON_DEPENDENCIES: ${{ needs.python-dependencies.result }}
-          OBSERVATORY_DEPENDENCIES: ${{ needs.observatory-dependencies.result }}
-          DOCS_DEPENDENCIES: ${{ needs.docs-dependencies.result }}
+          HARDENING: ${{ needs.workflow-hardening.result }}
+          DEPENDENCIES: ${{ needs.dependencies.result }}
         run: |
-          set -euo pipefail
-          for result in "$WORKFLOW_HARDENING" "$PYTHON_DEPENDENCIES" "$OBSERVATORY_DEPENDENCIES" "$DOCS_DEPENDENCIES"; do
-            if [ "$result" != "success" ]; then
-              echo "::error::Required security check finished with result: $result"
-              exit 1
-            fi
-          done
+          test "$HARDENING" = success
+          test "$DEPENDENCIES" = success

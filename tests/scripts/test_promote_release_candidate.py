@@ -8,10 +8,13 @@ promotion receipt, partial-publication semantics, candidate locking, and the
 fail-closed authorization rules.
 """
 
+import hashlib
 import importlib.util
+import io
 import json
 import subprocess
 import sys
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -581,6 +584,19 @@ def test_execute_without_authorization_fails_closed(tmp_path: Path) -> None:
     assert code == 1
 
 
+def test_execute_with_hand_written_authorization_cannot_publish(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _, _, bom = _stage_candidate(tmp_path)
+    bundles = _qualifying_bundles(bom)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    code, receipt = _run_promotion(
+        tmp_path, bundles, execute=True, authorization=_authorization(bom, bundles)
+    )
+    assert code == 1
+    assert not receipt.exists()
+
+
 def test_partial_publication_cannot_yield_a_success_receipt(tmp_path: Path) -> None:
     staging, bom_path, bom = _stage_candidate(tmp_path)
     bundles = _qualifying_bundles(bom)
@@ -688,3 +704,294 @@ def test_existing_release_tag_still_blocks_promotion(tmp_path: Path) -> None:
     with pytest.raises(promote_release_candidate.PromotionGateError) as failure:
         promote_release_candidate.promote(bom, bom_path, staging, executor)
     assert failure.value.reason == "tag_exists"
+
+
+class PublishedSystems(promote_release_candidate.ExecutingExecutor):
+    """Offline public state, including uploads that succeed before an outage."""
+
+    def __init__(self, monkeypatch):
+        self.tag = ""
+        self.files = {}
+        self.images = {}
+        self.release = None
+        self.outage = True
+        self.asset_outage = False
+        self.commands = []
+        monkeypatch.setattr(
+            release_candidate_bom, "_pypi_release_files", lambda *a, **kw: self.files
+        )
+        monkeypatch.setattr(release_candidate_bom, "resolve_image_digest", self.resolve)
+
+    def resolve(self, reference):
+        if reference not in self.images:
+            raise release_candidate_bom.BomError("manifest unknown")
+        return self.images[reference]
+
+    def run(self, command):
+        self.commands.append(command)
+        if command[:2] == ["git", "ls-remote"]:
+            return f"{self.tag}\trefs/tags/v0.15.0\n" if self.tag else ""
+        if command[:2] == ["git", "push"]:
+            self.tag = COMMIT
+        elif command[:2] == ["uv", "publish"]:
+            for filename in command[2:]:
+                path = Path(filename)
+                assert path.name not in self.files
+                self.files[path.name] = (
+                    release_candidate_bom.file_sha256(path),
+                    "https://example.test/file",
+                )
+                if self.outage:
+                    self.outage = False
+                    raise promote_release_candidate.PublishBlockedError(
+                        "outage after first PyPI file"
+                    )
+        elif command[0] == "docker":
+            assert "--prefer-index=false" in command
+            self.images[command[5]] = command[-1].split("@", 1)[1]
+        elif command[:2] == ["gh", "api"]:
+            return json.dumps([[self.release] if self.release else []])
+        elif command[:3] == ["gh", "release", "create"]:
+            assert self.release is None
+            self.release = {"tag_name": command[3], "draft": True, "assets": []}
+        elif command[:3] == ["gh", "release", "upload"]:
+            path = Path(command[4])
+            assert path.name not in {a["name"] for a in self.release["assets"]}
+            self.release["assets"].append(
+                {"name": path.name, "digest": "sha256:" + release_candidate_bom.file_sha256(path)}
+            )
+            if self.asset_outage:
+                self.asset_outage = False
+                raise promote_release_candidate.PublishBlockedError(
+                    "outage after first GitHub asset"
+                )
+        elif command[:3] == ["gh", "release", "edit"]:
+            self.release["draft"] = False
+        return ""
+
+
+def test_partial_pypi_publication_completes_forward(tmp_path, monkeypatch):
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+    systems = PublishedSystems(monkeypatch)
+    first = promote_release_candidate.promote(bom, bom_path, staging, systems)
+    assert [s.status for s in first] == ["completed", "failed", "not_run", "not_run"]
+    assert (
+        promote_release_candidate.reconcile_publication(bom, first, systems)["status"]
+        == "mismatched"
+    )
+    second = promote_release_candidate.promote(bom, bom_path, staging, systems)
+    assert all(s.status == "completed" for s in second)
+    assert second[0].commands == []
+    assert len(second[1].commands[0]) == 3  # Only the missing distribution.
+    assert (
+        promote_release_candidate.reconcile_publication(bom, second, systems)["status"] == "matched"
+    )
+    third = promote_release_candidate.promote(bom, bom_path, staging, systems)
+    assert all(s.commands == [] for s in third)
+    assert (
+        promote_release_candidate.reconcile_publication(bom, third, systems)["status"] == "matched"
+    )
+
+
+@pytest.mark.parametrize("drift", ["tag", "pypi", "image", "asset", "draft", "missing_asset"])
+def test_public_drift_blocks_reconciliation_and_forward_completion(tmp_path, monkeypatch, drift):
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+    systems = PublishedSystems(monkeypatch)
+    systems.outage = False
+    steps = promote_release_candidate.promote(bom, bom_path, staging, systems)
+    if drift == "tag":
+        systems.tag = "0" * 40
+    elif drift == "pypi":
+        name = next(iter(systems.files))
+        systems.files[name] = ("0" * 64, "https://example.test/file")
+    elif drift == "image":
+        systems.images[next(iter(systems.images))] = "sha256:" + "0" * 64
+    elif drift == "asset":
+        systems.release["assets"][0]["digest"] = "sha256:" + "0" * 64
+    elif drift == "draft":
+        systems.release["draft"] = True
+    else:
+        systems.release["assets"].pop()
+    result = promote_release_candidate.reconcile_publication(bom, steps, systems)
+    assert result["status"] == "mismatched"
+    receipt = promote_release_candidate.build_receipt(
+        bom=bom,
+        bom_path=bom_path,
+        qualification=promote_release_candidate.qualify_evidence_set(
+            _qualifying_bundles(bom),
+            bom,
+            now_utc=promote_release_candidate.parse_utc("2026-09-03T00:00:00Z"),
+        ),
+        authorization=None,
+        steps=steps,
+        reconciliation=result,
+        target_channel="pypi+ghcr+github-releases",
+        mode="publish",
+    )
+    assert receipt["status"] == "partial_publication"
+    assert receipt["success"] is False
+    retry = promote_release_candidate.promote(bom, bom_path, staging, systems)
+    if drift in ("draft", "missing_asset"):
+        assert all(s.status == "completed" for s in retry)
+        assert (
+            promote_release_candidate.reconcile_publication(bom, retry, systems)["status"]
+            == "matched"
+        )
+    else:
+        assert any(s.status == "failed" for s in retry)
+
+
+def test_partial_github_assets_complete_without_reupload(tmp_path, monkeypatch):
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+    systems = PublishedSystems(monkeypatch)
+    systems.outage = False
+    systems.asset_outage = True
+    first = promote_release_candidate.promote(bom, bom_path, staging, systems)
+    assert first[-1].status == "failed"
+    assert systems.release["draft"] is True
+    second = promote_release_candidate.promote(bom, bom_path, staging, systems)
+    assert all(s.status == "completed" for s in second)
+    assert len(second[-1].commands) == 3  # Two missing distributions, then finalise.
+    assert (
+        promote_release_candidate.reconcile_publication(bom, second, systems)["status"] == "matched"
+    )
+
+
+@pytest.mark.parametrize("annotated", [False, True])
+def test_exact_local_release_tag_is_reused(tmp_path, annotated):
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.test",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "candidate",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    command = ["git", "-c", "user.name=Test", "-c", "user.email=test@example.test", "tag"]
+    if annotated:
+        command += ["-a", "-m", "candidate"]
+    subprocess.run([*command, "v0.15.0", commit], check=True)
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+    bom["release_commit"] = commit
+    bom["artifacts"][0]["digest"] = commit
+    steps = promote_release_candidate.promote(
+        bom, bom_path, staging, promote_release_candidate.DryRunExecutor()
+    )
+    assert steps[0].commands == [["git", "push", "origin", "refs/tags/v0.15.0"]]
+
+
+@pytest.mark.parametrize("change", ["none", "evidence", "bom", "mode"])
+def test_native_authorization_is_bound_to_authenticated_preapproval_plan(
+    tmp_path, monkeypatch, change
+):
+    provenance = promote_release_candidate.release_provenance
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+    bundles = _qualifying_bundles(bom)
+    code, receipt_path = _run_promotion(tmp_path, bundles)
+    assert code == 0
+    plan = json.loads(receipt_path.read_text())
+    if change == "evidence":
+        _write_bundles(tmp_path, [*bundles, _day_bundle(bom, "fourth-host", 2, 13)])
+    elif change == "bom":
+        plan["candidate"]["bom_digest"] = "0" * 64
+    elif change == "mode":
+        plan["mode"] = "publish"
+    plan["checksum"]["value"] = promote_release_candidate.receipt_checksum(plan)
+    (staging / "provenance.json").write_text(json.dumps({"staged_utc": "2026-09-01T00:00:00Z"}))
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as package:
+        package.writestr("dry-run-receipt.json", json.dumps(plan))
+    payload = archive.getvalue()
+    workflow = {"id": 3, "path": ".github/workflows/release-promotion.yml"}
+    run = {
+        "id": 10,
+        "run_attempt": 1,
+        "workflow_id": 3,
+        "path": workflow["path"],
+        "repository": {"full_name": provenance.REPOSITORY},
+        "head_repository": {"full_name": provenance.REPOSITORY},
+        "head_branch": "main",
+        "head_sha": COMMIT,
+        "event": "workflow_dispatch",
+        "actor": {"login": "operator"},
+        "triggering_actor": {"login": "operator"},
+        "run_started_at": "2026-09-03T00:00:00Z",
+        "updated_at": "2026-09-03T01:00:00Z",
+    }
+    for key, value in {
+        "GITHUB_REPOSITORY": provenance.REPOSITORY,
+        "GITHUB_REF": "refs/heads/main",
+        "GITHUB_SHA": COMMIT,
+        "GITHUB_RUN_ID": "10",
+        "GITHUB_RUN_ATTEMPT": "1",
+    }.items():
+        monkeypatch.setenv(key, value)
+    responses = {
+        f"repos/{provenance.REPOSITORY}/branches/main": {"protected": True},
+        f"repos/{provenance.REPOSITORY}/actions/runs/10": run,
+        f"repos/{provenance.REPOSITORY}/actions/workflows/release-promotion.yml": workflow,
+        f"repos/{provenance.REPOSITORY}/environments/release": {
+            "protection_rules": [
+                {
+                    "type": "required_reviewers",
+                    "prevent_self_review": True,
+                    "reviewers": [{"type": "User", "reviewer": {"login": "owner"}}],
+                }
+            ],
+        },
+        f"repos/{provenance.REPOSITORY}/actions/runs/10/approvals": [
+            {
+                "state": "approved",
+                "user": {"login": "owner", "type": "User"},
+                "environments": [{"name": "release"}],
+            },
+        ],
+    }
+    monkeypatch.setattr(provenance, "api", lambda path: responses[path])
+
+    def artifacts(path, key):
+        assert path == f"repos/{provenance.REPOSITORY}/actions/runs/10/artifacts"
+        assert key == "artifacts"
+        return [
+            {
+                "id": 20,
+                "name": "dry-run-receipt-10-1",
+                "expired": False,
+                "workflow_run": {"id": 10, "head_sha": COMMIT},
+                "created_at": "2026-09-03T00:10:00Z",
+                "digest": "sha256:" + hashlib.sha256(payload).hexdigest(),
+            }
+        ]
+
+    def download(args, **kwargs):
+        assert args == ["gh", "api", f"repos/{provenance.REPOSITORY}/actions/artifacts/20/zip"]
+        return subprocess.CompletedProcess(args, 0, stdout=payload)
+
+    monkeypatch.setattr(provenance, "pages", artifacts)
+    monkeypatch.setattr(provenance.subprocess, "run", download)
+    # Authorization imports the registered script, which other script tests also load.
+    monkeypatch.setattr(sys.modules["promote_release_candidate"], "utc_now", _now)
+    output = tmp_path / "authorization.json"
+    if change != "none":
+        with pytest.raises(ValueError, match="after the pre-approval plan"):
+            provenance.authorize(bom_path, tmp_path / "evidence", output)
+        assert not output.exists()
+    else:
+        provenance.authorize(bom_path, tmp_path / "evidence", output)
+        record = json.loads(output.read_text())
+        assert record["release_owner"] == "owner"
+        assert record["candidate"] == {
+            "release_commit": COMMIT,
+            "canonical_candidate_digest": bom["canonical_candidate_digest"],
+        }
+        assert record["evidence_bundle_checksums"] == plan["evidence"]["bundle_checksums"]
