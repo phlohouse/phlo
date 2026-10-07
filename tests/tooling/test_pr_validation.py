@@ -112,7 +112,6 @@ def test_one_pr_orchestrator_and_no_candidate_duplication() -> None:
         "containers",
         "security",
         "docs",
-        "plugin",
         "mutation",
     ]
     for name in (
@@ -138,19 +137,18 @@ def test_required_gate_executes_fail_closed(bad_result) -> None:
         "SECURITY",
         "INTEGRATION",
         "DOCS",
-        "PLUGIN",
         "MUTATION",
     ):
         env = dict(os.environ, **dict.fromkeys(step["env"], "success"))
         env["INTEGRATION_SELECTED"] = "true"
+        env["PYTHON_SELECTED"] = "false"
         env["DOCS_SELECTED"] = "true"
-        env["PLUGIN_SELECTED"] = "true"
         env["MUTATION_SELECTED"] = "true"
         env[lane] = bad_result
         result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
         assert (result.returncode == 0) == (bad_result == "success")
     env["MUTATION"] = "success"
-    for lane in ("INTEGRATION", "DOCS", "PLUGIN", "MUTATION"):
+    for lane in ("INTEGRATION", "DOCS", "MUTATION"):
         env[f"{lane}_SELECTED"] = "false"
         env[lane] = "skipped"
         assert (
@@ -239,6 +237,99 @@ def test_docs_reusable_without_duplicate_pr_trigger_or_queue_deployment() -> Non
     assert set(build.get("on") or build[True]) == {"workflow_call"}
     assert docs["jobs"]["build"]["uses"] == workflow("pr.yml")["jobs"]["docs"]["uses"]
     assert build["permissions"] == {"contents": "read"}
+
+
+@pytest.mark.parametrize("selected", ["frontend", "writer", "plugin", "none"])
+@pytest.mark.parametrize("result", ["success", "failure", "skipped", "cancelled"])
+def test_combined_node_gate_requires_any_selected_consumer(tmp_path, selected, result):
+    step = workflow("ci.yml")["jobs"]["ci-status"]["steps"][0]
+    env = dict(os.environ, **dict.fromkeys(step["env"], "skipped"))
+    env.update(
+        CI_CONFIG="success",
+        PYTHON_QUALITY="success",
+        SELECT_PYTHON="false",
+        SELECT_GROUPS="[]",
+        SELECT_FRONTEND=str(selected == "frontend").lower(),
+        SELECT_WRITER=str(selected == "writer").lower(),
+        SELECT_PLUGIN=str(selected == "plugin").lower(),
+        FRONTEND=result,
+        GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
+    )
+    actual = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
+    assert (actual.returncode == 0) == (result == ("skipped" if selected == "none" else "success"))
+
+
+def test_consolidated_jobs_preserve_named_checks_and_single_setup():
+    jobs = workflow("ci.yml")["jobs"]
+    quality = jobs["python-quality"]
+    node = jobs["frontend"]
+    for job in (quality, node):
+        assert sum("actions/checkout@" in step.get("uses", "") for step in job["steps"]) == 1
+        assert not any(step.get("continue-on-error") for step in job["steps"])
+    assert {"frontend", "writer", "plugin"} <= {
+        key for key in ("frontend", "writer", "plugin") if f"outputs.{key}" in node["if"]
+    }
+    names = {step.get("name") for step in node["steps"]}
+    assert {"Run tests", "Run writer tests", "Run plugin behavior tests", "Build writer"} <= names
+    quality_names = {step.get("name") for step in quality["steps"]}
+    assert {
+        "Check private-key hook with a non-allow-listed fixture",
+        "Run remaining file hooks",
+        "Audit workflow hardening",
+        "Lint with ruff",
+        "Type check with ty",
+    } <= quality_names
+    assert "pre-commit" not in jobs and "phlo-github-writer" not in jobs
+    assert "plugin" not in workflow("pr.yml")["jobs"]
+
+
+def test_required_result_collects_coverage_after_service_and_python_contracts():
+    required = workflow("pr.yml")["jobs"]["required"]
+    assert {"ci", "integration"} <= set(required["needs"])
+    steps = required["steps"]
+    downloads = [step["with"] for step in steps if "download-artifact@" in step.get("uses", "")]
+    assert {item.get("pattern") for item in downloads} >= {"core-tests-*", "package-results-*"}
+    assert any(item.get("name") == "quickstart-smoke" for item in downloads)
+    combine = next(step for step in steps if "coverage combine" in step.get("run", ""))
+    assert combine["if"] == "needs.changes.outputs.python == 'true'"
+    emit = next(step for step in steps if "ci_evidence.py emit" in step.get("run", ""))
+    assert steps.index(combine) < steps.index(emit)
+    assert "coverage" not in workflow("ci.yml")["jobs"]
+
+
+@pytest.mark.parametrize("first_fails", [False, True])
+def test_container_lint_attempts_all_selected_files_and_preserves_failure(tmp_path, first_fails):
+    job = workflow("container-security.yml")["jobs"]["checks"]
+    step = next(
+        step for step in job["steps"] if step.get("name") == "Lint generated-service Dockerfiles"
+    )
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    executable = binary / "docker"
+    executable.write_text(
+        '#!/bin/sh\nbody="$(cat)"\nprintf "%s\\n" "$body" >> "$RUNNER_TEMP/calls"\n'
+        'if [ "$FIRST_FAILS" = true ] && [ "$body" = first ]; then exit 1; fi\n'
+    )
+    executable.chmod(0o755)
+    for name in ("first", "second"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "Dockerfile").write_text(name)
+    env = dict(
+        os.environ,
+        PATH=f"{binary}:{os.environ['PATH']}",
+        RUNNER_TEMP=str(tmp_path),
+        FIRST_FAILS=str(first_fails).lower(),
+        TARGETS=json.dumps(
+            {
+                "include": [
+                    {"package": name, "dockerfile": "Dockerfile"} for name in ("first", "second")
+                ]
+            }
+        ),
+    )
+    actual = subprocess.run(["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True)
+    assert actual.returncode == int(first_fails)
+    assert (tmp_path / "calls").read_text().splitlines() == ["first", "second"]
 
 
 def test_shards_are_disjoint_complete_and_keep_module_fixtures_together() -> None:

@@ -385,6 +385,6 @@ def test_container_security_replaces_legacy_remote_image_scan() -> None:
     assert "generated-container-checks" not in workflow
     assert "--allow-vulnerable-image" not in workflow
     assert "--remote-images" not in workflow
-    assert "generated-files" in container_workflow
+    assert "Validate generated Dockerfiles and Compose configuration" in container_workflow
     assert "docker build" not in container_workflow
     assert "aquasec/trivy" not in container_workflow

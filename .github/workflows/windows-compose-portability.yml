@@ -2,14 +2,15 @@ name: Windows Compose portability
 
 on:
   workflow_call:
+    inputs:
+      reuse-wheelhouse:
+        description: Use the wheelhouse already built by the calling validation run
+        type: boolean
+        default: false
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: windows-compose-portability-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   generate-linux-fixture:
@@ -59,7 +60,15 @@ jobs:
           git ls-files -z | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/shared-layout.sha256"
           git bundle create "$RUNNER_TEMP/shared-layout.bundle" --all
 
+      - name: Download the validation wheelhouse
+        if: inputs.reuse-wheelhouse
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: provider-wheelhouse
+          path: ${{ runner.temp }}/wheelhouse
+
       - name: Build installed CLI and service wheels
+        if: ${{ !inputs.reuse-wheelhouse }}
         working-directory: source
         run: uv build --all-packages --wheel --out-dir "$RUNNER_TEMP/wheelhouse"
 
@@ -93,6 +102,28 @@ jobs:
         with:
           version: "0.12.1"
           enable-cache: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: "3.12"
+
+      - name: Install focused Python test dependency
+        shell: pwsh
+        run: |
+          $venv = Join-Path $env:RUNNER_TEMP "phlo-windows-harness-venv"
+          uv venv --python 3.12 $venv
+          $python = Join-Path $venv "Scripts\python.exe"
+          uv pip install --python $python pytest
+          "HARNESS_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Run focused Python harness tests
+        shell: pwsh
+        run: '& $env:HARNESS_PYTHON -m pytest tests/scripts/test_release_golden_path.py --tb=short --junitxml=test-results/windows.xml'
+
+      - name: Run PowerShell launcher contract tests
+        shell: pwsh
+        run: ./tests/scripts/test_release_golden_path.ps1
 
       - name: Clone the Linux-generated fixture into a path with spaces
         shell: pwsh

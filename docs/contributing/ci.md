@@ -16,10 +16,41 @@ Observatory, GitHub writer and webhook plugin behaviour, documentation,
 dependency risk, container policy and focused mutation checks. A selected lane
 that is skipped, cancelled or failed cannot satisfy the aggregate.
 
-Integration provisions disposable MinIO and Nessie and rejects missing tests,
-skips and expected failures through `scripts/ci_required.py`. Local tests can
-still skip unavailable services without this opt-in plugin. Reproduce the
-provisioned lane with `uv run --locked python scripts/run_integration.py`;
+### Check buckets and stages
+
+Checks share setup within four buckets. Named steps retain individual failure
+logs; a failed step still fails its job. The buckets are not four literal jobs:
+native Windows checks, service provisioning and slower test shards need separate
+environments.
+
+| Bucket | Execution layout |
+| --- | --- |
+| Quality and contracts | File hooks, workflow hardening and Python lint, format, types and reference checks share one job. Documentation builds retain their Node-based job. Focused mutation checks remain required when selected. |
+| Behaviour | Core and package tests retain parallel shards. Observatory, GitHub writer and webhook plugin checks share one Node job, with each consumer selected independently. |
+| Integration and portability | Storage/catalog suites, PostgreSQL concurrency, quickstart and recovery share one Linux workspace. Windows launcher and shared-layout checks share one native Windows job. |
+| Artifact and dependency safety | Preparation builds wheels once for provider shards and Windows acceptance. Container waiver, Dockerfile lint and generated Compose checks share one job. Dependency assessments remain independent. |
+
+| Stage | Scope |
+| --- | --- |
+| Pull request | Affected checks and reverse dependencies, introduced dependency risk, conservative full coverage for unknown changes. |
+| Merge queue | All buckets on the exact prospective merge SHA, including the full dependency policy. |
+| Main and beta | Authenticate and reuse full queue evidence. Run the full fallback only when evidence cannot be reused. |
+| Scheduled maintenance | Fresh dependency and upstream-image scans, mutation and extended reliability checks. Findings enter the normal remediation PR flow. |
+| Release staging | Require source health and fresh release dependency evidence, then build and scan immutable release artifacts. |
+| Release acceptance and promotion | Exercise the staged bytes on required platforms and repeated runs, then publish those bytes after human approval. |
+
+`pr / required` collects combined coverage after both Python and service
+contracts finish, then records queue evidence. Coverage does not need its own
+runner. No test suite, dependency gate or release approval is removed by the
+consolidation. Standalone Windows dispatch builds its own wheels; ordinary
+validation reuses the preparation artifact.
+
+Integration provisions disposable PostgreSQL, MinIO and Nessie. Storage/catalog
+suites reject missing tests, skips and expected failures through
+`scripts/ci_required.py`; PostgreSQL guards require exactly three passes without
+skips. Local tests can still skip unavailable services without this opt-in
+plugin. Reproduce the storage/catalog suites with
+`uv run --locked python scripts/run_integration.py`;
 Docker is required and provisioned containers are removed afterwards.
 
 Core, regression, package and quickstart coverage is combined into one report.

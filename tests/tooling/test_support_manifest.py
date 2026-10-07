@@ -587,10 +587,10 @@ def test_upgrade_restore_evidence_binds_to_recovery_drill_and_ci() -> None:
 
     assert "scripts/recovery_drill.py" in evidence
     assert "tests/scripts/test_recovery_drill.py" in evidence
-    assert ".github/workflows/ci.yml" in evidence
+    assert ".github/workflows/integration.yml" in evidence
     for path in evidence:
         assert (ROOT / path.split("#", 1)[0]).exists(), f"missing evidence: {path}"
-    ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    ci_text = (ROOT / ".github/workflows/integration.yml").read_text(encoding="utf-8")
     assert "scripts/recovery_drill.py" in ci_text
     assert "documentation procedures" not in capability["reason"]
 
@@ -603,11 +603,13 @@ def test_golden_path_ci_evidence_binds_to_release_golden_path_and_ci() -> None:
 
     assert "scripts/release_golden_path.py" in evidence
     assert "tests/scripts/test_release_golden_path.py" in evidence
-    assert ".github/workflows/ci.yml" in evidence
+    assert ".github/workflows/windows-compose-portability.yml" in evidence
     assert "scripts/run_golden_path.py" not in evidence
     for path in evidence:
         assert (ROOT / path.split("#", 1)[0]).exists(), f"missing evidence: {path}"
-    ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    ci_text = (ROOT / ".github/workflows/windows-compose-portability.yml").read_text(
+        encoding="utf-8"
+    )
     assert "test_release_golden_path" in ci_text
     assert "does not invoke" not in capability["reason"]
 
@@ -668,8 +670,8 @@ def test_named_claim_validator_catches_workflow_command_regression(tmp_path: Pat
     capabilities = manifest["capabilities"]
     workflows_dir = tmp_path / ".github" / "workflows"
     workflows_dir.mkdir(parents=True)
-    ci_text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    (workflows_dir / "ci.yml").write_text(
+    ci_text = (ROOT / ".github" / "workflows" / "integration.yml").read_text(encoding="utf-8")
+    (workflows_dir / "integration.yml").write_text(
         ci_text.replace("scripts/recovery_drill.py", "scripts/removed.py"),
         encoding="utf-8",
     )

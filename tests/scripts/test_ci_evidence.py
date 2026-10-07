@@ -143,7 +143,12 @@ def test_full_graph_has_every_matrix_entry_and_new_required_lane():
     jobs = evidence.expected_jobs()
     assert {f"ci / python / core tests (3.12, shard {i})" for i in range(3)} <= jobs
     assert {f"ci / python / installed provider artifacts ({i})" for i in range(4)} <= jobs
-    assert {"docs / docs / build", "automation / plugin", "ci / coverage / combined report"} <= jobs
+    assert {
+        "docs / docs / build",
+        "ci / behaviour / JavaScript",
+        "ci / quality / source and file contracts",
+        "containers / safety / container contracts",
+    } <= jobs
     assert not any("${{" in name for name in jobs)
 
 

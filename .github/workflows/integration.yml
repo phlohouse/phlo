@@ -19,13 +19,40 @@ jobs:
   integration:
     name: integration / required suites
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: phlo_ci
+          POSTGRES_USER: phlo_ci
+          POSTGRES_PASSWORD: phlo_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U phlo_ci -d phlo_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      UV_PYTHON: "3.12"
+      PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN: postgresql://phlo_ci:phlo_ci_password@localhost:5432/phlo_ci
+      PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN: postgresql://phlo_ci:phlo_ci_password@localhost:5432/phlo_ci
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-      - uses: ./.github/actions/python-workspace
+      - name: Install uv
+        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Install Python 3.12
+        run: uv python install 3.12
+      - name: Sync complete workspace
+        id: workspace
+        run: uv sync --all-packages --dev --locked
       - name: Run named behavioral contracts
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
         run: uv run --locked python scripts/run_integration.py
       - name: Upload required suite results
         if: always()
@@ -34,3 +61,140 @@ jobs:
           name: integration-results
           path: test-results/integration/
           if-no-files-found: error
+      - name: Preflight PostgreSQL gate dependencies
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        id: postgres_preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for dsn_name in \
+            PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN \
+            PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN; do
+            if [ -z "${!dsn_name:-}" ]; then
+              echo "::error::${dsn_name} must be set for the required PostgreSQL gate"
+              exit 1
+            fi
+          done
+
+          uv run --locked python - <<'PY'
+          import os
+
+          import psycopg2
+
+          for name in (
+              "PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN",
+              "PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN",
+          ):
+              connection = psycopg2.connect(os.environ[name], connect_timeout=5)
+              try:
+                  with connection.cursor() as cursor:
+                      cursor.execute("SELECT 1")
+                      assert cursor.fetchone() == (1,)
+              finally:
+                  connection.close()
+          PY
+
+      - name: Run PostgreSQL concurrency gates
+        if: ${{ !cancelled() && steps.postgres_preflight.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          results_file="$(mktemp)"
+          trap 'rm -f "${results_file}"' EXIT
+
+          PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN="${PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN}" \
+          PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN="${PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN}" \
+          uv run --locked pytest --import-mode=importlib \
+            tests/unit/phlo/security/test_service_identity.py::test_postgres_nonce_store_rejects_one_of_two_simultaneous_consumers \
+            tests/observability/test_run_evidence.py::test_postgres_concurrent_duplicate_replay_does_not_apply_loser_run_metadata \
+            tests/observability/test_run_evidence.py::test_true_v2_to_v3_upgrade_is_idempotent_and_compatible_postgres \
+            -q --junitxml=test-results/postgres-concurrency.xml | tee "${results_file}"
+
+          python3 - "${results_file}" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          output = Path(sys.argv[1]).read_text(encoding="utf-8")
+          summary_lines = [
+              line.strip()
+              for line in output.splitlines()
+              if re.search(r"\b(?:passed|skipped|failed|error|xfailed|xpassed)\b", line)
+          ]
+          summary = summary_lines[-1] if summary_lines else ""
+          passed_match = re.search(r"(\d+) passed\b", summary)
+          skipped_match = re.search(r"(\d+) skipped\b", summary)
+          passed = int(passed_match.group(1)) if passed_match else 0
+          skipped = int(skipped_match.group(1)) if skipped_match else 0
+          if passed != 3 or skipped != 0:
+              raise SystemExit(
+                  f"PostgreSQL concurrency gate expected exactly 3 passed, 0 skipped; got: {summary}"
+              )
+          print(f"PostgreSQL concurrency gates: {passed} passed, {skipped} skipped")
+          PY
+
+      - name: Upload PostgreSQL contract results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: postgres-concurrency-results
+          path: test-results/postgres-concurrency.xml
+          if-no-files-found: error
+
+      - name: Run quickstart smoke test
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        shell: bash
+        env:
+          COVERAGE_FILE: quickstart-artifacts/.coverage.quickstart
+        run: |
+          set -euo pipefail
+          mkdir -p quickstart-artifacts
+          PHLO_QUICKSTART_SMOKE_ARTIFACT_DIR="$PWD/quickstart-artifacts" \
+            uv run --locked python -m pytest -p scripts.ci_required tests/cli/test_quickstart_smoke.py --tb=short --junitxml=quickstart-artifacts/results.xml --cov=phlo --cov-report=
+
+      - name: Upload quickstart smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: quickstart-smoke
+          path: quickstart-artifacts/
+          if-no-files-found: error
+          include-hidden-files: true
+
+      - name: Run owned backup and restore drill
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p recovery-artifacts
+          uv run --locked python scripts/recovery_drill.py | tee recovery-artifacts/recovery-drill.json
+
+      - name: Summarize recovery evidence
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          report = Path("recovery-artifacts/recovery-drill.json")
+          print("### Recovery continuity drill")
+          if not report.is_file():
+              print("The drill produced no report; inspect the job log.")
+          else:
+              result = json.loads(report.read_text(encoding="utf-8"))
+              print(f"- Outcome: `{result.get('outcome', 'unknown')}`")
+              print(f"- Backup duration: `{result.get('backup_seconds', 'unavailable')}` seconds")
+              print(f"- Restore duration: `{result.get('restore_seconds', 'unavailable')}` seconds")
+              print("- Scope: owned PostgreSQL run evidence, Nessie/Iceberg catalog state, and object checksum.")
+              print("- This drill records observed durations; it does not assert an RPO or RTO.")
+          PY
+
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: recovery-continuity-drill
+          path: recovery-artifacts/recovery-drill.json
+          if-no-files-found: warn
