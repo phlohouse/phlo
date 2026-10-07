@@ -74,6 +74,7 @@ For API authorisation, `services.phlo-api.authorization` takes precedence over `
 | `extra_hosts` | `list[str] \| None` | `None` | Add Compose host mappings. |
 | `depends_on` | `list[str] \| None` | `None` | Replace service dependencies. |
 | `command` | `str \| list[str] \| None` | `None` | Replace the container command. |
+| `files` | `dict[str, ServiceFileOverride]` | `{}` | Override declared generated files with project-owned sources. |
 | `authorization` | `ApiAuthorizationConfig \| None` | `None` | Service-scoped API authorisation. |
 | `type` | `str \| None` | `None` | Set to `inline` for a custom service. |
 | `image` | `str \| None` | `None` | Image for an inline service. |
@@ -86,6 +87,114 @@ For API authorisation, `services.phlo-api.authorization` takes precedence over `
 | --- | --- | --- | --- |
 | `name` | `str \| None` | `None` | Docker network name. |
 | `driver` | `str` | `"bridge"` | Docker network driver. |
+
+## Generated service file overrides
+
+`infrastructure.services.<service>.files` maps generated destinations to project-owned source files. Destinations are relative to `.phlo`. Sources are relative to the project root, beside `phlo.yaml`, and must remain inside that root.
+
+The same mechanism supports every provider that declares generated files. A provider's `service.yaml` declares each destination through `files[].dest`. For directory declarations, only existing bundled files inside that directory are valid targets. New files, whole-directory replacement, unknown paths, path traversal, and generated destination symlinks are rejected. Providers without file declarations have no override targets.
+
+### Precedence and merge rules
+
+Provider templates supply the defaults. Project sources override those defaults on each `phlo services init`, including shared-layout regeneration without `--force`, and on regeneration through `phlo services add` or `phlo services remove`.
+
+The legacy `services.<service>.files` entry point also works. When both entry points configure a service, each field in `infrastructure.services.<service>` replaces the corresponding legacy field. In particular, the canonical `files` mapping replaces the legacy `files` mapping.
+
+| Override field | Default | Meaning |
+| --- | --- | --- |
+| `source` | Required | Existing UTF-8 file relative to the project root. |
+| `mode` | `merge` | `merge` for YAML or JSON, or `replace` for an entire file. |
+
+In `merge` mode, the source must be a mapping. Dictionaries merge recursively. Lists and scalar values replace the corresponding defaults, including empty lists. No list entries are appended, and generation always starts from the provider template rather than yesterday's generated file.
+
+A mapping containing only `$replace` replaces that entire node with its value. Changing a provider's `module` or `class`, or removing its class node, requires `$replace` or whole-file `mode: replace`. Explicit replacement does not retain the old node's configuration.
+
+Native text formats, including Trino properties, JVM options, Alloy configuration, and PostgREST configuration, require `mode: replace`. Phlo does not attempt to merge their syntax. A replacement supplies the complete file, including required provider settings.
+
+### Dagster concurrency and sensors
+
+This `phlo.yaml` entry uses a project file named `config/dagster-instance.yaml`:
+
+```yaml
+infrastructure:
+  services:
+    dagster:
+      files:
+        dagster/dagster.yaml:
+          source: config/dagster-instance.yaml
+```
+
+The project overlay queues runs tagged `workflow=library_catalogue` behind one another and increases the sensor worker count:
+
+```yaml
+# config/dagster-instance.yaml
+run_coordinator:
+  config:
+    tag_concurrency_limits:
+      - key: workflow
+        value: library_catalogue
+        limit: 1
+sensors:
+  num_workers: 8
+```
+
+Visitor-count runs with a different workflow tag do not share this limit. This overlay retains PostgreSQL storage, `DefaultRunLauncher`, the `PhloQueuedRunCoordinator` auditing class, and `sensors.use_threads: true`. Both Dagster services already mount the same generated `dagster` directory at `/opt/dagster`; no daemon-specific overlay or custom mount is needed.
+
+An intentional coordinator replacement uses the following overlay instead:
+
+```yaml
+run_coordinator:
+  $replace:
+    module: dagster
+    class: QueuedRunCoordinator
+    config:
+      max_concurrent_runs: 2
+```
+
+This replacement removes Phlo's auditing coordinator. It is not equivalent to changing its nested concurrency settings.
+
+### Other providers
+
+The following entries overlay Grafana provisioning YAML and a bundled dashboard JSON file, and replace Trino and Alloy native text files:
+
+```yaml
+infrastructure:
+  services:
+    grafana:
+      enabled: true
+      files:
+        grafana/provisioning/datasources/datasources.yml:
+          source: config/grafana-datasources.yaml
+        grafana/dashboards/infrastructure.json:
+          source: config/grafana-dashboard.json
+    trino:
+      files:
+        trino/catalog/iceberg.properties:
+          source: config/iceberg.properties
+          mode: replace
+    alloy:
+      enabled: true
+      files:
+        alloy/config.alloy:
+          source: config/config.alloy
+          mode: replace
+```
+
+For example, `config/grafana-dashboard.json` can contain `{"title": "Library metrics", "panels": []}`. The title and panel list replace the defaults while other dashboard fields remain. A `datasources` list replaces the complete provider list, not individual entries selected by name.
+
+Prometheus and Loki YAML use the same merge mode. PostgREST's bundled `postgrest/conf/postgrest.conf` uses replacement mode. API and Dagster Dockerfiles and entrypoint scripts are also declared files, so deliberate whole-file replacement is available for those text files.
+
+### Validation and secrets
+
+Phlo reads, merges, and validates all affected service files before replacing generated service files, Compose layers, environment files, or staged lock metadata. An invalid override reports its destination and, where a native schema is available, its field. Previously generated outputs remain intact. Individual file writes use atomic replacement, but an operating-system write failure is not a transaction across the entire generated directory. Run generation serially for a project.
+
+Core validation checks destination ownership, YAML and JSON syntax, merge structure, and nonempty UTF-8 replacement text without NUL bytes. Providers own native validation through `ServicePlugin.validate_service_file`, also available as `service_plugin_class(file_validator=...)`.
+
+The Dagster provider validates instance fields and the known Phlo queued coordinator, Dagster queued coordinator, and default launcher configuration against Dagster's native schemas. It checks incompatible run-queue and storage sections. Other custom classes receive configurable-class envelope checks only, not their inner configuration schemas or import checks. No custom class is imported or instantiated during validation. Constructor-only checks and environment-dependent values still require runtime validation.
+
+The other providers currently have format validation only. In particular, successful Trino or Alloy text replacement does not prove valid native syntax, supported fields, or working connections. Validate those configurations with the corresponding service before deployment.
+
+Phlo preserves native environment references verbatim, including Dagster `{env: POSTGRES_PASSWORD}`, Trino `${ENV:TRINO_TOKEN}`, and Alloy `sys.env("ALLOY_TOKEN")`. Generation does not resolve those references or copy process or environment-file secrets into the config. Referenced variables must be available in the container at runtime. Literal values in a project source become literal values in generated files, which may be shared in Git. Keep credentials in native environment references rather than in source files.
 
 ## Tenant scope
 

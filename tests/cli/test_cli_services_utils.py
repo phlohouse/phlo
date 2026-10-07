@@ -187,7 +187,7 @@ def test_regenerate_compose_writes_compose_and_env_files(
             self, services_to_install, _phlo_dir, user_overrides=None, env_values=None
         ) -> str:
             assert [service.name for service in services_to_install] == ["postgres"]
-            assert user_overrides == {"enabled": [], "disabled": []}
+            assert user_overrides == {}
             assert env_values is not None
             return "services:\n  postgres: {}\n"
 
@@ -298,6 +298,19 @@ def test_stale_generated_build_inputs_reports_only_drifted_copies(tmp_path: Path
     assert service_utils.stale_generated_build_inputs(discovery, phlo_dir, ["dagster"]) == [
         "dagster/Dockerfile"
     ]
+
+    (phlo_dir / "grafana/provisioning/datasources.yml").write_text("apiVersion: 2\n")
+    assert service_utils.stale_generated_build_inputs(
+        discovery,
+        phlo_dir,
+        ["dagster"],
+        user_overrides={
+            "dagster": {
+                "files": {"dagster/Dockerfile": {"source": "Dockerfile", "mode": "replace"}}
+            }
+        },
+    ) == ["grafana/provisioning/datasources.yml"]
+    (phlo_dir / "grafana/provisioning/datasources.yml").write_text("apiVersion: 1\n")
 
     (phlo_dir / "dagster" / "Dockerfile").write_text("FROM python:3.12-slim\n")
     assert service_utils.stale_generated_build_inputs(discovery, phlo_dir, ["dagster"]) == []

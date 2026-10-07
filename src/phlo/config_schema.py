@@ -137,6 +137,17 @@ class WapConfig(BaseModel):
         }
 
 
+class ServiceFileOverride(BaseModel):
+    """Read a project-owned overlay or whole-file replacement."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(min_length=1, description="File path relative to the project root.")
+    mode: Literal["merge", "replace"] = Field(
+        default="merge", description="Merge YAML/JSON dictionaries or explicitly replace a file."
+    )
+
+
 class ServiceOverride(BaseModel):
     """User overrides for a service in phlo.yaml.
 
@@ -182,6 +193,10 @@ class ServiceOverride(BaseModel):
     command: str | list[str] | None = Field(
         default=None,
         description="Container command override.",
+    )
+    files: dict[str, ServiceFileOverride] = Field(
+        default_factory=dict,
+        description="Project overrides keyed by provider-declared generated file destination.",
     )
     authorization: ApiAuthorizationConfig | None = Field(
         default=None,

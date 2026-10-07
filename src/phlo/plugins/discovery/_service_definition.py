@@ -10,6 +10,7 @@ command utilities.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,9 @@ class ServiceDefinition:
     source_path: Path | None = None
     phlo_dev: bool = False
     core: bool = False
+    file_validator: Callable[[str, str], None] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     @classmethod
     def from_yaml(cls, path: Path) -> ServiceDefinition:
