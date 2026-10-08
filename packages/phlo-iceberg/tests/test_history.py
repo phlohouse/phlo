@@ -12,6 +12,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pyiceberg.catalog.memory import InMemoryCatalog
 from pyiceberg.exceptions import CommitFailedException, CommitStateUnknownException
+from pyiceberg.table import DataScan
 import pytest
 
 from phlo.capabilities.history import HistoryCommitUnknownError, HistoryConflictError, HistoryPolicy
@@ -123,6 +124,35 @@ def test_identical_duplicates_across_files_insert_once(catalog, tmp_path):
     }
     assert len(catalog.load_table("raw.versions").snapshots()) == 1
     assert len(_state(catalog)[1]) == 2
+
+
+@pytest.mark.parametrize("crossed_pairs", [False, True])
+def test_lookup_pushes_exact_composite_identities_into_real_scan(
+    catalog, tmp_path, monkeypatch, crossed_pairs
+):
+    stored = [_row(entity=f"E{i}", payload=f"payload-{i}") for i in range(101)]
+    stored.extend([_row("V2", "second", entity="E1"), _row("V2", "unrelated", entity="E0")])
+    _write([_file(tmp_path, stored, "seed")])
+    snapshot = catalog.load_table("raw.versions").current_snapshot().snapshot_id
+    incoming = [stored[0], stored[-2]] if crossed_pairs else [stored[0]]
+    scans = []
+    scan_arrow = DataScan.to_arrow
+
+    def capture(scan):
+        result = scan_arrow(scan)
+        scans.append((scan.snapshot_id, result.to_pylist(), result.column_names))
+        return result
+
+    monkeypatch.setattr(DataScan, "to_arrow", capture)
+    assert _write([_file(tmp_path, incoming)])["rows_skipped"] == len(incoming)
+    assert len(scans) == 1
+    head, rows, columns = scans[0]
+    assert head == snapshot
+    assert set(columns) == {"entity", "version", "payload"}
+    assert {(row["entity"], row["version"]) for row in rows} == (
+        {("E0", "V1"), ("E1", "V2")} if crossed_pairs else {("E0", "V1")}
+    )
+    assert len(rows) == len(incoming)
 
 
 @pytest.mark.parametrize("committed", [False, True])
@@ -316,7 +346,7 @@ def test_definite_retry_bound_and_atomic_policy_binding(catalog, tmp_path, monke
 def test_unknown_commit_reconciles_and_fails_without_retry_or_invented_counts(
     catalog, tmp_path, monkeypatch, landed, error
 ):
-    path = _file(tmp_path, [_row(), _row()], "pending")
+    path = _file(tmp_path, [_row(), _row(), _row("V2", "second")], "pending")
     commit = catalog.commit_table
     calls = 0
 
@@ -337,14 +367,55 @@ def test_unknown_commit_reconciles_and_fails_without_retry_or_invented_counts(
     assert calls == 1
     assert failure.value.metrics == {}
     assert failure.value.reconciliation["state"] == "observed"
-    assert failure.value.reconciliation["rows_present"] == (2 if landed else 0)
-    assert failure.value.reconciliation["versions_missing"] == (0 if landed else 1)
+    assert failure.value.reconciliation["versions_present"] == (2 if landed else 0)
+    assert failure.value.reconciliation["versions_missing"] == (0 if landed else 2)
+    assert failure.value.reconciliation["versions_conflicting"] == 0
+    assert "rows_present" not in failure.value.reconciliation
     assert failure.value.reconciliation["policy_bound"] is landed
-    assert len(_state(catalog)[1]) == (1 if landed else 0)
+    assert len(_state(catalog)[1]) == (2 if landed else 0)
     assert events[0]["status"] == "failed"
     assert events[0]["metrics"] == {}
     assert events[0]["resources"][0]["metadata"]["outcome"] == "unknown"
     assert events[0]["resources"][0]["metadata"]["reconciliation"] == failure.value.reconciliation
+
+
+def test_unknown_reconciliation_partitions_distinct_versions_not_duplicate_rows(
+    catalog, tmp_path, monkeypatch
+):
+    committed = _file(tmp_path, [_row(), _row("V2", "conflicting")], "competing")
+    pending = _file(
+        tmp_path,
+        [_row(), _row(), _row(), _row("V2", "expected"), _row("V3", "missing")],
+        "pending",
+    )
+    commit = catalog.commit_table
+    calls = 0
+
+    def unknown(table, requirements, updates):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            _write([committed])
+            raise CommitStateUnknownException("lost response")
+        return commit(table, requirements, updates)
+
+    monkeypatch.setattr(catalog, "commit_table", unknown)
+    with pytest.raises(HistoryCommitUnknownError) as failure:
+        _write([pending])
+    assert calls == 2  # One uncertain attempt and one competing writer, no retry.
+    assert failure.value.metrics == {}
+    assert failure.value.reconciliation == {
+        "state": "conflicting",
+        "snapshot_id": str(catalog.load_table("raw.versions").current_snapshot().snapshot_id),
+        "versions_present": 1,
+        "versions_missing": 1,
+        "versions_conflicting": 1,
+        "policy_bound": True,
+    }
+    assert {(row["version"], row["payload"]) for row in _state(catalog)[1]} == {
+        ("V1", "original"),
+        ("V2", "conflicting"),
+    }
 
 
 def test_conflict_evidence_reports_incoming_counts(catalog, tmp_path, monkeypatch):
@@ -379,11 +450,27 @@ def test_each_file_must_supply_comparison_columns_before_null_backfill(catalog, 
     assert _state(catalog) == before
 
 
-def test_replay_spanning_multiple_lookup_chunks_preserves_every_version(catalog, tmp_path):
-    path = _file(tmp_path, [_row(f"V{i}", f"payload-{i}") for i in range(1003)])
+def test_replay_spanning_multiple_lookup_chunks_preserves_every_version(
+    catalog, tmp_path, monkeypatch
+):
+    path = _file(tmp_path, [_row(entity=f"E{i}", payload=f"payload-{i}") for i in range(1003)])
     assert _write([path])["rows_inserted"] == 1003
+    _write([_file(tmp_path, [_row(entity="unrelated")], "unrelated")])
     before = _state(catalog)
+    snapshot = catalog.load_table("raw.versions").current_snapshot().snapshot_id
+    scans = []
+    scan_arrow = DataScan.to_arrow
+
+    def capture(scan):
+        result = scan_arrow(scan)
+        scans.append((scan.snapshot_id, result.to_pylist()))
+        return result
+
+    monkeypatch.setattr(DataScan, "to_arrow", capture)
     assert _write([path])["rows_skipped"] == 1003
+    assert [len(rows) for _, rows in scans] == [1000, 3]
+    assert all(head == snapshot for head, _ in scans)
+    assert {row["entity"] for _, rows in scans for row in rows} == {f"E{i}" for i in range(1003)}
     assert _state(catalog) == before
 
 

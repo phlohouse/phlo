@@ -15,7 +15,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pyiceberg.catalog import Catalog
 from pyiceberg.exceptions import CommitFailedException
-from pyiceberg.expressions import In, Reference
+from pyiceberg.expressions import AlwaysFalse, And, EqualTo, Or, Reference
 from pyiceberg.io.pyarrow import schema_to_pyarrow
 from pyiceberg.schema import Schema
 from pyiceberg.table import Table
@@ -134,13 +134,20 @@ def _lookup(
         dict.fromkeys((policy.entity_key, policy.version_key, *policy.comparison_columns))
     )
     fields = tuple(name for name in fields if name in table.schema().column_names)
-    versions = list({key[1] for key in groups})
-    for start in range(0, len(versions), 1000):
+    identities = list(groups)
+    for start in range(0, len(identities), 1000):
         rows = (
             table.scan(
                 snapshot_id=snapshot.snapshot_id,
-                row_filter=In(
-                    term=Reference(policy.version_key), values=set(versions[start : start + 1000])
+                row_filter=Or(
+                    AlwaysFalse(),
+                    *(
+                        And(
+                            EqualTo(term=Reference(policy.entity_key), value=entity),
+                            EqualTo(term=Reference(policy.version_key), value=version),
+                        )
+                        for entity, version in identities[start : start + 1000]
+                    ),
                 ),
                 selected_fields=fields,
             )
@@ -198,17 +205,21 @@ def _reconcile(
         table = catalog.load_table(table_name)
         _check_policy(table, _policy_properties(table.schema(), policy))
         existing = _lookup(table, policy, groups)
-        indices, metrics = _compare(rows, groups, existing, policy)
+        missing = conflicting = 0
+        for key, members in groups.items():
+            try:
+                indices, _ = _compare(rows, {key: members}, existing, policy)
+                missing += len(indices)
+            except HistoryConflictError:
+                conflicting += 1
         return {
-            "state": "observed",
+            "state": "conflicting" if conflicting else "observed",
             "snapshot_id": _current_snapshot_id(table),
-            "rows_present": sum(len(members) for key, members in groups.items() if key in existing),
-            "versions_missing": len(indices),
-            "rows_conflicting": metrics["rows_conflicting"],
+            "versions_present": len(groups) - missing - conflicting,
+            "versions_missing": missing,
+            "versions_conflicting": conflicting,
             "policy_bound": POLICY_PROPERTY in table.properties,
         }
-    except HistoryConflictError as exc:
-        return {"state": "conflicting", "rows_conflicting": exc.metrics["rows_conflicting"]}
     except Exception as exc:
         return {"state": "unavailable", "error_type": type(exc).__name__}
 

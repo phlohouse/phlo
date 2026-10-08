@@ -241,7 +241,9 @@ def test_multifile_executor_preserves_counts_and_reconciliation_evidence(
     if unknown:
         assert captured[0]["metrics"] == {}
         assert output["metadata"]["outcome"] == "unknown"
-        assert output["metadata"]["reconciliation"]["rows_present"] == 2
+        assert output["metadata"]["reconciliation"]["versions_present"] == 1
+        assert output["metadata"]["reconciliation"]["versions_missing"] == 0
+        assert output["metadata"]["reconciliation"]["versions_conflicting"] == 0
         assert len(catalog.load_table("raw.versions").scan().to_arrow()) == 1
     else:
         assert captured[0]["metrics"] == {
