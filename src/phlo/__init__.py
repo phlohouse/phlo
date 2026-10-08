@@ -144,6 +144,7 @@ _HELPER_EXPORTS = {"read_dataframe", "synthetic_key"}
 
 __all__ = [
     "__version__",
+    "export",
     *_SUBMODULE_EXPORTS,
     *_HELPER_EXPORTS,
     *_CONTRACT_EXPORTS,
@@ -163,6 +164,11 @@ def __getattr__(name: str) -> Any:
 
     """
 
+    if name == "export":
+        from phlo.exports import export
+
+        globals()[name] = export
+        return export
     if name in _SUBMODULE_EXPORTS:
         module = import_module(f"{__name__}.{name}")
         globals()[name] = module
