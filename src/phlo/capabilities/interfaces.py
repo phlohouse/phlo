@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from phlo.capabilities.history import HistoryPolicy
 from phlo.capabilities.inventory import ObjectInventory
 
 
@@ -29,6 +30,7 @@ class TableStoreSupport:
     supports_compaction: bool = False
     supports_vacuum: bool = False
     schema_policies: frozenset[str] = frozenset()
+    supports_history: bool = False
 
     def supports_partition_transform(self, transform: str) -> bool:
         return transform in self.partition_transforms
@@ -52,6 +54,27 @@ class TableStateObserver(Protocol):
         self, *, table_name: str, override_ref: str | None = None
     ) -> TableStateObservation | dict[str, Any]:
         """Return present, absent, or unavailable normalized table state."""
+        ...
+
+
+@runtime_checkable
+class HistoryTableStore(Protocol):
+    """Opt into atomic immutable history writes with snapshot-guarded comparison.
+
+    Providers must reject unsupported policies, compare all files as one batch,
+    and retry complete operations, never an unchecked append alone.
+    """
+
+    def history_parquet(
+        self,
+        *,
+        table_name: str,
+        data_paths: list[Path],
+        policy: HistoryPolicy,
+        override_ref: str | None = None,
+        schema_policy: Literal["strict", "additive", "drop_extra"] = "strict",
+    ) -> dict[str, int]:
+        """Insert unseen versions and report incoming inserted/skipped/conflicting rows."""
         ...
 
 

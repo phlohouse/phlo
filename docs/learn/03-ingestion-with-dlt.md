@@ -18,9 +18,9 @@ Replayability is the practical benefit of these choices. A dated partition, stab
 
 The `phlo-dlt` package provides `@phlo.ingest.dlt`. The decorator turns a Python function into a Dagster asset and connects the returned dlt resource to table storage. `phlo-pandera` can validate each batch before publication.
 
-The tutorial asset uses a daily partition and `unique_key="event_id"`. The default `merge_strategy="merge"` upserts rows on that key. The other supported value is `merge_strategy="append"`, which inserts rows without using a merge key. Use append for an immutable event stream where each row is new. Set `partitioned=False` for reference data that has no natural partition.
+The tutorial asset uses a daily partition and `unique_key="event_id"`. The default `merge_strategy="merge"` upserts rows on that key. `merge_strategy="append"` inserts rows without using a merge key. Use append only when each row is new. For replayed immutable observations, `merge_strategy="history"` retains distinct entity/version pairs, skips identical versions, and rejects conflicting payloads. Set `partitioned=False` for reference data that has no natural partition.
 
-Phlo accepts `merge_strategy="append"` and `merge_strategy="merge"`. These are the only values the ingestion decorator accepts. `freshness_hours=(warning_hours, error_hours)` can add freshness checks, while `strict_validation` controls whether failed validation blocks the run.
+History mode requires explicit entity and version columns plus payload columns or a supplied payload hash. Arrival metadata does not participate in comparison. See [Preserve immutable versions](../guides/ingest-data.md#preserve-immutable-versions) for configuration and recovery. `freshness_hours=(warning_hours, error_hours)` can add freshness checks, while `strict_validation` controls whether failed validation blocks the run.
 
 The decorator does not decide what a row means for you. You still need to choose a key that identifies the source entity and a partition that matches the source's time semantics. If the source has immutable events, an event identifier can be retained as data while append preserves each event. If the source sends current entity state, a stable key and merge make replaying a partition safer.
 

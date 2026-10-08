@@ -47,7 +47,8 @@ import ulid
 from dlt.common.pipeline import LoadInfo
 import phlo.telemetry as phlo_observe
 from phlo.capabilities import CapabilitySupport, resolve_runtime_ref
-from phlo.capabilities.interfaces import TableStore
+from phlo.capabilities.history import HistoryPolicy
+from phlo.capabilities.interfaces import HistoryTableStore, TableStore
 from phlo.capabilities.table_store import schema_policy_kwargs
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
@@ -473,14 +474,15 @@ def merge_to_table_store(  # noqa: C901
     merge_strategy: str = "merge",
     merge_config: dict[str, Any] | None = None,
 ) -> dict[str, int]:
-    """Write staged parquet data into the table store via append or merge.
+    """Write staged parquet via append, merge, or an atomic history batch.
 
     Ensures the destination table exists (deriving its schema from
     table_config when necessary), coerces each parquet file to the table
     schema, then appends or upserts per merge_strategy on branch_name.
-    Returns metrics with rows_inserted and rows_deleted. Raises
+    History sends every unprojected file to an opted-in provider together and
+    also reports rows_skipped and rows_conflicting. Raises
     PhloConfigError when no schema is available or derivable, and
-    ValueError for a merge_strategy other than "append" or "merge".
+    ValueError for an unknown merge_strategy.
 
     Example:
         ```python
@@ -500,13 +502,24 @@ def merge_to_table_store(  # noqa: C901
     """
     merge_config = merge_config or {}
     table_name = table_config.full_table_name
+    history_policy = None
+    if merge_strategy == "history":
+        history_policy = HistoryPolicy.from_config(merge_config)
+        if not getattr(
+            getattr(table_store, "support", None), "supports_history", False
+        ) or not isinstance(table_store, HistoryTableStore):
+            raise PhloConfigError(message="Active table store does not support atomic history mode")
     policies = getattr(getattr(table_store, "support", None), "schema_policies", frozenset())
     policy_kwargs = schema_policy_kwargs(
         table_store,
         table_config.schema_policy,
         methods=(
             "ensure_table",
-            "append_parquet" if merge_strategy == "append" else "merge_parquet",
+            "history_parquet"
+            if history_policy is not None
+            else "append_parquet"
+            if merge_strategy == "append"
+            else "merge_parquet",
         ),
     )
     logger.info(
@@ -551,6 +564,16 @@ def merge_to_table_store(  # noqa: C901
         override_ref=branch_name,
         **policy_kwargs,
     )
+
+    if history_policy is not None:
+        assert isinstance(table_store, HistoryTableStore)
+        return table_store.history_parquet(
+            table_name=table_name,
+            data_paths=parquet_paths,
+            policy=history_policy,
+            override_ref=branch_name,
+            schema_policy=table_config.schema_policy,
+        )
 
     def _coerce_parquet_to_table_schema(parquet_file: Path) -> Path:
         """Coerce a Parquet file's columns to match the target table schema.

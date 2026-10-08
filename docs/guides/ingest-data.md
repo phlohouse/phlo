@@ -103,6 +103,60 @@ def countries(partition_date: str):
     return load_country_list()
 ```
 
+### Preserve immutable versions
+
+Use `merge_strategy="history"` when a source can replay immutable versions. Install `phlo-iceberg` as the table-store provider. Providers without atomic history support reject this mode before creating or writing a table.
+
+Declare both identity columns and select the payload to compare:
+
+```python
+import dlt
+import phlo
+from pandera.pandas import DataFrameModel
+
+
+class ExhibitVersionSchema(DataFrameModel):
+	exhibit_id: str
+	version_id: str
+	description: str
+
+
+@phlo.ingest.dlt(
+	table_name="exhibit_versions",
+	unique_key="exhibit_id",
+	group="museum",
+	validation_schema=ExhibitVersionSchema,
+	merge_strategy="history",
+	merge_config={
+		"entity_key": "exhibit_id",
+		"version_key": "version_id",
+		"payload_columns": ["description"],
+	},
+)
+def exhibit_versions(partition_date: str):
+	return dlt.resource(
+		[
+			{
+				"exhibit_id": "E-42",
+				"version_id": "V-1",
+				"description": "Bronze compass",
+			}
+		],
+		name="exhibit_versions",
+		write_disposition="append",
+	)
+```
+
+Materialise the same partition twice. The first run inserts one version. The second inserts zero rows and reports `rows_skipped=1`, despite new arrival metadata. Supply V-2 with a changed description to retain both versions. A later V-1 with a different description fails without changing the committed rows, schema, or policy properties.
+
+Keep DLT extraction append-only so Phlo receives every observation. Do not configure upstream replacement or deduplication that hides conflicting versions. `unique_key` remains a required decorator argument, but history identity comes from `entity_key` and `version_key` together. Different exhibits can each have a V-1.
+
+If your source already supplies a stable payload hash, replace `payload_columns` with `payload_hash_column="payload_hash"`. Never supply both. Include the hash column in your schema and every source row. Keep source arrival timestamps and `_phlo_` or `_dlt_` metadata out of comparison fields.
+
+For a rejected conflict, inspect the failed operation's `rows_conflicting` count and correct the source version or payload. Do not overwrite the stored version. For an unknown commit outcome, inspect the reconciliation evidence before explicitly replaying the batch. The failed operation does not claim an inserted count.
+
+Before changing identity or payload policy, stop all writers and perform a validated migration. Nonempty tables without a history policy cannot be adopted automatically. See the [history-mode reference](../reference/python-api.md#immutable-history-mode) for the concurrency guarantee, counts, and migration requirements.
+
 ### Choose a schema policy
 
 Iceberg writes now default to `schema_policy="strict"`. Extra source columns fail the batch instead of disappearing with a warning. This is an intentional compatibility change.

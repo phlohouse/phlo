@@ -66,6 +66,7 @@ from phlo.capabilities import (
     resolve_capability,
 )
 from phlo.capabilities.runtime import RuntimeContext, routing_from_context
+from phlo.capabilities.history import HistoryPolicy
 from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_consumers, serialize_sla
 from phlo.exceptions import PhloConfigError
 from phlo.logging import log_event
@@ -169,7 +170,8 @@ def _validate_merge_config(
 ) -> None:
     """Validate merge strategy and merge configuration semantics.
 
-    `merge_strategy` must be `append` or `merge`; when provided, `merge_config`
+    `merge_strategy` must be `append`, `merge` or `history`; history requires
+    explicit entity/version and payload configuration. For other modes, `merge_config`
     must be a dict of supported keys only: `deduplication` (bool, requires a
     non-empty `unique_key` when true), `deduplication_method` (`first` or
     `last`), and `deduplication_order_by` (ordering column name used by
@@ -177,11 +179,20 @@ def _validate_merge_config(
 
     Raises: PhloConfigError when the strategy or config values are invalid.
     """
-    if merge_strategy not in ("append", "merge"):
+    if merge_strategy not in ("append", "merge", "history"):
         raise PhloConfigError(
             message=f"Invalid merge_strategy: {merge_strategy}",
-            suggestions=["Use merge_strategy='append' or merge_strategy='merge'"],
+            suggestions=["Use merge_strategy='append', 'merge' or 'history'"],
         )
+
+    if merge_strategy == "history":
+        if merge_config is not None and not isinstance(merge_config, dict):
+            raise PhloConfigError(message="merge_config must be a dict")
+        try:
+            HistoryPolicy.from_config(merge_config)
+        except ValueError as exc:
+            raise PhloConfigError(message=str(exc)) from exc
+        return
 
     if merge_config is None:
         return
@@ -328,7 +339,7 @@ def phlo_ingestion(  # noqa: C901
     retry_delay_seconds: int = 30,
     validate: bool = True,
     strict_validation: bool = True,
-    merge_strategy: Literal["append", "merge"] = "merge",
+    merge_strategy: Literal["append", "merge", "history"] = "merge",
     merge_config: dict[str, Any] | None = None,
     add_metadata_columns: bool = True,
     owner: str | None = None,
@@ -374,9 +385,10 @@ def phlo_ingestion(  # noqa: C901
           ``"drop_extra"`` explicitly discards extra source columns. Providers
           without support retain their defaults and reject non-default policies.
         - `partition_spec` format depends on the provider (e.g., Iceberg transforms).
-        - `merge_strategy` selects insert-only ``"append"`` versus ``"merge"``
-          upserts on `unique_key`; `merge_config` overrides merge behaviour, e.g.
-          ``{"deduplication": True, "deduplication_method": "last"}``.
+        - `merge_strategy` selects ``"append"``, ``"merge"`` upserts on
+          `unique_key`, or immutable ``"history"``. History requires
+          `merge_config` with entity_key, version_key and exactly one of
+          payload_columns or payload_hash_column, excluding arrival metadata.
         - With `add_metadata_columns` enabled, Phlo injects `_phlo_row_id`,
           `_phlo_ingested_at`, `_phlo_partition_date`, and `_phlo_run_id`.
         - `freshness_hours` is a (warning_hours, error_hours) tuple used for SLA
@@ -885,6 +897,11 @@ def phlo_ingestion(  # noqa: C901
                         "partition_date": partition_date,
                         "rows_inserted": result.rows_inserted,
                         "rows_deleted": result.rows_deleted,
+                        **{
+                            key: result.metadata[key]
+                            for key in ("rows_skipped", "rows_conflicting")
+                            if key in result.metadata
+                        },
                         "unique_key": table_config.unique_key,
                         "table_name": table_config.full_table_name,
                         "table_store": table_store_name,
