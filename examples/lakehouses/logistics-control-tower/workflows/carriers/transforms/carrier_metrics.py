@@ -144,6 +144,8 @@ def carrier_events_unified(context) -> None:
     unified = normalize_carrier_events(
         _read_staged(SOURCE_TABLES[0]), _read_staged(SOURCE_TABLES[1])
     )
+    # The unified business table deliberately excludes per-feed ingestion metadata.
+    unified = unified[list(CarrierEventSchema.to_schema().columns)]
     CarrierEventSchema.validate(unified)
     result = _write_table(unified, CarrierEventSchema, UNIFIED_TABLE, "event_id")
     context.log.info(f"carrier_events_unified merged {result['rows_inserted']} rows")

@@ -30,6 +30,7 @@ class MigrationDestination:
     table: str
     write_mode: str = "append"
     unique_key: str | None = None
+    schema_policy: str = "strict"
 
 
 @dataclass(frozen=True, slots=True)

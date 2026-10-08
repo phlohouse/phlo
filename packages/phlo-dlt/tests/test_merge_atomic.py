@@ -59,6 +59,7 @@ def test_ingestion_failure_replay_and_ref_isolation(tmp_path, monkeypatch):
         validation_schema=None,
         unique_key="id",
         group_name="raw",
+        schema_policy="drop_extra",
     )
     main = catalogs["main"].create_table(config.full_table_name, schema)
     main.append(pa.Table.from_pylist([{"id": 7, "status": "main-only"}]))
