@@ -137,6 +137,17 @@ class WapConfig(BaseModel):
         }
 
 
+class ServiceFileOverride(BaseModel):
+    """Read a project-owned overlay or whole-file replacement."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(min_length=1, description="File path relative to the project root.")
+    mode: Literal["merge", "replace"] = Field(
+        default="merge", description="Merge YAML/JSON dictionaries or explicitly replace a file."
+    )
+
+
 class ServiceOverride(BaseModel):
     """User overrides for a service in phlo.yaml.
 
@@ -183,6 +194,10 @@ class ServiceOverride(BaseModel):
         default=None,
         description="Container command override.",
     )
+    files: dict[str, ServiceFileOverride] = Field(
+        default_factory=dict,
+        description="Project overrides keyed by provider-declared generated file destination.",
+    )
     authorization: ApiAuthorizationConfig | None = Field(
         default=None,
         description="Service-scoped authorization settings for phlo-api.",
@@ -223,8 +238,8 @@ class ServiceOverride(BaseModel):
         return [mapping.strip() for mapping in value]
 
 
-class ServiceConfig(BaseModel):
-    """Configuration for a single service."""
+class ServiceConfig(ServiceOverride):
+    """Service overrides and infrastructure connection metadata."""
 
     container_name: str | None = Field(
         default=None,
@@ -323,6 +338,17 @@ class InfrastructureConfig(BaseModel):
         default_factory=NetworkConfig,
         description="Docker network configuration",
     )
+
+    @field_validator("services", mode="before")
+    @classmethod
+    def default_service_names(cls, value: Any) -> Any:
+        """Infer omitted Compose service names without changing the input mapping."""
+        if not isinstance(value, dict):
+            return value
+        return {
+            name: {"service_name": name, **config} if isinstance(config, dict) else config
+            for name, config in value.items()
+        }
 
     @field_validator("container_naming_pattern")
     @classmethod
