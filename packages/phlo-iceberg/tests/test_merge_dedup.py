@@ -1,5 +1,6 @@
 """Unit tests that merge_to_table applies batch-local deduplication before appending."""
 
+from contextlib import nullcontext
 import warnings
 from unittest.mock import MagicMock, patch
 
@@ -29,6 +30,9 @@ class FakeIcebergTable:
 
     def schema(self):
         return self._schema
+
+    def transaction(self):
+        return nullcontext(self)
 
     def delete(self, expression):
         self.deleted.append(expression)
