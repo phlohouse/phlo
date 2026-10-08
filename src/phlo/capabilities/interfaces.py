@@ -188,6 +188,65 @@ class TableStore(Protocol):
         raise NotImplementedError
 
 
+@runtime_checkable
+class SchemaPolicyTableStore(TableStore, Protocol):
+    """Optional write-policy contract for stores advertising ``schema_policies``.
+
+    Additive writes add nullable fields only, never migrate existing definitions.
+    Advertised policies must be accepted by every supported write operation.
+    Runtime protocol checks do not validate signatures; callers also check the
+    selected methods before sending a policy keyword.
+    """
+
+    def ensure_table(
+        self,
+        *,
+        table_name: str,
+        schema: Any,
+        partition_spec: Any = None,
+        override_ref: str | None = None,
+        schema_policy: Literal["strict", "additive", "drop_extra"] = "strict",
+    ) -> Any:
+        """Validate a declaration without publishing additive evolution."""
+        ...
+
+    def append_parquet(
+        self,
+        *,
+        table_name: str,
+        data_path: str | Path,
+        override_ref: str | None = None,
+        schema_policy: Literal["strict", "additive", "drop_extra"] = "strict",
+    ) -> dict[str, int]:
+        """Validate and append using an advertised schema policy."""
+        ...
+
+    def merge_parquet(
+        self,
+        *,
+        table_name: str,
+        data_path: str | Path,
+        unique_key: str,
+        override_ref: str | None = None,
+        deduplication_method: str | None = None,
+        deduplication_order_by: str | None = None,
+        schema_policy: Literal["strict", "additive", "drop_extra"] = "strict",
+    ) -> dict[str, int]:
+        """Validate and merge using an advertised schema policy."""
+        ...
+
+    def overwrite_parquet(
+        self,
+        *,
+        table_name: str,
+        data_path: str | Path,
+        override_ref: str | None = None,
+        schema_policy: Literal["strict", "additive", "drop_extra"] = "strict",
+    ) -> dict[str, int]:
+        """Validate and overwrite if the provider supports replacement."""
+        raise NotImplementedError
+
+
 class IndependentReviewRequired(PermissionError):
     """A catalog cannot prove classification or consume required human review."""
 

@@ -106,6 +106,55 @@ def test_unsupported_provider_rejects_history_before_ensure_or_write(tmp_path, a
         )
 
 
+@pytest.mark.parametrize("accepts_policy", [False, True])
+def test_history_negotiates_selected_write_signature_before_ensure(tmp_path, accepts_policy):
+    writes = []
+
+    def ensure_table(*, table_name, schema, partition_spec, override_ref, schema_policy):
+        writes.append(("ensure", schema_policy))
+
+    def history_with_policy(*, table_name, data_paths, policy, override_ref, schema_policy):
+        writes.append(("history", schema_policy))
+        return {
+            "rows_inserted": 1,
+            "rows_deleted": 0,
+            "rows_skipped": 0,
+            "rows_conflicting": 0,
+        }
+
+    def history_without_policy(*, table_name, data_paths, policy, override_ref):
+        raise AssertionError("unsupported signature must fail before writes")
+
+    provider = SimpleNamespace(
+        support=TableStoreSupport(
+            supports_history=True, schema_policies=frozenset({"strict", "additive", "drop_extra"})
+        ),
+        ensure_table=ensure_table,
+        history_parquet=history_with_policy if accepts_policy else history_without_policy,
+    )
+
+    def write():
+        return merge_to_table_store(
+            context=SimpleNamespace(log=get_logger("test-history-policy")),
+            table_store=provider,
+            table_config=TableConfig(
+                "versions", SCHEMA, None, "entity", "raw", schema_policy="additive"
+            ),
+            parquet_paths=[tmp_path / "input.parquet"],
+            branch_name="dev",
+            merge_strategy="history",
+            merge_config=CONFIG,
+        )
+
+    if accepts_policy:
+        assert write()["rows_inserted"] == 1
+        assert writes == [("ensure", "additive"), ("history", "additive")]
+    else:
+        with pytest.raises(PhloConfigError, match="history_parquet cannot accept schema_policy"):
+            write()
+        assert writes == []
+
+
 def test_public_decorator_runs_real_dlt_staging_replay_and_late_versions(
     catalog, tmp_path, monkeypatch
 ):

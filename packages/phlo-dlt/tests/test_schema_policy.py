@@ -161,3 +161,18 @@ def test_invalid_schema_policy_fails_at_public_configuration():
             table_schema=pa.schema([]),
             schema_policy="typo",
         )
+
+
+@pytest.mark.parametrize("strategy", ["append", "merge"])
+def test_misadvertised_write_fails_before_ensure_table(strategy):
+    from phlo.capabilities.interfaces import TableStoreSupport
+
+    provider = SimpleNamespace(
+        support=TableStoreSupport(schema_policies=frozenset({"strict"})),
+        ensure_table=MagicMock(),
+        **{f"{strategy}_parquet": lambda *, table_name, data_path: None},
+    )
+    config = TableConfig("events", pa.schema([pa.field("id", pa.int64())]), None, "id", "raw")
+    with pytest.raises(PhloConfigError, match=f"{strategy}_parquet cannot accept schema_policy"):
+        merge_to_table_store(SimpleNamespace(), provider, config, [], "main", strategy)
+    provider.ensure_table.assert_not_called()

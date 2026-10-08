@@ -350,3 +350,96 @@ def test_null_optional_parent_does_not_require_nested_values(nested):
     )
     assert aligned.schema == target
     assert aligned.to_pylist() == [{"nested": None}]
+
+
+@pytest.mark.parametrize("policy", ["strict", "additive", "drop_extra"])
+@pytest.mark.parametrize("mode", ["append", "merge", "overwrite"])
+def test_migration_executor_policy_reaches_all_chunks(catalog, tmp_path, monkeypatch, policy, mode):
+    from types import SimpleNamespace
+
+    from phlo.migrations import executor as module
+    from phlo.migrations.specs import MigrationDestination, MigrationSource, MigrationSpec
+
+    chunks = [
+        [{"event_id": 2, "bed_id": "new", "method": "drip"}],
+        [{"event_id": 3, "bed_id": "next", "method": "hose"}],
+    ]
+    adapter = SimpleNamespace(
+        read_chunks=lambda *args, **kwargs: iter(chunks), estimate_row_count=lambda source: 2
+    )
+    executor = module.MigrationExecutor()
+    monkeypatch.setattr(executor, "validate", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "resolve_source_adapter", lambda name: adapter)
+    monkeypatch.setattr(
+        module, "resolve_capability", lambda name: SimpleNamespace(provider=IcebergResource())
+    )
+    monkeypatch.setattr(module, "_HISTORY_PATH", tmp_path / "history.jsonl")
+    spec = MigrationSpec(
+        "probe",
+        "1",
+        "policy",
+        MigrationSource("fixture"),
+        MigrationDestination(TABLE, mode, "event_id", policy),
+    )
+    before = state(catalog)
+    if policy == "strict":
+        with pytest.raises(ValueError, match="Unexpected columns"):
+            executor.execute(spec)
+        assert state(catalog) == before
+        return
+    assert executor.execute(spec).rows_written == 2
+    table = catalog.load_table(TABLE)
+    rows = sorted(table.scan().to_arrow().to_pylist(), key=lambda row: row["event_id"])
+    assert [row["event_id"] for row in rows] == ([2, 3] if mode == "overwrite" else [1, 2, 3])
+    assert [(f.name, f.field_id) for f in table.schema().fields[:4]] == [
+        (f.name, f.field_id) for f in SCHEMA.fields
+    ]
+    if policy == "additive":
+        assert [row["method"] for row in rows[-2:]] == ["drip", "hose"]
+        if mode != "overwrite":
+            assert rows[0]["method"] is None
+    else:
+        assert "method" not in table.schema().column_names
+
+
+@pytest.mark.parametrize("policy", ["strict", "additive", "drop_extra"])
+def test_kafka_stager_policy_is_effective_and_not_a_type_migration(catalog, policy):
+    from phlo_kafka.assets import KafkaConsumerConfig, _make_stager
+
+    config = KafkaConsumerConfig(
+        "probe", "raw", "events", TABLE, ["event_id"], schema_policy=policy
+    )
+    stager = _make_stager(config, None, IcebergResource())
+    before = state(catalog)
+    rows = [{"event_id": 2, "bed_id": "new", "method": "drip"}]
+    if policy == "strict":
+        with pytest.raises(ValueError, match="Unexpected columns"):
+            stager("checkpoint", rows)
+        assert state(catalog) == before
+    else:
+        assert stager("checkpoint", rows)["rows_merged"] == 1
+        result = sorted(
+            catalog.load_table(TABLE).scan().to_arrow().to_pylist(), key=lambda row: row["event_id"]
+        )
+        if policy == "additive":
+            assert [row["method"] for row in result] == [None, "drip"]
+        else:
+            assert "method" not in result[-1]
+    before = state(catalog)
+    with pytest.raises(ValueError, match="Incompatible type"):
+        stager("bad-checkpoint", [{"event_id": 1, "bed_id": "bad", "count": 7}])
+    assert state(catalog) == before
+
+
+def test_iceberg_conforms_to_optional_policy_contract():
+    from phlo.capabilities import SchemaPolicyTableStore
+    from phlo.capabilities.table_store import schema_policy_kwargs
+
+    resource: SchemaPolicyTableStore = IcebergResource()
+    assert isinstance(resource, SchemaPolicyTableStore)
+    for policy in ("strict", "additive", "drop_extra"):
+        assert schema_policy_kwargs(
+            resource,
+            policy,
+            methods=("ensure_table", "append_parquet", "merge_parquet", "overwrite_parquet"),
+        ) == {"schema_policy": policy}
