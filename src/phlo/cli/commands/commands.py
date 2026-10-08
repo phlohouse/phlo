@@ -51,6 +51,10 @@ def _describe(command: click.Command, path: list[str]) -> dict[str, Any]:
 
 def describe_commands(root: click.Group, path: tuple[str, ...] = ()) -> list[dict[str, Any]]:
     """Return deterministic metadata from registered commands, never execute them."""
+    from phlo.cli.lazy import LazyPhloGroup
+
+    if isinstance(root, LazyPhloGroup):
+        root.materialize_commands()
     command: click.Command = root
     prefix = ["phlo"]
     for part in path:

@@ -57,6 +57,12 @@ def _requests_json(command: click.Command, args: Sequence[str]) -> bool:
             return False
         name = token.split("=", 1)[0]
         option = options.get(name)
+        if token == "--help" or (option is not None and option.is_eager):
+            # Eager exits must not resolve trailing command names or providers.
+            remaining = tokens[index:]
+            if "--" in remaining:
+                remaining = remaining[: remaining.index("--")]
+            return "--json" in remaining
         if option is not None:
             if name == "--json":
                 return True
@@ -68,7 +74,8 @@ def _requests_json(command: click.Command, args: Sequence[str]) -> bool:
             index += 1
             continue
         if isinstance(command, click.Group):
-            child = command.commands.get(token)
+            with click.Context(command) as ctx:
+                child = command.get_command(ctx, token)
             if child is None:
                 # Still honor a root machine request on a misspelled command.
                 return False
@@ -221,7 +228,7 @@ class _InvocationBoundary(click.Command):
 
     def main(self, args=None, prog_name=None, complete_var=None, standalone_mode=True, **extra):
         args = list(sys.argv[1:] if args is None else args)
-        if not _requests_json(self, args):
+        if "--json" not in args or not _requests_json(self, args):
             return super().main(
                 args=args,
                 prog_name=prog_name,

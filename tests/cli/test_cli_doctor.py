@@ -1,7 +1,7 @@
 """Tests for "phlo doctor": probes, JSON payloads, and remediation hints.
 
-The startup fast-path must detect doctor invocations before plugin command discovery
-runs, so a broken plugin cannot block diagnostics.
+Lazy root command resolution keeps plugin loading out of diagnostics. Fresh
+process import regressions live in test_cli_startup.py.
 """
 
 from subprocess import CompletedProcess, TimeoutExpired
@@ -17,7 +17,7 @@ from phlo.cli.commands.doctor import (
     run_diagnostics,
 )
 from phlo.cli.commands.services.ports import PortMapping
-from phlo.cli.main import _is_doctor_invocation, cli
+from phlo.cli.main import cli
 
 
 def test_diagnostic_result_serializes_to_json_payload() -> None:
@@ -141,13 +141,6 @@ def test_doctor_fails_when_generated_compose_is_malformed(tmp_path, monkeypatch)
     assert '"project.compose"' in result.output
     assert ".phlo/docker-compose.yml could not be read or parsed" in result.output
     assert "Traceback" not in result.output
-
-
-def test_doctor_invocation_skips_plugin_command_discovery() -> None:
-    assert _is_doctor_invocation(["phlo", "doctor", "--json"])
-    assert not _is_doctor_invocation(["phlo", "services", "list"])
-    assert not _is_doctor_invocation(["phlo", "services", "exec", "doctor", "--", "true"])
-    assert not _is_doctor_invocation(["phlo", "--help", "doctor"])
 
 
 def test_environment_checks_report_missing_docker(monkeypatch) -> None:

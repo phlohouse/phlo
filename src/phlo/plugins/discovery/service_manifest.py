@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 
 from phlo.plugins.discovery._plugin_loading import discover_plugins
-from phlo.plugins.discovery._service_definition import ServiceDefinition
+from phlo.plugins.discovery._service_definition import ServiceDefinition, service_manifest_paths
 from phlo.plugins.discovery._service_dependency_resolution import resolve_service_dependencies
 from phlo.plugins.discovery._service_loading import resolve_plugin_source_path
 from phlo.plugins.discovery.registry import get_global_registry
@@ -44,7 +44,7 @@ def _companion_manifests(
         return []
 
     manifests: list[ServiceManifest] = []
-    for yaml_path in sorted(source_path.rglob("*.yaml")):
+    for yaml_path in service_manifest_paths(source_path):
         if yaml_path.name == "service.yaml":
             continue
         if not yaml_path.name.endswith(("-setup.yaml", "-daemon.yaml")):
@@ -133,7 +133,7 @@ class ServiceManifestResolver:
             return []
 
         manifests: list[ServiceManifest] = []
-        for yaml_path in sorted(self.services_dir.rglob("*.yaml")):
+        for yaml_path in service_manifest_paths(self.services_dir):
             if ".schema" in str(yaml_path):
                 continue
             if not _is_service_yaml(yaml_path.name):

@@ -62,3 +62,33 @@ def test_entry_points_for_group_supports_legacy_mapping(
     )
 
     assert list(entry_points_for_group("phlo.plugins.services")) == expected
+
+
+def test_entry_point_metadata_is_cached_until_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    from importlib.metadata import EntryPoint
+
+    from phlo.plugins.discovery import refresh
+
+    calls: list[str] = []
+    installed = [EntryPoint(name="first", value="package:First", group="phlo.plugins.sources")]
+
+    def scan(*, group: str) -> list[EntryPoint]:
+        calls.append(group)
+        return installed
+
+    monkeypatch.setattr(
+        "phlo.plugins.discovery._entry_points.importlib.metadata.entry_points", scan
+    )
+    first = entry_points_for_group("phlo.plugins.sources")
+    installed.append(
+        EntryPoint(name="second", value="package:Second", group="phlo.plugins.sources")
+    )
+    assert entry_points_for_group("phlo.plugins.sources") == first
+    assert [entry.name for entry in first] == ["first"]
+    assert calls == ["phlo.plugins.sources"]
+    refresh()
+    assert [entry.name for entry in entry_points_for_group("phlo.plugins.sources")] == [
+        "first",
+        "second",
+    ]
+    assert calls == ["phlo.plugins.sources", "phlo.plugins.sources"]

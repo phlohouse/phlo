@@ -134,9 +134,12 @@ def test_services_logs_accepts_package_selector_alias(monkeypatch) -> None:
 
 
 def test_top_level_logs_is_generic_services_command() -> None:
+    from click import Context
+
     from phlo.cli.main import cli
 
-    assert cli.commands["logs"] is logs_cmd
+    with Context(cli) as ctx:
+        assert cli.get_command(ctx, "logs") is logs_cmd
 
 
 def test_services_logs_requires_initialized_services(monkeypatch, tmp_path) -> None:

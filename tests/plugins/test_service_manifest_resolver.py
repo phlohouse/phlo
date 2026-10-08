@@ -199,3 +199,71 @@ def test_resolver_expands_requested_services_with_dependencies(tmp_path: Path) -
     expanded = ServiceManifestResolver.expand_dependencies(definitions, ["api"])
 
     assert [service.name for service in expanded] == ["postgres", "api"]
+
+
+def test_manifest_scans_and_yaml_reads_are_cached_without_sharing_mutations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from phlo.plugins.discovery import refresh
+
+    manifest = tmp_path / "service.yaml"
+    manifest.write_text(
+        "name: worker\ndescription: Worker\nimage: old\ncompose:\n  ports: [1234]\n"
+    )
+    scans: list[Path] = []
+    reads: list[Path] = []
+    original_rglob, original_open = Path.rglob, Path.open
+
+    def scan(path: Path, pattern: str):
+        scans.append(path)
+        return original_rglob(path, pattern)
+
+    def open_file(path: Path, *args, **kwargs):
+        reads.append(path)
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "rglob", scan)
+    monkeypatch.setattr(Path, "open", open_file)
+    first = ServiceManifestResolver(tmp_path).resolve_directory_manifests()[0].definition
+    first.compose["ports"].append(5678)
+    second = ServiceManifestResolver(tmp_path).resolve_directory_manifests()[0].definition
+    assert second.compose == {"ports": [1234]}
+    assert second.source_path == tmp_path
+    assert second is not first
+    assert scans == [tmp_path]
+    assert reads == [manifest]
+
+    mtime = manifest.stat().st_mtime_ns
+    manifest.write_text("name: worker\ndescription: Worker\nimage: new\n")
+    os.utime(manifest, ns=(mtime + 1_000_000, mtime + 1_000_000))
+    assert ServiceDefinition.from_yaml(manifest).image == "new"
+    # Added files require explicit refresh; existing file edits use mtime.
+    (tmp_path / "worker-setup.yaml").write_text("name: setup\ndescription: Setup\nimage: busybox\n")
+    assert [
+        item.name for item in ServiceManifestResolver(tmp_path).resolve_directory_manifests()
+    ] == ["worker"]
+    refresh()
+    assert [
+        item.name for item in ServiceManifestResolver(tmp_path).resolve_directory_manifests()
+    ] == ["worker", "setup"]
+    assert scans == [tmp_path, tmp_path]
+
+
+def test_service_refresh_finds_new_manifest_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "phlo.plugins.discovery.service_manifest.discover_plugins", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "phlo.plugins.discovery.service_manifest.get_registered_service_plugins", dict
+    )
+    (tmp_path / "service.yaml").write_text("name: worker\ndescription: Worker\n")
+    discovery = ServiceDiscovery(tmp_path)
+    assert set(discovery.discover()) == {"worker"}
+    (tmp_path / "worker-setup.yaml").write_text("name: setup\ndescription: Setup\n")
+    assert set(discovery.discover()) == {"worker"}
+    assert set(discovery.refresh()) == {"worker", "setup"}

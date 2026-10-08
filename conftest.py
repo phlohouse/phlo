@@ -85,6 +85,16 @@ _register_workspace_plugins()
 # Import fixtures from phlo_testing - these are auto-discovered by pytest
 
 
+@pytest.fixture(autouse=True)
+def reset_discovery_caches():
+    """Keep mocked entry points and manifest inputs isolated between tests."""
+    from phlo.plugins.discovery import refresh
+
+    refresh()
+    yield
+    refresh()
+
+
 def _minio_container_endpoint(minio_service) -> str:
     """Return the HTTP endpoint for the current testcontainers MinIO API."""
     if hasattr(minio_service, "get_url"):
