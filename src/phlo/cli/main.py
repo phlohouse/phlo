@@ -19,63 +19,21 @@ import click
 
 import phlo.cli._init_discovery_guard  # noqa: F401
 import phlo.cli._warning_filters  # noqa: F401
-from phlo.cli._init_discovery_guard import _root_command_name, is_init_command_invocation
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.commands.commands import commands_cmd
 from phlo.cli.commands.doctor import doctor_cmd
 from phlo.cli.commands.support import support_group
-from phlo.cli.contract import PhloGroup
+from phlo.cli.lazy import LazyPhloGroup
 from phlo.cli.output import json_envelope, user_error
 from phlo.cli.templates import TemplateRenderContext, get_template
 from phlo.cli.templates import list_templates as get_project_templates
 from phlo.cli.templates.registry import missing_required_packages
 from phlo.logging import get_logger, setup_logging
-from phlo.plugins.base.cli import CliCommandPlugin
 
 logger = get_logger(__name__, service="phlo-cli")
 
 
-def _is_doctor_invocation(argv: list[str]) -> bool:
-    for token in argv[1:]:
-        if token == "--":
-            return False
-        if token in {"--help", "-h", "--version"}:
-            return False
-        if token.startswith("-"):
-            continue
-        return token == "doctor"
-    return False
-
-
-# Startup guard computed from argv before any heavy imports. `phlo doctor`,
-# `phlo support`, and `phlo init` must run in minimal installs where the
-# audit/plugin machinery below cannot be imported, so those invocations skip
-# it entirely instead of failing at module import time.
-_DOCTOR_INVOCATION = _is_doctor_invocation(sys.argv)
-_SUPPORT_INVOCATION = _root_command_name(sys.argv) == "support"
-_INIT_INVOCATION = is_init_command_invocation(sys.argv)
-
-if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
-    from phlo.cli.commands.audit import audit_group
-    from phlo.cli.commands.authz import authz_group
-    from phlo.cli.commands.compliance import compliance_group
-    from phlo.cli.commands.dataset import dataset_group
-    from phlo.cli.commands.governance import governance_group
-    from phlo.cli.commands.metrics import metrics_group
-    from phlo.cli.commands.migrate import migrate_group
-    from phlo.cli.commands.operations import operations_group
-    from phlo.cli.commands.plugin import plugin_group
-    from phlo.cli.commands.schema_migrate import schema_migrate_group
-    from phlo.cli.commands.schema_registry_cli import contracts
-    from phlo.cli.commands.services import _register_commands as _register_service_commands
-    from phlo.cli.commands.services import services_group
-    from phlo.cli.commands.services.logs import logs_cmd
-    from phlo.cli.commands.workflow import workflow_group
-    from phlo.cli.config import config
-    from phlo.cli.env import env
-
-
-@click.group(cls=PhloGroup)
+@click.group(cls=LazyPhloGroup)
 @click.version_option(version=version("phlo"), prog_name="phlo")
 @click.option("--quiet", is_flag=True, help="Reduce non-essential CLI output.")
 @click.option("--no-color", is_flag=True, help="Disable colorized terminal output.")
@@ -99,26 +57,56 @@ cli.add_command(commands_cmd)
 cli.add_command(doctor_cmd)
 cli.add_command(support_group)
 
-if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
-    cli.add_command(audit_group)
-    cli.add_command(logs_cmd)
-    cli.add_command(services_group)
-    cli.add_command(operations_group)
-    cli.add_command(workflow_group)
-    cli.add_command(plugin_group)
-    cli.add_command(schema_migrate_group)
-    cli.add_command(migrate_group)
-    cli.add_command(metrics_group)
-    cli.add_command(contracts)
-    cli.add_command(config)
-    cli.add_command(env)
-    cli.add_command(authz_group)
-    cli.add_command(compliance_group)
-    cli.add_command(governance_group)
-    cli.add_command(dataset_group)
+_BUILTIN_COMMANDS = {
+    "audit": ("phlo.cli.commands.audit:audit_group", "Inspect local Phlo audit records."),
+    "authz": (
+        "phlo.cli.commands.authz:authz_group",
+        "Manage RBAC authorization policies and backend synchronization.",
+    ),
+    "compliance": (
+        "phlo.cli.commands.compliance:compliance_group",
+        "Manage compliance features and evidence.",
+    ),
+    "dataset": ("phlo.cli.commands.dataset:dataset_group", "Dataset workflow commands."),
+    "governance": (
+        "phlo.cli.commands.governance:governance_group",
+        "Check and export governance readiness from Phlo declarations.",
+    ),
+    "metrics": (
+        "phlo.cli.commands.metrics:metrics_group",
+        "Pipeline and data metrics exposure.",
+    ),
+    "migrate": ("phlo.cli.commands.migrate:migrate_group", "Data migration commands."),
+    "operations": (
+        "phlo.cli.commands.operations:operations_group",
+        "Guarded plan-first operations (maintenance, backup, restore, upgrade).",
+    ),
+    "plugin": ("phlo.cli.commands.plugin:plugin_group", "Manage Phlo plugins."),
+    "schema-migrate": (
+        "phlo.cli.commands.schema_migrate:schema_migrate_group",
+        "Schema migration between quality schemas and storage tables.",
+    ),
+    "contracts": (
+        "phlo.cli.commands.schema_registry_cli:contracts",
+        "Schema registry and data contract management.",
+    ),
+    "services": (
+        "phlo.cli.commands.services:_register_commands",
+        "Manage Phlo infrastructure services (Docker).",
+    ),
+    "logs": (
+        "phlo.cli.commands.services.logs:logs_cmd",
+        "View logs from Phlo infrastructure services.",
+    ),
+    "workflow": ("phlo.cli.commands.workflow:workflow_group", "Manage workflows."),
+    "config": ("phlo.cli.config:config", "Manage infrastructure configuration."),
+    "env": ("phlo.cli.env:env", "Manage environment configuration."),
+}
+cli.lazy_commands.update(_BUILTIN_COMMANDS)
 
 
 def _load_cli_plugin_commands() -> None:
+    from phlo.plugins.base.cli import CliCommandPlugin
     from phlo.plugins.discovery import discover_plugins, get_global_registry
 
     logger.debug("cli_plugin_discovery_started")
@@ -132,7 +120,11 @@ def _load_cli_plugin_commands() -> None:
             continue
         plugin = cast(CliCommandPlugin, plugin)
         for command in plugin.get_cli_commands():
-            if command.name is None or command.name in cli.commands:
+            if (
+                command.name is None
+                or command.name in cli.commands
+                or command.name in cli.lazy_commands
+            ):
                 logger.debug("cli_command_skipped", plugin_name=name, command_name=command.name)
                 continue
             cli.add_command(command)
@@ -141,10 +133,14 @@ def _load_cli_plugin_commands() -> None:
     logger.debug("cli_plugin_discovery_completed", command_count=added_count)
 
 
-if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION):
-    _register_service_commands()
-if not (_DOCTOR_INVOCATION or _SUPPORT_INVOCATION or _INIT_INVOCATION):
-    _load_cli_plugin_commands()
+def _plugin_help() -> dict[str, str]:
+    from phlo.cli._plugin_help import get_plugin_help
+
+    return get_plugin_help()
+
+
+cli.load_plugins = _load_cli_plugin_commands
+cli.plugin_help = _plugin_help
 
 
 @cli.command()

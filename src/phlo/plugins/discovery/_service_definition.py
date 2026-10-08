@@ -12,10 +12,28 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
 from typing import Any
 
-import yaml
+from phlo.plugins._service_yaml import load_service_yaml
+from phlo.plugins._service_yaml import refresh as refresh_yaml
+
+
+def service_manifest_paths(root: Path) -> tuple[Path, ...]:
+    """Scan a manifest root once; explicit discovery refresh finds new files."""
+    return _scan_manifest_root(root.resolve())
+
+
+@cache
+def _scan_manifest_root(root: Path) -> tuple[Path, ...]:
+    return tuple(sorted(root.rglob("*.yaml")))
+
+
+def refresh() -> None:
+    """Forget manifest scans and parsed YAML."""
+    _scan_manifest_root.cache_clear()
+    refresh_yaml()
 
 
 @dataclass(slots=True)
@@ -47,10 +65,7 @@ class ServiceDefinition:
     @classmethod
     def from_yaml(cls, path: Path) -> ServiceDefinition:
         """Load a service definition from a YAML file."""
-        with path.open(encoding="utf-8") as file_handle:
-            data = yaml.safe_load(file_handle)
-        if not isinstance(data, dict):
-            raise ValueError(f"Service definition must be a mapping: {path}")
+        data = load_service_yaml(path)
 
         # A declared source_path is relative to the phlo package tree, not to
         # the YAML file itself; only an undeclared one defaults to sitting

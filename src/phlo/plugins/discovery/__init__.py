@@ -59,6 +59,19 @@ _PLUGIN_EXPORTS = frozenset(
 )
 
 
+def refresh() -> None:
+    """Forget process-wide entry-point, discovery and service-manifest caches.
+
+    Use after installing plugins or adding manifest files in a running process,
+    and before tests replace discovery inputs. Existing registered plugins are
+    retained; the next discovery replaces them using the normal lifecycle.
+    """
+    from phlo.plugins.discovery import _plugin_loading, _service_definition
+
+    _plugin_loading.refresh()
+    _service_definition.refresh()
+
+
 def __getattr__(name: str):
     """Lazily expose entry-point plugin discovery helpers.
 
@@ -84,6 +97,7 @@ __all__ = [
     "PLUGIN_FAMILIES",
     "PluginFamilyDefinition",
     "discover_plugins",
+    "refresh",
     "get_plugin",
     "get_plugin_info",
     "list_plugins",

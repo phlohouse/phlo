@@ -11,7 +11,7 @@ import click
 _COMMANDS_REGISTERED = False
 
 
-def _register_commands() -> None:
+def _register_commands() -> click.Group:
     """Import and register service subcommands lazily.
 
     This keeps `phlo.cli.commands.services` lightweight when utility modules are imported
@@ -19,7 +19,7 @@ def _register_commands() -> None:
     """
     global _COMMANDS_REGISTERED
     if _COMMANDS_REGISTERED:
-        return
+        return services_group
 
     from phlo.cli.commands.services.add import add_cmd
     from phlo.cli.commands.services.exec import exec_cmd
@@ -51,6 +51,7 @@ def _register_commands() -> None:
     services_group.add_command(logs_cmd)
     services_group.add_command(exec_cmd)
     _COMMANDS_REGISTERED = True
+    return services_group
 
 
 @click.group(name="services", invoke_without_command=True)
