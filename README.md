@@ -144,10 +144,14 @@ The v1 support boundary covers a single-project, single-tenant deployment. Kuber
 
 ## Development
 
+Install Python 3.12, [`uv`](https://docs.astral.sh/uv/), and Node.js 24 or later, then run:
+
 ```bash
-uv pip install -e .
+make setup
 make check
 ```
+
+`make setup` creates the Python environment and installs the locked Observatory and Phlo GitHub writer dependencies. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution workflow.
 
 Useful local service commands:
 
