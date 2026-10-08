@@ -17,8 +17,21 @@ from phlo.plugins.base import Plugin
 from phlo.plugins.discovery._entry_points import entry_points_for_group
 from phlo.plugins.discovery._plugin_constants import ENTRY_POINT_GROUPS, PLUGIN_EXPECTED_TYPES
 from phlo.plugins.discovery._plugin_lifecycle import register_plugin_with_lifecycle
+from phlo.plugins.discovery.registry import PluginRegistry, get_global_registry
 
 logger = get_logger(__name__)
+_COMPLETED: dict[
+    tuple[str, bool, tuple[str, ...], tuple[str, ...]],
+    tuple[PluginRegistry, tuple[Plugin, ...]],
+] = {}
+
+
+def refresh() -> None:
+    """Forget completed discovery and installed entry-point metadata."""
+    from phlo.plugins.discovery import _entry_points
+
+    _COMPLETED.clear()
+    _entry_points.entry_points_for_group.cache_clear()
 
 
 class PluginDiscoveryError(RuntimeError):
@@ -58,6 +71,64 @@ def is_plugin_allowed(plugin_name: str) -> bool:
 
 
 def discover_plugins(
+    plugin_type: str | None = None,
+    auto_register: bool = True,
+    *,
+    failure_level: str = "error",
+    failure_sink: list[dict[str, str]] | None = None,
+    strict: bool = False,
+) -> dict[str, list[Plugin]]:
+    """Discover families once, retrying incomplete scans and registry changes.
+
+    Returned lists are fresh, but successfully discovered plugin instances are
+    reused until refresh, filter changes, removal or replacement. Failed scans
+    are never cached, preserving strict errors and failure reporting.
+    """
+    settings = get_settings()
+    result: dict[str, list[Plugin]] = {key: [] for key in ENTRY_POINT_GROUPS}
+    if not settings.plugins_enabled:
+        return result
+    registry = get_global_registry()
+    for family in [plugin_type] if plugin_type else ENTRY_POINT_GROUPS:
+        if family not in ENTRY_POINT_GROUPS:
+            logger.warning("unknown_plugin_type", plugin_type=family)
+            continue
+        key = (
+            family,
+            auto_register,
+            tuple(settings.plugins_whitelist),
+            tuple(settings.plugins_blacklist),
+        )
+        cached = _COMPLETED.get(key)
+        if (
+            cached is not None
+            and cached[0] is registry
+            and (
+                not auto_register
+                or all(registry.get(family, plugin.metadata.name) is plugin for plugin in cached[1])
+            )
+        ):
+            result[family] = list(cached[1])
+            continue
+        failures = failure_sink if failure_sink is not None else []
+        failure_count = len(failures)
+        loaded = _load_plugins(
+            family,
+            auto_register,
+            failure_level=failure_level,
+            failure_sink=failures,
+            strict=strict,
+        )[family]
+        result[family] = loaded
+        allowed_count = sum(
+            is_plugin_allowed(ep.name) for ep in entry_points_for_group(ENTRY_POINT_GROUPS[family])
+        )
+        if len(failures) == failure_count and len(loaded) == allowed_count:
+            _COMPLETED[key] = (registry, tuple(loaded))
+    return result
+
+
+def _load_plugins(
     plugin_type: str | None = None,
     auto_register: bool = True,
     *,

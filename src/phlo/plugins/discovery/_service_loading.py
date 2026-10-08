@@ -18,7 +18,7 @@ import yaml
 from phlo.logging import get_logger, log_event
 from phlo.plugins.base.service import ServicePlugin
 from phlo.plugins.discovery._plugin_loading import discover_plugins as _discover_plugins
-from phlo.plugins.discovery._service_definition import ServiceDefinition
+from phlo.plugins.discovery._service_definition import ServiceDefinition, service_manifest_paths
 from phlo.plugins.discovery.registry import get_global_registry
 
 logger = get_logger(__name__)
@@ -75,7 +75,7 @@ def load_services_from_directory(
         return 0
 
     loaded_count = 0
-    for yaml_path in services_dir.rglob("*.yaml"):
+    for yaml_path in service_manifest_paths(services_dir):
         if ".schema" in str(yaml_path):
             continue
         if not is_service_yaml(yaml_path.name):
@@ -106,7 +106,7 @@ def load_companion_service_files(
         return 0
 
     loaded_count = 0
-    for yaml_path in source_path.rglob("*.yaml"):
+    for yaml_path in service_manifest_paths(source_path):
         filename = yaml_path.name
         if filename == "service.yaml":
             continue

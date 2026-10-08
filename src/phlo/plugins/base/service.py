@@ -90,11 +90,12 @@ class PackageYamlServicePlugin(ServicePlugin, ABC):
         """Load service definition from package YAML resource."""
         from importlib import resources
 
-        import yaml
+        from phlo.plugins._service_yaml import load_service_yaml
 
         package = self._service_definition_package or self.__class__.__module__.split(".", 1)[0]
         path = resources.files(package).joinpath(self._service_definition_file)
-        return yaml.safe_load(path.read_text(encoding="utf-8"))
+        with resources.as_file(path) as manifest_path:
+            return load_service_yaml(manifest_path)
 
 
 def service_plugin_class(

@@ -29,6 +29,18 @@ def test_machine_parse_error_is_one_json_document():
     assert "count" in payload["errors"][0]
 
 
+def test_malformed_machine_flag_is_one_json_error_document():
+    @click.command(cls=PhloCommand)
+    @click.option("--json", "output_json", is_flag=True)
+    def command(output_json):
+        raise AssertionError("Must not execute on invalid input")
+
+    result = CliRunner().invoke(command, ["--json=true"])
+    payload = json.loads(result.stdout)
+    assert result.exit_code == payload["exit_code"] == 2
+    assert payload["reason_code"] == "invalid_arguments"
+
+
 def test_machine_failure_carries_same_recovery_as_human():
     @click.command(cls=PhloCommand)
     @click.option("--json", "output_json", is_flag=True)

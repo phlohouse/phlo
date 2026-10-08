@@ -266,6 +266,29 @@ def test_create_server_registers_resources() -> None:
     ]
 
 
+def test_cli_docs_resource_includes_unloaded_builtin_commands(monkeypatch) -> None:
+    from phlo.cli.lazy import LazyPhloGroup
+
+    root = LazyPhloGroup("phlo")
+    root.lazy_commands = {
+        "doctor": ("phlo.cli.commands.doctor:doctor_cmd", "Diagnose setup."),
+        "services": ("phlo.cli.commands.services:_register_commands", "Manage services."),
+    }
+    monkeypatch.setattr("phlo.cli.main.cli", root)
+    server = create_server(McpConfig())
+    resource = next(
+        resource
+        for uri, resource in server._resource_manager._resources.items()
+        if str(uri) == "phlo://docs/cli"
+    )
+
+    rendered = resource.fn()
+
+    assert "`phlo doctor`" in rendered
+    assert "`phlo services`" in rendered
+    assert "Manage Phlo infrastructure services" in rendered
+
+
 def test_package_docs_resource_reads_matching_section(tmp_path, monkeypatch) -> None:
     docs = tmp_path / "docs" / "reference"
     docs.mkdir(parents=True)

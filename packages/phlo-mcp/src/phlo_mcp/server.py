@@ -217,11 +217,13 @@ def create_server(config: McpConfig | None = None) -> FastMCP:  # noqa: C901
     @mcp.resource("phlo://docs/cli", name="cli_docs", mime_type="text/markdown")
     def cli_docs() -> str:
         """Return a lightweight CLI command index."""
+        from phlo.cli.commands.commands import describe_commands
         from phlo.cli.main import cli
 
         lines = ["# Phlo CLI", ""]
-        for name, command in sorted(cli.commands.items()):
-            lines.append(f"- `phlo {name}` — {command.short_help or command.help or ''}")
+        for command in describe_commands(cli):
+            if command["command"].count(" ") == 1:
+                lines.append(f"- `{command['command']}` — {command['description']}")
         return "\n".join(lines)
 
     def _write_audit_context(

@@ -158,16 +158,27 @@ def test_discover_plugins_strict_raises_for_entry_point_errors(
         lambda group: [_EntryPointStub("broken", "tests:broken", RuntimeError("boom"))],
     )
 
+    failures: list[dict[str, str]] = []
     with pytest.raises(_plugin_loading.PluginDiscoveryError) as exc_info:
         _plugin_loading.discover_plugins(
             plugin_type="source_connector",
             auto_register=False,
             strict=True,
+            failure_sink=failures,
         )
 
     assert exc_info.value.plugin_name == "broken"
     assert exc_info.value.entry_point == "tests:broken"
     assert exc_info.value.plugin_type == "source_connector"
+    assert failures == [
+        {
+            "plugin_name": "broken",
+            "entry_point": "tests:broken",
+            "plugin_type": "source_connector",
+            "error": "boom",
+            "error_type": "RuntimeError",
+        }
+    ]
 
 
 def test_discover_plugins_strict_raises_for_invalid_plugin_base(
@@ -230,3 +241,80 @@ def test_discover_plugins_skips_disallowed_and_invalid_plugins(
     ]
     assert errors[1]["fields"]["expected_type"] == "QualityCheckPlugin"
     assert errors[1]["fields"]["actual_type"] == "_SourcePlugin"
+
+
+def test_completed_discovery_reuses_instances_and_refreshes_lifecycle(
+    clean_registry,
+    settings_stub,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cache hit must not reconstruct, initialize or clean up providers."""
+    events: list[str] = []
+
+    class CountingSource(_SourcePlugin):
+        def __init__(self) -> None:
+            events.append("construct")
+
+        def initialize(self, config: dict) -> None:
+            events.append("initialize")
+
+        def cleanup(self) -> None:
+            events.append("cleanup")
+
+    entry_point = _EntryPointStub("source", "tests:source", CountingSource)
+    monkeypatch.setattr(_plugin_loading, "entry_points_for_group", lambda group: [entry_point])
+    first = _plugin_loading.discover_plugins("source_connector")["source_connector"]
+    second = _plugin_loading.discover_plugins("source_connector")["source_connector"]
+    assert second == first
+    assert second is not first
+    assert events == ["construct", "initialize"]
+    second.clear()
+    assert _plugin_loading.discover_plugins("source_connector")["source_connector"] == first
+
+    from phlo.plugins.discovery import refresh
+
+    refresh()
+    refreshed = _plugin_loading.discover_plugins("source_connector")["source_connector"]
+    assert refreshed[0] is not first[0]
+    assert clean_registry.get("source_connector", "source_plugin") is refreshed[0]
+    assert events == ["construct", "initialize", "construct", "initialize", "cleanup"]
+
+
+def test_discovery_cache_respects_registration_and_filter_changes(
+    clean_registry,
+    settings_stub,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry_point = _EntryPointStub("source", "tests:source", _SourcePlugin)
+    monkeypatch.setattr(_plugin_loading, "entry_points_for_group", lambda group: [entry_point])
+    unregistered = _plugin_loading.discover_plugins("source_connector", auto_register=False)
+    assert clean_registry.list("source_connector") == []
+    first = _plugin_loading.discover_plugins("source_connector")["source_connector"][0]
+    assert first is not unregistered["source_connector"][0]
+    settings_stub.plugins_blacklist = ["source"]
+    assert _plugin_loading.discover_plugins("source_connector")["source_connector"] == []
+    settings_stub.plugins_blacklist = []
+    clean_registry.clear()
+    second = _plugin_loading.discover_plugins("source_connector")["source_connector"][0]
+    assert second is not first
+    clean_registry.remove("source_connector", "source_plugin")
+    third = _plugin_loading.discover_plugins("source_connector")["source_connector"][0]
+    assert third is not second
+
+
+@pytest.mark.parametrize("invalid", [RuntimeError("load failed"), object()])
+def test_incomplete_discovery_is_not_cached(
+    clean_registry,
+    settings_stub,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid: object,
+) -> None:
+    entry_point = _EntryPointStub("source", "tests:source", invalid)
+    monkeypatch.setattr(_plugin_loading, "entry_points_for_group", lambda group: [entry_point])
+    assert _plugin_loading.discover_plugins("source_connector")["source_connector"] == []
+    with pytest.raises(_plugin_loading.PluginDiscoveryError):
+        _plugin_loading.discover_plugins("source_connector", strict=True)
+    entry_point._target = _SourcePlugin
+    recovered = _plugin_loading.discover_plugins("source_connector")["source_connector"]
+    assert len(recovered) == 1
+    assert clean_registry.get("source_connector", "source_plugin") is recovered[0]

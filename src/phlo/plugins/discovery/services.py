@@ -18,7 +18,8 @@ import yaml
 from phlo.logging import get_logger, log_event
 from phlo.plugins.base.service import ServicePlugin
 from phlo.plugins.discovery._service_cycles import find_cycles as _find_cycles_impl
-from phlo.plugins.discovery._service_definition import ServiceDefinition
+from phlo.plugins.discovery._service_definition import ServiceDefinition, service_manifest_paths
+from phlo.plugins.discovery._service_definition import refresh as refresh_manifests
 from phlo.plugins.discovery._service_dependency_resolution import resolve_service_dependencies
 from phlo.plugins.discovery.registry import get_global_registry
 from phlo.plugins.discovery.service_manifest import ServiceManifestError, ServiceManifestResolver
@@ -143,6 +144,7 @@ class ServiceDiscovery:
 
         The next :meth:`discover` call will perform a full rediscovery.
         """
+        refresh_manifests()
         registry = get_global_registry()
         for service_name in list(registry.list("service")):
             registry.remove("service", service_name)
@@ -208,7 +210,7 @@ class ServiceDiscovery:
             return 0
 
         loaded_count = 0
-        for yaml_path in source_path.rglob("*.yaml"):
+        for yaml_path in service_manifest_paths(source_path):
             filename = yaml_path.name
             if filename == "service.yaml":
                 continue
