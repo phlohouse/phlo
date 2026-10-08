@@ -27,6 +27,9 @@ scans each digest, and publishes a multi-platform development image. Release
 promotion publishes the verified image without rebuilding it and records its
 digest in the release bill of materials. The first release must publish the
 image and make the GHCR package public before consumers can pull anonymously.
+Image tags follow the core Phlo release version, not the independently versioned
+Python plugin. Nightly rescans use the latest published release's image inventory
+with the current scan policy, so unreleased images do not break the rescan.
 
 Before publication, or to rebuild locally, use:
 
