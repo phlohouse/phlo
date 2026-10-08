@@ -53,6 +53,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+from pathlib import Path
 import re
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -710,7 +711,7 @@ class IcebergResource:
     def append_parquet(
         self,
         table_name: str,
-        data_path: str,
+        data_path: str | Path,
         override_ref: str | None = None,
         *,
         schema_policy: SchemaPolicy = "strict",
@@ -796,7 +797,7 @@ class IcebergResource:
     def merge_parquet(
         self,
         table_name: str,
-        data_path: str,
+        data_path: str | Path,
         unique_key: str,
         override_ref: str | None = None,
         *,
@@ -905,7 +906,7 @@ class IcebergResource:
         self,
         *,
         table_name: str,
-        data_path: str,
+        data_path: str | Path,
         override_ref: str | None = None,
         schema_policy: SchemaPolicy = "strict",
         evidence_context: dict[str, Any] | None = None,

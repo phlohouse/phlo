@@ -48,6 +48,7 @@ from dlt.common.pipeline import LoadInfo
 import phlo.telemetry as phlo_observe
 from phlo.capabilities import CapabilitySupport, resolve_runtime_ref
 from phlo.capabilities.interfaces import TableStore
+from phlo.capabilities.table_store import schema_policy_kwargs
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 
@@ -500,17 +501,14 @@ def merge_to_table_store(  # noqa: C901
     merge_config = merge_config or {}
     table_name = table_config.full_table_name
     policies = getattr(getattr(table_store, "support", None), "schema_policies", frozenset())
-    policy_kwargs: dict[str, Any] = {}
-    if policies:
-        if table_config.schema_policy not in policies:
-            raise PhloConfigError(
-                message=f"Table store does not support {table_config.schema_policy!r}"
-            )
-        policy_kwargs["schema_policy"] = table_config.schema_policy
-    elif table_config.schema_policy != "strict":
-        raise PhloConfigError(
-            message="Active table store does not support explicit schema policies"
-        )
+    policy_kwargs = schema_policy_kwargs(
+        table_store,
+        table_config.schema_policy,
+        methods=(
+            "ensure_table",
+            "append_parquet" if merge_strategy == "append" else "merge_parquet",
+        ),
+    )
     logger.info(
         "dlt_merge_to_table_store_started",
         table_name=table_name,
