@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -113,6 +115,72 @@ def test_container_security_and_rescan_lanes_reference_real_inputs_and_registry(
     rescan_scripts = "\n".join(_run_scripts(rescan))
     assert "imagetools inspect" in rescan_scripts
     assert '"$image@$digest"' in rescan_scripts
+
+
+def test_rescan_uses_released_inventory_but_current_scan_policy() -> None:
+    workflow = _load_workflow("container-rescan.yml")
+    steps = list(_steps(workflow))
+    release = next(step for step in steps if step.get("id") == "release")
+    assert 'gh api "repos/$GH_REPO/releases/latest" --jq .tag_name' in release["run"]
+    assert release["env"]["GH_REPO"] == "${{ github.repository }}"
+    checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout")]
+    assert len(checkouts) == 2
+    assert checkouts[0]["with"] == {"persist-credentials": False}
+    assert checkouts[1]["with"] == {
+        "ref": "${{ steps.release.outputs.tag }}",
+        "path": "released",
+        "persist-credentials": False,
+    }
+    scripts = "\n".join(_run_scripts(workflow)).replace("\\\n", " ")
+    for command in ("published-fleet", "assemble-rescan-manifest"):
+        assert re.search(
+            rf"python released/scripts/container_security\.py\s+{command} --root released",
+            scripts,
+        )
+    for command in ("validate-waivers", "apply-policy"):
+        assert re.search(rf"python scripts/container_security\.py\s+{command}", scripts)
+
+
+@pytest.mark.parametrize(
+    ("tag", "api_status", "accepted"),
+    [
+        ("v8.3.7", 0, True),
+        ("v8.3.7-rc.1", 0, False),
+        ("../../main", 0, False),
+        ("v8.3.7\ntag=main", 0, False),
+        ("v8.3.7", 1, False),
+    ],
+)
+def test_rescan_release_selection_rejects_invalid_tags_and_api_failure(
+    tag: str,
+    api_status: int,
+    accepted: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _load_workflow("container-rescan.yml")
+    release = next(step for step in _steps(workflow) if step.get("id") == "release")
+    output = tmp_path / "output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("GH_REPO", "phlohouse/phlo")
+    monkeypatch.setenv("TEST_TAG", tag)
+    monkeypatch.setenv("TEST_API_STATUS", str(api_status))
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'gh() { printf "%s\\n" "$TEST_TAG"; return "$TEST_API_STATUS"; }\n' + release["run"],
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) == accepted, result.stderr
+    if accepted:
+        assert output.read_text(encoding="utf-8") == f"tag={tag}\n"
+    else:
+        assert not output.exists()
 
 
 def test_upstream_visibility_is_report_only_with_resolvable_references() -> None:

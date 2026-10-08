@@ -41,6 +41,8 @@ PUBLISHED_SERVICE_REPOSITORIES = {
     "phlo-api": "ghcr.io/phlohouse/phlo-api:",
     "dagster": "ghcr.io/phlohouse/phlo-dagster:",
     "dagster-daemon": "ghcr.io/phlohouse/phlo-dagster:",
+    "minio": "ghcr.io/phlohouse/phlo-minio:",
+    "minio-setup": "ghcr.io/phlohouse/phlo-minio:",
     "observatory": "ghcr.io/phlohouse/phlo-observatory:",
 }
 BROAD_IMAGE_PATHS = {
@@ -274,13 +276,17 @@ def published_fleet(root: Path) -> list[dict[str, Any]]:
             )
     if by_service["dagster"] != by_service["dagster-daemon"]:
         raise ValueError("dagster and dagster-daemon must share one published image")
+    if by_service["minio"] != by_service["minio-setup"]:
+        raise ValueError("minio and minio-setup must share one published image")
 
     grouped: dict[str, list[str]] = {}
     for service_name, image in by_service.items():
         grouped.setdefault(image, []).append(service_name)
-    if len(grouped) != 3:
+    expected_images = len(set(PUBLISHED_SERVICE_REPOSITORIES.values()))
+    if len(grouped) != expected_images:
         raise ValueError(
-            f"published fleet must contain exactly three unique images, found {len(grouped)}"
+            f"published fleet must contain exactly {expected_images} unique images, "
+            f"found {len(grouped)}"
         )
     return [
         {"image": image, "services": sorted(services)}

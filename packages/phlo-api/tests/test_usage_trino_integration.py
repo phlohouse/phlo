@@ -66,7 +66,7 @@ def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(tmp_path:
                 )
                 assert created.is_success
                 with (
-                    DockerContainer("bitnamilegacy/minio:2025.7.23-debian-12-r5")
+                    DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.0")
                     .with_network(network)
                     .with_network_aliases("minio")
                     .with_env("MINIO_ROOT_USER", "localtest")

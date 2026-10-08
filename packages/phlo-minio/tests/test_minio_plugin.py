@@ -1,7 +1,7 @@
 """Tests for the MinIO service plugin.
 
 Pins deployment invariants: data lives on a named volume (never a host
-bind-mount), upstream images are pinned by digest with no local builds, setup
+bind-mount), server and setup share one publishable Phlo image, setup
 waits for mc readiness, and the plugin exposes an object_store capability
 backed by MinioResourceProvider.
 """
@@ -32,20 +32,21 @@ def test_minio_service_uses_named_volume():
     assert all("./volumes/minio" not in volume for volume in volumes)
 
 
-def test_minio_services_use_pinned_upstream_images() -> None:
+def test_minio_services_share_publishable_image() -> None:
     server = MinioServicePlugin().service_definition
     setup = MinioSetupServicePlugin().service_definition
 
-    assert server["image"] == (
-        "bitnamilegacy/minio:2025.7.23-debian-12-r5@"
-        "sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20"
+    assert server["image"] == setup["image"] == "ghcr.io/phlohouse/phlo-minio:0.17.0"
+    assert (
+        server["build"]
+        == setup["build"]
+        == {
+            "context": "./minio",
+            "dockerfile": "Dockerfile",
+        }
     )
-    assert setup["image"] == (
-        "bitnamilegacy/minio-client:2025.7.21-debian-12-r3@"
-        "sha256:73bd39f7899a0cef12b8dd5df13aa93a3ed1aaa44236542442e9ac76819ac158"
-    )
-    assert "build" not in server
-    assert "build" not in setup
+    assert {"source": "Dockerfile", "dest": "minio/Dockerfile"} in server["files"]
+    assert (Path(__file__).resolve().parents[1] / "src/phlo_minio/Dockerfile").is_file()
     assert "until mc ready myminio" in setup["compose"]["entrypoint"]
 
     volume_setup = ServiceDefinition.from_yaml(

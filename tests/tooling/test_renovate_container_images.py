@@ -197,7 +197,7 @@ def test_phlo_owned_images_are_explicitly_disabled_and_never_automerged() -> Non
         path for path in internal_files if "phlo-observe/" in path.read_text(encoding="utf-8")
     ]
     phlo_owned_files = [path for path in internal_files if path not in observer_files]
-    assert len(phlo_owned_files) == 4
+    assert len(phlo_owned_files) == 6
     assert all(
         _image_match(manager, path.read_text(encoding="utf-8")) is None for path in phlo_owned_files
     )

@@ -66,7 +66,7 @@ def test_every_generated_build_uses_a_versioned_ghcr_image() -> None:
     release_images = {
         entry["image_reference"]
         for entry in support_manifest["release_set"]["services"]
-        if entry["name"] in {"phlo-api", "dagster", "observatory"}
+        if entry["name"] in {"phlo-api", "dagster", "minio", "observatory"}
     }
     assert {image for _, image in build_definitions} == release_images
     for service_file, image in build_definitions:
@@ -146,8 +146,6 @@ _VENDOR_UPSTREAM_SERVICES = (
     "oauth2-proxy",
     "grafana",
     "clickstack",
-    "minio",
-    "minio-setup",
     "nessie",
     "openmetadata",
     "openmetadata-setup",
@@ -171,7 +169,7 @@ def test_remaining_vendor_services_use_upstream_images_and_are_not_published(
         assert service is not None, name
         vendor_services.append(service)
     services = [*vendor_services]
-    for name in ("phlo-api", "dagster", "dagster-daemon", "observatory"):
+    for name in ("phlo-api", "dagster", "dagster-daemon", "minio", "minio-setup", "observatory"):
         service = discovery.get_service(name)
         assert service is not None, name
         services.append(service)
@@ -193,7 +191,11 @@ def test_remaining_vendor_services_use_upstream_images_and_are_not_published(
         "include"
     ]
     published_services = {target["service"] for target in targets}
-    assert published_services == {"phlo-api", "dagster", "observatory"}
+    assert published_services == {"phlo-api", "dagster", "minio", "observatory"}
+    minio_target = next(target for target in targets if target["service"] == "minio")
+    assert minio_target["services"] == ["minio", "minio-setup"]
+    assert minio_target["context"] == "minio"
+    assert minio_target["dockerfile"] == "minio/Dockerfile"
 
 
 def test_every_vendor_runtime_default_is_pinned_to_an_immutable_digest() -> None:
