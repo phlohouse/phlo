@@ -396,7 +396,10 @@ def merge_to_table(
 ) -> dict[str, int]:
     """Merge (upsert) Parquet data into an Iceberg table with deduplication.
 
-    Deletes existing rows matching ``unique_key`` before inserting new data.
+    Validate and align the batch, then stage all matching-key deletes and the
+    append in one transaction. Readers see one atomic catalog publication,
+    which may contain multiple snapshots. Precommit failures retain the old
+    rows; commit conflicts propagate so callers can retry the complete merge.
     Duplicate keys within the staged batch are first deduplicated
     deterministically (controlled by the ``deduplication*`` arguments);
     duplicates that cannot be resolved fail loudly instead of leaking into
@@ -530,10 +533,8 @@ def merge_to_table(
             logger.warning(
                 "arrow_cast_to_target_schema_failed", table_name=table_name, error=str(e)
             )
+            raise
 
-        # Delete matching keys before appending. Unlike earlier revisions,
-        # a failed delete now raises so the run fails closed rather than
-        # silently duplicating rows when the append lands (#777).
         from pyiceberg.expressions import In, Reference
 
         unique_values = arrow_table.column(unique_key).to_pylist()
@@ -548,20 +549,21 @@ def merge_to_table(
             snapshot_id_before=_current_snapshot_id(table),
             rows_added=len(arrow_table),
         ) as commit_op:
-            for i in range(0, len(unique_values_list), batch_size):
-                batch = unique_values_list[i : i + batch_size]
-                delete_expr = In(term=Reference(unique_key), values=set(batch))
-                # A first insert has no existing rows; PyIceberg warns on that no-op.
-                with warnings.catch_warnings():
-                    warnings.filterwarnings(
-                        "ignore",
-                        message=r"^Delete operation did not match any records$",
-                        category=UserWarning,
-                    )
-                    table.delete(delete_expr)
-                rows_deleted += len(batch)  # Approximation
+            with table.transaction() as transaction:
+                for i in range(0, len(unique_values_list), batch_size):
+                    batch = unique_values_list[i : i + batch_size]
+                    delete_expr = In(term=Reference(unique_key), values=set(batch))
+                    # A first insert has no existing rows; PyIceberg warns on that no-op.
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings(
+                            "ignore",
+                            message=r"^Delete operation did not match any records$",
+                            category=UserWarning,
+                        )
+                        transaction.delete(delete_expr)
+                    rows_deleted += len(batch)  # Approximation
 
-            table.append(arrow_table)
+                transaction.append(arrow_table)
             _finish_iceberg_commit(commit_op, table)
             try:
                 commit_op.set(rows_removed=rows_deleted)
