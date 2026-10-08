@@ -88,11 +88,13 @@ _register_workspace_plugins()
 @pytest.fixture(autouse=True)
 def reset_discovery_caches():
     """Keep mocked entry points and manifest inputs isolated between tests."""
-    from phlo.plugins.discovery import refresh
-
-    refresh()
+    discovery = sys.modules.get("phlo.plugins.discovery")
+    if discovery is not None:
+        discovery.refresh()
     yield
-    refresh()
+    discovery = sys.modules.get("phlo.plugins.discovery")
+    if discovery is not None:
+        discovery.refresh()
 
 
 def _minio_container_endpoint(minio_service) -> str:
