@@ -12,11 +12,87 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from pyiceberg.schema import Schema
 from pyiceberg.types import LongType, NestedField, StringType
 
 pytestmark = pytest.mark.integration
+
+
+def test_history_replay_conflict_and_concurrent_lookup_on_real_services(
+    iceberg_catalog, tmp_path, monkeypatch
+):
+    import uuid
+
+    from phlo.capabilities.history import HistoryConflictError, HistoryPolicy
+    from phlo_iceberg.resource import IcebergResource
+
+    name = f"test_ns.history_{uuid.uuid4().hex[:8]}"
+    schema = pa.schema(
+        [("entity", pa.string()), ("version", pa.string()), ("payload", pa.string())]
+    )
+    policy = HistoryPolicy("entity", "version", ("payload",))
+    store = IcebergResource(ref="main")
+
+    def path(label, rows):
+        output = tmp_path / f"{label}.parquet"
+        pq.write_table(pa.Table.from_pylist(rows, schema=schema), output)
+        return output
+
+    first = {"entity": "E1", "version": "V1", "payload": "original"}
+    pending = path("pending", [first, {**first, "version": "V0", "payload": "late"}])
+    competing = path("competing", [first])
+    store.ensure_table(name, schema=schema)
+    try:
+        catalog_type = type(iceberg_catalog)
+        commit = catalog_type.commit_table
+        calls = 0
+
+        def race(self, table, requirements, updates):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                store.history_parquet(table_name=name, data_paths=[competing], policy=policy)
+            return commit(self, table, requirements, updates)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(catalog_type, "commit_table", race)
+            result = store.history_parquet(table_name=name, data_paths=[pending], policy=policy)
+        assert calls == 3
+        assert result == {
+            "rows_inserted": 1,
+            "rows_deleted": 0,
+            "rows_skipped": 1,
+            "rows_conflicting": 0,
+        }
+        before = iceberg_catalog.load_table(name).metadata.model_dump()
+        replay = store.history_parquet(table_name=name, data_paths=[pending], policy=policy)
+        assert replay == {
+            "rows_inserted": 0,
+            "rows_deleted": 0,
+            "rows_skipped": 2,
+            "rows_conflicting": 0,
+        }
+        extra = pa.schema([*schema, pa.field("note", pa.string())])
+        conflict = tmp_path / "conflict.parquet"
+        pq.write_table(
+            pa.Table.from_pylist([{**first, "payload": "changed", "note": "reject"}], schema=extra),
+            conflict,
+        )
+        with pytest.raises(HistoryConflictError):
+            store.history_parquet(
+                table_name=name, data_paths=[conflict], policy=policy, schema_policy="additive"
+            )
+        assert iceberg_catalog.load_table(name).metadata.model_dump() == before
+        rows = iceberg_catalog.load_table(name).scan().to_arrow().to_pylist()
+        assert {(row["version"], row["payload"]) for row in rows} == {
+            ("V1", "original"),
+            ("V0", "late"),
+        }
+    finally:
+        iceberg_catalog.drop_table(name)
 
 
 @pytest.fixture

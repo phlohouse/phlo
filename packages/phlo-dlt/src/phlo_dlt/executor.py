@@ -77,6 +77,7 @@ from phlo.hooks import (
 from phlo._attempt import normalize_attempt
 from phlo.run_evidence import emit_lifecycle_safely, emit_observation
 from phlo.run_evidence.redaction import safe_error_summary
+from phlo.capabilities.history import HistoryWriteError
 from phlo.capabilities.interfaces import TableStore
 from phlo.capabilities.runtime import routing_from_context
 
@@ -598,8 +599,7 @@ class DltIngester(BaseIngester):
                     "emit_end",
                     status="success",
                     metrics={
-                        "rows_inserted": merge_metrics["rows_inserted"],
-                        "rows_deleted": merge_metrics.get("rows_deleted", 0),
+                        **merge_metrics,
                         "dlt_elapsed_seconds": dlt_elapsed,
                         "total_elapsed_seconds": total_elapsed,
                         "target_branch_name": target_branch_name,
@@ -673,6 +673,7 @@ class DltIngester(BaseIngester):
                 rows_inserted=merge_metrics["rows_inserted"],
                 rows_deleted=merge_metrics.get("rows_deleted", 0),
                 metadata={
+                    **merge_metrics,
                     "dlt_elapsed_seconds": dlt_elapsed,
                     "parquet_path": str(parquet_paths[0]),
                     "parquet_paths": [str(parquet_path) for parquet_path in parquet_paths],
@@ -694,6 +695,14 @@ class DltIngester(BaseIngester):
         except Exception as exc:
             total_elapsed = time.time() - start_time
             safe_error = safe_error_summary(exc)
+            failure_metrics = exc.metrics if isinstance(exc, HistoryWriteError) else {}
+            if isinstance(exc, HistoryWriteError):
+                for resource in evidence_resources:
+                    if resource.get("role") == "output":
+                        resource["metadata"].update(
+                            outcome="unknown" if exc.reconciliation is not None else "failed",
+                            reconciliation=exc.reconciliation,
+                        )
             if isinstance(exc, DomainQualityValidationError):
                 for evaluation in exc.evaluations:
                     if evaluation.passed:
@@ -722,7 +731,7 @@ class DltIngester(BaseIngester):
                     emitter,
                     "emit_end",
                     status="failure",
-                    metrics={"total_elapsed_seconds": total_elapsed},
+                    metrics={**failure_metrics, "total_elapsed_seconds": total_elapsed},
                     error=safe_error,
                 )
             if run_id != "unknown":
@@ -735,6 +744,7 @@ class DltIngester(BaseIngester):
                     status="failed",
                     producer="phlo-dlt",
                     resources=evidence_resources,
+                    metrics=failure_metrics,
                     error=safe_error,
                     event_id=parameters.get("evidence_event_id"),
                     identity_parts=(
