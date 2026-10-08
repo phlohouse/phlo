@@ -316,6 +316,9 @@ def daily_sales_observation() -> object:
 
 ### `backfill`
 
+This dormant decorator raises `NotImplementedError` and is removed in 0.19.0.
+The `phlo backfill` CLI remains supported for partitioned provider assets.
+
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `target` | `str` | required | Target asset. |
@@ -326,10 +329,8 @@ def daily_sales_observation() -> object:
 | `owner` | `str \| None` | `None` | Owner. |
 | `description` | `str \| None` | `None` | Asset description. |
 
-```python
-@phlo.backfill(target="daily_sales", partitions={"date": "2025-01-01"})
-def rebuild_sales() -> object:
-    return rebuild()
+```bash
+phlo backfill daily_sales --start-date 2025-01-01 --end-date 2025-01-07
 ```
 
 ### `contract`
@@ -369,6 +370,9 @@ def daily_sales_access() -> object:
 
 ### `schedule`
 
+This dormant decorator raises `NotImplementedError` and is removed in 0.19.0.
+Provider decorators with `cron` support and native Dagster schedules remain supported.
+
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `name` | `str` | required | Schedule name. |
@@ -378,12 +382,57 @@ def daily_sales_access() -> object:
 | `metadata` | `dict[str, Any] \| None` | `None` | Additional metadata. |
 
 ```python
-@phlo.schedule(name="daily-sales", cron="0 2 * * *", targets=["daily_sales"])
-def daily_sales_schedule() -> object:
-    return {"run_date": "today"}
+import phlo
+import pandera.pandas as pa
+
+class SalesSchema(pa.DataFrameModel):
+    date: str
+    sales: int
+
+@phlo.ingest.dlt(
+    table_name="daily_sales",
+    unique_key="date",
+    group="sales",
+    validation_schema=SalesSchema,
+    cron="0 2 * * *",
+)
+def daily_sales_source():
+    yield {"date": "2025-01-01", "sales": 42}
 ```
 
-The `backfill` and `schedule` decorators emit deprecation warnings because no adapter executes their declarations. The `publish`, `observe`, `contract`, and `access` declarations feed the governance metadata plane.
+The `publish`, `observe`, `contract`, and `access` declarations feed the governance metadata plane.
+`phlo.transform.sql` requires installed `transform` transformation and asset providers,
+as supplied by the proposed `phlo-transform` package in PR #961. Without both
+providers, it raises `ModuleNotFoundError` before capturing SQL or registering an asset.
+SQL authoring with a provider is not scheduled for removal.
+
+## Removal schedule
+
+Deprecated top-level ingestion aliases and `phlo_quality` are removed in 0.19.0.
+Warnings name that release and the replacement API. The callable-module shim
+for `phlo.ingestion(...)` remains only until 0.19.0. The
+`phlo migrate decorators-2026-05 PATH` codemod remains through at least 0.20.0.
+Its C901 exception ends only when the codemod is removed.
+
+The deprecated sync/async operation adapters, legacy `TransformationPlugin`,
+Dagster `IngestionEnginePlugin`, and regulated-mode aliases also have a 0.19.0
+removal deadline. `TransformationProviderPlugin` and `AssetProviderPlugin`
+remain supported provider boundaries.
+
+Compatibility-path usage counters are canonical observe metrics, with one
+sample of value `1` per use. Summing the `sum` field of `metric.summary` events
+over the observation window gives the usage count. Telemetry must be enabled
+with a configured drain; disabled or missing telemetry does not prove zero use.
+
+| Compatibility path | Removal release | Counter | What counts | Replacement |
+| --- | --- | --- | --- | --- |
+| `PHLO_REGULATED_MODE` | 0.19.0 | `phlo.legacy.regulated_mode_env.uses` | Each non-empty fallback read, not values overridden by canonical environment or explicit config | `PHLO_REGULATED` |
+| Legacy Dagster env files | 0.19.0 | `phlo.legacy.dagster_env_file.uses` | Each existing `.env` or `.env.local` attachment per generated Phlo-dev service, tagged by relative filename | `phlo services migrate` to `overrides/.env` and `secrets/.env` |
+| Legacy MCP JSONL tracing | 0.19.0 | `phlo.legacy.mcp_jsonl_span.uses` | Each successful debug span write, not configuration or canonical-only operations | `OBSERVE_DRAINS` or `OBSERVE_HTTP_ENDPOINT` |
+
+A release owner can remove these paths earlier after confirming zero use across
+enabled deployment telemetry. Otherwise the 0.19.0 deadline applies. MCP's
+legacy JSONL readers retire with its writer; canonical trace queries remain supported.
 
 ## Contracts
 

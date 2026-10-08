@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
+
 import pytest
 
 from phlo.security.mode import is_regulated, requires_http_authorization
@@ -77,3 +82,59 @@ def test_http_authorization_environment(
     monkeypatch.setenv("PHLO_REGULATED", str(regulated).lower())
 
     assert requires_http_authorization() is expected
+
+
+def test_legacy_env_counts_only_fallback_reads(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import Mock
+
+    counter = Mock()
+    monkeypatch.setattr("phlo.security.mode.metric", counter)
+    monkeypatch.setattr("phlo.infrastructure.config.get_regulated_config", lambda: False)
+    monkeypatch.setenv("PHLO_REGULATED_MODE", "yes")
+    monkeypatch.setenv("PHLO_REGULATED", "false")
+    assert is_regulated() is False
+    monkeypatch.delenv("PHLO_REGULATED")
+    assert is_regulated(False) is False
+    counter.assert_not_called()
+
+    assert is_regulated() is True
+    assert is_regulated() is True
+    assert counter.call_count == 2
+    counter.assert_called_with("phlo.legacy.regulated_mode_env.uses", 1, unit="uses")
+    monkeypatch.delenv("PHLO_REGULATED_MODE")
+    assert is_regulated() is False
+    assert counter.call_count == 2
+
+
+def test_legacy_counter_reaches_canonical_metric_summaries(tmp_path) -> None:
+    """Two uses must aggregate to two, not overwrite a gauge with one."""
+    path = tmp_path / "events.jsonl"
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from phlo.security.mode import is_regulated; "
+            "from observe_core import flush_metrics, flush; "
+            "assert is_regulated(); assert is_regulated(); flush_metrics(); flush()",
+        ],
+        env={
+            **os.environ,
+            "PHLO_REGULATED": "",
+            "PHLO_REGULATED_MODE": "true",
+            "PHLO_OBSERVE_ENABLED": "true",
+            "PHLO_OBSERVE_PRETTY": "false",
+            "OBSERVE_DRAINS": "jsonl",
+            "OBSERVE_JSONL_PATH": str(path),
+        },
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    summaries = [
+        record["attributes"]
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if (record := json.loads(line))["event"] == "metric.summary"
+        and record["attributes"]["metric"] == "phlo.legacy.regulated_mode_env.uses"
+    ]
+    assert sum(summary["sum"] for summary in summaries) == 2
+    assert sum(summary["count"] for summary in summaries) == 2

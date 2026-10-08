@@ -725,10 +725,18 @@ def test_render_trace_tree_formats_tree(tmp_path: Path) -> None:
     assert "mcp.tool.execute 2.0ms [tool=get_platform_health]" in rendered
 
 
-def test_canonical_tracer_preserves_debug_file_nesting(tmp_path: Path) -> None:
+def test_canonical_tracer_preserves_debug_file_nesting(tmp_path: Path, monkeypatch) -> None:
     """The legacy debug file is a drain from canonical operation scopes."""
+    from unittest.mock import Mock
+
+    counter = Mock()
+    monkeypatch.setattr("phlo_mcp.tracing._CONFIGURED_PATH", None)
+    monkeypatch.setattr("phlo_mcp.tracing.phlo_observe.metric", counter)
     trace_file = tmp_path / "trace.jsonl"
-    configure_tracing(trace_file=str(trace_file))
+    with pytest.warns(DeprecationWarning, match=r"0\.19\.0.*OBSERVE_DRAINS"):
+        configure_tracing(trace_file=str(trace_file))
+    assert configure_tracing(trace_file=str(tmp_path / "ignored.jsonl")) == str(trace_file)
+    counter.assert_not_called()
 
     tracer = get_tracer()
     with tracer.start_as_current_span("mcp.request"):
@@ -747,3 +755,9 @@ def test_canonical_tracer_preserves_debug_file_nesting(tmp_path: Path) -> None:
         by_name["mcp.tool.execute"]["context"]["parent_id"]
         == by_name["mcp.request"]["context"]["span_id"]
     )
+    assert counter.call_count == 2
+    counter.assert_called_with("phlo.legacy.mcp_jsonl_span.uses", 1, unit="uses")
+    monkeypatch.setattr("phlo_mcp.tracing._CONFIGURED_PATH", None)
+    with tracer.start_as_current_span("without-debug-drain"):
+        pass
+    assert counter.call_count == 2

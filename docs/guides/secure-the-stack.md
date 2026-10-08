@@ -29,7 +29,13 @@ EOF
 chmod 600 .phlo/secrets/.env
 ```
 
-The generated stack receives the values without placing them in `phlo.yaml`, workflow code, or a tracked file. Existing projects can still use the legacy `.phlo/.env.local` path, but new projects should use the shared layout.
+The generated stack receives the values without placing them in `phlo.yaml`, workflow code, or a tracked file.
+Legacy Dagster `.phlo/.env` and `.phlo/.env.local` attachments retire in 0.19.0.
+Run `phlo services migrate --dry-run` to preview the move, then run
+`phlo services migrate`. Defaults move to `.phlo/overrides/.env` and secrets
+move to `.phlo/secrets/.env`. The old files no longer supply configuration
+after migration. Existing legacy attachments retain their precedence until removal.
+The [removal schedule](../reference/python-api.md#removal-schedule) defines usage counters and retirement criteria.
 
 ## 2. Configure API authorisation
 

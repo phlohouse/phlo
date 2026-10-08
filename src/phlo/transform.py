@@ -6,16 +6,15 @@ functions with required parameters yield no static SQL rather than
 deferring evaluation. Assets accumulate in a module-level list owned by
 the core provider; clear_transform_assets() exists for test isolation.
 
-Deprecated: no provider bridges transform specs to the orchestrator, so the
-registered asset is unreachable at runtime. sql() emits a DeprecationWarning
-at decoration time and will be removed in an upcoming release; define
-transformations in dbt or through explicit asset-provider plugins instead.
+SQL declarations require a transformation provider named ``transform`` and
+its asset-provider bridge, as supplied by ``phlo-transform``. Without them,
+sql() fails rather than registering an unreachable asset. This provider-neutral
+authoring API is not scheduled for removal.
 """
 
 from __future__ import annotations
 
 import inspect
-import warnings
 from collections.abc import Callable
 
 from phlo._flow_authoring import (
@@ -45,20 +44,26 @@ def sql(
 ) -> Callable[[Callable[..., str]], Callable[..., str]]:
     """Register a SQL transform asset.
 
-    Deprecated: the registered asset never reaches the pipeline. The decorator
-    will be removed in an upcoming release; define transformations in dbt or
-    through explicit asset-provider plugins instead.
+    Requires the ``transform`` transformation and asset providers. Install
+    ``phlo-transform`` or use dbt/provider-specific asset declarations instead.
     """
 
-    def _decorator(fn: Callable[..., str]) -> Callable[..., str]:
-        warnings.warn(
-            "phlo.transform.sql is deprecated and will be removed in an "
-            "upcoming release: the registered asset never reaches the "
-            "pipeline. Define transformations in dbt or through "
-            "explicit asset-provider plugins instead.",
-            DeprecationWarning,
-            stacklevel=2,
+    from phlo.plugins.discovery import discover_plugins, get_global_registry
+
+    discover_plugins(plugin_type="transformation_provider", auto_register=True)
+    discover_plugins(plugin_type="asset_provider", auto_register=True)
+    registry = get_global_registry()
+    if (
+        registry.get("transformation_provider", "transform") is None
+        or registry.get("asset_provider", "transform") is None
+    ):
+        raise ModuleNotFoundError(
+            "phlo.transform.sql requires the transform transformation and asset providers. "
+            "Install phlo-transform when available, or define transformations in dbt "
+            "or through an explicit asset-provider plugin instead."
         )
+
+    def _decorator(fn: Callable[..., str]) -> Callable[..., str]:
         sql_text = _static_sql_text(fn)
         append_asset(
             _TRANSFORM_ASSETS,

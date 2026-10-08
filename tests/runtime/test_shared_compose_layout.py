@@ -1,10 +1,54 @@
 """Shared initialization keeps portable configuration separate from host settings."""
 
+import importlib
 import subprocess
+from unittest.mock import Mock
 
+import pytest
 import yaml
 
 from phlo.plugins.compose.artifacts import render_shared_gitignore, write_compose_layers
+from phlo.plugins.compose.generator import ComposeGenerator
+from tests.helpers import FakeDiscovery, _service
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_legacy_env_file_counter_preserves_precedence(tmp_path, monkeypatch, shared):
+    """Count actual legacy attachments in both old and shared project layouts."""
+    state = tmp_path / ".phlo"
+    state.mkdir()
+    if shared:
+        (state / ".gitignore").write_text(render_shared_gitignore([]), encoding="utf-8")
+    for name in (".env", ".env.local"):
+        (state / name).write_text("PRIVATE=value\n", encoding="utf-8")
+    service = _service("dagster")
+    service.phlo_dev = True
+    generator = ComposeGenerator(FakeDiscovery({"dagster": service}))
+    counter = Mock()
+    monkeypatch.setattr(
+        importlib.import_module("phlo.plugins.compose.generator"), "metric", counter
+    )
+    config = generator._build_service_config(service, state)
+    assert config["env_file"] == (
+        [".env", ".env.local", "overrides/.env", "secrets/.env"]
+        if shared
+        else [".env", ".env.local"]
+    )
+    assert counter.call_count == 2
+    assert [call.kwargs["tags"] for call in counter.call_args_list] == [
+        {"file": ".env"},
+        {"file": ".env.local"},
+    ]
+    for call in counter.call_args_list:
+        assert call.args == ("phlo.legacy.dagster_env_file.uses", 1)
+    counter.reset_mock()
+    for name in (".env", ".env.local"):
+        (state / name).unlink()
+    generator._build_service_config(service, state)
+    service.phlo_dev = False
+    (state / ".env.local").write_text("PRIVATE=value\n", encoding="utf-8")
+    generator._build_service_config(service, state)
+    counter.assert_not_called()
 
 
 def test_host_generation_preserves_shared_compose_on_second_checkout(tmp_path):

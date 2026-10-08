@@ -6,6 +6,9 @@ attribute references on the top-level ``phlo`` package (``phlo.ingest.dlt`` and
 ``phlo.quality.pandera``), inserting ``import phlo`` when the module lacks one.
 
 The rewrite runs on libcst so untouched code keeps its exact formatting.
+Retain this migration through at least 0.20.0, one release after the aliases
+and callable ingestion module shim are removed in 0.19.0. Its C901 exception
+remains until the codemod itself is removed.
 """
 
 from __future__ import annotations
