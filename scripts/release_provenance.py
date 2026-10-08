@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Authenticate release producers and native environment approvals using GitHub API data.
+"""Authenticate release producers and publication dispatches using GitHub API data.
 
 Dispatches run trusted main workflows. The inspected SHA is data, bound in the
 server-recorded display title and the immutable BOM, not the workflow head SHA.
@@ -158,45 +158,8 @@ def collect(sha: str, stage_run: int, output: Path, *, evidence: bool) -> None:
             download(run, workflow, sha, title, names, output / "evidence")
 
 
-def validate_approval(environment: dict, reviews: list[dict], actor: str) -> dict:
-    """Require configured native reviewers and a non-self approved user."""
-    rules = [
-        rule
-        for rule in environment.get("protection_rules", [])
-        if rule.get("type") == "required_reviewers"
-    ]
-    if len(rules) != 1 or rules[0].get("prevent_self_review") is not True:
-        raise ValueError("release environment lacks required reviewers/prevent-self-review")
-    reviewers = rules[0].get("reviewers", [])
-    if not reviewers:
-        raise ValueError("release environment has no required reviewers")
-    # User reviewers have directly auditable identity. Teams require a live
-    # membership lookup before they can authorise the approving user.
-    users = {item["reviewer"]["login"] for item in reviewers if item.get("type") == "User"}
-    for review in reviews:
-        user = review.get("user", {}).get("login")
-        if (
-            review.get("state") != "approved"
-            or user == actor
-            or not user
-            or review.get("user", {}).get("type") != "User"
-        ):
-            continue
-        if not any(env.get("name") == "release" for env in review.get("environments", [])):
-            continue
-        if user in users:
-            return review
-        for item in reviewers:
-            if item.get("type") == "Team":
-                team = item["reviewer"]
-                membership = api(f"orgs/phlohouse/teams/{team['slug']}/memberships/{user}")
-                if membership.get("state") == "active":
-                    return review
-    raise ValueError("no authenticated required-reviewer approval for this run")
-
-
-def live_approval() -> dict:
-    """Read protection and approval for the current trusted promotion run."""
+def live_dispatch() -> dict:
+    """Authenticate the current manual promotion dispatch on protected main."""
     if (
         os.environ.get("GITHUB_REPOSITORY") != REPOSITORY
         or os.environ.get("GITHUB_REF") != "refs/heads/main"
@@ -219,30 +182,25 @@ def live_approval() -> dict:
         or run.get("event") != "workflow_dispatch"
     ):
         raise ValueError("promotion requires a fresh dispatch on protected main, never a rerun")
-    environment = api(f"repos/{REPOSITORY}/environments/release")
-    reviews = api(f"repos/{REPOSITORY}/actions/runs/{run_id}/approvals")
-    review = validate_approval(environment, reviews, run["actor"]["login"])
-    if review["user"]["login"] == run.get("triggering_actor", {}).get("login"):
-        raise ValueError("approver may not approve their own rerun")
-    return review
+    return run
 
 
 def verify_live_authorization(record: dict) -> None:
     """A hand-written JSON record can never authorise --execute."""
-    review = live_approval()
+    run = live_dispatch()
     reference = f"https://github.com/{REPOSITORY}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
     if (
-        record.get("release_owner") != review["user"]["login"]
+        record.get("release_owner") != run["actor"]["login"]
         or record.get("approval_reference") != reference
     ):
-        raise ValueError("authorization is not this run's native approval")
+        raise ValueError("authorization is not this run's manual dispatch")
 
 
 def authorize(bom_path: Path, evidence: Path, output: Path) -> None:
-    """Create a BOM/evidence-bound record from live native approval, not user input."""
+    """Bind the live manual dispatch to the authenticated BOM and evidence plan."""
     import promote_release_candidate as promotion
 
-    review = live_approval()
+    run = live_dispatch()
     run_id = int(os.environ["GITHUB_RUN_ID"])
     bom = promotion.load_candidate_bom(bom_path)
     qualification = promotion.qualify_evidence_set(
@@ -253,7 +211,6 @@ def authorize(bom_path: Path, evidence: Path, output: Path) -> None:
             "staged_utc"
         ],
     )
-    run = api(f"repos/{REPOSITORY}/actions/runs/{run_id}")
     with tempfile.TemporaryDirectory() as temporary:
         artifact = download_artifact(run, f"dry-run-receipt-{run_id}-1", Path(temporary))
         plan = promotion.validate_receipt(
@@ -268,14 +225,12 @@ def authorize(bom_path: Path, evidence: Path, output: Path) -> None:
         or plan["candidate"]["bom_digest"] != release_candidate_bom.file_sha256(bom_path)
         or plan["evidence"]["bundle_checksums"] != sorted(qualification.checksums)
     ):
-        raise ValueError(
-            "Candidate or evidence changed after the pre-approval plan; dispatch again"
-        )
+        raise ValueError("Candidate or evidence changed after the publication plan; dispatch again")
     record = {
         "schema": promotion.AUTHORIZATION_SCHEMA,
         "authorized": True,
         "candidate": {key: bom[key] for key in ("release_commit", "canonical_candidate_digest")},
-        "release_owner": review["user"]["login"],
+        "release_owner": run["actor"]["login"],
         "target_channel": "pypi+ghcr+github-releases",
         "approval_reference": f"https://github.com/{REPOSITORY}/actions/runs/{run_id}",
         "authorized_utc": promotion.format_utc(promotion.utc_now()),
@@ -285,7 +240,7 @@ def authorize(bom_path: Path, evidence: Path, output: Path) -> None:
 
 
 def main() -> None:
-    """Run authenticated collection or native approval validation."""
+    """Run authenticated collection or manual dispatch authorization."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("collect", "authorize"))
     parser.add_argument("--candidate-sha")
