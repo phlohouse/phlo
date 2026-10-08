@@ -119,6 +119,7 @@ class ServiceManifestResolver:
                     service_name=name,
                     source_path=source_path,
                 ) from exc
+            definition.file_validator = plugin.validate_service_file
             if definition.name in names:
                 continue
             names.add(definition.name)

@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 
+import pytest
 import yaml
 from click.testing import CliRunner
 
 from phlo.cli.config import config as config_group
+from phlo.cli.main import cli
 from phlo.config_schema import InfrastructureConfig, ServiceConfig
 
 
@@ -189,3 +191,79 @@ def test_config_show_json_envelope_preserves_raw_format(monkeypatch):
     structured = json.loads(runner.invoke(config_group, ["show", "--json"]).stdout)
     raw = json.loads(runner.invoke(config_group, ["show", "--format", "json"]).stdout)
     assert structured["data"] == raw
+
+
+def test_public_config_preserves_canonical_overrides_and_metadata(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    services = {
+        "dagster": {
+            "enabled": False,
+            "ports": ["8080:3000"],
+            "environment": {"TOKEN": "${TOKEN}"},
+            "files": {"dagster/dagster.yaml": {"source": "instance.yaml"}},
+        },
+        "grafana": {
+            "service_name": "metrics",
+            "container_name": "custom-metrics",
+            "host": "metrics.example.com",
+            "internal_host": "metrics-internal",
+            "files": {
+                "grafana/dashboards/infrastructure.json": {
+                    "source": "dashboard.json",
+                    "mode": "replace",
+                }
+            },
+        },
+    }
+    (tmp_path / "phlo.yaml").write_text(
+        yaml.safe_dump({"infrastructure": {"services": services}}), encoding="utf-8"
+    )
+    runner = CliRunner()
+    valid = runner.invoke(cli, ["config", "validate", "--json"])
+    assert valid.exit_code == 0, valid.output
+    assert json.loads(valid.stdout)["data"]["valid"] is True
+    shown = runner.invoke(cli, ["config", "show", "--json"])
+    assert shown.exit_code == 0, shown.output
+    effective = json.loads(shown.stdout)["data"]["infrastructure"]["services"]
+    assert effective["dagster"]["service_name"] == "dagster"
+    assert effective["dagster"]["files"] == {
+        "dagster/dagster.yaml": {"source": "instance.yaml", "mode": "merge"}
+    }
+    for name, values in services.items():
+        for key, value in values.items():
+            if key != "files":
+                assert effective[name][key] == value
+    assert effective["grafana"]["files"] == services["grafana"]["files"]
+    assert yaml.safe_load((tmp_path / "phlo.yaml").read_text(encoding="utf-8")) == {
+        "infrastructure": {"services": services}
+    }
+
+
+@pytest.mark.parametrize("metadata", [{}, {"service_name": "dagster-webserver"}])
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"source": "instance.yaml", "mode": "not-a-mode"},
+        {"source": ""},
+        {"mode": "replace"},
+        {"source": "instance.yaml", "unexpected": True},
+    ],
+)
+def test_public_config_validate_rejects_invalid_canonical_files(
+    tmp_path, monkeypatch, metadata, record
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "phlo.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "infrastructure": {
+                    "services": {"dagster": {**metadata, "files": {"dagster/dagster.yaml": record}}}
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(cli, ["config", "validate", "--json"])
+    assert result.exit_code == 1, result.output
+    assert json.loads(result.stdout)["errors"]
+    assert "files" in result.stdout

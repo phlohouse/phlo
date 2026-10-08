@@ -13,6 +13,7 @@ from phlo.plugins.discovery.service_manifest import (
     ServiceManifestResolver,
 )
 from phlo.plugins.discovery.services import ServiceDiscovery
+from tests.helpers import DummyServicePlugin
 
 
 def test_service_manifest_wraps_definition_and_source_path(tmp_path: Path) -> None:
@@ -91,7 +92,7 @@ def test_resolver_loads_plugin_manifest_and_companion_files(
         encoding="utf-8",
     )
 
-    class FakePlugin:
+    class FakePlugin(DummyServicePlugin):
         service_definition = {
             "name": "worker",
             "description": "Worker",
@@ -132,7 +133,7 @@ def test_resolver_skips_companion_duplicate_names(
         encoding="utf-8",
     )
 
-    class FakePlugin:
+    class FakePlugin(DummyServicePlugin):
         service_definition = {
             "name": "worker",
             "description": "Worker",

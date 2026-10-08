@@ -34,6 +34,7 @@ from phlo.cli.commands.services.ports import (
 )
 from phlo.cli.commands.services.utils import (
     _emit_service_lifecycle_events,
+    _get_service_overrides,
     _load_native_state,
     _run_service_hooks,
     _save_native_state,
@@ -1156,7 +1157,10 @@ def start_cmd(  # noqa: C901
                 # an earlier phlo keeps failing on a build input that has since
                 # been fixed, so name it and the command that refreshes it.
                 stale_inputs = stale_generated_build_inputs(
-                    discovery, phlo_dir, docker_service_names
+                    discovery,
+                    phlo_dir,
+                    docker_service_names,
+                    user_overrides=_get_service_overrides(_load_project_config(Path.cwd())),
                 )
                 if stale_inputs:
                     logger.warning(

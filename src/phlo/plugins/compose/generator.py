@@ -7,7 +7,6 @@ Generates docker-compose.yml and .env/.env.local files from service definitions.
 import os
 import platform
 import re
-import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
@@ -24,6 +23,7 @@ from phlo.plugins.compose.env import (
 from phlo.plugins.compose.env import (
     generate_env_local as _generate_env_local,
 )
+from phlo.plugins.compose.service_files import prepare_service_files
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
 
 logger = get_logger(__name__)
@@ -640,45 +640,15 @@ class ComposeGenerator:
         output_dir: Path,
         *,
         overwrite: bool = True,
+        user_overrides: dict[str, Any] | None = None,
     ) -> list[str]:
-        """Copy each service's additional files into the .phlo output
-        directory, returning the copied paths relative to it.
+        """Validate and copy provider files with project overrides into .phlo.
+
+        Return generated file paths relative to the output directory.
         """
-        copied: list[str] = []
-
-        for service in services:
-            if not service.files or not service.source_path:
-                continue
-
-            for file_spec in service.files:
-                source = service.source_path / file_spec["source"]
-                dest = output_dir / file_spec["dest"]
-
-                if not source.exists():
-                    logger.warning(
-                        "compose_service_file_source_missing",
-                        service_name=service.name,
-                        source=str(source),
-                        destination=str(dest),
-                    )
-                    continue
-
-                if dest.exists() and not overwrite:
-                    continue
-                # Create parent directories
-                dest.parent.mkdir(parents=True, exist_ok=True)
-
-                # Copy file or directory
-                if source.is_dir():
-                    if dest.exists():
-                        shutil.rmtree(dest)
-                    shutil.copytree(source, dest)
-                else:
-                    shutil.copy2(source, dest)
-
-                copied.append(str(dest.relative_to(output_dir)))
-
-        return copied
+        return prepare_service_files(services, output_dir, user_overrides=user_overrides).write(
+            overwrite=overwrite
+        )
 
     def generate_gitignore(self, services: list[ServiceDefinition]) -> str:
         """Generate .gitignore content for .phlo directory."""

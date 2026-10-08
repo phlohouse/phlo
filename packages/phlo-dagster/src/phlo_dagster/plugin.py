@@ -47,6 +47,7 @@ from phlo.capabilities import (
     WorkflowWizardField,
 )
 from phlo.plugins import service_plugin_class
+from phlo_dagster.service_config import validate_service_file
 
 
 def get_workflow_wizard_contributions() -> list[WorkflowWizardContribution]:
@@ -104,6 +105,7 @@ DagsterServicePlugin = service_plugin_class(
     description="Data orchestration platform for workflows and pipelines",
     author="Phlo Team",
     tags=["orchestration", "core"],
+    file_validator=validate_service_file,
 )
 
 

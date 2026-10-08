@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import inspect
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from phlo.plugins.base.plugin import Plugin, PluginMetadata
@@ -49,6 +50,13 @@ class ServicePlugin(Plugin, ABC):
     def get_files(self) -> list[dict[str, str]]:
         """Return files to copy during initialization."""
         return self.service_definition.get("files", [])
+
+    def validate_service_file(self, destination: str, content: str) -> None:
+        """Validate overridden native configuration without resolving environment values.
+
+        Core checks format only. Providers override this hook for native schemas
+        and raise ValueError with field-level diagnostics that do not echo values.
+        """
 
     def get_dependencies(self) -> list[str]:
         """Return list of service names this depends on."""
@@ -99,6 +107,7 @@ def service_plugin_class(
     tags: list[str] | None = None,
     service_definition_file: str = "service.yaml",
     service_definition_package: str | None = None,
+    file_validator: Callable[[str, str], None] | None = None,
 ) -> type[PackageYamlServicePlugin]:
     """Create a YAML-backed service plugin class from static metadata."""
     frame = inspect.currentframe()
@@ -120,6 +129,11 @@ def service_plugin_class(
         def metadata(self) -> PluginMetadata:
             """Return the static metadata captured when the class was declared."""
             return metadata
+
+        def validate_service_file(self, destination: str, content: str) -> None:
+            """Apply the provider's native file validator when declared."""
+            if file_validator is not None:
+                file_validator(destination, content)
 
     DeclarativeYamlServicePlugin.__name__ = class_name
     DeclarativeYamlServicePlugin.__qualname__ = class_name

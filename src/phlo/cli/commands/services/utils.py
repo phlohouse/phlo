@@ -26,6 +26,7 @@ from phlo.config.layout import env_defaults_path, env_secrets_path
 from phlo.infrastructure.containers import resolve_container_name as _resolve_container_name
 from phlo.logging import get_logger
 from phlo.plugins.compose.generator import UV_LOCK_METADATA_FILES
+from phlo.plugins.compose.service_files import prepare_service_files
 from phlo.plugins.discovery._service_definition import ServiceDefinition
 from phlo.plugins.discovery.service_manifest import ServiceManifestResolver
 from phlo.plugins.discovery.services import ServiceDiscovery
@@ -145,6 +146,8 @@ def stale_generated_build_inputs(
     discovery: ServiceDiscovery,
     phlo_dir: Path,
     service_names: list[str],
+    *,
+    user_overrides: dict | None = None,
 ) -> list[str]:
     """Return generated service files that differ from the installed templates.
 
@@ -152,7 +155,8 @@ def stale_generated_build_inputs(
     templates the installed phlo ships, and a shared layout deliberately
     preserves those copies across ``phlo services init``. A project initialised
     by an earlier phlo therefore keeps building a stale Dockerfile, so the build
-    failure names the difference and the command that refreshes it.
+    failure names the difference and the command that refreshes it. Explicit
+    project file overrides intentionally differ from templates and are excluded.
     """
     services = discovery.discover()
     stale: set[str] = set()
@@ -175,8 +179,11 @@ def stale_generated_build_inputs(
                 else [(source, dest)]
             )
             for source_file, dest_file in candidates:
+                relative = dest_file.relative_to(phlo_dir).as_posix()
+                if relative in (user_overrides or {}).get(name, {}).get("files", {}):
+                    continue
                 if dest_file.is_file() and source_file.read_bytes() != dest_file.read_bytes():
-                    stale.add(dest_file.relative_to(phlo_dir).as_posix())
+                    stale.add(relative)
     return sorted(stale)
 
 
@@ -762,6 +769,36 @@ def expand_service_dependencies(
     )
 
 
+def _get_service_overrides(project_config: dict) -> dict[str, dict]:
+    """Read service overrides with infrastructure.services taking precedence.
+
+    Legacy enabled/disabled lists are selection metadata, not service overrides.
+    Each service's canonical fields replace its legacy fields.
+    """
+    legacy = project_config.get("services", {})
+    infrastructure = project_config.get("infrastructure", {})
+    canonical = infrastructure.get("services", {}) if isinstance(infrastructure, dict) else {}
+    if not isinstance(legacy, dict) or not isinstance(canonical, dict):
+        raise user_error("invalid phlo.yaml", details={"services": "must be a mapping"})
+
+    overrides: dict[str, dict] = {}
+    for service_name in set(legacy) | set(canonical):
+        if service_name in {"enabled", "disabled"}:
+            continue
+        if not isinstance(service_name, str) or not service_name:
+            raise user_error(
+                "invalid phlo.yaml", details={"services": "service names must be non-empty strings"}
+            )
+        legacy_value = legacy.get(service_name, {})
+        canonical_value = canonical.get(service_name, {})
+        if not isinstance(legacy_value, dict) or not isinstance(canonical_value, dict):
+            raise user_error(
+                "invalid phlo.yaml", details={"services": f"{service_name} must be a mapping"}
+            )
+        overrides[service_name] = {**legacy_value, **canonical_value}
+    return overrides
+
+
 def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     """Regenerate docker-compose.yml based on current config."""
     from phlo.cli.infrastructure.selection import select_services_to_install
@@ -785,16 +822,20 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     services_to_install = expand_service_dependencies(discovery, services_to_install)
 
     # Get user service overrides from config
-    user_overrides = config.get("services", {})
+    user_overrides = _get_service_overrides(config)
     env_overrides = _get_env_overrides(config)
-    # Keep the lock-aware build flag and staged lock metadata in sync with the
-    # project root across regeneration.
-    env_overrides = apply_uv_lock_env_override(phlo_dir, env_overrides)
     env_local_file = env_secrets_path(phlo_dir)
     existing_env_local = parse_env_file(env_local_file)
 
     # Generate docker-compose.yml
     composer = ComposeGenerator(discovery)
+    try:
+        service_files = prepare_service_files(
+            services_to_install, phlo_dir, user_overrides=user_overrides
+        )
+    except (ValueError, OSError) as exc:
+        raise user_error("invalid service file override", details={"Error": str(exc)}) from exc
+    env_overrides = apply_uv_lock_env_override(phlo_dir, env_overrides)
     compose_content = composer.generate_compose(
         services_to_install,
         phlo_dir,
@@ -824,6 +865,6 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     click.echo(f"Updated: {env_local_file}")
 
     # Copy any new service files
-    copied_files = composer.copy_service_files(services_to_install, phlo_dir)
+    copied_files = service_files.write()
     for f in copied_files:
         click.echo(f"Updated: .phlo/{f}")

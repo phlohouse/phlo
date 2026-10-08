@@ -21,6 +21,7 @@ from phlo.cli.commands.services.utils import (
     PHLO_CONFIG_TEMPLATE,
     UV_LOCK_METADATA_FILES,
     _get_env_overrides,
+    _get_service_overrides,
     _warn_secret_env_overrides,
     apply_uv_lock_env_override,
     detect_phlo_source_path,
@@ -34,6 +35,7 @@ from phlo.cli.output import user_error
 from phlo.config.layout import SHARED_LAYOUT_MARKER, env_defaults_path, env_secrets_path
 from phlo.plugins.compose import ComposeGenerator
 from phlo.plugins.compose.artifacts import render_shared_gitignore, write_compose_layers
+from phlo.plugins.compose.service_files import prepare_service_files
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
 
 _PRODUCTION_USERNAME_DEFAULTS = {
@@ -95,41 +97,6 @@ def _load_existing_project_config(config_file: Path) -> dict:
             details={"File": config_file, "Error": "top-level value must be a mapping"},
         )
     return project_config
-
-
-def _get_service_overrides(project_config: dict) -> dict[str, dict]:
-    """Read service overrides from the canonical infrastructure block.
-
-    ``services`` at the top level predates ``infrastructure.services`` and is
-    retained for compatibility.  The infrastructure form is authoritative when
-    both configure the same service, which lets operators keep all container
-    configuration in one block.
-    """
-    legacy = project_config.get("services", {})
-    infrastructure = project_config.get("infrastructure", {})
-    canonical = infrastructure.get("services", {}) if isinstance(infrastructure, dict) else {}
-    if not isinstance(legacy, dict) or not isinstance(canonical, dict):
-        raise user_error(
-            "invalid phlo.yaml",
-            details={"services": "must be a mapping"},
-        )
-
-    overrides: dict[str, dict] = {}
-    for service_name in set(legacy) | set(canonical):
-        if not isinstance(service_name, str) or not service_name:
-            raise user_error(
-                "invalid phlo.yaml",
-                details={"services": "service names must be non-empty strings"},
-            )
-        legacy_value = legacy.get(service_name, {})
-        canonical_value = canonical.get(service_name, {})
-        if not isinstance(legacy_value, dict) or not isinstance(canonical_value, dict):
-            raise user_error(
-                "invalid phlo.yaml",
-                details={"services": f"{service_name} must be a mapping"},
-            )
-        overrides[service_name] = {**legacy_value, **canonical_value}
-    return overrides
 
 
 def _validate_production_credentials(
@@ -382,10 +349,6 @@ def init_cmd(  # noqa: C901
         _validate_production_credentials(env_overrides, existing_env_local)
         env_overrides = {**env_overrides, "PHLO_ENVIRONMENT": "production"}
 
-    # Stage the project's uv lock metadata into the generated build context and
-    # flag generated image builds as lock-aware for uv-managed projects.
-    env_overrides = apply_uv_lock_env_override(phlo_dir, env_overrides)
-
     # Collect inline custom services (those with type: inline)
     inline_services = [
         ServiceDefinition.from_inline(name, cfg)
@@ -427,6 +390,14 @@ def init_cmd(  # noqa: C901
 
     # Generate docker-compose.yml
     composer = ComposeGenerator(discovery)
+    try:
+        service_files = prepare_service_files(
+            services_to_install, phlo_dir, user_overrides=user_overrides
+        )
+    except (ValueError, OSError) as exc:
+        raise user_error("invalid service file override", details={"Error": str(exc)}) from exc
+    # Stage build inputs only after service-file validation succeeds.
+    env_overrides = apply_uv_lock_env_override(phlo_dir, env_overrides)
     compose_content = composer.generate_compose(
         services_to_install,
         phlo_dir,
@@ -492,10 +463,7 @@ def init_cmd(  # noqa: C901
     volumes_dir.mkdir(exist_ok=True)
 
     # Copy service files (Dockerfiles, configs, etc.)
-    if preserve_shared:
-        copied_files = composer.copy_service_files(services_to_install, phlo_dir, overwrite=False)
-    else:
-        copied_files = composer.copy_service_files(services_to_install, phlo_dir)
+    copied_files = service_files.write(overwrite=not preserve_shared)
     for f in copied_files:
         click.echo(f"Created: .phlo/{f}")
 
