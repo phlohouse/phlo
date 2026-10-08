@@ -62,7 +62,7 @@ def _requests_json(command: click.Command, args: Sequence[str]) -> bool:
             remaining = tokens[index:]
             if "--" in remaining:
                 remaining = remaining[: remaining.index("--")]
-            return "--json" in remaining
+            return any(token.split("=", 1)[0] == "--json" for token in remaining)
         if option is not None:
             if name == "--json":
                 return True
@@ -235,7 +235,9 @@ class _InvocationBoundary(click.Command):
     def main(self, args=None, prog_name=None, complete_var=None, standalone_mode=True, **extra):
         args = list(sys.argv[1:] if args is None else args)
         execution = (
-            self._execute_json(args, prog_name, complete_var, extra) if "--json" in args else None
+            self._execute_json(args, prog_name, complete_var, extra)
+            if any(token.split("=", 1)[0] == "--json" for token in args)
+            else None
         )
         if execution is None:
             return super().main(

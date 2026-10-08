@@ -140,6 +140,9 @@ class ServiceManifestResolver:
                 continue
             try:
                 definition = ServiceDefinition.from_yaml(yaml_path)
+            except FileNotFoundError:
+                # A cached scan may include a manifest removed since discovery.
+                continue
             except (yaml.YAMLError, KeyError, ValueError) as exc:
                 raise ServiceManifestError(
                     "invalid service definition file",

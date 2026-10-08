@@ -252,6 +252,16 @@ def test_manifest_scans_and_yaml_reads_are_cached_without_sharing_mutations(
     assert scans == [tmp_path, tmp_path]
 
 
+def test_cached_manifest_scan_skips_deleted_files(tmp_path: Path) -> None:
+    manifest = tmp_path / "service.yaml"
+    manifest.write_text("name: worker\ndescription: Worker\n")
+    (tmp_path / "worker-setup.yaml").write_text("name: setup\ndescription: Setup\n")
+    resolver = ServiceManifestResolver(tmp_path)
+    assert [item.name for item in resolver.resolve_directory_manifests()] == ["worker", "setup"]
+    manifest.unlink()
+    assert [item.name for item in resolver.resolve_directory_manifests()] == ["setup"]
+
+
 def test_service_refresh_finds_new_manifest_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
