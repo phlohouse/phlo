@@ -423,7 +423,31 @@ class PolarisSnapshotPromotionCatalog:
                 tables=tables,
             )
 
-    def _promote_candidates(  # noqa: C901
+    def _prepare_candidates(
+        self, selected: list[dict[str, Any]], ref: str, release_id: str
+    ) -> list[tuple[dict[str, Any], Any, int, bool]]:
+        """Validate branch and main snapshots, recognizing resumable overwrites."""
+        prepared = []
+        for row in selected:
+            table_name = str(row["table_name"])
+            table = self._open_table(table_name)
+            candidate_snapshot = self._branch_tip(table, ref)
+            if candidate_snapshot is None:
+                raise ReleaseConflictError(message=f"Candidate branch {ref!r} is missing.")
+            current = table.current_snapshot()
+            summary = current.summary if current is not None else None
+            properties = summary.additional_properties if summary is not None else {}
+            already_written = properties.get("phlo.release_id") == release_id and properties.get(
+                "phlo.candidate_snapshot_id"
+            ) == str(candidate_snapshot)
+            # Pin main as well as the ledger: a concurrent publisher may
+            # have changed this table since the candidate was created.
+            if not already_written and current_snapshot_id(table) != int(row["snapshot_id"]):
+                raise ReleaseConflictError(message=f"Main changed for {table_name!r}.")
+            prepared.append((row, table, candidate_snapshot, already_written))
+        return prepared
+
+    def _promote_candidates(
         self,
         *,
         namespace: str,
@@ -506,25 +530,7 @@ class PolarisSnapshotPromotionCatalog:
         promoted_at = _now()
         new_revision = current_revision + 1
         ref = candidate_ref_for_run(run_id)
-        prepared = []
-        for row in selected:
-            table_name = str(row["table_name"])
-            table = self._open_table(table_name)
-            candidate_snapshot = self._branch_tip(table, ref)
-            if candidate_snapshot is None:
-                raise ReleaseConflictError(message=f"Candidate branch {ref!r} is missing.")
-            current = table.current_snapshot()
-            summary = current.summary if current is not None else None
-            properties = summary.additional_properties if summary is not None else {}
-            already_written = properties.get("phlo.release_id") == release_id and properties.get(
-                "phlo.candidate_snapshot_id"
-            ) == str(candidate_snapshot)
-            if not already_written:
-                # Pin main as well as the ledger: a concurrent publisher may
-                # have changed this table since the candidate was created.
-                if current_snapshot_id(table) != int(row["snapshot_id"]):
-                    raise ReleaseConflictError(message=f"Main changed for {table_name!r}.")
-            prepared.append((row, table, candidate_snapshot, already_written))
+        prepared = self._prepare_candidates(selected, ref, release_id)
 
         intended = {(str(row["table_name"]), int(row["snapshot_id"])) for row in pending}
         actual = {(str(row["table_name"]), tip) for row, _, tip, _ in prepared}

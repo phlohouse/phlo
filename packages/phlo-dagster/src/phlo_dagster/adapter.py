@@ -335,7 +335,7 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             resources=resources_map,
         )
 
-    def _build_asset(self, spec: AssetSpec) -> dg.AssetsDefinition:  # noqa: C901
+    def _build_asset(self, spec: AssetSpec) -> dg.AssetsDefinition:
         """Create a Dagster asset definition from a capability asset spec."""
         # Declarative checks (no callable) attach to the asset as check specs;
         # checks with a fn become standalone definitions via _build_check.
@@ -350,33 +350,7 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             if check.fn is None
         ]
 
-        partitions_def = None
-        if spec.partitions and spec.partitions.kind == "daily":
-            from phlo_dagster.partitions import daily_partition
-
-            partitions_def = daily_partition
-
-        op_tags: dict[str, str] = {}
-        if spec.run and spec.run.max_runtime_seconds:
-            op_tags["dagster/max_runtime"] = str(spec.run.max_runtime_seconds)
-
-        retry_policy = None
-        if spec.run and spec.run.max_retries:
-            retry_policy = dg.RetryPolicy(
-                max_retries=spec.run.max_retries,
-                delay=spec.run.retry_delay_seconds or 30,
-            )
-
-        automation_condition = None
-        if spec.run and spec.run.cron:
-            automation_condition = dg.AutomationCondition.on_cron(spec.run.cron)
-
-        freshness_policy = None
-        if spec.run and spec.run.freshness_hours:
-            freshness_policy = dg.FreshnessPolicy.time_window(
-                warn_window=timedelta(hours=spec.run.freshness_hours[0]),
-                fail_window=timedelta(hours=spec.run.freshness_hours[1]),
-            )
+        policies = _asset_policies(spec)
 
         asset_key = _asset_key_from_string(spec.key)
         deps = [_asset_key_from_string(dep) for dep in spec.deps]
@@ -394,129 +368,14 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             kinds=spec.kinds,
             tags=spec.tags,
             metadata=asset_metadata,
-            partitions_def=partitions_def,
             deps=deps,
             check_specs=check_specs or None,
             required_resource_keys=required_resources or None,
-            op_tags=op_tags or None,
-            retry_policy=retry_policy,
-            automation_condition=automation_condition,
-            freshness_policy=freshness_policy,
+            **policies,
         )
         def _asset_fn(context) -> Iterable[Any]:
             """Execute capability asset logic and yield materializations or check results."""
-            # Dagster's multiprocess worker replaces root handlers after module
-            # import. Reattach Phlo's router in the worker so provider and user
-            # logs join the canonical run history instead of remaining only in
-            # Dagster's local event log.
-            setup_logging(force=True)
-            runtime = DagsterRuntime(
-                context, asset_capability_overrides=dict(spec.capability_overrides)
-            )
-            results: list[Any] = []
-            deferred_failure: dg.Failure | None = None
-            # Bind the physical Dagster run id so nested emissions (ingestion,
-            # quality, catalog writes) join this attempt's observer run.
-            # Retried attempts get fresh run ids, so each attempt keeps its own
-            # run row — the observer's run-status precedence is monotonic and
-            # a failed attempt must not pin a retried run to "failed".
-            # Results are collected inside the scope so the generator never
-            # suspends with ambient correlation bound on the worker thread.
-            with phlo_observe.dagster_run_scope(context, asset_key=spec.key):
-                try:
-                    with phlo_observe.dagster_step(context):
-                        # A run function may return None when it has nothing to
-                        # report; treat that like an empty iterable rather than
-                        # failing the step on list(None).
-                        raw_results = spec.run.fn(runtime) if spec.run else None
-                        results = list(raw_results) if raw_results is not None else []
-                        # In-band check results emit inside the step scope so the
-                        # quality.check event joins this step's trace; yields happen
-                        # outside so no ambient context survives suspension.
-                        for result in results:
-                            if isinstance(result, CheckResult):
-                                # The spec/result severity describes the failure;
-                                # a passed check is informational unless the result
-                                # carries its own severity (passed-with-warnings).
-                                result_severity = _severity_from_string(result.severity)
-                                phlo_observe.emit_asset_check(
-                                    context,
-                                    check_name=result.check_name,
-                                    passed=result.passed,
-                                    severity=(
-                                        result_severity.name.lower()
-                                        if result_severity is not None
-                                        else ("info" if result.passed else "error")
-                                    ),
-                                    asset_key=result.asset_key,
-                                )
-                        # An in-band failure status must surface as a real step
-                        # failure, not a successful materialization with bad
-                        # metadata, so retry policies and failure alerts apply.
-                        # Raise inside this scope so pipeline.step records the
-                        # failure, then defer propagation until Dagster has
-                        # consumed the check results outside the scope.
-                        for result in results:
-                            if not isinstance(result, MaterializeResult):
-                                continue
-                            status = str(result.status or "").lower()
-                            if status not in {"failure", "failed", "error"}:
-                                continue
-                            metadata = _convert_metadata(result.metadata)
-                            if result.status:
-                                metadata.setdefault("status", dg.MetadataValue.text(result.status))
-                            logger.warning(
-                                "dagster_adapter_asset_materialization_failed_status",
-                                asset_key=spec.key,
-                                status=result.status,
-                                run_id=runtime.run_id,
-                                partition_key=runtime.partition_key,
-                            )
-                            raise dg.Failure(
-                                description=f"Asset run reported status '{result.status}'",
-                                metadata=metadata,
-                            )
-                except dg.Failure as exc:
-                    deferred_failure = exc
-            materialized = False
-            for result in results:
-                if isinstance(result, MaterializeResult):
-                    if deferred_failure is not None:
-                        continue
-                    metadata = _convert_metadata(result.metadata)
-                    if result.status:
-                        metadata.setdefault("status", dg.MetadataValue.text(result.status))
-                    # asset.materialize records the materialization fact; the
-                    # scope closes before the yield so no ambient context
-                    # survives suspension on the executor thread.
-                    with phlo_observe.emit_materialization(
-                        context,
-                        asset_key=spec.key,
-                        rows=_rows_out(result.metadata),
-                    ):
-                        pass
-                    materialized = True
-                    yield dg.MaterializeResult(metadata=metadata)
-                elif isinstance(result, CheckResult):
-                    severity = _severity_from_string(result.severity) or dg.AssetCheckSeverity.ERROR
-                    asset_check_key = _asset_key_from_string(result.asset_key)
-                    metadata = _convert_metadata(result.metadata)
-                    yield dg.AssetCheckResult(
-                        passed=result.passed,
-                        check_name=result.check_name,
-                        asset_key=asset_check_key,
-                        metadata=metadata,
-                        severity=severity,
-                    )
-            if deferred_failure is not None:
-                raise deferred_failure
-            if not materialized:
-                # The step's required output needs an event even when the run
-                # function reported nothing; Dagster records a materialization
-                # for a completed asset step, so the canonical stream does too.
-                with phlo_observe.emit_materialization(context, asset_key=spec.key):
-                    pass
-                yield dg.MaterializeResult()
+            yield from _execute_asset(context, spec)
 
         return _asset_fn
 
@@ -576,3 +435,145 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             )
 
         return _check_fn
+
+
+def _asset_policies(spec: AssetSpec) -> dict[str, Any]:
+    """Translate partition and execution policies before constructing the asset."""
+    partitions_def = None
+    if spec.partitions and spec.partitions.kind == "daily":
+        from phlo_dagster.partitions import daily_partition
+
+        partitions_def = daily_partition
+
+    op_tags: dict[str, str] = {}
+    if spec.run and spec.run.max_runtime_seconds:
+        op_tags["dagster/max_runtime"] = str(spec.run.max_runtime_seconds)
+
+    retry_policy = None
+    if spec.run and spec.run.max_retries:
+        retry_policy = dg.RetryPolicy(
+            max_retries=spec.run.max_retries,
+            delay=spec.run.retry_delay_seconds or 30,
+        )
+
+    automation_condition = None
+    if spec.run and spec.run.cron:
+        automation_condition = dg.AutomationCondition.on_cron(spec.run.cron)
+
+    freshness_policy = None
+    if spec.run and spec.run.freshness_hours:
+        freshness_policy = dg.FreshnessPolicy.time_window(
+            warn_window=timedelta(hours=spec.run.freshness_hours[0]),
+            fail_window=timedelta(hours=spec.run.freshness_hours[1]),
+        )
+    return {
+        "partitions_def": partitions_def,
+        "op_tags": op_tags or None,
+        "retry_policy": retry_policy,
+        "automation_condition": automation_condition,
+        "freshness_policy": freshness_policy,
+    }
+
+
+def _execute_asset(context: dg.AssetExecutionContext, spec: AssetSpec) -> Iterable[Any]:
+    """Collect scoped results, then yield checks before propagating a deferred failure."""
+    # Dagster's multiprocess worker replaces root handlers after module
+    # import. Reattach Phlo's router in the worker so provider and user
+    # logs join the canonical run history instead of remaining only in
+    # Dagster's local event log.
+    setup_logging(force=True)
+    runtime = DagsterRuntime(context, asset_capability_overrides=dict(spec.capability_overrides))
+    results: list[Any] = []
+    deferred_failure: dg.Failure | None = None
+    # Bind the physical Dagster run id so nested emissions (ingestion,
+    # quality, catalog writes) join this attempt's observer run.
+    # Retried attempts get fresh run ids, so each attempt keeps its own
+    # run row and a failed attempt must not pin a retried run to "failed".
+    # Collect results inside the scope so the generator never suspends
+    # with ambient correlation bound on the worker thread.
+    with phlo_observe.dagster_run_scope(context, asset_key=spec.key):
+        try:
+            with phlo_observe.dagster_step(context):
+                # None means nothing to report, not a failed step on list(None).
+                raw_results = spec.run.fn(runtime) if spec.run else None
+                results = list(raw_results) if raw_results is not None else []
+                _report_asset_results(context, spec, runtime, results)
+        except dg.Failure as exc:
+            deferred_failure = exc
+    materialized = False
+    for result in results:
+        if isinstance(result, MaterializeResult):
+            if deferred_failure is not None:
+                continue
+            metadata = _convert_metadata(result.metadata)
+            if result.status:
+                metadata.setdefault("status", dg.MetadataValue.text(result.status))
+            # Close the materialization scope before yielding so no ambient
+            # context survives suspension on the executor thread.
+            with phlo_observe.emit_materialization(
+                context, asset_key=spec.key, rows=_rows_out(result.metadata)
+            ):
+                pass
+            materialized = True
+            yield dg.MaterializeResult(metadata=metadata)
+        elif isinstance(result, CheckResult):
+            severity = _severity_from_string(result.severity) or dg.AssetCheckSeverity.ERROR
+            asset_check_key = _asset_key_from_string(result.asset_key)
+            metadata = _convert_metadata(result.metadata)
+            yield dg.AssetCheckResult(
+                passed=result.passed,
+                check_name=result.check_name,
+                asset_key=asset_check_key,
+                metadata=metadata,
+                severity=severity,
+            )
+    if deferred_failure is not None:
+        raise deferred_failure
+    if not materialized:
+        # Dagster requires an output even when the run reported nothing.
+        with phlo_observe.emit_materialization(context, asset_key=spec.key):
+            pass
+        yield dg.MaterializeResult()
+
+
+def _report_asset_results(
+    context: dg.AssetExecutionContext, spec: AssetSpec, runtime: DagsterRuntime, results: list[Any]
+) -> None:
+    """Emit all in-band checks before raising the first failed materialization."""
+    for result in results:
+        if isinstance(result, CheckResult):
+            # A passed check is informational unless it carries its own severity.
+            result_severity = _severity_from_string(result.severity)
+            phlo_observe.emit_asset_check(
+                context,
+                check_name=result.check_name,
+                passed=result.passed,
+                severity=(
+                    result_severity.name.lower()
+                    if result_severity is not None
+                    else ("info" if result.passed else "error")
+                ),
+                asset_key=result.asset_key,
+            )
+    # Raise inside the step scope so it records failure, but defer propagation
+    # until Dagster has consumed the check results outside the scope.
+    for result in results:
+        if not isinstance(result, MaterializeResult):
+            continue
+        status = str(result.status or "").lower()
+        if status not in {"failure", "failed", "error"}:
+            continue
+        metadata = _convert_metadata(result.metadata)
+        if result.status:
+            metadata.setdefault("status", dg.MetadataValue.text(result.status))
+        logger.warning(
+            "dagster_adapter_asset_materialization_failed_status",
+            asset_key=spec.key,
+            status=result.status,
+            run_id=runtime.run_id,
+            partition_key=runtime.partition_key,
+        )
+        raise dg.Failure(
+            description=f"Asset run reported status '{result.status}'",
+            metadata=metadata,
+        )

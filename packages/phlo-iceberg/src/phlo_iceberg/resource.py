@@ -48,13 +48,13 @@ Builds on phlo.capabilities interfaces and the phlo_iceberg catalog/tables modul
 Iceberg table operations as a Dagster-ready resource.
 """
 
+import hashlib
+import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-import hashlib
-import json
 from pathlib import Path
-import re
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -64,6 +64,7 @@ from pyiceberg.schema import Schema
 from pyiceberg.table import Table
 
 from phlo.capabilities import (
+    SAFE_MIN_RETENTION_HOURS,
     InventoryObject,
     MaintenanceExecutionError,
     MaintenanceExecutionPhase,
@@ -71,17 +72,19 @@ from phlo.capabilities import (
     MaintenanceOperationState,
     MaintenancePreconditionError,
     ObjectInventory,
-    SAFE_MIN_RETENTION_HOURS,
 )
-from phlo.capabilities.interfaces import MaintenanceExecutor
-from phlo.capabilities.interfaces import TableStoreSupport
-from phlo.capabilities.interfaces import TableStateObservation
 from phlo.capabilities.history import HistoryPolicy, HistoryWriteError
+from phlo.capabilities.interfaces import (
+    MaintenanceExecutor,
+    TableStateObservation,
+    TableStoreSupport,
+)
 from phlo.logging import get_logger
 from phlo_iceberg.catalog import get_catalog
+from phlo_iceberg.evidence import emit_mutation, table_state, unavailable_table_state
 from phlo_iceberg.history import history_to_table
-from phlo_iceberg.settings import get_settings
 from phlo_iceberg.schema_alignment import SCHEMA_POLICIES, SchemaPolicy
+from phlo_iceberg.settings import get_settings
 from phlo_iceberg.tables import (
     _require_direct_write,
     append_to_table,
@@ -93,7 +96,6 @@ from phlo_iceberg.tables import (
     overwrite_table,
     rollback_table_to_snapshot,
 )
-from phlo_iceberg.evidence import emit_mutation, table_state, unavailable_table_state
 
 logger = get_logger(__name__)
 
@@ -245,7 +247,140 @@ def _s3_inventory_client() -> object:
     )
 
 
-def inventory_owned_s3_prefix(  # noqa: C901
+def _s3_inventory_object(item: object, *, bucket: str, prefix: str) -> tuple[str, InventoryObject]:
+    """Validate one owned object without consulting storage."""
+    if not isinstance(item, dict):
+        raise ValueError("S3 ListObjectsV2 returned a malformed object entry.")
+    item = cast(dict[str, object], item)
+    key = item.get("Key")
+    size = item.get("Size")
+    if not isinstance(key, str) or not key.startswith(prefix) or not isinstance(size, int):
+        raise ValueError(
+            "S3 ListObjectsV2 returned an object outside the owned prefix or without size."
+        )
+    modified = item.get("LastModified")
+    if modified is not None and not isinstance(modified, datetime):
+        raise ValueError("S3 ListObjectsV2 returned an object with malformed LastModified.")
+    if isinstance(modified, datetime) and modified.tzinfo is None:
+        modified = modified.replace(tzinfo=UTC)
+    version = item.get("VersionId") or item.get("ETag")
+    if version is not None and not isinstance(version, str):
+        raise ValueError("S3 ListObjectsV2 returned an object with malformed version evidence.")
+    return key, InventoryObject(
+        identity=f"s3://{bucket}/{key}",
+        size_bytes=size,
+        modified_at=modified,
+        checksum_or_version=version.strip('"') if version else None,
+    )
+
+
+def _s3_inventory_page(
+    page: object,
+    *,
+    bucket: str,
+    prefix: str,
+    observed: dict[str, InventoryObject],
+    seen_tokens: set[str],
+) -> tuple[dict[str, InventoryObject], str | None]:
+    """Decide whether a page proves safe progress, leaving prior evidence untouched."""
+    if not isinstance(page, dict):
+        raise ValueError("S3 ListObjectsV2 returned a non-mapping page.")
+    page = cast(dict[str, object], page)
+    contents = page.get("Contents", [])
+    if not isinstance(contents, list):
+        raise ValueError("S3 ListObjectsV2 returned non-list Contents.")
+    additions: dict[str, InventoryObject] = {}
+    for item in contents:
+        key, observation = _s3_inventory_object(item, bucket=bucket, prefix=prefix)
+        if key in observed or key in additions:
+            raise ValueError("S3 pagination repeated an object; traversal may have changed.")
+        additions[key] = observation
+    truncated = page.get("IsTruncated")
+    next_token = page.get("NextContinuationToken")
+    if truncated is True:
+        if not isinstance(next_token, str) or not next_token or next_token in seen_tokens:
+            raise ValueError(
+                "S3 pagination ended or repeated a continuation token before completion."
+            )
+        return additions, next_token
+    if truncated is not False or next_token is not None:
+        raise ValueError("S3 pagination returned inconsistent terminal continuation evidence.")
+    return additions, None
+
+
+def _retention_limit_refusal(
+    plan: dict[str, Any], max_affected_objects: int | None, max_affected_bytes: int | None
+) -> tuple[str, str] | None:
+    """Check finite limits in their established rejection order."""
+    if max_affected_objects is None or max_affected_bytes is None:
+        return "safety_limits_required", "Execute mode requires finite object and byte limits."
+    if max_affected_objects < 0 or max_affected_bytes < 0:
+        return "invalid_safety_limit", "Safety limits must be non-negative."
+    if int(plan.get("affected_objects") or 0) > max_affected_objects:
+        return (
+            "affected_object_limit_exceeded",
+            "The plan exceeds max_affected_objects; obtain a narrower plan.",
+        )
+    if plan.get("affected_bytes") is None and int(plan.get("affected_objects") or 0):
+        return "affected_bytes_unavailable", "The provider cannot prove the affected bytes safely."
+    if int(plan.get("affected_bytes") or 0) > max_affected_bytes:
+        return (
+            "affected_byte_limit_exceeded",
+            "The plan exceeds max_affected_bytes; obtain a narrower plan.",
+        )
+    return None
+
+
+def _retention_execute_refusal(
+    *,
+    operation: str,
+    catalog: str | None,
+    plan: dict[str, Any],
+    expected_snapshot_id: int | str | None,
+    confirmation_token: str | None,
+    max_affected_objects: int | None,
+    max_affected_bytes: int | None,
+) -> tuple[str, str] | None:
+    """Decide ordered retention refusals before any executor interaction."""
+    plan_token = str(plan["plan_token"])
+    if not catalog:
+        return "catalog_required", "Execute mode requires an explicit catalog."
+    if expected_snapshot_id is None:
+        return (
+            "snapshot_precondition_required",
+            "Execute mode requires the snapshot observed by the plan.",
+        )
+    if not confirmation_token or confirmation_token != plan_token:
+        return "plan_token_invalid", "Confirmation token does not match this exact current plan."
+    limits = _retention_limit_refusal(plan, max_affected_objects, max_affected_bytes)
+    if limits is not None:
+        return limits
+    if plan.get("table_snapshot_ref_evidence") != "available":
+        return (
+            "table_snapshot_ref_evidence_unavailable",
+            "Table snapshot-reference evidence is unavailable; deletion is refused.",
+        )
+    if plan.get("scan_status") == "unavailable":
+        return "orphan_scan_unavailable", "The orphan scan did not complete; deletion is refused."
+    try:
+        expected = int(expected_snapshot_id)
+    except (TypeError, ValueError):
+        return "invalid_snapshot_precondition", "expected_snapshot_id must be an integer."
+    if expected != plan.get("before_snapshot_id"):
+        return (
+            "concurrent_change_detected",
+            "The table changed after planning; obtain a fresh dry-run.",
+        )
+    if operation != "expire_snapshots":
+        return (
+            "bounded_execution_unsupported",
+            "The Trino retention procedure accepts only a threshold and cannot bind "
+            "the provider deletion surface to this exact candidate and byte plan.",
+        )
+    return None
+
+
+def inventory_owned_s3_prefix(
     *,
     location: str,
     retention_cutoff: datetime,
@@ -278,7 +413,7 @@ def inventory_owned_s3_prefix(  # noqa: C901
 
     try:
         active_client = client or _s3_inventory_client()
-        call_s3 = getattr(active_client, "call_s3")
+        call_s3 = cast(Any, active_client).call_s3
         if not callable(call_s3):
             raise TypeError("Configured S3 client does not expose call_s3.")
     except Exception as exc:  # noqa: BLE001 - no evidence is safer than a fallback listing
@@ -306,93 +441,22 @@ def inventory_owned_s3_prefix(  # noqa: C901
                 page_count=page_count,
                 failure=f"S3 ListObjectsV2 failed: {type(exc).__name__}: {exc}",
             )
-        if not isinstance(page, dict):
-            return _empty_inventory(
-                prefix=canonical_prefix,
-                retention_cutoff=retention_cutoff,
-                page_count=page_count + 1,
-                failure="S3 ListObjectsV2 returned a non-mapping page.",
-            )
         page_count += 1
-        contents = page.get("Contents", [])
-        if not isinstance(contents, list):
+        try:
+            additions, token = _s3_inventory_page(
+                page, bucket=bucket, prefix=prefix, observed=observed, seen_tokens=seen_tokens
+            )
+        except ValueError as exc:
             return _empty_inventory(
                 prefix=canonical_prefix,
                 retention_cutoff=retention_cutoff,
                 page_count=page_count,
-                failure="S3 ListObjectsV2 returned non-list Contents.",
+                failure=str(exc),
             )
-        for item in contents:
-            if not isinstance(item, dict):
-                return _empty_inventory(
-                    prefix=canonical_prefix,
-                    retention_cutoff=retention_cutoff,
-                    page_count=page_count,
-                    failure="S3 ListObjectsV2 returned a malformed object entry.",
-                )
-            key = item.get("Key")
-            size = item.get("Size")
-            if not isinstance(key, str) or not key.startswith(prefix) or not isinstance(size, int):
-                return _empty_inventory(
-                    prefix=canonical_prefix,
-                    retention_cutoff=retention_cutoff,
-                    page_count=page_count,
-                    failure="S3 ListObjectsV2 returned an object outside the owned prefix or without size.",
-                )
-            modified = item.get("LastModified")
-            if modified is not None and not isinstance(modified, datetime):
-                return _empty_inventory(
-                    prefix=canonical_prefix,
-                    retention_cutoff=retention_cutoff,
-                    page_count=page_count,
-                    failure="S3 ListObjectsV2 returned an object with malformed LastModified.",
-                )
-            if isinstance(modified, datetime) and modified.tzinfo is None:
-                modified = modified.replace(tzinfo=UTC)
-            version = item.get("VersionId") or item.get("ETag")
-            if version is not None and not isinstance(version, str):
-                return _empty_inventory(
-                    prefix=canonical_prefix,
-                    retention_cutoff=retention_cutoff,
-                    page_count=page_count,
-                    failure="S3 ListObjectsV2 returned an object with malformed version evidence.",
-                )
-            observation = InventoryObject(
-                identity=f"s3://{bucket}/{key}",
-                size_bytes=size,
-                modified_at=modified,
-                checksum_or_version=version.strip('"') if version else None,
-            )
-            previous = observed.get(key)
-            if previous is not None:
-                return _empty_inventory(
-                    prefix=canonical_prefix,
-                    retention_cutoff=retention_cutoff,
-                    page_count=page_count,
-                    failure="S3 pagination repeated an object; traversal may have changed.",
-                )
-            observed[key] = observation
-
-        truncated = page.get("IsTruncated")
-        next_token = page.get("NextContinuationToken")
-        if truncated is True:
-            if not isinstance(next_token, str) or not next_token or next_token in seen_tokens:
-                return _empty_inventory(
-                    prefix=canonical_prefix,
-                    retention_cutoff=retention_cutoff,
-                    page_count=page_count,
-                    failure="S3 pagination ended or repeated a continuation token before completion.",
-                )
-            seen_tokens.add(next_token)
-            token = next_token
+        observed.update(additions)
+        if token is not None:
+            seen_tokens.add(token)
             continue
-        if truncated is not False or next_token is not None:
-            return _empty_inventory(
-                prefix=canonical_prefix,
-                retention_cutoff=retention_cutoff,
-                page_count=page_count,
-                failure="S3 pagination returned inconsistent terminal continuation evidence.",
-            )
         ordered = tuple(observed[key] for key in sorted(observed))
         digest_basis = [
             {
@@ -1722,7 +1786,7 @@ class IcebergResource:
             retry_safe=retry_safe,
         ).to_dict()
 
-    def _validate_retention_execute(  # noqa: C901
+    def _validate_retention_execute(
         self,
         *,
         operation: str,
@@ -1755,72 +1819,19 @@ class IcebergResource:
                 retry_safe=retry_safe,
             )
 
-        if not catalog:
-            return block("catalog_required", "Execute mode requires an explicit catalog.")
-        if expected_snapshot_id is None:
-            return block(
-                "snapshot_precondition_required",
-                "Execute mode requires the snapshot observed by the plan.",
-            )
-        if not confirmation_token or confirmation_token != plan_token:
-            return block(
-                "plan_token_invalid", "Confirmation token does not match this exact current plan."
-            )
-        if max_affected_objects is None or max_affected_bytes is None:
-            return block(
-                "safety_limits_required", "Execute mode requires finite object and byte limits."
-            )
-        if max_affected_objects < 0 or max_affected_bytes < 0:
-            return block("invalid_safety_limit", "Safety limits must be non-negative.")
-        if int(plan.get("affected_objects") or 0) > max_affected_objects:
-            return block(
-                "affected_object_limit_exceeded",
-                "The plan exceeds max_affected_objects; obtain a narrower plan.",
-            )
-        if plan.get("affected_bytes") is None and int(plan.get("affected_objects") or 0):
-            return block(
-                "affected_bytes_unavailable", "The provider cannot prove the affected bytes safely."
-            )
-        if int(plan.get("affected_bytes") or 0) > max_affected_bytes:
-            return block(
-                "affected_byte_limit_exceeded",
-                "The plan exceeds max_affected_bytes; obtain a narrower plan.",
-            )
-        if plan.get("table_snapshot_ref_evidence") != "available":
-            return block(
-                "table_snapshot_ref_evidence_unavailable",
-                "Table snapshot-reference evidence is unavailable; deletion is refused.",
-            )
-        if plan.get("scan_status") == "unavailable":
-            return block(
-                "orphan_scan_unavailable", "The orphan scan did not complete; deletion is refused."
-            )
-        try:
-            expected = int(expected_snapshot_id)
-        except (TypeError, ValueError):
-            return block(
-                "invalid_snapshot_precondition", "expected_snapshot_id must be an integer."
-            )
-        if expected != plan.get("before_snapshot_id"):
-            return block(
-                "concurrent_change_detected",
-                "The table changed after planning; obtain a fresh dry-run.",
-            )
-        if operation != "expire_snapshots":
-            return self._retention_blocked(
-                operation=operation,
-                table_name=table_name,
-                ref=ref,
-                dry_run=False,
-                plan={**plan, "trino_boundary": "not_invoked"},
-                code="bounded_execution_unsupported",
-                message=(
-                    "The Trino retention procedure accepts only a threshold and cannot bind "
-                    "the provider deletion surface to this exact candidate and byte plan."
-                ),
-                operation_id=operation_id,
-                retry_safe=False,
-            )
+        refusal = _retention_execute_refusal(
+            operation=operation,
+            catalog=catalog,
+            plan=plan,
+            expected_snapshot_id=expected_snapshot_id,
+            confirmation_token=confirmation_token,
+            max_affected_objects=max_affected_objects,
+            max_affected_bytes=max_affected_bytes,
+        )
+        if refusal is not None:
+            code, message = refusal
+            return block(code, message, retry_safe=code != "bounded_execution_unsupported")
+        expected = int(cast(int | str, expected_snapshot_id))
         if not plan.get("candidate_snapshots"):
             return MaintenanceOperationResult(
                 operation=operation,

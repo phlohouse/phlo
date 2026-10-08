@@ -278,6 +278,35 @@ def test_promote_without_candidates_returns_empty() -> None:
     assert catalog.promote_candidates(namespace="pipeline-run-none", release_id="r1") == []
 
 
+@pytest.mark.parametrize("change", ["missing_branch", "changed_main"])
+def test_promote_revalidates_every_table_before_any_publication(change: str) -> None:
+    catalog, store, tables = _catalog()
+    for name in tables:
+        catalog.create_candidate(table_name=name, run_id="run-1")
+    orders = tables["bronze.orders"]
+    if change == "missing_branch":
+        orders.refs.clear()
+        message = "Candidate branch .* is missing"
+    else:
+        orders.snapshot_id = 99
+        # The release marker alone must not permit resuming a different snapshot.
+        orders.snapshot_properties = {
+            "phlo.release_id": "release-1",
+            "phlo.candidate_snapshot_id": "999",
+        }
+        message = "Main changed"
+    before_rows = store.rows()
+
+    with pytest.raises(ReleaseConflictError, match=message):
+        catalog.promote_candidates(
+            namespace="pipeline-run-run-1", release_id="release-1", expected_revision=0
+        )
+
+    assert store.rows() == before_rows
+    assert store.current_revision() == 0
+    assert all(not table.overwrites and not table.dropped for table in tables.values())
+
+
 def test_abort_candidates_drops_refs_and_marks_ledger() -> None:
     catalog, store, tables = _catalog()
     catalog.create_candidate(table_name="bronze.events", run_id="run-1")
