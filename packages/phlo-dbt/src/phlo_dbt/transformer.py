@@ -374,15 +374,31 @@ class DbtTransformer(BaseTransformer):
             check=False,
         )
 
-    def run_transform(  # noqa: C901
+    def _build_args(self, parameters: dict[str, Any], partition_key: str | None) -> list[str]:
+        """Build the dbt selection arguments and log partition execution."""
+        build_args = ["build", "--profiles-dir", str(self.profiles_dir), "--target", self.target]
+        for parameter, flag in (("select", "--select"), ("exclude", "--exclude")):
+            if parameters.get(parameter):
+                build_args.append(flag)
+                build_args.extend(parameters[parameter])
+        if parameters.get("indirect_selection"):
+            build_args.extend(["--indirect-selection", str(parameters["indirect_selection"])])
+        if parameters.get("full_refresh") is True:
+            build_args.append("--full-refresh")
+        if partition_key:
+            build_args.extend(["--vars", f'{{"partition_date_str": "{partition_key}"}}'])
+            log_event(
+                self.logger, "info", "dbt_partition_execution_started", partition_key=partition_key
+            )
+        return build_args
+
+    def run_transform(
         self, partition_key: str | None = None, parameters: dict[str, Any] | None = None
     ) -> TransformationResult:
         """Execute dbt build/docs flow and emit transform telemetry events."""
         parameters = parameters or {}
         self.build_run_results = None
         select_args = parameters.get("select", [])
-        exclude_args = parameters.get("exclude", [])
-        indirect_selection = parameters.get("indirect_selection")
         skip_build = parameters.get("skip_build", False)
         ensure_dbt_profile(
             self.profiles_dir,
@@ -391,36 +407,7 @@ class DbtTransformer(BaseTransformer):
             project_dir=self.project_dir,
         )
 
-        build_args = [
-            "build",
-            "--profiles-dir",
-            str(self.profiles_dir),
-            "--target",
-            self.target,
-        ]
-
-        if select_args:
-            build_args.append("--select")
-            build_args.extend(select_args)
-
-        if exclude_args:
-            build_args.append("--exclude")
-            build_args.extend(exclude_args)
-
-        if indirect_selection:
-            build_args.extend(["--indirect-selection", str(indirect_selection)])
-
-        if parameters.get("full_refresh") is True:
-            build_args.append("--full-refresh")
-
-        if partition_key:
-            build_args.extend(["--vars", f'{{"partition_date_str": "{partition_key}"}}'])
-            log_event(
-                self.logger,
-                "info",
-                "dbt_partition_execution_started",
-                partition_key=partition_key,
-            )
+        build_args = self._build_args(parameters, partition_key)
 
         # Model names for event context are approximated from --select; the
         # resolved dbt selection is not known before the build runs.
