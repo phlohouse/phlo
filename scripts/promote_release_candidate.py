@@ -180,7 +180,7 @@ def validate_authorization(
 
     The record must name exactly the candidate identity pair being promoted,
     carry an explicit ``authorized: true`` decision by a named release owner,
-    reference a signed approval record, and list exactly the checksums of the
+    reference the authenticated publication dispatch, and list exactly the checksums of the
     qualifying evidence bundles the gate accepted. Any mismatch fails closed.
     """
     candidate = record.get("candidate")
@@ -1317,10 +1317,10 @@ def main(argv: list[str] | None = None) -> int:
                 release_provenance.verify_live_authorization(authorization)
             except (ValueError, KeyError, subprocess.CalledProcessError) as exc:
                 raise PromotionGateError(
-                    "not_authorized", f"native release approval failed: {exc}"
+                    "not_authorized", f"release dispatch authorization failed: {exc}"
                 ) from exc
             print(
-                f"authorization verified: {authorization.get('release_owner')} approved "
+                f"authorization verified: {authorization.get('release_owner')} authorized "
                 f"{authorization.get('approval_reference')} at "
                 f"{authorization.get('authorized_utc')}"
             )
@@ -1332,7 +1332,7 @@ def main(argv: list[str] | None = None) -> int:
                 authorization = load_authorization(args.authorization)
                 validate_authorization(authorization, bom, qualification.checksums)
                 print(
-                    f"authorization verified: {authorization.get('release_owner')} approved "
+                    f"authorization verified: {authorization.get('release_owner')} authorized "
                     f"{authorization.get('approval_reference')} at "
                     f"{authorization.get('authorized_utc')}"
                 )

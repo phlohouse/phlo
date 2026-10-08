@@ -891,7 +891,7 @@ def test_exact_local_release_tag_is_reused(tmp_path, annotated):
 
 
 @pytest.mark.parametrize("change", ["none", "evidence", "bom", "mode"])
-def test_native_authorization_is_bound_to_authenticated_preapproval_plan(
+def test_dispatch_authorization_is_bound_to_authenticated_publication_plan(
     tmp_path, monkeypatch, change
 ):
     provenance = promote_release_candidate.release_provenance
@@ -940,22 +940,6 @@ def test_native_authorization_is_bound_to_authenticated_preapproval_plan(
         f"repos/{provenance.REPOSITORY}/branches/main": {"protected": True},
         f"repos/{provenance.REPOSITORY}/actions/runs/10": run,
         f"repos/{provenance.REPOSITORY}/actions/workflows/release-promotion.yml": workflow,
-        f"repos/{provenance.REPOSITORY}/environments/release": {
-            "protection_rules": [
-                {
-                    "type": "required_reviewers",
-                    "prevent_self_review": True,
-                    "reviewers": [{"type": "User", "reviewer": {"login": "owner"}}],
-                }
-            ],
-        },
-        f"repos/{provenance.REPOSITORY}/actions/runs/10/approvals": [
-            {
-                "state": "approved",
-                "user": {"login": "owner", "type": "User"},
-                "environments": [{"name": "release"}],
-            },
-        ],
     }
     monkeypatch.setattr(provenance, "api", lambda path: responses[path])
 
@@ -983,13 +967,18 @@ def test_native_authorization_is_bound_to_authenticated_preapproval_plan(
     monkeypatch.setattr(sys.modules["promote_release_candidate"], "utc_now", _now)
     output = tmp_path / "authorization.json"
     if change != "none":
-        with pytest.raises(ValueError, match="after the pre-approval plan"):
+        with pytest.raises(ValueError, match="after the publication plan"):
             provenance.authorize(bom_path, tmp_path / "evidence", output)
         assert not output.exists()
     else:
         provenance.authorize(bom_path, tmp_path / "evidence", output)
         record = json.loads(output.read_text())
-        assert record["release_owner"] == "owner"
+        assert record["release_owner"] == "operator"
+        provenance.verify_live_authorization(record)
+        with pytest.raises(ValueError, match="manual dispatch"):
+            provenance.verify_live_authorization({**record, "release_owner": "someone-else"})
+        with pytest.raises(ValueError, match="manual dispatch"):
+            provenance.verify_live_authorization({**record, "approval_reference": "another-run"})
         assert record["candidate"] == {
             "release_commit": COMMIT,
             "canonical_candidate_digest": bom["canonical_candidate_digest"],

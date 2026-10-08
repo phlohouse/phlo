@@ -37,7 +37,7 @@ environments.
 | Main and beta | Authenticate and reuse full queue evidence. Run the full fallback only when evidence cannot be reused. |
 | Scheduled maintenance | Fresh dependency and upstream-image scans, mutation and extended reliability checks. Findings enter the normal remediation PR flow. |
 | Release staging | Require source health and fresh release dependency evidence, then build and scan immutable release artifacts. |
-| Release acceptance and promotion | Exercise the staged bytes on required platforms and repeated runs, then publish those bytes after human approval. |
+| Release acceptance and promotion | Exercise the staged bytes on required platforms and repeated runs, then publish those bytes through an explicit manual dispatch. |
 
 `pr / required` collects combined coverage after both Python and service
 contracts finish, then records queue evidence. Coverage does not need its own
@@ -118,22 +118,22 @@ Missing BOMs fail. Promotion authenticates every candidate acceptance attempt,
 including failures, and retains ADR 0050's three hosts, three qualifying runs and
 two-day span. No reduced release policy is introduced.
 
-**Release Promotion** defaults to a dry run. Execution requires the live `release`
-environment to have named user reviewers and prevent self-review, and verifies
-the approving human through GitHub. Configure this protection before release
-execution; an unprotected environment fails closed. Configure the existing
-`PYPI_API_TOKEN` publication credential separately. Promotion publishes the
-approved staged bytes without rebuilding and reconciles published digests.
+**Release Promotion** defaults to a dry run. Set `execute: true` on a fresh
+manual dispatch to publish. GitHub authenticates the dispatch actor, and promotion
+verifies the live workflow run on protected `main`. The `release` environment
+does not require reviewers or prevent-self-review protection. Configure the
+existing `PYPI_API_TOKEN` publication credential separately. Promotion publishes
+the authorized staged bytes without rebuilding and reconciles published digests.
 Development images use a separate `-development:<SHA>` namespace.
 Only an explicit Release Stage dispatch builds and uploads these staging images.
 Ordinary main pushes cannot invoke the image publisher. PR, queue and main checks
 reuse installed-provider image builds for local scans by image ID, with no
 registry writes or duplicate builds.
 
-The pre-approval plan binds the exact BOM bytes and qualifying evidence set.
-Approval reauthenticates both; changes require a fresh dispatch and approval.
-Promotion reruns are rejected because GitHub's approval API does not bind reviews
-to a run attempt. After a partial publication, dispatch again with the same
+The publication plan binds the exact BOM bytes and qualifying evidence set.
+Execution reauthenticates both; changes require a fresh dispatch.
+Promotion reruns are rejected; authorization belongs to the original dispatch
+and run attempt. After a partial publication, dispatch again with the same
 staging identity: matching public tags, package files, images and release assets
 are reused; missing ones complete forward. Conflicting bytes or unverifiable
 public digests fail closed. Never restage or rebuild to recover publication.
@@ -145,7 +145,7 @@ public digests fail closed. Never restage or rebuild to recover publication.
 2. Merge the CI contract changes through the existing required queue check.
 3. Observe reuse decisions and required job inventories on real GitHub runs.
    Validate Windows/native arm64 there; an x64 orb cannot prove those platforms.
-4. Configure protected release approval and optional human agent-intake identity.
+4. Configure release credentials and optional human agent-intake identity.
    Exercise staging, acceptance and dry-run promotion before publishing.
 5. Collect two weeks of timings, queue delay, first actionable failure, cache
    hit rate and retries before tuning shard weights.
