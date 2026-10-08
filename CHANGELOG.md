@@ -1,36 +1,3 @@
-## [Unreleased]
-
-### Changed
-- Name 0.19.0 as the removal release for `phlo.ingestion(...)`,
-  `phlo.phlo_ingestion`, `phlo.get_ingestion_assets`, `phlo_quality`,
-  `phlo.backfill`, and `phlo.schedule`. Backfill and schedule declarations
-  now raise actionable errors instead of registering jobs that never run.
-- Preserve `phlo.transform.sql` for installed `transform` transformation and
-  asset providers, including the provider proposed in PR #961. Without both
-  providers, declarations fail with installation and dbt migration guidance.
-- Make `phlo.__all__` a deterministic sorted tuple without removing exports early.
-
-### Deprecated
-- Remove the callable ingestion module shim in 0.19.0. Keep
-  `phlo migrate decorators-2026-05` through at least 0.20.0, including its C901
-  exception until the codemod itself is removed.
-- Remove the four sync/async operation adapters, `TransformationPlugin`, and
-  Dagster's `IngestionEnginePlugin` in 0.19.0. Use direct operation contracts
-  and capability or asset-provider plugins instead.
-- Remove `PHLO_REGULATED_MODE`, the `regulated_mode` configuration key, and
-  deprecated regulated-mode function and type/constant aliases in 0.19.0.
-  Use `PHLO_REGULATED`, `regulated`, and the corresponding regulated APIs.
-- Remove legacy Dagster `.phlo/.env` and `.phlo/.env.local` attachments in
-  0.19.0. Run `phlo services migrate` to move defaults to `.phlo/overrides/.env`
-  and secrets to `.phlo/secrets/.env` without changing precedence.
-- Remove MCP's `PHLO_MCP_TRACE_FILE`/`--trace-file` JSONL debug drain and its
-  readers in 0.19.0. Use canonical observe drains instead. Count legacy mode
-  fallback reads, env-file attachments, and successful JSONL span writes with
-  `phlo.legacy.regulated_mode_env.uses`, `phlo.legacy.dagster_env_file.uses`, and
-  `phlo.legacy.mcp_jsonl_span.uses`. Removal is due at 0.19.0, or earlier after
-  a release owner confirms zero use across enabled deployment telemetry.
-  Disabled or missing telemetry is not evidence of zero use.
-
 ## [phlo 0.17.0 + 38 packages] - 2026-09-22
 
 ### Added
