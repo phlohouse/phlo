@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import json
-import os
-import subprocess
-import sys
+import logging
 
 import pytest
 
@@ -84,40 +81,57 @@ def test_http_authorization_environment(
     assert requires_http_authorization() is expected
 
 
-def test_legacy_counter_reaches_canonical_metric_summaries(tmp_path) -> None:
+def test_legacy_counter_reaches_canonical_metric_summaries(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     """Only fallback uses count; canonical/config overrides and absence do not."""
-    path = tmp_path / "events.jsonl"
-    subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import os; from phlo.security.mode import is_regulated; "
-            "from observe_core import flush_metrics, flush; "
-            "os.environ['PHLO_REGULATED'] = 'false'; assert not is_regulated(); "
-            "os.environ['PHLO_REGULATED'] = ''; assert not is_regulated(False); "
-            "assert is_regulated(); assert is_regulated(); "
-            "os.environ['PHLO_REGULATED_MODE'] = ''; assert not is_regulated(); "
-            "flush_metrics(); flush()",
-        ],
-        env={
-            **os.environ,
-            "PHLO_PROJECT_PATH": str(tmp_path),
-            "PHLO_REGULATED": "",
-            "PHLO_REGULATED_MODE": "true",
-            "PHLO_OBSERVE_ENABLED": "true",
-            "PHLO_OBSERVE_PRETTY": "false",
-            "OBSERVE_DRAINS": "jsonl",
-            "OBSERVE_JSONL_PATH": str(path),
-        },
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    summaries = [
-        record["attributes"]
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if (record := json.loads(line))["event"] == "metric.summary"
-        and record["attributes"]["metric"] == "phlo.legacy.regulated_mode_env.uses"
-    ]
-    assert sum(summary["sum"] for summary in summaries) == 2
-    assert sum(summary["count"] for summary in summaries) == 2
+    from observe_core import flush_metrics
+    from observe_core.runtime import get_runtime
+
+    from phlo import telemetry
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_REGULATED_MODE", "true")
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "false")
+    telemetry.reset_for_tests()
+    try:
+        assert telemetry.configure(enabled=True, runtime_backend="capture", drains=[])
+        caplog.set_level(logging.WARNING, logger="phlo.security.mode")
+        monkeypatch.setenv("PHLO_REGULATED", "false")
+        assert not is_regulated()
+        monkeypatch.delenv("PHLO_REGULATED")
+        assert not is_regulated(False)
+        assert is_regulated()
+        assert is_regulated()
+        monkeypatch.delenv("PHLO_REGULATED_MODE")
+        assert not is_regulated()
+        flush_metrics()
+
+        payloads = get_runtime()._backend.payloads()
+        summaries = [
+            record["attributes"]
+            for record in payloads
+            if record["event"] == "metric.summary"
+            and record["attributes"]["metric"] == "phlo.legacy.regulated_mode_env.uses"
+        ]
+        assert sum(summary["sum"] for summary in summaries) == 2
+        assert sum(summary["count"] for summary in summaries) == 2
+        assert all(summary["dimensions"] == {"unit": "uses"} for summary in summaries)
+        notices = [
+            record["attributes"]
+            for record in payloads
+            if record["event"] == "application.log"
+            and record["attributes"]["logger"] == "phlo.security.mode"
+        ]
+        assert len(notices) == 2
+        for notice in notices:
+            assert notice["old"] == "PHLO_REGULATED_MODE"
+            assert notice["new"] == "PHLO_REGULATED"
+            assert notice["removal_version"] == "0.19.0"
+            assert notice["message"] == (
+                "PHLO_REGULATED_MODE is deprecated and will be removed in 0.19.0; "
+                "use PHLO_REGULATED instead"
+            )
+        assert [record.msg["event"] for record in caplog.records] == ["deprecated_env_var"] * 2
+    finally:
+        telemetry.reset_for_tests()
