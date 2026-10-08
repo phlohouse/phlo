@@ -48,6 +48,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 phlo_minio = [
+    "Dockerfile",
     "service.yaml",
     "minio-setup.yaml",
     "minio-volume-setup.yaml",

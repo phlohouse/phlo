@@ -51,6 +51,8 @@ jobs:
       - name: Sync complete workspace
         id: workspace
         run: uv sync --all-packages --dev --locked
+      - name: Build MinIO from checked-in sources
+        run: docker build --tag ghcr.io/phlohouse/phlo-minio:0.17.0 packages/phlo-minio/src/phlo_minio
       - name: Run named behavioral contracts
         if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
         run: uv run --locked python scripts/run_integration.py

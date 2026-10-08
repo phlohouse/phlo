@@ -19,6 +19,23 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
+      - name: Select latest published release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Check out published fleet definitions
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          path: released
+          persist-credentials: false
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
@@ -32,13 +49,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Validate waiver expiry
         run: uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py validate-waivers
-      - name: Resolve the complete current published fleet
+      - name: Resolve the complete latest released fleet
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p published resolved
-          uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py \
-            published-fleet > "$RUNNER_TEMP/expected-fleet.json"
+          uv run --no-project --with pyyaml==6.0.3 python released/scripts/container_security.py \
+            published-fleet --root released > "$RUNNER_TEMP/expected-fleet.json"
           jq -c '.[]' "$RUNNER_TEMP/expected-fleet.json" | while read -r target; do
             image="$(jq -r .image <<< "$target")"
             services="$(jq -c .services <<< "$target")"
@@ -52,8 +69,8 @@ jobs:
               '{image: $image, digest: $digest, services: $services}' > "resolved/${safe}.json"
           done
           jq -s '.' resolved/*.json > "$RUNNER_TEMP/resolved-fleet.json"
-          uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py \
-            assemble-rescan-manifest --records "$RUNNER_TEMP/resolved-fleet.json" \
+          uv run --no-project --with pyyaml==6.0.3 python released/scripts/container_security.py \
+            assemble-rescan-manifest --root released --records "$RUNNER_TEMP/resolved-fleet.json" \
             --output published/generated-service-images.json
       - name: Rescan immutable images with fresh Trivy data
         shell: bash

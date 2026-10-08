@@ -39,7 +39,7 @@ def _published_images_by_service() -> dict[str, str]:
     }
     return {
         service: release_images[service]
-        for service in ("phlo-api", "dagster", "dagster-daemon", "observatory")
+        for service in ("phlo-api", "dagster", "dagster-daemon", "minio", "observatory")
     }
 
 
@@ -50,7 +50,7 @@ def _rescan_records() -> list[dict[str, object]]:
             "digest": f"sha256:{letter * 64}",
             "services": entry["services"],
         }
-        for letter, entry in zip("abc", container_security.published_fleet(REPO_ROOT), strict=True)
+        for letter, entry in zip("abcd", container_security.published_fleet(REPO_ROOT), strict=True)
     ]
 
 
@@ -145,6 +145,7 @@ def test_affected_images_selects_exact_unique_fleet_for_all_and_broad_changes() 
     expected = {
         ("phlo-api", images["phlo-api"]),
         ("dagster", images["dagster"]),
+        ("minio", images["minio"]),
         ("observatory", images["observatory"]),
     }
     all_targets = container_security.affected_images(["pyproject.toml"], REPO_ROOT)["include"]
@@ -166,6 +167,10 @@ def test_published_fleet_is_derived_from_source_with_required_shared_mapping() -
         {
             "image": images["dagster"],
             "services": ["dagster", "dagster-daemon"],
+        },
+        {
+            "image": images["minio"],
+            "services": ["minio", "minio-setup"],
         },
         {
             "image": images["observatory"],
